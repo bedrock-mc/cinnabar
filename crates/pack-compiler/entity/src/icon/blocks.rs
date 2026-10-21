@@ -7,6 +7,7 @@
 
 use std::{path::Path, sync::Arc};
 
+use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
     RegistryRecord, RuntimeAssets, VisualKind, VisualSupport, read_registry_for_protocol,
@@ -32,6 +33,10 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
 ];
+
+/// Blocks whose vanilla block shape the item renderer cannot tessellate, so their items show
+/// the carried texture flat: barrier and the light blocks.
+const FLAT_TRAITS: BlockTraits = BlockTraits::INVISIBLE.union(BlockTraits::LIGHT_BLOCK);
 
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
@@ -84,6 +89,7 @@ impl IconBlocks {
         };
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
         FLAT_FAMILIES.contains(&record.model_family)
+            || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
             || (record.model_family == ModelFamily::Unknown
                 && assets::facts::block_render_fact(&record.name).flat_icon)
@@ -298,6 +304,38 @@ mod tests {
                 .unwrap();
             assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
         }
+    }
+
+    #[test]
+    fn barrier_and_light_block_items_are_flat() {
+        let blocks = IconBlocks {
+            records: assets::read_registry_for_protocol(
+                assets::pinned_block_registry_bytes(),
+                assets::active_content_registry_protocol(),
+            )
+            .unwrap(),
+            pack: None,
+        };
+        let world = RuntimeAssets::diagnostic();
+        let flat = |name: &str| {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .collect();
+            assert!(!states.is_empty(), "{name} is not registered");
+            states
+                .iter()
+                .all(|record| blocks.is_flat(&world, BlockVisualId(record.sequential_id)))
+        };
+        for name in [
+            "minecraft:barrier",
+            "minecraft:light_block_0",
+            "minecraft:light_block_15",
+        ] {
+            assert!(flat(name), "{name} must draw its carried texture flat");
+        }
+        assert!(!flat("minecraft:stone"));
     }
 
     /// A model texture past the carrier's side is skipped rather than failing its decode.
