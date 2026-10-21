@@ -209,17 +209,20 @@ impl DrawKind {
     }
 
     /// Drawn after the deferred passes, on the side composite passes read.
-    pub(crate) fn after_deferred(self) -> bool {
-        matches!(
-            self,
-            DrawKind::Translucent
-                | DrawKind::EntitiesTranslucent
-                | DrawKind::BlockTranslucent
-                | DrawKind::BeaconBeam
-                | DrawKind::HandWater
-                | DrawKind::HandGlint
-                | DrawKind::ArmorGlintTranslucent
-        )
+    pub(crate) fn after_deferred(self, settings: &EffectSettings) -> bool {
+        match self {
+            DrawKind::Effect(effect) => settings.after_deferred(effect),
+            _ => matches!(
+                self,
+                DrawKind::Translucent
+                    | DrawKind::EntitiesTranslucent
+                    | DrawKind::BlockTranslucent
+                    | DrawKind::BeaconBeam
+                    | DrawKind::HandWater
+                    | DrawKind::HandGlint
+                    | DrawKind::ArmorGlintTranslucent
+            ),
+        }
     }
 
     /// The first-person hand, drawn in hand space with the hand projection.
@@ -923,7 +926,7 @@ mod tests {
         assert_eq!(DrawKind::HandWater.render_stage(), 23);
         let after: Vec<_> = DrawKind::ALL
             .into_iter()
-            .filter(|k| k.after_deferred())
+            .filter(|k| !matches!(k, DrawKind::Effect(_)) && k.after_deferred(&settings))
             .collect();
         assert_eq!(
             after,

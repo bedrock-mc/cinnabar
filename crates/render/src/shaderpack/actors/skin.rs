@@ -16,7 +16,7 @@ use crate::shaderpack::geometry::substitute_layout_constants;
 
 const SKIN_SHADER: Handle<Shader> = uuid_handle!("8c3d6a51-0f7e-4b2a-9d14-6e5b7a2c9f01");
 
-/// Invocations per skinning workgroup; matches `SKIN_WORKGROUP_SIZE` in the kernel.
+/// Invocations per skinning workgroup, substituted into the kernel source.
 pub(crate) const SKIN_WORKGROUP_SIZE: u32 = 64;
 /// Bytes of the kernel's `SkinParams` uniform.
 pub(crate) const SKIN_PARAMS_BYTES: u64 = 32;
@@ -72,6 +72,10 @@ const _: () = assert!(std::mem::size_of::<SkinParams>() as u64 == SKIN_PARAMS_BY
 pub(crate) fn skin_shader_source(source: &str) -> String {
     substitute_layout_constants(
         &crate::material_shader::source(source)
+            .replace(
+                "GENERATED_SKIN_WORKGROUP_SIZE",
+                &format!("{SKIN_WORKGROUP_SIZE}u"),
+            )
             .replace("JOB_VIEW_SPACE_FLAG", &format!("{JOB_VIEW_SPACE}u"))
             .replace("JOB_ONE_SIDED_FLAG", &format!("{JOB_ONE_SIDED}u"))
             .replace("JOB_GLINT_FLAG", &format!("{JOB_GLINT}u"))

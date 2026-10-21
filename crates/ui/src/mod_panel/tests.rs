@@ -740,6 +740,7 @@ fn surfaces_reject_rotated_collection_viewports() {
     surface.collections.insert(
         "items".into(),
         SurfaceCollection {
+            reveal: None,
             definition: std::sync::Arc::new(CollectionDefinition {
                 template,
                 columns: 1,

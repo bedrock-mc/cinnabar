@@ -1,5 +1,6 @@
 #[path = "tests/camera.rs"]
 mod camera;
+mod collection_reveal;
 use super::*;
 mod block_highlights;
 mod drawing_policy;

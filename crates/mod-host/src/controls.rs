@@ -492,6 +492,9 @@ impl State {
 }
 
 #[cfg(test)]
+#[path = "controls_collection_reveal_tests.rs"]
+mod collection_reveal_tests;
+#[cfg(test)]
 #[path = "controls_tests.rs"]
 mod tests;
 
