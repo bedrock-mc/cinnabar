@@ -39,7 +39,7 @@ impl NametagAtlas {
         if y + height > NAMETAG_ATLAS_SIDE {
             let mut used_heights = vec![0_u32; self.shelves.len()];
             for cell in &self.cells {
-                used_heights[cell.shelf] = used_heights[cell.shelf].max(cell.line.cell[3]);
+                used_heights[cell.shelf] = used_heights[cell.shelf].max(cell.allocation[3]);
             }
             if let Some(index) = self.shelves.iter().enumerate().position(|(index, shelf)| {
                 used_heights[index] != 0 && shelf.height - used_heights[index] >= height
@@ -92,7 +92,7 @@ impl NametagAtlas {
             .cells
             .iter()
             .filter(|cell| cell.shelf == index)
-            .map(|cell| cell.line.cell[3])
+            .map(|cell| cell.allocation[3])
             .max()
             .unwrap_or(0);
         let height = height.max(used_height);
@@ -236,7 +236,7 @@ impl NametagAtlas {
                 .as_ref()
                 .is_none_or(|text| self.requested.contains(text))
             {
-                occupied[cell.shelf].push(cell.line.cell);
+                occupied[cell.shelf].push(cell.allocation);
             } else {
                 unused[cell.shelf] = true;
             }

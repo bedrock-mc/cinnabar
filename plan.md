@@ -269,6 +269,10 @@ and performance qualification for these previews remains open.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height.
+Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
+keep cosmetic labels complete. Atlas text
+retains formatting and line slots, with guarded cell edges and
+repacking before UV publication. In-world visual qualification remains open.
 Name tag colours compose after Enhanced and shader-pack world effects with the scene's
 depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
 and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
