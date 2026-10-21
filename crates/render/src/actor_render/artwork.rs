@@ -25,6 +25,14 @@ pub(super) struct GpuArtworkPage {
     pub multitexture: bool,
 }
 
+#[cfg(feature = "shaderpacks")]
+impl GpuArtworkPage {
+    /// The page's array texture, for single-layer views.
+    pub fn texture(&self) -> &Texture {
+        &self._texture
+    }
+}
+
 /// One immutable glint raster, replaced only when its pixels change.
 #[derive(Default)]
 pub(super) struct GpuGlint {
@@ -355,7 +363,7 @@ fn upload_page(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
+            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
         })
     })?;
     #[cfg(test)]
@@ -416,6 +424,39 @@ pub(super) fn draw_spans(
             last_layer = Some(layer);
         }
     }
+}
+
+/// Splits main-pass spans at coverage-only actors; mask preparation retains the complete spans.
+pub(super) fn visible_spans(
+    spans: &[ActorDrawSpan],
+    manifest: &[render_model::ActorDrawManifestEntry],
+    hidden: &[u64],
+) -> Vec<ActorDrawSpan> {
+    let mut visible = Vec::with_capacity(spans.len());
+    for span in spans {
+        let mut run = None;
+        for first in span.first..span.first + span.count {
+            if hidden.contains(&manifest[first as usize].identity.runtime_id) {
+                if let Some(first_run) = run.take() {
+                    visible.push(ActorDrawSpan {
+                        first: first_run,
+                        count: first - first_run,
+                        ..*span
+                    });
+                }
+            } else {
+                run.get_or_insert(first);
+            }
+        }
+        if let Some(first) = run {
+            visible.push(ActorDrawSpan {
+                first,
+                count: span.first + span.count - first,
+                ..*span
+            });
+        }
+    }
+    visible
 }
 
 #[cfg(test)]

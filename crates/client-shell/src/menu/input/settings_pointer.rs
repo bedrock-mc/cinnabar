@@ -1,5 +1,10 @@
 use super::{MenuRuntime, UiPoint, UiPresentationRuntime};
+use launcher::{
+    menu::MenuAction,
+    shader_options::{Action, Input},
+};
 
+/// Updates native slider capture and applies movement until the pointer releases.
 pub(super) fn update_slider(
     menu: &mut MenuRuntime,
     presentation: &UiPresentationRuntime,
@@ -8,6 +13,13 @@ pub(super) fn update_slider(
     pointer_just_pressed: bool,
     native_settings: bool,
 ) {
+    update_shader_slider(
+        menu,
+        presentation,
+        pointer,
+        pointer_pressed,
+        pointer_just_pressed,
+    );
     if !pointer_pressed || menu.screen() != launcher::menu::MenuScreen::Settings {
         menu.settings_input.slider_drag = None;
         menu.settings.slider_pointer = None;
@@ -50,6 +62,88 @@ pub(super) fn update_slider(
     }
 }
 
+/// Captures shader slider steps and keeps their pack-defined choice range during a drag.
+fn update_shader_slider(
+    menu: &mut MenuRuntime,
+    presentation: &UiPresentationRuntime,
+    pointer: Option<UiPoint>,
+    held: bool,
+    just_pressed: bool,
+) {
+    if menu.screen() != launcher::menu::MenuScreen::Settings || menu.dialog.is_some() {
+        menu.settings_input.shader_slider_drag = None;
+        return;
+    }
+    if just_pressed {
+        menu.settings_input.shader_slider_drag = match menu.hovered {
+            Some(MenuAction::ShaderOptions(Action::Element {
+                screen,
+                index,
+                input: Input::Select(step),
+            })) => Some((screen, index, step)),
+            _ => None,
+        };
+    }
+    if let Some((screen, index, previous)) = menu.settings_input.shader_slider_drag {
+        let action = menu
+            .shader_options_view()
+            .filter(|view| view.screen == screen)
+            .and(pointer)
+            .and_then(|point| presentation.shader_option_slider_drag_action(screen, index, point));
+        if let Some(action) = action {
+            let MenuAction::ShaderOptions(Action::Element {
+                input: Input::Select(step),
+                ..
+            }) = action
+            else {
+                return;
+            };
+            if just_pressed || step != previous {
+                menu.activate_from_input(action);
+            }
+            menu.settings_input.shader_slider_drag = Some((screen, index, step));
+            menu.hovered = Some(action);
+            menu.pressed = Some(action);
+        } else {
+            menu.settings_input.shader_slider_drag = None;
+        }
+    }
+    if !held {
+        menu.settings_input.shader_slider_drag = None;
+    }
+}
+
+/// Keeps a shader slider's captured touch on its own track, including beyond the track edges.
+pub(super) fn shader_touch_drag(
+    menu: &mut MenuRuntime,
+    presentation: &UiPresentationRuntime,
+    captured: &mut MenuAction,
+    point: UiPoint,
+    released: bool,
+) -> bool {
+    let MenuAction::ShaderOptions(Action::Element {
+        screen,
+        index,
+        input: Input::Select(_),
+    }) = *captured
+    else {
+        return false;
+    };
+    if menu
+        .shader_options_view()
+        .is_some_and(|view| view.screen == screen)
+        && let Some(action) = presentation.shader_option_slider_drag_action(screen, index, point)
+    {
+        if released || *captured != action {
+            menu.activate_from_input(action);
+        }
+        *captured = action;
+        menu.pressed = Some(action);
+    }
+    true
+}
+
+/// Resolves a release within the same control while rejecting unrelated controls.
 pub(super) fn native_release_action(
     pressed: launcher::menu::MenuAction,
     hovered: Option<launcher::menu::MenuAction>,
@@ -59,6 +153,18 @@ pub(super) fn native_release_action(
         return Some(hovered);
     }
     match (pressed, hovered) {
+        (
+            MenuAction::ShaderOptions(Action::Element {
+                screen,
+                index,
+                input: Input::Select(_),
+            }),
+            MenuAction::ShaderOptions(Action::Element {
+                screen: at,
+                index: element,
+                input: Input::Select(_),
+            }),
+        ) if screen == at && index == element => Some(hovered),
         (
             launcher::menu::MenuAction::SettingsOption(index, _),
             launcher::menu::MenuAction::SettingsOption(at, _),

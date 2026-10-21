@@ -5,12 +5,13 @@ use super::*;
 fn replacement_and_default_text_opacity_preserve_native_coverage() {
     let glyph = NametagRecord {
         anchor: [1., 2., 3.],
+        runtime_id: 11,
         color: [0., 1., 0., 0.125],
         uv: [0., 0., 1., 1.],
         ..Default::default()
     };
     let remote = NametagRecord {
-        anchor: [4., 5., 6.],
+        runtime_id: 12,
         ..glyph
     };
     let mut scene = NametagScene {
@@ -18,7 +19,7 @@ fn replacement_and_default_text_opacity_preserve_native_coverage() {
         ..Default::default()
     };
     let style: ui::mod_hud::NametagStyle = serde_json::from_value(serde_json::json!({"opacity":0.5,"own_text_color":[1.,0.,0.,1.],"replace_own_text_color":true})).unwrap();
-    style_scene(&mut scene, &style, Some(glyph.anchor));
+    style_scene(&mut scene, &style, Some(glyph.runtime_id));
     assert_eq!(scene.records[0].color, [1., 0., 0., 0.0625]);
     assert_eq!(scene.records[1].color, [0., 1., 0., 0.0625]);
     assert_eq!(
@@ -43,6 +44,7 @@ fn faded_sneak_and_through_wall_glyphs_keep_their_atlas_coverage() {
         for opacity in [0.0, 0.5, 1.0] {
             let mut label = anchor("A");
             label.depth_tested = sneaking;
+            label.sneaking = sneaking;
             label.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             let mut scene = scene(&[label]);
             let style = serde_json::from_value(serde_json::json!({
@@ -73,5 +75,31 @@ fn faded_sneak_and_through_wall_glyphs_keep_their_atlas_coverage() {
                 opacity > 0.0
             );
         }
+    }
+}
+
+/// Coincident actors retain independent cosmetic ownership after label sorting.
+#[test]
+fn coincident_labels_use_runtime_identity_for_own_text_colour() {
+    let mut own = anchor("A");
+    own.runtime_id = 11;
+    let mut remote = own.clone();
+    remote.runtime_id = 12;
+    let mut scene = scene(&[remote, own]);
+    let style = serde_json::from_value(serde_json::json!({
+        "own_text_color": [1.0, 0.0, 0.0, 1.0],
+        "replace_own_text_color": true,
+    }))
+    .unwrap();
+    style_scene(&mut scene, &style, Some(11));
+    for record in scene.records.iter().filter(|record| record.text != 0) {
+        assert_eq!(
+            record.color[..3],
+            if record.runtime_id == 11 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [1.0; 3]
+            }
+        );
     }
 }

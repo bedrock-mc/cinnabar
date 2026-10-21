@@ -14,6 +14,8 @@ mod invisible;
 mod layout;
 mod line_metrics;
 mod palette;
+/// Design-pixel lean of an italic glyph's top edge.
+pub const TEXT_ITALIC_SHEAR_PX: f32 = 1.0;
 mod parse;
 mod single_line;
 mod units;

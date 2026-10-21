@@ -448,6 +448,10 @@ world_packets! {
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
+    UpdateTrade(packet) => {
+        let Some(event) = crate::inventory::normalize_trade(&packet) else { return Ok(None); };
+        WorldEvent::Inventory(crate::InventoryEvent::Trade(event))
+    },
     ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
     ContainerRegistryCleanup(packet) => {
         WorldEvent::Inventory(crate::inventory::normalize_container_registry_cleanup(packet)?)

@@ -28,6 +28,7 @@ impl GuiScaleDrag {
         presentation.drag_menu_scroll(None, false);
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
+        menu.settings_input.shader_slider_drag = None;
         menu.pressed = None;
         menu.hovered = None;
         menu.pointer_down = false;

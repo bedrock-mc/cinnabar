@@ -72,7 +72,6 @@ pub fn settings_icon_images() -> OreUiImages {
         sprites: Arc::new(sprites),
         loading_frames: Default::default(),
         animations: Default::default(),
-        source: None,
     }
 }
 

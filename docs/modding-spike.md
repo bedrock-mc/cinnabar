@@ -611,6 +611,16 @@ unbounded artwork, nested collections and tiles escaping their cell clip are
 rejected before publication. Templates cannot contain surface bindings or
 transitions of their own. Collections are currently supported on personal panels.
 
+Use `"collection_reveal": { "collection": "modules", "item": 8 }` to reveal an
+immutable item index through the current filtered order. The host scrolls by the
+minimum distance needed to show its whole cell, including the template's card
+padding, before preparing the visible grid window. Reveals are instant, including
+under reduced motion, and cancel pending wheel easing. Each request is consumed
+once; wheel scrolling then stays under pointer control. Sending the same request
+again reveals the item again. Unknown collections and out-of-range item indexes
+reject the patch atomically. An admitted item excluded by the current filter is
+ignored and counted in one warning for that request.
+
 ```json
 {
   "controls": [{ "id": "enabled", "value": true }],
@@ -1126,6 +1136,29 @@ through terrain without changing world or packet state. Results share the
 `mod_api::MAX_BLOCK_HIGHLIGHTS` nearest-block budget; the earliest active mod wins.
 `none`, unload, reload, or a trap clears the overlay. Output commits only after a
 successful callback; repeated unchanged input rebuilds no geometry.
+Packet `render-frame` scenes also accept an optional `outline` on each block:
+`{"position":[1,64,2],"colour":[0,1,1,0.3],"outline":{"colour":[0,1,1,0.85],"width":1.5}}`.
+The width is in physical pixels, greater than zero and at most 8. Both colours use
+independent linear RGBA; a zero fill alpha gives an outline-only block. These
+edges share the block-highlight budget and do not consume retained box slots.
+Guests must negotiate `native_render::BLOCK_OUTLINES` before sending `outline`;
+older hosts accept only the existing position and colour fields. The optional
+bit requires the same `block_highlights` consent, not another permission.
+Face-adjacent highlights form a continuous surface. Shared faces and coplanar
+outline seams are removed; isolated blocks and exterior creases retain their edges.
+
+Packet guests negotiating `native_render::ACTOR_ANCHORS` may set a line's
+`camera_start: true` and `entity_end: {"runtime_id":42,"offset":[0,1.62,0]}`.
+The host resolves these from the same interpolated actor body and camera used
+for rendering, dropping the line when its target is unavailable. Offsets use
+world axes. This bit requires entity observation and highlight consent in
+addition to the existing world drawing grants.
+An entity group selecting exactly one actor may also supply `position:[x,y,z]`
+to place its current animated mesh at those feet. `style.fill:[r,g,b,a]` adds
+translucent silhouette coverage independently of the outline and halo. A hidden
+local body is prepared only for requested coverage and stays out of main passes.
+Omit all these optional fields when the host does not advertise the bit.
+
 ## Fullbright
 
 The separate `fullbright` grant (`CINNABAR_MOD_FULLBRIGHT=1`) permits
@@ -1210,7 +1243,7 @@ they do not establish reference-client parity. Annotations retain native
 visibility, depth, font-atlas and record limits and leave server name text intact.
 
 A single plain-value card may set `text_plate` with `brackets`, `bracket_color`,
-`background`, `border_color`, and `border_width` (0–8). Colors are straight RGBA.
+`background`, `border_color`, `border_width` (0–8), and `radius` (0–16, default 0). Colors are straight RGBA.
 Optional `width` (1–512) and `height` (1–128) fix the background's size; omitting
 either fits that dimension to native font measurements and padding. Text stays
 centered and retains its row color and the card's shadow. Brackets have their
@@ -1234,7 +1267,8 @@ the player's effects. It remains active with empty `cards`; clearing the HUD,
 omitting the flag or setting it to false restores the ordinary icons.
 
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
-`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are
+`title`, `anchor`, `offset`, `scale`, `position`, `background_opacity`, and
+`background_radius` (0–16 GUI pixels, default 3). Background radii scale with the card. Anchors are
 `top_left`, `top_center`, `top_right`, `left`, `center`, `right`, `bottom_left`,
 `bottom_center`, and `bottom_right`. Offsets are finite GUI pixels measured inward
 from anchored edges; centered axes use signed offsets toward the right or bottom.
@@ -1318,8 +1352,8 @@ and `reset_scale` supply factory layout without changing the current preview.
 These fields affect only the layout editor.
 Optional `editor_style` recolors the host-owned chrome: `outline` and `selected`
 card outlines, resize `handle`, `handle_hover` and `handle_pressed` colors, the
-`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, and the
-built-in `grid`. Colors are RGBA from zero to one; omitted fields keep the
+`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, the
+built-in `grid`, and the distance `measurement` pills. Colors are RGBA from zero to one; omitted fields keep the
 built-in appearance.
 
 The editor captures native pointer dragging, clamps cards to the available

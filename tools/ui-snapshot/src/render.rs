@@ -11,9 +11,12 @@ mod crafting;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
+mod hud_editor;
 mod panorama;
+mod saturation_overlap;
 #[cfg(feature = "test-support")]
 mod settings_draft;
+mod sprite_outline;
 mod tiled_image;
 
 use std::{
@@ -113,6 +116,15 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::MaskRegression = &fixture {
+        return saturation_overlap::regression_png(state.size);
+    }
+    if let Fixture::SpriteOutline { outline } = &fixture {
+        return sprite_outline::png(state.size, *outline);
+    }
+    if let Fixture::SaturationOverlap { crop, source_alpha } = &fixture {
+        return saturation_overlap::png(state.size, *crop, *source_alpha);
+    }
     if let Fixture::TiledImage { scale } = &fixture {
         return tiled_image::png(state.size, *scale);
     }
@@ -139,9 +151,14 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::MaskRegression
+        | Fixture::SaturationOverlap { .. }
+        | Fixture::SpriteOutline { .. }
+        | Fixture::Toast { .. }
         | Fixture::BackupFont
         | Fixture::TiledImage { .. }
-        | Fixture::ModPanel(..) => false,
+        | Fixture::ModPanel(..)
+        | Fixture::HudEditor { .. } => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -187,7 +204,12 @@ fn png_fixture(
             let engine = json_engine(&carriers)?;
             backup_font::paint(&engine, &mut frame)?;
         }
-        Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
+        Fixture::SpriteOutline { .. }
+        | Fixture::MaskRegression
+        | Fixture::SaturationOverlap { .. }
+        | Fixture::TiledImage { .. } => {
+            unreachable!("asset-free capture returned above")
+        }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
@@ -211,6 +233,30 @@ fn png_fixture(
                 selected,
                 &mut frame,
             )?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::Toast { title, message } => {
+            let mut engine = json_engine(&carriers)?;
+            let shown = ui::ShownToast {
+                title: &title,
+                message: &message,
+                press: None,
+                started_millis: 0,
+                slide: 1.0,
+            };
+            frame.now = seconds;
+            ui_screens::toast_screen::paint(
+                &mut ui_engine::cached_screen::CachedScreen::default(),
+                &engine,
+                &shown,
+                &mut frame,
+            )
+            .map_err(|error| error.to_string())?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::HudEditor { hud, edited } => {
+            let mut engine = json_engine(&carriers)?;
+            hud_editor::paint(&engine, &mut frame, &hud, edited)?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         Fixture::ModPanel(panel, hud, identity) => {

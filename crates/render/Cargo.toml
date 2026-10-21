@@ -26,7 +26,7 @@ enhanced = []
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
 # Compiles the experimental Java shader-pack render mode. Pack programs reach wgpu as
 # translated naga modules (`naga-ir`), bypassing Bevy's WGSL/WESL-only pipeline cache.
-shaderpacks = ["dep:shaderpack", "dep:naga", "dep:png", "wgpu/naga-ir"]
+shaderpacks = ["render-model/shaderpacks", "dep:shaderpack", "dep:naga", "dep:png", "wgpu/naga-ir"]
 
 [dependencies]
 web-time.workspace = true

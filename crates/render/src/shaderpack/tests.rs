@@ -5,12 +5,14 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+mod geometry_frames;
+
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
 use super::pipelines::class_sampler;
 use super::plan::plan_frame;
-use super::plugin::JAVA_DIMENSIONS;
+use super::plugin::{BlockIdRevisions, JAVA_DIMENSIONS};
 use super::uniforms::{FrameClock, FrameUniforms, ViewCamera};
 use bevy::math::{Quat, Vec3};
 use render_scene::shaderpack::ShaderPackFrameInputs;
@@ -109,11 +111,32 @@ fn a_failed_required_program_fails_the_load() {
     ]);
     let translation = pack.translate(&translate_config(&pack, JAVA_DIMENSIONS[0]));
     let error = runnable_programs(&translation).expect_err("composite fails");
-    assert!(error.contains("composite"), "{error}");
+    let lines: Vec<&str> = error.lines().collect();
+    assert_eq!(lines.len(), 1, "one line per failed program: {error}");
+    assert!(
+        lines[0].starts_with("composite: composite.fsh:") && lines[0].contains("undefined_name"),
+        "names the program and its first diagnostic: {error}"
+    );
 }
 
-/// Requests only fixture features and reports device failures as test failures.
-fn gpu() -> Option<GpuContext> {
+/// Switching packs shows Vanilla, which removes the block ids, between them; the geometry
+/// adapter still remembers the revision its terrain attributes came from, so the next pack's
+/// ids must arrive under another one or its terrain keeps the previous pack's `mc_Entity`.
+#[test]
+fn the_next_packs_block_ids_never_reuse_a_revision() {
+    let mut revisions = BlockIdRevisions::default();
+    let photon = revisions.publish(Arc::new(vec![-1, 8]));
+    let bsl = revisions.publish(Arc::new(vec![-1, 10001]));
+    assert_ne!(photon.revision, bsl.revision);
+    assert_eq!((photon.block_entity_id)(1), 8);
+    assert_eq!(
+        [(bsl.block_entity_id)(1), (bsl.block_entity_id)(2)],
+        [10001, -1]
+    );
+}
+
+/// Requests only fixture features and fails if an available device cannot be created.
+pub(super) fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
@@ -152,7 +175,7 @@ fn render_frames(
     files: &[(&str, &str)],
     frames: usize,
 ) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
-    render_frame_options(gpu, files, frames, [0, 0, SIZE[0], SIZE[1]], false)
+    render_frame_options(gpu, files, frames, [0, 0, SIZE[0], SIZE[1]], false, false)
 }
 
 /// Renders a viewport and optionally records a second camera before submitting the first.
@@ -162,6 +185,7 @@ fn render_frame_options(
     frames: usize,
     viewport: [u32; 4],
     second_view: bool,
+    geometry_fixture: bool,
 ) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
     let pack = pack(files);
     let pack = Arc::new(
@@ -169,8 +193,10 @@ fn render_frame_options(
             &pack,
             "fixture",
             JAVA_DIMENSIONS[0],
+            &Default::default(),
             None,
             gpu,
+            &Default::default(),
             &Default::default(),
         )
         .expect("fixture loads"),
@@ -244,7 +270,14 @@ fn render_frame_options(
         },
         &mut state.history,
     );
-    state.write_uniforms(&gpu.queue, &frame, 0.016);
+    let context = super::passes::DrawContext {
+        chunk_offset: Vec3::ZERO,
+        atlas_size: [0; 2],
+        particle_atlas_size: [0; 2],
+        hand_projection: bevy::math::Mat4::IDENTITY,
+        crack_atlas_size: [0; 2],
+    };
+    state.write_uniforms(&gpu.queue, &frame, 0.016, &context);
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     let clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -253,7 +286,11 @@ fn render_frame_options(
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: &depth.create_view(&Default::default()),
             depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(if second_view { 0.5 } else { 0.0 }),
+                load: wgpu::LoadOp::Clear(if second_view || geometry_fixture {
+                    0.5
+                } else {
+                    0.0
+                }),
                 store: wgpu::StoreOp::Store,
             }),
             stencil_ops: None,
@@ -263,6 +300,8 @@ fn render_frame_options(
         multiview_mask: None,
     });
     drop(clear);
+    let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
+    let terrain = EmptyTerrain(pack.terrain_layout);
     let io = FrameIo {
         viewport,
         scene_colour: &scene.create_view(&Default::default()),
@@ -272,6 +311,41 @@ fn render_frame_options(
         fog_color: super::uniforms::sky_fog(&game, Quat::IDENTITY, Vec3::new(0.0, 64.0, 0.0)).fog,
         destination: &output.create_view(&Default::default()),
         destination_format: format,
+        geometry: geometry_fixture.then_some(super::frame_geometry::FrameGeometry {
+            device: &render_device,
+            terrain: &terrain,
+            atlas: None,
+            effect_textures: None,
+            actors: super::actors::ActorSources::default(),
+            effects: super::effects::EffectInputs {
+                coverage: Default::default(),
+                camera: super::effects::EffectCamera {
+                    position: Vec3::new(0., 64., 0.),
+                    model_view: bevy::math::Mat4::IDENTITY,
+                    focal: [1.; 2],
+                    screen: [viewport[2], viewport[3]],
+                },
+                frame: game,
+                atmosphere: None,
+                atmosphere_view: None,
+                atmosphere_textures: None,
+                clouds_visible: false,
+                particles: None,
+                precipitation: None,
+                lightning: None,
+                selection: None,
+                block_entities: None,
+                seconds: 0.,
+            },
+            sky: super::sky::SkyInputs {
+                sky_color: [0.; 3],
+                fog_color: [0.; 3],
+                render_distance: game.render_distance,
+                celestial_angle: 0.,
+                camera_y: 64.,
+                sunrise: false,
+            },
+        }),
         timestamps: None,
     };
     for _ in 0..frames {
@@ -280,10 +354,11 @@ fn render_frame_options(
     if second_view {
         let mut other =
             ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
-        other.write_uniforms(&gpu.queue, &frame, 0.016);
+        other.write_uniforms(&gpu.queue, &frame, 0.016, &context);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         let other_io = FrameIo {
             scene_near: 10.0,
+            geometry: None,
             ..io
         };
         record_frame(&gpu.device, &gpu.queue, &mut encoder, &mut other, &other_io);
@@ -696,6 +771,72 @@ fn programs_without_colour_outputs_load_and_keep_their_stores() {
     assert_pixels(&bytes, |_| [255, 0, 255]);
 }
 
+#[test]
+fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) =
+        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let gpu = GpuContext {
+        device,
+        queue,
+        adapter,
+    };
+    // Integer tangents cannot bind the actor vertex stream.
+    let pack = pack(&[
+        ("gbuffers_basic.vsh", PASS_VERTEX),
+        ("gbuffers_basic.fsh", FILL),
+        ("gbuffers_terrain.vsh", PASS_VERTEX),
+        ("gbuffers_terrain.fsh", FILL),
+        (
+            "gbuffers_entities.vsh",
+            "#version 130\nin ivec4 at_tangent; void main() { gl_Position = vec4(at_tangent); }",
+        ),
+        ("gbuffers_entities.fsh", FILL),
+    ]);
+    let pack = build(
+        &pack,
+        "fixture",
+        JAVA_DIMENSIONS[0],
+        &Default::default(),
+        None,
+        &gpu,
+        &Default::default(),
+        &Default::default(),
+    )
+    .expect("pipeline rejection retains the loaded pack and native scene");
+    let entities = pack
+        .programs
+        .iter()
+        .position(|p| p.name == "gbuffers_entities")
+        .expect("gbuffers_entities translated");
+    assert!(
+        super::actors::layout::vertex_layouts(&pack.programs[entities].reflection.vertex_inputs)
+            .is_err()
+    );
+    assert!(
+        pack.draws.is_empty(),
+        "a rejected required draw retains the native world path"
+    );
+    let kept: Vec<_> = pack
+        .draws
+        .iter()
+        .filter(|d| d.program == entities)
+        .map(|d| d.kind)
+        .collect();
+    assert!(kept.is_empty(), "rejected entities draws kept: {kept:?}");
+}
+
 /// BSL's hash argument `dot(p, vec2(12.9898, 4.1414))` at large `p`, scaled so the red
 /// channel resolves the last bits of the dot product.
 const HASH_DOT: &str = "#version 120
@@ -705,6 +846,8 @@ void main() {
 }
 ";
 
+/// `dot` rounds like the reference OpenGL driver, `fma(a.y, b.y, a.x * b.x)`, so hash noise
+/// built on it matches Java Iris instead of the device's own `dot` rounding.
 #[test]
 fn dot_rounds_like_the_reference_opengl_driver() {
     let Some(gpu) = gpu() else {
@@ -801,6 +944,7 @@ fn viewport_copies_crop_and_preserve_pixels_outside_the_view() {
         1,
         [1, 1, 2, 2],
         false,
+        false,
     );
     for y in 0..4 {
         for x in 0..4 {
@@ -833,8 +977,25 @@ fn recorded_views_keep_their_own_depth_conversion_planes() {
         1,
         [0, 0, 4, 4],
         true,
+        false,
     );
     assert_pixels(&bytes, |_| [191; 3]);
+}
+
+/// Supplies an empty terrain list while retaining the host's geometry and overlay passes.
+struct EmptyTerrain(super::geometry::TerrainLayout);
+impl super::frame_geometry::TerrainDraws for EmptyTerrain {
+    fn draw<'w>(
+        &'w self,
+        _pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
+        _category: super::geometry::GeometryCategory,
+        _shadow: bool,
+    ) -> u32 {
+        0
+    }
+    fn layout(&self) -> super::geometry::TerrainLayout {
+        self.0
+    }
 }
 
 #[test]
@@ -849,8 +1010,10 @@ fn fixed_compute_dispatches_exceeding_device_limits_fail_loading() {
         &pack,
         "dispatch fixture",
         JAVA_DIMENSIONS[0],
+        &Default::default(),
         None,
         &gpu,
+        &Default::default(),
         &Default::default(),
     )
     .err()
@@ -874,8 +1037,10 @@ fn relative_compute_dispatches_are_checked_for_each_view_size() {
             &pack,
             "dispatch fixture",
             JAVA_DIMENSIONS[0],
+            &Default::default(),
             None,
             &gpu,
+            &Default::default(),
             &Default::default(),
         )
         .unwrap(),
@@ -950,3 +1115,5 @@ fn an_available_adapter_cannot_silently_skip_frame_fixtures() {
         Err(error) => panic!("fixture-device admission adapter: {error}"),
     }
 }
+
+mod admission;

@@ -227,6 +227,7 @@ pub fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
         &[("container_items", &NINE)],
     );
     Some(match kind {
+        WindowKind::Trade { modern } => crate::trading::kind(modern),
         WindowKind::Furnace => &FURNACE,
         WindowKind::BlastFurnace => &BLAST_FURNACE,
         WindowKind::Smoker => &SMOKER,

@@ -802,11 +802,15 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::motion_blur::CameraMotionBlurPlugin,
         render::FarTerrainRenderPlugin,
     ));
-    app.add_plugins(crate::render_mode::RenderModePlugin::new(
-        args.render_mode,
-        diagnostics_enabled,
-    ));
+    app.add_plugins(
+        crate::render_mode::RenderModePlugin::new(args.render_mode, diagnostics_enabled)
+            .with_shader_pack(args.shader_pack.clone()),
+    );
     app.insert_resource(crate::environment::FixedTime(args.fixed_time));
+    app.add_plugins(crate::shader_pack_inputs::ShaderPackInputsPlugin);
+    app.insert_resource(crate::shader_pack_inputs::FrameTimeCounterPin(
+        args.frame_time_counter_ms.map(|ms| ms as f32 / 1000.0),
+    ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render_scene::ParticleSimulation(

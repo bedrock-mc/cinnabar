@@ -146,6 +146,10 @@ impl PlayerInventoryLedger {
                     let owned_screen = self
                         .personal
                         .is_some_and(|personal| personal.generation() == generation);
+                    // The reply deadline releases admission, not the screen the user opened.
+                    if owned_screen && self.controls.personal.desired_open {
+                        continue;
+                    }
                     if owned_screen && self.personal_generation_pending(generation) {
                         if matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
                             self.personal = Some(PersonalWindow::Recovering { generation });

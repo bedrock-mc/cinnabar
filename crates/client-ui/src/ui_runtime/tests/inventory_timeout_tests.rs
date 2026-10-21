@@ -41,7 +41,7 @@ fn personal_control_timeouts_release_admission_without_guessing_a_window_id() {
             }
             runtime.inventory_pointer_gui = desired_open.then_some([20.0, 30.0]);
             runtime.poll_inventory_timeout(&mut player, INVENTORY_REQUEST_TIMEOUT_MILLIS);
-            let expected_open = closing && desired_open;
+            let expected_open = desired_open;
             assert_eq!(runtime.inventory_open(), expected_open);
             assert_eq!(
                 player.inventory.ledger().personal_inventory_desired_open(),
@@ -68,6 +68,9 @@ fn personal_control_timeouts_release_admission_without_guessing_a_window_id() {
             assert_eq!(runtime.inventory_open(), expected_open);
             if !closing {
                 assert!(player.inventory.ledger().pending_batch().unwrap().is_none());
+                if runtime.inventory_open() {
+                    runtime.toggle_inventory(&mut player, None);
+                }
                 runtime.toggle_inventory(&mut player, None);
             }
             if !closing || desired_open {

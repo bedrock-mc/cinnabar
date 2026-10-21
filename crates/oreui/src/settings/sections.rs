@@ -26,12 +26,15 @@ pub(super) fn draw(
     match section {
         SettingSection::Accessibility => accessibility(content),
         SettingSection::Video => video(content),
+        SettingSection::Shaders => super::renderer::shaders(content),
         SettingSection::Sound => audio(content),
         SettingSection::KeyboardAndMouse => keyboard(content),
         SettingSection::ControllerAndSwitch => controller(content),
         SettingSection::General => general(content),
         SettingSection::Updates => super::updates::draw(content),
         SettingSection::Creator => creator(content),
+        SettingSection::Chat => chat(content),
+        SettingSection::Discord => discord(content),
         SettingSection::Server => content.heading(
             section.title(),
             "Settings supplied by the connected server appear here when available.",
@@ -88,6 +91,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.video.group.performance",
         "menu.video.group.performance.description",
     )?;
+    super::renderer::draw(content)?;
     options(content, SettingPanel::VideoPerformance)?;
     let graphics = if content.view.settings_options.value(SettingId::GraphicsMode) == 0 {
         "options.graphicsModeOptions.simple"
@@ -582,6 +586,30 @@ fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
+/// Exposes the existing chat preferences and their shared reset route in the launcher.
+fn chat(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    content.heading(
+        SettingSection::Chat.title(),
+        "options.chat.title.description",
+    )?;
+    options(content, SettingPanel::Chat)?;
+    reset(content, SettingsGroup::Chat, "chat.settings.reset")
+}
+
+fn discord(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    content.heading(
+        SettingSection::Discord.title(),
+        "discord.settings.description",
+    )?;
+    options(content, SettingPanel::Discord)?;
+    content.heading(
+        "discord.settings.details.title",
+        "discord.settings.details.description",
+    )?;
+    options(content, SettingPanel::DiscordDetails)?;
+    reset(content, SettingsGroup::Discord, "discord.settings.reset")
+}
+
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
@@ -601,6 +629,77 @@ pub(super) fn fallback(key: &str) -> &str {
             "Controls"
         }
         "hbui.Settings.category.social" | "options.social" => "Social",
+        "options.chat.title" | "chat.settings.title" => "Chat",
+        "options.chat.title.description" => "Chat appearance, opacity, size and colors",
+        "chat.settings.reset" => "Reset Chat Settings",
+        "chat.settings.reset.description" => "Restore all chat options to default values",
+        "chat.settings.reset.buttonLabel" => "Reset",
+        "chat.settings.muteAll" => "Mute All Chat",
+        "chat.settings.muteAll.description" => "Hide all incoming chat messages",
+        "chat.settings.muteEmotes" => "Mute Emotes",
+        "chat.settings.muteEmotes.description" => {
+            "Saved preference; emote chat filtering is not available yet"
+        }
+        "chat.settings.tts" => "Text to Speech for Chat",
+        "chat.settings.tts.description" => "Saved preference; chat narration is not available yet",
+        "chat.settings.fontSize" => "Font Size",
+        "chat.settings.fontSize.description" => "Adjust the scale of chat text",
+        "chat.settings.lineSpacing" => "Line Spacing",
+        "chat.settings.lineSpacing.description" => "Set the spacing between lines in chat",
+        "chat.settings.chatColor" => "Chat Color",
+        "chat.settings.chatColor.description" => "Default color for chat text",
+        "chat.settings.mentionsColor" => "Mentions Color",
+        "chat.settings.mentionsColor.description" => {
+            "Saved preference; mention highlighting is not available yet"
+        }
+        "options.chatBackgroundOpacity" => "Chat Background Opacity",
+        "options.chatBackgroundOpacity.description" => {
+            "Adjust the opacity of the chat background box"
+        }
+        "options.notificationDuration.Chat" => "Chat Notification Duration",
+        "options.notificationDuration.Chat.description" => {
+            "How long chat notifications remain visible on the HUD"
+        }
+        "Discord" | "discord.settings.title" => "Discord",
+        "discord.settings.description" => {
+            "Control what Cinnabar shares with the Discord desktop app"
+        }
+        "discord.settings.enabled" => "Discord Rich Presence",
+        "discord.settings.enabled.description" => {
+            "Publish your current Cinnabar activity to the Discord desktop app"
+        }
+        "discord.settings.details.title" => "Activity details",
+        "discord.settings.details.description" => {
+            "Choose which optional information the Discord activity card can show"
+        }
+        "discord.settings.serverDetails" => "Show server and world details",
+        "discord.settings.serverDetails.description" => {
+            "Display the server address or local world name in the activity card"
+        }
+        "discord.settings.partySize" => "Show party size",
+        "discord.settings.partySize.description" => {
+            "Display the current and maximum player count when available"
+        }
+        "discord.settings.allowJoins" => "Allow Discord joins",
+        "discord.settings.allowJoins.description" => {
+            "Let Discord friends join through the activity card and send join requests"
+        }
+        "discord.settings.timestamp" => "Show elapsed time",
+        "discord.settings.timestamp.description" => {
+            "Show how long you have been in the current activity"
+        }
+        "discord.settings.reset" => "Reset Discord Settings",
+        "discord.settings.reset.description" => "Restore all Discord options to default values",
+        "discord.settings.reset.buttonLabel" => "Reset",
+        "color.white" => "White",
+        "color.green" => "Green",
+        "color.aqua" => "Aqua",
+        "color.red" => "Red",
+        "color.light_purple" => "Light Purple",
+        "color.yellow" => "Yellow",
+        "color.gold" => "Gold",
+        "Chat Position" => "Chat Position",
+        "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
         "hbui.Settings.category.general" => "General",
         "menu.accessibility.tab.title" | "options.accessibility" => "Accessibility",
         "menu.accessibility.tab.description" => "Minecraft is for everyone, including you",
@@ -709,7 +808,16 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.cinnabar.resourcePacksFolder.description" => {
             "Where your imported resource packs are stored"
         }
+        "options.cinnabar.shaderPacksFolder" => "Shader packs folder",
+        "options.cinnabar.shaderPacksFolder.description" => {
+            "Add Java shader packs here, or drop them onto this window"
+        }
         "options.cinnabar.openFolder.buttonLabel" => "Open folder",
+        "options.cinnabar.shaderOptions" => "Shader pack settings",
+        "options.cinnabar.shaderOptions.description" => {
+            "The selected pack's own options. Applying them reloads the pack."
+        }
+        "options.cinnabar.shaderOptions.buttonLabel" => "Shader options…",
         "options.dev_clearAllCache" => "Clear All Cache",
         "options.dev_clearDownloadeCache.name" => "Clear download cache",
         "options.dev_deleteLocalScreenshots" => "Delete Local Screenshots",

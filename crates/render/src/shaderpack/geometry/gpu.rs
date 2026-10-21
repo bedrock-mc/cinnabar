@@ -2,9 +2,11 @@
 //! recording the expansion before any camera draws.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasher, Hash, Hasher};
 
 use bevy::log::{debug, warn};
 use bevy::math::{DVec3, IVec3, Vec3};
+use bevy::platform::hash::FixedHasher;
 use bevy::prelude::{Entity, FromWorld, Has, Query, Res, ResMut, Resource, World, default};
 use bevy::render::camera::ExtractedCamera;
 use bevy::render::render_phase::TrackedRenderPass;
@@ -15,7 +17,7 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue};
 use bevy::render::view::{ExtractedView, RenderVisibleEntities};
 use meshing::ChunkBiomeTintIdentity;
-use render_scene::{ChunkRenderInstance, ChunkTextureAssets};
+use render_scene::{ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
 use super::draw::{DrawInputs, ViewDraws, face_indices};
@@ -252,14 +254,8 @@ impl ShaderpackGeometry {
             .map(|origin| (origin.as_dvec3() - camera).as_vec3())
     }
 
-    /// Eye distance within which every section the camera may see is expanded, or `None`
-    /// when nothing waits. Beyond it terrain may be missing from the pack's geometry.
-    pub fn complete_radius(&self) -> Option<f32> {
-        self.complete_radius
-    }
-
     /// Eye distance past which the vertex budget leaves terrain undrawn, `None` while every
-    /// section fits. Unlike [`Self::complete_radius`] it ignores sections merely queued for
+    /// section fits. It ignores sections merely queued for
     /// this frame's expansion, so it holds steady while terrain streams in.
     pub fn budget_horizon(&self) -> Option<f32> {
         self.budget_horizon
@@ -301,7 +297,8 @@ impl ShaderpackGeometry {
     }
 
     /// Builds (or keeps, when the sections it lists are unchanged) `view`'s shadow-pass list:
-    /// the resident sections `frustum` keeps.
+    /// the resident sections `frustum` keeps. While neither the residency nor the frustum
+    /// moved, the list stands without walking the sections.
     pub(crate) fn prepare_shadow_view(
         &mut self,
         view: Entity,
@@ -309,6 +306,24 @@ impl ShaderpackGeometry {
         device: &RenderDevice,
         queue: &RenderQueue,
     ) {
+        let source = {
+            let mut hasher = FixedHasher.build_hasher();
+            (
+                self.residency.revision(),
+                self.residency.epoch,
+                self.residency.generation,
+            )
+                .hash(&mut hasher);
+            frustum.hash_into(&mut hasher);
+            hasher.finish()
+        };
+        if self
+            .shadows
+            .get(&view)
+            .is_some_and(|draws| draws.is_from(source))
+        {
+            return;
+        }
         let inputs = DrawInputs::new(
             self.residency
                 .sections
@@ -321,6 +336,7 @@ impl ShaderpackGeometry {
         );
         let key = inputs.key();
         let draws = self.shadows.entry(view).or_default();
+        draws.set_source(source);
         if draws.is_current(key) {
             return;
         }
@@ -501,10 +517,13 @@ pub(crate) struct GeometryInputs<'w> {
     textures: Option<Res<'w, ChunkTextureAssets>>,
     atlas: Option<Res<'w, ShaderpackAtlas>>,
     block_ids: Option<Res<'w, ShaderpackBlockIds>>,
+    /// The pack's `far`, the client render distance in blocks.
+    frame: Option<Res<'w, render_scene::shaderpack::ShaderPackFrameInputs>>,
     pipelines: Res<'w, ExpansionPipelines>,
     cache: Res<'w, PipelineCache>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
 }
 
 type GeometryViews<'w, 's> = Query<
@@ -526,6 +545,10 @@ pub(crate) fn prepare_shaderpack_geometry(
     mut sections: ResidentSections,
     views: GeometryViews,
 ) {
+    let _timer = inputs
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
     geometry.prepared = PreparedExpansion::default();
     let settings = inputs.settings.as_deref().cloned().unwrap_or_default();
     if !settings.enabled || !geometry.supported {
@@ -672,7 +695,19 @@ pub(crate) fn prepare_shaderpack_geometry(
     if geometry.residency.pending_len() == 0 {
         geometry.budget_horizon = None;
     }
-    build_draws(geometry, &inputs.device, &inputs.queue, &sources, &views);
+    let far = inputs
+        .frame
+        .as_deref()
+        .map(|frame| frame.render_distance)
+        .filter(|far| *far > 0.0);
+    camera_lists::build_draws(
+        geometry,
+        &inputs.device,
+        &inputs.queue,
+        &sources,
+        &views,
+        far,
+    );
 }
 
 impl ShaderpackGeometry {
@@ -891,94 +926,50 @@ fn expand_params(
     params
 }
 
-/// Draw lists per camera view of its visible resident sections, leaving out faces the camera
-/// sees only from behind. A view's list is rebuilt only when the sections it lists, the
-/// camera's section or the facing groups it sees change.
-fn build_draws(
-    geometry: &mut ShaderpackGeometry,
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    sources: &PackedChunkSources,
-    views: &GeometryViews,
-) {
-    let epoch = geometry.residency.epoch;
-    let mut max_faces = 0;
-    geometry
-        .views
-        .retain(|entity, _| views.get(*entity).is_ok());
-    for (entity, view, visible, _) in views.iter() {
-        let eye = view.world_from_view.translation().as_dvec3();
-        let inputs = DrawInputs::new(
-            visible
-                .get::<ChunkRenderInstance>()
-                .into_iter()
-                .flat_map(|class| class.iter_visible())
-                .map(|(entity, _)| *entity)
-                .filter(|entity| !sources.is_hidden(*entity))
-                .filter_map(|entity| geometry.residency.sections.get(&entity)),
-            Some(eye),
-            epoch,
-            geometry.residency.generation,
-            Some(eye),
-        );
-        let key = inputs.key();
-        if geometry
-            .views
-            .get(&entity)
-            .is_some_and(|draws| draws.is_current(key))
-        {
-            continue;
-        }
-        let built = ViewDraws::build(&inputs);
-        max_faces = max_faces.max(built.max_faces());
-        geometry.views.entry(entity).or_default().replace(
-            built,
-            key,
-            device,
-            queue,
-            geometry.multi_draw,
-        );
-    }
-    if max_faces > 0 {
-        geometry.ensure_index_buffer(device, max_faces);
-    }
-}
-
 /// Records this frame's expansion dispatches ahead of camera passes.
 pub(crate) fn record_geometry_expansion(
     mut geometry: ResMut<ShaderpackGeometry>,
     pipelines: Res<ExpansionPipelines>,
     cache: Res<PipelineCache>,
+    timestamps: Option<Res<crate::gpu_timing::GpuTimestamps>>,
     mut context: RenderContext,
 ) {
     let prepared = std::mem::take(&mut geometry.prepared);
     if prepared.dispatches.is_empty() {
         return;
     }
-    let mut pass = context
-        .command_encoder()
-        .begin_compute_pass(&ComputePassDescriptor {
-            label: Some("shader-pack terrain expansion"),
-            ..default()
-        });
-    for dispatch in &prepared.dispatches {
-        let Some(pipeline) =
-            cache.get_compute_pipeline(pipelines.pipelines[dispatch.kind as usize])
-        else {
-            continue;
-        };
-        let groups = dispatch.jobs.div_ceil(EXPAND_WORKGROUP_SIZE);
-        if groups == 0 {
-            continue;
-        }
-        let x = groups.min(u16::MAX as u32);
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &dispatch.sources, &[]);
-        pass.set_bind_group(1, &dispatch.output, &[]);
-        pass.dispatch_workgroups(x, groups.div_ceil(x), 1);
-    }
+    crate::gpu_timing::within_stage(
+        timestamps.as_deref(),
+        RuntimeStage::GpuShaderpackExpansion,
+        context.command_encoder(),
+        |encoder| {
+            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("shader-pack terrain expansion"),
+                ..default()
+            });
+            for dispatch in &prepared.dispatches {
+                let Some(pipeline) =
+                    cache.get_compute_pipeline(pipelines.pipelines[dispatch.kind as usize])
+                else {
+                    continue;
+                };
+                let groups = dispatch.jobs.div_ceil(EXPAND_WORKGROUP_SIZE);
+                if groups == 0 {
+                    continue;
+                }
+                let x = groups.min(u16::MAX as u32);
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &dispatch.sources, &[]);
+                pass.set_bind_group(1, &dispatch.output, &[]);
+                pass.dispatch_workgroups(x, groups.div_ceil(x), 1);
+            }
+        },
+    );
 }
 
+mod camera_lists;
+#[cfg(test)]
+mod fixture;
 /// Requires the atlas and packed tables to represent the selected texture source.
 fn expansion_sources_match(
     selected: &ChunkTextureAssets,

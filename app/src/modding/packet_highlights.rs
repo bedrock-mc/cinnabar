@@ -71,6 +71,7 @@ impl Highlights {
                 let _ = self.store.select(handle, &[]);
             }
             let _ = self.store.set_style(handle, Some(group.style));
+            let _ = self.store.set_position(handle, group.position);
         }
         self.store.commit()
     }

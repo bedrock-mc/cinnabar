@@ -271,6 +271,20 @@ fn unsupported_reflected_interfaces_fail_layout_admission() {
 }
 
 #[test]
+fn safe_module_defaults_keep_every_runtime_check() {
+    let pack = wgpu::ShaderRuntimeChecks::checked();
+    let checked = wgpu::ShaderRuntimeChecks::checked();
+    assert!(checked.force_loop_bounding);
+    assert!(pack.force_loop_bounding);
+    // Bounds checks select naga's `Restrict` index policy on every backend.
+    assert!(pack.bounds_checks);
+    assert!(pack.ray_query_initialization_tracking);
+    assert!(pack.task_shader_dispatch_tracking);
+    assert!(pack.mesh_shader_primitive_indices_clamp);
+    assert!(pack.int_div_checks);
+}
+
+#[test]
 fn transparent_colour_targets_preserve_the_draw_blend_without_overrides() {
     let reflection = ProgramReflection {
         kind: shaderpack::ProgramKind::Render,

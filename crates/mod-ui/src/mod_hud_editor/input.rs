@@ -6,6 +6,8 @@ mod tests;
 
 pub(in super::super) struct Drag {
     index: usize,
+    before: Placement,
+    measurement_pending: bool,
     grab: [f64; 2],
     start: [f64; 2],
     last: [f64; 2],
@@ -24,7 +26,80 @@ struct Resize {
     fixed: [f64; 2],
 }
 
+/// Card index named by a `hud.card:N` or `hud.resize:N:corner` action.
+fn card_action_index(action: &str) -> Option<usize> {
+    action
+        .strip_prefix("hud.card:")
+        .and_then(|index| index.parse().ok())
+        .or_else(|| {
+            action
+                .strip_prefix("hud.resize:")?
+                .split_once(':')?
+                .0
+                .parse()
+                .ok()
+        })
+}
+
 impl HudEditor {
+    /// Retains capture across content updates and card reordering when its geometry still matches.
+    pub(super) fn reconcile_drag(&mut self, next: &[ui::mod_hud::Card]) -> Option<usize> {
+        let reordered = !self
+            .draft
+            .cards
+            .iter()
+            .map(|card| &card.id)
+            .eq(next.iter().map(|card| &card.id));
+        let index = self.drag.as_ref().and_then(|drag| {
+            super::publication::matching_geometry(&self.draft.cards[drag.index], next)
+        });
+        let measurement_pending = self.drag.as_ref().zip(index).is_some_and(|(drag, index)| {
+            let old = &self.draft.cards[drag.index];
+            let new = &next[index];
+            new.text_plate.is_some()
+                && (old.rows != new.rows
+                    || old.text_plate != new.text_plate
+                    || old.font != new.font
+                    || old.text_scale != new.text_scale)
+        });
+        if self.drag.is_some() && index.is_none() {
+            let previous = self.drag.as_ref().expect("captured card").index;
+            self.cancel_drag();
+            return Some(previous);
+        } else if let Some(drag) = &mut self.drag {
+            drag.index = index.expect("matched captured card");
+            drag.measurement_pending |= measurement_pending;
+            if reordered {
+                drag.guides = [None; 2];
+                drag.targets = [None; 2];
+                self.snap_dirty = true;
+            }
+        }
+        None
+    }
+
+    /// Captures bounds only when a publication may change deferred native text geometry.
+    pub(super) fn pending_measurement_size(&self) -> Option<[f64; 2]> {
+        self.drag
+            .as_ref()
+            .filter(|drag| drag.measurement_pending)
+            .map(|drag| cards::dimensions(&self.draft.cards[drag.index]))
+    }
+
+    /// Ends capture when measured live content invalidates its original resize or grab geometry.
+    pub(super) fn finish_measurement(&mut self, previous: Option<[f64; 2]>) {
+        let Some(drag) = self.drag.as_mut().filter(|drag| drag.measurement_pending) else {
+            return;
+        };
+        drag.measurement_pending = false;
+        let size = cards::dimensions(&self.draft.cards[drag.index]);
+        if previous.is_some_and(|before| {
+            (0..2).any(|axis| (before[axis] - size[axis]).abs() > GEOMETRY_EPSILON)
+        }) {
+            self.cancel_drag();
+        }
+    }
+
     /// Ends capture once; later presentation failures stop painting without replacing the result.
     pub(super) fn finish(&mut self, saved: bool) {
         if !self.open {
@@ -32,6 +107,7 @@ impl HudEditor {
             return;
         }
         self.data_dirty = true;
+        self.cancel_slider();
         if self.autosave {
             self.cancel_drag();
         }
@@ -52,6 +128,7 @@ impl HudEditor {
         self.frame = None;
         self.drag = None;
         self.view = ViewState::default();
+        self.hovered = None;
     }
     /// Releases input and snapshots once, retaining only explicitly animated closing chrome.
     pub(in super::super) fn close(&mut self, animate: bool) {
@@ -67,6 +144,11 @@ impl HudEditor {
     fn snapshot(&self, saved: bool) -> EditorResult {
         EditorResult {
             saved,
+            replace_pending_reset: saved
+                && self
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| result.replace_pending_reset),
             reset: saved
                 && (self.reset
                     || self
@@ -106,24 +188,49 @@ impl HudEditor {
             } else {
                 Vec::new()
             },
+            hidden_cards: if saved {
+                self.draft
+                    .cards
+                    .iter()
+                    .filter(|card| self.hidden.contains(&card.id))
+                    .map(|card| card.id.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }
     }
     /// Persists completed opted-in gestures while retaining the live editor.
-    fn checkpoint(&mut self) {
-        if self.autosave && self.draft != self.committed {
-            self.result = Some(self.snapshot(true));
+    pub(super) fn checkpoint(&mut self) {
+        self.history.record(&self.draft, &self.hidden, self.reset);
+        self.persist(false);
+    }
+    /// Publishes completed edits, replacing unread reset intent for an explicit history restore.
+    pub(super) fn persist(&mut self, history_restore: bool) {
+        if self.autosave
+            && (history_restore
+                || self.draft != self.committed
+                || self.hidden != self.committed_hidden)
+        {
+            let mut result = self.snapshot(true);
+            if history_restore {
+                result.reset = self.reset;
+                result.replace_pending_reset = true;
+            }
+            self.result = Some(result);
             self.committed = self.draft.clone();
+            self.committed_hidden.clone_from(&self.hidden);
             self.reset = false;
         }
     }
-    /// Releases an unfinished drag without promoting it to a saved placement.
+    /// Releases an unfinished drag or slider without promoting it to a saved placement.
     pub(in super::super) fn cancel_drag(&mut self) {
+        self.cancel_slider();
         self.data_dirty |= self.drag.is_some();
-        if let Some(drag) = self.drag.take()
-            && self.autosave
-        {
-            self.draft.cards[drag.index] = self.committed.cards[drag.index].clone();
-            if drag.resize.is_some() {
+        if let Some(drag) = self.drag.take() {
+            let resized = self.draft.cards[drag.index].scale != drag.before.scale;
+            drag.before.apply_to(&mut self.draft.cards[drag.index]);
+            if resized {
                 self.catalog = None;
             }
         }
@@ -135,6 +242,7 @@ impl HudEditor {
         self.view.hovered = None;
         self.view.pressed = None;
         self.view.pointer = None;
+        self.hovered = None;
     }
     /// Converts a clamped GUI-pixel top-left into normalized available travel.
     fn move_card(&mut self, index: usize, at: [f64; 2]) {
@@ -171,6 +279,10 @@ impl HudEditor {
     }
     /// Restores explicit factory values or the authored anchor and offset captured on open.
     fn reset_layout(&mut self) {
+        self.cancel_drag();
+        self.anchor_motion = None;
+        self.toast = Default::default();
+        // Reset restores placement only; which modules are shown is the player's choice.
         self.data_dirty = true;
         for card in &mut self.draft.cards {
             card.anchor = card.reset_anchor.unwrap_or(card.anchor);
@@ -239,18 +351,19 @@ impl HudEditor {
         position: [f32; 2],
         pressed: bool,
         held: bool,
-        controls: &[ui::mod_panel::Control],
+        controls: &mut [ui::mod_panel::Control],
     ) -> Vec<ui::mod_panel::Event> {
         if !self.open || !position.into_iter().all(f32::is_finite) {
             self.cancel_pointer_input();
             return Vec::new();
         }
+        if !pressed && self.slider.is_some() {
+            return self.drag_slider(position, held, controls);
+        }
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
         };
-        let point = std::array::from_fn(|axis| {
-            f64::from((position[axis] - frame.origin[axis]) / frame.scale)
-        });
+        let point = slider::frame_point(frame, position);
         let hit = frame
             .hits
             .iter()
@@ -261,6 +374,11 @@ impl HudEditor {
             self.data_dirty = true;
             self.view.hovered = hovered.map(str::to_owned);
         }
+        let hovered_card = hit.and_then(|hit| card_action_index(hit.pressed.as_deref()?));
+        if self.hovered != hovered_card {
+            self.data_dirty = true;
+            self.hovered = hovered_card;
+        }
         if pressed {
             self.data_dirty = true;
             self.view.pressed = hovered.map(str::to_owned);
@@ -270,6 +388,21 @@ impl HudEditor {
         let action = pressed
             .then(|| hit.and_then(|hit| hit.pressed.clone()))
             .flatten();
+        if let Some(events) = action
+            .as_deref()
+            .and_then(|action| self.begin_slider(action, point, controls))
+        {
+            if !held {
+                self.drag_slider(position, false, controls);
+            }
+            return events;
+        }
+        if let Some(events) = action
+            .as_deref()
+            .and_then(|action| self.action(action, controls))
+        {
+            return events;
+        }
         if let Some(id) = action
             .as_deref()
             .and_then(|action| action.strip_prefix("hud.done:"))
@@ -300,12 +433,6 @@ impl HudEditor {
                 self.reset_layout();
                 return Vec::new();
             }
-            Some("hud.grid") => {
-                self.data_dirty = true;
-                self.snap = !self.snap;
-                self.cancel_drag();
-                return Vec::new();
-            }
             _ => {}
         }
         if pressed {
@@ -320,39 +447,46 @@ impl HudEditor {
                     .resizable
                     .then_some((index.parse::<usize>().ok()?, Some(corner)))
             });
-            self.drag = capture
-                .filter(|(index, _)| *index < self.draft.cards.len())
-                .map(|(index, corner)| {
-                    let card = &self.draft.cards[index];
-                    let at = cards::origin(card, self.viewport);
-                    let size = cards::dimensions(card);
-                    Drag {
-                        index,
-                        grab: std::array::from_fn(|axis| point[axis] - at[axis]),
-                        start: point,
-                        last: point,
-                        moved: false,
-                        guides: [None; 2],
-                        targets: [None; 2],
-                        resize: corner.map(|corner| Resize {
-                            corner,
-                            scale: f64::from(card.scale),
-                            size,
-                            fixed: std::array::from_fn(|axis| {
-                                at[axis]
-                                    + if corner & (1 << axis) == 0 {
-                                        size[axis]
-                                    } else {
-                                        0.
-                                    }
-                            }),
+            let capture = capture.filter(|(index, _)| {
+                *index < self.draft.cards.len()
+                    && !self.hidden.contains(&self.draft.cards[*index].id)
+            });
+            let before = capture.map(|(index, _)| Placement::capture(&self.draft.cards[index]));
+            let frozen = capture.is_some_and(|(index, _)| self.freeze_anchor_motion(index));
+            self.drag = capture.map(|(index, corner)| {
+                let card = &self.draft.cards[index];
+                let at = cards::origin(card, self.viewport);
+                let size = cards::dimensions(card);
+                Drag {
+                    index,
+                    before: before.expect("captured placement"),
+                    measurement_pending: false,
+                    grab: std::array::from_fn(|axis| point[axis] - at[axis]),
+                    start: point,
+                    last: point,
+                    moved: frozen,
+                    guides: [None; 2],
+                    targets: [None; 2],
+                    resize: corner.map(|corner| Resize {
+                        corner,
+                        scale: f64::from(card.scale),
+                        size,
+                        fixed: std::array::from_fn(|axis| {
+                            at[axis]
+                                + if corner & (1 << axis) == 0 {
+                                    size[axis]
+                                } else {
+                                    0.
+                                }
                         }),
-                    }
-                });
+                    }),
+                }
+            });
             self.selected = self.drag.as_ref().map(|drag| drag.index);
         }
         if let Some(drag) = &mut self.drag {
-            drag.moved |= (0..2).any(|axis| (point[axis] - drag.start[axis]).abs() > 0.001);
+            drag.moved |=
+                (0..2).any(|axis| (point[axis] - drag.start[axis]).abs() > GEOMETRY_EPSILON);
             let index = drag.index;
             let at = std::array::from_fn(|axis| point[axis] - drag.grab[axis]);
             let changed = drag.last != point || self.snap_dirty;
@@ -371,7 +505,8 @@ impl HudEditor {
                         at,
                         self.viewport,
                         &self.keep_out,
-                        self.bypass_snap,
+                        !self.snap || self.bypass_snap,
+                        &self.hidden,
                     );
                     let mut aligned = at;
                     for axis in 0..2 {
@@ -386,10 +521,12 @@ impl HudEditor {
                 }
             }
         }
-        if !held && let Some(drag) = self.drag.take().filter(|drag| drag.moved) {
+        if !held && let Some(drag) = self.drag.take() {
             self.data_dirty = true;
-            self.anchor_card(drag.index);
-            self.checkpoint();
+            if drag.moved {
+                self.anchor_card(drag.index);
+                self.checkpoint();
+            }
         }
         Vec::new()
     }
@@ -402,9 +539,10 @@ impl HudEditor {
             "Escape" => self.finish(false),
             "Enter" | "NumpadEnter" => self.finish(true),
             "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown" => {
-                if self.autosave && self.drag.is_some() {
+                if self.drag.is_some() || self.slider.is_some() {
                     return;
                 }
+                self.settle_anchor_motion();
                 if let Some(index) = self.selected {
                     let mut at = cards::origin(&self.draft.cards[index], self.viewport);
                     let axis = usize::from(matches!(key, "ArrowUp" | "ArrowDown"));
@@ -424,6 +562,31 @@ impl HudEditor {
             }
             _ => {}
         }
+    }
+
+    /// Preserves physical modifiers for the editor's undo and redo shortcuts.
+    pub(in super::super) fn key_with_modifiers(
+        &mut self,
+        key: &str,
+        modifiers: ui::mod_panel::FieldModifiers,
+    ) {
+        if !self.open {
+            return;
+        }
+        if !modifiers.alt && (modifiers.control || modifiers.super_key) {
+            match key {
+                "KeyZ" | "z" | "Z" => {
+                    self.step_history(modifiers.shift);
+                    return;
+                }
+                "KeyY" | "y" | "Y" if modifiers.control => {
+                    self.step_history(true);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        self.key(key);
     }
 }
 

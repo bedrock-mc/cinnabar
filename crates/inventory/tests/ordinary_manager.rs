@@ -86,6 +86,16 @@ fn cases() -> Vec<(&'static str, i8, Vec<Option<u8>>, usize)> {
             vec![Some(51), Some(52), None, None],
             3,
         ),
+        (
+            "trading",
+            protocol::WINDOW_TYPE_TRADE,
+            protocol::MODERN_TRADE_SLOTS
+                .into_iter()
+                .map(Some)
+                .chain([None])
+                .collect(),
+            protocol::MODERN_TRADE_SLOTS.len() + 1,
+        ),
     ]
 }
 

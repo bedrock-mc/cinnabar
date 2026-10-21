@@ -122,7 +122,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for CompositionGpu {
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-struct CompositionLabel;
+pub(crate) struct ModCompositionLabel;
 
 #[derive(Resource)]
 struct Installed;
@@ -146,7 +146,7 @@ pub(super) fn install_graph(world: &mut World) {
     if world
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
-                draw.in_set(CompositionLabel)
+                draw.in_set(ModCompositionLabel)
                     .after(Core3dSystems::PostProcess)
                     .after(MaskLabel)
                     .after(super::ModPassLabel)
@@ -244,6 +244,7 @@ fn style_uniform(view: &ExtractedView, style: MaskStyle, size: Extent3d) -> Fram
     params[..4].copy_from_slice(&style.outline);
     params[4..8].copy_from_slice(&style.glow);
     params[8] = style.outline_radius;
+    params[9..13].copy_from_slice(&style.fill.unwrap_or([0.; 4]));
     let mut frame = passes::frame_uniform(view, 0.0, 0.0, 0, params);
     frame.resolution = [
         size.width as f32,

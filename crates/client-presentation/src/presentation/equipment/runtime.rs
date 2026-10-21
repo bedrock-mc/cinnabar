@@ -535,6 +535,20 @@ impl EquipmentRuntime {
         wearing_elytra
     }
 
+    /// Bone identities of an armor rig already selected for rendering this frame.
+    pub(crate) fn armor_bone_names(&self, rig: EntityRigId) -> Option<&[Box<str>]> {
+        self.armor_geometry
+            .values()
+            .chain(
+                self.pack
+                    .iter()
+                    .flat_map(|pack| pack.armor_geometry.values()),
+            )
+            .filter_map(Option::as_ref)
+            .find(|geometry| geometry.rig == rig)
+            .map(|geometry| geometry.names.as_slice())
+    }
+
     /// Records the bones of a skin model registered under `rig`, replacing any earlier model.
     pub fn register_skin_rig(&mut self, rig: EntityRigId, names: Vec<Box<str>>) {
         self.armor_maps.retain(|(body, _), _| *body != rig.0);

@@ -42,10 +42,6 @@ impl minidumper::ServerHandler for StalledMonitor {
 
 /// Registers the minidumper client, then stops serving its messages without closing the socket.
 #[test]
-#[expect(
-    clippy::print_stdout,
-    reason = "The client fixture reads readiness on stdout."
-)]
 fn stalled_monitor_fixture() {
     let Some(root) = std::env::var_os(FIXTURE) else {
         return;

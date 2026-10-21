@@ -41,7 +41,7 @@ pub struct ScreenEffectFacts {
 /// First-person hand motion for the equipment lane, all in view space.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct FirstPersonHandMotion {
-    /// One sampled legacy Hurt × Bob matrix shared with the whole camera.
+    /// Sampled legacy Hurt × Bob for the hand; Minimal keeps its bob off the camera.
     pub legacy_effect: Option<Mat4>,
     pub bob: ViewEffect,
     pub hurt: Mat4,
@@ -239,7 +239,7 @@ pub fn advance_presentation_state(
             hand.eye_height_adjustment =
                 protocol::STANDING_PLAYER_EYE_HEIGHT - java.sneak_drop(alpha) - eye_height;
         }
-        hand.bob = if settings.feel().view_bobbing {
+        hand.bob = if settings.feel().view_bobbing.hand_enabled() {
             java.bob(alpha)
         } else {
             ViewEffect::NONE
@@ -259,7 +259,7 @@ pub fn advance_presentation_state(
         hand.hurt = Mat4::IDENTITY;
         return;
     }
-    hand.bob = if settings.feel().view_bobbing {
+    hand.bob = if settings.feel().view_bobbing.hand_enabled() {
         walk_bob_effect(bob.walk_distance(), bob.bob())
     } else {
         ViewEffect::NONE

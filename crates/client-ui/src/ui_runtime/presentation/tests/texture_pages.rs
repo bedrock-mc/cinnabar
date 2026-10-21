@@ -557,6 +557,7 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         position: glam::Vec3::new(0.0, 2.0, 0.0),
         lines: vec![Arc::from("\u{e005}")].into(),
         depth_tested: false,
+        sneaking: false,
         text_alpha: 1.0,
         view_depth: 5.0,
         camera_forward_y: 0.0,

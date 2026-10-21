@@ -54,18 +54,18 @@ impl Prompt {
                  then choose Retry."
                     .to_owned()
             }
-            (PromptKind::DockerMissing, _) => "BDS needs Docker on Mac (Docker Desktop, OrbStack or Colima). Install Docker, or use Dragonfly with the same world generator.".to_owned(),
-            (PromptKind::DockerNotRunning, _) => "BDS needs Docker to be running. Start Docker and retry, or use Dragonfly with the same world generator.".to_owned(),
+            (PromptKind::DockerMissing, _) => "BDS needs Docker on Mac (Docker Desktop, OrbStack or Colima). Install Docker, start it, then create the world again.".to_owned(),
+            (PromptKind::DockerNotRunning, _) => "BDS needs Docker to be running. Start Docker, then choose Retry.".to_owned(),
         }
     }
 
     pub fn buttons(self) -> &'static [PromptButton] {
         use PromptButton::*;
         match (self.kind, self.blocking) {
-            (PromptKind::DockerMissing, PromptFor::CreateBds) => &[UseDragonfly, GetDocker, Cancel],
+            (PromptKind::DockerMissing, PromptFor::CreateBds) => &[GetDocker, Cancel],
             (PromptKind::DockerMissing, PromptFor::Play) => &[GetDocker, Cancel],
             (PromptKind::DockerNotRunning, PromptFor::Play) => &[Retry, Cancel],
-            (PromptKind::DockerNotRunning, _) => &[Retry, UseDragonfly, Cancel],
+            (PromptKind::DockerNotRunning, _) => &[Retry, Cancel],
         }
     }
 }

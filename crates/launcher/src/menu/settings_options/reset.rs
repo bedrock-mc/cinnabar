@@ -8,6 +8,7 @@ pub enum SettingsGroup {
     Accessibility,
     Audio,
     Chat,
+    Discord,
 }
 
 impl SettingsGroup {

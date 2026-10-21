@@ -21,6 +21,7 @@ impl ServerAtlas {
         self.local_reads = Default::default();
         self.decodes = Default::default();
         self.native = Default::default();
+        self.outlines = Default::default();
         self.resident.clear();
         self.pages.clear();
         self.images.clear();

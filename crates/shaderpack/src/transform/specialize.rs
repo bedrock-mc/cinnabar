@@ -323,8 +323,7 @@ pub(super) fn specialize_opaque_params(items: Vec<Item>) -> Vec<Item> {
             break;
         }
     }
-    // Keep helpers beside their original overloads so prototype order preserves the
-    // callee-before-caller function handles required by naga's validator.
+    // Keep helpers beside their original overloads and the declarations they depend on.
     items.sort_by_key(|(position, _)| *position);
     let mut items: Vec<_> = items.into_iter().map(|(_, item)| item).collect();
     // Rebuild opaque prototypes from the definitions that remain after specialization.

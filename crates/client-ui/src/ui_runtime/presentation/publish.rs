@@ -184,6 +184,14 @@ pub fn hovered_stack(
                     .anvil_output(player_runtime)
                     .map(|stack| (stack, None));
             }
+            Hit::CraftOutput
+                if matches!(
+                    ledger.window_kind(),
+                    Some(protocol::WindowKind::Trade { .. })
+                ) =>
+            {
+                (ledger.trade_output(), None)
+            }
             Hit::CraftOutput => (ledger.created_output_stack(), None),
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
@@ -211,6 +219,14 @@ pub fn hovered_stack(
                     };
                     (stack, None)
                 });
+            }
+            Hit::Widget(ui_screens::container_actions::Widget::TradeOffer {
+                tier,
+                row,
+                item: Some(column),
+            }) => {
+                let trade = ledger.trading()?;
+                (trade.preview(trade.row_index(tier, row)?, column), None)
             }
             Hit::RecipeBook(index) => {
                 return super::forms::recipe_book_hover(player_runtime, runtime, index);

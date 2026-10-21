@@ -152,6 +152,36 @@ fn native_text_editing_survives_a_guest_capture_flag_refresh() {
     );
 }
 
+/// Compact authored fields retain their bounds while long drafts scroll to the caret.
+#[test]
+fn compact_text_editor_preserves_its_authored_width() {
+    let engine = field_engine();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
+    let mut ui = live_field("00000000000000000000000000000000", false);
+    paint_field(&mut ui, &engine, &font, &mut layouts, 0.);
+    let rect = [471., 23., 116., 20.];
+    ui.mod_panel.as_mut().unwrap().open_editor(0, rect);
+    ui.mod_panel_key("End", None);
+    paint_field(&mut ui, &engine, &font, &mut layouts, 1.);
+    let panel = ui.mod_panel.as_ref().unwrap();
+    let frame = panel.frame.as_ref().unwrap();
+    let editor = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some("mod.editor"))
+        .unwrap();
+    assert_eq!(editor.rect.x, rect[0]);
+    assert_eq!(editor.rect.w, rect[2]);
+    assert!(
+        field_state(&ui).scroll > 0.,
+        "long drafts scroll inside the field"
+    );
+    let caret = field_state(&ui).ime_position[0];
+    assert!(caret >= frame.origin[0] + rect[0] as f32 * frame.scale);
+    assert!(caret <= frame.origin[0] + (rect[0] + rect[2]) as f32 * frame.scale);
+}
+
 /// Clipboard access requires a focused native field and exposes only its actual selection.
 #[test]
 fn native_clipboard_selection_follows_caret_and_focus() {
@@ -413,6 +443,76 @@ fn field_engine() -> FormEngine {
         Arc::new(NoImages),
         ImageWork::inline(),
     )
+}
+
+/// Focus paints accent chrome only while editing, retaining its mesh on steady frames.
+#[test]
+fn native_field_focus_border_is_retained_until_dismissal() {
+    let engine = field_engine();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
+    for theme in [
+        ui::mod_panel::Theme::Default,
+        ui::mod_panel::Theme::Monochrome,
+    ] {
+        for dark in [true, false] {
+            let mut ui = text_field("0000", 1, 24);
+            ui.mod_panel.as_mut().unwrap().panel.theme = theme;
+            ui.mod_panel.as_mut().unwrap().panel.dark = dark;
+            // Establish the viewport before placing the focused field.
+            paint_field(&mut ui, &engine, &font, &mut layouts, 0.);
+            ui.mod_panel
+                .as_mut()
+                .unwrap()
+                .open_editor(0, [40., 40., 180., 26.]);
+            let first = paint_field(&mut ui, &engine, &font, &mut layouts, 1.);
+            let palette = Palette::for_panel(&ui.mod_panel.as_ref().unwrap().panel);
+            let accent = palette
+                .accent
+                .map(|component| (component * 255.).round() as u8);
+            let border =
+                focus_border(&first, accent).expect("active field paints an accent border");
+            let catalog = Arc::clone(ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap());
+            let passes = ui.mod_panel.as_ref().unwrap().screen.passes;
+            let shaped = layouts.built_layout_count();
+            let steady = paint_field(&mut ui, &engine, &font, &mut layouts, 1.6);
+            assert!(Arc::ptr_eq(border, focus_border(&steady, accent).unwrap()));
+            assert!(Arc::ptr_eq(
+                &catalog,
+                ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap()
+            ));
+            assert_eq!(ui.mod_panel.as_ref().unwrap().screen.passes, passes);
+            assert_eq!(layouts.built_layout_count(), shaped);
+
+            ui.mod_panel_key("Backspace", None);
+            ui.mod_panel_key("Enter", None);
+            let invalid = paint_field(&mut ui, &engine, &font, &mut layouts, 2.);
+            assert!(
+                focus_border(&invalid, accent).is_some(),
+                "invalid drafts retain focus chrome"
+            );
+            ui.mod_panel_key("Escape", None);
+            let inactive = paint_field(&mut ui, &engine, &font, &mut layouts, 3.);
+            assert!(
+                focus_border(&inactive, accent).is_none(),
+                "inactive fields have no focus border"
+            );
+        }
+    }
+}
+
+/// Finds the painted field outline by its bounds and ink, independent of the layout tree.
+fn focus_border(nodes: &[ui::UiNode], accent: [u8; 4]) -> Option<&Arc<ui::UiMesh>> {
+    nodes.iter().find_map(|node| {
+        let ui::UiVisual::Mesh(mesh) = node.visual() else {
+            return None;
+        };
+        let bounds = node.bounds();
+        (bounds.width() == 360.
+            && bounds.height() == 34.
+            && mesh.vertices().iter().any(|vertex| vertex.color == accent))
+        .then_some(mesh)
+    })
 }
 
 /// Blink, movement and selection retain the shaped glyphs and the resolved screen.

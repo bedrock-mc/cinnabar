@@ -1,5 +1,6 @@
 use super::*;
 use crate::ui_runtime::presentation::rect;
+use launcher::menu::MenuAction;
 use ui_engine::test_support::fixture_font;
 
 fn point(x: f32, y: f32) -> ui::UiPoint {
@@ -9,8 +10,11 @@ fn point(x: f32, y: f32) -> ui::UiPoint {
 #[test]
 fn native_drag_fraction_uses_the_full_track_and_keeps_unsnapped_values() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.projections.oreui_slider_tracks =
-        vec![(7, rect(100.0, 200.0, 300.0, 230.0).unwrap(), None)];
+    presentation.projections.oreui_slider_tracks = vec![(
+        MenuAction::SettingsOption(7, 0),
+        rect(100.0, 200.0, 300.0, 230.0).unwrap(),
+        None,
+    )];
     assert_eq!(
         presentation.settings_slider_drag_fraction(7, point(174.0, -100.0)),
         Some(0.37)
@@ -34,11 +38,15 @@ fn only_visible_animated_thumb_pixels_capture_including_overshoot() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.projections.oreui_slider_tracks = vec![
         (
-            7,
+            MenuAction::SettingsOption(7, 0),
             rect(100.0, 200.0, 300.0, 230.0).unwrap(),
             Some(rect(300.0, 210.0, 330.0, 230.0).unwrap()),
         ),
-        (9, rect(100.0, 300.0, 300.0, 330.0).unwrap(), None),
+        (
+            MenuAction::SettingsOption(9, 0),
+            rect(100.0, 300.0, 300.0, 330.0).unwrap(),
+            None,
+        ),
     ];
     let overshoot = point(320.0, 220.0);
     assert!(presentation.settings_slider_thumb_contains(7, overshoot));
@@ -59,7 +67,7 @@ fn new_form_frame_clears_native_input_ownership_and_slider_capture() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.projections.oreui_settings_input = true;
     presentation.projections.oreui_slider_tracks.push((
-        7,
+        MenuAction::SettingsOption(7, 0),
         rect(100.0, 200.0, 300.0, 230.0).unwrap(),
         Some(rect(150.0, 200.0, 180.0, 230.0).unwrap()),
     ));

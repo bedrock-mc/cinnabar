@@ -71,6 +71,13 @@ impl PackedChunkSources<'_> {
             .as_deref()
             .is_some_and(|hidden| hidden.contains(entity))
     }
+
+    /// Moves whenever the cave culler's hidden set changes.
+    pub(crate) fn hidden_revision(&self) -> u64 {
+        self.hidden
+            .as_deref()
+            .map_or(0, ChunkHiddenEntities::revision)
+    }
 }
 
 /// Resident packed sections and their changes this frame.
@@ -154,6 +161,17 @@ pub(crate) fn after_packed_chunk_upload<M>(
     systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
 ) -> ScheduleConfigs<ScheduleSystem> {
     systems.after(prepare_gpu_chunks)
+}
+
+/// Publishes a replacement decision before opaque and translucent terrain consume it.
+pub(crate) fn before_native_terrain_queues<M>(
+    systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+) -> ScheduleConfigs<ScheduleSystem> {
+    systems
+        .after(bevy::render::RenderSystems::PrepareViews)
+        .before(prepare_transparent_sorts)
+        .before(prepare_transparent_model_sorts)
+        .before(bevy::render::RenderSystems::Queue)
 }
 
 /// Whether terrain may draw through multi-draw-indirect on this device, by the packed chunk

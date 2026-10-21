@@ -30,5 +30,18 @@ names! {
         StoragePanel = "storage_panel",
         StudentButtonsCollection = "student_buttons_collection",
         ThirdPartyServerNetworkWorlds = "third_party_server_network_worlds",
+        TradeTiers = "trade_tiers",
+        Trades = "trades",
+        TradeItem1 = "trade_item_1",
+        TradeItem2 = "trade_item_2",
+        SellItem = "sell_item",
+        TradeItemA = "trade_item_A",
+        TradeItemB = "trade_item_B",
+        TradeIngredient1Items = "trade_ingredient1_items",
+        TradeIngredient2Items = "trade_ingredient2_items",
+        TradeResultItem = "trade_result_item",
+        Trade2Ingredient1Item = "trade2_ingredient1_item",
+        Trade2Ingredient2Item = "trade2_ingredient2_item",
+        Trade2ResultItem = "trade2_result_item",
     }
 }

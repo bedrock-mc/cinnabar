@@ -71,6 +71,26 @@ mod drop_inventory_tests;
 #[path = "published_tests/repeat_clock.rs"]
 mod repeat_clock_tests;
 
+/// Builds a fully known air column for interaction rays and their shape halo.
+fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
+    let mut payload = vec![1, 2];
+    payload.extend(std::iter::repeat_n(
+        0xff,
+        protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count
+            - 1,
+    ));
+    payload.push(0);
+    protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+        dimension: 0,
+        x,
+        z,
+        mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+        payload,
+    })
+}
+
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
     fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
@@ -110,27 +130,7 @@ fn fixture_with_network(
         air_network_id: id("minecraft:air"),
         block_network_ids_are_hashes: false,
     });
-    let mut payload = vec![1, 2];
-    payload.extend(std::iter::repeat_n(
-        0xff,
-        protocol::vanilla_dimension_range(0)
-            .unwrap()
-            .sub_chunk_count
-            - 1,
-    ));
-    payload.push(0);
-    stream
-        .submit(
-            1,
-            protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
-                payload,
-            }),
-        )
-        .unwrap();
+    stream.submit(1, empty_column(0, 0)).unwrap();
     stream
         .submit(
             2,

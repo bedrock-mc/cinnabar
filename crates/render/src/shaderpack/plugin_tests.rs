@@ -44,8 +44,10 @@ fn unsupported_presentation_keeps_the_native_target() {
             &source,
             "fixture",
             JAVA_DIMENSIONS[0],
+            &default(),
             None,
             &gpu,
+            &default(),
             &default(),
         )
         .unwrap(),

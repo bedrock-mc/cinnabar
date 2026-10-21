@@ -72,6 +72,7 @@ fn badge_shares_text_visibility_and_opacity() {
         let mut tag = anchor("ExamplePlayer");
         tag.set_cinnabar_badge(true);
         tag.depth_tested = sneaking;
+        tag.sneaking = sneaking;
         tag.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
         let mut scene = scene(&[tag]);
         let style = serde_json::from_value(serde_json::json!({"opacity": 0.4})).unwrap();
@@ -99,6 +100,7 @@ fn badge_records_fit_the_scene_budget() {
         let mut tag = anchor("ExamplePlayer");
         tag.set_cinnabar_badge(true);
         tag.depth_tested = sneaking;
+        tag.sneaking = sneaking;
         let scene = scene(&vec![tag; MAX_NAMETAG_RECORDS]);
         let per_tag = 3;
         assert_eq!(scene.records.len(), MAX_NAMETAG_RECORDS / per_tag * per_tag);
@@ -116,7 +118,7 @@ fn badge_adds_no_frame_allocations_or_atlas_uploads() {
     let build = |tag: &NametagAnchor, layouts: &mut TextLayoutCache, atlas: &mut NametagAtlas| {
         build_nametag_scene(
             std::slice::from_ref(tag),
-            1.0,
+            None,
             &font,
             layouts,
             atlas,

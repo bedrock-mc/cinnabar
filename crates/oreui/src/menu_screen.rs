@@ -71,7 +71,7 @@ pub struct MenuInput<'a> {
 /// Settings geometry input reads between frames.
 #[derive(Default)]
 pub struct MenuGeometry {
-    pub slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub slider_tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
     pub focus_targets: Vec<SettingsFocusTarget>,
     pub focus_landmarks: Vec<SettingsFocusLandmark>,
 }
@@ -351,6 +351,7 @@ impl Screen for OreUiScreen {
                             size,
                             translate,
                             artwork.get(&view.feeds.profile.picture_path).copied(),
+                            &mut self.shader_option_description,
                         )?;
                         let adjusted = scroll_focus::reveal(&mut canvas, scrolls, view);
                         if !adjusted || attempt == 1 {

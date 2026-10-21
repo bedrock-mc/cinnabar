@@ -94,6 +94,11 @@ fn queued_appearance_does_not_publish_new_pixels_before_model_readiness() {
         "a cold appearance must await completed immutable work"
     );
     assert!(store.actor_rig(1).is_none());
+    assert!(store.actor_name_tag(1).is_none());
+    store.finish_appearance_fixture_batch();
+    store.advance_interpolation_frame(0);
+    assert!(store.actor_rig(1).is_some());
+    assert_eq!(store.actor_name_tag(1).as_deref(), Some("fixture"));
 }
 
 #[test]

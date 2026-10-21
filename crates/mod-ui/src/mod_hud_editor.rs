@@ -1,11 +1,19 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
+mod actions;
 mod data;
 mod feedback;
+mod history;
 mod input;
+mod inspector;
+mod motion;
+mod publication;
+mod slider;
 mod snapping;
 mod template;
 
+#[cfg(test)]
+mod amendment_render_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 
@@ -31,15 +39,29 @@ use ui_engine::{
 
 const SCREEN: &str = "cinnabar_hud_editor.layout";
 const GUIDE_WIDTH: f64 = 0.75;
-const MEASUREMENT_PILL: [f64; 2] = [36., 12.];
+/// Distance pill height and horizontal text padding, in GUI pixels.
+const MEASUREMENT_PILL_HEIGHT: f64 = 9.;
+const MEASUREMENT_PILL_PADDING: f64 = 4.;
+/// Distance label font scale (about 3.5 px glyphs) and a digit advance that covers it.
+const MEASUREMENT_FONT_SCALE: f64 = 0.45;
+const MEASUREMENT_DIGIT_ADVANCE: f64 = 3.;
 const AXIS_SNAP_DISTANCE: f64 = 6.;
+const GEOMETRY_EPSILON: f64 = 0.001;
+const EDITOR_MARGIN: f64 = 8.;
 
 pub(super) struct HudEditor {
     draft: Hud,
     committed: Hud,
+    hidden: std::collections::HashSet<String>,
+    committed_hidden: std::collections::HashSet<String>,
+    history: history::History,
+    toast: motion::Toast,
+    anchor_motion: Option<motion::AnchorMotion>,
     pub(super) autosave: bool,
     pub(super) close_requested: bool,
+    /// Reset intent for the next result; autosave clears it after publication.
     reset: bool,
+    grid: bool,
     snap: bool,
     bypass_snap: bool,
     data_dirty: bool,
@@ -48,10 +70,16 @@ pub(super) struct HudEditor {
     icons: Vec<IconRef>,
     keep_out: Vec<[f64; 4]>,
     selected: Option<usize>,
+    /// Card whose bounds or resize handle was under the pointer at its last event.
+    hovered: Option<usize>,
     pub(super) drag: Option<input::Drag>,
+    slider: Option<slider::Gesture>,
+    /// `(control index, fill)` for every guest slider, as last published.
+    control_fills: Vec<(usize, f64)>,
     pub(super) open: bool,
     result: Option<EditorResult>,
     viewport: [f64; 2],
+    inspector: inspector::Placement,
     catalog: Option<Arc<Catalog>>,
     screen: CachedScreen,
     data: Arc<DataSource>,
@@ -80,15 +108,26 @@ impl ModUi {
         self.cancel_mod_panel_edit();
         let mut preview = preview.clone();
         for card in &mut preview.cards {
-            card.reset_anchor.get_or_insert(card.anchor);
-            card.reset_offset.get_or_insert(card.offset);
+            publication::prepare_card(card);
         }
+        let hidden: std::collections::HashSet<_> = preview
+            .cards
+            .iter()
+            .filter(|card| !card.visible)
+            .map(|card| card.id.clone())
+            .collect();
         self.mod_hud_editor = Some(HudEditor {
             autosave: preview.autosave,
             draft: preview.clone(),
+            history: history::History::new(&preview, &hidden),
+            committed_hidden: hidden.clone(),
+            hidden,
+            toast: Default::default(),
+            anchor_motion: None,
             committed: preview,
             close_requested: false,
             reset: false,
+            grid: false,
             snap: false,
             bypass_snap: false,
             data_dirty: true,
@@ -97,10 +136,14 @@ impl ModUi {
             icons: Vec::new(),
             keep_out: Vec::new(),
             selected: None,
+            hovered: None,
             drag: None,
+            slider: None,
+            control_fills: Vec::new(),
             open: true,
             result: None,
             viewport: [0.; 2],
+            inspector: Default::default(),
             catalog: None,
             screen: CachedScreen::default(),
             data: Arc::new(DataSource::new()),
@@ -167,7 +210,11 @@ impl ModUi {
     /// Whether editor surface bindings need another frame to finish opening or closing.
     pub(super) fn mod_hud_editor_motion_active(&self) -> bool {
         self.mod_hud_editor.as_ref().is_some_and(|editor| {
-            editor.transitions.exiting() || editor.open && editor.transitions.active()
+            editor.transitions.exiting()
+                || editor.open
+                    && (editor.transitions.active()
+                        || editor.anchor_motion.is_some()
+                        || !editor.toast.text.is_empty())
         })
     }
 
@@ -231,11 +278,18 @@ impl ModUi {
             editor.catalog = None;
             editor.frame = None;
             editor.cancel_pointer_input();
+            editor.anchor_motion = None;
         }
         editor.advance_transitions(paint_frame.now, !self.reduced_motion);
+        editor.advance_feedback(paint_frame.now, !self.reduced_motion);
         if !editor.painting() {
             return;
         }
+        let controls = self
+            .mod_panel
+            .as_ref()
+            .map_or(&[][..], crate::mod_panel::ModPanel::controls);
+        editor.data_dirty |= editor.sync_control_fills(controls);
         let icons_changed = editor.row_icons != resolved.as_slice();
         if editor.data_dirty || icons_changed {
             let mut data = editor.data();
@@ -277,15 +331,14 @@ impl ModUi {
             self.set_mod_panel_open(false);
             return;
         }
+        let icons = std::mem::take(&mut editor.icons);
+        let keep_out = std::mem::take(&mut editor.keep_out);
         let mut items = ItemRenderer {
-            icons: &editor.icons,
+            icons: &icons,
             id_aux: &[],
         };
         let mut glass = GlassRenderer::new(world);
-        let mut zones = feedback::KeepOutRenderer {
-            rects: &editor.keep_out,
-            dragging: editor.drag.is_some(),
-        };
+        let mut zones = feedback::KeepOutRenderer { rects: &keep_out };
         let mut renderers: [&mut dyn CustomRenderer; 3] = [&mut items, &mut glass, &mut zones];
         // Keep pointer feedback outside the editor borrow while measuring native hit bounds.
         let view = std::mem::take(&mut editor.view);
@@ -297,14 +350,18 @@ impl ModUi {
             art,
             &mut paint_frame.with_renderers(&mut renderers),
             |env, root| {
-                if crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text) {
+                let previous = editor.pending_measurement_size();
+                let measured = crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text);
+                editor.finish_measurement(previous);
+                if measured {
                     editor.catalog = None;
-                    let data = Arc::make_mut(&mut editor.data);
+                    let mut data = Arc::clone(&editor.data);
+                    let values = Arc::make_mut(&mut data);
                     for (n, card) in editor.draft.cards.iter().enumerate() {
-                        crate::mod_widgets::text_plate::data(data, card, n, viewport);
+                        crate::mod_widgets::text_plate::data(values, card, n, viewport);
                     }
-                    data::write_bounds(data, &editor.draft, viewport, editor.selected);
-                    feedback::measurements(data, &editor.draft, viewport, editor.selected);
+                    editor.write_geometry(values);
+                    editor.data = data;
                 }
                 if editor.catalog.is_none() {
                     let catalog = match template::catalog(&editor.draft, viewport) {
@@ -329,6 +386,8 @@ impl ModUi {
             },
         );
         editor.view = view;
+        editor.icons = icons;
+        editor.keep_out = keep_out;
         match result {
             Ok(Some(frame)) => editor.frame = Some(frame),
             result => {
@@ -378,6 +437,7 @@ impl ModUi {
             frame: editor.frame.as_ref(),
             view: &editor.view,
             viewport: editor.viewport,
+            grid: editor.grid,
             snap: editor.snap,
             passes: editor.screen.passes,
             drag: editor.drag.as_ref().map(|drag| drag.guides),

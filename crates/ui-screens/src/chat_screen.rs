@@ -29,6 +29,9 @@ pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
 /// The open chat keeps the built-in presentation whatever server packs layer.
 pub fn register(registry: &mut ScreenRegistry) {
+    registry
+        .catalog_mut()
+        .extend(crate::settings_chat::keep_font_size_visible);
     registry.builtin_screen(CHAT_SCREEN);
 }
 
@@ -546,18 +549,7 @@ fn chat_data(
                     "#text",
                     Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
                 )
-                .var(
-                    "chat_font_type",
-                    Value::from(
-                        if !settings.chat_smooth_available()
-                            || settings.value(SettingId::ChatTypeface) == 0
-                        {
-                            "default"
-                        } else {
-                            "smooth"
-                        },
-                    ),
-                )
+                .var("chat_font_type", Value::from("default"))
                 .var(
                     "chat_font_scale_factor",
                     Value::from(settings.chat_font_scale()),

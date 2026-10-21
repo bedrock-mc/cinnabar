@@ -539,3 +539,28 @@ fn rejects_filter_fragments_as_a_whole_and_bounds_replay() {
         Err(PaintError::Tree(UiError::MissingParent { .. }))
     ));
 }
+
+/// Fragment transitions fade prepared mask sprites without changing their sampling or blend.
+#[test]
+fn fades_prepared_mask_fragments_without_changing_the_mask() {
+    let visual = UiVisual::Mesh(std::sync::Arc::new(
+        ui::UiMesh::sprite(
+            7,
+            [4.5, 0., 9., 9.],
+            [255, 198, 0, 128],
+            UiBlendMode::Invert,
+        )
+        .unwrap(),
+    ));
+    let faded = faded(&visual, 0.5, &mut BTreeMap::new());
+    let UiVisual::Mesh(mesh) = faded else {
+        panic!("prepared sprite");
+    };
+    assert!(
+        mesh.vertices()
+            .iter()
+            .all(|vertex| vertex.color == [255, 198, 0, 64])
+    );
+    assert_eq!(mesh.batches()[0].blend, UiBlendMode::Invert);
+    assert_eq!(mesh.vertices()[0].uv, [4.5, 0.]);
+}

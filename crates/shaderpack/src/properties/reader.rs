@@ -149,6 +149,45 @@ pub(crate) fn read_entries(
     entries
 }
 
+/// Reads `text` as plain java.util.Properties, without any preprocessing: lines starting
+/// with `#` or `!` are comments (so `#if` blocks are ignored), a trailing odd backslash
+/// continues the line, and an empty line ends a continuation. Iris reads the option-menu
+/// layout (`screen`, `sliders`, `profile.*`), the pack's `.lang` files and the saved option
+/// file this way. Entries are returned in file order; a repeated key appears again.
+pub(crate) fn read_plain_entries(text: &str) -> Vec<RawEntry> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut entries = Vec::new();
+    let mut pending: Option<(u32, String)> = None;
+    for (index, physical) in text.lines().enumerate() {
+        let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
+        let text = physical.trim_start_matches(property_space);
+        if let Some((start, mut logical)) = pending.take() {
+            match strip_continuation(text) {
+                Some(head) => {
+                    logical.push_str(head);
+                    pending = Some((start, logical));
+                }
+                None => {
+                    logical.push_str(text);
+                    entries.push(parse_plain_entry(start, &logical));
+                }
+            }
+            continue;
+        }
+        if text.is_empty() || text.starts_with(['#', '!']) {
+            continue;
+        }
+        match strip_continuation(text) {
+            Some(head) => pending = Some((line, head.to_owned())),
+            None => entries.push(parse_plain_entry(line, text)),
+        }
+    }
+    if let Some((start, logical)) = pending {
+        entries.push(parse_plain_entry(start, &logical));
+    }
+    entries
+}
+
 /// Layout and profile metadata names options instead of their expanded values.
 fn raw_key(key: &str) -> bool {
     matches!(key, "screen" | "sliders") || key.starts_with("screen.") || key.starts_with("profile.")
@@ -202,10 +241,18 @@ fn strip_continuation(text: &str) -> Option<&str> {
     }
 }
 
-/// Splits a logical line into key and value: the key ends at the first unescaped `=`,
-/// `:` or whitespace; whitespace and one `=`/`:` separator follow; both sides are
-/// unescaped and trimmed.
+/// Reads a preprocessed property with its key and trailing value whitespace trimmed.
 fn parse_entry(line: u32, logical: &str) -> RawEntry {
+    let mut entry = parse_plain_entry(line, logical);
+    entry.key = entry.key.trim().to_owned();
+    entry.value.truncate(entry.value.trim_end().len());
+    entry
+}
+
+/// Splits a logical line into key and value: the key ends at the first unescaped `=`,
+/// `:` or property whitespace; whitespace and one `=`/`:` separator follow. Unescaping
+/// preserves whitespace in keys and values, including escaped separators.
+fn parse_plain_entry(line: u32, logical: &str) -> RawEntry {
     let mut key_end = logical.len();
     let mut escaped = false;
     for (index, c) in logical.char_indices() {
@@ -213,23 +260,30 @@ fn parse_entry(line: u32, logical: &str) -> RawEntry {
             escaped = false;
         } else if c == '\\' {
             escaped = true;
-        } else if c == '=' || c == ':' || c.is_whitespace() {
+        } else if c == '=' || c == ':' || property_space(c) {
             key_end = index;
             break;
         }
     }
-    let mut value = logical[key_end..].trim_start();
+    let mut value = logical[key_end..].trim_start_matches(property_space);
     if let Some(stripped) = value.strip_prefix(['=', ':']) {
-        value = stripped.trim_start();
+        value = stripped.trim_start_matches(property_space);
     }
     RawEntry {
         line,
-        key: unescape(&logical[..key_end]).trim().to_owned(),
-        value: unescape(value).trim().to_owned(),
+        key: unescape(&logical[..key_end]),
+        value: unescape(value),
     }
 }
 
-/// Java properties escapes: `\t \n \r \f`, `\uXXXX`, and `\c` → `c` for anything else.
+/// Whitespace that separates a Java property key from its value.
+fn property_space(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\u{c}')
+}
+
+/// Java properties escapes: `\t \n \r \f`, `\uXXXX`, and `\c` → `c` for anything else. A
+/// `\uXXXX` pair holding a UTF-16 surrogate pair decodes to its character, as Java's
+/// UTF-16 strings hold it; a lone surrogate becomes U+FFFD.
 fn unescape(text: &str) -> String {
     if !text.contains('\\') {
         return text.to_owned();
@@ -248,12 +302,25 @@ fn unescape(text: &str) -> String {
             Some('f') => out.push('\u{c}'),
             Some('u') => {
                 let rest = chars.as_str();
-                if let Some(hex) = rest.get(..4)
-                    && let Ok(code) = u32::from_str_radix(hex, 16)
-                    && let Some(decoded) = char::from_u32(code)
-                {
-                    out.push(decoded);
-                    chars = rest[4..].chars();
+                let unit = |at: usize| {
+                    rest.get(at..at + 4)
+                        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                };
+                if let Some(code) = unit(0) {
+                    let low = rest
+                        .get(4..6)
+                        .filter(|&marker| marker == "\\u")
+                        .and_then(|_| unit(6))
+                        .filter(|low| (0xDC00..0xE000).contains(low));
+                    let (decoded, used) = match (code, low) {
+                        (0xD800..0xDC00, Some(low)) => (
+                            char::from_u32(0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)),
+                            10,
+                        ),
+                        _ => (char::from_u32(code), 4),
+                    };
+                    out.push(decoded.unwrap_or(char::REPLACEMENT_CHARACTER));
+                    chars = rest[used..].chars();
                 } else {
                     out.push('u');
                 }
