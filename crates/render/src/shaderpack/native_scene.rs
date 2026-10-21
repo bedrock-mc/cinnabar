@@ -36,6 +36,7 @@ pub(super) struct NativeSceneLayers<'w> {
     weather: Option<Res<'w, render_scene::PrecipitationScene>>,
     overlays: Option<Res<'w, render_scene::ScreenOverlayScene>>,
     nametags: Option<Res<'w, render_scene::NametagSceneResource>>,
+    viewmodel: Option<Res<'w, render_scene::ViewmodelScene>>,
 }
 
 impl NativeSceneLayers<'_> {
@@ -53,6 +54,20 @@ impl NativeSceneLayers<'_> {
             )
     }
 
+    /// Keeps static viewmodels and hands without a ready actor replacement on the native path.
+    pub(super) fn first_person_native(&self) -> bool {
+        (self
+            .actors
+            .1
+            .as_ref()
+            .is_some_and(|scene| scene.is_active())
+            && !self.world_ready())
+            || self
+                .viewmodel
+                .as_ref()
+                .is_some_and(|scene| scene.frame.is_some())
+    }
+
     /// Whether this frame needs the native scene colour to preserve its layers.
     pub(super) fn needed(
         &self,
@@ -60,6 +75,7 @@ impl NativeSceneLayers<'_> {
         textures: Option<&ShaderpackEffectTextures>,
     ) -> bool {
         !self.world_ready()
+            || self.first_person_native()
             || needs_native_scene(
                 self.atmosphere.as_deref(),
                 self.particles.as_deref(),

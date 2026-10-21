@@ -73,13 +73,15 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
         texture.size(),
     );
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    let depth = state.targets.geometry_depth.as_ref().unwrap().view.clone();
+    let extent = state.targets.screen_size;
     drop(
         open_kind(
             &mut encoder,
             &mut state,
             crate::shaderpack::draws::DrawKind::TerrainSolid,
             0,
-            None,
+            Some((&depth, extent)),
         )
         .unwrap(),
     );

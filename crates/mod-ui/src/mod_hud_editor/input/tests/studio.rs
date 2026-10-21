@@ -266,6 +266,20 @@ fn studio_hide_result_and_bindings_keep_the_card_listed_and_clear_the_toast_by_n
     assert_eq!(editor.result, Some(EditorResult::default()));
 }
 
+/// Resetting the layout restores placement without re-enabling hidden modules.
+#[test]
+fn studio_reset_keeps_hidden_cards_hidden() {
+    let mut editor = editor(true);
+    editor.action("hud.visibility:0", &mut []).unwrap();
+    editor.reset_layout();
+    assert!(editor.hidden.contains("fixture"));
+    assert_eq!(editor.snapshot(true).hidden_cards, ["fixture"]);
+    assert_eq!(
+        editor.data().global_value("#hud_card_0_visible"),
+        Some(&Scalar::Bool(false))
+    );
+}
+
 #[test]
 fn studio_anchor_picker_uses_all_nine_margins_and_caller_clock_easing() {
     for animate in [true, false] {
