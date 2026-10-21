@@ -285,3 +285,65 @@ fn collection_reveal_uses_effective_grid_geometry() {
         visible(&ui, 0);
     }
 }
+
+/// An accepted request stays consumed when its owner or its presentation is replaced.
+#[test]
+fn collection_reveal_stays_consumed_across_owner_switches() {
+    for filtered in [false, true] {
+        let mut ui = grid(false);
+        if filtered {
+            patch(&mut ui, json!({"collection_order":{"modules":[0,1,2]}}));
+        }
+        reveal(&mut ui, 12);
+        render(&mut ui);
+        let published = ui.mod_panel.as_ref().unwrap().panel.clone();
+        ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&four_column_catalogue()))
+            .unwrap();
+        ui.set_mod_panel(OWNER, Some(&published)).unwrap();
+        render(&mut ui);
+        assert_eq!(offset(&ui), 0.);
+        assert_eq!(ui.mod_panel.as_ref().unwrap().collection_reveals.ignored, 0);
+        ui.clear_mod_panels();
+        ui.set_mod_panel(OWNER, Some(&published)).unwrap();
+        ui.set_mod_panel_open(true);
+        render(&mut ui);
+        assert_eq!(offset(&ui), 0.);
+        assert_eq!(ui.mod_panel.as_ref().unwrap().collection_reveals.ignored, 0);
+        reveal(&mut ui, 12);
+        render(&mut ui);
+        if filtered {
+            assert_eq!(ui.mod_panel.as_ref().unwrap().collection_reveals.ignored, 1);
+        } else {
+            assert_eq!(offset(&ui), 99.);
+            visible(&ui, 12);
+        }
+    }
+}
+
+/// Metadata lookup and native layout use the same identity for indexed and repeated siblings.
+#[test]
+fn collection_reveal_matches_indexed_sibling_keys() {
+    for indices in [[None, None], [Some(0), Some(1)], [Some(1), Some(1)]] {
+        let mut panel = four_column_catalogue();
+        let mut groups = [
+            json!({"type":"panel","size":[452,289],"controls":[]}),
+            json!({"type":"panel","size":[452,289],"controls":[
+                {"tiles":{"type":"panel","cinnabar_collection":"modules"}}]}),
+        ];
+        for (group, index) in groups.iter_mut().zip(indices) {
+            if let Some(index) = index {
+                group["collection_index"] = json!(index);
+            }
+        }
+        panel.surface.as_mut().unwrap().document = json!({"namespace":"list",
+            "root":{"type":"panel","size":[452,289],"controls":[
+                {"group":groups[0]},{"group":groups[1]}]}})
+        .to_string();
+        let mut ui = ModUi::default();
+        ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+        reveal(&mut ui, 12);
+        render(&mut ui);
+        assert_eq!(offset(&ui), 99., "indices: {indices:?}");
+        visible(&ui, 12);
+    }
+}

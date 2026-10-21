@@ -3,13 +3,13 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use json_ui::{Catalog, LayoutEnv, ResolvedControl, ScrollMetrics, ViewState};
-use ui::mod_panel::{CollectionReveal, Panel};
+use ui::mod_panel::{CollectionRevealRequest, Panel};
 
 use super::{SCREEN, motion::PanelMotion};
 
 #[derive(Default)]
 pub(super) struct CollectionReveals {
-    pending: BTreeMap<String, Arc<CollectionReveal>>,
+    pending: BTreeMap<String, Arc<CollectionRevealRequest>>,
     catalog: Option<Arc<Catalog>>,
     root: Option<ResolvedControl>,
     geometry: BTreeMap<String, Geometry>,
@@ -24,7 +24,7 @@ struct Geometry {
 
 impl CollectionReveals {
     /// Queues newly admitted identities, including repeated requests for the same item.
-    pub(super) fn publish(&mut self, previous: Option<&Panel>, next: &Panel) {
+    pub(super) fn publish(&mut self, next: &Panel) {
         let Some(surface) = &next.surface else {
             self.pending.clear();
             return;
@@ -40,11 +40,7 @@ impl CollectionReveals {
             let Some(request) = &collection.reveal else {
                 continue;
             };
-            let previous = previous
-                .and_then(|panel| panel.surface.as_ref())
-                .and_then(|surface| surface.collections.get(name))
-                .and_then(|collection| collection.reveal.as_ref());
-            if previous.is_none_or(|previous| !Arc::ptr_eq(previous, request)) {
+            if request.pending() {
                 self.pending.insert(name.clone(), Arc::clone(request));
             }
         }
@@ -68,11 +64,15 @@ impl CollectionReveals {
             .as_ref()
             .is_none_or(|old| !Arc::ptr_eq(old, catalog))
         {
-            self.root = json_ui::resolve(catalog, SCREEN, &crate::personal_context()).control;
+            self.root = json_ui::resolve(catalog, SCREEN, crate::personal_context()).control;
             self.catalog = Some(Arc::clone(catalog));
             self.geometry.clear();
         }
         while let Some((name, request)) = self.pending.pop_first() {
+            if !request.consume() {
+                continue;
+            }
+            let request = &request.target;
             let Some(collection) = panel
                 .surface
                 .as_ref()
@@ -100,7 +100,7 @@ impl CollectionReveals {
                     .get("grid_item_template")
                     .and_then(|v| v.as_str())
                     .and_then(|reference| {
-                        json_ui::resolve(catalog, reference, &crate::personal_context()).control
+                        json_ui::resolve(catalog, reference, crate::personal_context()).control
                     })
                 else {
                     continue;
@@ -170,11 +170,9 @@ fn grid<'a>(
     {
         return Some((scroll.to_owned(), control));
     }
-    for (index, child) in control.children.iter().enumerate() {
-        let repeat = control.children[..index]
-            .iter()
-            .filter(|sibling| sibling.name == child.name)
-            .count();
+    let mut siblings = json_ui::SiblingKeys::default();
+    for child in &control.children {
+        let repeat = siblings.of(child);
         if let Some(found) = grid(child, &key, scroll, name, repeat) {
             return Some(found);
         }

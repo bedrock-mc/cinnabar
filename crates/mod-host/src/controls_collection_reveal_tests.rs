@@ -58,7 +58,7 @@ fn collection_reveal_host_validates_and_commits_requests_atomically() {
         .reveal
         .as_ref()
         .unwrap();
-    assert_eq!(first.item, 8);
+    assert_eq!(first.target.item, 8);
     for invalid in [
         json!({"collection":"missing","item":0}),
         json!({"collection":"modules","item":33}),
@@ -100,7 +100,7 @@ fn collection_reveal_host_validates_and_commits_requests_atomically() {
         .reveal
         .as_ref()
         .unwrap();
-    assert_eq!(first.as_ref(), repeated.as_ref());
+    assert_eq!(first.target, repeated.target);
     assert!(!Arc::ptr_eq(first, repeated));
     assert_ne!(state.controls.panel.as_ref(), Some(&accepted));
     state.grants.controls = false;

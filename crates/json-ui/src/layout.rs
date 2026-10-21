@@ -393,7 +393,7 @@ fn collection_index(control: &ResolvedControl) -> Option<u64> {
 /// Counts siblings by name and collection index for [`child_key`]'s repeat, keyed by a hash of
 /// both so counting a long list allocates nothing.
 #[derive(Default)]
-pub(crate) struct SiblingKeys(crate::bind::KeyMap<usize>);
+pub struct SiblingKeys(crate::bind::KeyMap<usize>);
 
 impl SiblingKeys {
     /// Earlier siblings sharing `name` and `index`.
@@ -410,7 +410,8 @@ impl SiblingKeys {
         *count - 1
     }
 
-    pub(crate) fn of(&mut self, control: &ResolvedControl) -> usize {
+    /// Counts earlier siblings with this control's name and collection index.
+    pub fn of(&mut self, control: &ResolvedControl) -> usize {
         self.repeat(&control.name, collection_index(control))
     }
 }

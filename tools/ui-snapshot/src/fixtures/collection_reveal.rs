@@ -1,5 +1,6 @@
 //! A focused card just below the native collection viewport, before and after revealing it.
 
+use json_ui::vanilla::Binding;
 use serde_json::json;
 use ui::mod_panel::{Panel, PanelPatch};
 
@@ -7,16 +8,17 @@ use super::Fixture;
 
 /// Builds the same padded grid for both captures and optionally sends the guest reveal patch.
 pub(super) fn fixture(reveal: bool) -> Fixture {
+    let color = Binding::Color.as_str().trim_start_matches('#');
     let count = 33;
     let focused = 12;
     let cell = json!({"screen":"card.root","document":json!({"namespace":"card",
         "root":{"type":"panel","size":[111,97],"controls":[
             {"face":{"type":"custom","renderer":"cinnabar_rounded_rectangle",
                 "size":[103,89],"offset":[4,4],"anchor_from":"top_left","anchor_to":"top_left",
-                "radius":10,"color":[0.12,0.14,0.16,1.0]}},
+                "radius":10,(color):[0.12,0.14,0.16,1.0]}},
             {"focus":{"type":"custom","renderer":"cinnabar_rounded_rectangle",
                 "size":[103,89],"offset":[4,4],"anchor_from":"top_left","anchor_to":"top_left",
-                "radius":10,"color":[0.0,0.0,0.0,0.0],"border_width":2,"border_color":[1.0,0.35,0.24,1.0],
+                "radius":10,(color):[0.0,0.0,0.0,0.0],"border_width":2,"border_color":[1.0,0.35,0.24,1.0],
                 "bindings":[{"binding_name":"#item_focused","binding_name_override":"#visible"}]}},
             {"label":{"type":"label","size":[90,20],"offset":[10,18],
                 "anchor_from":"top_left","anchor_to":"top_left","text":"#item_name",

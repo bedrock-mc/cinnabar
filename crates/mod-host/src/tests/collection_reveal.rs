@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::json;
-use ui::mod_panel::{Panel, PanelBundle};
+use ui::mod_panel::Panel;
 
 /// An admitted native collection with immutable items and no control authority of its own.
 fn panel() -> Panel {
@@ -50,23 +50,16 @@ fn collection_reveal_round_trips_through_wit_update_content() {
         },
     )
     .unwrap();
-    host.set_panel_bundle(
-        &serde_json::to_string(&PanelBundle {
-            panel: panel(),
-            surfaces: Default::default(),
-            control_schemas: Default::default(),
-        })
-        .unwrap(),
-    )
-    .unwrap();
+    host.set_panel_bundle(&json!({"panel":panel(),"surfaces":{}}).to_string())
+        .unwrap();
     host.frame(false).unwrap();
     let first = host.panel().unwrap().clone();
     let reveal = first.surface.as_ref().unwrap().collections["modules"]
         .reveal
         .as_ref()
         .unwrap();
-    assert_eq!(reveal.collection, "modules");
-    assert_eq!(reveal.item, 12);
+    assert_eq!(reveal.target.collection, "modules");
+    assert_eq!(reveal.target.item, 12);
     host.frame(false).unwrap();
     assert_ne!(host.panel(), Some(&first));
 }

@@ -98,7 +98,7 @@ pub use input::{
 };
 pub use label::{LabelShape, TextOptions};
 pub use layout::{
-    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, child_key,
+    LaidOut, LayoutEnv, MeasureCache, Rect, SiblingKeys, TextMeasure, TextureSource, child_key,
     grid_template_columns, layout, layout_with,
 };
 pub use layout_cache_key::LayoutCacheKey;

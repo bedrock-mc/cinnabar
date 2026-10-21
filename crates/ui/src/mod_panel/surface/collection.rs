@@ -21,7 +21,7 @@ pub struct SurfaceCollection {
     pub order: Vec<usize>,
     /// Host-admitted request identity survives publication without replaying on each frame.
     #[serde(skip)]
-    pub reveal: Option<Arc<crate::mod_panel::CollectionReveal>>,
+    pub reveal: Option<Arc<crate::mod_panel::CollectionRevealRequest>>,
 }
 
 impl PartialEq for SurfaceCollection {

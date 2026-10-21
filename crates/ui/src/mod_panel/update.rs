@@ -1,6 +1,7 @@
 //! Prevalidated local screen catalogs and bounded changes to retained panel values.
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -20,6 +21,33 @@ pub const MAX_PANEL_SURFACES: usize = 128;
 pub struct CollectionReveal {
     pub collection: String,
     pub item: u32,
+}
+
+/// Shared consumption state keeps one accepted request from replaying across presenters.
+#[derive(Debug)]
+pub struct CollectionRevealRequest {
+    pub target: CollectionReveal,
+    consumed: AtomicBool,
+}
+
+impl CollectionRevealRequest {
+    /// Creates a fresh one-time request after its target has passed admission.
+    pub fn new(target: CollectionReveal) -> Self {
+        Self {
+            target,
+            consumed: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether any presenter still needs to consume this exact accepted request.
+    pub fn pending(&self) -> bool {
+        !self.consumed.load(Ordering::Relaxed)
+    }
+
+    /// Claims this request once, including when the same panel is presented again later.
+    pub fn consume(&self) -> bool {
+        !self.consumed.swap(true, Ordering::Relaxed)
+    }
 }
 
 /// An initial control schema with individually validated, reusable local routes.
@@ -329,7 +357,7 @@ impl PanelPatch {
             if reveal.item as usize >= collection.definition.items.len() {
                 return Err("panel reveal names an unknown item".into());
             }
-            collection.reveal = Some(std::sync::Arc::new(reveal));
+            collection.reveal = Some(std::sync::Arc::new(CollectionRevealRequest::new(reveal)));
         }
         Ok(panel)
     }

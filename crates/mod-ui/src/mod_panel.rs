@@ -235,9 +235,7 @@ impl ModUi {
             if !same_shape {
                 current.collection_reveals = reveal::CollectionReveals::default();
             }
-            current
-                .collection_reveals
-                .publish(Some(&current.panel), panel);
+            current.collection_reveals.publish(panel);
             current.panel = panel.clone();
             if data_changed {
                 current.refresh_data();
@@ -271,7 +269,7 @@ impl ModUi {
                 prepared,
                 collection_reveals: {
                     let mut requests = reveal::CollectionReveals::default();
-                    requests.publish(None, panel);
+                    requests.publish(panel);
                     requests
                 },
             });
