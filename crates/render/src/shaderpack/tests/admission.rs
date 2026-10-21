@@ -137,6 +137,7 @@ fn shadow_depth_copy_matches_unfilterable_float_targets() {
         &source,
         "fixture",
         JAVA_DIMENSIONS[0],
+        &Default::default(),
         None,
         &gpu,
         &Default::default(),
