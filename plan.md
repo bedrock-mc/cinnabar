@@ -492,6 +492,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   multitexture materials, dissolve pairs, beacon beams and additive rays retain native scene
   composition until the host supports their complete material contracts.
   native composition; their geometry-host composition is incomplete.
+  native scene-copy path when celestial layers, effects without depth writes, or first-person
+  scenes with private depth attachments still need native composition; their geometry-host
+  composition is incomplete.
   integration and in-game acceptance remain incomplete.
   Autofocus intersects terrain model surfaces; sampling the rendered depth for cutout
   pixels, liquid heights and entities remains incomplete.
