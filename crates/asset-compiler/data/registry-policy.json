@@ -477,9 +477,7 @@
       "item": "minecraft:yellow_wool_stairs"
     }
   },
-  "unresolved_retail": [
-    "minecraft:straw_bed"
-  ],
+  "unresolved_retail": [],
   "movement": [
     {
       "name": "minecraft:bed",
@@ -583,7 +581,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "3ea3593aa723e2f4c89b982d2d0b60492167ad28e950085ab1dd239a5181de86",
+    "identifiers_sha256": "682999ca2b24eebf71bfaaf72fae7036c8dd64dbab13d385ffce07bf8c46de5d",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -663,7 +661,8 @@
       "minecraft:yellow_shulker_box"
     ],
     "unresolved": [
-      "minecraft:soul_soil"
+      "minecraft:soul_soil",
+      "minecraft:straw_bed"
     ]
   },
   "model_family_rules": [
@@ -1083,7 +1082,8 @@
       "fact": "render:AuthoredModel",
       "status": "verified",
       "members": [
-        "minecraft:shelf_mushroom"
+        "minecraft:shelf_mushroom",
+        "minecraft:straw_bed"
       ]
     },
     {
@@ -2119,6 +2119,9 @@
       "id": "block_entity_drawn-112",
       "fact": "BLOCK_ENTITY_DRAWN",
       "status": "provisional",
+      "exclude_members": [
+        "minecraft:straw_bed"
+      ],
       "model_family": [
         "Chest",
         "Bed",
@@ -5913,6 +5916,9 @@
         "geometry": "invisible_or_diagnostic"
       },
       "family": "Bed",
+      "exclude_members": [
+        "minecraft:straw_bed"
+      ],
       "status": "verified"
     },
     {
@@ -6763,7 +6769,8 @@
       "GrassSide": "grass_side",
       "MyceliumSide": "mycelium_side",
       "ResinClump": "resin_clump",
-      "PowderSnow": "powder_snow"
+      "PowderSnow": "powder_snow",
+      "StrawBed": "straw_bed"
     },
     "alpha_textures": [
       "BambooFenceGate",
@@ -6781,7 +6788,8 @@
       "Dirt": "minecraft:dirt",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
-      "Stone": "minecraft:stone"
+      "Stone": "minecraft:stone",
+      "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {
       "door_lower": "Door",

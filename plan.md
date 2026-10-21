@@ -84,6 +84,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+- [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
+  use pack geometry in all four directions; sleeping and picking remain unqualified.
 - [ ] Qualify compact templates for slabs/stairs, thin attached faces, paired doors,
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
