@@ -61,7 +61,7 @@ type FriendHostConfig struct {
 // session issued them, and relays each into the offline loopback server.
 type FriendHost struct {
 	open     func(context.Context) (*friendEndpoint, error)
-	config   func() minecraft.ListenConfig
+	config   func(friendDirectory) minecraft.ListenConfig
 	prepared *preparedConnections
 	log      *slog.Logger
 	players  atomic.Int32
@@ -72,6 +72,7 @@ type FriendHost struct {
 
 	mu       sync.Mutex
 	endpoint *friendEndpoint
+	stale    []*friendEndpoint // retired endpoints whose session withdrawal failed
 }
 
 // friendEndpoint is one signaling connection, the session it advertises and its listener.
@@ -80,8 +81,10 @@ type friendEndpoint struct {
 	directory      friendDirectory
 	closeSignaling func() error
 	listener       *minecraft.Listener
-	once           sync.Once
-	err            error
+	stopOnce       sync.Once
+	stopErr        error
+	withdrawMu     sync.Mutex
+	withdrawn      bool
 }
 
 // friendDirectory is the advertised session that issues join nonces and carries the world card.
@@ -125,7 +128,9 @@ func newFriendHost(xuid string, log *slog.Logger, open func(context.Context) (*f
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &FriendHost{open: open, log: log, ctx: ctx, cancel: cancel, done: make(chan struct{})}
 	h.prepared = newPreparedConnections("", nil, log)
-	h.config = func() minecraft.ListenConfig { return friendListenConfig(xuid, h, h.prepared) }
+	h.config = func(directory friendDirectory) minecraft.ListenConfig {
+		return friendListenConfig(xuid, directory, h.prepared, log)
+	}
 	return h
 }
 
@@ -150,7 +155,9 @@ func (h *FriendHost) start(ctx context.Context) error {
 		h.cancel()
 		return errors.Join(err, h.prepared.shutdown())
 	}
+	h.mu.Lock()
 	h.endpoint = endpoint
+	h.mu.Unlock()
 	go h.serve()
 	return nil
 }
@@ -161,7 +168,8 @@ func (h *FriendHost) openEndpoint(ctx context.Context) (*friendEndpoint, error) 
 	if err != nil {
 		return nil, err
 	}
-	endpoint.listener, err = h.config().ListenNetwork(endpoint.network, "")
+	// Admission reads this endpoint's own session: the listener accepts before it is installed.
+	endpoint.listener, err = h.config(endpoint.directory).ListenNetwork(endpoint.network, "")
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("friends: listen: %w", err), endpoint.retire())
 	}
@@ -170,14 +178,31 @@ func (h *FriendHost) openEndpoint(ctx context.Context) (*friendEndpoint, error) 
 
 // retire withdraws the session, stops accepting and closes signaling; friends' relays continue.
 func (e *friendEndpoint) retire() error {
-	e.once.Do(func() {
+	return errors.Join(e.withdraw(), e.stop())
+}
+
+// stop closes the listener and signaling once.
+func (e *friendEndpoint) stop() error {
+	e.stopOnce.Do(func() {
 		var listenErr error
 		if e.listener != nil {
 			listenErr = e.listener.Close()
 		}
-		e.err = errors.Join(e.directory.Close(), listenErr, e.closeSignaling())
+		e.stopErr = errors.Join(listenErr, e.closeSignaling())
 	})
-	return e.err
+	return e.stopErr
+}
+
+// withdraw closes the advertised session; a failed withdrawal may be retried.
+func (e *friendEndpoint) withdraw() error {
+	e.withdrawMu.Lock()
+	defer e.withdrawMu.Unlock()
+	if e.withdrawn {
+		return nil
+	}
+	err := e.directory.Close()
+	e.withdrawn = err == nil
+	return err
 }
 
 // friendNetwork allows offers without SDP identity; Minecraft Login still authenticates the player.
@@ -226,16 +251,16 @@ func worldType(gameMode string) string {
 
 // friendListenConfig authenticates every friend with Xbox Live and admits only the nonce the
 // session issued to that XUID; the host's own account joins through the local socket instead.
-func friendListenConfig(host string, h *FriendHost, prepared *preparedConnections) minecraft.ListenConfig {
+func friendListenConfig(host string, directory friendDirectory, prepared *preparedConnections, log *slog.Logger) minecraft.ListenConfig {
 	return minecraft.ListenConfig{
 		FlushRate:           -1, // the relay's packet readers own flushing
 		AcceptedProtocols:   []minecraft.Protocol{minecraft.DefaultProtocol},
 		AllowUnknownPackets: true,
 		EnableBatchReading:  true,
 		MaximumPlayers:      FriendWorldMaxPlayers,
-		ErrorLog:            h.log,
+		ErrorLog:            log,
 		Allow: func(_ net.Addr, identity login.IdentityData, client login.ClientData) (string, bool) {
-			nonce, issued := h.current().directory.nonce(identity.XUID)
+			nonce, issued := directory.nonce(identity.XUID)
 			return admitFriend(host, identity.XUID, client.Nonce, nonce, issued)
 		},
 		PrepareResourcePackOffer: prepared.prepare,
@@ -263,11 +288,12 @@ func (h *FriendHost) serve() {
 			return
 		}
 		h.log.Warn("friends: signaling lost; reconnecting without ending friends' sessions")
-		if err := endpoint.retire(); err != nil {
-			h.log.Debug("friends: retire endpoint", "error", redact.Error(err))
-		}
+		h.retire(endpoint)
 		if !h.reconnect() {
 			return
+		}
+		if err := h.withdrawStale(); err != nil {
+			h.log.Debug("friends: withdraw retired sessions", "error", redact.Error(err))
 		}
 	}
 }
@@ -304,6 +330,39 @@ func (h *FriendHost) reconnect() bool {
 		}
 		delay = min(delay*2, friendReconnectMax)
 	}
+}
+
+// retire stops endpoint and keeps it for another withdrawal attempt when that fails.
+func (h *FriendHost) retire(endpoint *friendEndpoint) {
+	if err := endpoint.stop(); err != nil {
+		h.log.Debug("friends: stop endpoint", "error", redact.Error(err))
+	}
+	if err := endpoint.withdraw(); err != nil {
+		h.log.Debug("friends: withdraw session", "error", redact.Error(err))
+		h.mu.Lock()
+		h.stale = append(h.stale, endpoint)
+		h.mu.Unlock()
+	}
+}
+
+// withdrawStale retries withdrawing sessions that failed to close, keeping those that fail again.
+func (h *FriendHost) withdrawStale() error {
+	h.mu.Lock()
+	stale := h.stale
+	h.stale = nil
+	h.mu.Unlock()
+	var failed []*friendEndpoint
+	var errs error
+	for _, endpoint := range stale {
+		if err := endpoint.withdraw(); err != nil {
+			failed = append(failed, endpoint)
+			errs = errors.Join(errs, err)
+		}
+	}
+	h.mu.Lock()
+	h.stale = append(h.stale, failed...)
+	h.mu.Unlock()
+	return errs
 }
 
 // current is the endpoint friends are admitted through.
@@ -369,7 +428,8 @@ func (h *FriendHost) Close() error {
 	h.mu.Unlock()
 	retireErr := endpoint.retire()
 	<-h.done
+	staleErr := h.withdrawStale()
 	stopErr := h.prepared.shutdown()
 	h.sessions.Wait()
-	return errors.Join(retireErr, stopErr)
+	return errors.Join(retireErr, staleErr, stopErr)
 }

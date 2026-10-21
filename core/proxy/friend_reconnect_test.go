@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -19,26 +20,49 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// fakeFriendDirectory issues the same nonce to every XUID.
-type fakeFriendDirectory struct{}
+// fakeFriendDirectory issues the same nonce to every XUID; its first failCloses closes fail.
+type fakeFriendDirectory struct {
+	mu         sync.Mutex
+	failCloses int
+	withdrawn  bool
+}
 
-func (fakeFriendDirectory) nonce(string) (string, bool)          { return "nonce", true }
-func (fakeFriendDirectory) setMembers(int)                       {}
-func (fakeFriendDirectory) invite(context.Context, string) error { return nil }
-func (fakeFriendDirectory) Close() error                         { return nil }
+func (*fakeFriendDirectory) nonce(string) (string, bool)          { return "nonce", true }
+func (*fakeFriendDirectory) setMembers(int)                       {}
+func (*fakeFriendDirectory) invite(context.Context, string) error { return nil }
+
+func (d *fakeFriendDirectory) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.failCloses > 0 {
+		d.failCloses--
+		return errors.New("session directory unreachable")
+	}
+	d.withdrawn = true
+	return nil
+}
+
+// isWithdrawn reports whether a close has succeeded.
+func (d *fakeFriendDirectory) isWithdrawn() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.withdrawn
+}
 
 // friendHostFixture relays friends signaled in memory into an offline loopback server.
 type friendHostFixture struct {
-	host   *FriendHost
-	hub    *memorySignalHub
-	api    *webrtc.API
-	chat   chan string // chat lines the loopback server received
-	mu     sync.Mutex
-	opened []*memorySignaling
-	joined int
+	host        *FriendHost
+	hub         *memorySignalHub
+	api         *webrtc.API
+	chat        chan string // chat lines the loopback server received
+	mu          sync.Mutex
+	opened      []*memorySignaling
+	directories []*fakeFriendDirectory
+	failCloses  int // failed closes for each new directory
+	joined      int
 }
 
-func startFriendHostFixture(t *testing.T) *friendHostFixture {
+func startFriendHostFixture(t *testing.T, failCloses int) *friendHostFixture {
 	t.Helper()
 	log := slog.New(slog.DiscardHandler)
 	server, err := minecraft.ListenConfig{AuthenticationDisabled: true, ErrorLog: log}.Listen("raknet", "127.0.0.1:0")
@@ -46,7 +70,7 @@ func startFriendHostFixture(t *testing.T) *friendHostFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Close() })
-	f := &friendHostFixture{hub: &memorySignalHub{peers: map[string]*memorySignaling{}}, chat: make(chan string, 16)}
+	f := &friendHostFixture{hub: &memorySignalHub{peers: map[string]*memorySignaling{}}, chat: make(chan string, 16), failCloses: failCloses}
 	go f.serveWorld(server)
 	var settings webrtc.SettingEngine
 	settings.SetIncludeLoopbackCandidate(true)
@@ -56,18 +80,20 @@ func startFriendHostFixture(t *testing.T) *friendHostFixture {
 		f.mu.Lock()
 		signaling := f.hub.peer(fmt.Sprintf("host-%d", len(f.opened)))
 		f.opened = append(f.opened, signaling)
+		directory := &fakeFriendDirectory{failCloses: f.failCloses}
+		f.directories = append(f.directories, directory)
 		f.mu.Unlock()
 		network := friendNetwork(signaling, log)
 		network.ListenConfig.API = f.api
 		network.ListenConfig.DisableTrickleICE = true
-		return &friendEndpoint{network: network, directory: fakeFriendDirectory{}, closeSignaling: signaling.Close}, nil
+		return &friendEndpoint{network: network, directory: directory, closeSignaling: signaling.Close}, nil
 	})
 	f.host.prepared.resolveTarget = withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
 		return localworld.ConnectionTarget{Address: server.Addr().String(), Transport: localworld.TransportRakNet}, true, nil
 	}, nil)
 	production := f.host.config
-	f.host.config = func() minecraft.ListenConfig {
-		config := production()
+	f.host.config = func(directory friendDirectory) minecraft.ListenConfig {
+		config := production(directory)
 		config.AuthenticationDisabled = true
 		allow := config.Allow
 		config.Allow = func(addr net.Addr, identity login.IdentityData, client login.ClientData) (string, bool) {
@@ -172,7 +198,7 @@ func (f *friendHostFixture) say(t *testing.T, conn *minecraft.Conn, message stri
 
 // Losing signaling must not end friends already playing; new friends join through its replacement.
 func TestFriendHostKeepsFriendsAcrossSignalingLoss(t *testing.T) {
-	f := startFriendHostFixture(t)
+	f := startFriendHostFixture(t, 0)
 	first := f.join(t)
 	f.say(t, first, "before")
 
@@ -185,4 +211,26 @@ func TestFriendHostKeepsFriendsAcrossSignalingLoss(t *testing.T) {
 	}
 	f.say(t, first, "after")
 	f.say(t, f.join(t), "joined")
+}
+
+// A session whose withdrawal failed during the outage is withdrawn once signaling returns.
+func TestFriendHostWithdrawsSessionsThatFailedToClose(t *testing.T) {
+	f := startFriendHostFixture(t, 1)
+	f.loseSignaling()
+	testwait.Eventually(t, 10*time.Second, "replacement signaling", func() bool { return f.endpoints() == 2 })
+	f.mu.Lock()
+	lost := f.directories[0]
+	f.mu.Unlock()
+	testwait.Eventually(t, 10*time.Second, "lost session withdrawn", lost.isWithdrawn)
+}
+
+// Admission consults the session its listener was opened for, which is not yet current while the
+// listener starts accepting.
+func TestFriendAdmissionUsesItsOwnSession(t *testing.T) {
+	host := newFriendHost("host", slog.New(slog.DiscardHandler), nil)
+	t.Cleanup(func() { _ = host.prepared.shutdown() })
+	allow := host.config(&fakeFriendDirectory{}).Allow
+	if reason, ok := allow(nil, login.IdentityData{XUID: "friend"}, login.ClientData{Nonce: "nonce"}); !ok {
+		t.Fatalf("friend with its session's nonce refused: %s", reason)
+	}
 }
