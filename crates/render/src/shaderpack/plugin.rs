@@ -238,6 +238,8 @@ struct NativeSceneLayers<'w> {
     weather: Option<Res<'w, render_scene::PrecipitationScene>>,
     overlays: Option<Res<'w, render_scene::ScreenOverlayScene>>,
     nametags: Option<Res<'w, render_scene::NametagSceneResource>>,
+    hand_rig: Option<Res<'w, render_scene::HandRigScene>>,
+    viewmodel: Option<Res<'w, render_scene::ViewmodelScene>>,
 }
 
 impl NativeSceneLayers<'_> {
@@ -249,7 +251,14 @@ impl NativeSceneLayers<'_> {
             self.weather.as_deref(),
             self.overlays.as_deref(),
             self.nametags.as_deref(),
-        )
+        ) || self
+            .hand_rig
+            .as_ref()
+            .is_some_and(|scene| scene.is_active())
+            || self
+                .viewmodel
+                .as_ref()
+                .is_some_and(|scene| scene.frame.is_some())
     }
 }
 
@@ -716,6 +725,10 @@ pub(super) fn finish(app: &mut App) {
 #[cfg(test)]
 #[path = "plugin_tests.rs"]
 mod post_tests;
+
+#[cfg(test)]
+#[path = "plugin_first_person_tests.rs"]
+mod first_person_tests;
 
 #[cfg(test)]
 mod camera_tests {
