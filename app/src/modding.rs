@@ -35,6 +35,7 @@ mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
 mod library;
+mod native_camera;
 mod packet_menu;
 pub(crate) mod packets;
 pub(crate) mod registration;
@@ -544,6 +545,12 @@ fn drive_mod(
         mut terrain,
         mut actor_style,
     } = observation;
+    let (network, mut camera, cues, item_use) = outputs;
+    let user_freelook = gameplay
+        .input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| input.phases[semantic_input::Action::Freelook as usize].held);
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = client_shell::screen_policy::absorbs_input(
         &player_runtime,
@@ -568,20 +575,38 @@ fn drive_mod(
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
     else {
-        if let Some(delta) = packets
+        let effects = packets
             .as_ref()
             .filter(|packets| packets.native_frame_available())
             .and_then(|packets| {
                 packets.native_frame(gameplay.native_frame(captured && !absorbed, &ui))
-            })
-        {
-            gameplay.apply(delta);
+            });
+        if let Some(camera) = camera.as_deref_mut() {
+            camera.set_preserve_teleport_rotation(false);
+            camera.set_hurt_camera_style(None);
+            native_camera::apply(
+                camera,
+                gameplay.view.as_deref_mut(),
+                user_freelook,
+                effects.as_ref(),
+            );
+        }
+        if let Some(delta) = effects.and_then(|effects| effects.rotation) {
+            gameplay.apply(mod_host::CameraDelta {
+                yaw: delta.yaw,
+                pitch: delta.pitch,
+            });
         }
         return;
     };
     if extension.suspended {
         if let Some(packets) = packets.as_ref() {
             packets.native_frame(None);
+        }
+        if let Some(camera) = camera.as_deref_mut() {
+            camera.set_preserve_teleport_rotation(false);
+            camera.set_hurt_camera_style(None);
+            native_camera::apply(camera, gameplay.view.as_deref_mut(), user_freelook, None);
         }
         return;
     }
@@ -605,7 +630,6 @@ fn drive_mod(
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
-    let (network, camera, cues, item_use) = outputs;
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registrations: Vec<_> = extension
         .metadata
@@ -701,14 +725,22 @@ fn drive_mod(
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
     });
-    let native_delta = packets
+    let native_effects = packets
         .as_ref()
         .filter(|packets| packets.native_frame_available())
         .and_then(|packets| {
             packets
                 .native_frame(gameplay.native_frame(captured && !absorbed && !regular_camera, &ui))
         });
-    if let Some(delta) = merged.delta.or(native_delta) {
+    if let Some(delta) = merged.delta.or_else(|| {
+        native_effects
+            .as_ref()
+            .and_then(|effects| effects.rotation)
+            .map(|delta| mod_host::CameraDelta {
+                yaw: delta.yaw,
+                pitch: delta.pitch,
+            })
+    }) {
         gameplay.apply(delta);
     }
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
@@ -721,6 +753,12 @@ fn drive_mod(
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
         camera.set_hurt_camera_style(merged.hurt_style);
+        native_camera::apply(
+            &mut camera,
+            gameplay.view.as_deref_mut(),
+            user_freelook,
+            native_effects.as_ref().filter(|_| !regular_camera),
+        );
     }
     if let Some(mut policy) = item_use {
         policy.scope = merged.item_use_delay_fix;

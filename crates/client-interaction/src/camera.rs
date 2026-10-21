@@ -123,6 +123,7 @@ pub fn update_movement(
     auto_fly: ResMut<AutoFly>,
     local_physics: Option<Res<crate::movement::LocalPhysicsController>>,
     camera: Single<&FlyCamera>,
+    settings: Res<CameraSettingsAuthority>,
     view: ResMut<LocalViewPose>,
 ) {
     client_presentation::camera::update_movement(
@@ -136,6 +137,7 @@ pub fn update_movement(
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
         camera,
+        settings,
         view,
     );
 }

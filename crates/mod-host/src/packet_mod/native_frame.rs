@@ -1,53 +1,79 @@
 //! Bounded native callback validation, shared by the packet worker's client adapter.
 
 use super::PacketMod;
-use crate::CameraDelta;
 use anyhow::{Result, ensure};
+use mod_api::native_camera::Effects;
 use mod_api::native_frame::{Delta, Frame, MAX_BYTES};
 
 impl PacketMod {
     /// Whether this instance negotiated the native player-camera frame capability.
     pub fn has_native_frame(&self) -> bool {
-        self.is_active() && self.guest.has_native_frame()
+        self.is_active() && (self.guest.has_native_frame() || self.guest.has_native_camera())
     }
 
     /// Runs one coalesced native frame and validates its once-consumed local output.
-    pub fn frame(&mut self, frame: Option<&Frame>) -> Result<Option<CameraDelta>> {
+    pub fn frame(&mut self, frame: Option<&Frame>) -> Result<Option<Effects>> {
         if !self.has_native_frame() {
             return Ok(None);
         }
         ensure!(frame.is_none_or(Frame::is_valid), "invalid native frame");
-        let json = serde_json::to_vec(&frame)?;
+        let mut observation = frame.cloned();
+        let general = self.guest.has_native_camera();
+        if !general && observation.as_ref().is_some_and(|frame| frame.suspended) {
+            observation = None;
+        }
+        if !self.guest.native_camera_players()
+            && let Some(frame) = observation.as_mut()
+        {
+            frame.players.clear();
+        }
+        let json = serde_json::to_vec(&observation)?;
         ensure!(
             json.len() <= MAX_BYTES,
             "native frame exceeds its byte limit"
         );
         let deadline = self.call_deadline;
         self.call("frame", deadline, |guest| {
-            let output = match guest.frame(&json)? {
-                Ok(output) => output,
-                Err(error) => return Ok(Err(error)),
+            let general = guest.has_native_camera();
+            let output = if general {
+                guest.camera_frame(&json)?
+            } else {
+                guest.frame(&json)?
             };
-            let Some(output) = output else {
-                return Ok(Ok(None));
+            let output = match output {
+                Ok(Some(output)) => output,
+                Ok(None) => return Ok(Ok(None)),
+                Err(error) => return Ok(Err(error)),
             };
             ensure!(
                 output.len() <= MAX_BYTES,
                 "native frame returned too many bytes"
             );
-            let delta: Option<Delta> = serde_json::from_slice(&output)?;
+            let effects: Option<Effects> = if general {
+                serde_json::from_slice(&output)?
+            } else {
+                let delta: Option<Delta> = serde_json::from_slice(&output)?;
+                delta.map(|rotation| Effects {
+                    rotation: Some(rotation),
+                    ..Default::default()
+                })
+            };
             ensure!(
-                delta.is_none_or(Delta::is_valid),
-                "invalid native camera delta"
+                effects.as_ref().is_none_or(Effects::is_valid),
+                "invalid native camera effects"
             );
             ensure!(
-                frame.is_some() || delta.is_none(),
+                frame.is_none_or(|frame| !frame.suspended)
+                    || effects.as_ref().is_none_or(
+                        |effects| effects.rotation.is_none() && effects.detached.is_none()
+                    ),
+                "active camera effects without gameplay input"
+            );
+            ensure!(
+                frame.is_some() || effects.is_none(),
                 "camera output without a gameplay frame"
             );
-            Ok(Ok(delta.map(|delta| CameraDelta {
-                yaw: delta.yaw,
-                pitch: delta.pitch,
-            })))
+            Ok(Ok(effects))
         })
         .map(Option::flatten)
     }
@@ -74,7 +100,7 @@ mod tests {
     }
 
     /// Appends optional native exports to the existing canonical packet fixture.
-    fn module(output: &str, length: usize) -> Vec<u8> {
+    fn module_source(output: &str, length: usize) -> String {
         let mut source = include_str!("tests/guest.wat")
             .replace("$IMPORTS", "")
             .replace("$START", "");
@@ -97,7 +123,12 @@ mod tests {
                 (i32.const 128)))
         "#
         ));
-        wat::parse_str(source).unwrap()
+        source
+    }
+
+    /// Compiles the established legacy callback fixture.
+    fn module(output: &str, length: usize) -> Vec<u8> {
+        wat::parse_str(module_source(output, length)).unwrap()
     }
 
     /// Creates a capable fixture without granting WASI or any unrelated API.
@@ -126,6 +157,7 @@ mod tests {
             attack_held: false,
             seconds: 0.015625,
             players: Vec::new(),
+            suspended: false,
         }
     }
 
@@ -137,9 +169,12 @@ mod tests {
         assert_eq!(guest.frame(None).unwrap(), None);
         assert_eq!(
             guest.frame(Some(&frame())).unwrap(),
-            Some(CameraDelta {
-                yaw: 0.125,
-                pitch: 0.0
+            Some(Effects {
+                rotation: Some(Delta {
+                    yaw: 0.125,
+                    pitch: 0.0
+                }),
+                ..Default::default()
             })
         );
         assert!(!instance(output, output.len(), false).has_native_frame());
@@ -158,6 +193,45 @@ mod tests {
         let mut guest = instance("null", MAX_BYTES + 1, true);
         assert!(guest.frame(Some(&frame())).is_err());
         assert!(!guest.is_active());
+    }
+
+    #[test]
+    fn general_camera_callback_negotiates_without_player_observation() {
+        let output = r#"{"detached":{"kind":"orbit","distance":4.0},"hurt_intensity":0.0,"preserve_teleport_rotation":true}"#;
+        let mut wat = module_source(output, output.len());
+        wat = wat.replace("\"frame\"", "\"camera-frame\"");
+        // The legacy fixture checks the init bit before returning any effect.
+        wat = wat.replace(
+            "(i32.const 1)) (then unreachable)",
+            "(i32.const 4)) (then unreachable)",
+        );
+        // A camera-only guest must receive an empty player list even when the host has nearby players.
+        wat = wat.replace("(i32.store (i32.const 128)", "(if (i32.ne (i32.load8_u (i32.add (local.get $input) (i32.sub (local.get $length) (i32.const 3)))) (i32.const 91)) (then (if (i32.ne (i32.load8_u (local.get $input)) (i32.const 110)) (then unreachable)))) (i32.store (i32.const 128)");
+        let bytes = wat::parse_str(wat).unwrap();
+        let grants = ModGrants {
+            packets: true,
+            camera: true,
+            movement: true,
+            ..Default::default()
+        };
+        let mut guest = CompiledPacketMod::compile(&bytes, &grants)
+            .unwrap()
+            .instantiate()
+            .unwrap();
+        assert!(guest.has_native_frame());
+        let mut observation = frame();
+        observation.players.push(mod_api::native_frame::Player {
+            runtime_id: 77,
+            feet: [1.0; 3],
+        });
+        let effects = guest.frame(Some(&observation)).unwrap().unwrap();
+        assert_eq!(
+            effects.detached,
+            Some(mod_api::native_camera::DetachedView::Orbit { distance: 4.0 })
+        );
+        assert_eq!(effects.hurt_intensity, Some(0.0));
+        assert!(effects.preserve_teleport_rotation);
+        assert_eq!(guest.frame(None).unwrap(), None);
     }
 
     #[test]
@@ -203,31 +277,34 @@ mod tests {
                 _ => None,
             })
             .expect("PACKET_MOD_NATIVE_CAPTURE fixture needs a start record");
-        let grants = ModGrants {
-            packets: true,
-            wasi: true,
-            players: true,
-            camera: true,
-            ..Default::default()
-        };
-        let mut guest = CompiledPacketMod::load(&wasm, &grants)
-            .expect("compile PACKET_MOD_NATIVE_WASM fixture")
-            .instantiate()
-            .expect("initialize real Go reactor");
-        assert!(guest.has_native_frame());
-        guest
-            .start(identity, client_data, startup)
-            .expect("start real Go reactor");
-        assert_eq!(guest.frame(None).expect("reset native Go aiming"), None);
-        assert_eq!(
+        for movement in [false, true] {
+            let grants = ModGrants {
+                movement,
+                packets: true,
+                wasi: true,
+                players: true,
+                camera: true,
+                ..Default::default()
+            };
+            let mut guest = CompiledPacketMod::load(&wasm, &grants)
+                .expect("compile PACKET_MOD_NATIVE_WASM fixture")
+                .instantiate()
+                .expect("initialize real Go reactor");
+            assert!(guest.has_native_frame());
             guest
-                .frame(Some(&frame()))
-                .expect("exchange native Go frame"),
-            None
-        );
-        assert!(guest.is_active());
+                .start(identity, client_data, startup)
+                .expect("start real Go reactor");
+            assert_eq!(guest.frame(None).expect("reset native Go aiming"), None);
+            assert_eq!(
+                guest
+                    .frame(Some(&frame()))
+                    .expect("exchange native Go frame"),
+                movement.then(Effects::default)
+            );
+            assert!(guest.is_active());
 
-        guest.stop();
-        assert!(!guest.is_active());
+            guest.stop();
+            assert!(!guest.is_active());
+        }
     }
 }

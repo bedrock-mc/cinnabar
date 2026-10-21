@@ -22,6 +22,8 @@ pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;
+mod detached;
+pub use detached::DetachedView;
 #[cfg(test)]
 mod death_view_tests;
 mod easing;
