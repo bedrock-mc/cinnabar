@@ -210,8 +210,7 @@ impl Store {
             // The original local server created flat worlds; BDS always generated natural ones.
             "" if backend == Backend::Bds => Generator::Normal,
             "" | "flat" => Generator::Flat,
-            "normal" => Generator::Normal,
-            _ => return Err(corrupt()),
+            id => Generator::from(id.to_owned()),
         };
         Ok(World {
             id: saved.id,
@@ -428,7 +427,7 @@ fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
         id: &world.id,
         name: &world.name,
         game_mode: world.game_mode,
-        generator: world.generator,
+        generator: world.generator.clone(),
         difficulty: world.difficulty,
         backend: world.backend,
         seed: world.seed,
@@ -451,7 +450,7 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
         id,
         name: validate_name(&world.name)?,
         game_mode: world.game_mode,
-        generator: world.generator,
+        generator: world.generator.clone(),
         difficulty: world.difficulty,
         backend: world.backend.unwrap_or_else(|| state.default_backend()),
         seed,

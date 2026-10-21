@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"archive/zip"
@@ -167,7 +167,7 @@ func TestClientPartsAreOfferedAtStartup(t *testing.T) {
 	args := append([]string{"-dir", dir, "-addr", "127.0.0.1:0"}, clientPartFlags(t, audience)...)
 	for revision := uint64(1); revision <= 2; revision++ {
 		var stdout bytes.Buffer
-		if err := run(args, strings.NewReader("stop\n"), &stdout, io.Discard); err != nil {
+		if err := Run(args, strings.NewReader("stop\n"), &stdout, io.Discard); err != nil {
 			t.Fatalf("run: %v", err)
 		}
 		if stdout.String() != "ready\n" {
@@ -178,7 +178,7 @@ func TestClientPartsAreOfferedAtStartup(t *testing.T) {
 			t.Fatalf("start %d offered revision %d for %q with %d packages", revision, offer.Revision, offer.Audience, len(offer.Packages))
 		}
 	}
-	if err := run([]string{"-dir", dir, "-addr", "127.0.0.1:0"}, strings.NewReader("stop\n"), io.Discard, io.Discard); err != nil {
+	if err := Run([]string{"-dir", dir, "-addr", "127.0.0.1:0"}, strings.NewReader("stop\n"), io.Discard, io.Discard); err != nil {
 		t.Fatalf("run without the flags: %v", err)
 	}
 	if _, err := os.Stat(markerPack(dir)); !errors.Is(err, fs.ErrNotExist) {
@@ -203,7 +203,7 @@ func TestClientPartStartupFailures(t *testing.T) {
 			flags := clientPartFlags(t, "127.0.0.1:19132")
 			c.change(flags)
 			var stdout bytes.Buffer
-			err := run(append([]string{"-dir", t.TempDir(), "-addr", "127.0.0.1:0"}, flags...), strings.NewReader("stop\n"), &stdout, io.Discard)
+			err := Run(append([]string{"-dir", t.TempDir(), "-addr", "127.0.0.1:0"}, flags...), strings.NewReader("stop\n"), &stdout, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), c.want) || stdout.Len() != 0 {
 				t.Fatalf("run: %v, stdout %q; want an error naming %s", err, stdout.String(), c.want)
 			}
@@ -249,7 +249,7 @@ func startServer(t *testing.T, args []string) {
 	stdoutR, stdoutW := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		done <- run(args, stdinR, stdoutW, io.Discard)
+		done <- Run(args, stdinR, stdoutW, io.Discard)
 		stdoutW.Close()
 	}()
 	if line, err := bufio.NewReader(stdoutR).ReadString('\n'); err != nil || line != "ready\n" {

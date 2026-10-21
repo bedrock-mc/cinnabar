@@ -21,7 +21,7 @@ fn create_applies_defaults_and_persists() {
     assert_eq!(
         (
             world.game_mode,
-            world.generator,
+            world.generator.clone(),
             world.difficulty,
             world.backend
         ),
@@ -228,7 +228,7 @@ fn backend_and_generator_are_saved_independently() {
                 .create(&NewWorld {
                     name: "Independent".into(),
                     backend: Some(backend),
-                    generator,
+                    generator: generator.clone(),
                     ..NewWorld::default()
                 })
                 .expect("create");
@@ -374,4 +374,22 @@ fn abandoned_import_folders_are_reclaimed_off_the_open() {
     let mut expected = vec![live.path().to_path_buf(), live.lock_path.clone()];
     expected.sort();
     assert_eq!(listing(), expected);
+}
+
+#[test]
+fn custom_generator_ids_survive_reload_without_rewriting_metadata() {
+    let dir = scratch();
+    let store = Store::open(dir.path().into()).unwrap();
+    let saved = store
+        .create(&NewWorld {
+            name: "Islands".into(),
+            generator: Generator::Custom("islands".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let path = store.dir(&saved.id).unwrap().join(META_FILE);
+    let before = fs::read(&path).unwrap();
+    let loaded = store.get(&saved.id).unwrap();
+    assert_eq!(loaded.generator, saved.generator);
+    assert_eq!(fs::read(path).unwrap(), before);
 }

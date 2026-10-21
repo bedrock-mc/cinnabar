@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"bytes"
@@ -60,7 +60,7 @@ func TestNormalWorldStartupKeepsSavedSpawnOnReopen(t *testing.T) {
 	dir := t.TempDir()
 	args := []string{"-dir", dir, "-addr", "127.0.0.1:0", "-generator", "normal", "-seed", "-7"}
 	var stdout bytes.Buffer
-	if err := run(args, bytes.NewBufferString("stop\n"), &stdout, io.Discard); err != nil {
+	if err := Run(args, bytes.NewBufferString("stop\n"), &stdout, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if stdout.String() != "ready\n" {
@@ -78,7 +78,7 @@ func TestNormalWorldStartupKeepsSavedSpawnOnReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout.Reset()
-	if err := run(args, bytes.NewBufferString("stop\n"), &stdout, io.Discard); err != nil {
+	if err := Run(args, bytes.NewBufferString("stop\n"), &stdout, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	db, err = mcdb.Open(dbPath)
@@ -96,7 +96,7 @@ func TestNormalWorldStartupKeepsSavedSpawnOnReopen(t *testing.T) {
 func TestNewNormalWorldSavesTheGeneratorSpawnWithoutSearching(t *testing.T) {
 	dir := t.TempDir()
 	args := []string{"-dir", dir, "-addr", "127.0.0.1:0", "-generator", "normal", "-seed", "-7"}
-	if err := run(args, bytes.NewBufferString("stop\n"), io.Discard, io.Discard); err != nil {
+	if err := Run(args, bytes.NewBufferString("stop\n"), io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	generators, err := (settings{generator: "normal", seed: -7}).configureGenerators(&server.Config{})

@@ -1,6 +1,6 @@
 use super::world::{
-    Difficulty, Generator, NewWorld, Prefs, Setup, SetupState, UnavailableReason, World,
-    WorldStatus, WorldUpdate,
+    Difficulty, NewWorld, Prefs, Setup, SetupState, UnavailableReason, World, WorldStatus,
+    WorldUpdate,
 };
 use bridge::{Backend, GameMode, WorldState};
 use std::path::PathBuf;
@@ -46,7 +46,7 @@ pub enum Input {
     /// Game mode of the create or edit form, whichever is up.
     SetGameMode(GameMode),
     SetDifficulty(Difficulty),
-    SetFlat(bool),
+    SetGenerator(usize),
     SetBackend(Backend),
     SubmitCreate,
     /// Opens the settings of the world at this list index.
@@ -104,6 +104,8 @@ pub enum Effect {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
     Listed(Vec<World>),
+    Generators(Vec<super::generators::GeneratorInfo>),
+    FailedGenerators(String),
     Created(World),
     Deleted(String),
     Updated(World),
@@ -136,6 +138,8 @@ pub struct WorldsView {
     pub screen: Screen,
     pub tab: Tab,
     pub create: CreateForm,
+    pub generators: Vec<super::generators::GeneratorInfo>,
+    pub generator_error: Option<String>,
     pub edit: Option<EditForm>,
     /// The saved world behind the edit form (its size and last-saved date).
     pub edited: Option<World>,
@@ -147,6 +151,26 @@ pub struct WorldsView {
     /// Whether the selected BDS backend can run on this machine.
     pub bds_can_run: bool,
     pub bds_unavailable: Option<UnavailableReason>,
+}
+
+impl WorldsView {
+    /// Whether the selected backend's terrain choices are ready for a create request.
+    pub fn can_create(&self) -> bool {
+        !self.busy && (self.create.backend == Backend::Bds || !self.generators.is_empty())
+    }
+
+    /// Explains why Dragonfly creation is disabled while discovery is pending or failed.
+    pub fn generator_message(&self) -> Option<&str> {
+        if self.create.backend == Backend::Bds {
+            None
+        } else if let Some(error) = &self.generator_error {
+            Some(error)
+        } else if self.generators.is_empty() {
+            Some(super::generators::LOADING_GENERATORS)
+        } else {
+            None
+        }
+    }
 }
 
 /// What a Docker modal or EULA gate resumes once cleared.
@@ -165,6 +189,8 @@ pub struct WorldsMenu {
     selected: Option<usize>,
     tab: Tab,
     create: CreateForm,
+    generators: Vec<super::generators::GeneratorInfo>,
+    generator_error: Option<String>,
     edit: Option<EditForm>,
     play_after_update: bool,
     form_error: Option<&'static str>,
@@ -194,6 +220,11 @@ impl WorldsMenu {
         self.selected.and_then(|index| self.worlds.get(index))
     }
 
+    /// Whether the startup catalog has yet to deliver its single result.
+    pub fn generators_pending(&self) -> bool {
+        self.generators.is_empty() && self.generator_error.is_none()
+    }
+
     pub fn create_form(&self) -> &CreateForm {
         &self.create
     }
@@ -203,6 +234,8 @@ impl WorldsMenu {
             screen: self.screen,
             tab: self.tab,
             create: self.create.clone(),
+            generators: self.generators.clone(),
+            generator_error: self.generator_error.clone(),
             edit: self.edit.clone(),
             edited: self
                 .edit
@@ -328,8 +361,18 @@ impl WorldsMenu {
         match pending {
             Pending::Create => {
                 self.create = CreateForm::default();
+                self.ensure_generator();
                 self.tab = Tab::General;
                 self.form_error = None;
+                self.screen = Screen::Create;
+                Vec::new()
+            }
+            Pending::SubmitCreate
+                if !super::generators::options(self.create.backend, &self.generators)
+                    .iter()
+                    .any(|entry| entry.id == self.create.generator) =>
+            {
+                self.form_error = Some("Choose an available world generator");
                 self.screen = Screen::Create;
                 Vec::new()
             }
@@ -386,6 +429,18 @@ impl WorldsMenu {
                 }]
             }
             PromptButton::Cancel => self.back(),
+        }
+    }
+
+    /// Keeps the current choice when available, otherwise takes the server's first supported entry.
+    fn ensure_generator(&mut self) {
+        let entries = super::generators::options(self.create.backend, &self.generators);
+        if !entries
+            .iter()
+            .any(|entry| entry.id == self.create.generator)
+            && let Some(entry) = entries.first()
+        {
+            self.create.generator = entry.id.clone();
         }
     }
 
@@ -451,16 +506,17 @@ impl WorldsMenu {
                 }
                 Vec::new()
             }
-            Input::SetFlat(flat) => {
-                self.create.generator = if flat {
-                    Generator::Flat
-                } else {
-                    Generator::Normal
-                };
+            Input::SetGenerator(index) => {
+                if let Some(entry) =
+                    super::generators::options(self.create.backend, &self.generators).get(index)
+                {
+                    self.create.generator = entry.id.clone();
+                }
                 Vec::new()
             }
             Input::SetBackend(backend) if self.screen == Screen::Create => {
                 self.create.backend = backend;
+                self.ensure_generator();
                 Vec::new()
             }
             Input::SubmitCreate if self.screen == Screen::Create => {
@@ -622,6 +678,17 @@ impl WorldsMenu {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         match event {
+            Event::Generators(entries) => {
+                self.generators = entries;
+                self.generator_error = None;
+                self.ensure_generator();
+                Vec::new()
+            }
+            Event::FailedGenerators(message) => {
+                self.generators.clear();
+                self.generator_error = Some(message);
+                Vec::new()
+            }
             Event::Listed(worlds) => {
                 let keep = self.selected().map(|w| w.id.clone());
                 self.worlds = worlds;

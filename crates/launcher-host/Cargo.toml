@@ -9,6 +9,7 @@ publish = false
 platform-specific = ["macos", "windows"]
 reads = [
     "assets/bedrock-target.json",
+    "tools/localserver/contract/generator-unavailable-line.txt",
     "core",
 ]
 

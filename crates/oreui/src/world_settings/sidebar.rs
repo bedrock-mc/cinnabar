@@ -79,10 +79,18 @@ pub(super) fn draw(
         [inner[0], y, inner[1], y + canvas.r(4.8)],
         Variant::Hero,
         if edit { "Play" } else { "Create" },
-        (!view.local.busy).then_some(local(if edit { A::PlayFromEdit } else { A::Create })),
+        (if edit {
+            !view.local.busy
+        } else {
+            view.local.can_create()
+        })
+        .then_some(local(if edit { A::PlayFromEdit } else { A::Create })),
     )?;
     y += canvas.r(5.6);
     if !edit {
+        if let Some(message) = view.local.generator_message() {
+            y = caption(canvas, message, [inner[0], y, inner[1], bounds[3]], y)? + space(canvas, 1);
+        }
         button(
             canvas,
             view,

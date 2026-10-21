@@ -106,17 +106,13 @@ impl CreateForm {
         Ok(NewWorld {
             name: validate_name(&self.name)?,
             game_mode: self.game_mode,
-            generator: self.generator,
+            generator: self.generator.clone(),
             difficulty: self.difficulty,
             backend: Some(self.backend),
             seed: seed_from_text(&self.seed_text),
         })
     }
 }
-
-/// Terrain choices are independent of the server hosting them.
-pub const NORMAL_WORLD_LABEL: &str = "Normal (Vanilla)";
-pub const FLAT_WORLD_LABEL: &str = "Flat";
 
 pub fn backend_label(backend: Backend) -> &'static str {
     match backend {
@@ -125,11 +121,15 @@ pub fn backend_label(backend: Backend) -> &'static str {
     }
 }
 
-pub fn world_type_label(generator: Generator) -> &'static str {
-    match generator {
-        Generator::Normal => NORMAL_WORLD_LABEL,
-        Generator::Flat => FLAT_WORLD_LABEL,
-    }
+/// Resolves a server-provided label, falling back to the saved id when unavailable.
+pub fn world_type_label<'a>(
+    generator: &'a Generator,
+    catalog: &'a [super::generators::GeneratorInfo],
+) -> &'a str {
+    catalog
+        .iter()
+        .find(|entry| entry.id == *generator)
+        .map_or_else(|| generator.as_str(), |entry| entry.label.as_str())
 }
 
 pub fn game_mode_label(mode: GameMode) -> &'static str {
@@ -214,7 +214,7 @@ mod tests {
             for generator in [Generator::Normal, Generator::Flat] {
                 let form = CreateForm {
                     backend,
-                    generator,
+                    generator: generator.clone(),
                     ..Default::default()
                 };
                 let built = form.build().unwrap();

@@ -10,7 +10,7 @@ Build and pregenerate outside the repository, before any measured capture:
 
 ```sh
 cd tools/localserver
-GOWORK=off go build -p 4 -o /private/tmp/cinnabar-terrain-server .
+GOWORK=off go build -p 4 -o /private/tmp/cinnabar-terrain-server ./cmd/bedrock-local-server
 /private/tmp/cinnabar-terrain-server -dir /private/tmp/cinnabar-terrain-template -terrain-fixture-generate
 ```
 

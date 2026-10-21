@@ -33,6 +33,10 @@ fn fixture(build: impl FnOnce(&mut Parts, &tempfile::TempDir)) -> Fixture {
     let dir = scratch();
     let store = Arc::new(Store::open(dir.path().join("worlds")).expect("store"));
     let mut parts = Parts::new(store);
+    parts
+        .generators
+        .set(Ok(launcher::local_worlds::generators::fixture_catalog()))
+        .unwrap();
     build(&mut parts, &dir);
     Fixture {
         manager: Manager::from_parts(parts),
@@ -737,6 +741,10 @@ fn an_overlapping_redetect_keeps_the_newest_result() {
     let store = Arc::new(Store::open(dir.path().join("worlds")).expect("store"));
     store.set_default_backend(Backend::Bds);
     let mut parts = Parts::new(store);
+    parts
+        .generators
+        .set(Ok(launcher::local_worlds::generators::fixture_catalog()))
+        .unwrap();
     parts.setup = Some(Arc::clone(&setup));
     parts.auto_backend = true;
     let fixture = Fixture {
@@ -824,4 +832,181 @@ fn a_create_refuses_the_fallback_when_its_server_is_missing() {
         ));
     }
     assert!(fixture.manager.list().expect("list").is_empty());
+}
+
+/// Builds a local process fixture that records arguments and refuses catalog discovery.
+#[cfg(unix)]
+fn process_fixture(body: &str) -> Fixture {
+    use crate::local_worlds::{process::ProcessRunner, test_support::write_script};
+    fixture(|parts, dir| {
+        let binary = dir.path().join("server");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$0.args\"\nif [ \"$1\" = -list-generators ]; then exit 99; fi\n{body}"
+        );
+        write_script(&binary, script.as_bytes());
+        let mut runner = ProcessRunner::new(binary);
+        runner.start_timeout = test_time::DEFAULT_TIMEOUT;
+        parts.runners.dragonfly = Some(Arc::new(runner));
+    })
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_worlds_open_without_discovering_generators() {
+    let fixture = process_fixture(
+        "echo ready\nwhile IFS= read -r line; do [ \"$line\" = stop ] && exit 0; done\n",
+    );
+    let manager = &fixture.manager;
+    for id in ["normal", "flat", "islands"] {
+        let world = manager
+            .inner
+            .store
+            .create(&NewWorld {
+                generator: Generator::from(id.to_owned()),
+                ..flat(id)
+            })
+            .unwrap();
+        if id == "flat" {
+            let meta = manager
+                .inner
+                .store
+                .dir(&world.id)
+                .unwrap()
+                .join("world.json");
+            let mut legacy: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&meta).unwrap()).unwrap();
+            legacy.as_object_mut().unwrap().remove("generator");
+            std::fs::write(&meta, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        }
+        manager.open(&world.id, None).unwrap();
+        wait_for(manager, WorldState::Running);
+        manager.close();
+        wait_for(manager, WorldState::Idle);
+    }
+    let args = std::fs::read_to_string(fixture._dir.path().join("server.args")).unwrap();
+    assert!(!args.lines().any(|arg| arg == "-list-generators"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_saved_generator_fails_through_server_startup() {
+    let script = format!(
+        "printf '%s\\n' '{}' >&2\nexit 1\n",
+        super::super::process::GENERATOR_UNAVAILABLE_LINE.trim_end()
+    );
+    let fixture = process_fixture(&script);
+    let manager = &fixture.manager;
+    let world = manager
+        .inner
+        .store
+        .create(&NewWorld {
+            generator: Generator::Custom("missing".into()),
+            ..flat("Missing terrain")
+        })
+        .unwrap();
+    let meta = manager
+        .inner
+        .store
+        .dir(&world.id)
+        .unwrap()
+        .join("world.json");
+    let before = std::fs::read(&meta).unwrap();
+    manager
+        .open(&world.id, None)
+        .expect("startup is asynchronous");
+    let status = wait_for(manager, WorldState::Failed);
+    assert_eq!(
+        status.error,
+        Some(WorldError::GeneratorUnavailable.public_message())
+    );
+    assert_eq!(std::fs::read(meta).unwrap(), before);
+    let args = std::fs::read_to_string(fixture._dir.path().join("server.args")).unwrap();
+    assert!(!args.lines().any(|arg| arg == "-list-generators"));
+    assert!(args.lines().any(|arg| arg == "missing"));
+}
+
+#[cfg(unix)]
+#[test]
+fn opening_a_missing_generator_can_be_cancelled_during_startup() {
+    let fixture = process_fixture(": > \"$0.started\"\nwhile IFS= read -r line; do :; done\n");
+    let manager = &fixture.manager;
+    let world = manager
+        .inner
+        .store
+        .create(&NewWorld {
+            generator: Generator::Custom("missing".into()),
+            ..flat("Missing terrain")
+        })
+        .unwrap();
+    manager.open(&world.id, None).unwrap();
+    test_time::eventually("the server to begin starting", || {
+        fixture._dir.path().join("server.started").is_file()
+    });
+    assert_eq!(manager.status().state, WorldState::Starting);
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+    let args = std::fs::read_to_string(fixture._dir.path().join("server.args")).unwrap();
+    assert!(!args.lines().any(|arg| arg == "-list-generators"));
+}
+
+/// Creation checks the resolved startup catalog before writing world metadata.
+#[test]
+fn create_rejects_generators_absent_from_the_resolved_catalog() {
+    let fixture = fixture(|parts, _| {
+        parts.generators = Arc::new(std::sync::OnceLock::from(Ok(vec![
+            launcher::local_worlds::generators::GeneratorInfo {
+                id: Generator::Custom("islands".into()),
+                label: "Islands".into(),
+            },
+        ])));
+    });
+    let manager = &fixture.manager;
+    assert!(
+        matches!(manager.create(&flat("Missing")), Err(WorldError::MissingGenerator(id)) if id == Generator::Flat.as_str())
+    );
+    assert!(manager.list().unwrap().is_empty());
+    let created = manager
+        .create(&NewWorld {
+            generator: Generator::Custom("islands".into()),
+            backend: Some(Backend::Dragonfly),
+            ..flat("Available")
+        })
+        .unwrap();
+    assert_eq!(created.generator.as_str(), "islands");
+    assert_eq!(manager.list().unwrap().len(), 1);
+}
+
+/// Pending or failed discovery refuses Dragonfly creation without affecting BDS.
+#[test]
+fn create_never_waits_for_generator_discovery() {
+    for failed in [false, true] {
+        let fixture = fixture(|parts, dir| {
+            parts.generators = super::super::generators::Catalog::default();
+            if failed {
+                parts
+                    .generators
+                    .set(Err("discovery failed".into()))
+                    .unwrap();
+            }
+            parts.setup = Some(provisioner(dir, LINUX));
+        });
+        let manager = &fixture.manager;
+        let result = manager.create(&NewWorld {
+            backend: Some(Backend::Dragonfly),
+            ..flat("Dragonfly")
+        });
+        if failed {
+            assert!(matches!(result, Err(WorldError::GeneratorCatalog)));
+        } else {
+            assert!(matches!(result, Err(WorldError::GeneratorsPending)));
+        }
+        assert!(manager.list().unwrap().is_empty());
+        manager
+            .create(&NewWorld {
+                backend: Some(Backend::Bds),
+                ..flat("BDS")
+            })
+            .unwrap();
+        assert_eq!(manager.list().unwrap().len(), 1);
+    }
 }

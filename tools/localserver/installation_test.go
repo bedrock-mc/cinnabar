@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"bytes"
@@ -71,7 +71,7 @@ func TestInstalledWorldRequiresFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout bytes.Buffer
-	err = run([]string{"-dir", dir, "-addr", "127.0.0.1:0"}, strings.NewReader("stop\n"), &stdout, io.Discard)
+	err = Run([]string{"-dir", dir, "-addr", "127.0.0.1:0"}, strings.NewReader("stop\n"), &stdout, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "-experiences") {
 		t.Fatalf("missing flag accepted: %v", err)
 	}

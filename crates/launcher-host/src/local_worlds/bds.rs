@@ -197,10 +197,11 @@ pub(crate) fn view_and_tick(spec: &StartSpec) -> (u32, u32) {
 }
 
 /// BDS's `level-type` for a generator.
-pub(crate) fn level_type(generator: Generator) -> &'static str {
+pub(crate) fn level_type(generator: &Generator) -> &'static str {
     match generator {
         Generator::Flat => "FLAT",
         Generator::Normal => "DEFAULT",
+        Generator::Custom(_) => unreachable!("unsupported BDS generator rejected before startup"),
     }
 }
 
@@ -229,7 +230,7 @@ pub(crate) fn server_properties(
         ("server-udp-ports", bds_udp_mapping(port, port, max_players)),
         ("level-name", world.id.clone()),
         ("level-seed", world.seed.to_string()),
-        ("level-type", level_type(world.generator).to_owned()),
+        ("level-type", level_type(&world.generator).to_owned()),
         ("view-distance", view.to_string()),
         ("tick-distance", tick.to_string()),
         ("player-idle-timeout", "0".to_owned()),

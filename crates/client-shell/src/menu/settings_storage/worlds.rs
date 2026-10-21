@@ -41,7 +41,10 @@ impl MenuRuntime {
                         .file_name()
                         .is_some_and(|id| id == world.id.as_str())
                 }) {
-                    let card = launcher::menu::worlds_tab::world_card(world);
+                    let card = launcher::menu::worlds_tab::world_card(
+                        world,
+                        &worlds.menu().view().generators,
+                    );
                     item.name = card.name;
                     item.date = card.date;
                     item.game_type = card.game_mode;

@@ -4,7 +4,7 @@
 //! and the tab's controls in eight. Unsupported settings remain visibly disabled.
 
 use bridge::GameMode;
-use launcher::local_worlds::world::{Difficulty, Generator};
+use launcher::local_worlds::world::Difficulty;
 
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
@@ -338,7 +338,7 @@ fn edit_general(
             Some(world) => {
                 let y = label(canvas, "World type", area, y)?;
                 let height = canvas.text(
-                    world_type_label(world.generator),
+                    world_type_label(&world.generator, &local_view.generators),
                     [area[0], y],
                     area[2] - area[0],
                     BODY,

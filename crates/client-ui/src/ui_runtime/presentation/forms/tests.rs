@@ -818,9 +818,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use launcher::local_worlds::world::{
         Difficulty, Generator, Prefs, Setup, SetupState, UnavailableReason, World, WorldStatus,
     };
-    use launcher::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
-    };
+    use launcher::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
     runtime.screen = launcher::menu::MenuScreen::Play;
     let flat = World {
@@ -838,29 +836,36 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     let base = |menu: &WorldsMenu| {
         let mut view = runtime.clone();
         view.local = menu.view();
-        view.local_worlds = vec![launcher::menu::worlds_tab::world_card(&flat)].into();
+        view.local_worlds = vec![launcher::menu::worlds_tab::world_card(
+            &flat,
+            &menu.view().generators,
+        )]
+        .into();
         view
     };
     let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
     let mut menu = WorldsMenu::default();
+    menu.apply(Event::Generators(
+        launcher::local_worlds::generators::fixture_catalog(),
+    ));
     menu.update(Input::Refresh);
     menu.apply(Event::Listed(vec![flat.clone()]));
     let list = oreui_texts(&base(&menu));
-    assert!(has(&list, FLAT_WORLD_LABEL), "worlds list: {list:?}");
+    assert!(has(&list, "Flat"), "worlds list: {list:?}");
     let server = launcher::local_worlds::backend_label(flat.backend);
     assert!(has(&list, server), "worlds list server: {list:?}");
 
     menu.update(Input::BeginCreate);
     menu.update(Input::SelectTab(Tab::Advanced));
     let create = oreui_texts(&base(&menu));
-    for label in [NORMAL_WORLD_LABEL, FLAT_WORLD_LABEL] {
+    for label in ["Normal (Vanilla)", "Flat"] {
         assert!(has(&create, label), "create form {label}: {create:?}");
     }
     menu.update(Input::Back);
 
     menu.update(Input::BeginEdit(0));
     let edit = oreui_texts(&base(&menu));
-    assert!(has(&edit, FLAT_WORLD_LABEL), "edit screen: {edit:?}");
+    assert!(has(&edit, "Flat"), "edit screen: {edit:?}");
     menu.update(Input::Back);
 
     let setup = Setup {

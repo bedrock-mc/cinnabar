@@ -1,0 +1,16 @@
+[
+ {"name":"custom", "json":"[{\"id\":\"islands\",\"label\":\"Floating Islands\"}]", "accepted":true},
+ {"name":"ordered", "json":"[{\"id\":\"normal\",\"label\":\"Normal (Vanilla)\"},{\"id\":\"flat\",\"label\":\"Flat\"}]", "accepted":true},
+ {"name":"empty", "json":"[]", "accepted":false},
+ {"name":"null", "json":"null", "accepted":false},
+ {"name":"object", "json":"{}", "accepted":false},
+ {"name":"missing id", "json":"[{\"label\":\"Islands\"}]", "accepted":false},
+ {"name":"missing label", "json":"[{\"id\":\"islands\"}]", "accepted":false},
+ {"name":"empty id", "json":"[{\"id\":\"\",\"label\":\"Islands\"}]", "accepted":false},
+ {"name":"empty label", "json":"[{\"id\":\"islands\",\"label\":\"\"}]", "accepted":false},
+ {"name":"null label", "json":"[{\"id\":\"islands\",\"label\":null}]", "accepted":false},
+ {"name":"wrong type", "json":"[{\"id\":1,\"label\":\"Islands\"}]", "accepted":false},
+ {"name":"extra field", "json":"[{\"id\":\"islands\",\"label\":\"Islands\",\"extra\":1}]", "accepted":false},
+ {"name":"duplicate id", "json":"[{\"id\":\"islands\",\"label\":\"A\"},{\"id\":\"islands\",\"label\":\"B\"}]", "accepted":false},
+ {"name":"trailing data", "json":"[{\"id\":\"islands\",\"label\":\"Islands\"}] []", "accepted":false}
+]

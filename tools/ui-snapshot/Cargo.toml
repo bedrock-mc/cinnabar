@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["tools/localserver/contract/catalog.example.json"]
+
 [features]
 test-support = ["dep:client-ui", "client-ui/test-support", "protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
 # Captures the Shaders settings tab a `shaderpacks` client build shows.

@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"github.com/df-mc/dragonfly/server/cmd"

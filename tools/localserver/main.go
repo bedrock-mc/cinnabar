@@ -1,14 +1,16 @@
-// Command bedrock-local-server hosts saved Dragonfly worlds with flat or natural terrain,
+// Package localserver hosts saved Dragonfly worlds with registered terrain generators,
 // or opt-in synthetic terrain and opaque-overdraw fixtures.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
 // it. Started with only -standby, it warms world generation until a "start <JSON args>" line gives
 // it a world without -experiences. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
 // the -extension flags.
-package main
+package localserver
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,20 +33,19 @@ import (
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
+// generatorUnavailableLine lets hosts recognize a missing saved generator without parsing diagnostics.
+//
+//go:embed contract/generator-unavailable-line.txt
+var generatorUnavailableLine string
+
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.
 const experienceDataDir = "experience-data"
 
 // manifestFile marks an immediate subdirectory of -experiences as an artifact.
 const manifestFile = "experience.toml"
 
-func main() {
-	if err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "bedrock-local-server:", err)
-		os.Exit(1)
-	}
-}
-
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+// Run serves a local world using the command-line and stdin control protocols.
+func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	standby := len(args) == 1 && args[0] == standbyFlag
 	if standby {
 		go warmGeneration()
@@ -56,7 +57,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg, err := parseSettings(args, stderr)
 	if err != nil {
+		if errors.Is(err, errUnknownGenerator) {
+			_, _ = io.WriteString(stderr, generatorUnavailableLine)
+		}
 		return err
+	}
+	if cfg.listGenerators {
+		return json.NewEncoder(stdout).Encode(generatorList())
 	}
 	if cfg.terrainFixtureGenerate {
 		return generateTerrainFixture(cfg, stdout)
@@ -125,14 +132,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		if exps != nil {
 			err = errors.Join(err, exps.closeSupervisors())
 		}
-		return err
+		return errors.Join(err, conf.WorldProvider.Close(), conf.PlayerProvider.Close())
 	}
 	defer generators.close()
 	if cfg.generationStats && len(generators) > 0 {
 		defer meterGeneration(&conf, stdout)()
 	}
 	for dim, generator := range generators {
-		logger.Info("world generation acceleration", "dimension", dim, "status", generator.AccelerationStatus())
+		logger.Info("world generation acceleration", "dimension", dim, "status", accelerationStatus(generator))
 	}
 	_, spawnErr := os.Stat(filepath.Join(cfg.dir, "db", "level.dat"))
 	firstWorld := errors.Is(spawnErr, fs.ErrNotExist)

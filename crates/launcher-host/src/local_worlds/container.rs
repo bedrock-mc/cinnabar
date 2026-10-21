@@ -123,7 +123,7 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         ("ALLOW_LIST", "false".to_owned()),
         ("LEVEL_NAME", world.id.clone()),
         ("LEVEL_SEED", world.seed.to_string()),
-        ("LEVEL_TYPE", level_type(world.generator).to_owned()),
+        ("LEVEL_TYPE", level_type(&world.generator).to_owned()),
         ("VIEW_DISTANCE", view.to_string()),
         ("TICK_DISTANCE", tick.to_string()),
         ("PLAYER_IDLE_TIMEOUT", "0".to_owned()),

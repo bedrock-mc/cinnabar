@@ -129,7 +129,7 @@ $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST)
 LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(DIST_PLATFORM)),.exe)
 
 local-server:
-	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
+	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" ./cmd/bedrock-local-server
 	$(CARGO) build -p experience-runtime -p cinnabar-cxb --release --locked
 
 # Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
@@ -139,7 +139,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
 	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
-	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
+	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" ./cmd/bedrock-local-server
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
 # macOS grants Game Mode only to bundled games, so `make play` runs the build from a dev bundle
@@ -185,7 +185,7 @@ PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, 
 package-binaries:
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
-	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
+	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" ./cmd/bedrock-local-server
 
 package-macos: package-binaries $(FONT_SOURCE)
 	bash packaging/macos/build-app.sh

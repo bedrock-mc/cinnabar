@@ -6,6 +6,7 @@ mod container;
 mod core_link;
 mod docker;
 mod download;
+mod generators;
 mod import;
 mod junction;
 mod manager;
@@ -77,16 +78,20 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         docker::detect_runtime(platform, docker::DOCKER, &[])
     }));
     let mut parts = manager::Parts::new(store);
-    let local_server = layout.core_executable.with_file_name(LOCAL_SERVER);
-    if local_server.is_file() {
-        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server)));
+    let local_server =
+        generators::local_server(layout.core_executable.with_file_name(LOCAL_SERVER));
+    parts.generators = Arc::clone(&local_server.catalog);
+    if local_server.binary.is_file() {
+        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(
+            local_server.binary.clone(),
+        )));
     } else {
         // Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
         parts.unavailable.push((
             Backend::Dragonfly,
             format!(
                 "local world server binary not found at {}; build it with `make local-server`",
-                local_server.display()
+                local_server.binary.display()
             ),
         ));
     }
@@ -113,7 +118,28 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
 #[cfg(any(test, feature = "test-support"))]
 pub fn open_store(root: std::path::PathBuf) -> Result<Manager, WorldError> {
     let store = Arc::new(store::Store::open(root)?);
-    Ok(Manager::from_parts(manager::Parts::new(store)))
+    let parts = manager::Parts::new(store);
+    let _ = parts
+        .generators
+        .set(Ok(launcher::local_worlds::generators::options(
+            Backend::Bds,
+            &[],
+        )
+        .into_owned()));
+    Ok(Manager::from_parts(parts))
+}
+
+/// Opens a test store with a real local server and independent background discovery.
+#[cfg(any(test, feature = "test-support"))]
+pub fn open_store_with_server(
+    root: std::path::PathBuf,
+    binary: std::path::PathBuf,
+) -> Result<Manager, WorldError> {
+    let store = Arc::new(store::Store::open(root)?);
+    let mut parts = manager::Parts::new(store);
+    parts.generators = generators::start_discovery(binary.clone());
+    parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(binary)));
+    Ok(Manager::from_parts(parts))
 }
 
 /// Ends a start or another wait once its [`CancelHandle`] is dropped.

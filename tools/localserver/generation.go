@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"errors"
@@ -14,9 +14,9 @@ import (
 	"github.com/df-mc/dragonfly/server/world/chunk"
 )
 
-type worldGenerators map[world.Dimension]vanilla.Generator
+type worldGenerators map[world.Dimension]world.Generator
 
-// pendingGenerators are normal generators built in the background once begun, so their
+// pendingGenerators are registered generators built in the background once begun, so their
 // construction overlaps the rest of server setup.
 type pendingGenerators struct {
 	// build carries begin's true or discard's false, whichever comes first.
@@ -28,18 +28,36 @@ type pendingGenerators struct {
 	taken      bool
 }
 
-// startGenerators readies every dimension's normal generator to build at once when begun; flat
-// worlds and synthetic fixtures need none.
+// startGenerators readies the selected factory to build after block registration.
+// Synthetic fixtures supply their own generators.
 func (s settings) startGenerators() *pendingGenerators {
 	p := &pendingGenerators{build: make(chan bool, 1), done: make(chan struct{}), generators: make(worldGenerators)}
-	if s.generator != "normal" || s.terrainFixture || s.opaqueOverdraw {
+	factory, ok := lookupGenerator(s.generator)
+	if !ok {
+		p.err = fmt.Errorf("unknown generator %q", s.generator)
+		close(p.done)
+		return p
+	}
+	if s.terrainFixture || s.opaqueOverdraw {
 		close(p.done)
 		return p
 	}
 	go func() {
 		defer close(p.done)
 		if <-p.build {
-			p.generators, p.err = buildGenerators(s.seed)
+			p.generators, p.err = factory(s.seed)
+			if p.err == nil && len(p.generators) > 0 {
+				for _, dim := range []world.Dimension{world.Overworld, world.Nether, world.End} {
+					if p.generators[dim] == nil {
+						p.err = fmt.Errorf("generator %q is missing dimension %v", s.generator, dim)
+						break
+					}
+				}
+			}
+			if p.err != nil {
+				p.err = errors.Join(p.err, p.generators.close())
+				p.generators = nil
+			}
 		}
 	}()
 	return p
@@ -123,7 +141,9 @@ func (s settings) configureGenerators(conf *server.Config) (worldGenerators, err
 func (generators worldGenerators) close() error {
 	var err error
 	for _, generator := range generators {
-		err = errors.Join(err, generator.Close())
+		if closer, ok := generator.(io.Closer); ok {
+			err = errors.Join(err, closer.Close())
+		}
 	}
 	return err
 }
@@ -142,8 +162,11 @@ func (g *generationMeter) GenerateChunk(pos world.ChunkPos, c *chunk.Chunk) {
 	g.count.Add(1)
 }
 
-// ConcurrentChunkGeneration preserves the normal generator's parallel generation contract.
-func (g *generationMeter) ConcurrentChunkGeneration() bool { return true }
+// ConcurrentChunkGeneration preserves the selected generator's concurrency contract.
+func (g *generationMeter) ConcurrentChunkGeneration() bool {
+	parallel, ok := g.Generator.(interface{ ConcurrentChunkGeneration() bool })
+	return ok && parallel.ConcurrentChunkGeneration()
+}
 
 // meterGeneration reports work per dimension after the server has drained its generation workers.
 func meterGeneration(conf *server.Config, out io.Writer) func() {
@@ -161,4 +184,14 @@ func meterGeneration(conf *server.Config, out io.Writer) func() {
 			fmt.Fprintf(out, "generation dimension=%v chunks=%d elapsed_seconds=%.3f work_ms=%.3f chunks_per_second=%.3f\n", dim, g.count.Load(), elapsed, float64(g.nanos.Load())/float64(time.Millisecond), float64(g.count.Load())/elapsed)
 		}
 	}
+}
+
+// accelerationStatus describes generators that expose optional acceleration diagnostics.
+func accelerationStatus(generator world.Generator) any {
+	if accelerated, ok := generator.(interface {
+		AccelerationStatus() vanilla.AccelerationStatus
+	}); ok {
+		return accelerated.AccelerationStatus()
+	}
+	return "unavailable"
 }

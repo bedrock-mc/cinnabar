@@ -185,7 +185,11 @@ pub(super) fn play_worlds() -> Fixture {
     view.local_worlds = vec![launcher::menu::LocalWorldCard {
         name: "My World".to_owned(),
         game_mode: "Survival".to_owned(),
-        world_type: launcher::local_worlds::NORMAL_WORLD_LABEL.to_owned(),
+        world_type: launcher::local_worlds::world_type_label(
+            &launcher::local_worlds::world::Generator::Normal,
+            &generator_catalog(),
+        )
+        .to_owned(),
         server: String::new(),
         date: "9/30/2026".to_owned(),
         size: "12.0 MB".to_owned(),
@@ -235,6 +239,56 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the advanced Create World options at a fixed, anonymous state.
+pub(super) fn world_create_advanced() -> Fixture {
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Play;
+    view.local.screen = launcher::local_worlds::Screen::Create;
+    view.local.tab = launcher::local_worlds::Tab::Advanced;
+    view.local.generators = generator_catalog();
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows Create World before startup discovery resolves.
+pub(super) fn world_create_generators_loading() -> Fixture {
+    let Fixture::Menu(mut view) = world_create_advanced() else {
+        unreachable!()
+    };
+    view.local.generators.clear();
+    Fixture::Menu(view)
+}
+
+/// Shows a failed startup catalog while world settings remain editable.
+pub(super) fn world_create_generators_unavailable() -> Fixture {
+    let Fixture::Menu(mut view) = world_create_generators_loading() else {
+        unreachable!()
+    };
+    view.local.generator_error =
+        Some(launcher::local_worlds::generators::GENERATOR_CATALOG_ERROR.into());
+    Fixture::Menu(view)
+}
+
+/// Shows an extra generator supplied by a custom server, alongside the checked shipped catalog.
+pub(super) fn world_create_custom_generator() -> Fixture {
+    let Fixture::Menu(mut view) = world_create_advanced() else {
+        unreachable!()
+    };
+    view.local
+        .generators
+        .push(launcher::local_worlds::generators::GeneratorInfo {
+            id: launcher::local_worlds::world::Generator::Custom("islands".into()),
+            label: "Floating Islands".into(),
+        });
+    Fixture::Menu(view)
+}
+
+/// Loads the server's checked catalog example for service-free screenshots.
+fn generator_catalog() -> Vec<launcher::local_worlds::generators::GeneratorInfo> {
+    launcher::local_worlds::generators::parse_catalog(include_bytes!(
+        "../../../localserver/contract/catalog.example.json"
+    ))
+    .expect("valid server catalog example")
+}
 /// Shows Storage as a desktop host fills it, with the folder buttons.
 pub(super) fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);

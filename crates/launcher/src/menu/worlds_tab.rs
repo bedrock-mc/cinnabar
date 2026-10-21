@@ -20,7 +20,7 @@ pub enum LocalWorldAction {
     SeedField,
     GameMode(GameMode),
     Difficulty(Difficulty),
-    Flat(bool),
+    Generator(usize),
     Backend(Backend),
     Create,
     PlayFromEdit,
@@ -53,7 +53,7 @@ impl LocalWorldAction {
             Self::NameField | Self::SeedField => return None,
             Self::GameMode(mode) => Input::SetGameMode(mode),
             Self::Difficulty(difficulty) => Input::SetDifficulty(difficulty),
-            Self::Flat(flat) => Input::SetFlat(flat),
+            Self::Generator(index) => Input::SetGenerator(index),
             Self::Backend(backend) => Input::SetBackend(backend),
             Self::Create => Input::SubmitCreate,
             Self::PlayFromEdit => Input::PlayFromEdit,
@@ -67,11 +67,14 @@ impl LocalWorldAction {
 }
 
 /// Presents metadata from the core catalog consistently in Play and Storage.
-pub fn world_card(world: &World) -> LocalWorldCard {
+pub fn world_card(
+    world: &World,
+    catalog: &[crate::local_worlds::generators::GeneratorInfo],
+) -> LocalWorldCard {
     LocalWorldCard {
         name: world.name.clone(),
         game_mode: game_mode_label(world.game_mode).to_owned(),
-        world_type: world_type_label(world.generator).to_owned(),
+        world_type: world_type_label(&world.generator, catalog).to_owned(),
         server: backend_label(world.backend).to_owned(),
         date: civil_date(world.last_played_unix.max(world.created_unix)),
         size: file_size(world.size_bytes),

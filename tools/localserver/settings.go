@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"errors"
@@ -13,6 +13,8 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
+
+var errUnknownGenerator = errors.New("unknown generator")
 
 const defaultChunkWorkers = 4
 
@@ -31,6 +33,7 @@ type settings struct {
 	seed                                    int64
 	pregenRadius, chunkWorkers              int
 	generationStats                         bool
+	listGenerators                          bool
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -55,7 +58,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.name, "name", "World", "world display name")
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
-	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
+	flags.BoolVar(&s.listGenerators, "list-generators", false, "print the generator catalog as JSON and exit")
+	flags.StringVar(&s.generator, "generator", "flat", "registered terrain generator id")
 	flags.Int64Var(&s.seed, "seed", 0, "world seed")
 	flags.IntVar(&s.pregenRadius, "pregen-radius", 0, "generate and save normal overworld chunks around spawn before listening (0 disables)")
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
@@ -76,6 +80,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
 	}
+	if s.listGenerators {
+		return s, nil
+	}
 	if s.actorBurstArtwork < 0 || s.actorBurstArtwork > actorBurstLimit {
 		return settings{}, fmt.Errorf("actor burst artwork must be 0..%d", actorBurstLimit)
 	}
@@ -88,8 +95,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	if s.pregenRadius > 0 && (s.generator != "normal" || s.terrainFixture || s.opaqueOverdraw || s.terrainFixtureGenerate) {
 		return settings{}, errors.New("-pregen-radius requires -generator normal without a synthetic fixture")
 	}
-	if s.generator != "normal" && s.generator != "flat" {
-		return settings{}, fmt.Errorf("unknown generator %q", s.generator)
+	if _, ok := lookupGenerator(s.generator); !ok {
+		return settings{}, fmt.Errorf("%w %q", errUnknownGenerator, s.generator)
 	}
 	if s.dir == "" || (s.addr == "" && !s.terrainFixtureGenerate) {
 		return settings{}, errors.New("-dir and -addr are required; generation needs only -dir")

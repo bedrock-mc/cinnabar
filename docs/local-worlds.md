@@ -15,11 +15,42 @@ Each world records the backend that created it (`world.json`) and always reopens
 | `dragonfly` | built-in local server on every supported host | Normal terrain through `bedrock-mc/vanilla-gen`, or Dragonfly's flat generator; mob behavior has parity gaps. |
 
 The create screen defaults to Dragonfly and Normal (Vanilla). Backend and generator are independent choices;
-both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
+Dragonfly offers the selected local server’s registered generators. BDS offers its supported Normal and Flat
+options regardless of Dragonfly discovery. Selecting unavailable BDS shows its runtime warning. Creation then offers
 Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
 A world created without a backend takes the machine's default: BDS where it can run, else Dragonfly.
 Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
+
+## Custom local servers
+
+`tools/localserver` is an importable Go package. Build the shipped command with
+`GOWORK=off go build ./cmd/bedrock-local-server` from that module.
+`RegisterGenerator(id, label, factory)` adds a unique generator before `Run(args, stdin, stdout, stderr)`.
+The factory receives the signed seed and returns a map from Dragonfly dimensions to
+`world.Generator`, plus an error. Return every dimension, or an empty map to use
+Dragonfly’s default generators. Generators implementing `io.Closer` are closed on
+startup failure and shutdown. Register blocks before calling `Run`.
+
+An external module can import the package, register its generator and call `Run`
+with the same arguments and streams as the shipped command. Copy the module’s
+`replace` directives into that module: Go does not inherit dependency replacements.
+The command’s `-list-generators` prints the JSON catalog described by
+`tools/localserver/contract/generators.schema.json`, without opening a world or
+constructing a generator. At startup, the launcher selects one executable for the
+process and discovers its catalog once on a dedicated background thread. Create World
+shows “Loading generators…” and disables Dragonfly creation until that result arrives;
+a discovery error keeps it disabled. Both the form and world manager validate creation
+against the resolved catalog without waiting. BDS creation uses its own fixed choices.
+Opening a saved world starts the server without catalog discovery.
+An unavailable generator produces a specific startup error, and startup can be cancelled.
+`Run` signals this failure on stderr with the line in
+`tools/localserver/contract/generator-unavailable-line.txt` before returning its diagnostic.
+Older saves retain their Flat or Normal meaning without rewriting their metadata.
+
+In debug builds, `CINNABAR_LOCAL_SERVER` selects a custom local-server executable at startup.
+Release builds ignore this variable and always use the shipped executable. Restart the launcher
+after changing the override or updating the executable; catalog discovery does not refresh at runtime.
 
 ## BDS acquisition
 

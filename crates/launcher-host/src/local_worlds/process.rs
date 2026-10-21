@@ -22,6 +22,10 @@ use super::{
     world::{WorldError, failed, wire_name},
 };
 
+/// Exact stderr line shared with the local server's startup validation.
+pub(super) const GENERATOR_UNAVAILABLE_LINE: &str =
+    include_str!("../../../../tools/localserver/contract/generator-unavailable-line.txt");
+
 const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a server may take to save and exit after its stop request; BDS saves the world
 /// before exiting. Exit sweeps wait this long before signalling a server.
@@ -130,7 +134,7 @@ impl Runner for ProcessRunner {
             ("-name", world.name.clone()),
             ("-game-mode", wire_name(world.game_mode)),
             ("-difficulty", wire_name(world.difficulty)),
-            ("-generator", wire_name(world.generator)),
+            ("-generator", world.generator.as_str().to_owned()),
             ("-seed", world.seed.to_string()),
         ] {
             args.extend([flag.into(), value.into()]);
@@ -160,6 +164,9 @@ impl Runner for ProcessRunner {
             .is_some_and(|standby| !standby.process.has_exited())
         {
             return;
+        }
+        if let Some(previous) = standby.take() {
+            previous.process.kill();
         }
         let mut command = self.command();
         command.arg("-standby");
@@ -208,8 +215,15 @@ pub(crate) struct Process {
     address: OnceLock<String>,
     can_pause: bool,
     exited: Receiver<()>,
-    status: Arc<Mutex<Option<ExitStatus>>>,
+    exit: Arc<Mutex<ProcessExit>>,
     stop_requested: AtomicBool,
+}
+
+/// Exit status and machine-readable startup diagnostics collected before reporting an exit.
+#[derive(Default)]
+struct ProcessExit {
+    status: Option<ExitStatus>,
+    generator_unavailable: bool,
 }
 
 /// Starts `command` as a tracked child and waits for its ready line, killing it on exit, timeout
@@ -251,7 +265,7 @@ fn spawn(
         .map_err(|error| failed(format!("start local server: {error}")))?;
     let (stdin, stdout, stderr) = (child.take_stdin(), child.take_stdout(), child.take_stderr());
     let child = Arc::new(child);
-    let status = Arc::new(Mutex::new(None));
+    let exit = Arc::new(Mutex::new(ProcessExit::default()));
     let (ready_sender, ready) = crossbeam_channel::bounded(1);
     let (exit_sender, exited) = crossbeam_channel::bounded::<()>(0);
     let mut readers = Vec::new();
@@ -268,20 +282,26 @@ fn spawn(
     }
     if let Some(stderr) = stderr {
         let label = label.clone();
+        let exit = Arc::clone(&exit);
         readers.push(thread::spawn(move || {
-            for_each_line(stderr, |line| tracing::info!("{label}: {line}"));
+            for_each_line(stderr, |line| {
+                if line == GENERATOR_UNAVAILABLE_LINE.trim_end() {
+                    lock(&exit).generator_unavailable = true;
+                }
+                tracing::info!("{label}: {line}");
+            });
         }));
     }
     {
-        let (child, status) = (Arc::clone(&child), Arc::clone(&status));
+        let (child, exit) = (Arc::clone(&child), Arc::clone(&exit));
         thread::spawn(move || {
             for reader in readers {
                 let _ = reader.join();
             }
             loop {
                 match child.try_wait() {
-                    Ok(Some(exit)) => {
-                        *lock(&status) = Some(exit);
+                    Ok(Some(status)) => {
+                        lock(&exit).status = Some(status);
                         break;
                     }
                     Ok(None) => thread::sleep(EXIT_POLL),
@@ -297,7 +317,7 @@ fn spawn(
         address: address.map_or_else(OnceLock::new, OnceLock::from),
         can_pause,
         exited,
-        status,
+        exit,
         stop_requested: AtomicBool::new(false),
     });
     Ok(Spawn { process, ready })
@@ -327,7 +347,7 @@ fn await_ready(
                 announcing = false;
             }
             recv(exit) -> _ => {
-                break failed(format!("local server exited during startup: {}", process.exit_text()));
+                break process.startup_failure();
             }
             recv(cancelled) -> _ => break WorldError::Cancelled,
             recv(crossbeam_channel::at(deadline)) -> _ => {
@@ -371,8 +391,16 @@ impl Process {
         matches!(self.exited.try_recv(), Err(TryRecvError::Disconnected))
     }
 
-    fn exit_text(&self) -> String {
-        lock(&self.status).map_or_else(|| "unknown status".to_owned(), |exit| exit.to_string())
+    /// Reports the server's missing-generator signal, or a generic startup exit.
+    fn startup_failure(&self) -> WorldError {
+        let exit = lock(&self.exit);
+        if exit.generator_unavailable {
+            return WorldError::GeneratorUnavailable;
+        }
+        let status = exit
+            .status
+            .map_or_else(|| "unknown status".to_owned(), |status| status.to_string());
+        failed(format!("local server exited during startup: {status}"))
     }
 }
 

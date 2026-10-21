@@ -1,4 +1,4 @@
-package main
+package localserver
 
 import (
 	"bytes"
@@ -107,7 +107,7 @@ func TestNormalPregenerationCompletesBeforeReadyAndReusesSavedColumns(t *testing
 		var out bytes.Buffer
 		input, shutdown := io.Pipe()
 		output := readyStopWriter{out: &out, shutdown: shutdown}
-		if err := run(args, input, output, io.Discard); err != nil {
+		if err := Run(args, input, output, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 		input.Close()
@@ -139,7 +139,7 @@ func TestPregenerationHonorsStdinShutdownBeforeReadiness(t *testing.T) {
 	for _, input := range []string{"stop\n", ""} {
 		var out bytes.Buffer
 		args := []string{"-dir", t.TempDir(), "-addr", "127.0.0.1:0", "-generator", "normal", "-seed", "1", "-pregen-radius", "1"}
-		err := run(args, strings.NewReader(input), &out, io.Discard)
+		err := Run(args, strings.NewReader(input), &out, io.Discard)
 		if !errors.Is(err, context.Canceled) || strings.Contains(out.String(), "ready\n") {
 			t.Fatalf("shutdown %q: error=%v output=%s", input, err, &out)
 		}

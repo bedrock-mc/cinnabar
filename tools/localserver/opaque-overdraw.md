@@ -30,7 +30,7 @@ intermediate artifacts private to this worktree:
 CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p cinnabar --features developer-control
 CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p cinnabar-mcp
 go build -o target/debug/bedrock-core ./core/cmd/bedrock-core
-GOWORK=off go -C tools/localserver build -o ../../target/opaque-overdraw-localserver .
+GOWORK=off go -C tools/localserver build -o ../../target/opaque-overdraw-localserver ./cmd/bedrock-local-server
 python3 tools/localserver/opaque-overdraw-capture.py --label before --size 1920x1080
 ```
 

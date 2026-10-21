@@ -45,7 +45,8 @@ fn world_choices_use_green_selected_and_light_unselected_faces() {
 
 #[test]
 fn world_sidebar_and_form_have_solid_enclosing_panels() {
-    let view = MenuView::new(true, "Fixture".into());
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.local.generators = launcher::local_worlds::generators::fixture_catalog();
     let (_, hits, nodes) = paint(Default::default(), |canvas| {
         draw(canvas, &view, [1280.0, 720.0], Screen::Create).unwrap();
     });
@@ -162,6 +163,7 @@ fn advanced_world_form_exposes_backend_and_generator_separately() {
     use launcher::local_worlds::world::UnavailableReason;
     let mut view = MenuView::new(true, "Fixture".into());
     view.local.tab = Tab::Advanced;
+    view.local.generators = launcher::local_worlds::generators::fixture_catalog();
     view.local.bds_unavailable = Some(UnavailableReason::DockerMissing);
     for backend in [Backend::Dragonfly, Backend::Bds] {
         view.local.create.backend = backend;
@@ -171,8 +173,8 @@ fn advanced_world_form_exposes_backend_and_generator_separately() {
         for action in [
             A::Backend(Backend::Dragonfly),
             A::Backend(Backend::Bds),
-            A::Flat(false),
-            A::Flat(true),
+            A::Generator(0),
+            A::Generator(1),
         ] {
             assert!(hits.iter().any(|(found, _)| *found == local(action)));
         }
@@ -196,5 +198,78 @@ fn advanced_world_form_exposes_backend_and_generator_separately() {
             text.contains("BDSneedsDockeronMac"),
             backend == Backend::Bds
         );
+    }
+}
+
+#[test]
+fn custom_generator_labels_and_actions_come_from_the_catalog() {
+    use launcher::local_worlds::generators::parse_catalog;
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.local.tab = Tab::Advanced;
+    view.local.generators = parse_catalog(br#"[{"id":"islands","label":"Floating Islands"},{"id":"void","label":"Empty World"},{"id":"hills","label":"Rolling Hills"}]"#).unwrap();
+    let (_, hits, _) = paint(Default::default(), |canvas| {
+        draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
+    });
+    for index in 0..view.local.generators.len() {
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == local(A::Generator(index)))
+        );
+    }
+    view.local.create.backend = bridge::Backend::Bds;
+    let (_, hits, _) = paint(Default::default(), |canvas| {
+        draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
+    });
+    for index in 0..launcher::local_worlds::generators::BDS_GENERATORS.len() {
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == local(A::Generator(index)))
+        );
+    }
+}
+
+/// Loading and errors disable Dragonfly's Create action on both tabs, without disabling BDS.
+#[test]
+fn generator_discovery_status_controls_create_on_every_tab() {
+    use bridge::Backend;
+    for tab in [Tab::General, Tab::Advanced] {
+        for error in [None, Some("Cannot read world generators")] {
+            for backend in [Backend::Dragonfly, Backend::Bds] {
+                let mut view = MenuView::new(true, "Fixture".into());
+                view.local.tab = tab;
+                view.local.create.backend = backend;
+                view.local.generator_error = error.map(str::to_owned);
+                let (_, hits, nodes) = paint(Default::default(), |canvas| {
+                    draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
+                });
+                assert_eq!(
+                    hits.iter().any(|(action, _)| *action == local(A::Create)),
+                    backend == Backend::Bds
+                );
+                let text: String = nodes
+                    .iter()
+                    .filter_map(|node| match node.visual() {
+                        ui::UiVisual::Text { layout, .. } => Some(
+                            layout
+                                .glyphs()
+                                .iter()
+                                .map(|g| g.codepoint)
+                                .collect::<String>(),
+                        ),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")
+                    .replace(' ', "");
+                let expected = error
+                    .unwrap_or(launcher::local_worlds::generators::LOADING_GENERATORS)
+                    .replace(' ', "");
+                assert_eq!(
+                    text.contains(&expected),
+                    backend == Backend::Dragonfly,
+                    "{tab:?} {backend:?}: {text}"
+                );
+            }
+        }
     }
 }

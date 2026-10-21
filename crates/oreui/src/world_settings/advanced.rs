@@ -5,7 +5,7 @@ use launcher::local_worlds::backend_label;
 use launcher::local_worlds::world::UnavailableReason;
 use {
     super::*,
-    launcher::local_worlds::{WorldsView, world_type_label},
+    launcher::local_worlds::WorldsView,
     launcher::menu::{LocalWorldAction as A, MenuField, MenuView},
 };
 
@@ -80,24 +80,32 @@ pub(super) fn draw(
     })?;
     sections::row(canvas, area, y, |canvas, area| {
         let y = label(canvas, "World generator", area, area[1])?;
-        let options: Vec<_> = [Generator::Normal, Generator::Flat]
-            .into_iter()
-            .map(|generator| {
+        let entries =
+            launcher::local_worlds::generators::options(form.backend, &local_view.generators);
+        let options: Vec<_> = entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
                 (
-                    world_type_label(generator),
-                    local(A::Flat(generator == Generator::Flat)),
-                    form.generator == generator,
+                    entry.label.as_str(),
+                    local(A::Generator(index)),
+                    form.generator == entry.id,
                 )
             })
             .collect();
-        let height = choice_height(canvas, area, &options)?;
-        segmented(canvas, view, [area[0], y, area[2], y + height], &options)?;
-        let description = match form.generator {
-            Generator::Flat => "A flat world to build up or mine down into",
-            Generator::Normal => {
-                "Explore mountains, caves and biomes in a naturally generated world."
-            }
-        };
+        let mut bottom = y;
+        for choices in options.chunks(2) {
+            let height = choice_height(canvas, area, choices)?;
+            segmented(
+                canvas,
+                view,
+                [area[0], bottom, area[2], bottom + height],
+                choices,
+            )?;
+            bottom += height + space(canvas, 1);
+        }
+        let height = bottom - y;
+        let description = "Terrain provided by the selected server.";
         caption(canvas, description, area, y + height + space(canvas, 2))
     })
 }

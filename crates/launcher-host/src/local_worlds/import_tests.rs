@@ -118,7 +118,7 @@ fn a_root_level_world_imports_with_its_name_and_settings() {
             world.name.as_str(),
             world.game_mode,
             world.difficulty,
-            world.generator,
+            world.generator.clone(),
             world.seed
         ),
         (
