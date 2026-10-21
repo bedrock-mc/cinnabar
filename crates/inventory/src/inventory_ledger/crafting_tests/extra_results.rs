@@ -73,7 +73,7 @@ fn declared_results(ledger: &PlayerInventoryLedger) -> Vec<(Arc<str>, u16)> {
 }
 
 #[test]
-fn a_manual_craft_takes_the_main_result_and_returns_extras_to_the_emptied_grid() {
+fn a_manual_craft_takes_the_main_result_and_returns_extras_to_a_free_grid_cell() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(COBBLE, 101, 1)));
     ledger.apply(&craft_slot(29, stack(COBBLE, 102, 1)));
@@ -92,12 +92,14 @@ fn a_manual_craft_takes_the_main_result_and_returns_extras_to_the_emptied_grid()
             "create 0".to_owned(),
             "take 1 Cursor".to_owned(),
             "create 1".to_owned(),
-            format!("place 2 {grid} 28 0"),
+            format!("place 2 {grid} 30 0"),
         ]
     );
     assert_eq!(ledger.cursor_stack().unwrap().network_id, FURNACE);
-    let returned = ledger.target_stack(InventoryTarget::Craft(28)).unwrap();
+    // Cells the craft empties are never reused within the same request.
+    let returned = ledger.target_stack(InventoryTarget::Craft(30)).unwrap();
     assert_eq!((returned.network_id, returned.count), (PLANKS, 2));
+    assert!(ledger.target_stack(InventoryTarget::Craft(28)).is_none());
     assert!(ledger.target_stack(InventoryTarget::Craft(29)).is_none());
 
     assert!(ledger.mark_transport_enqueued(10));
@@ -105,14 +107,15 @@ fn a_manual_craft_takes_the_main_result_and_returns_extras_to_the_emptied_grid()
         &mut ledger,
         request,
         &[
-            (CONTAINER_NAME_CRAFT_INPUT, 28, 2, 90),
+            (CONTAINER_NAME_CRAFT_INPUT, 28, 0, 0),
             (CONTAINER_NAME_CRAFT_INPUT, 29, 0, 0),
+            (CONTAINER_NAME_CRAFT_INPUT, 30, 2, 90),
             (CONTAINER_NAME_CURSOR, 0, 1, 91),
         ],
     );
     assert_eq!(
         ledger
-            .target_stack(InventoryTarget::Craft(28))
+            .target_stack(InventoryTarget::Craft(30))
             .unwrap()
             .stack_network_id,
         90
@@ -213,7 +216,6 @@ fn extras_with_nowhere_to_go_drop_in_encodable_amounts() {
             -3,
             crafting::ExtraDestination::Inventory,
             &[],
-            &[],
             &mut actions,
             &mut groups,
         )
@@ -251,4 +253,37 @@ fn a_craft_too_large_to_encode_is_refused_before_it_is_queued() {
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(ledger.pending_request_count(), pending);
+}
+
+#[test]
+fn every_created_result_keeps_its_own_lineage() {
+    let mut fixture = RecipeFixture::shapeless(
+        "test:two_extras",
+        vec![IngredientFixture::named("minecraft:cobblestone", 0)],
+        vec![
+            OutputFixture::new(FURNACE, 1),
+            OutputFixture::new(PLANKS, 1),
+            OutputFixture::new(PLANKS, 1),
+        ],
+    );
+    fixture.net_id = 80;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    let recipe = catalog.recipe(80).unwrap();
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(COBBLE, 101, 1)));
+    ledger.begin_craft(&recipe, 1).unwrap();
+    let held = |cell| ledger.view().get(cell).unwrap().clone();
+    let (main, first, second) = (
+        held(Cell::Cursor),
+        held(Cell::Craft(29)),
+        held(Cell::Craft(30)),
+    );
+    assert_eq!(
+        (first.stack.network_id, second.stack.network_id),
+        (PLANKS, PLANKS)
+    );
+    assert!(!first.same_source(&second));
+    assert!(!main.same_source(&first) && !main.same_source(&second));
 }

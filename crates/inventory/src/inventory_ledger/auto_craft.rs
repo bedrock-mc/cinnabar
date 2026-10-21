@@ -254,25 +254,26 @@ impl PlayerInventoryLedger {
                 amount,
                 source_id: id,
             });
-            consumed.push((cell, amount));
+            consumed.push(cell);
         }
         // Extra results are placed before the main one, which is then created by index too.
+        // Neither goes into a cell this request empties: a queued earlier request may still
+        // rename it.
         let mut registry_bound_merge = false;
-        let mut filled = Vec::new();
+        let mut filled = consumed;
         if recipe.extra_outputs().len() != 0 {
             (registry_bound_merge, filled) = self.push_extra_outputs(
                 recipe,
                 crafts,
                 request_id,
                 ExtraDestination::Inventory,
-                &consumed,
-                &[],
+                &filled,
                 &mut actions,
                 &mut groups,
             )?;
             actions.push(StackRequestAction::Create { results_index: 0 });
         }
-        let plan = self.spread_plan_partial(&created, capacity, &consumed, &filled);
+        let plan = self.spread_plan_partial(&created, capacity, &filled);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
         if remainder != 0 && self.view().get(Cell::Cursor).is_some() {
