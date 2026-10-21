@@ -29,36 +29,45 @@ fn gpu() -> GpuContext {
 #[test]
 fn duplicate_active_colour_attachments_fail_view_admission() {
     let gpu = gpu();
-    for (destinations, second_output, accepted) in
-        [("00", true, false), ("01", true, true), ("00", false, true)]
-    {
-        let fragment = format!(
-            "#version 120\n/* DRAWBUFFERS:{destinations} */\nvoid main() {{ gl_FragData[0] = vec4(1.0); {} }}",
-            if second_output {
-                "gl_FragData[1] = vec4(0.5);"
-            } else {
-                ""
-            }
-        );
-        let source = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files([
-            (
-                "composite.vsh",
-                "#version 120\nvoid main() { gl_Position = ftransform(); }",
-            ),
-            ("composite.fsh", &fragment),
-        ]));
-        let pack = build(
-            &source,
-            "attachments",
-            "",
-            &Default::default(),
-            None,
-            &gpu,
-            &Default::default(),
-            &Default::default(),
-        )
-        .unwrap();
-        let state = ViewState::new(&gpu.device, Arc::new(pack), [4, 4]);
-        assert_eq!(state.is_ok(), accepted, "{destinations}: {:?}", state.err());
+    for program in ["composite", "gbuffers_terrain", "shadow"] {
+        for (destinations, second_output, accepted) in
+            [("00", true, false), ("01", true, true), ("00", false, true)]
+        {
+            let fragment = format!(
+                "#version 120\n/* DRAWBUFFERS:{destinations} */\nvoid main() {{ gl_FragData[0] = vec4(1.0); {} }}",
+                if second_output {
+                    "gl_FragData[1] = vec4(0.5);"
+                } else {
+                    ""
+                }
+            );
+            let vertex_name = format!("{program}.vsh");
+            let fragment_name = format!("{program}.fsh");
+            let source = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files([
+                (
+                    vertex_name.as_str(),
+                    "#version 120\nvoid main() { gl_Position = ftransform(); }",
+                ),
+                (fragment_name.as_str(), &fragment),
+            ]));
+            let pack = build(
+                &source,
+                "attachments",
+                "",
+                &Default::default(),
+                None,
+                &gpu,
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+            let state = ViewState::new(&gpu.device, Arc::new(pack), [4, 4]);
+            assert_eq!(
+                state.is_ok(),
+                accepted,
+                "{program} {destinations}: {:?}",
+                state.err()
+            );
+        }
     }
 }
