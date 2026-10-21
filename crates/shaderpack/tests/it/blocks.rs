@@ -1,5 +1,6 @@
 //! GLSL that OpenGL drivers accept and naga's parser needs rewritten: interface blocks
-//! between stages, integer 1D samplers, `coherent`/`volatile` resources and implicit-LOD
+//! between stages, bools in buffer blocks, integer 1D samplers, returns that convert,
+//! literal shifts into the sign bit, `coherent`/`volatile` resources and implicit-LOD
 //! shadow lookups in compute shaders.
 
 use crate::{program, reflection};
@@ -44,7 +45,44 @@ fn interface_blocks_link_by_block_and_member_name() {
 }
 
 #[test]
-fn integer_1d_samplers_translate() {
+fn buffer_block_bools_are_integers_read_and_written_through_conversions() {
+    let t = translate(&[(
+        "begin.csh",
+        "#version 430\n\
+         layout(local_size_x = 1) in;\n\
+         const ivec3 workGroups = ivec3(1, 1, 1);\n\
+         layout(std430, binding = 4) buffer State { vec3 v; bool idle; bool check; bvec2 pair; };\n\
+         void main() {\n\
+             idle = check;\n\
+             check = v.x > 0.0 && !idle;\n\
+             if (pair.x) { pair = bvec2(idle, true); }\n\
+         }\n",
+    )]);
+    let r = reflection(program(&t, "begin"));
+    // std430: vec3 at 0, the bools as 4-byte integers at 12 and 16, the pair at 24.
+    assert_eq!(r.storage_buffers[0].min_size, 32);
+}
+
+#[test]
+fn signed_literal_shifts_into_the_sign_bit_wrap() {
+    // Rethinking Voxels marks texels with `uvec4(1<<31)`; naga's constant evaluator rejects
+    // the overflow, GLSL wraps it.
+    let t = translate(&[(
+        "begin.csh",
+        "#version 430\n\
+         layout(local_size_x = 1) in;\n\
+         const ivec3 workGroups = ivec3(1, 1, 1);\n\
+         layout(r32ui) uniform uimage2D marks;\n\
+         void main() { imageStore(marks, ivec2(0), uvec4(1<<31)); }\n",
+    )]);
+    let begin = program(&t, "begin");
+    reflection(begin);
+    let glsl = &begin.stages[0].result.as_ref().expect("compiles").glsl;
+    assert!(glsl.contains("0x80000000"), "{glsl}");
+}
+
+#[test]
+fn integer_1d_samplers_and_returns_that_convert_translate() {
     let t = translate(&[
         (
             "shaders.properties",
@@ -58,10 +96,11 @@ fn integer_1d_samplers_translate() {
             "composite.fsh",
             "#version 430\n\
              uniform usampler1D texBlockData;\n\
-             uint block(int i) { return texelFetch(texBlockData, i, 0).r; }\n\
+             uint block(int i) { if (i < 0) return 0; return texelFetch(texBlockData, i, 0).r; }\n\
+             float half_of(int i) { return i / 2; }\n\
              /* RENDERTARGETS: 0 */\n\
              layout(location = 0) out vec4 colour;\n\
-             void main() { colour = vec4(float(block(1)), 0.0, 0.0, 1.0); }\n",
+             void main() { colour = vec4(float(block(1)), half_of(3), 0.0, 1.0); }\n",
         ),
     ]);
     let r = reflection(program(&t, "composite"));

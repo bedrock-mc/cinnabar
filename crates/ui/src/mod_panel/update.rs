@@ -1,6 +1,7 @@
 //! Prevalidated local screen catalogs and bounded changes to retained panel values.
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -13,6 +14,41 @@ pub const MAX_PANEL_BUNDLE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_PANEL_PATCH_BYTES: usize = 32 * 1024;
 /// Maximum route documents admitted by one local catalog.
 pub const MAX_PANEL_SURFACES: usize = 128;
+
+/// A one-time request to show an immutable item in an admitted collection.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollectionReveal {
+    pub collection: String,
+    pub item: u32,
+}
+
+/// Shared consumption state keeps one accepted request from replaying across presenters.
+#[derive(Debug)]
+pub struct CollectionRevealRequest {
+    pub target: CollectionReveal,
+    consumed: AtomicBool,
+}
+
+impl CollectionRevealRequest {
+    /// Creates a fresh one-time request after its target has passed admission.
+    pub fn new(target: CollectionReveal) -> Self {
+        Self {
+            target,
+            consumed: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether any presenter still needs to consume this exact accepted request.
+    pub fn pending(&self) -> bool {
+        !self.consumed.load(Ordering::Relaxed)
+    }
+
+    /// Claims this request once, including when the same panel is presented again later.
+    pub fn consume(&self) -> bool {
+        !self.consumed.swap(true, Ordering::Relaxed)
+    }
+}
 
 /// An initial control schema with individually validated, reusable local routes.
 #[derive(Clone, Debug, Deserialize)]
@@ -135,9 +171,11 @@ impl Control {
                 Self::Text {
                     min_chars,
                     max_chars,
+                    live,
+                    navigation_keys,
                     ..
                 } => {
-                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,..} if (min_chars,max_chars)==(b_min,b_max))
+                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,live:b_live,navigation_keys:b_keys,..} if (min_chars,max_chars,live,navigation_keys)==(b_min,b_max,b_live,b_keys))
                 }
             }
     }
@@ -162,8 +200,14 @@ pub struct PanelPatch {
     /// Filters or sorts admitted tile data without resending its immutable metadata.
     #[serde(default)]
     collection_order: BTreeMap<String, Vec<usize>>,
+    /// Reveals an immutable item after applying this patch's filtered order.
+    #[serde(default)]
+    pub collection_reveal: Option<CollectionReveal>,
     #[serde(default)]
     capture_key: Option<bool>,
+    /// Changes the retained animation preference without replacing the panel schema.
+    #[serde(default)]
+    motion: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -292,6 +336,9 @@ impl PanelPatch {
         if let Some(capture) = self.capture_key {
             panel.capture_key = capture;
         }
+        if let Some(motion) = self.motion {
+            panel.motion = motion;
+        }
         for (name, order) in self.collection_order {
             let collection = panel
                 .surface
@@ -300,6 +347,17 @@ impl PanelPatch {
                 .ok_or("panel update names an unknown collection")?;
             collection.order = order;
             collection.validate_order()?;
+        }
+        if let Some(reveal) = self.collection_reveal {
+            let collection = panel
+                .surface
+                .as_mut()
+                .and_then(|surface| surface.collections.get_mut(&reveal.collection))
+                .ok_or("panel reveal names an unknown collection")?;
+            if reveal.item as usize >= collection.definition.items.len() {
+                return Err("panel reveal names an unknown item".into());
+            }
+            collection.reveal = Some(std::sync::Arc::new(CollectionRevealRequest::new(reveal)));
         }
         Ok(panel)
     }

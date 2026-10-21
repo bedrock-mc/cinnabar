@@ -130,6 +130,48 @@ void main() { id = mc_Entity.x; gl_Position = gl_Vertex; }
 }
 
 #[test]
+fn integer_and_float_gathers_compile_with_separate_sampler_bindings() {
+    let mut iface = ProgramInterface::default();
+    let (fragment, lines) = draft("composite.fsh", "#version 400 compatibility
+uniform usampler2D colortex0;
+uniform isampler2D customInteger;
+uniform sampler2D colortex1;
+void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(textureGather(customInteger, vec2(0.5))) + textureGather(colortex1, vec2(0.5)); }
+", StageKind::Fragment, &mut iface);
+    let (glsl, origins) = assemble(&fragment, &[], &iface.location_defines().unwrap());
+    let compiled = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    )
+    .expect("mixed gathers compile");
+    let mut bindings: Vec<_> = compiled
+        .module
+        .global_variables
+        .iter()
+        .filter(|(_, variable)| {
+            matches!(
+                compiled.module.types[variable.ty].inner,
+                naga::TypeInner::Sampler { comparison: false }
+            )
+        })
+        .map(|(_, variable)| variable.binding.as_ref().unwrap().binding)
+        .collect();
+    bindings.sort_unstable();
+    let mut expected = [
+        SamplerClass::ClampNearest,
+        SamplerClass::RepeatNonFiltering,
+        SamplerClass::ClampLinear,
+    ]
+    .map(SamplerClass::binding);
+    expected.sort_unstable();
+    assert_eq!(bindings, expected);
+}
+
+#[test]
 fn loop_shadowing_preserves_a_valid_shader() {
     let mut iface = ProgramInterface::default();
     let (stage, lines) = draft(

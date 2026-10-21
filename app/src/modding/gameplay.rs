@@ -14,13 +14,14 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
+    pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
     pub(super) input: Option<ResMut<'w, SemanticInputSnapshot>>,
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
-    real_time: Option<Res<'w, Time<Real>>>,
+    pub(super) real_time: Option<Res<'w, Time<Real>>>,
     clock: Option<Res<'w, client_presentation::environment::WorldClock>>,
     pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
@@ -77,7 +78,24 @@ impl GameplayContext<'_> {
             camera: true,
             ..Default::default()
         };
-        let snapshot = self.snapshot(allowed, &grants)?;
+        let Some(snapshot) = self.snapshot(allowed, &grants) else {
+            let eye = self.view.as_ref()?.eye_translation().to_array();
+            return Some(mod_api::native_frame::Frame {
+                version: mod_api::native_frame::VERSION,
+                session: world.stream.as_ref()?.authority().actor_session_id(),
+                dimension: world.stream.as_ref()?.current_dimension(),
+                eye,
+                yaw: 0.0,
+                pitch: 0.0,
+                attack_held: false,
+                seconds: self
+                    .real_time
+                    .as_ref()
+                    .map_or(0.0, |time| time.delta_secs().min(1.0)),
+                players: Vec::new(),
+                suspended: true,
+            });
+        };
         Some(mod_api::native_frame::Frame {
             version: mod_api::native_frame::VERSION,
             session: snapshot.session,
@@ -87,6 +105,7 @@ impl GameplayContext<'_> {
             pitch: snapshot.pitch,
             attack_held: snapshot.attack_held,
             seconds: snapshot.frame_seconds,
+            suspended: false,
             players: snapshot
                 .players
                 .into_iter()
@@ -157,7 +176,10 @@ impl GameplayContext<'_> {
     }
 
     /// Returns walking ownership independently of temporary server input permissions.
-    fn walking_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
+    pub(super) fn walking_scope(
+        &self,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<(u64, i32)> {
         self.input.as_ref()?.snapshot()?;
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()

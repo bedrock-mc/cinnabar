@@ -382,7 +382,15 @@ fn selecting_the_registered_mods_section_opens_its_controls() {
         .definition()
         .index;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {
-        super::super::draw(canvas, &view, [1280.0, 720.0], &|_| None, None).unwrap();
+        super::super::draw(
+            canvas,
+            &view,
+            [1280.0, 720.0],
+            &|_| None,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
     });
     assert!(
         hits.iter()

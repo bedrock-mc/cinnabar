@@ -2,6 +2,7 @@
 
 use super::paint::Canvas;
 use launcher::menu::{MenuAction, MenuView};
+use launcher::shader_options::Action as ShaderOptionsAction;
 use ui_engine::{engine::rect, menu_scroll::MenuScrolls};
 
 pub(super) fn reveal(
@@ -16,11 +17,23 @@ pub(super) fn reveal(
         scrolls.observe_focus(view.focused_action);
         return false;
     };
+    // Controls outside the scroll view whose columns they share, such as the Shader Pack
+    // Settings footer: revealing one would scroll that view to its end.
     let fixed = *action == MenuAction::AddBack
         || (view.screen == launcher::menu::MenuScreen::AddServer
             && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
         || (*action == MenuAction::SettingsScalePicker && view.settings.scale_picker)
-        || matches!(action, MenuAction::SettingsDropdown(index) if view.settings.dropdown == Some(*index));
+        || matches!(action, MenuAction::SettingsDropdown(index) if view.settings.dropdown == Some(*index))
+        || matches!(
+            action,
+            MenuAction::ShaderOptions(
+                ShaderOptionsAction::Back
+                    | ShaderOptionsAction::Reset
+                    | ShaderOptionsAction::Cancel
+                    | ShaderOptionsAction::Apply
+                    | ShaderOptionsAction::Done
+            )
+        );
     let centre = (bounds.min().x() + bounds.max().x()) * 0.5;
     let area = canvas
         .scrolls

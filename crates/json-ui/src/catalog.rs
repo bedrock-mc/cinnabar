@@ -313,7 +313,8 @@ impl Catalog {
         self.defs.values_mut().flat_map(|table| table.values_mut())
     }
 
-    pub(crate) fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
+    /// Mutates one definition for an application-owned presentation policy.
+    pub fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
         self.defs.get_mut(namespace)?.get_mut(name)
     }
 

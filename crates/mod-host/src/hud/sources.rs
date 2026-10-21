@@ -401,12 +401,8 @@ fn bind_rows(
         if card.rows != rows {
             card.rows = rows;
         }
-        if preview && card.rows.is_empty() && card.title.is_empty() {
-            card.title.clone_from(if card.editor_label.is_empty() {
-                &card.id
-            } else {
-                &card.editor_label
-            });
+        if preview {
+            card.ensure_editor_placeholder();
         }
         card.source = None;
     }

@@ -77,3 +77,22 @@ fn world_files_dropped_elsewhere_are_not_imported_as_packs() {
         Screen::List
     );
 }
+
+#[test]
+fn files_dropped_on_video_settings_import_as_resource_packs_only_without_shader_packs() {
+    let (mut app, incoming) = fixture(MenuScreen::Settings);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::SettingsSection(
+            launcher::menu::settings_sections::SettingSection::Video
+                .definition()
+                .index,
+        ));
+    drop_files(&mut app, &["/drop/Dusk.zip"]);
+    let expected: &[PathBuf] = if render_model::SHADER_PACKS_ENABLED {
+        &[]
+    } else {
+        &[PathBuf::from("/drop/Dusk.zip")]
+    };
+    assert_eq!(pack_imports(&incoming), expected);
+}

@@ -283,9 +283,9 @@ pub(super) fn slider(
         enabled,
         true,
     )?;
-    if let Some(index) = index.filter(|_| enabled) {
+    if enabled {
         let track = [b[0] + half, b[1], b[2] - half, b[3]];
-        canvas.slider_track(index, track, thumb_bounds)?;
+        canvas.slider_track(actions[0], track, thumb_bounds)?;
         canvas.focus_target(actions[selected.min(actions.len() - 1)], track)?;
     }
     if actions.len() <= 1 {

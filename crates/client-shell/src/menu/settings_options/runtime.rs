@@ -83,6 +83,7 @@ impl MenuRuntime {
             user.video.ui_scale = runtime.user_settings_update().1.video.ui_scale;
             user.video.fullscreen = self.fullscreen;
             user.video.render_mode = runtime.user_settings_update().1.video.render_mode;
+            user.video.shader_pack = runtime.user_settings_update().1.video.shader_pack.clone();
             runtime.replace_user_settings(user);
             self.settings_apply = false;
         }

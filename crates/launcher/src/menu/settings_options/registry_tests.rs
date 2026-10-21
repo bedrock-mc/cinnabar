@@ -241,3 +241,29 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
         assert_eq!(options.key_control(id.row(gamepad).unwrap()), None);
     }
 }
+
+/// Iris's reload key defaults to R and remaps like other client controls, in builds that
+/// compile shader packs; other builds offer no row for it.
+#[test]
+fn reload_shaders_defaults_to_r_and_remaps_only_in_shader_pack_builds() {
+    let r = semantic_input::PhysicalControl::KeyboardUsage(0x15);
+    let mut options = SettingsOptions::default();
+    let row = BindingId::ReloadShaders.row(false);
+    assert_eq!(row.is_some(), super::SHADER_PACK_BINDINGS);
+    let Some(row) = row else {
+        assert_eq!(options.named_key_control(BindingId::ReloadShaders), None);
+        return;
+    };
+    assert_eq!(
+        super::custom_key_label(BindingId::ReloadShaders.name()),
+        Some("Reload Shaders")
+    );
+    assert_eq!(options.named_key_control(BindingId::ReloadShaders), Some(r));
+    let f5 = semantic_input::PhysicalControl::KeyboardUsage(0x3e);
+    assert!(options.remap(row, f5));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(
+        reloaded.named_key_control(BindingId::ReloadShaders),
+        Some(f5)
+    );
+}

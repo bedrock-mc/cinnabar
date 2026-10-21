@@ -37,6 +37,17 @@ pub(in crate::chunk) struct ChunkUploadPublication<'w> {
         Option<ResMut<'w, crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>>,
     coverage: Option<ResMut<'w, crate::chunk::TerrainCoverage>>,
 }
+/// Sub-chunk uploads admitted per frame while a shader pack draws the terrain. The pack
+/// expands at most `FRAME_EXPANSION_FACES` a frame from these sections, so admitting
+/// a whole streaming burst (up to the publication's 512 items, ~50 µs of CPU each) only puts
+/// the burst's cost into one frame; 24 a frame stays above the server's arrival rate.
+const SHADER_PACK_FRAME_UPLOADS: usize = 24;
+/// The upload budget, and whether a shader pack draws the terrain these uploads feed.
+#[derive(SystemParam)]
+pub(in crate::chunk) struct ChunkUploadLimits<'w> {
+    budget: Res<'w, ChunkUploadBudget>,
+    pack: Option<Res<'w, render_scene::shaderpack::ShaderPackDrawnCategories>>,
+}
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_gpu_chunks(
     mut commands: Commands,
@@ -44,7 +55,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     views: Query<&ExtractedView, With<ExtractedCamera>>,
     mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     mut arena: ResMut<ChunkGpuArena>,
-    budget: Res<ChunkUploadBudget>,
+    limits: ChunkUploadLimits,
     capacity_hint: Option<Res<render_scene::chunk::capacity::ChunkArenaCapacityHint>>,
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
     biome_tints: Res<ChunkBiomeTints>,
@@ -56,6 +67,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut writes: Local<ArenaWrites>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let budget = &*limits.budget;
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
@@ -177,9 +189,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     // Set when the device ran out of memory for a growth buffer; uploads needing growth then
     // wait for the next frame's attempt instead of retrying it per upload.
     let mut growth_failed = false;
-    let frame_items = budget
-        .max_per_frame
-        .max(PublicationServiceConfig::DEFAULT.maximum_frame_items);
+    let frame_items = if limits.pack.as_deref().is_some_and(|drawn| drawn.terrain) {
+        SHADER_PACK_FRAME_UPLOADS
+    } else {
+        budget
+            .max_per_frame
+            .max(PublicationServiceConfig::DEFAULT.maximum_frame_items)
+    };
     // Spread large buffer allocations across frames while leaving room for uploads now.
     if arena.origin_len == 0
         && arena.quad_len == 0

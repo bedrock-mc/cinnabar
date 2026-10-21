@@ -1,7 +1,8 @@
-//! Reads the selected graphics device once before publishing menu settings.
+//! Reads the selected graphics device once before publishing menu settings and the device's
+//! dedicated memory for renderer budgets.
 
 use bevy::{
-    prelude::{Res, ResMut, warn},
+    prelude::{Commands, Res, ResMut, warn},
     render::renderer::{RenderAdapter, RenderDevice},
 };
 
@@ -11,11 +12,13 @@ mod macos;
 #[cfg(target_os = "macos")]
 use objc2_metal::MTLDevice;
 
-/// Applies installed memory to untouched preferences after the renderer has selected its adapter.
+/// Applies installed memory to untouched preferences after the renderer has selected its adapter,
+/// and publishes the adapter's dedicated memory.
 pub fn initialize_render_distance(
     adapter: Option<Res<RenderAdapter>>,
     device: Option<Res<RenderDevice>>,
     mut menu: ResMut<crate::menu::MenuRuntime>,
+    mut commands: Commands,
 ) {
     let graphics_bytes = adapter
         .as_deref()
@@ -23,6 +26,9 @@ pub fn initialize_render_distance(
     if graphics_bytes.is_none() {
         warn!("graphics memory unavailable; render distance uses the shared-memory recommendation");
     }
+    commands.insert_resource(render_scene::device_memory::DedicatedGraphicsMemory(
+        graphics_bytes.unwrap_or(0),
+    ));
     menu.sync_render_distance_device(ui::RenderDistanceDevice {
         physical_memory_bytes: launcher_host::memory::physical_bytes(),
         dedicated_graphics_memory_bytes: graphics_bytes.unwrap_or(0),

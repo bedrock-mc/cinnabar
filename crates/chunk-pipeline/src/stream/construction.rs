@@ -97,6 +97,7 @@ impl WorldStream {
             mesh_render_settings: ::meshing::MeshRenderSettings::default(),
             mesh_render_revision: 0,
             startup_terrain_announced: true,
+            java_meshing: None,
             seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
             ingress_dimension: bootstrap.dimension,
             deferred_ingress: VecDeque::new(),

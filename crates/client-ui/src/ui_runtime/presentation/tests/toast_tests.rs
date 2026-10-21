@@ -148,7 +148,7 @@ fn join_request_toast_stands_around_server_toasts_and_takes_presses() {
         id: 7,
         title: Arc::from(title.as_str()),
         message: Arc::from(hint.as_str()),
-        press: ui::ToastPress::JoinRequests,
+        press: Some(ui::ToastPress::JoinRequests),
         since_millis: 0,
         until_millis: 30_000,
     });

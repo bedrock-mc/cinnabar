@@ -57,6 +57,8 @@ pub(super) fn build(
     let hashed_ids = bootstrap.block_network_ids_are_hashes;
     let old = std::mem::replace(collisions, registries.collisions);
     client_runtime::session::release_off_frame(old);
+    let old = std::mem::replace(&mut client_world.mining_filters, registries.mining_filters);
+    client_runtime::session::release_off_frame(old);
     let registration = registries.registration;
     let custom_block_ids = registration.custom_ids;
     let id_remap = registration.remap;
