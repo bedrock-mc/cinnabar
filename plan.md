@@ -365,6 +365,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
+  explicit server fuel declarations keep priority. Named station responses retain
+  accepted stacks at their window indices. Broader custom-fuel and matched server
+  acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
