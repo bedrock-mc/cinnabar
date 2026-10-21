@@ -85,6 +85,7 @@ pub struct FormEngine {
 
 pub struct FormCache {
     model: FormModel,
+    input_mode: json_ui::InputMode,
     components: json_ui::Components,
     catalog: Arc<Catalog>,
     /// A rejected bind retains its input key without publishing a partial tree.
@@ -315,15 +316,17 @@ impl FormEngine {
             .unwrap_or_else(|poison| poison.into_inner()) = json_ui::Animator::new();
     }
 
-    /// Render `model`; `Ok(None)` without its template. Layout holds until model or scroll change.
+    /// Renders the model with its device bindings; returns `Ok(None)` without a template.
     pub fn render(
         &mut self,
         model: &FormModel,
         view: &ViewState,
+        input_mode: json_ui::InputMode,
         frame: &mut PaintFrame<'_>,
     ) -> Result<Option<EngineFrame>, PaintError> {
         let current = self.cache.as_ref().is_some_and(|cache| {
             cache.model == *model
+                && cache.input_mode == input_mode
                 && cache.components.same_bindings(&view.components)
                 && Arc::ptr_eq(&cache.catalog, &self.catalog)
         });
@@ -333,8 +336,15 @@ impl FormEngine {
             self.cache = Some(FormCache {
                 components: components.clone(),
                 model: model.clone(),
+                input_mode,
                 catalog: Arc::clone(&self.catalog),
-                bound: bind_form_over(model, &self.catalog, self.registry.context(), components),
+                bound: bind_form_over(
+                    model,
+                    &self.catalog,
+                    self.registry.context(),
+                    components,
+                    input_mode,
+                ),
                 laid: None,
                 screen_cancel: json_ui::form_screen_cancel(&self.catalog),
             });

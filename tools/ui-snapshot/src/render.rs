@@ -10,6 +10,8 @@ mod cosmetic_particles;
 mod crafting;
 mod edit_selection;
 #[cfg(feature = "test-support")]
+mod form_gamepad;
+#[cfg(feature = "test-support")]
 mod form_overlap;
 mod hud_editor;
 mod panorama;
@@ -118,6 +120,10 @@ fn png_fixture(
         return tiled_image::png(state.size, *scale);
     }
     #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::FormGamepad) {
+        return form_gamepad::png(state, dir);
+    }
+    #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::ControlLocked) {
         return control_locked::png(state, dir);
     }
@@ -149,6 +155,7 @@ fn png_fixture(
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::FormGamepad
         | Fixture::SettingsDraft
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
@@ -194,6 +201,7 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
+        | Fixture::FormGamepad
         | Fixture::SettingsDraft
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")

@@ -335,7 +335,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   keep the active form and answer busy, including reused IDs.
   Busy cancellations retain every request through transport backpressure.
   Custom forms retain control locks and publish enabled bindings for the current
-  game phase without removing locked response values; device acceptance remains open.
+  game phase without removing locked response values.
+  Device-specific form dispatch semantics remain an unverified gap.
   Server settings retain drafts across tabs and submit their final values when
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.

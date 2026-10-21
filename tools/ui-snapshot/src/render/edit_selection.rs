@@ -92,7 +92,7 @@ fn draw(
     *frame.next = 1;
     frame.now = super::CAPTURE_SECONDS;
     engine
-        .render(model, view, frame)
+        .render(model, view, InputMode::Mouse, frame)
         .map_err(|error| Error::Invalid(error.to_string()))?
         .ok_or_else(|| Error::Invalid("selection fixture's custom form did not resolve".into()))
 }

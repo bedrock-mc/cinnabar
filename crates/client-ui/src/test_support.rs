@@ -1,5 +1,7 @@
 //! Explicit cross-crate UI fixtures, enabled only for development dependencies.
 
+pub mod form_input_mode;
+
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use assets::{
     HudTexture, HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, RuntimeUiAssets,

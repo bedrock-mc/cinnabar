@@ -34,6 +34,9 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// A form's gamepad-only artwork after controller use.
+    #[cfg(feature = "test-support")]
+    FormGamepad,
     /// A label whose unavailable primary face selects its installed backup.
     BackupFont,
     /// An original checker repeated beyond a small sprite's former draw cutoff.
@@ -194,6 +197,13 @@ pub const STATES: &[State] = &[
         size: [256, 128],
         gui_scale: 1,
         fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "form-gamepad",
+        size: [640, 360],
+        gui_scale: 2,
+        fixture: || Fixture::FormGamepad,
     },
     #[cfg(feature = "test-support")]
     State {

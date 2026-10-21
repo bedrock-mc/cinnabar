@@ -109,6 +109,10 @@ use ui::{UiNode, UiPoint, UiRect};
 /// Each screen family's own state, carried across builds.
 #[derive(Default)]
 pub(super) struct ScreenStates {
+    /// App-wide input mode supplied before presentation refreshes form bindings.
+    form_input_mode: json_ui::InputMode,
+    /// Mouse bindings persist until the shared mode changes or the controller is used.
+    form_mouse_override: bool,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(launcher::menu::MenuAction, String)>,
     /// The engine menu's press sounds by action.
@@ -559,6 +563,24 @@ impl UiPresentationRuntime {
         Some(self.engine.as_ref()?.animator())
     }
 
+    /// Observes the app-wide device, clearing the form override when that mode changes.
+    pub fn set_form_input_mode(&mut self, mode: json_ui::InputMode) {
+        if self.screens.form_input_mode != mode {
+            self.screens.form_mouse_override = false;
+        }
+        self.screens.form_input_mode = mode;
+    }
+
+    /// Uses mouse bindings until the shared mode changes or controller input arrives.
+    pub fn note_form_mouse_input(&mut self) {
+        self.screens.form_mouse_override = true;
+    }
+
+    /// Clears the mouse override when the form receives fresh controller input.
+    pub fn note_form_gamepad_input(&mut self) {
+        self.screens.form_mouse_override = false;
+    }
+
     /// The engine frame for `identity`, when the engine drew that form.
     pub fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
         self.projections
@@ -735,7 +757,16 @@ impl UiPresentationRuntime {
                             renderers: &mut [&mut items],
                         };
                         let catalog = renderer.catalog_label();
-                        match renderer.render(&form, &state.view, &mut frame) {
+                        match renderer.render(
+                            &form,
+                            &state.view,
+                            if self.screens.form_mouse_override {
+                                json_ui::InputMode::Mouse
+                            } else {
+                                self.screens.form_input_mode
+                            },
+                            &mut frame,
+                        ) {
                             Ok(Some(frame)) => {
                                 self.projections.form.frame = Some((entry.identity, frame));
                                 log_path(

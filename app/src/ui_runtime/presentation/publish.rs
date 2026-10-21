@@ -27,11 +27,19 @@ pub(crate) struct PreparedUiPublication(pub(crate) Option<PendingUiPublication>)
 pub(crate) fn observe_mount_jump_input(
     input: Res<client_state::SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
     runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
+    presentation.set_form_input_mode(input.snapshot().map_or(json_ui::InputMode::Mouse, |input| {
+        match input.input_mode {
+            semantic_input::InputMode::KeyboardMouse => json_ui::InputMode::Mouse,
+            semantic_input::InputMode::GamePad => json_ui::InputMode::Gamepad,
+            semantic_input::InputMode::Touch => json_ui::InputMode::Touch,
+        }
+    }));
 }
 
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
