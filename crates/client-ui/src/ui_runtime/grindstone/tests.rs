@@ -37,6 +37,12 @@ fn grindstone() -> (UiRuntime, player_state::PlayerState) {
     ledger.apply_registry(&ItemRegistryEvent {
         entries: Arc::from([entry("minecraft:diamond_sword", SWORD)]),
     });
+    ledger.apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+        slots: vec![NetworkItemStack::empty(); usize::from(protocol::PLAYER_INVENTORY_SLOTS)]
+            .into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
         container: ContainerIdentity::window(5),
         window_type: protocol::WINDOW_TYPE_GRINDSTONE,
