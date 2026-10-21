@@ -249,6 +249,8 @@ performance qualification remains open.
   Keep visual eye height and the protocol movement offset as separate owned facts.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
+  Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
+  inventory preview and resource-pack geometry acceptance remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
