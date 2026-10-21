@@ -892,3 +892,55 @@ fn review_geometry_catalog_accepts_json_escaped_identifiers() {
     let catalog = super::geometry_inputs::geometry_catalog(&view, &wanted);
     assert!(catalog.contains_key("geometry.gen"));
 }
+
+// A scaled or translated full block must draw at its transformed size, not as a whole cube.
+#[test]
+fn scaled_and_translated_full_blocks_draw_their_transformed_bounds() {
+    let transformed = |scale: [f32; 3], translation: [f32; 3]| CustomVisualComponents {
+        materials: materials("lucky"),
+        transformation: Some(CustomTransformation {
+            rotation: [0, 1, 0],
+            scale,
+            translation,
+        }),
+        ..CustomVisualComponents::default()
+    };
+    let blocks = CustomBlocks {
+        blocks: vec![
+            block(
+                "test:turned",
+                1,
+                CustomBlockVisuals {
+                    base: transformed([1.0; 3], [0.0; 3]),
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+            block(
+                "test:half",
+                1,
+                CustomBlockVisuals {
+                    base: transformed([1.0, 0.5, 1.0], [0.0, -0.25, 0.0]),
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+    let half = compiled.overlay.visuals[1];
+    assert_eq!(half.kind, VisualKind::Model);
+    let template = compiled.overlay.model_templates[half.model_template as usize];
+    let heights = compiled.overlay.model_quads[template.quad_start as usize..]
+        [..template.quad_count as usize]
+        .iter()
+        .flat_map(|quad| quad.positions.iter().map(|corner| corner[1]))
+        .collect::<Vec<_>>();
+    assert_eq!(heights.iter().min(), Some(&0));
+    assert_eq!(
+        heights.iter().max(),
+        Some(&128),
+        "half a block in 1/256 units"
+    );
+}

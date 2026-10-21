@@ -368,8 +368,14 @@ impl Builder<'_> {
             return *visual;
         }
         let checkpoint = self.texture_checkpoint();
+        // Only quarter turns keep a full cube; scale and translation move its faces.
+        let cube_transform = components.transformation.is_none_or(|transform| {
+            transform.scale == [1.0; 3] && transform.translation == [0.0; 3]
+        });
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK | FULL_BLOCK_V1) if components.random_offset.is_none() => {
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1)
+                if components.random_offset.is_none() && cube_transform =>
+            {
                 self.cube(components)
             }
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
