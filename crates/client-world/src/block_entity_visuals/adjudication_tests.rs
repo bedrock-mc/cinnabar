@@ -214,6 +214,10 @@ fn block_entity_visuals_classify_static_logical_deferred_and_unknown_routes() {
 fn block_entity_visuals_require_exact_backing_identity_and_geometry() {
     let beacon = block_entity_nbt(Some("Beacon"), &[]);
     assert!(matches!(
+        adjudicate_block_entity_visual(&beacon, backing("minecraft:beacon", VisualKind::Model)),
+        BlockEntityVisualRoute::Deferred { .. }
+    ));
+    assert!(matches!(
         adjudicate_block_entity_visual(&beacon, backing("minecraft:beacon", VisualKind::Invisible)),
         BlockEntityVisualRoute::Unknown { .. }
     ));

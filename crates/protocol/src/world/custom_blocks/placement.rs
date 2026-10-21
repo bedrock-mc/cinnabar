@@ -32,11 +32,16 @@ mod tests;
 /// Prediction overrides apply to the block type when any component set needs them.
 pub(super) fn components(placement: &mut CustomPlacement, components: Option<&Nbt>) {
     let Some(components) = components else { return };
-    placement.server_placing |= components.field("minecraft:on_player_placing").is_some()
-        || matches!(
-            components.field("minecraft:custom_components")
-                .and_then(|component| component.field("hasPlayerPlacing")),
+    let custom = components.field("minecraft:custom_components");
+    // Version 1 custom components declare every handler.
+    let flag = |name: &str| {
+        matches!(
+            custom.and_then(|component| component.field(name)),
             Some(Nbt::Byte(value)) if *value != 0
-        );
+        )
+    };
+    placement.server_placing |= components.field("minecraft:on_player_placing").is_some()
+        || flag("hasPlayerPlacing")
+        || flag("isV1Component");
     placement.has_placement_filter |= components.field("minecraft:placement_filter").is_some();
 }

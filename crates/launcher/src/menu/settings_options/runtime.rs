@@ -41,6 +41,9 @@ impl SettingsOptions {
         settings.video.distortion_scale = self.value(SettingId::ScreenDistortion) as f32 / 100.0;
         settings.controls.gamepad_look_sensitivity =
             (self.value(SettingId::ControllerSensitivity) as f32 / 50.0).max(0.01);
+        settings.controls.touch_look_sensitivity = (self.value(SettingId::TouchSensitivity) as f32
+            / SettingId::TouchSensitivity.definition().default as f32)
+            .max(0.01);
         settings.controls.invert_gamepad_y = self.value(SettingId::ControllerInvertYAxis) != 0;
         settings.video.camera_shake = self.value(SettingId::CameraShake) != 0;
         settings.video.damage_bob = self.value(SettingId::DamageBob) as f32 / 100.0;
@@ -70,5 +73,26 @@ impl SettingsOptions {
             _ => PerspectiveMode::FirstPerson,
         };
         settings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Touch sensitivity survives a save and changes only the touch look multiplier.
+    #[test]
+    fn touch_sensitivity_is_persisted_and_applied_to_touch_input() {
+        let mut options = SettingsOptions::default();
+        let original = options.user_settings().controls;
+        assert!(options.set(SettingId::TouchSensitivity.index(), 75));
+        let restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        let controls = restored.user_settings().controls;
+        assert_eq!(controls.touch_look_sensitivity, 1.5);
+        assert_eq!(controls.mouse_sensitivity, original.mouse_sensitivity);
+        assert_eq!(
+            controls.gamepad_look_sensitivity,
+            original.gamepad_look_sensitivity
+        );
     }
 }

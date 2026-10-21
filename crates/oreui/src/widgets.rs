@@ -13,8 +13,8 @@ use super::theme::{
     BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, Bundle, CAPTION, DESTRUCTIVE, DISABLED, EDGE,
     FIELD_CARET, FIELD_PLACEHOLDER, HEADER_HEIGHT, HEADER_STRIP, HEADER5, MENU_DESTRUCTIVE,
     MENU_ITEM, MENU_ITEM_DISABLED, MENU_NEUTRAL, MENU_SECONDARY, MENU_SPECULAR_ACTIVE, NEUTRAL,
-    NEUTRAL20, NEUTRAL80, NEUTRAL100, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON, PRIMARY_ROLE, Rgba,
-    Role, SECONDARY, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST, Type,
+    NEUTRAL20, NEUTRAL80, NEUTRAL90, NEUTRAL100, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON,
+    PRIMARY_ROLE, Rgba, Role, SECONDARY, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST, Type,
 };
 use launcher::menu::{MenuAction, MenuView};
 use ui::IconRef;
@@ -573,6 +573,7 @@ pub(super) fn text_field(
         focused,
         action,
         NEUTRAL100,
+        None,
     )
 }
 
@@ -595,6 +596,30 @@ pub(super) fn text_field_on_panel(
         focused,
         action,
         NEUTRAL80.fill,
+        None,
+    )
+}
+
+/// An editable search field reserves space for its magnifying-glass icon.
+pub(super) fn search_field(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    value: &str,
+    placeholder: &str,
+    focused: bool,
+    action: Option<MenuAction>,
+) -> Result<(), PaintError> {
+    field(
+        canvas,
+        view,
+        b,
+        value,
+        placeholder,
+        focused,
+        action,
+        NEUTRAL90,
+        Some(super::icons::Icon::Search),
     )
 }
 
@@ -608,6 +633,7 @@ fn field(
     focused: bool,
     action: Option<MenuAction>,
     fill: Rgba,
+    leading: Option<super::icons::Icon>,
 ) -> Result<(), PaintError> {
     let mut state = canvas.interaction(view, action);
     state.focused |= focused;
@@ -618,7 +644,16 @@ fn field(
     let fill = canvas.appearance.surface(fill);
     let hovered = canvas.role(NEUTRAL80).hovered;
     canvas.fill(face, mix(fill, hovered, motion.hover))?;
-    let left = b[0] + canvas.r(1.4);
+    let mut left = b[0] + canvas.r(1.4);
+    if let Some(icon) = leading {
+        super::icons::draw(
+            canvas,
+            icon,
+            [left, b[1] + canvas.r(1.0)],
+            FIELD_PLACEHOLDER,
+        )?;
+        left += canvas.r(3.0);
+    }
     let width = (b[2] - canvas.r(1.2) - left).max(1.0);
     let shown = if value.is_empty() { placeholder } else { value };
     let color = if value.is_empty() {

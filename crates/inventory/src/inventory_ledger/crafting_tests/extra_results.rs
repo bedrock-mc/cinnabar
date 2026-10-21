@@ -287,3 +287,38 @@ fn every_created_result_keeps_its_own_lineage() {
     assert!(!first.same_source(&second));
     assert!(!main.same_source(&first) && !main.same_source(&second));
 }
+
+#[test]
+fn a_book_craft_all_keeps_every_result_within_one_stack() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    for (slot, id) in [(12, 101), (13, 102)] {
+        ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot,
+            },
+            stack: stack(COBBLE, id, 64),
+            storage_item: None,
+        }));
+    }
+    ledger.begin_auto_craft(&recipe(), true).unwrap();
+    // The main result alone would allow 64 crafts; the two planks each returns allow 32.
+    let crafts = ledger
+        .newest_request()
+        .unwrap()
+        .actions
+        .iter()
+        .find_map(|action| match action {
+            StackRequestAction::AutoCraft { crafts, .. } => Some(*crafts),
+            _ => None,
+        });
+    assert_eq!(crafts, Some(32));
+    let created: Vec<_> = tail(&ledger)
+        .into_iter()
+        .filter(|label| label.starts_with("place") || label.starts_with("drop"))
+        .collect();
+    assert!(
+        created.iter().all(|label| !label.starts_with("drop")),
+        "{created:?}"
+    );
+}

@@ -157,9 +157,10 @@ impl PlayerInventoryLedger {
         Some(sources)
     }
 
-    /// How many times the inventory can craft `recipe` at once, capped at one output stack.
-    fn max_auto_crafts(&self, recipe: &RecipeHandle, capacity: u8) -> u8 {
-        let per_stack = capacity / recipe.output().count.max(1);
+    /// How many times the inventory can craft `recipe` at once, capped so every result fits
+    /// one stack that one action can move.
+    fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
+        let per_stack = self.crafts_per_request(recipe).unwrap_or(0);
         let (mut low, mut high) = (0u8, per_stack);
         while low < high {
             let middle = low + (high - low).div_ceil(2);
@@ -194,11 +195,7 @@ impl PlayerInventoryLedger {
         if !self.player_cell_fits(&one_craft, capacity) {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        let crafts = if all {
-            self.max_auto_crafts(recipe, capacity)
-        } else {
-            1
-        };
+        let crafts = if all { self.max_auto_crafts(recipe) } else { 1 };
         if crafts == 0 {
             return Err(InventoryGestureError::InvalidRequest);
         }
@@ -242,18 +239,22 @@ impl PlayerInventoryLedger {
         ];
         let mut groups = Vec::new();
         let mut consumed = Vec::new();
-        for (slot, amount, id) in sources {
+        for (slot, total, id) in sources {
             let cell = Cell::Inventory(slot);
-            // Crafting accepts ingredients only from the combined inventory name.
-            actions.push(StackRequestAction::Consume {
-                amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,
-                source: combined_request_slot(slot, id)?,
-            });
-            groups.push(DeltaGroup::Shrink {
-                source: cell,
-                amount,
-                source_id: id,
-            });
+            // Crafting accepts ingredients only from the combined inventory name, and each
+            // consume carries at most one action's amount.
+            for amount in super::crafting::action_amounts(total) {
+                actions.push(StackRequestAction::Consume {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: combined_request_slot(slot, id)?,
+                });
+                groups.push(DeltaGroup::Shrink {
+                    source: cell,
+                    amount,
+                    source_id: id,
+                });
+            }
             consumed.push(cell);
         }
         // Extra results are placed before the main one, which is then created by index too.

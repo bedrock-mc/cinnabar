@@ -2,6 +2,7 @@
 //! screen widgets, result cells and the creative catalog.
 
 use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
+use std::collections::HashMap;
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
@@ -85,35 +86,56 @@ pub fn recipe_book_entries<'a>(
                 })
                 .collect();
         }
-        let mut entries = Vec::with_capacity(items.len());
-        let mut open: Option<u32> = None;
+        enum BookOrder<'a> {
+            Item(&'a CreativeItem),
+            Group(u32),
+        }
+
+        // Creative items are sorted by network id for lookup, not by group. Collect
+        // each named group before publishing rows so an interleaved catalog cannot
+        // emit the same group head once per network-id run.
+        let mut order = Vec::with_capacity(items.len());
+        let mut grouped = HashMap::<u32, Vec<&CreativeItem>>::new();
         for item in items.iter() {
             let group = catalog
                 .groups
                 .get(item.group as usize)
                 .filter(|group| !group.name.is_empty());
-            let Some(group) = group else {
-                open = None;
-                entries.push(BookEntry::Creative {
-                    item,
-                    grouped: false,
-                });
+            let Some(_) = group else {
+                order.push(BookOrder::Item(item));
                 continue;
             };
-            let expanded = state.creative_expanded.contains(&item.group);
-            if open != Some(item.group) {
-                open = Some(item.group);
-                entries.push(BookEntry::Group {
-                    index: item.group,
-                    group,
-                    expanded,
-                });
+            if !grouped.contains_key(&item.group) {
+                order.push(BookOrder::Group(item.group));
             }
-            if expanded {
-                entries.push(BookEntry::Creative {
+            grouped.entry(item.group).or_default().push(item);
+        }
+        let mut entries = Vec::with_capacity(items.len());
+        for entry in order {
+            match entry {
+                BookOrder::Item(item) => entries.push(BookEntry::Creative {
                     item,
-                    grouped: true,
-                });
+                    grouped: false,
+                }),
+                BookOrder::Group(index) => {
+                    let Some(group) = catalog.groups.get(index as usize) else {
+                        continue;
+                    };
+                    let expanded = state.creative_expanded.contains(&index);
+                    entries.push(BookEntry::Group {
+                        index,
+                        group,
+                        expanded,
+                    });
+                    if expanded {
+                        entries.extend(grouped.remove(&index).into_iter().flatten().map(|item| {
+                            BookEntry::Creative {
+                                item,
+                                grouped: true,
+                            }
+                        }));
+                    }
+                }
             }
         }
         return entries;

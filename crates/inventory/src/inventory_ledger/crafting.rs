@@ -174,6 +174,22 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// How many crafts one request may make: every result stays within one stack that one
+    /// action can move. `None` when a result is unknown or larger than that alone.
+    pub(super) fn crafts_per_request(&self, recipe: &RecipeHandle) -> Option<u8> {
+        std::iter::once(recipe.output())
+            .chain(recipe.extra_outputs())
+            .map(|output| {
+                self.negotiated_item_entry(output.network_id)
+                    .and_then(entry_capacity)
+                    .and_then(|capacity| output_stack_limit(capacity).checked_div(output.count))
+                    .filter(|limit| *limit != 0)
+            })
+            .try_fold(u8::MAX, |limit, result| {
+                result.map(|result| limit.min(result))
+            })
+    }
+
     /// Crafts the requested count atomically across bounded result scopes, returning the first ID.
     pub fn begin_craft_into(
         &mut self,
@@ -198,18 +214,8 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let assignment = ingredient_assignment(recipe, &cells, crafts)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        // Each scope crafts no more than every result's stack holds.
-        let per_scope = std::iter::once(recipe.output())
-            .chain(recipe.extra_outputs())
-            .map(|output| {
-                self.negotiated_item_entry(output.network_id)
-                    .and_then(entry_capacity)
-                    .and_then(|capacity| capacity.checked_div(output.count))
-                    .filter(|limit| *limit != 0)
-            })
-            .try_fold(u8::MAX, |limit, result| {
-                result.map(|result| limit.min(result))
-            })
+        let per_scope = self
+            .crafts_per_request(recipe)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let mut planned = self.clone();
         let mut remaining = crafts;
@@ -348,16 +354,19 @@ impl PlayerInventoryLedger {
         let mut groups = Vec::new();
         // Cells this request consumes from or fills never take a later result.
         let mut taken = Vec::new();
-        for (cell, amount, id) in consumed {
-            actions.push(StackRequestAction::Consume {
-                amount,
-                source: helpers::request_slot(cell, id, None)?,
-            });
-            groups.push(DeltaGroup::Shrink {
-                source: cell,
-                amount: u16::from(amount),
-                source_id: id,
-            });
+        for (cell, total, id) in consumed {
+            for amount in action_amounts(u16::from(total)) {
+                actions.push(StackRequestAction::Consume {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: helpers::request_slot(cell, id, None)?,
+                });
+                groups.push(DeltaGroup::Shrink {
+                    source: cell,
+                    amount,
+                    source_id: id,
+                });
+            }
             taken.push(cell);
         }
         let extras = recipe.extra_outputs().len() != 0;
@@ -695,6 +704,17 @@ impl PlayerInventoryLedger {
 /// The most one placement or drop moves: a whole stack, bounded by what one action encodes.
 pub(super) fn action_amount_limit(capacity: u16) -> u16 {
     capacity.min(u16::from(protocol::MAX_STACK_REQUEST_AMOUNT))
+}
+
+/// The most output one craft request creates: one stack, within one action's amount.
+pub(super) fn output_stack_limit(capacity: u8) -> u8 {
+    u8::try_from(action_amount_limit(u16::from(capacity))).unwrap_or(u8::MAX)
+}
+
+/// Splits `total` into the amounts of consecutive actions, each one action's encodable most.
+pub(super) fn action_amounts(total: u16) -> impl Iterator<Item = u16> {
+    let limit = action_amount_limit(u16::MAX);
+    (0..total.div_ceil(limit)).map(move |index| (total - index * limit).min(limit))
 }
 
 /// Finds a complete ingredient assignment, allowing broad matches to move for specific ones.
