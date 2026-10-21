@@ -173,6 +173,7 @@ pub struct MenuRuntime {
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
+    death_lifecycle: Option<(u64, u64)>,
     death_loading: bool,
     death_presentation: launcher::menu::death::DeathPresentation,
     death_retry_remaining: Option<std::time::Duration>,

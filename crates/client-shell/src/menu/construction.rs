@@ -169,6 +169,7 @@ impl MenuRuntime {
             editing: initial.editing,
             disconnect_message: initial.disconnect_message,
             death_shown: false,
+            death_lifecycle: None,
             death_loading: false,
             death_presentation: launcher::menu::death::DeathPresentation::default(),
             death_retry_remaining: None,
