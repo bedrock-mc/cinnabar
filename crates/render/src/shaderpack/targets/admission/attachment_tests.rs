@@ -43,13 +43,21 @@ fn duplicate_active_colour_attachments_fail_view_admission() {
             );
             let vertex_name = format!("{program}.vsh");
             let fragment_name = format!("{program}.fsh");
-            let source = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files([
-                (
-                    vertex_name.as_str(),
-                    "#version 120\nvoid main() { gl_Position = ftransform(); }",
-                ),
-                (fragment_name.as_str(), &fragment),
-            ]));
+            let vertex = "#version 120\nvoid main() { gl_Position = ftransform(); }";
+            let mut files = vec![
+                (vertex_name.as_str(), vertex),
+                (fragment_name.as_str(), fragment.as_str()),
+            ];
+            if program == "shadow" {
+                files.extend([
+                    ("gbuffers_basic.vsh", vertex),
+                    (
+                        "gbuffers_basic.fsh",
+                        "#version 120\nvoid main() { gl_FragColor = vec4(1.0); }",
+                    ),
+                ]);
+            }
+            let source = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files(files));
             let pack = build(
                 &source,
                 "attachments",
@@ -61,6 +69,14 @@ fn duplicate_active_colour_attachments_fail_view_admission() {
                 &Default::default(),
             )
             .unwrap();
+            if program != "composite" {
+                assert!(
+                    pack.draws
+                        .iter()
+                        .any(|draw| pack.programs[draw.program].name == program),
+                    "{program} must produce a draw"
+                );
+            }
             let state = ViewState::new(&gpu.device, Arc::new(pack), [4, 4]);
             assert_eq!(
                 state.is_ok(),
