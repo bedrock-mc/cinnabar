@@ -148,6 +148,17 @@ pub(crate) fn drive_chat_ui_actions(
             Some(ChatHit::Send) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Accept, None, now_millis);
             }
+            Some(ChatHit::SubmitCommand(index)) => {
+                if let Some(command) = presentation.chat_submission(index)
+                    && runtime.queue_chat_message(command, now_millis).is_ok()
+                {
+                    runtime.close_chat();
+                    if let Some(focus) = focus.as_deref_mut() {
+                        focus.authorize_screen_return();
+                    }
+                    return;
+                }
+            }
             Some(ChatHit::Close) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Cancel, None, now_millis);
             }

@@ -396,6 +396,10 @@ native emote admission/cancellation/timing, overlapping dimension/respawn loadin
 and server-authored chat hover/input behavior. Keep native input state independent of
 custom emote playback and presentation-only changes.
 
+Chat message Send controls resolve command text from an overlapping sibling editor.
+Missing, disabled or ambiguous message editors cannot submit the main chat draft.
+Live acceptance of name clicks, inventory opening, typing and history together remains open.
+
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
