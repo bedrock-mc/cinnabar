@@ -786,3 +786,43 @@ fn connection_states_select_per_state_collision() {
     assert_eq!(collision.as_deref(), Some([north].as_slice()));
     assert_eq!(selection, CustomSelection::Box(north));
 }
+
+// A disabling mining override past the permutation bound must still apply, not leave an
+// instant-break base.
+#[test]
+fn custom_mining_overrides_past_the_permutation_bound_still_apply() {
+    let count: u32 = 1025;
+    let mut encoded = named(10, "");
+    encoded.extend(named(9, "permutations"));
+    encoded.push(10);
+    let mut length = count << 1;
+    while length >= 0x80 {
+        encoded.push((length as u8 & 0x7f) | 0x80);
+        length >>= 7;
+    }
+    encoded.push(length as u8);
+    for index in 0..count {
+        encoded.extend(named(8, "condition"));
+        encoded.extend(text("1"));
+        if index + 1 == count {
+            encoded.extend(named(10, "components"));
+            encoded.extend(named(10, "minecraft:destructible_by_mining"));
+            encoded.extend(named(5, "value"));
+            encoded.extend((-1.0_f32).to_le_bytes());
+            encoded.extend([0, 0]);
+        }
+        encoded.push(0);
+    }
+    encoded.push(0);
+    let mut blocks = CustomBlocks::from_definitions([("test:many", encoded.as_slice())]);
+    assert!(blocks.blocks[0].mining_for_state(0).is_none(), "unprepared");
+    resolve(&mut blocks);
+    crate::block_mining::resolve(&mut blocks);
+    assert_eq!(
+        blocks.blocks[0]
+            .mining_for_state(0)
+            .unwrap()
+            .seconds_to_destroy,
+        -1.0
+    );
+}

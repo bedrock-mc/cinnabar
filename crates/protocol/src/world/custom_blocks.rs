@@ -18,7 +18,7 @@ use physical::{
 /// States one custom block may contribute before it is treated as malformed.
 const MAX_STATES_PER_BLOCK: u64 = 1 << 16;
 
-/// Permutations one custom block may define before extras are ignored.
+/// Permutations one custom block may define before extras keep only their mining overrides.
 const MAX_PERMUTATIONS: usize = 1024;
 /// Bone visibility entries one geometry component may define before extras are ignored.
 const MAX_BONE_VISIBILITY: usize = 256;
@@ -663,7 +663,20 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             if index >= MAX_PERMUTATIONS {
                 permutation_skips += 1;
                 physical_permutation_skips += usize::from(!mining::only_component(components));
-                return None;
+                // Mining overrides past the bound still resolve, since the client has no bound.
+                let (mining, _) =
+                    mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
+                let Some(Nbt::String(condition)) = permutation.field("condition") else {
+                    return None;
+                };
+                return mining.map(|mining| CustomPermutation {
+                    condition: condition.as_str().into(),
+                    components: CustomVisualComponents::default(),
+                    physical: CustomPhysicalComponents {
+                        mining: Some(mining),
+                        ..CustomPhysicalComponents::default()
+                    },
+                });
             }
             placement::components(&mut placement, components);
             // A missing condition evaluates as an empty expression, which never holds.
