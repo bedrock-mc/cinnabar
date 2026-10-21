@@ -194,3 +194,27 @@ fn world_options_player_permissions_preserve_the_separate_command_permission() {
     assert_eq!(scalar(&fields, "permissionsLevel"), Some(1));
     assert_eq!(scalar(&fields, "playerPermissionsLevel"), Some(2));
 }
+
+/// A world BDS created before saved options existed keeps multiplayer although BDS records no intent.
+#[test]
+fn world_options_read_multiplayer_from_the_effective_flags_bds_saves() {
+    let bytes = configured(&test_support::world(), &[]).unwrap();
+    let mut fields = read_fields(&bytes[8..]).unwrap();
+    put(&mut fields, "MultiplayerGame", 1, &[1]);
+    put(&mut fields, "MultiplayerGameIntent", 1, &[0]);
+    put(&mut fields, "LANBroadcast", 1, &[1]);
+    put(&mut fields, "LANBroadcastIntent", 1, &[0]);
+    let mut body = vec![10, 0, 0];
+    for (_, tag) in fields {
+        body.extend(tag);
+    }
+    body.push(0);
+    let mut fixture = bytes[..4].to_vec();
+    fixture.extend((body.len() as u32).to_le_bytes());
+    fixture.extend(body);
+    let dir = test_support::scratch();
+    fs::write(dir.path().join("level.dat"), &fixture).unwrap();
+    let options = read_options(&dir.path().join("level.dat"));
+    assert!(options.enabled(O::Multiplayer));
+    assert!(options.lan_visible());
+}

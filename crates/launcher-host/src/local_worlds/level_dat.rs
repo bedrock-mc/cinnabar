@@ -264,19 +264,12 @@ pub(super) fn try_read_options(
         return None;
     }
     let fields = read_fields(bytes.get(8..)?)?;
+    // BDS saves `MultiplayerGameIntent` as 0 even for multiplayer worlds; only the effective
+    // `MultiplayerGame` and `LANBroadcast` flags describe a saved world.
     for &id in O::ALL {
         let key = match id.definition().storage {
             Storage::Rule(key) | Storage::Level(key) | Storage::Property(_, key) => key,
             Storage::Combined => continue,
-        };
-        let key = match id {
-            O::LanVisible if scalar(&fields, "LANBroadcastIntent").is_some() => {
-                "LANBroadcastIntent"
-            }
-            O::Multiplayer if scalar(&fields, "MultiplayerGameIntent").is_some() => {
-                "MultiplayerGameIntent"
-            }
-            _ => key,
         };
         if let Some((_, tag)) = fields.iter().find(|(name, _)| name == key.as_bytes()) {
             let data = &tag[3 + key.len()..];
