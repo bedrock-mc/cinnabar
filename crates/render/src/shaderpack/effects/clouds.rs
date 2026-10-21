@@ -12,9 +12,7 @@ use meshing::cloud::{
     CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace,
 };
 use meshing::cloud_viewport::{CloudViewport, ViewportCloudQuad, mesh_cloud_viewport};
-
-/// Cells per side of the meshed window, as the vanilla cloud renderer's fancy config.
-const MESH_SIZE: u16 = 64;
+use render_scene::CloudRenderConfig;
 
 /// The meshed window a view draws, kept until the camera moves far enough.
 #[derive(Default)]
@@ -40,10 +38,11 @@ impl CloudCache {
     /// Reuses the meshed viewport until its texture, mode or camera window changes.
     fn quads(&mut self, frame: &CloudFrame<'_>, camera: DVec3) -> &[ViewportCloudQuad] {
         let above = !frame.fast && camera.y >= f64::from(CLOUD_UNDERSIDE_Y.ceil());
+        let config = CloudRenderConfig::legacy_fancy();
         let Some(viewport) = CloudViewport::try_new(
             [camera.x + f64::from(frame.scroll), camera.z],
-            MESH_SIZE,
-            1,
+            config.mesh_size(),
+            config.grid_size(),
             above,
             frame.fast,
         ) else {

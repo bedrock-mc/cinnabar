@@ -21,6 +21,42 @@ use std::sync::Arc;
 
 const WORDS: usize = (IRIS_VERTEX_STRIDE / 4) as usize;
 
+/// Reads a scalar or vector float constant from the compiled production shader.
+fn shader_constant(source: &str, name: &str) -> Vec<f32> {
+    let source = crate::shader_source::standalone(source, &[]);
+    let module = naga::front::wgsl::parse_str(&source).expect("effect shader parses");
+    let (_, constant) = module
+        .constants
+        .iter()
+        .find(|(_, constant)| constant.name.as_deref() == Some(name))
+        .expect("effect shader constant exists");
+    let value = |handle| match module.global_expressions[handle] {
+        naga::Expression::Literal(naga::Literal::F32(value)) => value,
+        _ => panic!("effect shader constant component is f32"),
+    };
+    match &module.global_expressions[constant.init] {
+        naga::Expression::Compose { components, .. } => {
+            components.iter().map(|&handle| value(handle)).collect()
+        }
+        _ => vec![value(constant.init)],
+    }
+}
+
+#[test]
+fn effect_constants_match_the_native_shaders() {
+    assert_eq!(
+        shader_constant(include_str!("../../lightning.wesl"), "BOLT_COLOUR"),
+        lines::BOLT_COLOUR,
+    );
+    assert_eq!(
+        shader_constant(
+            include_str!("../../weather.wesl"),
+            "REFERENCE_PROJECTION_SCALE",
+        ),
+        [weather::REFERENCE_PROJECTION_SCALE],
+    );
+}
+
 fn resolve(effect: Effect, provided: &[&str]) -> Option<&'static str> {
     resolve_program(DrawKind::Effect(effect).program(), |n| {
         provided.contains(&n)

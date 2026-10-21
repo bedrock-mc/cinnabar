@@ -7,6 +7,7 @@
 
 use super::frame::EffectCamera;
 use super::vertices::{FULL_BRIGHT, Mesh, Vertex};
+use crate::shaderpack::uniforms::GL_NEAR;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use render_model::BlockEntityVertex;
 use render_scene::BoltRecord;
@@ -14,10 +15,8 @@ use std::collections::HashSet;
 
 /// Java's block outline colour (`0x66000000`).
 const OUTLINE_COLOUR: [f32; 4] = [0.0, 0.0, 0.0, 0.4];
-/// Nearest view depth a widened line end keeps.
-const NEAR_CLIP: f32 = 0.05;
 /// Cinnabar's bolt colour (`lightning.wesl`).
-const BOLT_COLOUR: [f32; 3] = [0.85, 0.9, 1.0];
+pub(super) const BOLT_COLOUR: [f32; 3] = [0.85, 0.9, 1.0];
 
 /// Java's line width of the block outline: 2.5 pixels, scaled with windows wider than 1920.
 pub(super) fn outline_width(screen_width: u32) -> f32 {
@@ -28,16 +27,16 @@ pub(super) fn outline_width(screen_width: u32) -> f32 {
 fn clip_to_view(camera: &EffectCamera, from: Vec3, to: Vec3) -> Option<(Vec3, Vec3)> {
     let view = |p: Vec3| camera.model_view.transform_point3(p);
     let (mut a, mut b) = (view(from), view(to));
-    if a.z > -NEAR_CLIP && b.z > -NEAR_CLIP {
+    if a.z > -GL_NEAR && b.z > -GL_NEAR {
         return None;
     }
     let clip = |inside: Vec3, outside: Vec3| {
-        let t = (-NEAR_CLIP - inside.z) / (outside.z - inside.z);
+        let t = (-GL_NEAR - inside.z) / (outside.z - inside.z);
         inside.lerp(outside, t)
     };
-    if a.z > -NEAR_CLIP {
+    if a.z > -GL_NEAR {
         a = clip(b, a);
-    } else if b.z > -NEAR_CLIP {
+    } else if b.z > -GL_NEAR {
         b = clip(a, b);
     }
     Some((a, b))

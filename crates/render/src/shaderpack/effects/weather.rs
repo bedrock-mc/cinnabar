@@ -19,7 +19,7 @@ use render_model::{
 use std::sync::LazyLock;
 
 /// Projection y-scale the vanilla widths are authored against (`weather.wesl`).
-const REFERENCE_PROJECTION_SCALE: f32 = 1.778_341;
+pub(super) const REFERENCE_PROJECTION_SCALE: f32 = 1.778_341;
 /// Weather is lit as an open-sky column: sky 15, block 0.
 const LIGHT: [f32; 2] = [0.0, 240.0];
 /// `PrecipitationLayerRecord::kind` of rain.
