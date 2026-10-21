@@ -114,7 +114,8 @@ fn furnace_cells_are_addressed_by_role() {
 
 #[test]
 fn station_cells_return_into_the_hotbar_before_the_main_inventory() {
-    let mut ledger = ledger_with(&[(0, stack(10, 1))]);
+    // A full first hotbar slot leaves the second as the first that can take the result.
+    let mut ledger = ledger_with(&[(0, stack(10, protocol::ITEM_DEFAULT_MAX_STACK_SIZE.into()))]);
     open(&mut ledger, 3, WINDOW_TYPE_FURNACE);
     ledger.apply(&content(
         ContainerIdentity::window(3),
