@@ -171,7 +171,7 @@ fn furnace_fuel_response_retains_the_accepted_window_slot() {
         .unwrap();
     assert_eq!(ledger.storage_stack(1).map(|stack| stack.count), Some(10));
     let containers = [
-        (protocol_ids::ContainerName::Hotbar, 0, 0, 0),
+        (protocol_ids::ContainerName::HotBar, 0, 0, 0),
         (protocol_ids::ContainerName::FurnaceFuel, 1, 10, 200),
     ]
     .map(
