@@ -270,13 +270,12 @@ impl MenuRuntime {
                 .filter(|_| view.screen == Screen::Edit)
                 .map_or(&view.create.options, |edit| &edit.options);
             for (&id, editor) in &ui.options {
-                if let Ok(value) = editor.as_str().parse::<i32>() {
-                    if value != options.get(id)
-                        && id.accepts(value)
-                        && options.editable(id, view.screen == Screen::Edit)
-                    {
-                        worlds.input(Input::SetOption(id, value));
-                    }
+                if let Ok(value) = editor.as_str().parse::<i32>()
+                    && value != options.get(id)
+                    && id.accepts(value)
+                    && options.editable(id, view.screen == Screen::Edit)
+                {
+                    worlds.input(Input::SetOption(id, value));
                 }
             }
         }
