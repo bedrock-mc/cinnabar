@@ -662,10 +662,8 @@ fn queue_crack(
     views: Query<BlockEntityView>,
     pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
+    // Check partition ranges when drawing, after this frame's vertex upload.
     for highlight in [false, true] {
-        if crack_vertices(gpu.crack.count, gpu.frame_crack_count, highlight).is_empty() {
-            continue;
-        }
         let functions = draw_functions.read();
         let draw_function = if highlight {
             functions.id::<DrawHighlightCommands>()
