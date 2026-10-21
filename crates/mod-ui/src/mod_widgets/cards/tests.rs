@@ -235,6 +235,24 @@ fn crosshair_samples_use_native_coverage_and_refresh_the_cached_card() {
                 .any(|v| v.color[1] > 200 && v.color[0] == 0)
         );
         assert_ne!(changed.vertices.len(), drawn.vertices.len());
+        for (revision, scale) in [ui::mod_hud::MIN_CARD_SCALE, ui::mod_hud::MAX_CARD_SCALE]
+            .into_iter()
+            .enumerate()
+        {
+            hud.cards[0].scale = scale;
+            hud.validate().unwrap();
+            ui.set_mod_hud_sources([(OWNER, revision as u64 + 3, &hud)].into_iter())
+                .unwrap();
+            harness.paint(&mut ui, true);
+            assert!(
+                harness
+                    .drawn()
+                    .vertices
+                    .iter()
+                    .any(|v| v.color[1] > 200 && v.color[0] == 0),
+                "valid {shape:?} sample disappeared at scale {scale}"
+            );
+        }
     }
 }
 

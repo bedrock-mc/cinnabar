@@ -3,7 +3,7 @@
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use ui::{
     UiBlendMode, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual,
-    mod_hud::{Crosshair, CrosshairShape},
+    mod_hud::{Crosshair, CrosshairShape, MAX_CARD_SCALE, MIN_CARD_SCALE},
 };
 use ui_engine::engine::{
     Canvas,
@@ -59,10 +59,21 @@ impl CustomRenderer for PreviewRenderer {
         if node.renderer != "cinnabar_crosshair_preview" {
             return Ok(false);
         }
-        if let Some(value) = node.data.get("crosshair")
-            && let Ok(spec) = serde_json::from_value::<Crosshair>(value.clone())
+        let scale = node
+            .data
+            .get("crosshair_scale")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(1.) as f32;
+        if scale.is_finite()
+            && (MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
+            && let Some(value) = node.data.get("crosshair")
+            && let Ok(mut spec) = serde_json::from_value::<Crosshair>(value.clone())
             && spec.validate().is_ok()
         {
+            spec.size *= scale;
+            spec.gap *= scale;
+            spec.thickness *= scale;
+            spec.outline *= scale;
             paint(canvas, &spec, node.dest);
         }
         Ok(true)

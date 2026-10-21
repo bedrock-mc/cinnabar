@@ -102,18 +102,13 @@ fn apply_font(node: &mut Value, font: &str) {
 /// Builds card geometry before applying its selected typography.
 fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     if let Some(spec) = &card.crosshair {
-        let mut spec = spec.clone();
-        spec.size *= card.scale;
-        spec.gap *= card.scale;
-        spec.thickness *= card.scale;
-        spec.outline *= card.scale;
         return panel_for_card(
             card_index,
             dimensions(card),
             vec![named(
                 "crosshair",
                 json!({"type":"custom","renderer":"cinnabar_crosshair_preview",
-                "size":dimensions(card),"anchor_from":"top_left","anchor_to":"top_left","crosshair":spec}),
+                "size":dimensions(card),"anchor_from":"top_left","anchor_to":"top_left","crosshair":spec,"crosshair_scale":card.scale}),
             )],
         );
     }
