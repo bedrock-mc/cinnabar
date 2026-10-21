@@ -510,7 +510,7 @@ type ModOutputs<'w> = (
     Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
 );
 
-
+/// Granted commands travel the session-fenced UI packet lane as vanilla command requests.
 fn send_commands(
     network: Option<&NetworkHandle<PackApplication>>,
     session: u64,

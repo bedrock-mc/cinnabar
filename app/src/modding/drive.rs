@@ -376,5 +376,3 @@ pub(super) fn drive_mod(
         presentation.set_mod_screens(None);
     }
 }
-
-/// Granted commands travel the session-fenced UI packet lane as vanilla command requests.
