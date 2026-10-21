@@ -34,3 +34,97 @@ fn container_collection_shows_exactly_the_admitted_menu_cells() {
         );
     }
 }
+
+#[test]
+fn classic_trade_selection_keeps_an_occupied_second_payment_slot_visible() {
+    use json_ui::vanilla::Binding;
+    use std::sync::Arc;
+    let mut source = super::banner_tests::loom_fixture();
+    let item = protocol::TradeItem {
+        identifier: Arc::from("minecraft:banner"),
+        metadata: 0,
+        count: 1,
+        block_descriptor: None,
+        extra_data: Arc::from([0; 10]),
+    };
+    let offer = protocol::TradeOffer {
+        network_id: 91,
+        inputs: [Some(item.clone()), Some(item.clone())],
+        output: item,
+        tier: 0,
+        uses: 0,
+        max_uses: 16,
+    };
+    let mut single = offer.clone();
+    single.network_id += 1;
+    single.inputs[1] = None;
+    let mut locked = single.clone();
+    locked.network_id += 1;
+    locked.tier = 1;
+    source
+        .player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Trade(protocol::TradeEvent {
+            container: protocol::ContainerIdentity::window(8),
+            actor_unique_id: 90,
+            title: Arc::from("Trader"),
+            modern: false,
+            tier: 0,
+            offers: Arc::from([offer, locked, single]),
+        }));
+    for occupied in [true, false] {
+        let ledger = source.player.inventory.ledger_mut();
+        ledger.apply(&protocol::InventoryEvent::Slot(
+            protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: protocol::ContainerIdentity::window(
+                        protocol::UI_INVENTORY_WINDOW_ID,
+                    ),
+                    slot: u16::from(protocol::LEGACY_TRADE_SLOTS[1]),
+                },
+                stack: if occupied {
+                    protocol::NetworkItemStack {
+                        network_id: 1,
+                        count: 1,
+                        ..protocol::NetworkItemStack::empty()
+                    }
+                } else {
+                    protocol::NetworkItemStack::empty()
+                },
+                storage_item: None,
+            },
+        ));
+        ledger.select_trade(0).unwrap();
+        let mut data = json_ui::DataSource::new();
+        crate::trading::data(&source, &mut data);
+        assert_eq!(
+            data.global_value(Binding::RightButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(true))
+        );
+        assert_eq!(
+            data.global_value(Binding::LeftButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(false))
+        );
+        source
+            .player
+            .inventory
+            .ledger_mut()
+            .cycle_trade(true)
+            .unwrap();
+        let mut data = json_ui::DataSource::new();
+        crate::trading::data(&source, &mut data);
+        assert_eq!(
+            data.global_value(Binding::ShowSecondTradeSlot.as_str()),
+            Some(&json_ui::Scalar::Bool(occupied))
+        );
+        assert_eq!(
+            data.global_value(Binding::RightButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(false))
+        );
+        assert_eq!(
+            data.global_value(Binding::LeftButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(true))
+        );
+    }
+}

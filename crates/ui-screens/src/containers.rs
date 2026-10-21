@@ -788,11 +788,11 @@ pub fn screen_data(
 }
 
 #[cfg(test)]
-mod anvil_output_tests;
-#[cfg(test)]
 mod empty_cells_tests;
 #[cfg(test)]
 mod press_drop_tests;
+#[cfg(test)]
+mod station_output_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(
@@ -819,6 +819,14 @@ fn station_cell<'a>(
             )
         }
         Cell::Output => {
+            if matches!(
+                ledger.window_kind(),
+                Some(protocol::WindowKind::Trade { .. })
+            ) {
+                return frame.recipe_output.map_or((None, None, None), |output| {
+                    (Some(&output.stack), output.icon, output.durability)
+                });
+            }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
                 // The anvil's result is the client's prediction until the server states one.

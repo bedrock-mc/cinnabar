@@ -38,6 +38,8 @@ pub(super) struct PendingRequest {
     pub(super) storage_generation: Option<u64>,
     pub(super) personal_generation: Option<u64>,
     pub(super) storage_identity: Option<ContainerIdentity>,
+    /// The offer whose remaining use this purchase reserves until settlement.
+    pub(super) trade_purchase: Option<u32>,
     /// A split must end with distinct settled stack ids on surviving halves.
     pub(super) requires_distinct_stack_ids: bool,
     /// A merge whose capacity came from the session item registry.
@@ -838,6 +840,7 @@ impl PlayerInventoryLedger {
                 storage_generation: None,
                 personal_generation: None,
                 storage_identity: None,
+                trade_purchase: None,
                 requires_distinct_stack_ids: false,
                 registry_bound_merge: false,
                 quick_move_route: None,

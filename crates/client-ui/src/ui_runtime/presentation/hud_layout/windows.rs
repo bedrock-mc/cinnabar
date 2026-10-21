@@ -49,7 +49,7 @@ pub struct WindowIcons {
     pub creative: [Option<IconRef>; GRID_CELLS],
     pub creative_tabs: [Option<IconRef>; TAB_COUNT as usize],
     /// Output icons of the stonecutter's recipe cells.
-    pub recipe: [Option<IconRef>; STONECUTTER_CELLS],
+    pub recipe: Vec<Option<IconRef>>,
     /// The result a recipe screen would produce now, drawn while the server
     /// previews none.
     pub recipe_output: Option<ui_screens::container_source::StationOutput>,
@@ -74,7 +74,7 @@ impl Default for WindowIcons {
             ui: [None; UI_ICON_SLOTS],
             creative: [None; GRID_CELLS],
             creative_tabs: [None; TAB_COUNT as usize],
-            recipe: [None; STONECUTTER_CELLS],
+            recipe: vec![None; STONECUTTER_CELLS],
             recipe_output: None,
             ghost_armor: [None; 4],
             ghost_shield: None,
@@ -680,6 +680,9 @@ impl HudLayout<'_> {
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }
                 | Widget::Reader(_)
+                | Widget::TradeOffer { .. }
+                | Widget::TradeCycle { .. }
+                | Widget::Trade
                 | Widget::Close => {}
             }
         }
@@ -861,6 +864,7 @@ pub const fn default_title(kind: WindowKind) -> &'static str {
         WindowKind::Smithing => "Upgrade Gear",
         WindowKind::Crafter => "Crafter",
         WindowKind::Lectern => "Lectern",
+        WindowKind::Trade { .. } => "Trade",
     }
 }
 
@@ -887,5 +891,6 @@ pub const fn title_key(kind: WindowKind) -> &'static str {
         WindowKind::Smithing => "container.upgrade",
         WindowKind::Crafter => "container.crafter",
         WindowKind::Lectern => "container.lectern",
+        WindowKind::Trade { .. } => json_ui::vanilla::TextKey::TradeTrade.as_str(),
     }
 }

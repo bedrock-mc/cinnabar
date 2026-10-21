@@ -294,7 +294,10 @@ pub(super) fn grid_cell_index(control: &ResolvedControl, columns: u64) -> Option
     if control.properties.contains_key("collection_index") {
         return None;
     }
-    let position = control.properties.get("grid_position")?.as_array()?;
+    let Some(position) = control.properties.get("grid_position") else {
+        return Some(0);
+    };
+    let position = position.as_array()?;
     let (column, row) = (position.first()?.as_u64()?, position.get(1)?.as_u64()?);
     usize::try_from(row.checked_mul(columns)?.checked_add(column)?).ok()
 }

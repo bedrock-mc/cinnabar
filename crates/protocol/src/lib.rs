@@ -122,8 +122,9 @@ pub use inventory::recipes::{
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
-    container_window, is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MODERN_TRADE_SLOTS,
+    NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem, TradeOffer,
+    WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
@@ -171,10 +172,9 @@ pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
 pub use inventory::{
-    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, inventory_options_packet,
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
+    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
 };
-pub use inventory::{MineBlockRequest, MineBlockRequestError};
-pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,

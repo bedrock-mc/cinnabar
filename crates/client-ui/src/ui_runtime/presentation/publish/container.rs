@@ -55,14 +55,23 @@ fn capture_titles(
     // Actor-backed server menus carry their raw title on the owning actor.
     // Keep formatting markers intact: resource-pack layouts use them.
     let stated_title = ledger
-        .window_actor()
-        .and_then(|actor| stream?.authority().actor_name_tag(actor))
-        .filter(|name| !name.is_empty())
-        .map(|name| name.to_string())
+        .trading()
+        .map(|trade| {
+            runtime
+                .translation(&trade.title)
+                .map_or_else(|| trade.title.to_string(), |title| title.to_string())
+        })
         .or_else(|| {
             ledger
-                .window_position()
-                .and_then(|position| stream?.block_entity_custom_name(position))
+                .window_actor()
+                .and_then(|actor| stream?.authority().actor_name_tag(actor))
+                .filter(|name| !name.is_empty())
+                .map(|name| name.to_string())
+                .or_else(|| {
+                    ledger
+                        .window_position()
+                        .and_then(|position| stream?.block_entity_custom_name(position))
+                })
         });
     window_text.custom_title.clone_from(&stated_title);
     window_text.block_entity = ledger
