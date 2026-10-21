@@ -791,6 +791,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
     for event in [
         NetworkControlEvent::Bootstrap {
             session_generation: simulation_clock::identity::SessionGeneration::new(7),
+            identity: Default::default(),
             world: bootstrap,
             environment,
             custom_blocks: protocol::CustomBlocks::default(),

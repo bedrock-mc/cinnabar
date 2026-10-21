@@ -153,6 +153,19 @@ pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition = SettingId::CinnabarVis
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition = SettingId::DiscordPresence.definition();
 
+/// Controls whether the activity card names the current server or world.
+pub const DISCORD_SERVER_DETAILS_OPTION: SettingDefinition =
+    SettingId::DiscordServerDetails.definition();
+
+/// Controls whether Discord receives the current and maximum player count.
+pub const DISCORD_PARTY_SIZE_OPTION: SettingDefinition = SettingId::DiscordPartySize.definition();
+
+/// Controls Discord join secrets and incoming join requests.
+pub const DISCORD_ALLOW_JOINS_OPTION: SettingDefinition = SettingId::DiscordAllowJoins.definition();
+
+/// Controls the elapsed-time timestamp on the activity card.
+pub const DISCORD_TIMESTAMP_OPTION: SettingDefinition = SettingId::DiscordTimestamp.definition();
+
 /// Optional crosshair visibility in both third-person camera views.
 pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
     SettingId::ThirdPersonCrosshair.definition();
@@ -571,7 +584,15 @@ settings! {
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
-        [], [], None, None;
+        [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
+    DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
+        [(SettingPanel::DiscordDetails, 0)], [SettingsGroup::Discord], None, None;
+    DiscordPartySize => "discord_party_size", toggle("discord.settings.partySize", true),
+        [(SettingPanel::DiscordDetails, 1)], [SettingsGroup::Discord], None, None;
+    DiscordAllowJoins => "discord_allow_joins", toggle("discord.settings.allowJoins", true),
+        [(SettingPanel::DiscordDetails, 2)], [SettingsGroup::Discord], None, None;
+    DiscordTimestamp => "discord_timestamp", toggle("discord.settings.timestamp", true),
+        [(SettingPanel::DiscordDetails, 3)], [SettingsGroup::Discord], None, None;
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
         [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),

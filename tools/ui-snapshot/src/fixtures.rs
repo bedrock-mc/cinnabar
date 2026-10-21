@@ -1,7 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
 mod chat;
-mod chat_settings;
 mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
@@ -15,6 +14,7 @@ mod out_of_game;
 mod roster;
 mod shader_options;
 mod shader_pack;
+mod social_settings;
 mod updates;
 
 use std::sync::Arc;
@@ -992,7 +992,7 @@ fn settings_keyboard_layout(observed: bool) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Enumerates every fixture, including the Chat section's independently owned states.
+/// Enumerates every fixture, including the independently owned Social settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(chat_settings::STATES)
+    STATES.iter().chain(social_settings::STATES)
 }

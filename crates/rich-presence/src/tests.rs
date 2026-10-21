@@ -80,6 +80,31 @@ fn featured_art_badges_the_card_only_while_playing_and_only_over_https() {
 }
 
 #[test]
+fn activity_settings_control_details_timestamps_party_size_and_joins() {
+    let target = Target {
+        max_players: Some(8),
+        ..server("play.example.net:19132")
+    };
+    let settings = PresenceSettings {
+        show_server_details: false,
+        show_party_size: false,
+        allow_joins: false,
+        show_timestamp: false,
+    };
+    let payload = serde_json::to_value(State::Playing.activity_with_settings(
+        1234,
+        Some(&target),
+        Some(3),
+        settings,
+    ))
+    .unwrap();
+    assert_eq!(payload["state"], "Playing Minecraft");
+    assert!(payload.get("timestamps").is_none());
+    assert!(payload.get("party").is_none());
+    assert!(payload.get("secrets").is_none());
+}
+
+#[test]
 fn unchanged_frames_do_not_publish_and_reconnect_republishes_latest_state() {
     let mut publication = Publication::default();
     assert!(publication.changed(State::Menus, 0, None, None, 0));
@@ -131,6 +156,26 @@ fn party_size_shows_players_of_the_limit_and_republishes_as_players_come_and_go(
         Some(0),
         "a player joining is the same session"
     );
+}
+
+#[test]
+fn changing_activity_settings_republishes_without_resetting_the_session_timer() {
+    let world = server("play.example.net:19132");
+    let hidden = PresenceSettings {
+        show_server_details: false,
+        ..PresenceSettings::default()
+    };
+    let mut publication = Publication::default();
+    assert!(publication.changed_with_settings(
+        State::Playing,
+        0,
+        Some(&world),
+        None,
+        10,
+        PresenceSettings::default()
+    ));
+    assert!(publication.changed_with_settings(State::Playing, 0, Some(&world), None, 20, hidden));
+    assert_eq!(publication.playing_since, Some(10));
 }
 
 #[test]
@@ -246,7 +291,7 @@ fn server_transfers_publish_once_and_menu_discards_the_destination() {
     assert!(!publication.changed(State::Playing, 1, Some(&second), None, 0));
     assert!(publication.changed(State::Playing, 2, Some(&second), None, 0));
     assert!(publication.changed(State::Menus, 2, None, None, 0));
-    assert!(publication.last.unwrap().2.is_none());
+    assert!(publication.last.unwrap().target.is_none());
 }
 
 #[test]
