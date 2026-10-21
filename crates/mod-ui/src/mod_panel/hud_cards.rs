@@ -22,6 +22,43 @@ struct Instance {
     card: usize,
     live: bool,
     replay: CachedFragment,
+    fit: FitCache,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct FitKey {
+    ink: [f32; 2],
+    node: [f32; 2],
+    ui_scale: f32,
+    fraction: f32,
+    max_scale: f32,
+}
+
+#[derive(Default)]
+struct FitCache {
+    value: Option<(FitKey, f32)>,
+    #[cfg(test)]
+    computations: usize,
+}
+
+impl FitCache {
+    /// Fits painted dimensions in both axes; unchanged sizes and parameters reuse the multiplier.
+    fn scale(&mut self, key: FitKey) -> f32 {
+        if let Some((previous, scale)) = self.value
+            && previous == key
+        {
+            return scale;
+        }
+        let scale = ((key.node[0] / key.ink[0]).min(key.node[1] / key.ink[1]) * key.fraction
+            / key.ui_scale)
+            .min(key.max_scale);
+        self.value = Some((key, scale));
+        #[cfg(test)]
+        {
+            self.computations += 1;
+        }
+        scale
+    }
 }
 
 impl Previews {
@@ -81,6 +118,7 @@ impl Previews {
                         card,
                         live: true,
                         replay: CachedFragment::default(),
+                        fit: FitCache::default(),
                     },
                 );
             }
@@ -125,6 +163,8 @@ fn property<'a>(data: &'a BTreeMap<String, Value>, name: &str) -> Option<&'a Val
     let bound = match name {
         "card_id" => "#card_id",
         "scale" => "#scale",
+        "fit" => "#fit",
+        "max_scale" => "#max_scale",
         "alignment" => "#alignment",
         _ => return None,
     };
@@ -165,6 +205,27 @@ impl CustomRenderer for Renderer<'_> {
         if !scale.is_finite() || !(hud_card::MIN_SCALE..=hud_card::MAX_SCALE).contains(&scale) {
             return Ok(true);
         }
+        let fit = match property(node.data, "fit") {
+            None => None,
+            Some(value) => {
+                let Some(fit) = value.as_f64().filter(|fit| *fit > 0. && *fit <= 1.) else {
+                    return Ok(true);
+                };
+                Some(fit as f32)
+            }
+        };
+        let max_scale = match property(node.data, "max_scale") {
+            None => hud_card::MAX_SCALE,
+            Some(value) => {
+                let Some(scale) = value.as_f64().filter(|scale| {
+                    (f64::from(hud_card::MIN_SCALE)..=f64::from(hud_card::MAX_SCALE))
+                        .contains(scale)
+                }) else {
+                    return Ok(true);
+                };
+                scale as f32
+            }
+        };
         let mut alignment = [0.5; 2];
         if let Some(value) = property(node.data, "alignment") {
             let Some(values) = value.as_array().filter(|values| values.len() == 2) else {
@@ -184,19 +245,35 @@ impl CustomRenderer for Renderer<'_> {
             return Ok(true);
         };
         let source_size = [bounds.width(), bounds.height()];
+        let node_size = [node.dest[2] - node.dest[0], node.dest[3] - node.dest[1]];
+        let scale = fit.map_or(scale, |fraction| {
+            instance.fit.scale(FitKey {
+                ink: source_size,
+                node: node_size,
+                ui_scale: canvas.px() / entry.px,
+                fraction,
+                max_scale,
+            })
+        });
         let ratio = canvas.px() / entry.px * scale;
         let size = source_size.map(|axis| axis * ratio);
-        let geometry =
-            crate::mod_widgets::template::dimensions(&source.content.cards[instance.card])
-                .map(|axis| axis as f32 * canvas.px() * scale);
-        let origin = [
-            node.dest[0]
-                + (node.dest[2] - node.dest[0] - geometry[0]) * alignment[0]
-                + (bounds.min().x() + entry.preview_offset[0]) * ratio,
-            node.dest[1]
-                + (node.dest[3] - node.dest[1] - geometry[1]) * alignment[1]
-                + (bounds.min().y() + entry.preview_offset[1]) * ratio,
-        ];
+        let origin: [f32; 2] = if fit.is_some() {
+            std::array::from_fn(|axis| {
+                node.dest[axis] + (node_size[axis] - size[axis]) * alignment[axis]
+            })
+        } else {
+            let geometry =
+                crate::mod_widgets::template::dimensions(&source.content.cards[instance.card])
+                    .map(|axis| axis as f32 * canvas.px() * scale);
+            [
+                node.dest[0]
+                    + (node_size[0] - geometry[0]) * alignment[0]
+                    + (bounds.min().x() + entry.preview_offset[0]) * ratio,
+                node.dest[1]
+                    + (node_size[1] - geometry[1]) * alignment[1]
+                    + (bounds.min().y() + entry.preview_offset[1]) * ratio,
+            ]
+        };
         let dest = [
             origin[0],
             origin[1],
@@ -227,3 +304,6 @@ impl CustomRenderer for Renderer<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

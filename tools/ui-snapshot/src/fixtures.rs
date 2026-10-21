@@ -3,6 +3,7 @@
 mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
+mod hud_card_fit;
 mod hud_cards;
 mod hud_editor;
 mod local_identity;
@@ -94,6 +95,18 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "mod-hud-card-fit-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_card_fit::fixture(false),
+    },
+    State {
+        name: "mod-hud-card-fit-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_card_fit::fixture(true),
+    },
     State {
         name: "collection-reveal-before",
         size: SIZE,
