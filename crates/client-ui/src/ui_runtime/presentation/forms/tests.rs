@@ -895,10 +895,10 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     menu.update(Input::SubmitCreate);
     let dialog = oreui_texts(&base(&menu));
     assert!(
-        has(&dialog, &PromptButton::GetDocker.label())
-            && !has(&dialog, &PromptButton::UseDragonfly.label()),
+        has(&dialog, &PromptButton::GetDocker.label()),
         "no-Docker dialog: {dialog:?}"
     );
+    assert!(!has(&dialog, &PromptButton::UseDragonfly.label()));
 }
 
 #[test]
