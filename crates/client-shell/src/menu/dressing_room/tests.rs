@@ -492,7 +492,8 @@ fn cosmetic_keyboard_focus_skips_unowned_items() {
     let free = render_model::hats::fixture::bunny();
     let locked = render_model::hats::fixture::locked_bunny();
     let mut menu = MenuRuntime::new(false, 2, "fixture".into());
-    menu.dressing_room.section = launcher::dressing_room::DressingRoomSection::Cosmetics;
+    Arc::make_mut(&mut menu.dressing_room).section =
+        launcher::dressing_room::DressingRoomSection::Cosmetics;
     let actions = menu.dressing_room_focus();
     assert!(
         actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
