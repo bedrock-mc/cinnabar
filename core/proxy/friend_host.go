@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-xsapi/v2/mpsd"
@@ -59,53 +60,124 @@ type FriendHostConfig struct {
 // the franchise messaging service, admits only Xbox-authenticated players holding the nonce the
 // session issued them, and relays each into the offline loopback server.
 type FriendHost struct {
-	signaling *messaging.Conn
-	listener  *minecraft.Listener
-	session   *friendSession
-	prepared  *preparedConnections
-	log       *slog.Logger
-	players   atomic.Int32
-	sessions  sync.WaitGroup
-	cancel    context.CancelFunc
-	done      chan struct{}
+	open     func(context.Context) (*friendEndpoint, error)
+	config   func() minecraft.ListenConfig
+	prepared *preparedConnections
+	log      *slog.Logger
+	players  atomic.Int32
+	sessions sync.WaitGroup
+	ctx      context.Context // ends every friend's relay; only Close cancels it
+	cancel   context.CancelFunc
+	done     chan struct{}
+
+	mu       sync.Mutex
+	endpoint *friendEndpoint
 }
 
-// StartFriendHost signals, listens and publishes; Close undoes all three.
-func StartFriendHost(ctx context.Context, cfg FriendHostConfig) (host *FriendHost, err error) {
+// friendEndpoint is one signaling connection, the session it advertises and its listener.
+type friendEndpoint struct {
+	network        minecraft.Network
+	directory      friendDirectory
+	closeSignaling func() error
+	listener       *minecraft.Listener
+	once           sync.Once
+	err            error
+}
+
+// friendDirectory is the advertised session that issues join nonces and carries the world card.
+type friendDirectory interface {
+	nonce(xuid string) (string, bool)
+	setMembers(count int)
+	invite(ctx context.Context, xuid string) error
+	Close() error
+}
+
+// friendReconnectBase and friendReconnectMax bound the wait between failed signaling reconnects;
+// friendReconnectTimeout bounds one attempt.
+const (
+	friendReconnectBase    = 5 * time.Second
+	friendReconnectMax     = 2 * time.Minute
+	friendReconnectTimeout = time.Minute
+)
+
+// StartFriendHost signals, publishes and listens; Close undoes all three.
+func StartFriendHost(ctx context.Context, cfg FriendHostConfig) (*FriendHost, error) {
 	log := cfg.Logger
 	if log == nil {
 		log = slog.Default()
 	}
 	log = log.With("component", "friend-host")
+	host := newFriendHost(cfg.XUID, log, func(ctx context.Context) (*friendEndpoint, error) {
+		return openFriendEndpoint(ctx, cfg, log)
+	})
+	host.prepared.resolveTarget = withLocalTarget(cfg.LocalTarget, func(context.Context) (*resolvedUpstreamTarget, error) {
+		return nil, errNoHostedWorld
+	})
+	if err := host.start(ctx); err != nil {
+		return nil, err
+	}
+	log.Info("hosting local world for friends", "world", cfg.World.ID)
+	return host, nil
+}
+
+// newFriendHost admits friends of the host XUID through endpoints from open.
+func newFriendHost(xuid string, log *slog.Logger, open func(context.Context) (*friendEndpoint, error)) *FriendHost {
+	ctx, cancel := context.WithCancel(context.Background())
+	h := &FriendHost{open: open, log: log, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	h.prepared = newPreparedConnections("", nil, log)
+	h.config = func() minecraft.ListenConfig { return friendListenConfig(xuid, h, h.prepared) }
+	return h
+}
+
+// openFriendEndpoint dials signaling and publishes the session before any friend can connect,
+// so every admission check has nonces to consult.
+func openFriendEndpoint(ctx context.Context, cfg FriendHostConfig, log *slog.Logger) (*friendEndpoint, error) {
 	signaling, err := messaging.Dialer{Log: log}.DialContext(ctx, cfg.Account)
 	if err != nil {
 		return nil, fmt.Errorf("friends: signaling: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = signaling.Close()
+	session, err := publishFriendSession(ctx, cfg.Xbox.MPSD(), cfg.XUID, friendStatus(cfg, signaling), log)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("friends: %w", err), signaling.Close())
+	}
+	return &friendEndpoint{network: friendNetwork(signaling, log), directory: session, closeSignaling: signaling.Close}, nil
+}
+
+// start installs the first endpoint, failing without leaving anything running.
+func (h *FriendHost) start(ctx context.Context) error {
+	endpoint, err := h.openEndpoint(ctx)
+	if err != nil {
+		h.cancel()
+		return errors.Join(err, h.prepared.shutdown())
+	}
+	h.endpoint = endpoint
+	go h.serve()
+	return nil
+}
+
+// openEndpoint opens an endpoint and listens on it.
+func (h *FriendHost) openEndpoint(ctx context.Context) (*friendEndpoint, error) {
+	endpoint, err := h.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	endpoint.listener, err = h.config().ListenNetwork(endpoint.network, "")
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("friends: listen: %w", err), endpoint.retire())
+	}
+	return endpoint, nil
+}
+
+// retire withdraws the session, stops accepting and closes signaling; friends' relays continue.
+func (e *friendEndpoint) retire() error {
+	e.once.Do(func() {
+		var listenErr error
+		if e.listener != nil {
+			listenErr = e.listener.Close()
 		}
-	}()
-	runCtx, cancel := context.WithCancel(context.Background())
-	host = &FriendHost{signaling: signaling, log: log, cancel: cancel, done: make(chan struct{})}
-	host.prepared = newPreparedConnections("", nil, log)
-	host.prepared.resolveTarget = withLocalTarget(cfg.LocalTarget, func(context.Context) (*resolvedUpstreamTarget, error) {
-		return nil, errNoHostedWorld
+		e.err = errors.Join(e.directory.Close(), listenErr, e.closeSignaling())
 	})
-	// The session exists before the listener, so every admission check has nonces to consult.
-	host.session, err = publishFriendSession(ctx, cfg.Xbox.MPSD(), cfg.XUID, friendStatus(cfg, signaling), log)
-	if err != nil {
-		cancel()
-		return nil, errors.Join(fmt.Errorf("friends: %w", err), host.prepared.shutdown())
-	}
-	host.listener, err = friendListenConfig(cfg.XUID, host, host.prepared).ListenNetwork(friendNetwork(signaling, log), "")
-	if err != nil {
-		cancel()
-		return nil, errors.Join(fmt.Errorf("friends: listen: %w", err), host.session.Close(), host.prepared.shutdown())
-	}
-	go host.accept(runCtx)
-	log.Info("hosting local world for friends", "world", cfg.World.ID)
-	return host, nil
+	return e.err
 }
 
 // friendNetwork allows offers without SDP identity; Minecraft Login still authenticates the player.
@@ -163,7 +235,7 @@ func friendListenConfig(host string, h *FriendHost, prepared *preparedConnection
 		MaximumPlayers:      FriendWorldMaxPlayers,
 		ErrorLog:            h.log,
 		Allow: func(_ net.Addr, identity login.IdentityData, client login.ClientData) (string, bool) {
-			nonce, issued := h.session.nonce(identity.XUID)
+			nonce, issued := h.current().directory.nonce(identity.XUID)
 			return admitFriend(host, identity.XUID, client.Nonce, nonce, issued)
 		},
 		PrepareResourcePackOffer: prepared.prepare,
@@ -181,12 +253,72 @@ func admitFriend(host, xuid, presented, issued string, ok bool) (string, bool) {
 	return "", true
 }
 
-func (h *FriendHost) accept(ctx context.Context) {
+// serve accepts friends and replaces the endpoint whenever its signaling connection is lost.
+func (h *FriendHost) serve() {
 	defer close(h.done)
 	for {
-		conn, err := h.listener.Accept()
+		endpoint := h.current()
+		h.accept(endpoint.listener)
+		if h.ctx.Err() != nil {
+			return
+		}
+		h.log.Warn("friends: signaling lost; reconnecting without ending friends' sessions")
+		if err := endpoint.retire(); err != nil {
+			h.log.Debug("friends: retire endpoint", "error", redact.Error(err))
+		}
+		if !h.reconnect() {
+			return
+		}
+	}
+}
+
+// reconnect installs a new endpoint, retrying with backoff until it succeeds or Close is called.
+func (h *FriendHost) reconnect() bool {
+	delay := friendReconnectBase
+	for {
+		attemptCtx, cancel := context.WithTimeout(h.ctx, friendReconnectTimeout)
+		endpoint, err := h.openEndpoint(attemptCtx)
+		cancel()
+		if err == nil {
+			h.mu.Lock()
+			closed := h.ctx.Err() != nil
+			if !closed {
+				h.endpoint = endpoint
+			}
+			h.mu.Unlock()
+			if closed {
+				_ = endpoint.retire()
+				return false
+			}
+			endpoint.directory.setMembers(int(h.players.Load()) + 1)
+			return true
+		}
+		if h.ctx.Err() != nil {
+			return false
+		}
+		h.log.Warn("friends: reconnect signaling", "error", redact.Error(err), "retry_in", delay)
+		select {
+		case <-h.ctx.Done():
+			return false
+		case <-time.After(delay):
+		}
+		delay = min(delay*2, friendReconnectMax)
+	}
+}
+
+// current is the endpoint friends are admitted through.
+func (h *FriendHost) current() *friendEndpoint {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.endpoint
+}
+
+// accept relays every friend admitted through listener until it closes.
+func (h *FriendHost) accept(listener *minecraft.Listener) {
+	for {
+		conn, err := listener.Accept()
 		if err != nil {
-			if ctx.Err() == nil && !errors.Is(err, net.ErrClosed) {
+			if h.ctx.Err() == nil && !errors.Is(err, net.ErrClosed) {
 				h.log.Warn("friends: accept", "error", redact.Error(err))
 			}
 			return
@@ -201,12 +333,12 @@ func (h *FriendHost) accept(ctx context.Context) {
 			continue
 		}
 		h.sessions.Add(1)
-		h.session.setMembers(int(h.players.Add(1)) + 1)
+		h.current().directory.setMembers(int(h.players.Add(1)) + 1)
 		go func() {
 			defer h.sessions.Done()
-			defer func() { h.session.setMembers(int(h.players.Add(-1)) + 1) }()
+			defer func() { h.current().directory.setMembers(int(h.players.Add(-1)) + 1) }()
 			// A friend's session ending never stops the host.
-			if err := servePreparedConnection(ctx, downstream, prepared); err != nil && ctx.Err() == nil {
+			if err := servePreparedConnection(h.ctx, downstream, prepared); err != nil && h.ctx.Err() == nil {
 				logFriendSessionEnded(h.log, downstream.IdentityData().XUID, err)
 			}
 		}()
@@ -221,21 +353,23 @@ func logFriendSessionEnded(log *slog.Logger, xuid string, err error) {
 
 // Invite sends an Xbox Live invite to the world.
 func (h *FriendHost) Invite(ctx context.Context, xuid string) error {
-	return h.session.invite(ctx, xuid)
+	return h.current().directory.invite(ctx, xuid)
 }
 
-// Done closes when signaling drops and the host can no longer accept friends.
+// Done closes once the host has stopped for good; a lost signaling connection is replaced.
 func (h *FriendHost) Done() <-chan struct{} {
-	return h.signaling.Context().Done()
+	return h.done
 }
 
 // Close withdraws the session, stops accepting and ends every friend's session.
 func (h *FriendHost) Close() error {
+	h.mu.Lock()
 	h.cancel()
-	sessionErr := h.session.Close()
-	listenErr := h.listener.Close()
+	endpoint := h.endpoint
+	h.mu.Unlock()
+	retireErr := endpoint.retire()
 	<-h.done
 	stopErr := h.prepared.shutdown()
 	h.sessions.Wait()
-	return errors.Join(sessionErr, listenErr, stopErr, h.signaling.Close())
+	return errors.Join(retireErr, stopErr)
 }
