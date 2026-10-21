@@ -45,6 +45,8 @@ mod plan;
 mod tests;
 mod upload;
 
+pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
+
 use super::{geometry::ShaderpackGeometrySettings, plugin::LoadedShaderPack};
 use animate::AtlasAnimations;
 use bevy::{
@@ -59,7 +61,6 @@ use bevy::{
     },
     tasks::{AsyncComputeTaskPool, Task, block_on},
 };
-pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use plan::{AtlasInputs, AtlasPlan, LayerLayout};
 use render_scene::{ChunkAnimationClock, ChunkTextureAssets, shaderpack::ShaderPackRendering};
 use std::sync::Arc;
