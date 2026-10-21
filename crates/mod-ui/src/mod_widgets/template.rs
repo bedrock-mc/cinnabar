@@ -414,7 +414,7 @@ pub(super) fn card_data(
 ) {
     data.set_global(
         format!("#card_{n}_visible"),
-        Scalar::Bool(!card.preview_only),
+        Scalar::Bool(card.visible && !card.preview_only),
     );
     data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
     data.set_global(

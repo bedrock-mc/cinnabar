@@ -313,6 +313,7 @@ fn stage_content(state: &mut State, content: Option<Hud>) -> Result<(), String> 
             hide_editor_labels: _,
             surface: _,
             editor_style: _,
+            inspector_size: _,
         } = hud;
         actor_style.is_some()
             || actor_health.is_some()

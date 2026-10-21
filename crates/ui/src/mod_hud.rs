@@ -142,6 +142,9 @@ pub struct Hud {
     /// Optional colors for the editor's outlines, handles, guides and grid.
     #[serde(default)]
     pub editor_style: Option<EditorStyle>,
+    /// Optional editor settings-card size in GUI pixels, positioned beside the selection.
+    #[serde(default)]
+    pub inspector_size: Option<[f32; 2]>,
 }
 
 /// Exact plain-text chat span and the extension event emitted by a primary click.
@@ -210,6 +213,9 @@ impl CardFont {
 #[serde(deny_unknown_fields)]
 pub struct Card {
     pub id: String,
+    /// Initial visibility in gameplay and the editor; hidden cards remain available for editing.
+    #[serde(default = "enabled")]
+    pub visible: bool,
     /// Reserves a card for panel previews without showing it during gameplay.
     #[serde(default)]
     pub preview_only: bool,
@@ -279,6 +285,7 @@ impl Default for Card {
     fn default() -> Self {
         Self {
             id: String::new(),
+            visible: true,
             preview_only: false,
             title: String::new(),
             editor_label: String::new(),
@@ -458,7 +465,7 @@ impl Default for Crosshair {
 fn unit() -> f32 {
     1.
 }
-/// Preserves legacy text shadows when a card omits its preference.
+/// Preserves enabled defaults when a card omits its visibility or shadow preference.
 fn enabled() -> bool {
     true
 }
@@ -522,6 +529,12 @@ fn color(value: [f32; 4]) -> Result<(), String> {
 impl Hud {
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
+        if self.inspector_size.is_some_and(|size| {
+            size.into_iter()
+                .any(|value| !value.is_finite() || value <= 0.)
+        }) {
+            return Err("HUD inspector size must contain finite positive GUI pixels".into());
+        }
         if let Some(bounds) = &self.actor_bounds {
             bounds.validate()?;
         }
@@ -556,6 +569,7 @@ impl Hud {
                         | "hud.close"
                         | "hud.reset"
                         | "hud.grid"
+                        | "hud.snap"
                         | "hud.undo"
                         | "hud.redo"
                         | "hud.scale_down"

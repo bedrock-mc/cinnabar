@@ -291,7 +291,8 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
     assert!(p.mod_ui_mut().take_mod_hud_editor_result().is_none());
     assert!(p.mod_ui_mut().mod_panel_events(at, true, true).is_empty());
     assert_eq!(pixel(&mut p), [255, 0, 0, 255]);
-    assert!(p.mod_ui().mod_hud_editor_state().unwrap().snap);
+    assert!(p.mod_ui().mod_hud_editor_state().unwrap().grid);
+    assert!(!p.mod_ui().mod_hud_editor_state().unwrap().snap);
 
     p.mod_ui_mut().mod_panel_events([-50.; 2], false, true);
     assert_eq!(
@@ -364,6 +365,7 @@ fn dragging_near_viewport_axes_snaps_and_releases_guides() {
     for fraction in [0., 0.5, 1.] {
         let mut p = presentation(false);
         autosave_editor(&mut p);
+        click(&mut p, "hud.snap");
         let at = point(&p, "hud.card:0");
         p.mod_ui_mut().mod_panel_events(at, true, true);
         let editor = p.mod_ui().mod_hud_editor_state().unwrap();
@@ -549,6 +551,7 @@ fn snapping_drag_feedback_retains_catalog_and_shift_bypasses_all_snaps() {
     p.mod_ui_mut()
         .set_mod_hud_editor_keep_out(&[[549., 650., 182., 60.]]);
     frame(&mut p, &runtime, [1280, 720], 1.);
+    click(&mut p, "hud.snap");
     let e = p.mod_ui().mod_hud_editor_state().unwrap();
     let catalog = std::sync::Arc::clone(e.catalog.unwrap());
     let original = card_origin(&e.draft.cards[0], e.viewport);

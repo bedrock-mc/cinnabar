@@ -458,6 +458,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   host-supplied native HUD bounds, with edge distances and Shift snap bypass.
   The editor also retains bounded undo/redo history, per-card draft visibility,
   anchor and scale actions, live owner-scoped card updates and inspector bindings.
+  Grid display and snapping have independent controls. Published cards can start
+  hidden, and optional inspector dimensions place settings beside the selected
+  card with viewport clamping and retained geometry bindings.
   Hidden card IDs have an additive result read; toast and anchor motion use the
   presentation clock. Displayed-frame pacing and populated-world Studio acceptance
   remain pending.
