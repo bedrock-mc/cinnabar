@@ -341,6 +341,134 @@ fn actor_move_explicit_teleport_supersedes_pending_and_recorded_positions() {
     }
 }
 
+/// A placement completes before a newer correction attaches to that same completed frame.
+fn actor_move_then_same_frame_deferred_correction(destination_loaded: bool) {
+    let world = DeferredDestinationWorld { destination_loaded };
+    let (mut physics, mut ticker, samples) = prediction_before_unavailable_destination(&world);
+    let mut actor_position = samples[2].position;
+    actor_position[0] = 4.0;
+    physics.apply_server_actor_position(actor_position, Some(true));
+    let recorded = physics.advance(Duration::from_millis(50), Default::default(), &world);
+    assert_eq!(recorded.samples.len(), 1);
+    let boundary = recorded.samples[0].tick;
+    ticker
+        .enqueue_completed_physics(recorded.samples[0].clone())
+        .unwrap();
+    assert_eq!(physics.network_position(), Some(actor_position));
+
+    let mut deferred_position = actor_position;
+    deferred_position[0] = 32.0;
+    assert_eq!(
+        crate::movement::reconcile_prediction_correction(
+            &mut ticker,
+            &mut physics,
+            deferred_position,
+            500,
+            true,
+            [0.0; 3],
+            &world,
+        )
+        .unwrap(),
+        None
+    );
+    // No simulation occurred between the recorded placement and this deferred correction.
+    assert_eq!(physics.state().unwrap().tick, boundary);
+    assert_eq!(physics.network_position(), Some(actor_position));
+    let anchor = &samples[0];
+    let outcome = crate::movement::reconcile_prediction_correction(
+        &mut ticker,
+        &mut physics,
+        anchor.position,
+        anchor.tick,
+        anchor.grounded_after_tick,
+        anchor.velocity,
+        &world,
+    )
+    .unwrap();
+    if destination_loaded {
+        assert!(matches!(
+            outcome,
+            Some(PhysicsCorrectionOutcome::Replayed { .. })
+        ));
+    } else {
+        assert!(matches!(
+            outcome,
+            Some(PhysicsCorrectionOutcome::Snapped { .. })
+        ));
+    }
+    assert_eq!(physics.network_position(), Some(deferred_position));
+    assert_eq!(physics.state().unwrap().tick, boundary);
+    assert_eq!(physics.state().unwrap().velocity, sim::Vec3::ZERO);
+    assert!(ticker.physics_is_authorized());
+}
+
+#[test]
+fn actor_move_same_frame_newer_deferred_correction_wins_successful_replay() {
+    actor_move_then_same_frame_deferred_correction(true);
+}
+
+#[test]
+fn actor_move_same_frame_newer_deferred_correction_wins_failed_replay_fallback() {
+    actor_move_then_same_frame_deferred_correction(false);
+}
+
+#[test]
+fn actor_move_after_deferred_correction_keeps_newer_pending_and_recorded_authority() {
+    for destination_loaded in [false, true] {
+        for recorded in [false, true] {
+            let world = DeferredDestinationWorld { destination_loaded };
+            let (mut physics, mut ticker, samples) =
+                prediction_before_unavailable_destination(&world);
+            let current_tick = physics.state().unwrap().tick;
+            let mut deferred_position = samples[2].position;
+            deferred_position[0] = 32.0;
+            crate::movement::reconcile_prediction_correction(
+                &mut ticker,
+                &mut physics,
+                deferred_position,
+                500,
+                true,
+                [0.0; 3],
+                &world,
+            )
+            .unwrap();
+            let mut actor_position = deferred_position;
+            actor_position[0] = 4.0;
+            physics.apply_server_actor_position(actor_position, Some(true));
+            // Reversing arrival order leaves the newer placement pending on the next frame.
+            assert_eq!(physics.state().unwrap().tick, current_tick);
+            if recorded {
+                let frame = physics.advance(Duration::from_millis(50), Default::default(), &world);
+                assert_eq!(frame.samples.len(), 1);
+                ticker
+                    .enqueue_completed_physics(frame.samples[0].clone())
+                    .unwrap();
+            }
+            let anchor = &samples[0];
+            crate::movement::reconcile_prediction_correction(
+                &mut ticker,
+                &mut physics,
+                anchor.position,
+                anchor.tick,
+                anchor.grounded_after_tick,
+                anchor.velocity,
+                &world,
+            )
+            .unwrap();
+            assert_eq!(
+                physics.network_position(),
+                Some(actor_position),
+                "loaded={destination_loaded}, recorded={recorded}"
+            );
+            assert_eq!(
+                physics.state().unwrap().tick,
+                current_tick + u64::from(recorded)
+            );
+            assert!(ticker.physics_is_authorized());
+        }
+    }
+}
+
 /// A replay fallback retains the most recent later-frame spatial authority while terrain loads.
 #[test]
 fn unavailable_replay_keeps_the_latest_deferred_destination() {
