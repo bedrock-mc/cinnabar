@@ -33,30 +33,44 @@ pub(super) struct NativeSceneLayers<'w> {
     weather: Option<Res<'w, render_scene::PrecipitationScene>>,
     overlays: Option<Res<'w, render_scene::ScreenOverlayScene>>,
     nametags: Option<Res<'w, render_scene::NametagSceneResource>>,
+    hand_rig: Option<Res<'w, render_scene::HandRigScene>>,
+    viewmodel: Option<Res<'w, render_scene::ViewmodelScene>>,
 }
 
 impl NativeSceneLayers<'_> {
+    /// Keeps first-person layers that this geometry host cannot replace on the native path.
+    pub(super) fn first_person_native(&self) -> bool {
+        self.hand_rig
+            .as_ref()
+            .is_some_and(|scene| scene.is_active())
+            || self
+                .viewmodel
+                .as_ref()
+                .is_some_and(|scene| scene.frame.is_some())
+    }
+
     /// Whether this frame needs the native scene colour to preserve its layers.
     pub(super) fn needed(
         &self,
         pack: &PackGpu,
         textures: Option<&ShaderpackEffectTextures>,
     ) -> bool {
-        needs_native_scene(
-            self.atmosphere.as_deref(),
-            self.particles.as_deref(),
-            self.weather.as_deref(),
-            self.overlays.as_deref(),
-            self.nametags.as_deref(),
-            |effect| {
-                !pack.effects.draws(effect)
-                    || (pack
-                        .draws
-                        .iter()
-                        .any(|draw| draw.kind == DrawKind::Effect(effect))
-                        && textures.is_some_and(|textures| textures.views(effect).is_some()))
-            },
-        )
+        self.first_person_native()
+            || needs_native_scene(
+                self.atmosphere.as_deref(),
+                self.particles.as_deref(),
+                self.weather.as_deref(),
+                self.overlays.as_deref(),
+                self.nametags.as_deref(),
+                |effect| {
+                    !pack.effects.draws(effect)
+                        || (pack
+                            .draws
+                            .iter()
+                            .any(|draw| draw.kind == DrawKind::Effect(effect))
+                            && textures.is_some_and(|textures| textures.views(effect).is_some()))
+                },
+            )
     }
 }
 

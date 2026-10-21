@@ -771,6 +771,10 @@ pub(super) fn finish(app: &mut App) {
 mod post_tests;
 
 #[cfg(test)]
+#[path = "plugin_first_person_tests.rs"]
+mod first_person_tests;
+
+#[cfg(test)]
 mod camera_tests {
     use super::*;
     use bevy::render::view::Msaa;

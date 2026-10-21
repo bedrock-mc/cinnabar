@@ -152,7 +152,7 @@ pub(crate) struct PackGpu {
     pub shadow_translucent: bool,
     /// `mc_Entity` id per Bedrock block state (by sequential id) from `block.properties`.
     pub block_ids: Option<Arc<Vec<i32>>>,
-    /// `entityId` and item ids per Bedrock identifier; empty without geometry draws.
+    /// `entityId` and item ids per Bedrock identifier, including full-screen-only packs.
     pub actor_ids: Arc<super::ids::ActorIdMaps>,
     /// `separateAo` and `oldLighting` from `shaders.properties`.
     pub separate_ao: bool,
@@ -791,11 +791,7 @@ pub(crate) fn build(
                 mipmapped: 0,
             })
             .collect();
-        let (block_ids, actor_ids) = if draws.is_empty() {
-            (None, Arc::default())
-        } else {
-            (block_ids, actor_ids)
-        };
+        let block_ids = block_ids.filter(|_| !draws.is_empty());
         let atlas_placeholder = constants
             .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
             .0;
