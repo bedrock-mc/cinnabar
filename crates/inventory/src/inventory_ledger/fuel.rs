@@ -74,6 +74,9 @@ pub(super) fn resolve(entry: &ItemRegistryEntry, assets: Option<&RuntimeEntityAs
 }
 
 #[cfg(test)]
+mod compatibility_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
