@@ -201,6 +201,9 @@ fn editor_grid_is_optional_and_nudging_stays_inside_available_travel() {
     editor(&mut p, &hud);
     frame(&mut p, &UiRuntime::new(1), [1920, 1080], 1.);
     click(&mut p, "hud.grid");
+    assert!(p.mod_ui().mod_hud_editor_state().unwrap().grid);
+    assert!(!p.mod_ui().mod_hud_editor_state().unwrap().snap);
+    click(&mut p, "hud.snap");
     assert!(p.mod_ui().mod_hud_editor_state().unwrap().snap);
     let at = point(&p, "hud.card:0");
     p.mod_ui_mut().mod_panel_events(at, true, true);

@@ -209,17 +209,20 @@ impl DrawKind {
     }
 
     /// Drawn after the deferred passes, on the side composite passes read.
-    pub(crate) fn after_deferred(self) -> bool {
-        matches!(
-            self,
-            DrawKind::Translucent
-                | DrawKind::EntitiesTranslucent
-                | DrawKind::BlockTranslucent
-                | DrawKind::BeaconBeam
-                | DrawKind::HandWater
-                | DrawKind::HandGlint
-                | DrawKind::ArmorGlintTranslucent
-        )
+    pub(crate) fn after_deferred(self, settings: &EffectSettings) -> bool {
+        match self {
+            DrawKind::Effect(effect) => settings.after_deferred(effect),
+            _ => matches!(
+                self,
+                DrawKind::Translucent
+                    | DrawKind::EntitiesTranslucent
+                    | DrawKind::BlockTranslucent
+                    | DrawKind::BeaconBeam
+                    | DrawKind::HandWater
+                    | DrawKind::HandGlint
+                    | DrawKind::ArmorGlintTranslucent
+            ),
+        }
     }
 
     /// The first-person hand, drawn in hand space with the hand projection.

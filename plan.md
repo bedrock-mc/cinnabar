@@ -293,7 +293,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
   Client-owned panel collections support bounded four-column card grids with
-  item-scoped expressions and vector artwork; hardware frame-work acceptance remains open.
+  item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
+  items without rebuilding the catalog; hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -448,6 +449,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Personal panels and HUD editor surfaces can bind the host local player's name
   and skin head, with neutral artwork when the identity is unavailable. Skin and
   session changes retire the previous portrait; full in-world acceptance remains pending.
+  Embedded panel fonts admit covered Latin-1 and General Punctuation glyphs within
+  the existing atlas bounds. Active native fields retain an accent focus border;
+  focused regressions cover glyph fallback and steady-frame geometry reuse.
   populated-world and displayed-frame acceptance remain pending. Panel motion
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
@@ -458,6 +462,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   host-supplied native HUD bounds, with edge distances and Shift snap bypass.
   The editor also retains bounded undo/redo history, per-card draft visibility,
   anchor and scale actions, live owner-scoped card updates and inspector bindings.
+  Grid display and snapping have independent controls. Published cards can start
+  hidden, and optional inspector dimensions place settings beside the selected
+  card with viewport clamping and retained geometry bindings.
   Hidden card IDs have an additive result read; toast and anchor motion use the
   presentation clock. Displayed-frame pacing and populated-world Studio acceptance
   remain pending.

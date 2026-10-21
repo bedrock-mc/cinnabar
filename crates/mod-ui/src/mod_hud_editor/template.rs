@@ -172,6 +172,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                 ("close", "Done"),
                 ("reset", "Reset"),
                 ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
             ]
         } else {
             &[
@@ -179,9 +180,11 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                 ("cancel", "Cancel"),
                 ("reset", "Reset"),
                 ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
             ]
         };
-        let width = actions.len() as f64 * 53. + 8.;
+        let slot = 53_f64.min((viewport[0] - 8.).max(0.) / actions.len() as f64);
+        let width = actions.len() as f64 * slot + 8.;
         let x = ((viewport[0] - width) * 0.5).max(0.);
         let y = viewport[1] - 32.;
         let mut toolbar = vec![named(
@@ -189,16 +192,16 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             rect([width, 28.], [0.; 2], [0.055, 0.065, 0.08, 0.97]),
         )];
         for (index, &(action, text)) in actions.iter().enumerate() {
-            let mut textnode = label(text, [49., 12.], [4., 7.]);
-            if action == "grid" {
-                textnode["bindings"] = json!([{"binding_name":"#grid_label"}]);
+            let mut textnode = label(text, [(slot - 4.).max(0.), 12.], [4., 7.]);
+            if matches!(action, "grid" | "snap") {
+                textnode["bindings"] = json!([{"binding_name":text}]);
             }
             toolbar.push(named(
                 action,
                 button(
                     &format!("hud.{action}"),
-                    [53., 24.],
-                    [4. + index as f64 * 53., 2.],
+                    [slot, 24.],
+                    [4. + index as f64 * slot, 2.],
                     vec![named("text", textnode)],
                 ),
             ));

@@ -17,6 +17,10 @@ impl ModUi {
             return Err("HUD editor is not open".into());
         };
         editor.republish_cards(&preview.cards, true);
+        if editor.draft.inspector_size != preview.inspector_size {
+            editor.draft.inspector_size = preview.inspector_size;
+            editor.data_dirty = true;
+        }
         let definition_changed = match (&editor.draft.surface, &preview.surface) {
             (Some(old), Some(new)) => !old.same_definition(new),
             (None, None) => false,
@@ -123,6 +127,12 @@ impl HudEditor {
             self.catalog = None;
             self.snap_dirty = true;
         }
+        for card in &next {
+            if !card.visible && !self.draft.cards.iter().any(|old| old.id == card.id) {
+                self.hidden.insert(card.id.clone());
+                self.committed_hidden.insert(card.id.clone());
+            }
+        }
         self.committed.cards = next
             .iter()
             .map(|card| {
@@ -135,6 +145,8 @@ impl HudEditor {
             .collect();
         self.draft.cards = next;
         self.hidden
+            .retain(|id| self.draft.cards.iter().any(|card| &card.id == id));
+        self.committed_hidden
             .retain(|id| self.draft.cards.iter().any(|card| &card.id == id));
         self.selected =
             selected.and_then(|id| self.draft.cards.iter().position(|card| card.id == id));
