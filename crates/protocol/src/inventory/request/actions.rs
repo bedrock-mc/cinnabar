@@ -28,6 +28,9 @@ const OFFHAND_WIRE_SLOT: u8 = 1;
 pub enum StackRequestContainer {
     /// Player cells 0..36, named as hotbar below 9 and inventory above.
     PlayerInventory,
+    /// Player cells 0..36 under the one combined hotbar-and-inventory name, which crafting
+    /// requires for ingredients consumed from, and results placed into, the inventory.
+    CombinedInventory,
     Cursor,
     Armor,
     /// The single offhand cell; always addressed as wire slot 1.
@@ -360,6 +363,9 @@ fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketE
         C::PlayerInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
             (Name::Inventorycontainer, slot.slot, None)
         }
+        C::CombinedInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
+            (Name::Combinedhotbarandinventorycontainer, slot.slot, None)
+        }
         C::Cursor if slot.slot == 0 => (Name::Cursorcontainer, 0, None),
         C::Armor if slot.slot < ARMOR_SLOTS => (Name::Armorcontainer, slot.slot, None),
         C::Offhand if matches!(slot.slot, 0 | OFFHAND_WIRE_SLOT) => {
@@ -431,6 +437,19 @@ mod tests {
                 Err(InventoryPacketError::InvalidStackRequestAmount)
             ));
         }
+    }
+
+    #[test]
+    fn combined_inventory_cells_use_the_combined_name_for_every_player_slot() {
+        for cell in [0, 8, 9, 35] {
+            let info = slot(at(StackRequestContainer::CombinedInventory, cell, 7)).unwrap();
+            assert_eq!(
+                info.full_container_name.container_name,
+                Name::Combinedhotbarandinventorycontainer
+            );
+            assert_eq!(info.slot.0, cell);
+        }
+        assert!(slot(at(StackRequestContainer::CombinedInventory, 36, 7)).is_err());
     }
 
     fn at(container: StackRequestContainer, slot: u8, id: i32) -> StackRequestSlot {

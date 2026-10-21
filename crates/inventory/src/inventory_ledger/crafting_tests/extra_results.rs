@@ -154,7 +154,7 @@ fn a_book_craft_places_extras_then_the_main_result_in_the_inventory() {
         storage_item: None,
     }));
     ledger.begin_auto_craft(&recipe(), false).unwrap();
-    let inventory = format!("{:?}", StackRequestContainer::PlayerInventory);
+    let inventory = format!("{:?}", StackRequestContainer::CombinedInventory);
     assert_eq!(
         tail(&ledger),
         [

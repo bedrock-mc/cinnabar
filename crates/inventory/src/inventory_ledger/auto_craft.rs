@@ -11,7 +11,7 @@ use protocol::{
 use super::cells::{Cell, Held};
 use super::crafting::{ExtraDestination, created_stack};
 use super::gesture::Submission;
-use super::helpers::request_slot;
+use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
 use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
@@ -248,9 +248,10 @@ impl PlayerInventoryLedger {
         let mut consumed = Vec::new();
         for (slot, amount, id) in sources {
             let cell = Cell::Inventory(slot);
+            // Crafting accepts ingredients only from the combined inventory name.
             actions.push(StackRequestAction::Consume {
                 amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,
-                source: request_slot(cell, id, None)?,
+                source: combined_request_slot(slot, id)?,
             });
             groups.push(DeltaGroup::Shrink {
                 source: cell,
@@ -298,10 +299,13 @@ impl PlayerInventoryLedger {
         });
         registry_bound_merge |= plan.iter().any(|(_, _, into)| into.is_some());
         for (cell, amount, into) in plan {
+            let Cell::Inventory(slot) = cell else {
+                return Err(InventoryGestureError::InvalidRequest);
+            };
             actions.push(StackRequestAction::Place {
                 amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,
                 source: output_slot,
-                destination: request_slot(cell, into.map_or(0, |(id, _)| id), None)?,
+                destination: combined_request_slot(slot, into.map_or(0, |(id, _)| id))?,
             });
             groups.push(DeltaGroup::Transfer {
                 source: Cell::CreatedOutput,

@@ -144,3 +144,30 @@ fn a_rejected_book_craft_restores_ingredients_and_removes_the_placed_output() {
     assert!(ledger.cursor_stack().is_none());
     assert!(!ledger.resync_required());
 }
+
+#[test]
+fn book_crafts_consume_and_place_under_the_combined_inventory_name() {
+    // Vanilla servers refuse crafting ingredients consumed from the hotbar or inventory names.
+    let mut ledger = stocked(&[(0, LOG, 101, 2), (20, LOG, 102, 2)]);
+    ledger.begin_auto_craft(&planks(), true).unwrap();
+    let actions = &ledger.newest_request().unwrap().actions;
+    let mut named = 0;
+    for action in actions.iter() {
+        match action {
+            StackRequestAction::Consume { source, .. } => {
+                assert_eq!(source.container, StackRequestContainer::CombinedInventory);
+                named += 1;
+            }
+            StackRequestAction::Place { destination, .. } => {
+                assert_eq!(
+                    destination.container,
+                    StackRequestContainer::CombinedInventory
+                );
+                named += 1;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(named, 3);
+    assert!(protocol::item_stack_request_packet(-1, actions).is_ok());
+}

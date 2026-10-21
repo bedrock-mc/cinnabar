@@ -147,7 +147,12 @@ impl PlayerInventoryLedger {
                     amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
                     source: output_slot,
-                    destination: helpers::request_slot(cell, into.map_or(0, |(id, _)| id), None)?,
+                    destination: match cell {
+                        Cell::Inventory(slot) => {
+                            helpers::combined_request_slot(slot, into.map_or(0, |(id, _)| id))?
+                        }
+                        _ => helpers::request_slot(cell, into.map_or(0, |(id, _)| id), None)?,
+                    },
                 });
                 groups.push(DeltaGroup::Transfer {
                     source: Cell::CreatedOutput,

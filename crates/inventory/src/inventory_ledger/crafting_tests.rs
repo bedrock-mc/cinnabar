@@ -35,7 +35,7 @@ fn placed_outputs(ledger: &PlayerInventoryLedger) -> Vec<(u8, NetworkItemStack)>
                 destination,
                 ..
             } if source.container == StackRequestContainer::CreatedOutput
-                && destination.container == StackRequestContainer::PlayerInventory =>
+                && destination.container == StackRequestContainer::CombinedInventory =>
             {
                 let slot = destination.slot;
                 ledger
