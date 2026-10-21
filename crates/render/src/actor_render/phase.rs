@@ -204,7 +204,7 @@ impl ActorGpu {
             && draw.skin_revision == self.skin_revision
             && draw.geometry_revision == self.geometry_revision
             && draw.frame_generation == self.frame_generation
-            && std::sync::Arc::ptr_eq(&draw.manifest, &self.manifest))
+            && std::sync::Arc::ptr_eq(&draw.manifest, &self.main_manifest))
         .then(|| batch.clone())
     }
 }
