@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"strings"
 	"sync/atomic"
 
 	"github.com/google/uuid"
@@ -381,7 +382,16 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 		for _, entry := range snapshot.Entries() {
 			id := resourcePackIdentity(entry.UUID(), entry.Version())
 			if offerIDs[id] && !admitted[id] {
-				return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+				matched := false
+				for admittedID := range admitted {
+					if strings.HasPrefix(admittedID, entry.UUID()+"_") {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+				}
 			}
 		}
 	}
