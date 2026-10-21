@@ -923,12 +923,25 @@ fn scaled_and_translated_full_blocks_draw_their_transformed_bounds() {
                     ..CustomBlockVisuals::default()
                 },
             ),
+            block(
+                "test:mirrored",
+                1,
+                CustomBlockVisuals {
+                    base: transformed([-1.0, 1.0, 1.0], [0.0; 3]),
+                    ..CustomBlockVisuals::default()
+                },
+            ),
         ]
         .into(),
         ..Default::default()
     };
     let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
     assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+    assert_eq!(
+        compiled.overlay.visuals[2].kind,
+        VisualKind::Cube,
+        "a reflecting scale keeps the cube instead of an inside-out model"
+    );
     let half = compiled.overlay.visuals[1];
     assert_eq!(half.kind, VisualKind::Model);
     let template = compiled.overlay.model_templates[half.model_template as usize];

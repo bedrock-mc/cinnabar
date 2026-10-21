@@ -368,9 +368,11 @@ impl Builder<'_> {
             return *visual;
         }
         let checkpoint = self.texture_checkpoint();
-        // Only quarter turns keep a full cube; scale and translation move its faces.
+        // Quarter turns keep a full cube; positive scale and translation move its faces. A
+        // reflecting or zero scale would turn model faces inside out, so it keeps the cube fallback.
         let cube_transform = components.transformation.is_none_or(|transform| {
-            transform.scale == [1.0; 3] && transform.translation == [0.0; 3]
+            (transform.scale == [1.0; 3] && transform.translation == [0.0; 3])
+                || transform.scale.iter().any(|&axis| axis <= 0.0)
         });
         let visual = match components.geometry.as_deref() {
             None | Some(FULL_BLOCK | FULL_BLOCK_V1)
