@@ -58,3 +58,6 @@ fn npc_data(npc: &NpcDialogueForm) -> DataSource {
     data.set_collection("student_buttons_collection", buttons);
     data
 }
+
+#[cfg(test)]
+mod tests;
