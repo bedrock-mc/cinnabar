@@ -448,6 +448,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Personal panels and HUD editor surfaces can bind the host local player's name
   and skin head, with neutral artwork when the identity is unavailable. Skin and
   session changes retire the previous portrait; full in-world acceptance remains pending.
+  Embedded panel fonts admit covered Latin-1 and General Punctuation glyphs within
+  the existing atlas bounds. Active native fields retain an accent focus border;
+  focused regressions cover glyph fallback and steady-frame geometry reuse.
   populated-world and displayed-frame acceptance remain pending. Panel motion
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
