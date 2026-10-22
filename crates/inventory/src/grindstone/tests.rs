@@ -90,15 +90,20 @@ fn two_copies_merge_durability() {
     assert_eq!(fresh.damage, Some(0));
 }
 
-/// Curses from both copies all count towards the penalty.
+/// An identical curse on both copies counts once, so doubly cursed pairs still make a result.
 #[test]
-fn both_copies_curses_count() {
+fn identical_curses_on_both_copies_count_once() {
     let outcome = evaluate_grindstone(
         Some(&sword(&[VANISHING], 10, 0)),
         Some(&sword(&[VANISHING], 10, 0)),
     )
     .unwrap();
     assert_eq!(outcome.enchantments, [VANISHING]);
+    assert_eq!(outcome.repair_cost, 1);
+    let both = [VANISHING, BINDING];
+    let outcome =
+        evaluate_grindstone(Some(&sword(&both, 10, 0)), Some(&sword(&both, 10, 0))).unwrap();
+    assert_eq!(outcome.enchantments, both);
     assert_eq!(outcome.repair_cost, 3);
 }
 

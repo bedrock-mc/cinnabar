@@ -169,3 +169,92 @@ fn takes_name_the_source_stack_and_penalty() {
         assert_eq!(packet, expected, "shift: {shift}");
     }
 }
+
+/// Puts `stack` in grindstone UI `slot`.
+fn place(
+    runtime: &mut UiRuntime,
+    player: &mut player_state::PlayerState,
+    slot: u8,
+    stack: NetworkItemStack,
+) {
+    runtime
+        .inventory_ledger_mut(player)
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(124),
+                    slot_type: protocol::ui_slot_container_name(slot),
+                    dynamic_id: None,
+                },
+                slot: u16::from(slot),
+            },
+            stack,
+            storage_item: None,
+        }));
+}
+
+/// A damaged sword's user data, optionally marked Unbreakable.
+fn sword_data(unbreakable: bool) -> Arc<[u8]> {
+    // Root compound with an optional `Unbreakable` byte, then the empty restriction lists.
+    let mut extra = vec![0xff, 0xff, 1, 10, 0, 0];
+    if unbreakable {
+        extra.extend_from_slice(&[1, 11, 0]);
+        extra.extend_from_slice(b"Unbreakable");
+        extra.push(1);
+    }
+    extra.push(0);
+    extra.extend_from_slice(&[0; 8]);
+    protocol::edit_item_extra(
+        &extra,
+        &protocol::ItemNbtEdit {
+            damage: Some(900),
+            enchantments: Some(vec![SHARPNESS]),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+fn sword(stack_network_id: i32, extra_data: Arc<[u8]>) -> NetworkItemStack {
+    NetworkItemStack {
+        network_id: SWORD,
+        stack_network_id,
+        count: 1,
+        nbt_digest: Sha256::digest(&extra_data).into(),
+        extra_data,
+        ..NetworkItemStack::empty()
+    }
+}
+
+/// An Unbreakable copy cannot join a durability merge, but alone it is still disenchanted.
+#[test]
+fn unbreakable_items_only_disenchant() {
+    for unbreakable in [false, true] {
+        let (mut runtime, mut player) = grindstone();
+        place(
+            &mut runtime,
+            &mut player,
+            16,
+            sword(30, sword_data(unbreakable)),
+        );
+        place(&mut runtime, &mut player, 17, sword(31, sword_data(false)));
+        assert_eq!(
+            runtime.grindstone_preview(&player).is_some(),
+            !unbreakable,
+            "unbreakable: {unbreakable}"
+        );
+        place(&mut runtime, &mut player, 17, NetworkItemStack::empty());
+        assert!(runtime.grindstone_preview(&player).is_some());
+    }
+}
+
+/// Only a compound marker counts as user data, whatever trails the envelope.
+#[test]
+fn user_data_is_read_from_the_compound_marker() {
+    assert!(!has_compound(&[]));
+    assert!(!has_compound(&[0; 10]));
+    let mut shield = vec![0; 10];
+    shield.extend_from_slice(&7i64.to_le_bytes());
+    assert!(!has_compound(&shield), "a blocking tick is not user data");
+    assert!(has_compound(&sword_data(false)));
+}

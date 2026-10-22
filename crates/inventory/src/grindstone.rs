@@ -56,20 +56,19 @@ pub fn evaluate_grindstone(
     if top.or(bottom).is_none() || [top, bottom].iter().flatten().any(|item| item.count > 1) {
         return None;
     }
-    // Every input's curses are kept, so two cursed copies count the same curse twice.
-    let curses: Vec<(i16, i16)> = [top, bottom]
+    // Curses from both inputs are kept; an identical curse on both counts once.
+    let mut kept: Vec<(i16, i16)> = Vec::new();
+    for curse in [top, bottom]
         .iter()
         .flatten()
         .flat_map(|item| item.enchantments.iter().copied())
         .filter(|(id, _)| is_curse(*id))
-        .collect();
-    let repair_cost = *REPAIR_COST_BY_CURSES.get(curses.len())?;
-    let mut kept = Vec::with_capacity(curses.len());
-    for curse in &curses {
-        if !kept.iter().any(|(id, _): &(i16, i16)| *id == curse.0) {
-            kept.push(*curse);
+    {
+        if !kept.contains(&curse) {
+            kept.push(curse);
         }
     }
+    let repair_cost = *REPAIR_COST_BY_CURSES.get(kept.len())?;
     if let (Some(top), Some(bottom)) = (top, bottom) {
         let max = top.max_damage.filter(|max| *max > 0)?;
         if top.kind.is_none()

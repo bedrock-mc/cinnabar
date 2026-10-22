@@ -18,6 +18,12 @@ pub struct GrindstonePreview {
     pub repair_cost: i32,
 }
 
+/// Whether user data opens with a compound. Read from the marker, not the envelope length:
+/// a shield's blocking tick trails an otherwise empty envelope.
+fn has_compound(extra_data: &[u8]) -> bool {
+    extra_data.get(..2) == Some(&[0xff, 0xff][..])
+}
+
 impl UiRuntime {
     /// Predicts the open grindstone's result from its inputs.
     pub(super) fn grindstone_preview(
@@ -48,11 +54,14 @@ impl UiRuntime {
                 kind: facts.kind(stack.network_id),
                 count: stack.count,
                 damage: protocol::item_stack_damage(stack).unwrap_or(0),
-                max_damage: fact.durability.maximum(),
+                // Unbreakable items cannot be merged for durability.
+                max_damage: fact
+                    .durability
+                    .maximum()
+                    .filter(|_| !protocol::item_extra_unbreakable(&stack.extra_data)),
                 enchantments: &data.enchantments,
                 repair_cost: protocol::item_repair_cost(&stack.extra_data),
-                has_user_data: !(stack.extra_data.is_empty()
-                    || stack.extra_data.as_ref() == [0; 10]),
+                has_user_data: has_compound(&stack.extra_data),
                 trimmed: protocol::item_has_trim(&stack.extra_data),
                 enchanted_book: fact
                     .traits
