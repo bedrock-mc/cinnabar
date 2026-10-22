@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use super::cells::{Cell, FIRST_CRAFT_SLOT, Held};
 use super::gesture::Submission;
 use super::overlay::DeltaGroup;
-use super::registry::{entry_capacity, plain_stack, recipe_input_valid};
+use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PlayerInventoryLedger, WORKBENCH_WINDOW_TYPE, helpers};
 
 /// Which crafting grid the open screen offers.
@@ -423,7 +423,7 @@ impl PlayerInventoryLedger {
             }
             None => {
                 let plan = self
-                    .spread_plan(&created, capacity)
+                    .spread_plan(&created, capacity, false)
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 for (cell, amount, into) in plan {
                     registry_bound_merge |= into.is_some();
@@ -458,15 +458,17 @@ impl PlayerInventoryLedger {
         })
     }
 
-    /// Splits `created` over player cells: compatible partial stacks first,
-    /// then empty cells, both in hotbar-first player slot order.
-    /// Each entry is `(cell, amount, occupied destination
+    /// Splits `created` over player cells: partial stacks with equal item data first (unless
+    /// `empty_only`, for a placeholder whose data is not yet known), then empty cells, both in
+    /// hotbar-first player slot order. Each entry is `(cell, amount, occupied destination
     /// stack id and count)`; `None` when the inventory cannot hold it all.
     pub(super) fn spread_plan(
         &self,
         created: &NetworkItemStack,
         capacity: u8,
+        empty_only: bool,
     ) -> Option<Vec<OutputPlacement>> {
+        let created_held = Held::new(created)?;
         let capacity = u16::from(capacity);
         let mut remaining = created.count;
         let mut plan = Vec::new();
@@ -483,11 +485,11 @@ impl PlayerInventoryLedger {
             if remaining == 0 {
                 break;
             }
-            let same = into.stack.network_id == created.network_id
+            let same = !empty_only
+                && into.stack.network_id == created.network_id
                 && into.stack.metadata == created.metadata
                 && into.stack.block_runtime_id == created.block_runtime_id
-                && plain_stack(&into.stack)
-                && plain_stack(created);
+                && super::registry::held_item_data_equal(&created_held, into) == Some(true);
             if !same || self.awaiting_identity(into) {
                 continue;
             }

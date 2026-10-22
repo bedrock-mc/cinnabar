@@ -957,3 +957,83 @@ fn smithing_takes_consume_the_template_first() {
         .collect();
     assert_eq!(consumed, [63, 61, 62]);
 }
+
+/// `stack(id, count)` carrying a custom name.
+fn named_stack(stack_network_id: i32, count: u16, name: &str) -> NetworkItemStack {
+    let extra = protocol::edit_item_extra(
+        &[],
+        &protocol::ItemNbtEdit {
+            custom_name: Some(Some(name.into())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    NetworkItemStack {
+        nbt_digest: sha2::Sha256::digest(&extra).into(),
+        extra_data: extra,
+        ..stack(stack_network_id, count)
+    }
+}
+
+/// A shift-clicked named result joins a partial stack with the same name even when every
+/// other cell is full, and never one with a different name.
+#[test]
+fn shift_taken_named_results_merge_into_equal_partial_stacks() {
+    let mut slots: Vec<(usize, NetworkItemStack)> = (2..PLAYER_INVENTORY_SLOT_COUNT)
+        .map(|slot| (slot, stack(100 + slot as i32, 64)))
+        .collect();
+    slots.push((0, named_stack(90, 5, "Other")));
+    slots.push((1, named_stack(91, 5, "Named")));
+    let mut ledger = ledger_with(&slots);
+    open(&mut ledger, 5, WINDOW_TYPE_ANVIL);
+    ledger.apply(&slot_update(named(124, 0), 1, stack(30, 1)));
+    ledger
+        .begin_screen_output_into(
+            &ScreenCraft::Anvil {
+                rename: Some(Arc::from("Named")),
+                recipe_network_id: 0,
+                output: Some(named_stack(0, 1, "Named")),
+                material_used: 0,
+            },
+            CraftSink::Inventory,
+        )
+        .unwrap();
+    let Some(StackRequestAction::Place { destination, .. }) =
+        ledger.newest_request().unwrap().actions.last().cloned()
+    else {
+        panic!("the result is placed");
+    };
+    assert_eq!((destination.slot, destination.stack_network_id), (1, 91));
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 6);
+}
+
+/// The loom's stand-in banner lacks its pattern, so a shift-click never merges it into a stack
+/// of blank banners.
+#[test]
+fn shift_taken_loom_results_only_fill_empty_cells() {
+    let mut ledger = ledger_with(&[(0, stack(90, 3))]);
+    open(&mut ledger, 5, protocol::WINDOW_TYPE_LOOM);
+    for (slot, id) in [(9, 40), (10, 41)] {
+        let name = protocol::ui_slot_container_name(slot).unwrap();
+        ledger.apply(&slot_update(
+            named(124, name),
+            u16::from(slot),
+            stack(id, 1),
+        ));
+    }
+    ledger
+        .begin_screen_output_into(
+            &ScreenCraft::Loom {
+                pattern: Arc::from("bri"),
+            },
+            CraftSink::Inventory,
+        )
+        .unwrap();
+    let Some(StackRequestAction::Place { destination, .. }) =
+        ledger.newest_request().unwrap().actions.last().cloned()
+    else {
+        panic!("the banner is placed");
+    };
+    assert_eq!((destination.slot, destination.stack_network_id), (1, 0));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 3);
+}
