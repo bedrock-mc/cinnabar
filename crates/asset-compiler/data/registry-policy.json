@@ -6667,7 +6667,12 @@
       "Portal": "minecraft:portal",
       "EndPortal": "minecraft:end_portal",
       "EndGateway": "minecraft:end_gateway",
-      "EndPortalFrame": "minecraft:end_portal_frame"
+      "EndPortalFrame": "minecraft:end_portal_frame",
+      "EmeraldBlock": "minecraft:emerald_block",
+      "GoldBlock": "minecraft:gold_block",
+      "DiamondBlock": "minecraft:diamond_block",
+      "IronBlock": "minecraft:iron_block",
+      "NetheriteBlock": "minecraft:netherite_block"
     },
     "VanillaEntity": {
       "Player": "minecraft:player"

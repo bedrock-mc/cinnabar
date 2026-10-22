@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeMap, sync::OnceLock};
 
+use crate::facts::VanillaBlock;
 use crate::{NetworkIdMode, RegistryRecord};
 
 /// Portal orientation, including a state whose axis is absent or unrecognized.
@@ -15,11 +16,11 @@ pub enum PortalAxis {
 
 /// The blocks a beacon pyramid may be built from.
 pub const BEACON_BASE_BLOCKS: [&str; 5] = [
-    "minecraft:emerald_block",
-    "minecraft:gold_block",
-    "minecraft:diamond_block",
-    "minecraft:iron_block",
-    "minecraft:netherite_block",
+    VanillaBlock::EmeraldBlock.identifier(),
+    VanillaBlock::GoldBlock.identifier(),
+    VanillaBlock::DiamondBlock.identifier(),
+    VanillaBlock::IronBlock.identifier(),
+    VanillaBlock::NetheriteBlock.identifier(),
 ];
 
 /// Presentation facts decoded from one canonical block state at admission.
