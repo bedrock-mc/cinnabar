@@ -776,3 +776,19 @@ fn a_stale_write_without_a_following_frame_applies_live() {
     physics.apply_server_movement_flags(50, write(false));
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// A spin that starts and expires within a replay stays expired, although
+/// the original ticks also ended without a spin.
+#[test]
+fn replay_keeps_a_spin_that_expired_within_it() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..25 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, spin), None);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}

@@ -50,6 +50,11 @@ impl FlagWord {
     pub(super) fn using_item(self) -> bool {
         self.has(USING_ITEM)
     }
+
+    /// The pose and spin bits that differ between this word and `other`.
+    pub(super) fn pose_and_spin_changes(self, other: Self) -> u8 {
+        (self.0 ^ other.0) & !USING_ITEM
+    }
 }
 
 /// The bits one server write carried, and their values.
@@ -156,21 +161,24 @@ pub(super) fn impose(word: FlagWord, modes: &mut ModeTracker, state: &mut Player
     set_spin(state, word.has(SPINNING));
 }
 
-/// Merges a replay's pose and spin back into the live state it rebuilt. A
-/// bit whose replayed value (`replayed`) differs from the value the last
-/// tick originally ended with (`ended`) keeps the replayed value; the others
+/// Merges a replay's pose and spin back into the live state it rebuilt. Like
+/// vanilla's change mask, a bit the replay changed between its tick
+/// snapshots (`observed`) keeps the replayed value (`replayed`), as does a
+/// bit whose replayed value differs from the one the last tick originally
+/// ended with (`ended`), which covers local inputs replay dropped. The others
 /// return to the live word from before the replay (`live`, whose spin counter
 /// was `live_spin`), so writes between ticks that the replay never touched
 /// survive it.
 pub(super) fn merge_replayed(
     replayed: FlagWord,
     ended: FlagWord,
+    observed: u8,
     live: FlagWord,
     live_spin: Option<u8>,
     modes: &mut ModeTracker,
     state: &mut PlayerState,
 ) {
-    let changed = (replayed.0 ^ ended.0) & !USING_ITEM;
+    let changed = observed | replayed.pose_and_spin_changes(ended);
     let merged = FlagWord((replayed.0 & changed) | (live.0 & !changed));
     apply_pose(merged, 0b111, modes);
     if changed & SPINNING == 0 && state.spin_attack_ticks.is_some() != live.has(SPINNING) {

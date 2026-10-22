@@ -238,6 +238,9 @@ impl LocalPhysicsController {
                 false,
             ))
         });
+        // Pose and spin bits that change between replayed tick snapshots.
+        let mut flag_snapshot: Option<server_flags::FlagWord> = None;
+        let mut observed_flags = 0;
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let mut using_carry = None;
@@ -278,6 +281,10 @@ impl LocalPhysicsController {
                             using_carry.take().unwrap_or(captured_using),
                         );
                     }
+                    if let Some(last) = flag_snapshot {
+                        observed_flags |= last.pose_and_spin_changes(frame.entry_flags);
+                    }
+                    flag_snapshot = Some(frame.entry_flags);
                     let word = frame.flag_correction.apply(frame.entry_flags);
                     using_carry = (word.using_item() != captured_using).then(|| word.using_item());
                     if replayed_using.is_some()
@@ -439,7 +446,18 @@ impl LocalPhysicsController {
                 state.spin_attack_ticks.is_some(),
                 false,
             );
-            server_flags::merge_replayed(replayed, ended, live_flags, live_spin, &mut modes, state);
+            if let Some(last) = flag_snapshot {
+                observed_flags |= last.pose_and_spin_changes(replayed);
+            }
+            server_flags::merge_replayed(
+                replayed,
+                ended,
+                observed_flags,
+                live_flags,
+                live_spin,
+                &mut modes,
+                state,
+            );
         }
         self.modes = modes;
         self.adopt_replayed_using_item(replayed_using);
