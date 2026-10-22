@@ -45,13 +45,22 @@ impl ItemUseRuntime {
 
     /// Notes whether gameplay has input focus. Vanilla's focus and chat
     /// handlers release an item in use when focus leaves gameplay, whoever
-    /// started the use, so losing focus lets button-up release it.
-    pub fn observe_gameplay_focus(&mut self, focused: bool) {
-        if self.gameplay_focused
-            && !focused
-            && let Some(active) = self.active.as_mut()
-        {
-            active.button_owned = true;
+    /// started the use, so losing focus lets button-up release it. A use a
+    /// server clear stopped for a tick after `completed_tick` is still in use
+    /// natively, so it returns to be released.
+    pub fn observe_gameplay_focus(&mut self, focused: bool, completed_tick: u64) {
+        if self.gameplay_focused && !focused {
+            if self.active.is_none()
+                && let Some((_, active)) = self
+                    .cleared_use
+                    .take()
+                    .filter(|(tick, _)| *tick > completed_tick)
+            {
+                self.active = Some(active);
+            }
+            if let Some(active) = self.active.as_mut() {
+                active.button_owned = true;
+            }
         }
         self.gameplay_focused = focused;
     }
@@ -69,7 +78,7 @@ impl ItemUseRuntime {
                 }
                 if let Some(active) = self.active.take() {
                     // A start whose tick has not run never reaches that tick's input.
-                    if !active.button_owned && active.started_tick >= frame.tick {
+                    if active.server_started && active.started_tick >= frame.tick {
                         self.withdrawn_start = Some(active.started_tick);
                     }
                     self.cleared_use = Some((frame.tick, active));
@@ -114,6 +123,7 @@ impl ItemUseRuntime {
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
                     last_progress_tick: None,
                     button_owned: false,
+                    server_started: true,
                 });
                 outcome.started = true;
             }

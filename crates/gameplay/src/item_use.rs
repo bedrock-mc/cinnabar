@@ -33,6 +33,8 @@ struct ActiveUse {
     /// The use button started or has held this use, so button-up releases it.
     /// A use a server flag started is released only after the button held it.
     button_owned: bool,
+    /// A server `UsingItem` set started this use rather than the button.
+    server_started: bool,
 }
 
 /// Stack and environment facts for a selected trident.
@@ -550,6 +552,7 @@ impl ItemUseRuntime {
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
                     last_progress_tick: None,
                     button_owned: true,
+                    server_started: false,
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {

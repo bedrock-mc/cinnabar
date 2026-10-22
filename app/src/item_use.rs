@@ -88,6 +88,11 @@ pub(crate) fn adopt_server_item_use(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
+    // A write for a new session must not be cancelled by the later session check.
+    runtime.synchronize(context.ui.session_id());
+    if context.client_world.respawn.input_held() {
+        return;
+    }
     if let Some(using) = context
         .physics
         .as_deref_mut()
@@ -234,7 +239,10 @@ fn produce_use(
     } else {
         true
     };
-    runtime.observe_gameplay_focus(focused && !context.focus.ui_focused);
+    runtime.observe_gameplay_focus(
+        focused && !context.focus.ui_focused,
+        movement.completed_tick(),
+    );
     let held = admitted
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),

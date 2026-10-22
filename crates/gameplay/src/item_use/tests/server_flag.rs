@@ -95,11 +95,11 @@ fn a_server_start_needs_a_verified_held_use() {
 #[test]
 fn losing_focus_releases_a_server_started_use() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.observe_gameplay_focus(true);
+    runtime.observe_gameplay_focus(true, 0);
     runtime.adopt_server_using_item(true);
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
     assert!(!runtime.is_releasing(false));
-    runtime.observe_gameplay_focus(false);
+    runtime.observe_gameplay_focus(false, 0);
     assert!(runtime.is_releasing(false));
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
 }
@@ -188,4 +188,39 @@ fn a_clear_and_set_before_a_tick_keep_the_use() {
     assert!(!runtime.resolve_server_using_item(&bread(12, false)));
     assert_eq!(runtime.active_timing(), Some((10, 32)));
     assert_eq!(runtime.take_withdrawn_start(), None);
+}
+
+/// A clear before a server start's tick runs withdraws its `StartUsingItem`
+/// even when the use button has since held the use.
+#[test]
+fn a_held_server_start_cleared_before_its_tick_is_withdrawn() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.observe_use_button(true);
+    runtime.adopt_server_using_item(false);
+    assert!(!runtime.resolve_server_using_item(&frame(10, true)));
+    assert_eq!(runtime.take_withdrawn_start(), Some(10));
+}
+
+/// Focus leaving gameplay before a tick processed a server clear releases the
+/// use the clear stopped, as vanilla still holds it then.
+#[test]
+fn losing_focus_releases_a_use_a_pending_clear_stopped() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_gameplay_focus(true, 9);
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&bread(10, false)));
+    runtime.step(&bread(11, false));
+    runtime.adopt_server_using_item(false);
+    runtime.resolve_server_using_item(&bread(12, false));
+    assert!(!runtime.is_using());
+    runtime.observe_gameplay_focus(false, 11);
+    assert!(runtime.is_releasing(false));
+    assert_eq!(kinds(&runtime.step(&bread(12, false))), ["release"]);
+    runtime.adopt_server_using_item(true);
+    assert!(
+        runtime.resolve_server_using_item(&bread(12, false)),
+        "a released use cannot be restored, so the set starts a new one"
+    );
 }
