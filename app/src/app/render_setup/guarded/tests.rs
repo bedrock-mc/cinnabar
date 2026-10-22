@@ -74,3 +74,66 @@ fn backend_mask_uses_the_policy_order() {
     assert!(backends(wgpu::Backends::empty()).is_empty());
     assert!(backends(wgpu::Backends::GL).is_empty());
 }
+
+#[test]
+fn fallback_notice_waits_for_a_visible_menu_and_opens_once() {
+    let message = notice(
+        &VideoFallback {
+            requested: Backend::Dx12,
+            reason: "device rejected".into(),
+        },
+        Backend::Vulkan,
+        Platform::Windows,
+    );
+    let mut app = App::new();
+    install_notice(&mut app, message.clone());
+    app.update();
+    app.insert_resource(client_shell::menu::MenuRuntime::new(
+        false,
+        2,
+        String::new(),
+    ));
+    app.update();
+    assert!(app.world().contains_resource::<FallbackNotice>());
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .set_visible(true);
+    app.update();
+    assert!(!app.world().contains_resource::<FallbackNotice>());
+    let view = app
+        .world()
+        .resource::<client_shell::menu::MenuRuntime>()
+        .view();
+    assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
+    assert_eq!(view.message.as_deref(), Some(message.as_str()));
+    for expected in ["DX12", "Vulkan", "device rejected"] {
+        assert!(message.contains(expected), "{message}");
+    }
+}
+
+#[test]
+fn fallback_notice_waits_for_an_open_dialog_to_close() {
+    let mut app = App::new();
+    install_notice(&mut app, "DX12 could not start".into());
+    let mut menu = client_shell::menu::MenuRuntime::new(true, 2, String::new());
+    menu.show_notice("Import your Minecraft settings?");
+    app.insert_resource(menu);
+    app.update();
+    assert!(app.world().contains_resource::<FallbackNotice>());
+    let menu = app.world().resource::<client_shell::menu::MenuRuntime>();
+    assert_eq!(
+        menu.view().message.as_deref(),
+        Some("Import your Minecraft settings?")
+    );
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .activate(launcher::menu::MenuAction::DismissDialog);
+    app.update();
+    assert!(!app.world().contains_resource::<FallbackNotice>());
+    let view = app
+        .world()
+        .resource::<client_shell::menu::MenuRuntime>()
+        .view();
+    assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
+    assert_eq!(view.message.as_deref(), Some("DX12 could not start"));
+}

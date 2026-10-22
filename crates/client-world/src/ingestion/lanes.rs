@@ -217,6 +217,18 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             local_authority: true,
             ..Footprint::session(C::CONTROLS.with(C::ACTORS))
         },
+        WorldEvent::Actor(ActorEvent::Move(movement))
+            if local(movement.runtime_id)
+                && movement.dimension == context.dimension
+                && movement.player_mode.is_none()
+                && movement.controls_local_actor() =>
+        {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
+            }
+        }
         WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_player() => {
             Footprint {
                 positional: true,

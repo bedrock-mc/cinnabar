@@ -144,6 +144,12 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorMotionEvent,
     },
+    /// Marked server actor movement admitted for the locally controlled player.
+    LocalActorMove {
+        sequence: u64,
+        movement: protocol::ActorMoveEvent,
+        resolved: ResolvedServerPosition,
+    },
     /// A server-predicted movement effect (firework glide boost and similar)
     /// for the local player, stamped with the input tick it starts after.
     LocalMovementBoost {
