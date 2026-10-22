@@ -50,6 +50,27 @@ def complete_domains(properties, facts):
         by_name[name]["values"].sort(key=lambda entry: entry["value"])
 
 
+def narrow_domains(properties, facts):
+    """Record blocks whose palette admits only part of a shared property's domain."""
+    by_name = {prop["name"]: prop for prop in properties}
+    admitted = {}
+    for block in facts["blocks"]:
+        for name, scalar in json.loads(block["state"]).items():
+            if name in by_name:
+                admitted.setdefault(name, {}).setdefault(block["name"], set()).add(scalar["value"])
+    for name, blocks in admitted.items():
+        prop = by_name[name]
+        full = {entry["value"] for entry in prop["values"]}
+        groups = {}
+        for block, values in blocks.items():
+            if values != full:
+                groups.setdefault(tuple(sorted(values)), []).append(block)
+        if groups and prop["type"] == "bool":
+            raise ValueError(f"boolean property narrows per block: {name}")
+        if groups:
+            prop["block_domains"] = [{"values": list(values), "blocks": sorted(names)} for values, names in sorted(groups.items())]
+
+
 def generate(archive, out, facts_path=None):
     """Validate the archive and write only property definitions and selected component facts."""
     manifest = json.loads((ROOT / "assets/vanilla-source.json").read_text())
@@ -68,6 +89,7 @@ def generate(archive, out, facts_path=None):
             components.append((block["description"]["identifier"], ",".join(facts)))
     facts = state_facts(facts_path)
     complete_domains(properties, facts)
+    narrow_domains(properties, facts)
     destination = out / "crates/assets/data"
     destination.mkdir(parents=True, exist_ok=True)
     document = {"schema": 1, "source_sha256": manifest["sha256"], "state_source_lock_sha256": facts["source_lock_sha256"], "properties": properties}

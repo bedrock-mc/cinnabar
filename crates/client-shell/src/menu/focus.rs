@@ -410,6 +410,10 @@ impl MenuRuntime {
                 MenuDialog::DeathQuit => {
                     vec![MenuAction::ConfirmDeathQuit, MenuAction::DismissDialog]
                 }
+                MenuDialog::RemoveShaderPack(index, revision) => vec![
+                    MenuAction::DismissDialog,
+                    MenuAction::ConfirmRemoveShaderPack(index, revision),
+                ],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,

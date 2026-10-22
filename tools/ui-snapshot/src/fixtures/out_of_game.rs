@@ -80,6 +80,17 @@ pub(super) fn disconnect_device_clock() -> Fixture {
     Fixture::Menu(view)
 }
 
+/// Shows a local BDS world the core could not reach because the device is offline.
+pub(super) fn disconnect_local_world_offline() -> Fixture {
+    let Fixture::Menu(mut view) = disconnect() else {
+        unreachable!()
+    };
+    view.disconnect_message = Some(launcher::menu::disconnect::from_server(
+        bridge::contract::DISCONNECT_KEY_LOCAL_WORLD_OFFLINE,
+    ));
+    Fixture::Menu(view)
+}
+
 /// Shows an unreachable destination under the failed-connection title.
 pub(super) fn connect_failed() -> Fixture {
     let Fixture::Menu(mut view) = disconnect() else {

@@ -75,7 +75,14 @@ pub(super) fn descriptor(
 }
 
 /// Queues the colour-only (encoded UNORM storage) pipeline and the colour + LabPBR (linear) one.
-pub(crate) fn init_blend_pipelines(mut commands: Commands, cache: Res<PipelineCache>) {
+pub(crate) fn init_blend_pipelines(
+    mut commands: Commands,
+    cache: Res<PipelineCache>,
+    existing: Option<Res<AtlasBlendPipelines>>,
+) {
+    if existing.is_some() {
+        return;
+    }
     let layout =
         BindGroupLayoutDescriptor::new("shader-pack frame blend sources", &BLEND_SOURCE_ENTRIES);
     commands.insert_resource(AtlasBlendPipelines {

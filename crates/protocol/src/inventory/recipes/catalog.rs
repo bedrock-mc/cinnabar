@@ -317,6 +317,7 @@ mod tests {
                             block: 0,
                             empty_envelope: false,
                         },
+                        extra_outputs: Box::new([]),
                     }),
                 }],
                 clear,
@@ -473,5 +474,36 @@ mod tests {
         assert_eq!(owner.used(), charge);
         drop(replacement);
         assert_eq!(owner.used(), 0);
+    }
+
+    #[test]
+    fn multi_result_recipes_keep_every_result_and_need_all_of_them_valid() {
+        use crate::test_support::recipes::{
+            CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+        };
+        let recipe = |id, results| RecipeFixture {
+            net_id: id,
+            ..RecipeFixture::shaped(
+                "test:cake",
+                1,
+                1,
+                vec![IngredientFixture::named("minecraft:milk_bucket", 0)],
+                results,
+            )
+        };
+        let update = CraftingDataFixture::clearing(vec![
+            recipe(1, vec![OutputFixture::new(7, 1), OutputFixture::new(8, 3)]),
+            recipe(2, vec![OutputFixture::new(7, 1), OutputFixture::new(0, 1)]),
+        ])
+        .update();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update));
+        let cake = catalog.recipe(1).unwrap();
+        assert_eq!(cake.output().network_id, 7);
+        let extra: Vec<_> = cake.extra_outputs().collect();
+        assert_eq!(extra.len(), 1);
+        assert_eq!((extra[0].network_id, extra[0].count), (8, 3));
+        assert!(catalog.recipe(2).is_none());
     }
 }
