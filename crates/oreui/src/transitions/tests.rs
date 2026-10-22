@@ -360,3 +360,23 @@ fn permission_switches_keep_focus_hover_and_press_feedback_across_value_changes(
         }
     });
 }
+
+#[test]
+fn world_option_toggles_keep_focus_hover_and_press_feedback_across_value_changes() {
+    use launcher::{
+        local_worlds::options::WorldOption as O,
+        menu::{LocalWorldAction as A, MenuView},
+    };
+    let action = |id, value| MenuAction::LocalWorld(A::Option(id, value));
+    let mut view = MenuView::new(true, "Player".into());
+    view.navigation_focus_visible = true;
+    view.focused_action = Some(action(O::KeepInventory, 1));
+    view.hovered = Some(action(O::KeepInventory, 1));
+    view.pressed = Some(action(O::KeepInventory, 1));
+    let _ = crate::review_tests::paint(Default::default(), |canvas| {
+        let feedback = canvas.switch_interaction(&view, Some(action(O::KeepInventory, 0)));
+        assert!(feedback.focused && feedback.hovered && feedback.pressed);
+        let other = canvas.switch_interaction(&view, Some(action(O::MobSpawning, 0)));
+        assert!(!other.focused && !other.hovered && !other.pressed);
+    });
+}

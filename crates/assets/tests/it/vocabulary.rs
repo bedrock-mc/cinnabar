@@ -220,6 +220,7 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     "VanillaItem" if file == "registry-policy.json" => "retail_item",
                     "VanillaEntity" if file == "registry-policy.json" => "actor",
                     "state_property" | "state_properties" | "state_values" => "property",
+                    "blocks" if file == "block-properties-v2193.json" => "block",
                     "identifier" if file.starts_with("block-item-routes-") => "item",
                     "entity_rules" | "entity_compatibility" if file == "registry-policy.json" => {
                         "actor"

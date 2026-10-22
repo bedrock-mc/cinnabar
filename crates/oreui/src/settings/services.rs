@@ -25,20 +25,7 @@ pub(super) fn draw(
         SettingSection::GlobalTexturePack => resources(content)?,
         SettingSection::Mods => super::mods::draw(content)?,
         SettingSection::StorageManagement => storage(content)?,
-        SettingSection::Touch => {
-            content.heading("menu.touch.tab.title", "menu.touch.tab.description")?;
-            content.label("", "hudScreen.controlCustomization.tooltip.notouch")?;
-        }
-        SettingSection::Party => {
-            content.heading("options.party", "")?;
-            for title in [
-                "options.partyInviteReceivedFilter",
-                "options.partyPrivacy",
-                "options.partyInviteSendPrivileges",
-            ] {
-                action_row(content, title, "", "gui.select", None)?;
-            }
-        }
+        SettingSection::Touch => touch(content)?,
         _ => return Ok(false),
     }
     Ok(true)
@@ -115,20 +102,6 @@ fn account(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         }
         action_row(
             content,
-            "menu.account.privacyAndSafety.title",
-            "",
-            "menu.account.privacyAndSafety.buttonLabel",
-            None,
-        )?;
-        action_row(
-            content,
-            "menu.account.realmMembershipInvites.title",
-            "",
-            "menu.account.realmMembershipInvites.buttonLabel",
-            None,
-        )?;
-        action_row(
-            content,
             "menu.account.signOutOfMicrosoft.title",
             "",
             "menu.account.signOutOfMicrosoft.buttonLabel",
@@ -161,7 +134,9 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "hbui.Settings.storage.cachedData.title",
     ];
     for (category_index, (category, title)) in CATEGORIES.iter().zip(titles).enumerate() {
-        let items = view.storage.items(category);
+        let Some(items) = view.storage.items(category) else {
+            continue;
+        };
         let bytes = items
             .iter()
             .fold(0_u64, |total, item| total.saturating_add(item.bytes));
@@ -365,5 +340,26 @@ pub(super) fn action_row(
         bounds[3] - content.canvas.r(EDGE),
     )?;
     content.y += height;
+    Ok(())
+}
+
+/// Touch-capable hosts expose the live touch preference instead of the desktop placeholder.
+fn touch(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    content.heading("menu.touch.tab.title", "menu.touch.tab.description")?;
+    if content.view.touch_available {
+        for option in launcher::menu::settings_options::layout::SettingPanel::Touch.options() {
+            content.option(option.id)?;
+        }
+        content.label(
+            "Touch controls",
+            "Move with the left stick. Drag outside the buttons to look around.",
+        )?;
+        content.label(
+            "",
+            "Use the on-screen buttons to jump, sneak, sprint, attack and use items.",
+        )?;
+    } else {
+        content.label("", "hudScreen.controlCustomization.tooltip.notouch")?;
+    }
     Ok(())
 }

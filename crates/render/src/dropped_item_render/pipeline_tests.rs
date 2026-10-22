@@ -48,6 +48,7 @@ fn dropped_item_coverage_is_prewarmed_at_each_sample_count() {
                     msaa,
                     hdr: false,
                     enhanced: false,
+                    shader_pack: false,
                     output: None,
                 },
                 &mut ids,

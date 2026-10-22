@@ -5,10 +5,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -16,6 +19,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/pion/webrtc/v4"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
@@ -60,12 +64,72 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 			}}.New()
 			return &resolvedUpstreamTarget{
 				address: "http://" + target.Address,
-				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{Signaling: client}, status: client},
+				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{
+					Signaling: localSignaling{client},
+					Dialer:    nethernet.Dialer{API: localNetherNetAPI()},
+				}, status: client},
 			}, nil
 		default:
 			return nil, fmt.Errorf("unsupported local transport %q", target.Transport)
 		}
 	}
+}
+
+// localNetherNetAPI includes same-device routes even when every external interface is down.
+// External candidates remain available for container port mappings.
+func localNetherNetAPI() *webrtc.API {
+	var settings webrtc.SettingEngine
+	settings.SetIncludeLoopbackCandidate(true)
+	return webrtc.NewAPI(webrtc.WithSettingEngine(settings))
+}
+
+// errLocalServerNoRoute reports a local server that answered a join without any ICE candidate.
+// BDS gathers none from loopback alone, so it cannot be reached while the device is offline.
+var errLocalServerNoRoute = errors.New("local server offered no network route; Bedrock Dedicated Server worlds need a network connection")
+
+// localSignaling fails an offer whose SDP answer carries no candidate. The dial would otherwise
+// wait forever for one, since the HTTP exchange returns every candidate in that single answer.
+type localSignaling struct {
+	*endpoint.Client
+}
+
+func (s localSignaling) Signal(ctx context.Context, signal *nethernet.Signal) error {
+	if signal.Type != nethernet.SignalTypeOffer {
+		return s.Client.Signal(ctx, signal)
+	}
+	// The client delivers the answer to its notifiers before Signal returns.
+	answer := &answerWatch{connectionID: signal.ConnectionID}
+	stop := s.Client.Notify(answer)
+	err := s.Client.Signal(ctx, signal)
+	stop()
+	if err == nil && answer.candidateless.Load() {
+		return errLocalServerNoRoute
+	}
+	return err
+}
+
+// answerWatch records whether the answer to one connection's offer lacked candidates.
+type answerWatch struct {
+	connectionID  uint64
+	candidateless atomic.Bool
+}
+
+func (w *answerWatch) NotifySignal(signal *nethernet.Signal) bool {
+	if signal.Type != nethernet.SignalTypeAnswer || signal.ConnectionID != w.connectionID {
+		return false
+	}
+	w.candidateless.Store(!sdpHasCandidate(signal.Data))
+	return true
+}
+
+// sdpHasCandidate reports whether an SDP body has an ICE candidate attribute line.
+func sdpHasCandidate(description string) bool {
+	for line := range strings.Lines(description) {
+		if strings.HasPrefix(line, "a=candidate:") {
+			return true
+		}
+	}
+	return false
 }
 
 // Local BDS uses Mojang's GET status and full-ICE HTTP SDP exchange, without Xbox signaling.

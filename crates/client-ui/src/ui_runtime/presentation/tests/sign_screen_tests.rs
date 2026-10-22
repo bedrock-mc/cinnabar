@@ -68,6 +68,54 @@ fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
     assert!(!presentation.sign_editor_exit_hit(UiPoint::new(10.0, 10.0).unwrap()));
 }
 
+/// The edited lines draw in the face's own text colour, black when the sign stores none.
+#[test]
+fn sign_screen_draws_the_lines_in_the_faces_text_color() {
+    let player_runtime = player_state::PlayerState::new(1);
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping sign_screen_draws_the_lines_in_the_faces_text_color: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    // Signed ARGB, as `SignTextColor` stores it.
+    let red = i32::from_be_bytes([0xff, 0xb0, 0x2e, 0x26]);
+    for (stored, expected) in [(None, [0, 0, 0, 255]), (Some(red), [0xb0, 0x2e, 0x26, 255])] {
+        let mut face = NbtCompound::default();
+        face.insert("Text", NbtValue::String("Hello\nWorld".into()));
+        if let Some(argb) = stored {
+            face.insert("SignTextColor", NbtValue::Int(argb));
+        }
+        let mut root = NbtCompound::default();
+        root.insert("FrontText", NbtValue::Compound(face));
+        let mut runtime = UiRuntime::new(1);
+        runtime.sign_editor_mut().open(
+            SignEdit::new([0, 64, 0], true, root).with_block(Some("minecraft:standing_sign")),
+        );
+        presentation
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let colors: Vec<[u8; 4]> = presentation
+            .sign_draw_nodes()
+            .iter()
+            .filter_map(|node| match &node.draw {
+                Draw::Text { text, color, .. } if text.contains("World") => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !colors.is_empty() && colors.iter().all(|color| *color == expected),
+            "stored colour {stored:?} drew {colors:?}"
+        );
+    }
+}
+
 /// Local-only: writes `sign_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
 fn sign_screen_snapshot() {

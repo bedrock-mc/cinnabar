@@ -154,12 +154,18 @@ pub struct ItemUseRuntime {
     riptide_launch: Option<RiptideLaunch>,
     /// Selection, eligibility and facing captured together at the first release edge.
     riptide_release: Option<RiptideRelease>,
+    /// A gliding rocket's use was admitted; its boost is predicted before the server answers.
+    rocket_boost: bool,
 }
 
 impl ItemUseRuntime {
     /// Takes one admitted launch for the next successful movement tick.
     pub fn take_riptide_launch(&mut self) -> Option<RiptideLaunch> {
         self.riptide_launch.take()
+    }
+    /// Takes one admitted gliding rocket use, whose glide boost the client predicts.
+    pub fn take_rocket_boost(&mut self) -> bool {
+        std::mem::take(&mut self.rocket_boost)
     }
     /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
     pub fn set_delay_fix(&mut self, enabled: bool) {
@@ -317,6 +323,7 @@ impl ItemUseRuntime {
         self.release_pending = false;
         self.riptide_launch = None;
         self.riptide_release = None;
+        self.rocket_boost = false;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -562,6 +569,7 @@ impl ItemUseRuntime {
                 self.cooldowns
                     .push((category, frame.tick.saturating_add(u64::from(ticks))));
             }
+            self.rocket_boost |= swung && matches!(air_use, Some(AirUse::GlideRocket));
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
             }

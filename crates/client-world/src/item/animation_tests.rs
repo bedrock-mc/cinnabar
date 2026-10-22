@@ -168,3 +168,56 @@ fn rejected_numeric_span_preserves_the_previous_animation_admission() {
         protocol::vanilla_item_registry().len()
     );
 }
+
+#[test]
+fn body_slot_count_survives_unbound_identity_and_clears_with_equipment() {
+    let mut store = ItemStateStore::diagnostic();
+    let lifetime = ActorLifetimeId {
+        session_id: 1,
+        dimension: 0,
+        runtime_id: 2,
+        spawn_revision: 1,
+    };
+    let mut event = ArmorEquipmentEvent {
+        actor_runtime_id: lifetime.runtime_id,
+        helmet: NetworkItemStack::empty(),
+        chestplate: NetworkItemStack::empty(),
+        leggings: NetworkItemStack::empty(),
+        boots: NetworkItemStack::empty(),
+        body: NetworkItemStack::empty(),
+    };
+    assert!(store.armor(lifetime.runtime_id).is_none());
+    assert!(store.apply_armor(lifetime, 1, &event));
+    assert_eq!(
+        store.armor(lifetime.runtime_id).unwrap().equipment_count(),
+        0
+    );
+    event.body = NetworkItemStack {
+        network_id: 12_123,
+        count: 1,
+        ..NetworkItemStack::empty()
+    };
+    assert!(store.apply_armor(lifetime, 2, &event));
+    let armor = store.armor(lifetime.runtime_id).unwrap();
+    assert!(armor.body.item.identifier.is_none());
+    assert_eq!(
+        armor.equipment_count(),
+        1,
+        "unknown artwork must not erase occupied body equipment"
+    );
+    event.helmet = event.body.clone();
+    event.chestplate = event.body.clone();
+    event.leggings = event.body.clone();
+    event.boots = event.body.clone();
+    assert!(store.apply_armor(lifetime, 3, &event));
+    assert_eq!(
+        store.armor(lifetime.runtime_id).unwrap().equipment_count(),
+        5
+    );
+    event.body = NetworkItemStack::empty();
+    assert!(store.apply_armor(lifetime, 4, &event));
+    assert_eq!(
+        store.armor(lifetime.runtime_id).unwrap().equipment_count(),
+        4
+    );
+}

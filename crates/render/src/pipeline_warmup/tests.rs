@@ -87,6 +87,7 @@ const VIEW: WarmView = WarmView {
     msaa: Msaa::Off,
     hdr: false,
     enhanced: false,
+    shader_pack: false,
     output: None,
 };
 

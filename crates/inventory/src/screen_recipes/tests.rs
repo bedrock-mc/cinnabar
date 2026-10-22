@@ -128,49 +128,87 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
 }
 
 #[test]
-fn unchanged_book_inputs_reuse_one_listing_and_material_changes_rebuild_it() {
+fn recipe_book_validates_each_occupied_source_once_per_projection() {
     let mut session = session();
-    let registry = protocol::vanilla_item_registry();
-    let planks = registry
+    let planks = protocol::vanilla_item_registry()
         .iter()
         .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
-        .unwrap();
+        .unwrap()
+        .network_id;
+    session
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(0),
+            storage_item: NetworkItemStack::empty(),
+            slots: Arc::from([NetworkItemStack {
+                network_id: planks,
+                count: 4,
+                stack_network_id: 1,
+                ..NetworkItemStack::empty()
+            }]),
+        }));
+    crate::inventory_ledger::take_source_validations();
+    let listed = session.book_recipes(false, false, 0, usize::MAX);
+    assert_eq!(
+        listed
+            .iter()
+            .map(|entry| entry.recipe.network_id())
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(
+        crate::inventory_ledger::take_source_validations(),
+        1,
+        "source bytes must be checked once, independent of recipe and ingredient counts"
+    );
+}
+
+#[test]
+fn unchanged_book_inputs_reuse_one_listing_until_materials_change() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
     let held = |count| {
         InventoryEvent::Content(protocol::InventoryContentEvent {
             container: protocol::ContainerIdentity::window(0),
             storage_item: NetworkItemStack::empty(),
             slots: Arc::from([NetworkItemStack {
-                network_id: planks.network_id,
+                network_id: planks,
                 count,
                 stack_network_id: 1,
                 ..NetworkItemStack::empty()
             }]),
         })
     };
-    let builds = |session: &InventorySession| session.book_cache.lock().unwrap().builds;
     session.ledger_mut().apply(&held(4));
+    assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+    crate::inventory_ledger::take_source_validations();
     // A screen reads the book several times a frame: icons, rows, pages and hover.
     for _ in 0..8 {
         assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
         assert_eq!(session.book_recipes(false, true, 1, 1).len(), 1);
     }
     assert_eq!(
-        builds(&session),
-        1,
-        "unchanged inputs evaluate materials once"
+        crate::inventory_ledger::take_source_validations(),
+        0,
+        "unchanged inputs reuse the listing without re-checking sources"
     );
     session.ledger_mut().apply(&held(4));
     assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
     assert_eq!(
-        builds(&session),
-        1,
+        crate::inventory_ledger::take_source_validations(),
+        0,
         "an identical restatement keeps the listing"
     );
-    session.ledger_mut().apply(&held(0));
-    assert!(session.book_recipes(true, false, 0, usize::MAX).is_empty());
+    session.ledger_mut().apply(&held(1));
+    assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+    assert_eq!(session.book_recipes(false, false, 0, usize::MAX).len(), 2);
     assert_eq!(
-        builds(&session),
-        2,
-        "a material change rebuilds the listing"
+        crate::inventory_ledger::take_source_validations(),
+        1,
+        "a material change rebuilds the listing once"
     );
 }

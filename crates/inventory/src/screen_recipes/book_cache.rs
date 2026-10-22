@@ -14,9 +14,6 @@ use crate::inventory_ledger::AutoCraftMaterials;
 pub(crate) struct Cache {
     inputs: Option<Inputs>,
     listing: Arc<Listing>,
-    /// Listings built, for cache tests.
-    #[cfg(test)]
-    pub(crate) builds: usize,
 }
 
 /// Grouped outputs in catalog order, and their positions with craftable outputs first.
@@ -69,10 +66,6 @@ pub(super) fn listing(inventory: &InventorySession) -> Arc<Listing> {
     {
         cache.listing = Arc::new(build(inventory, inputs.small));
         cache.inputs = Some(inputs);
-        #[cfg(test)]
-        {
-            cache.builds += 1;
-        }
     }
     Arc::clone(&cache.listing)
 }
@@ -83,6 +76,7 @@ fn build(inventory: &InventorySession, small: bool) -> Listing {
         return Listing::default();
     };
     let ledger = inventory.ledger();
+    let inputs = ledger.auto_craft_inputs();
     let mut groups: Vec<BookGroup> = Vec::new();
     let mut outputs: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
     for recipe in catalog.crafting_recipes().filter(|recipe| {
@@ -95,7 +89,7 @@ fn build(inventory: &InventorySession, small: bool) -> Listing {
             }
     }) {
         let unlocked = inventory.crafting_authority.book_recipe_unlocked(recipe);
-        let craftable = ledger.can_auto_craft(recipe);
+        let craftable = inputs.can_craft(recipe);
         let held = craftable || ledger.holds_any_ingredient(recipe);
         let candidate = BookGroup::new(recipe, unlocked, craftable, held);
         let output = recipe.output();

@@ -421,28 +421,35 @@ fn contains(outer: UiRect, inner: UiRect) -> bool {
 
 #[test]
 fn settings_scrolling_never_publishes_offscreen_or_cross_panel_hits() {
-    let view = settings_view("accessibility_forced_index");
-    for size in [[640.0, 360.0], [1280.0, 720.0], [2560.0, 1440.0]] {
-        let initial = paint(&view, size, HashMap::new());
-        let offsets = initial
-            .areas
-            .iter()
-            .map(|area| (area.key.clone(), area.max))
-            .collect();
-        for frame in [initial, paint(&view, size, offsets)] {
-            let window = ui_engine::engine::rect(0.0, 0.0, size[0], size[1]).unwrap();
-            let (side, content) = (panel(&frame, true), panel(&frame, false));
-            assert!(contains(window, side.viewport));
-            assert!(contains(window, content.viewport));
-            assert!(side.viewport.max().x() <= content.viewport.min().x());
-            for (action, bounds) in &frame.hits {
-                assert!(contains(window, *bounds), "{size:?}: {action:?}");
-                match action {
-                    MenuAction::SettingsSection(_) => assert!(contains(side.viewport, *bounds)),
-                    MenuAction::AddBack => {}
-                    _ => assert!(contains(content.viewport, *bounds), "{size:?}: {action:?}"),
+    let mut view = settings_view("accessibility_forced_index");
+    for query in ["", "vsync"] {
+        view.settings_query = query.to_owned();
+        for size in [[640.0, 360.0], [1280.0, 720.0], [2560.0, 1440.0]] {
+            let initial = paint(&view, size, HashMap::new());
+            let offsets = initial
+                .areas
+                .iter()
+                .map(|area| (area.key.clone(), area.max))
+                .collect();
+            for frame in [initial, paint(&view, size, offsets)] {
+                let window = ui_engine::engine::rect(0.0, 0.0, size[0], size[1]).unwrap();
+                let (side, content) = (panel(&frame, true), panel(&frame, false));
+                assert!(contains(window, side.viewport));
+                assert!(contains(window, content.viewport));
+                assert!(side.viewport.max().x() <= content.viewport.min().x());
+                for (action, bounds) in &frame.hits {
+                    assert!(contains(window, *bounds), "{size:?}: {action:?}");
+                    match action {
+                        MenuAction::SettingsSection(_) => assert!(contains(side.viewport, *bounds)),
+                        MenuAction::SearchSettings | MenuAction::ClearSettingsSearch => {
+                            assert!(bounds.max().y() <= side.viewport.min().y());
+                            assert!(bounds.max().y() <= content.viewport.min().y());
+                        }
+                        MenuAction::AddBack => {}
+                        _ => assert!(contains(content.viewport, *bounds), "{size:?}: {action:?}"),
+                    }
+                    assert_eq!(hit(&frame.hits, centre(*bounds)), Some(*action));
                 }
-                assert_eq!(hit(&frame.hits, centre(*bounds)), Some(*action));
             }
         }
     }
@@ -499,8 +506,8 @@ fn settings_choice_rows_select_their_own_values() {
         ("video_forced_index", "graphics_mode"),
         ("video_forced_index", "third_person"),
         ("accessibility_forced_index", "toast_notification_duration"),
-        ("accessibility_forced_index", "chat_message_duration"),
-        ("creator_forced_index", "content_log_gui_level"),
+        ("cinnabar_chat_index", "chat_message_duration"),
+        ("keyboard_and_mouse_forced_index", "macro_modifier"),
     ] {
         let mut view = settings_view(section);
         let index = option_index(name);
@@ -584,7 +591,7 @@ fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
             "controller_sensitivity",
         ),
         ("sound_forced_index", "main_volume"),
-        ("accessibility_forced_index", "texttospeech_volume"),
+        ("accessibility_forced_index", "hud_text_background_opacity"),
     ] {
         let mut view = settings_view(section);
         view.settings.advanced_graphics = section == "video_forced_index";
@@ -847,5 +854,31 @@ fn server_settings_tab_is_available_only_over_a_session() {
         view.over_world = over_world;
         let frame = paint(&view, [1280.0, 1600.0], HashMap::new());
         assert_eq!(frame.hits.iter().any(|(hit, _)| *hit == action), over_world);
+    }
+}
+
+/// Party offered only inert Xbox party rows and is gone from the sidebar. Every remaining page
+/// still paints and lists every remaining tab, so navigation between them is unchanged.
+#[test]
+fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
+    use launcher::menu::settings_sections::{SETTINGS_TABS, SettingSection};
+    let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
+        .iter()
+        .map(|(name, _)| settings::section_index(name))
+        .collect();
+    assert!(!expected.contains(&SettingSection::Party.definition().index));
+    for (name, _) in SETTINGS_TABS {
+        let mut view = settings_view(name);
+        view.over_world = true;
+        let frame = paint(&view, [1280.0, 4000.0], HashMap::new());
+        let tabs: std::collections::BTreeSet<_> = frame
+            .hits
+            .iter()
+            .filter_map(|(action, _)| match action {
+                MenuAction::SettingsSection(index) => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tabs, expected, "from {name}");
     }
 }

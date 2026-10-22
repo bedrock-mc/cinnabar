@@ -5,8 +5,7 @@
 use std::sync::Arc;
 
 use protocol::{
-    ActorHandedness, ContainerIdentity, ContainerOpenEvent, EquipmentEvent, InventoryContentEvent,
-    InventoryEvent, NetworkItemStack,
+    ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent, NetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
@@ -391,18 +390,19 @@ fn offhand_count_does_not_depend_on_item_icon() {
         runtime
             .publish_local_runtime_id(player_runtime, 1, 42)
             .unwrap();
-        runtime.retain_local_selected_equipment(
-            player_runtime,
-            1,
-            EquipmentEvent {
-                actor_runtime_id: 7,
-                stack: stack(count),
-                inventory_slot: 0,
-                selected_slot: 0,
-                window_id: protocol::OFFHAND_WINDOW_ID as u8,
-                handedness: Some(ActorHandedness::Left),
-            },
-        );
+        runtime
+            .enqueue_inventory_event(
+                player_runtime,
+                1,
+                1,
+                InventoryEvent::Content(InventoryContentEvent {
+                    container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                    slots: vec![stack(count)].into(),
+                    storage_item: NetworkItemStack::empty(),
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(player_runtime);
         runtime.toggle_inventory(player_runtime, None);
         runtime
     };

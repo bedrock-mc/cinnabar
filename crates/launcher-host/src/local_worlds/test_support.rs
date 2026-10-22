@@ -38,6 +38,7 @@ pub(crate) fn scratch() -> tempfile::TempDir {
 
 pub(crate) fn world() -> World {
     World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "n".to_owned(),
         game_mode: GameMode::Survival,
@@ -47,6 +48,7 @@ pub(crate) fn world() -> World {
         seed: -7,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }
 }
@@ -56,6 +58,8 @@ pub(crate) fn spec(dir: &Path) -> StartSpec {
         world: world(),
         dir: dir.to_path_buf(),
         view_distance: None,
+        options_unapplied: false,
+        host_xuid: None,
     }
 }
 
@@ -280,15 +284,16 @@ pub(crate) fn write_script(path: &Path, body: &[u8]) {
         .expect("make script executable");
 }
 
-/// A server that announces BDS readiness and stops on a `stop` line or stdin EOF.
+/// A server that announces BDS readiness and stops on a `stop` line or stdin EOF. Its first stop
+/// creates level data holding a `Created` tag, as BDS saves a new world.
 #[cfg(unix)]
-pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\r\\n[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*) exit 0 ;; esac\ndone\n";
+pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\r\\n[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*)\n    world=\"worlds/$(sed -n 's/^level-name=//p' server.properties)\"\n    [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\"\n    exit 0 ;;\n  esac\ndone\n";
 
 /// A Docker CLI that logs each invocation to `$FAKE_DOCKER_LOG` and answers the subcommands
 /// the container runner uses; `$FAKE_DOCKER_DOWN` makes `info` fail and `$FAKE_DOCKER_HANG` makes
-/// `image` hang.
+/// `image` hang. A run's stop creates the mounted world's level data like [`FAKE_BDS`].
 #[cfg(unix)]
-pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done ;;\nesac\n";
+pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) for arg; do case \"$arg\" in *:/data/worlds/*) world=\"${arg%%:/data/worlds/*}\" ;; esac; done\n    echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done; rm -f \"$log.stop\"\n    [ -z \"$world\" ] || [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\" ;;\nesac\n";
 
 /// Records every pause request; exits once stopped.
 pub(crate) struct FakeInstance {
@@ -384,6 +389,10 @@ pub(crate) struct FakeRunner {
     pub error: Option<fn() -> WorldError>,
     pub can_pause: Option<bool>,
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
+    /// The effective world passed to each started server.
+    pub started: Mutex<Vec<World>>,
+    /// The host XUID passed to each started server.
+    pub hosts: Mutex<Vec<Option<String>>>,
     /// Passed to each instance as its save.
     pub save: Option<Receiver<()>>,
     /// Passed to each instance as its cleanup.
@@ -437,7 +446,7 @@ impl FakeRunner {
 }
 
 impl Runner for FakeRunner {
-    fn start(&self, _spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
+    fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
         if let Some(gate) = &self.gate {
             crossbeam_channel::select! {
                 recv(gate) -> _ => {}
@@ -447,6 +456,8 @@ impl Runner for FakeRunner {
         if let Some(error) = self.error {
             return Err(error());
         }
+        lock(&self.started).push(spec.world.clone());
+        lock(&self.hosts).push(spec.host_xuid.clone());
         let mut made = lock(&self.made);
         if made.iter().any(|instance| !instance.finished()) {
             self.overlapped
@@ -472,4 +483,52 @@ impl Runner for FakeRunner {
         self.discarded
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
+}
+
+/// Valid level data grown by an `extra`-byte array tag, for read-bound fixtures. The padding
+/// is pseudo-random so archives of it stay within import compression limits.
+pub(crate) fn padded_level_dat(level: &[u8], extra: usize) -> Vec<u8> {
+    let mut body = level[8..level.len() - 1].to_vec();
+    body.push(7);
+    body.extend(7u16.to_le_bytes());
+    body.extend(b"padding");
+    body.extend((extra as i32).to_le_bytes());
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    body.extend((0..extra).map(|_| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    }));
+    body.push(0);
+    let mut bytes = level[..4].to_vec();
+    bytes.extend((body.len() as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes
+}
+
+/// Level data shaped like a world BDS just created, for tests that patch it.
+pub(crate) fn created_level_dat() -> Vec<u8> {
+    let mut body = vec![10, 0, 0];
+    for (name, kind, payload) in [
+        ("StorageVersion", 3u8, &10i32.to_le_bytes()[..]),
+        ("WorldVersion", 3, &1i32.to_le_bytes()[..]),
+        ("SpawnY", 3, &32767i32.to_le_bytes()[..]),
+        ("LANBroadcast", 1, &[1][..]),
+    ] {
+        body.push(kind);
+        body.extend((name.len() as u16).to_le_bytes());
+        body.extend(name.as_bytes());
+        body.extend(payload);
+    }
+    body.push(0);
+    let mut bytes = 10u32.to_le_bytes().to_vec();
+    bytes.extend((body.len() as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes
+}
+
+/// Writes [`created_level_dat`] into a world's level folder.
+pub(crate) fn write_created_level_dat(level: &Path) {
+    std::fs::write(level.join("level.dat"), created_level_dat()).unwrap();
 }

@@ -170,15 +170,17 @@ impl InventorySession {
             && self.crafting_authority.book_recipe_unlocked(recipe)
     }
 
-    /// Rechecks recipe discovery at the action frontier before allocating any request.
+    /// Rechecks recipe discovery at the action frontier, then auto-crafts once or, with `all`,
+    /// up to one output stack.
     pub fn begin_book_craft(
         &mut self,
         recipe: &RecipeHandle,
+        all: bool,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
         if !self.book_recipe_selectable(recipe) {
             return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
         }
-        self.ledger_mut().begin_auto_craft(recipe)
+        self.ledger_mut().begin_auto_craft(recipe, all)
     }
 
     /// Lists one variant per output for the open grid, with pagination after grouping.

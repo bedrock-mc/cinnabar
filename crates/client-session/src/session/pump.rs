@@ -198,6 +198,7 @@ impl NetworkSequencer {
                     head_yaw: Some(movement.head_yaw),
                     on_ground: Some(movement.on_ground),
                     teleported: movement.teleported,
+                    force_local_move: false,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
                     interpolation: Default::default(),

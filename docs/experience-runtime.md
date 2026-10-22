@@ -235,9 +235,9 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
     Bedrock's `minecraft:cardinal_direction`, `minecraft:facing_direction`,
     `minecraft:block_face` and `minecraft:vertical_half`, with the client's values in its order.
     A block's axes are its traits' states, then its own, in that order everywhere (snapshots,
-    defaults, the client's permutation index); their combinations number at most
-    `MAX_STATE_COMBINATIONS`, which the client's own bound admits (a test in
-    `crates/protocol` checks it). The adapter registers every combination.
+    defaults, the client's permutation index). Each axis takes `ceil(log2(values))` state bits,
+    at least one, and a block takes at most `MAX_STATE_BITS`, the bits the client packs states
+    into (a test in `crates/protocol` checks it). The adapter registers every combination.
   - A condition tests only the block's states, against values they take, at most
     `MAX_CONDITION_TESTS` times; the adapter writes it as `q.block_state` Molang.
   - A visual replaces the block's textures. Its geometry is an indexed `.geo.json` holding one

@@ -87,7 +87,7 @@ mod touch_controls;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod url_images_tests;
 
-pub use containers::observe_station_block;
+pub use containers::{beacon_pyramid_level, observe_station_block};
 
 use super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::scene_stack::ScreenSettingsTable;

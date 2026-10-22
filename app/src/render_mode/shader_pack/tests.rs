@@ -187,8 +187,8 @@ fn a_menu_pick_replaces_the_launch_pack_and_saves_only_its_name() {
 
 #[cfg(feature = "shaderpacks")]
 #[test]
-fn opening_settings_lists_packs_added_while_running() {
-    use launcher::menu::MenuAction;
+fn only_opening_shaders_lists_packs_added_while_running() {
+    use launcher::menu::{MenuAction, MenuScreen};
 
     let directory = tempfile::tempdir().unwrap();
     let mut config = config(None);
@@ -200,6 +200,7 @@ fn opening_settings_lists_packs_added_while_running() {
     let mut app = App::new();
     app.insert_resource(config)
         .insert_resource(MenuRuntime::new(true, 2, "Steve".into()))
+        .add_message::<bevy::window::WindowFocused>()
         .add_systems(Update, refresh_shader_packs);
     app.update();
     std::fs::write(directory.path().join("Dusk.zip"), b"").unwrap();
@@ -214,6 +215,63 @@ fn opening_settings_lists_packs_added_while_running() {
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::Navigate(MenuScreen::Settings));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_packs
+            .is_empty()
+    );
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::SettingsShaders);
+    app.update();
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().shader_packs[..],
+        ["Dusk.zip".to_owned()]
+    );
+}
+
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn regaining_focus_on_shaders_lists_packs_copied_in_meanwhile() {
+    use launcher::menu::{MenuAction, MenuScreen};
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = config(None);
+    config.shader_packs = Some(ShaderPackDirs {
+        packs: directory.path().to_path_buf(),
+        cache: cache(),
+        discovered: Vec::new(),
+    });
+    let mut app = App::new();
+    app.insert_resource(config)
+        .insert_resource(MenuRuntime::new(true, 2, "Steve".into()))
+        .add_message::<bevy::window::WindowFocused>()
+        .add_systems(Update, refresh_shader_packs);
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.activate(MenuAction::SettingsShaders);
+    }
+    app.update();
+    std::fs::write(directory.path().join("Dusk.zip"), b"").unwrap();
+    let focus = |focused| bevy::window::WindowFocused {
+        window: Entity::PLACEHOLDER,
+        focused,
+    };
+    app.world_mut().write_message(focus(false));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_packs
+            .is_empty(),
+        "losing focus leaves the folder unscanned"
+    );
+    app.world_mut().write_message(focus(true));
     app.update();
     assert_eq!(
         app.world().resource::<MenuRuntime>().view().shader_packs[..],
