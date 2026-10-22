@@ -517,6 +517,8 @@ Create and edit forms persist BDS advanced, multiplayer and cheat options throug
 catalog and generated server properties and level data. Pack and experiment configuration,
 hardcore, flat presets, Education Edition and live acceptance of every option on supported
 platforms remain incomplete.
+Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
+offers no NetherNet route, so the join fails with an explanation instead of connecting.
 
 See [local worlds](docs/local-worlds.md).
 
