@@ -10,6 +10,7 @@ use super::*;
 
 fn world(id: &str, name: &str) -> World {
     World {
+        options: Default::default(),
         id: id.to_owned(),
         name: name.to_owned(),
         game_mode: GameMode::Survival,
@@ -19,6 +20,7 @@ fn world(id: &str, name: &str) -> World {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }
 }
@@ -249,6 +251,7 @@ fn edit_prefills_validates_and_sends_only_changes() {
         vec![Effect::Update {
             id: "id0".to_owned(),
             update: WorldUpdate {
+                options: None,
                 name: Some("New".to_owned()),
                 game_mode: None,
                 difficulty: Some(Difficulty::Hard),
@@ -544,7 +547,7 @@ fn accept_eula_outside_the_eula_screen_does_nothing() {
 }
 
 #[test]
-fn create_defaults_to_bds_and_normal_independent_of_bds_availability() {
+fn create_defaults_to_bds_and_normal_independent_of_availability() {
     for state in [SetupState::Ready, SetupState::Unsupported] {
         let mut menu = loaded(&[]);
         let mut idle = status(WorldState::Idle, "");
@@ -721,16 +724,15 @@ fn template_create_action_opens_the_create_form() {
 }
 
 #[test]
-fn a_new_world_defaults_to_bds_and_waits_for_docker() {
+fn new_world_backend_defaults_to_bds_and_requires_docker() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     menu.update(Input::BeginCreate);
     assert_eq!(menu.screen(), Screen::Create);
-    assert!(menu.update(Input::SubmitCreate).is_empty());
-    assert_eq!(
-        menu.prompt(),
-        prompt(PromptKind::DockerMissing, PromptFor::CreateBds)
-    );
     assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    assert!(menu.update(Input::SubmitCreate).is_empty());
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(menu.prompt().unwrap().blocking, PromptFor::CreateBds);
 }
 
 /// An import holds the list behind its modal until the worker reports, then lists the world first.
@@ -799,4 +801,166 @@ fn dropped_files_import_only_from_the_list() {
     let files = vec![PathBuf::from("/w/a.mcworld")];
     assert!(menu.update(Input::ImportFiles(files)).is_empty());
     assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn world_options_flow_through_create_and_edit_with_cheat_activation() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(Vec::new()));
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetOption(O::KeepInventory, 1));
+    assert!(menu.create_form().options.enabled(O::ActivateCheats));
+    let effects = menu.update(Input::SubmitCreate);
+    let Effect::Create(spec) = &effects[0] else {
+        panic!("expected creation");
+    };
+    assert!(spec.options.enabled(O::KeepInventory));
+    let mut saved = world("fixture", "Options");
+    saved.backend = Backend::Bds;
+    saved.options = spec.options.clone();
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![saved]));
+    menu.update(Input::BeginEdit(0));
+    assert!(menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+    menu.update(Input::SelectTab(Tab::Cheats));
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { update, .. } = &effects[0] else {
+        panic!("expected update");
+    };
+    assert_eq!(
+        update.options.as_ref().unwrap().get(O::KeepInventory),
+        Some(0)
+    );
+}
+
+#[test]
+fn world_options_reject_controls_for_existing_dragonfly_worlds() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = loaded(&["Legacy"]);
+    menu.update(Input::BeginEdit(0));
+    assert!(!menu.view().options_available());
+    menu.update(Input::SelectTab(Tab::Cheats));
+    assert_eq!(menu.view().tab, Tab::General);
+    menu.update(Input::SetOption(O::KeepInventory, 1));
+    assert!(!menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+}
+
+#[test]
+fn world_options_edits_keep_the_form_baseline_when_the_list_refreshes() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut original = world("fixture", "Options");
+    original.backend = Backend::Bds;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![original.clone()]));
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    original.options.set(O::RandomTickSpeed, 42);
+    menu.apply(Event::Listed(vec![original]));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { update, .. } = &effects[0] else {
+        panic!("option update");
+    };
+    let changes = update.options.as_ref().unwrap();
+    assert_eq!(changes.get(O::ShowCoordinates), Some(1));
+    assert_eq!(changes.get(O::RandomTickSpeed), None);
+}
+
+/// Options of a BDS world whose level data is unreadable stay hidden and unchangeable.
+#[test]
+fn world_options_are_unavailable_when_level_data_cannot_be_read() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![World {
+        backend: Backend::Bds,
+        options_unavailable: true,
+        ..world("id0", "Oversized")
+    }]));
+    menu.update(Input::BeginEdit(0));
+    assert!(!menu.view().options_available());
+    menu.update(Input::SelectTab(Tab::Advanced));
+    assert_eq!(menu.view().tab, Tab::General);
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    assert!(
+        !menu
+            .edit_form()
+            .unwrap()
+            .options
+            .enabled(O::ShowCoordinates)
+    );
+}
+
+fn bds_edit_menu() -> WorldsMenu {
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![World {
+        backend: Backend::Bds,
+        ..world("id0", "Saved")
+    }]));
+    menu.update(Input::BeginEdit(0));
+    menu
+}
+
+/// Typed text survives the delete modal, so a later Back cannot save the last valid prefix.
+#[test]
+fn world_options_invalid_text_survives_cancelling_delete() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::SleepPercentage, "35".to_owned()));
+    menu.update(Input::SetOptionText(O::SleepPercentage, "355".to_owned()));
+    menu.update(Input::RequestDelete);
+    assert_eq!(menu.screen(), Screen::ConfirmDelete);
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert_eq!(menu.view().numeric_text(O::SleepPercentage), "355");
+    assert!(menu.update(Input::Back).is_empty());
+    assert!(menu.update(Input::PlayFromEdit).is_empty());
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert!(menu.form_error().is_some());
+}
+
+/// A disabled field's text never blocks submitting; configuration writes its sentinel instead.
+#[test]
+fn world_options_disabled_fields_skip_text_validation() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::SleepPercentage, "355".to_owned()));
+    menu.update(Input::SetOption(O::SleepSkipNight, 0));
+    let effects = menu.update(Input::Back);
+    assert!(
+        matches!(effects.as_slice(), [Effect::Update { .. }]),
+        "{effects:?}"
+    );
+    assert!(menu.form_error().is_none());
+}
+
+/// A toggle that resets a numeric option also drops its typed text, so display matches the save.
+#[test]
+fn world_options_reset_by_a_toggle_drop_their_typed_text() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::RandomTickSpeed, "42".to_owned()));
+    assert!(menu.edit_form().unwrap().options.enabled(O::ActivateCheats));
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    assert_eq!(menu.view().numeric_text(O::RandomTickSpeed), "1");
+    assert_eq!(menu.edit_form().unwrap().options.get(O::RandomTickSpeed), 1);
+    // Nothing differs from the saved world any more, so Back saves nothing.
+    assert!(menu.update(Input::Back).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
+    assert_eq!(menu.worlds()[0].options.get(O::RandomTickSpeed), 1);
+}
+
+/// Turning cheats off drops invalid typing in the fields it gates, even at their default value.
+#[test]
+fn world_options_toggles_drop_invalid_text_in_gated_fields() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOption(O::ActivateCheats, 1));
+    menu.update(Input::SetOptionText(O::RandomTickSpeed, "5000".to_owned()));
+    assert_eq!(menu.edit_form().unwrap().options.get(O::RandomTickSpeed), 1);
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    assert_eq!(menu.view().numeric_text(O::RandomTickSpeed), "1");
+    assert!(menu.update(Input::Back).is_empty());
+    assert!(menu.form_error().is_none());
+    assert_eq!(menu.screen(), Screen::List);
 }

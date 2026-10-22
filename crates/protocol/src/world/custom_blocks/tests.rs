@@ -954,7 +954,7 @@ fn connection_axes_follow_placement_traits_and_precede_properties() {
     );
 }
 
-/// Only a `minecraft:custom_components` that sets `hasPlayerInteract` declares the handler.
+/// Crafting tables and explicit interact components declare the handler alongside legacy flags.
 #[test]
 fn custom_components_declare_a_player_interact_handler() {
     let root = |components: Vec<(&str, Nbt)>| compound(vec![("components", compound(components))]);
@@ -972,6 +972,15 @@ fn custom_components_declare_a_player_interact_handler() {
         "minecraft:custom_components",
         compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
     )])));
+    assert!(parsed(root(vec![(
+        "minecraft:on_interact",
+        compound(vec![
+            ("condition", text("")),
+            ("event", text("")),
+            ("target", text("self")),
+        ]),
+    )])));
+    assert!(!parsed(root(vec![("minecraft:on_interact", Nbt::Byte(1))])));
 }
 
 // Packs alias faces to shared instances; dropping the alias would draw the `*` texture there.

@@ -131,6 +131,22 @@ fn box_axis(control: &ResolvedControl) -> Option<usize> {
     }
 }
 
+/// Resolves a named role with the same sibling and collection identities used by layout.
+fn role_key(view: &ResolvedControl, root_key: &str, path: &[usize]) -> String {
+    let mut node = view;
+    let mut key = root_key.to_owned();
+    for &index in path {
+        let mut siblings = super::SiblingKeys::default();
+        for sibling in &node.children[..index] {
+            siblings.of(sibling);
+        }
+        let child = &node.children[index];
+        key = super::child_key(&key, child, siblings.of(child));
+        node = child;
+    }
+    key
+}
+
 /// A live scroll view: its solved geometry, applied as its descendants are placed.
 pub(crate) struct ScrollFrame {
     pub key: String,
@@ -276,6 +292,10 @@ impl ScrollFrame {
             content_rect: Some(rect_of(content_rect)),
             track: track.map(|(_, rect, _)| rect_of(rect)),
             thumb: None,
+            thumb_key: paths[BOX].as_deref().map(|path| role_key(view, key, path)),
+            track_key: paths[TRACK]
+                .as_deref()
+                .map(|path| role_key(view, key, path)),
             speed: widgets::bound_number(view, "scroll_speed").unwrap_or(1.0),
             horizontal: axis == 0,
             box_drag: bar_box.map_or(Draggable::NotDraggable, |(control, _, _)| {

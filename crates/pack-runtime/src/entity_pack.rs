@@ -136,7 +136,11 @@ fn compile_encoded(
         );
     }
     equipment_artwork::merge(view, &mut compiled.equipment_textures, artwork_sources);
-    if compiled.equipment_textures.is_empty()
+    if !compiled.entities.geometries.iter().any(|geometry| {
+        assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL
+            .iter()
+            .any(|size| geometry.identifier.as_ref() == size.geometry())
+    }) && compiled.equipment_textures.is_empty()
         && !compiled.entities.symbols.iter().any(|symbol| {
             matches!(
                 symbol.kind,

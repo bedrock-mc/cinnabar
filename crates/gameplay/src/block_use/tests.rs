@@ -259,7 +259,7 @@ fn a_stateless_cube_predicts_when_the_clicked_block_is_the_same_kind() {
     assert_eq!(around.destination(clicked, 1), ([2, 64, 0], true));
 }
 
-/// Trapdoors and levers flip, buttons press once, and two-part switches are left to the server.
+/// Single-cell switches resolve without the paired world context needed by doors.
 #[test]
 fn switch_uses_predict_their_toggled_state() {
     let flipped = |identifier, state: &str| {
