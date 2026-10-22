@@ -8,7 +8,7 @@ mod modifiers;
 use modifiers::MenuModifiers;
 pub(super) mod fields;
 mod ime;
-pub use ime::drive_menu_ime;
+pub use ime::drive_window_ime;
 mod preview;
 mod remapping;
 mod scroll;
