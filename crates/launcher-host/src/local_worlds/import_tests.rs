@@ -388,6 +388,16 @@ fn an_import_with_oversized_level_data_reports_options_unavailable() {
     let archive = fixture.archive("Huge.mcworld", &[("level.dat", &level)]);
     let world = fixture.import(&archive).expect("import");
     assert!(world.options_unavailable);
+    assert_eq!(
+        (
+            world.game_mode,
+            world.difficulty,
+            world.generator,
+            world.seed
+        ),
+        (GameMode::Creative, Difficulty::Hard, Generator::Flat, 42),
+        "metadata comes from the bounded prefix"
+    );
     let level_dir = fixture.store.dir(&world.id).expect("dir").join(LEVEL_DIR);
     assert!(fs::read(level_dir.join("level.dat")).expect("level") == level);
     let small = fixture.archive("Small.mcworld", &[("level.dat", &level_dat())]);

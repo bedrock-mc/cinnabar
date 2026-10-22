@@ -933,3 +933,19 @@ fn world_options_disabled_fields_skip_text_validation() {
     );
     assert!(menu.form_error().is_none());
 }
+
+/// A toggle that resets a numeric option also drops its typed text, so display matches the save.
+#[test]
+fn world_options_reset_by_a_toggle_drop_their_typed_text() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::RandomTickSpeed, "42".to_owned()));
+    assert!(menu.edit_form().unwrap().options.enabled(O::ActivateCheats));
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    assert_eq!(menu.view().numeric_text(O::RandomTickSpeed), "1");
+    assert_eq!(menu.edit_form().unwrap().options.get(O::RandomTickSpeed), 1);
+    // Nothing differs from the saved world any more, so Back saves nothing.
+    assert!(menu.update(Input::Back).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
+    assert_eq!(menu.worlds()[0].options.get(O::RandomTickSpeed), 1);
+}

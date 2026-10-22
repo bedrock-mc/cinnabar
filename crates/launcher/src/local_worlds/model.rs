@@ -526,15 +526,20 @@ impl WorldsMenu {
                     && self.view().options_available() =>
             {
                 self.form_error = None;
-                match (&mut self.edit, self.screen) {
+                let options = match (&mut self.edit, self.screen) {
                     (Some(edit), Screen::Edit) if edit.options.editable(id, true) => {
-                        edit.options.set(id, value);
+                        &mut edit.options
                     }
                     (_, Screen::Create) if self.create.options.editable(id, false) => {
-                        self.create.options.set(id, value);
+                        &mut self.create.options
                     }
-                    _ => {}
-                }
+                    _ => return Vec::new(),
+                };
+                let before = options.clone();
+                options.set(id, value);
+                // Options a toggle reset show their new value instead of earlier typing.
+                self.option_text
+                    .retain(|&other, _| other == id || options.get(other) == before.get(other));
                 Vec::new()
             }
             Input::SetOptionText(id, text)
