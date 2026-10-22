@@ -112,6 +112,7 @@ pub(super) fn hud_model(
             .armor()
             .is_some_and(|armor| armor.current() > 0),
         hotbar_visible: mode_allows_hotbar && selected.is_some(),
+        touch_inventory: false,
         xp_bar: survival && experience.is_some() && frame.mount_jump.is_none(),
         exp_progress: experience.map_or(0.0, |xp| f64::from(xp.progress)),
         level: experience.map_or(0, |xp| xp.level),

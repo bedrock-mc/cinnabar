@@ -28,7 +28,8 @@ const CONTROLS: &[(&str, u16)] = &[
     ("attack", touch::ATTACK),
     ("use", touch::USE),
     ("menu", touch::MENU),
-    ("inventory", touch::INVENTORY),
+    ("chat", touch::CHAT),
+    ("emote", touch::EMOTE),
 ];
 
 #[derive(Default)]
@@ -51,6 +52,11 @@ pub(in super::super) struct TouchControls {
 }
 
 impl TouchControls {
+    /// Whether gameplay should publish touch-specific HUD controls.
+    pub(super) fn enabled(&self) -> bool {
+        self.enabled
+    }
+
     /// Retires the last build's geometry, so hidden controls cannot take touches.
     pub(super) fn begin_frame(&mut self) {
         self.frame = None;
@@ -87,11 +93,20 @@ impl UiPresentationRuntime {
         }
         let point = UiPoint::new(position[0] * window[0], position[1] * window[1]).ok()?;
         if let Some(frame) = &state.hud
-            && let Some(slot) = hit_test(&frame.hits, frame.to_virtual(point))
-                .filter(|hit| hit.collection.as_deref() == Some("hotbar_items"))
+            && let Some(hit) = hit_test(&frame.hits, frame.to_virtual(point))
         {
-            let index = slot.collection_index.filter(|index| *index < 9)?;
-            return region_bounds(frame, slot, window, touch::HOTBAR_1 + index as u16);
+            let id = if hit.pressed.as_deref() == Some("button.hotbar_inventory_button") {
+                Some(touch::INVENTORY)
+            } else if hit.collection.as_deref() == Some("hotbar_items") {
+                hit.collection_index
+                    .filter(|index| *index < 9)
+                    .map(|index| touch::HOTBAR_1 + index as u16)
+            } else {
+                None
+            };
+            if let Some(id) = id {
+                return region_bounds(frame, hit, window, id);
+            }
         }
         let frame = state.frame.as_ref()?;
         let hit = hit_test(&frame.hits, frame.to_virtual(point))?;
@@ -241,6 +256,9 @@ fn control_id(pressed: Option<&str>) -> Option<u16> {
         .iter()
         .find_map(|&(control, id)| (control == name).then_some(id))
 }
+
+#[cfg(test)]
+mod layout_tests;
 
 #[cfg(test)]
 mod tests {
