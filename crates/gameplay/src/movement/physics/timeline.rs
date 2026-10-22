@@ -161,7 +161,7 @@ impl LocalPhysicsController {
         let start = if tick == 0 {
             next
         } else {
-            (tick + 1).min(next)
+            tick.saturating_add(1).min(next)
         };
         self.boosts.record_server(boost, start, span);
         self.retire_boosts();

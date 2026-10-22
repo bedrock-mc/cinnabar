@@ -502,12 +502,21 @@ fn same_tick_server_updates_replay_the_latest_value() {
 /// One event a glide test applies before simulating the tick after `at`.
 #[derive(Clone, Copy)]
 enum BoostEvent {
-    Rocket { at: u64 },
-    Server { at: u64, stamp: u64, span: super::BoostSpan },
+    Rocket {
+        at: u64,
+    },
+    Server {
+        at: u64,
+        stamp: u64,
+        span: super::BoostSpan,
+    },
 }
 
 /// Glides from a jump press at height, applying boost events on the ticks they name.
-fn glide_with_events(ticks: u64, events: &[BoostEvent]) -> (LocalPhysicsController, MovementTicker) {
+fn glide_with_events(
+    ticks: u64,
+    events: &[BoostEvent],
+) -> (LocalPhysicsController, MovementTicker) {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 50.620_01, 0.0], 100, false);
     let mut ticker = MovementTicker::default();
@@ -530,8 +539,13 @@ fn glide_with_events(ticks: u64, events: &[BoostEvent]) -> (LocalPhysicsControll
                     if let Some(rewind) =
                         physics.record_server_boost(super::MovementBoost::Glide, stamp, span)
                     {
-                        reconcile_timeline_rewind(&mut ticker, &mut physics, rewind, &VersionedFloor(1))
-                            .unwrap();
+                        reconcile_timeline_rewind(
+                            &mut ticker,
+                            &mut physics,
+                            rewind,
+                            &VersionedFloor(1),
+                        )
+                        .unwrap();
                     }
                 }
                 _ => {}
@@ -564,10 +578,16 @@ fn glide_history(physics: &LocalPhysicsController) -> Vec<(u64, bool, sim::Playe
 fn assert_replay_matches_live(physics: &mut LocalPhysicsController) {
     let live = glide_history(physics);
     for (tick, lane, _) in &live {
-        assert_eq!(*lane, physics.boosted(super::MovementBoost::Glide, *tick), "tick {tick}");
+        assert_eq!(
+            *lane,
+            physics.boosted(super::MovementBoost::Glide, *tick),
+            "tick {tick}"
+        );
     }
     let oldest = physics.oldest_retained_tick().unwrap();
-    physics.replay_retained_from(oldest, &VersionedFloor(1)).unwrap();
+    physics
+        .replay_retained_from(oldest, &VersionedFloor(1))
+        .unwrap();
     assert_eq!(glide_history(physics), live);
 }
 
@@ -595,7 +615,10 @@ fn a_rocket_boosts_its_first_tick_live_and_in_replay() {
 #[test]
 fn an_expired_rocket_still_boosts_its_retained_ticks_in_replay() {
     let (mut physics, _) = glide_with_events(28, &[BoostEvent::Rocket { at: 102 }]);
-    assert_eq!(boosted_ticks(&physics, 100..130), (103..123).collect::<Vec<_>>());
+    assert_eq!(
+        boosted_ticks(&physics, 100..130),
+        (103..123).collect::<Vec<_>>()
+    );
     assert_replay_matches_live(&mut physics);
 }
 
@@ -606,18 +629,43 @@ fn a_delayed_older_rocket_boost_keeps_the_newer_rocket() {
     let events = [
         BoostEvent::Rocket { at: 100 },
         BoostEvent::Rocket { at: 120 },
-        BoostEvent::Server { at: 125, stamp: 100, span },
+        BoostEvent::Server {
+            at: 125,
+            stamp: 100,
+            span,
+        },
     ];
     let (mut physics, _) = glide_with_events(30, &events);
-    assert_eq!(boosted_ticks(&physics, 100..150), (101..141).collect::<Vec<_>>());
+    assert_eq!(
+        boosted_ticks(&physics, 100..150),
+        (101..141).collect::<Vec<_>>()
+    );
     assert_replay_matches_live(&mut physics);
+}
+
+/// A boost stamped at the largest tick applies live instead of overflowing.
+#[test]
+fn a_boost_stamped_at_the_last_tick_applies_live() {
+    let span = super::BoostSpan::Ticks(5);
+    let (mut physics, _) = glide_with_events(6, &[]);
+    assert_eq!(
+        physics.record_server_boost(super::MovementBoost::Glide, u64::MAX, span),
+        None
+    );
 }
 
 /// A delayed firework boost rewinds to its stamp and matches on-time delivery.
 #[test]
 fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
     let span = super::BoostSpan::Ticks(5);
-    let (on_time, _) = glide_with_events(10, &[BoostEvent::Server { at: 103, stamp: 103, span }]);
+    let (on_time, _) = glide_with_events(
+        10,
+        &[BoostEvent::Server {
+            at: 103,
+            stamp: 103,
+            span,
+        }],
+    );
     let (mut delayed, mut ticker) = glide_with_events(6, &[]);
     assert_eq!(delayed.mode(), sim::MovementMode::Gliding);
     assert_eq!(
@@ -628,7 +676,10 @@ fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
     let replayed = glide_history(&delayed);
     let live = glide_history(&on_time);
     assert_eq!(replayed[..], live[..replayed.len()]);
-    assert_eq!(boosted_ticks(&delayed, 100..120), (104..109).collect::<Vec<_>>());
+    assert_eq!(
+        boosted_ticks(&delayed, 100..120),
+        (104..109).collect::<Vec<_>>()
+    );
     assert_eq!(
         delayed.record_server_boost(super::MovementBoost::Glide, 103, span),
         None,
@@ -656,4 +707,3 @@ fn delayed_liquid_movement_speeds_rewrite_retained_inputs_once() {
         "a current stamp applies live"
     );
 }
-
