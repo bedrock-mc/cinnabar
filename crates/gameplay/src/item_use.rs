@@ -210,6 +210,10 @@ impl ItemUseRuntime {
             .as_ref()
             .is_some_and(|active| active.selection.slot != slot)
         {
+            if let Some(active) = self.active.as_ref().filter(|active| active.server_started) {
+                // Only a start whose tick has not run is still queued to withdraw.
+                self.withdrawn_start = Some(active.started_tick);
+            }
             self.active = None;
             self.riptide_release = None;
             self.release_pending = false;

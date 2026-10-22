@@ -98,8 +98,6 @@ struct FlagOverlay {
     pose: PoseWrite,
     spinning: Option<bool>,
     using_item: Option<bool>,
-    /// A stamped write here awaits a replay through this tick.
-    pending: bool,
     /// Live writes made before this tick ran, part of the tick's own capture.
     captured: CapturedWrites,
 }
@@ -113,15 +111,19 @@ struct CapturedWrites {
 }
 
 /// What one stamped update compares against, fixed before it records any
-/// field: the live state while a correction of the frame awaits replay,
-/// otherwise the frame's capture.
+/// field: the following frame's capture, as vanilla's flag correction has no
+/// pending type that would compare with the live actor instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct WriteBases {
-    pending: bool,
-    mode: sim::MovementMode,
-    spinning: bool,
-    using_item: Option<bool>,
     captured: CapturedWrites,
+}
+
+/// The pose and spin server writes changed before one tick, which that tick's
+/// start and stop actions compare against.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct ServerBaseline {
+    pub mode: Option<sim::MovementMode>,
+    pub spinning: Option<bool>,
 }
 
 /// Retained server flag writes and state awaiting adoption.
@@ -147,14 +149,17 @@ impl ServerFlagAuthority {
         self.overlays.iter().find(|overlay| overlay.tick == tick)
     }
 
-    /// Marks stamped writes up to `tick` as applied by a completed replay.
-    fn settle_through(&mut self, tick: u64) {
+    /// Forgets the live writes captured with ticks a replay from `anchor`
+    /// through `last` rebuilt. Vanilla keeps the capture of the frame the
+    /// replay starts from (the one after `anchor`) and refreshes later ones.
+    fn refresh_captures(&mut self, anchor: u64, last: u64) {
+        let first = anchor.saturating_add(1);
         for overlay in self
             .overlays
             .iter_mut()
-            .filter(|overlay| overlay.tick <= tick)
+            .filter(|overlay| overlay.tick > first && overlay.tick <= last)
         {
-            overlay.pending = false;
+            overlay.captured = CapturedWrites::default();
         }
     }
 
@@ -184,7 +189,6 @@ impl ServerFlagAuthority {
                 pose: PoseWrite::default(),
                 spinning: None,
                 using_item: None,
-                pending: false,
                 captured: CapturedWrites::default(),
             },
         );
@@ -192,18 +196,27 @@ impl ServerFlagAuthority {
     }
 
     /// Applies the retained writes for the tick after `state` before it is
-    /// selected and simulated during replay.
-    pub(super) fn apply_before(&self, modes: &mut ModeTracker, state: &mut PlayerState) {
-        let Some(overlay) = state
+    /// selected and simulated; returns the pose and spin they changed, the
+    /// action baseline for that tick's input.
+    pub(super) fn apply_before(
+        &self,
+        modes: &mut ModeTracker,
+        state: &mut PlayerState,
+    ) -> ServerBaseline {
+        let (mode, spinning) = (modes.mode(), state.spin_attack_ticks.is_some());
+        if let Some(overlay) = state
             .tick
             .checked_add(1)
             .and_then(|tick| self.overlay(tick))
-        else {
-            return;
-        };
-        overlay.pose.apply(modes);
-        if let Some(spinning) = overlay.spinning {
-            set_spin(state, spinning);
+        {
+            overlay.pose.apply(modes);
+            if let Some(spinning) = overlay.spinning {
+                set_spin(state, spinning);
+            }
+        }
+        ServerBaseline {
+            mode: (modes.mode() != mode).then_some(modes.mode()),
+            spinning: (state.spin_attack_ticks.is_some() != spinning).then_some(!spinning),
         }
     }
 }
@@ -234,15 +247,13 @@ impl LocalPhysicsController {
 
     /// Re-applies server writes made after the last completed tick to the
     /// state a replay rebuilt, and resets the action baseline to them.
-    pub(super) fn reapply_live_server_flags(&mut self) {
+    pub(super) fn reapply_live_server_flags(&mut self, anchor: u64) {
         let Some(state) = self.state.as_mut() else {
             return;
         };
-        self.server_flags.settle_through(state.tick);
-        let (mode, spinning) = (self.modes.mode(), state.spin_attack_ticks.is_some());
-        self.server_flags.apply_before(&mut self.modes, state);
-        let mode = (self.modes.mode() != mode).then_some(self.modes.mode());
-        let spinning = (state.spin_attack_ticks.is_some() != spinning).then_some(!spinning);
+        self.server_flags.refresh_captures(anchor, state.tick);
+        let ServerBaseline { mode, spinning } =
+            self.server_flags.apply_before(&mut self.modes, state);
         let pending = self.server_control_flags.get_or_insert_default();
         pending.mode = mode;
         pending.spinning = spinning;
@@ -250,30 +261,16 @@ impl LocalPhysicsController {
         self.input_edges.replace_server_pose(mode, spinning);
     }
 
-    /// Fixes the bases one update stamped at retained `tick` compares against,
-    /// as vanilla compares a write with the live actor while a correction of
-    /// that frame is pending and with the frame's capture once replay applied it.
+    /// Fixes the base one update stamped at retained `tick` compares against:
+    /// the following frame's capture, which includes live writes made before
+    /// that frame ran.
     pub(super) fn write_bases(&self, tick: u64) -> WriteBases {
-        let overlay = tick
-            .checked_add(1)
-            .and_then(|after| self.server_flags.overlay(after));
         WriteBases {
-            // A correction pending anywhere in history, as vanilla's history-wide mask.
-            pending: self
-                .server_flags
-                .overlays
-                .iter()
-                .any(|overlay| overlay.pending),
-            mode: self.modes.mode(),
-            spinning: self
-                .state
-                .as_ref()
-                .is_some_and(|state| state.spin_attack_ticks.is_some()),
-            using_item: self
-                .server_flags
-                .pending_using_item
-                .or(overlay.and_then(|overlay| overlay.using_item)),
-            captured: overlay.map(|overlay| overlay.captured).unwrap_or_default(),
+            captured: tick
+                .checked_add(1)
+                .and_then(|after| self.server_flags.overlay(after))
+                .map(|overlay| overlay.captured)
+                .unwrap_or_default(),
         }
     }
 
@@ -305,11 +302,7 @@ impl LocalPhysicsController {
             .overlay(after)
             .map(|overlay| overlay.pose)
             .unwrap_or_default();
-        let entering = if bases.pending {
-            bases.mode
-        } else {
-            bases.captured.pose.resulting(anchor_mode)
-        };
+        let entering = bases.captured.pose.resulting(anchor_mode);
         let differing = write.differing_from(entering);
         if differing.resulting(entering) == entering {
             return false;
@@ -319,7 +312,6 @@ impl LocalPhysicsController {
             return false;
         };
         overlay.pose = combined;
-        overlay.pending = true;
         let left = combined.resulting(anchor_mode);
         self.mark_server_change_after(tick, |input| {
             input.server_mode = (left != anchor_mode).then_some(left);
@@ -384,11 +376,7 @@ impl LocalPhysicsController {
             .history
             .state_at(tick)
             .is_some_and(|state| state.spin_attack_ticks.is_some());
-        let base = if bases.pending {
-            bases.spinning
-        } else {
-            bases.captured.spinning.unwrap_or(local)
-        };
+        let base = bases.captured.spinning.unwrap_or(local);
         if spinning == base {
             return false;
         }
@@ -398,7 +386,6 @@ impl LocalPhysicsController {
         // The effective write stays even when it matches the capture, so a
         // replay through this frame reapplies it whatever arrives there.
         overlay.spinning = Some(spinning);
-        overlay.pending = true;
         self.mark_server_change_after(tick, |input| input.server_spinning = Some(spinning));
         if self.write_live_spin(spinning) {
             self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
@@ -438,17 +425,12 @@ impl LocalPhysicsController {
             .iter()
             .find(|frame| frame.tick == tick)
             .map(|frame| frame.using_item);
-        let base = if bases.pending {
-            bases.using_item.or(local)
-        } else {
-            bases.captured.using_item.or(local)
-        };
+        let base = bases.captured.using_item.or(local);
         if base == Some(using) {
             return false;
         }
         if let Some(overlay) = self.retained_overlay(tick) {
             overlay.using_item = Some(using);
-            overlay.pending = true;
         }
         self.server_flags.pending_using_item = Some(using);
         // Vanilla rewinds for this flag too, which settles the correction.
@@ -469,7 +451,7 @@ impl LocalPhysicsController {
 
     /// Retires server writes awaiting the next tick when respawn discards the
     /// old life: their action baselines and the pending item-use value.
-    pub(in crate::movement) fn discard_server_flag_baselines(&mut self) {
+    pub fn discard_server_flag_baselines(&mut self) {
         if let Some(pending) = self.server_control_flags.as_mut() {
             pending.mode = None;
             pending.spinning = None;
@@ -481,5 +463,35 @@ impl LocalPhysicsController {
     /// Takes the latest server `UsingItem` value the item-use owner must adopt.
     pub fn take_server_using_item(&mut self) -> Option<bool> {
         self.server_flags.pending_using_item.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Replay rebuilds each tick's action baseline from the pose the retained
+    /// write actually leaves, not the pose it left when it arrived.
+    #[test]
+    fn a_retained_write_reports_only_the_pose_it_changes() {
+        let mut authority = ServerFlagAuthority::default();
+        authority.overlay_mut(103, 100, 8).pose = PoseWrite([Some(false), None, None]);
+        let mut state = PlayerState::new(Vec3::ZERO);
+        state.tick = 102;
+        let mut gliding = ModeTracker::default();
+        gliding.start(sim::MovementMode::Gliding);
+        assert_eq!(
+            authority.apply_before(&mut gliding, &mut state),
+            ServerBaseline {
+                mode: Some(sim::MovementMode::Walking),
+                spinning: None,
+            }
+        );
+        let mut crawling = ModeTracker::default();
+        crawling.start(sim::MovementMode::Crawling);
+        assert_eq!(
+            authority.apply_before(&mut crawling, &mut state),
+            ServerBaseline::default()
+        );
     }
 }

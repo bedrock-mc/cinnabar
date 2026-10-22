@@ -326,3 +326,31 @@ fn a_press_before_a_pending_clear_runs_starts_nothing() {
     assert!(outcome.packets.is_empty());
     assert!(!runtime.is_using());
 }
+
+/// Pressing and releasing Use while a server clear awaits its tick releases
+/// the established use the clear stopped, as vanilla still holds it then.
+#[test]
+fn a_press_and_release_during_a_pending_clear_releases_the_use() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.step(&frame(11, false));
+    runtime.adopt_server_using_item(false);
+    runtime.resolve_server_using_item(&frame(12, false));
+    runtime.observe_use_button(true, 11);
+    runtime.observe_use_button(false, 11);
+    assert!(runtime.is_releasing(false));
+    assert_eq!(kinds(&runtime.step(&frame(12, false))), ["release"]);
+}
+
+/// A reselection before a server start's tick runs withdraws its queued
+/// `StartUsingItem`.
+#[test]
+fn a_reselection_withdraws_an_unrun_server_start() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.retire_reselected_use(5);
+    assert!(!runtime.is_using());
+    assert_eq!(runtime.take_withdrawn_start(), Some(10));
+}

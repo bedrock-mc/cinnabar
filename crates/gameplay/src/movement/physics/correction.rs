@@ -224,6 +224,8 @@ impl LocalPhysicsController {
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
         let server_flags = &self.server_flags;
+        // Action baselines replay rebuilds from the mode each retained write leaves.
+        let mut baselines = Vec::new();
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -244,7 +246,8 @@ impl LocalPhysicsController {
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
-                    server_flags.apply_before(&mut modes, state);
+                    let baseline = server_flags.apply_before(&mut modes, state);
+                    baselines.push((state.tick + 1, baseline));
                     let frame = controller_frames
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)
@@ -316,6 +319,10 @@ impl LocalPhysicsController {
             else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
+            if let Some((_, baseline)) = baselines.iter().find(|(tick, _)| *tick == result.tick) {
+                retained.input.server_mode = baseline.mode;
+                retained.input.server_spinning = baseline.spinning;
+            }
             if self.history.world_at(result.tick).is_none()
                 && retained.world_identity != result.world_identity
                 && (immobility_edits.binary_search(&result.tick).is_err()
@@ -386,7 +393,7 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         self.modes = modes;
-        self.reapply_live_server_flags();
+        self.reapply_live_server_flags(tick);
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;
         self.last_environment = controller_frames

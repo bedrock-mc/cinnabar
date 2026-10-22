@@ -316,8 +316,8 @@ impl CommittedGameplayState<'_> {
                 // drop any armed assertion instead of leaking it across the
                 // boundary.
                 self.movement.clear_pending_teleport_ack();
-                // An item-use write for the old world never reaches the destination.
-                self.physics.take_server_using_item();
+                // Server flag writes for the old world never reach the destination.
+                self.physics.discard_server_flag_baselines();
                 self.speed
                     .replace_dimension(self.session_generation, self.dimension);
                 observe(ControlObservation::Dimension);

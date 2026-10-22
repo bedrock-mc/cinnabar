@@ -257,10 +257,10 @@ fn retained_server_writes_survive_an_earlier_rewind() {
     assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
 }
 
-/// A later write with the same stamp replaces an earlier one, so a clear
-/// withdraws a server-started glide, spin and item use.
+/// A later write with the same stamp compares with the frame's capture, as
+/// vanilla's flag correction does, so a clear matching it leaves the start.
 #[test]
-fn a_later_write_with_the_same_stamp_withdraws_a_server_start() {
+fn a_same_stamp_clear_compares_with_the_frame_capture() {
     let (mut physics, mut ticker) = airborne();
     for _ in 0..3 {
         tick(&mut physics, &mut ticker, elytra(true));
@@ -276,16 +276,13 @@ fn a_later_write_with_the_same_stamp_withdraws_a_server_start() {
         physics.apply_server_movement_flags(101, set(true)),
         Some(101)
     );
-    assert_eq!(
-        physics.apply_server_movement_flags(101, set(false)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, set(false)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(physics.mode(), sim::MovementMode::Walking);
-    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
-    assert_eq!(physics.take_server_using_item(), Some(false));
-    assert_eq!(count(&ticker, PlayerInputFlags::STOP_GLIDING), 0);
-    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+    assert_eq!(physics.take_server_using_item(), Some(true));
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
 }
 
 /// Respawn discards a server item-use write the old life left pending.
@@ -459,29 +456,30 @@ fn a_replayed_stamped_write_is_not_the_base_for_later_writes() {
     assert!(physics.state().unwrap().spin_attack_ticks.is_some());
 }
 
-/// A pending stamped set and clear keep the effective clear, so an earlier
-/// spin start replayed through that frame still ends there.
+/// A replay from an earlier tick refreshes the captures of the frames it
+/// rebuilt, so a live write no longer serves as their base afterwards.
 #[test]
-fn a_withdrawn_stamped_spin_keeps_its_effective_clear() {
+fn an_earlier_replay_refreshes_captured_live_writes() {
     let (mut physics, mut ticker) = airborne();
-    for _ in 0..4 {
+    for _ in 0..2 {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let write = |value| flags(|flags| flags.spinning = Some(value));
-    assert_eq!(
-        physics.apply_server_movement_flags(102, write(true)),
-        Some(102)
-    );
+    assert_eq!(physics.apply_server_movement_flags(0, write(true)), None);
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
     assert_eq!(
         physics.apply_server_movement_flags(102, write(false)),
         Some(102)
     );
-    assert_eq!(
-        physics.apply_server_movement_flags(101, write(true)),
-        Some(101)
-    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    physics.queue_server_motion([0.0; 3], 101);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    assert_eq!(
+        physics.apply_server_movement_flags(102, write(true)),
+        Some(102)
+    );
 }
 
 /// One stamped update fixes its comparison bases before recording any field,
@@ -542,10 +540,10 @@ fn an_item_only_stamped_write_settles_through_replay() {
     assert_eq!(physics.take_server_using_item(), None);
 }
 
-/// While a stamped correction awaits replay anywhere in history, a write for
-/// another frame compares with the live state, as vanilla's history-wide mask.
+/// A write compares with its own frame's capture even while another stamped
+/// write awaits replay: vanilla's flag correction has no pending type.
 #[test]
-fn a_pending_correction_elsewhere_makes_writes_compare_live() {
+fn a_write_compares_with_its_capture_while_another_awaits_replay() {
     let (mut physics, mut ticker) = airborne();
     for _ in 0..4 {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
@@ -555,11 +553,8 @@ fn a_pending_correction_elsewhere_makes_writes_compare_live() {
         physics.apply_server_movement_flags(101, write(true)),
         Some(101)
     );
-    assert_eq!(
-        physics.apply_server_movement_flags(102, write(false)),
-        Some(102)
-    );
-    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    assert_eq!(physics.apply_server_movement_flags(102, write(false)), None);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
 }
 
 /// A server pose write keeps flight, which vanilla holds beside pose flags.

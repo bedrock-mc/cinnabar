@@ -24,6 +24,13 @@ impl ItemUseRuntime {
             {
                 active.button_owned = true;
             }
+            // A use a pending clear stopped still exists natively until its tick.
+            if let Some((tick, cleared)) = self.cleared_use.as_mut()
+                && *tick > completed_tick
+                && cleared.has_run(tick.saturating_sub(1))
+            {
+                cleared.button_owned = true;
+            }
         } else {
             self.restore_cleared_use(completed_tick, true);
         }
