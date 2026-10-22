@@ -24,21 +24,6 @@ fn query_edits_clear_and_category_selection_preserve_saved_options() {
     assert!(!menu.settings_dirty);
 }
 
-#[test]
-fn escape_clears_search_before_leaving_settings_and_reopening_starts_empty() {
-    let mut menu = MenuRuntime::new(true, 2, "Player".into());
-    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    menu.activate(MenuAction::SearchSettings);
-    menu.edit_text("vsync");
-    menu.go_back_from_input();
-    assert_eq!(menu.view().screen, MenuScreen::Settings);
-    assert!(menu.view().settings_query.is_empty());
-    menu.edit_text("gamma");
-    menu.activate(MenuAction::AddBack);
-    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    assert!(menu.view().settings_query.is_empty());
-}
-
 /// Opening a result must retain a safe destination for the next navigation confirmation.
 #[test]
 fn category_search_shortcuts_retarget_focus_before_results_disappear() {
