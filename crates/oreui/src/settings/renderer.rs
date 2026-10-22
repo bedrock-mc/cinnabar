@@ -99,6 +99,7 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "Use Vanilla rendering without a shader pack.",
         !selected,
         Some(MenuAction::SelectRenderer(RendererChoice::Vanilla)),
+        None,
     )?;
     if selected && view.renderer.is_none() {
         let name = view.shader_pack.as_deref().unwrap_or("Selected pack");
@@ -108,8 +109,9 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             "Selected pack is outside this list or is no longer available.",
             true,
             None,
+            None,
         )?;
-        selected_controls(content, None)?;
+        selected_controls(content)?;
     }
     content.heading(
         &format!("My shader packs ({})", view.shader_packs.len()),
@@ -140,11 +142,10 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             active,
             (view.shader_pack_removing.as_deref() != Some(name.as_str()))
                 .then_some(MenuAction::SelectRenderer(choice)),
+            Some((index, view.shader_packs_revision)),
         )?;
         if active {
-            selected_controls(content, Some((index, view.shader_packs_revision)))?;
-        } else {
-            remove_control(content, index, view.shader_packs_revision)?;
+            selected_controls(content)?;
         }
     }
     caption(
@@ -153,24 +154,52 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     )
 }
 
-/// Draws a full-width, wrapping library row with a visible and keyboard-accessible selection.
+/// Draws wrapping pack text and independent selection and deletion targets on one row.
 fn pack_row(
     content: &mut Content<'_, '_>,
     title: &str,
     subtitle: &str,
     selected: bool,
     action: Option<MenuAction>,
+    entry: Option<(u16, u64)>,
 ) -> Result<(), PaintError> {
     use super::super::theme::{BODY, CAPTION, TEXT, TEXT_DIMMER};
     let [left, right] = content.inset();
     let pad = content.canvas.r(1.2);
+    let select_right = if entry.is_some() {
+        right - content.canvas.r(5.2)
+    } else {
+        right
+    };
     let text_left = left + content.canvas.r(5.2);
-    let width = (right - text_left - pad).max(1.0);
+    let width = (select_right - text_left - pad).max(1.0);
     let title_height = content.canvas.measure_height(title, width, BODY)?;
     let subtitle_height = content.canvas.measure_height(subtitle, width, CAPTION)?;
     let height = (title_height + subtitle_height + 2.0 * pad).max(content.canvas.r(7.2));
-    let bounds = [left, content.y, right, content.y + height];
+    let bounds = [left, content.y, select_right, content.y + height];
     widgets::row(content.canvas, content.view, bounds, selected, action)?;
+    if let Some((index, revision)) = entry {
+        let remove = content
+            .view
+            .shader_pack_removing
+            .is_none()
+            .then_some(MenuAction::RemoveShaderPackDialog(index, revision));
+        let target = [select_right, bounds[1], right, bounds[3]];
+        widgets::row(content.canvas, content.view, target, selected, remove)?;
+        let icon = super::super::icons::Icon::Trash;
+        let [icon_width, icon_height] = icon
+            .texels()
+            .map(|size| content.canvas.r(size as f32 * super::super::theme::EDGE));
+        super::super::icons::draw(
+            content.canvas,
+            icon,
+            [
+                (target[0] + target[2] - icon_width) * 0.5,
+                (target[1] + target[3] - icon_height) * 0.5,
+            ],
+            if remove.is_some() { TEXT } else { TEXT_DIMMER },
+        )?;
+    }
     let state = content.canvas.interaction(content.view, action);
     super::super::radio::draw(
         content.canvas,
@@ -199,11 +228,8 @@ fn pack_row(
     Ok(())
 }
 
-/// Keeps pack settings, reload and removal with the selection they operate on.
-fn selected_controls(
-    content: &mut Content<'_, '_>,
-    entry: Option<(u16, u64)>,
-) -> Result<(), PaintError> {
+/// Keeps settings and reload controls beneath the selected pack.
+fn selected_controls(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     use super::super::widgets::Variant;
     let mut buttons = Vec::new();
     let enabled = content.view.shader_pack_removing.is_none();
@@ -219,45 +245,8 @@ fn selected_controls(
         Variant::Secondary,
         enabled.then_some(MenuAction::ReloadShaders),
     ));
-    if let Some((index, revision)) = entry {
-        buttons.push((
-            "Remove…",
-            Variant::Secondary,
-            content
-                .view
-                .shader_pack_removing
-                .is_none()
-                .then_some(MenuAction::RemoveShaderPackDialog(index, revision)),
-        ));
-    }
     super::resources::actions(content, &buttons)?;
     content.y += content.canvas.r(1.2);
-    Ok(())
-}
-
-/// Offers deletion only for a managed library row and disables it during pending file work.
-fn remove_control(
-    content: &mut Content<'_, '_>,
-    index: u16,
-    revision: u64,
-) -> Result<(), PaintError> {
-    let [_, right] = content.inset();
-    let label = "Remove…";
-    let width = content.canvas.measure(label, super::super::theme::BODY)? + content.canvas.r(3.2);
-    let height = content.canvas.r(4.4);
-    widgets::button(
-        content.canvas,
-        content.view,
-        [right - width, content.y, right, content.y + height],
-        super::super::widgets::Variant::Secondary,
-        label,
-        content
-            .view
-            .shader_pack_removing
-            .is_none()
-            .then_some(MenuAction::RemoveShaderPackDialog(index, revision)),
-    )?;
-    content.y += height + content.canvas.r(1.2);
     Ok(())
 }
 

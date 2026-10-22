@@ -306,6 +306,21 @@ fn shader_pack_rows_stack_at_wide_and_narrow_sizes() {
         assert!(packs[0].max().y() <= packs[1].min().y());
         assert_eq!(packs[0].min().x(), packs[1].min().x());
         assert_eq!(packs[0].max().x(), packs[1].max().x());
+        for (index, pack) in packs.iter().enumerate() {
+            let (_, trash) = hits
+                .iter()
+                .find(|(action, _)| {
+                    *action
+                        == MenuAction::RemoveShaderPackDialog(
+                            index as u16,
+                            view.shader_packs_revision,
+                        )
+                })
+                .expect("every managed pack has a separate trash target");
+            assert!(pack.max().x() <= trash.min().x());
+            assert_eq!(pack.min().y(), trash.min().y());
+            assert_eq!(pack.max().y(), trash.max().y());
+        }
     }
 }
 
