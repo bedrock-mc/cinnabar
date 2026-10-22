@@ -473,8 +473,8 @@ impl LocalPhysicsController {
         }
         modes.set_glide_counter(self.modes.fall_fly_ticks());
         self.modes = modes;
-        eye.preserve_interpolation_hold(self.eye_offset);
-        self.eye_offset = eye;
+        // Vanilla's replay neither ticks nor copies back the camera eye offset,
+        // so the live eye blend stands; retained frames keep their replayed eye.
         self.last_environment = controller_frames
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);

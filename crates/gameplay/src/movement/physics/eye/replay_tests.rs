@@ -228,6 +228,7 @@ fn corrected_pair(
     assert!(physics.state().unwrap().spin_attack_ticks.is_some());
     let tick = (facing as i64 + anchor_offset) as u64;
     let position = equivalent.sample_at(tick).unwrap().position;
+    let before = physics.clone();
     let retained = written.then(|| physics.clone());
     for (ticker, physics) in [
         (&mut ticker, &mut physics),
@@ -253,8 +254,9 @@ fn corrected_pair(
         physics.state().unwrap().spin_attack_ticks.is_some(),
         written
     );
+    // Vanilla's replay neither ticks nor copies back the camera eye offset.
+    assert_camera(&physics, &before);
     if let Some(retained) = retained {
-        assert_camera(&physics, &retained);
         // The accepted network anchor rounds body coordinates through f32; pose offsets stay exact.
         assert_eye_history(&physics, &retained, facing, &world);
     }
@@ -383,13 +385,16 @@ fn assert_eye_history(
     }
 }
 
+/// Replay leaves the live camera eye blend, as vanilla's replay neither ticks
+/// nor copies back its eye offset component; live ticks then ease it toward
+/// the replayed pose.
 #[test]
-fn riptide_cancelled_release_rebuilds_camera_eye_interpolation() {
+fn riptide_cancelled_release_replay_leaves_the_live_camera_eye() {
     for pose in [Pose::Standing, Pose::Sneaking, Pose::Swimming] {
         for predicted in [1, 4] {
             for offset in [-1, 0, predicted as i64] {
-                let (physics, equivalent, _, _) = corrected_pair(pose, predicted, offset, false);
-                assert_camera(&physics, &equivalent);
+                // `corrected_pair` checks the camera against the pre-correction one.
+                corrected_pair(pose, predicted, offset, false);
             }
         }
     }
@@ -426,9 +431,11 @@ fn riptide_eye_replay_preserves_nonzero_anchors_and_repeated_rewinds() {
         "the initial neutral eye is outside the retained window"
     );
     for tick in [oldest, physics.state().unwrap().tick, facing, oldest] {
+        let (live, equivalent_live) = (physics.clone(), equivalent.clone());
         physics.replay_retained_from(tick, &world).unwrap();
         equivalent.replay_retained_from(tick, &world).unwrap();
-        assert_camera(&physics, &equivalent);
+        assert_camera(&physics, &live);
+        assert_camera(&equivalent, &equivalent_live);
         assert_history(&physics, &equivalent, facing, &world);
     }
 }
