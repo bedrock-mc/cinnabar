@@ -12,9 +12,13 @@ impl EquipmentRuntime {
         animation: EquipmentAnimation<'_>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
+        let variables = [(
+            assets::entity::EngineVariable::IsEnchanted.name(),
+            f32::from(item.enchanted),
+        )];
         let input = actor_animation::AttachableAnimationInput {
             worn_slot: actor_animation::AttachableAnimationInput::BODY_SLOT,
-            ..animation.worn_input(equipment, ArmorSlot::Helmet, &[])
+            ..animation.worn_input(equipment, ArmorSlot::Helmet, &variables)
         };
         let Some(source) = self.selected_binding_source(item, animation, input) else {
             return;
@@ -114,12 +118,19 @@ impl EquipmentRuntime {
         let Some(geometry) = self.armor_geometry_for(&geometry.identifier, source.from_pack) else {
             return;
         };
-        if registered != Some(geometry_index)
-            && self.selected_geometries.insert(geometry.rig)
-            && let Some(mesh) =
+        let registered = if source.from_pack {
+            registered == Some(geometry_index)
+        } else {
+            self.startup_geometries.contains(&geometry.rig)
+        };
+        if !registered && !self.selected_geometries.contains(&geometry.rig) {
+            let Some(mesh) =
                 render_model::equipment_geometry(&assets, geometry_index as usize, geometry.rig)
-        {
+            else {
+                return;
+            };
             self.pending.push(mesh);
+            self.selected_geometries.insert(geometry.rig);
         }
         let mut layer = layer_presentation(
             body,

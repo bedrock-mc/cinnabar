@@ -184,3 +184,72 @@ fn harness_binding_draws_on_the_body_without_becoming_a_held_model() {
     };
     assert_eq!(layers(&mut runtime, &body, &owner, &input, 2).len(), 1);
 }
+
+#[test]
+fn startup_body_slot_submits_a_registered_mesh() {
+    let (mut runtime, _) = super::startup_runtime(files());
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    runtime.take_pending_geometries();
+    let input = ActorEquipmentInput {
+        body: Some(item("a")),
+        ..Default::default()
+    };
+    let drawn = layers(&mut runtime, &body, &owner, &input, 1);
+    assert_eq!(drawn.len(), 1);
+    let queued = runtime.take_pending_geometries();
+    assert!(
+        queued
+            .iter()
+            .any(|mesh| mesh.id == drawn[0].submission.input.rig && !mesh.vertices.is_empty()),
+        "the scene needs geometry for a startup body definition that has no held literal pose"
+    );
+    layers(&mut runtime, &body, &owner, &input, 2);
+    assert!(
+        runtime.take_pending_geometries().is_empty(),
+        "unchanged geometry stays registered"
+    );
+}
+
+#[test]
+fn body_slot_controller_reads_the_worn_stack_enchantment() {
+    let mut source = files();
+    for (path, bytes) in &mut source {
+        if path.as_ref() == "attachables/a.json" {
+            let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            value["minecraft:attachable"]["description"]["textures"]["enchanted"] =
+                serde_json::json!("textures/fixture/b");
+            *bytes = serde_json::to_vec(&value).unwrap();
+        } else if path.as_ref() == "render_controllers/body.json" {
+            let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            value["render_controllers"]["controller.render.fixture.body"]["textures"] =
+                serde_json::json!(["variable.is_enchanted ? Texture.enchanted : Texture.default"]);
+            *bytes = serde_json::to_vec(&value).unwrap();
+        }
+    }
+    for startup in [false, true] {
+        let (mut runtime, pages) = if startup {
+            super::startup_runtime(source.clone())
+        } else {
+            pack_runtime(source.clone())
+        };
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        for (tick, enchanted, expected) in [(1, false, 40), (2, true, 210), (3, false, 40)] {
+            let input = ActorEquipmentInput {
+                body: Some(WornItem {
+                    enchanted,
+                    ..item("a")
+                }),
+                ..Default::default()
+            };
+            let drawn = layers(&mut runtime, &body, &owner, &input, tick);
+            assert_eq!(drawn.len(), 1);
+            assert_eq!(
+                selected_pixel(&pages, &drawn[0])[0],
+                expected,
+                "startup={startup}, enchanted={enchanted}"
+            );
+        }
+    }
+}

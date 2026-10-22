@@ -147,6 +147,8 @@ pub struct EquipmentRuntime {
     java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
     /// Render-controller models queued beyond the scene's binding geometries.
     selected_geometries: std::collections::BTreeSet<EntityRigId>,
+    /// Startup equipment meshes returned to the scene for registration.
+    startup_geometries: std::collections::BTreeSet<EntityRigId>,
     /// The strip frame each held dial (compass or clock) shows this frame.
     dial_frames: inventory::DialFrames,
 }
@@ -289,6 +291,7 @@ impl EquipmentRuntime {
             native_meshes: BTreeMap::new(),
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
+            startup_geometries: geometries.iter().copied().map(equipment_rig_id).collect(),
             dial_frames: Default::default(),
             external_armor: external_armor::ExternalArmor::new(catalog.as_deref()),
             assets,

@@ -51,6 +51,7 @@ fn feed(first_person: bool) -> LocalPlayerFeed {
         pitch: 30.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         main_hand_metadata: 0,
         main_hand_slot: 0,

@@ -29,7 +29,9 @@ pub(super) fn complete_bindings(
     let authored: BTreeSet<Box<str>> = payloads
         .iter()
         .filter(|(path, _)| path.starts_with("attachables/"))
-        .filter_map(|(_, bytes)| serde_json::from_slice::<Value>(bytes).ok())
+        .map(|(path, bytes)| parse_unique_json(&root.join(path.as_ref()), bytes))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
         .flat_map(|value| {
             let description = &value["minecraft:attachable"]["description"];
             if let Some(items) = description["item"].as_object() {

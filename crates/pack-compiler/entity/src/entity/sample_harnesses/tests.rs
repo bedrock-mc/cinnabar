@@ -115,6 +115,10 @@ fn authored_harness_condition_and_resource_removal_keep_their_meaning() {
             "materials":{"default":"entity_alphatest"},"render_controllers":[CONTROLLER]
         }}}),
     );
+    let authored = dir.path().join("attachables/override.json");
+    let mut bytes = b"// Original fixture condition must remain authoritative.\n".to_vec();
+    bytes.extend(fs::read(&authored).unwrap());
+    fs::write(authored, bytes).unwrap();
     let compiled =
         compile_entity_assets_with_report(dir.path(), assets::VANILLA_SOURCE_MANIFEST.as_bytes())
             .unwrap();
