@@ -54,6 +54,7 @@ fn startup_flag_and_runtime_setting_select_the_same_mode_once_probed() {
     }
 }
 
+/// Applies an explicit On choice before tests publish feedback for synchronized presentation.
 fn vsync_app(runtime: PresentModeRuntime) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -66,6 +67,7 @@ fn vsync_app(runtime: PresentModeRuntime) -> App {
         .resource_mut::<RuntimeSettings>()
         .replace_user_settings(settings);
     spawn_primary_window(&mut app);
+    app.update();
     app
 }
 
