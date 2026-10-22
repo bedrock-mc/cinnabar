@@ -466,6 +466,10 @@ impl PlayerInventoryLedger {
                 }
             }
         }
+        // An unencodable request never enters the queue; a craft-all scope shrinks instead.
+        if actions.len() > protocol::MAX_STACK_REQUEST_ACTIONS {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         Ok(Submission {
             actions,
             groups,

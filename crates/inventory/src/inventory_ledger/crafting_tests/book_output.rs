@@ -262,13 +262,7 @@ fn stacks_above_one_action_consume_and_place_in_encodable_amounts() {
     assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
     let recipe = catalog.recipe(81).unwrap();
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-    let mut entries = registry().entries.to_vec();
-    for entry in &mut entries {
-        entry.negotiated_max_stack_size = Some(128);
-    }
-    ledger.apply_registry(&ItemRegistryEvent {
-        entries: entries.into(),
-    });
+    ledger.apply_registry(&registry_with_capacity(128));
     let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
     slots[12] = stack(LOG, 101, 128);
     ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
@@ -296,13 +290,7 @@ fn stacks_above_one_action_consume_and_place_in_encodable_amounts() {
 #[test]
 fn a_grid_craft_all_above_one_action_spreads_over_several_cells() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-    let mut entries = registry().entries.to_vec();
-    for entry in &mut entries {
-        entry.negotiated_max_stack_size = Some(128);
-    }
-    ledger.apply_registry(&ItemRegistryEvent {
-        entries: entries.into(),
-    });
+    ledger.apply_registry(&registry_with_capacity(128));
     ledger.apply(&craft_slot(28, stack(LOG, 101, 65)));
     let recipe = unique(&ledger, &catalog());
     ledger.begin_craft_all(&recipe).unwrap();
@@ -326,4 +314,68 @@ fn a_maximal_stack_count_never_overflows_the_room_check() {
         ledger.begin_auto_craft(&planks(), false),
         Err(InventoryGestureError::InvalidRequest)
     );
+}
+
+/// The fixture registry with logs and planks declared as DataDriven items of `capacity`.
+fn registry_with_capacity(capacity: u8) -> ItemRegistryEvent {
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        if [LOG, PLANKS].contains(&entry.network_id) {
+            let declared = protocol::test_support::items::component_item_registry(
+                &entry.identifier,
+                i16::try_from(entry.network_id).unwrap(),
+                capacity,
+                0,
+            );
+            *entry = declared.entries[0].clone();
+        }
+    }
+    ItemRegistryEvent {
+        entries: entries.into(),
+    }
+}
+
+#[test]
+fn a_book_craft_all_stays_within_one_requests_action_budget() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    let mut fixture = RecipeFixture::shapeless(
+        "test:nine_by_three",
+        (0..9)
+            .map(|_| IngredientFixture {
+                count: 3,
+                ..IngredientFixture::named("minecraft:oak_log", 0)
+            })
+            .collect(),
+        vec![OutputFixture::new(PLANKS, 1)],
+    );
+    fixture.net_id = 82;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    let recipe = catalog.recipe(82).unwrap();
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply_registry(&registry_with_capacity(255));
+    let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
+    for (slot, held) in slots.iter_mut().enumerate().skip(1) {
+        *held = stack(LOG, 100 + i32::try_from(slot).unwrap(), 255);
+    }
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.begin_auto_craft(&recipe, true).unwrap();
+    let request = ledger.newest_request().unwrap();
+    assert!(request.actions.len() <= protocol::MAX_STACK_REQUEST_ACTIONS);
+    let crafts = request.actions.iter().find_map(|action| match action {
+        StackRequestAction::AutoCraft { crafts, .. } => Some(*crafts),
+        _ => None,
+    });
+    assert!(
+        crafts.is_some_and(|crafts| (1..255).contains(&crafts)),
+        "{crafts:?}"
+    );
+    assert!(ledger.pending_batch().unwrap().is_some());
 }
