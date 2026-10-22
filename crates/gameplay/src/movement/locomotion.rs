@@ -165,8 +165,10 @@ impl ModeTracker {
         self.mode.hitbox_height(self.sneaking)
     }
 
-    /// Uses the compact spin body for liquid sensing, preserving the prior pose otherwise.
-    pub(super) fn liquid_contact_height(&self, spinning: bool) -> f64 {
+    /// The compact spin body's height while spinning, as the simulator's
+    /// hitbox uses, and the pose's contact height otherwise. Liquid sensing
+    /// and anchor recovery read it.
+    pub(super) fn spin_aware_contact_height(&self, spinning: bool) -> f64 {
         if spinning {
             sim::PLAYER_WIDTH
         } else {

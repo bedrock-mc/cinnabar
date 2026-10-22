@@ -838,3 +838,15 @@ fn replay_copies_back_an_item_use_bit_no_correction_wrote() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(false));
 }
+
+/// A server swim start between ticks is the flag the next tick's swim blend
+/// reads, so the blend starts rising on that tick.
+#[test]
+fn a_server_swim_start_advances_the_swim_blend_on_the_next_tick() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let swim = flags(|flags| flags.swimming = Some(true));
+    physics.apply_server_movement_flags(0, swim);
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(physics.state().unwrap().swim_amount > 0.0);
+}

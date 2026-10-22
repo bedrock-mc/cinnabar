@@ -594,7 +594,7 @@ impl LocalPhysicsController {
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(
                 self.modes
-                    .liquid_contact_height(state.spin_attack_ticks.is_some()),
+                    .spin_aware_contact_height(state.spin_attack_ticks.is_some()),
             );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;

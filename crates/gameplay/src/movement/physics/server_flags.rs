@@ -120,7 +120,21 @@ impl FlagCorrection {
 /// `mask` covers: a cleared pose ends, and a set pose starts unless a pose the
 /// word keeps continues. Cinnabar keeps one pose, so a word setting several
 /// starts the first, and flight, which vanilla keeps beside pose flags, stays.
-fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker) {
+/// A changed pose also becomes the swimming-or-crawling flag the next tick's
+/// swim blend reads in `state`.
+fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker, state: &mut PlayerState) {
+    let current = modes.mode();
+    write_pose(word, mask, modes);
+    if modes.mode() != current {
+        state.swim_pose_active = matches!(
+            modes.mode(),
+            sim::MovementMode::Swimming | sim::MovementMode::Crawling
+        );
+    }
+}
+
+/// The pose half of [`apply_pose`].
+fn write_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker) {
     let current = modes.mode();
     if current == sim::MovementMode::Flying {
         return;
@@ -154,7 +168,7 @@ fn set_spin(state: &mut PlayerState, spinning: bool) {
 
 /// Imposes a frame's effective word on replayed pose and spin.
 pub(super) fn impose(word: FlagWord, modes: &mut ModeTracker, state: &mut PlayerState) {
-    apply_pose(word, 0b111, modes);
+    apply_pose(word, 0b111, modes, state);
     set_spin(state, word.has(SPINNING));
 }
 
@@ -212,7 +226,7 @@ fn apply_live_correction(
     authority: &mut ServerFlagAuthority,
 ) {
     let word = correction.apply(live);
-    apply_pose(word, correction.mask, modes);
+    apply_pose(word, correction.mask, modes, state);
     if correction.mask & SPINNING != 0 {
         write_live_spin(state, authority, word.has(SPINNING));
     }

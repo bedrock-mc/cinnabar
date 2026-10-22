@@ -409,6 +409,71 @@ fn a_replay_under_a_low_ceiling_keeps_a_crouched_anchor_in_place() {
     );
 }
 
+/// The post-replay probe uses the compact spin body, so a low ceiling that
+/// a spinning player fits beneath cannot shove it sideways.
+#[test]
+fn a_replay_under_a_low_ceiling_keeps_a_spinning_anchor_in_place() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 71.620_01, 0.5], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 71.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    let crouching = MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    };
+    let first = physics
+        .advance(Duration::from_millis(50), crouching, &CrouchCeiling)
+        .samples
+        .pop()
+        .expect("one crouched sample");
+    ticker.enqueue_completed_physics(first).unwrap();
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(0, spin);
+    let established = physics
+        .advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &CrouchCeiling,
+        )
+        .samples
+        .pop()
+        .expect("one spinning sample");
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+    let established_tick = established.tick;
+    let spinning_position = established.position;
+    ticker.enqueue_completed_physics(established).unwrap();
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        spinning_position,
+        established_tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &CrouchCeiling,
+    )
+    .expect("the replay applies");
+
+    let resumed = physics
+        .advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &CrouchCeiling,
+        )
+        .samples
+        .pop()
+        .expect("one resumed sample");
+    assert_eq!(
+        (resumed.position[0], resumed.position[2]),
+        (spinning_position[0], spinning_position[2]),
+        "the probe moved a spinning anchor that already fits",
+    );
+}
+
 #[test]
 fn transient_collision_unavailability_keeps_todays_blocked_behavior() {
     struct DeferredRoom {
