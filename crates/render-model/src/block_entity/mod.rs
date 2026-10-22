@@ -51,7 +51,7 @@ pub use crack::{
 pub use crystal_beam::CrystalBeamModel;
 pub use dragon_death::DragonDeathModel;
 pub use frame::{
-    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
+    FramedMap, ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
     item_frame_item_transform,
 };
 
