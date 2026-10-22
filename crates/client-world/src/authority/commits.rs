@@ -149,12 +149,14 @@ impl WorldAuthority {
                     {
                         match status.kind {
                             protocol::ActorStatusKind::Death => Some(true),
-                            protocol::ActorStatusKind::SpawnAlive => Some(false),
                             _ => None,
                         }
                     }
                     _ => None,
                 };
+                let local_death_status = matches!(&event, ActorEvent::Status(status)
+                    if status.runtime_id == self.local_player_runtime_id
+                        && status.kind == protocol::ActorStatusKind::Death);
                 let player_list_changed =
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
@@ -332,6 +334,12 @@ impl WorldAuthority {
                     )
                 {
                     self.publish_local_life(sequence, dead);
+                    if local_death_status {
+                        self.push_committed_ui(CommittedUiEvent::Ui {
+                            sequence,
+                            event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 }),
+                        });
+                    }
                 }
                 if local_hurt {
                     self.push_committed_control(CommittedControlEvent::LocalHurt {
@@ -414,14 +422,10 @@ impl WorldAuthority {
                         ))
                     }
                     UiEvent::Hud(protocol::HudEvent::Health { health }) => {
-                        if self
-                            .actors
-                            .set_local_health(self.local_player_runtime_id, health)
-                        {
-                            self.publish_local_life(
-                                sequence,
-                                self.actors.local_player_dead(self.local_player_runtime_id),
-                            );
+                        self.actors
+                            .set_local_health(self.local_player_runtime_id, health);
+                        if let Ok(health) = u16::try_from(health) {
+                            self.publish_local_life(sequence, health == 0);
                         }
                         if health <= 0 {
                             self.observe_totem_status(self.local_player_runtime_id, false);

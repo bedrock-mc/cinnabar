@@ -223,3 +223,70 @@ fn immediate_respawn_ready_closes_death_without_waiting_for_health() {
     assert!(!menu.send_respawn_request(|| panic!("ready must cancel retries")));
     assert!(packets.drain().is_empty());
 }
+
+#[test]
+fn status_only_death_opens_respawn_controls_while_input_is_held() {
+    let (mut app, _) = fixture_app();
+    health(&mut app, 1, 20);
+    submit(
+        &mut app,
+        2,
+        WorldEvent::Actor(protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 42,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        })),
+    );
+    app.update();
+    assert!(app.world().resource::<ClientWorld>().respawn.input_held());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .local_player_alive(),
+        Some(false)
+    );
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .send_respawn_request(|| true)
+    );
+    ready(&mut app, 3);
+    app.update();
+    assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+}
+
+#[test]
+fn positive_set_health_after_an_invalid_range_keeps_both_consumers_alive() {
+    let (mut app, _) = fixture_app();
+    submit(
+        &mut app,
+        1,
+        WorldEvent::Actor(protocol::ActorEvent::Attributes(
+            protocol::ActorAttributesUpdateEvent {
+                runtime_id: 42,
+                dimension: 0,
+                tick: 0,
+                attributes: Arc::from([protocol::ActorAttribute {
+                    name: protocol_ids::Attribute::Health.wire_name().into(),
+                    min: 0.0,
+                    max: 0.0,
+                    current: 0.0,
+                    default: None,
+                    modifiers: Default::default(),
+                }]),
+            },
+        )),
+    );
+    health(&mut app, 2, 20);
+    app.update();
+    assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .local_player_alive(),
+        Some(true)
+    );
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+}

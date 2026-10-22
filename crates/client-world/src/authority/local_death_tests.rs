@@ -29,11 +29,15 @@ fn local_death_controls_follow_accepted_health_and_actor_transitions() {
         );
     }
     authority.sync_local_player_pose(&local_health_feed());
+    authority
+        .apply_ordered_event(health_update(20.0, 20.0), Some(6))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
     for (sequence, runtime_id, kind, died) in [
-        (6, 1, protocol::ActorStatusKind::SpawnAlive, false),
-        (7, 2, protocol::ActorStatusKind::Death, false),
-        (8, 1, protocol::ActorStatusKind::Death, true),
-        (9, 1, protocol::ActorStatusKind::Death, false),
+        (7, 1, protocol::ActorStatusKind::SpawnAlive, false),
+        (8, 2, protocol::ActorStatusKind::Death, false),
+        (9, 1, protocol::ActorStatusKind::Death, true),
+        (10, 1, protocol::ActorStatusKind::Death, false),
     ] {
         authority
             .apply_ordered_event(
@@ -217,5 +221,34 @@ fn rejected_health_attributes_cannot_arm_or_rearm_a_death_hold() {
             .apply_ordered_event(health_update(0.0, 20.0), Some(10))
             .unwrap();
         assert!(authority.take_committed_controls().is_empty());
+    }
+}
+
+#[test]
+fn set_health_life_ignores_an_unusable_retained_attribute_range() {
+    for with_pose in [false, true] {
+        let mut authority = authority();
+        if with_pose {
+            authority.sync_local_player_pose(&local_health_feed());
+        }
+        authority
+            .apply_ordered_event(health_update(0.0, 0.0), Some(1))
+            .unwrap();
+        for (sequence, health, died) in [(2, 20, false), (3, 0, true)] {
+            authority
+                .apply_ordered_event(
+                    WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health })),
+                    Some(sequence),
+                )
+                .unwrap();
+            assert_eq!(
+                authority.take_committed_controls(),
+                if died {
+                    vec![CommittedControlEvent::LocalDeath { sequence }]
+                } else {
+                    vec![]
+                }
+            );
+        }
     }
 }

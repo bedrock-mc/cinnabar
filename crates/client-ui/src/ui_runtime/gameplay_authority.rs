@@ -125,16 +125,14 @@ impl UiRuntime {
         self.local_actor_damage = damage;
     }
 
-    /// Projects health from its actor attribute range alongside the completed damage countdown.
+    /// Projects actor health and damage; life transitions stay in committed packet order.
     pub fn publish_local_actor_health(&mut self, actor: Option<&client_world::ActorSnapshot>) {
         self.publish_local_actor_damage(actor.map(|actor| actor.status.damage));
-        if let Some((attribute, health)) = actor
+        if let Some(health) = actor
             .and_then(|actor| actor.attributes.get("minecraft:health"))
-            .and_then(|attribute| {
-                hud_adapter::attribute_stat(attribute).map(|health| (attribute, health))
-            })
+            .and_then(hud_adapter::attribute_stat)
         {
-            self.publish_local_player_alive(attribute.current > 0.0);
+            self.local_player_health_available = self.last_known_local_player_alive.is_some();
             self.hud.set_health(Some(health));
         } else if actor.is_none() {
             self.local_player_health_available = false;
