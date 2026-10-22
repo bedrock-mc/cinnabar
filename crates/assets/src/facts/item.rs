@@ -18,6 +18,13 @@ pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+
+/// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
+pub fn has_bucket_name(identifier: &str) -> bool {
+    EMPTY_BUCKET_IDENTIFIER
+        .split_once(':')
+        .is_some_and(|(_, name)| identifier.ends_with(name))
+}
 /// Canonical banner identity used by stack-aware loom admission.
 pub const BANNER_IDENTIFIER: &str = "minecraft:banner";
 
