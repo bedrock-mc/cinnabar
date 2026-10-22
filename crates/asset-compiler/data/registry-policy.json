@@ -6892,7 +6892,8 @@
     "item_visuals": {
       "minecraft:banner": "BlockModel",
       "minecraft:bed": "Sprite",
-      "minecraft:nether_wart": "Sprite"
+      "minecraft:nether_wart": "Sprite",
+      "minecraft:straw_bed": "Sprite"
     },
     "alias_cubes": {
       "minecraft:bone_block": {
