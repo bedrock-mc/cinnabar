@@ -82,6 +82,9 @@ impl super::UiPresentationRuntime {
             bounds = bounds.with_static_geometry(super::cape::rest_vertices());
         }
         for &hat in items {
+            if render_model::hats::rig(hat).is_ground_effect() {
+                continue;
+            }
             bounds = bounds.with_static_geometry(&render_model::hats::rig(hat).rest_vertices);
         }
         self.menu_preview_model.bounds = Some(bounds);
@@ -498,3 +501,24 @@ mod tests {
 
 #[cfg(test)]
 thread_local! { static BUILT_ON_THIS_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+#[cfg(test)]
+mod ground_tests {
+    use super::*;
+    #[test]
+    fn equipping_a_ground_item_preserves_the_character_frame() {
+        let mut runtime =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+        let control = [0.0, 0.0, 200.0, 300.0];
+        let expected = super::super::fitting::standard().frame(control, 15.0);
+        runtime.set_preview_cosmetics(&[render_model::hats::fixture::ground_effect()]);
+        assert_eq!(
+            runtime
+                .menu_preview_model
+                .bounds
+                .unwrap()
+                .frame(control, 15.0),
+            expected
+        );
+    }
+}

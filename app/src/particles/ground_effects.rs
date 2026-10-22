@@ -21,6 +21,7 @@ struct Track {
     cadence: Cadence,
     tick: Option<u64>,
     reset_revision: Option<u64>,
+    local_authority: Option<u64>,
     previous: Option<[f32; 3]>,
     forward: [f32; 2],
 }
@@ -40,13 +41,14 @@ impl GroundEffects {
     pub(super) fn drive(
         &mut self,
         system: &mut ParticleSystem,
-        physics: Option<&LocalPhysicsController>,
+        local_source: Option<(&LocalPhysicsController, u64)>,
         world: &dyn ParticleWorld,
         stream: &WorldStream,
         wearers: &[GroundEffectWearer],
         dt: f32,
         alpha: f32,
     ) {
+        let physics = local_source.map(|(physics, _)| physics);
         let identity = (
             system.instance(),
             stream.authority().actor_session_id(),
@@ -80,6 +82,11 @@ impl GroundEffects {
                 } else {
                     None
                 },
+                local_authority: if local {
+                    local_source.map(|(_, epoch)| epoch)
+                } else {
+                    None
+                },
                 ..Default::default()
             });
             if actor.teleported && track.reset_revision != Some(actor.movement_revision) {
@@ -94,9 +101,16 @@ impl GroundEffects {
                 };
             }
             if local {
-                let Some(physics) = physics else {
+                let Some((physics, epoch)) = local_source else {
                     continue;
                 };
+                if track.local_authority != Some(epoch) {
+                    *track = Track {
+                        local_authority: Some(epoch),
+                        tick: physics.state().map(|state| state.tick),
+                        ..Default::default()
+                    };
+                }
                 if physics
                     .state()
                     .is_some_and(|s| track.tick.is_some_and(|t| s.tick < t))

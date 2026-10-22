@@ -467,6 +467,7 @@ type ParticleFrameContext<'w, 's> = (
     Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
     Local<'s, super::ground_effects::GroundEffects>,
     Option<Res<'w, client_presentation::actor_publication::GroundEffectWearers>>,
+    Option<Res<'w, client_interaction::movement::MovementTicker>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -489,7 +490,16 @@ fn drive_particles(
     (mut block_cues, mut eating_cues, camera_settings, server_camera): ParticleCues<'_, '_>,
     mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
-    (cave, profiler, cosmetic_placements, mut cosmetics, physics, mut ground, ground_wearers): ParticleFrameContext<'_, '_>,
+    (
+        cave,
+        profiler,
+        cosmetic_placements,
+        mut cosmetics,
+        physics,
+        mut ground,
+        ground_wearers,
+        movement,
+    ): ParticleFrameContext<'_, '_>,
 ) {
     let (time, actor_alpha) = frame_time;
     // Timed inside the system: a span around it would also count systems ordered in between.
@@ -644,7 +654,12 @@ fn drive_particles(
     );
     ground.drive(
         &mut system,
-        physics.as_deref(),
+        physics
+            .as_deref()
+            .zip(movement.as_deref())
+            .map(|(physics, movement)| {
+                (physics, movement.interaction_authority_identity().1.get())
+            }),
         &world,
         stream,
         ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
