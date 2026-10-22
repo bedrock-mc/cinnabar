@@ -1,6 +1,7 @@
 //! Prediction-sync packet construction, scheduling and flag ownership.
 
 use super::*;
+use crate::movement::physics::ClimberFlags;
 
 #[test]
 fn flags_read_all_three_words_and_missing_ones_are_zero() {
@@ -344,6 +345,11 @@ fn client_owned_flags_follow_local_state() {
         ActorFlag::Swimming,
         ActorFlag::Crawling,
         ActorFlag::Gliding,
+        ActorFlag::InScaffolding,
+        ActorFlag::OverScaffolding,
+        ActorFlag::DescendThroughBlock,
+        ActorFlag::InAscendingBlock,
+        ActorFlag::OverDescendingBlock,
     ];
     let mut stale = owned.to_vec();
     stale.push(ActorFlag::AlwaysShowName);
@@ -367,6 +373,7 @@ fn client_owned_flags_follow_local_state() {
         mode: sim::MovementMode::Walking,
         moving: false,
         has_collision: Some(false),
+        climber: ClimberFlags::default(),
     };
     assert_eq!(
         predicted_flag_words(&metadata, Some(idle), false),
@@ -421,6 +428,26 @@ fn client_owned_flags_follow_local_state() {
             },
             false,
             vec![ActorFlag::HasCollision],
+        ),
+        (
+            SyncPose {
+                climber: ClimberFlags {
+                    in_scaffolding: true,
+                    over_scaffolding: true,
+                    descending_through_block: true,
+                    in_ascending_block: true,
+                    over_descending_block: true,
+                },
+                ..idle
+            },
+            false,
+            vec![
+                ActorFlag::InScaffolding,
+                ActorFlag::OverScaffolding,
+                ActorFlag::DescendThroughBlock,
+                ActorFlag::InAscendingBlock,
+                ActorFlag::OverDescendingBlock,
+            ],
         ),
     ] {
         let mut expected = flags;
@@ -497,6 +524,72 @@ fn correction_sync_reports_a_local_swim_before_server_metadata() {
         size,
         [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_WIDTH as f32]
     );
+}
+
+struct ScaffoldColumn;
+
+impl sim::CollisionWorld for ScaffoldColumn {
+    /// Leaves the climber unconstrained so only the block climber's reads matter.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Fills every block with scaffolding, so each scaffold rests on another.
+    fn block_physics(
+        &self,
+        _block: [i32; 3],
+    ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        Ok(sim::BlockPhysicsSample {
+            layers: Box::new([sim::BlockPhysicsFacts {
+                friction: 0.6,
+                horizontal_speed_factor: 1.0,
+                vertical_speed_factor: 1.0,
+                fluid_height_blocks: 0.0,
+                flags: sim::BlockPhysicsFlags::SCAFFOLDING,
+                surface_response: sim::SurfaceResponse::None,
+            }]),
+            identity: sim::CollisionQuery::synthetic(()).identity,
+        })
+    }
+}
+
+/// A sync reports the local block-climber flags even when server metadata lacks them.
+#[test]
+fn correction_sync_reports_local_block_climber_flags() {
+    let climber = [
+        ActorFlag::InScaffolding,
+        ActorFlag::OverScaffolding,
+        ActorFlag::DescendThroughBlock,
+        ActorFlag::InAscendingBlock,
+        ActorFlag::OverDescendingBlock,
+    ];
+    let actor = local_actor();
+    let mut physics = due_physics();
+    physics.advance(
+        std::time::Duration::from_millis(50),
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &ScaffoldColumn,
+    );
+    let mut sent = None;
+    send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+        sent = Some(packet);
+        true
+    });
+    let flags =
+        protocol::test_support::packets::prediction_sync_flags(&sent.expect("due correction sync"))
+            .expect("wrong packet");
+    for flag in climber {
+        assert!(
+            flag_set(&flags, flag),
+            "{flag:?} must come from the local tick"
+        );
+    }
 }
 
 /// Every horizontal pose sends the width as the height, overriding the walking size.

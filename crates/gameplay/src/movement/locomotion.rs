@@ -63,7 +63,8 @@ pub struct ModeIntent {
     pub creative_flight: bool,
     /// An unbroken elytra is equipped in the chest slot.
     pub elytra_ready: bool,
-    /// Leather boots let the wearer stand on powder snow, which then also ends a glide.
+    /// Leather boots let the wearer stand on powder snow, which then also ends
+    /// a glide and climbs like a ladder.
     pub can_stand_on_snow: bool,
     /// Boot enchantment levels the simulator reads.
     pub depth_strider: u8,

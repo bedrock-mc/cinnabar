@@ -81,8 +81,10 @@ pub fn send_movement_prediction_sync(
 /// sprinting, item use, movement, collision and the swimming, crawling and
 /// gliding poses, and adopts the server's changes to them. Cinnabar's local
 /// state adopts server sneak, sprint and pose ends but not a server-started
-/// pose, item use or riptide spin; the riptide spin, block-climber and every
-/// other flag remain the server's.
+/// pose, item use or riptide spin. Its block climber and descent action
+/// rewrite the scaffolding and climbable-block flags every tick, so the local
+/// values replace the server's. The riptide spin and every other flag remain
+/// the server's.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
     pose: Option<SyncPose>,
@@ -106,6 +108,17 @@ fn predicted_flag_words(
             pose.mode == sim::MovementMode::Crawling,
         ),
         (ActorFlag::Gliding, pose.mode == sim::MovementMode::Gliding),
+        (ActorFlag::InScaffolding, pose.climber.in_scaffolding),
+        (ActorFlag::OverScaffolding, pose.climber.over_scaffolding),
+        (
+            ActorFlag::DescendThroughBlock,
+            pose.climber.descending_through_block,
+        ),
+        (ActorFlag::InAscendingBlock, pose.climber.in_ascending_block),
+        (
+            ActorFlag::OverDescendingBlock,
+            pose.climber.over_descending_block,
+        ),
     ] {
         set_flag(&mut words, flag, enabled);
     }

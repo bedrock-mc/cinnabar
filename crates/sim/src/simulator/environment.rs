@@ -16,7 +16,7 @@ pub(super) struct SampledEnvironment {
     pub friction: f64,
     pub identity: WorldCollisionIdentity,
     pub block_samples: usize,
-    /// This tick's sneak descent through scaffolding, which removes its support.
+    /// This tick's descent through a climbable block, which removes scaffolding support.
     pub descend_through: bool,
     /// Primary facts of every cell already read this tick, sorted by cell.
     pub primaries: Vec<([i32; 3], crate::BlockPhysicsFacts)>,

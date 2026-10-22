@@ -80,6 +80,10 @@ pub struct MovementInput {
     /// Swift Sneak level on the leggings, captured for this tick and replay.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub swift_sneak: u8,
+    /// Snow-standing capability (leather boots): powder snow climbs like a
+    /// ladder and counts as a block-climber ascending and descending block.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_stand_on_snow: bool,
     /// Ability vertical flight speed (per-tick acceleration scale); `None` selects 1.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical_fly_speed: Option<f64>,

@@ -134,7 +134,20 @@ pub struct MovementEnvironment {
     pub in_lava: bool,
     pub in_cobweb: bool,
     pub in_powder_snow: bool,
+    /// Scaffolding at the feet layer (`InScaffolding`).
     pub in_scaffolding: bool,
+    /// Scaffolding at the layer below the feet (`OverScaffolding`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_scaffolding: bool,
+    /// A climbable block at the feet layer (`InAscendingBlock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_ascending_block: bool,
+    /// A climbable block at the layer below the feet (`OverDescendingBlock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_descending_block: bool,
+    /// This tick's descent through a climbable block (`DescendThroughBlock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub descending_through_block: bool,
     pub horizontal_speed_factor: f64,
     pub vertical_speed_factor: f64,
     pub surface_response: SurfaceResponse,
@@ -149,6 +162,10 @@ impl Default for MovementEnvironment {
             in_cobweb: false,
             in_powder_snow: false,
             in_scaffolding: false,
+            over_scaffolding: false,
+            in_ascending_block: false,
+            over_descending_block: false,
+            descending_through_block: false,
             horizontal_speed_factor: 1.0,
             vertical_speed_factor: 1.0,
             surface_response: SurfaceResponse::None,

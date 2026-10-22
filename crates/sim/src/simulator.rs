@@ -123,14 +123,13 @@ impl Simulator {
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
         let mut sampled = sample(world, position, height, liquid_contact_height)?;
-        // Only the feet layer feeds the published environment.
-        sampled.movement.in_scaffolding = scaffolding::sample_contact(
+        // Pose triggers read only feet-layer scaffolding; the remaining
+        // block-climber flags need the tick's snow-standing capability.
+        sampled.movement.in_scaffolding = scaffolding::sample_feet_scaffolding(
             world,
             Aabb::player_with_height_at(position, height),
-            false,
             &mut sampled,
-        )?
-        .inside;
+        )?;
         Ok(crate::CollisionQuery {
             value: sampled.movement,
             identity: sampled.identity,
@@ -253,26 +252,35 @@ impl Simulator {
         } else {
             None
         };
-        let scaffold = scaffolding::sample_contact(
+        // Powder snow climbs like a ladder for a wearer who can stand on it.
+        let snow_climb = input.can_stand_on_snow
+            && !sampled.movement.on_climbable
+            && feet_is_powder_snow(world, next.position, &mut sampled)?;
+        sampled.movement.on_climbable |= snow_climb;
+        let scaffold = scaffolding::sample_climber(
             world,
             Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
-            input.sneaking,
+            input.can_stand_on_snow,
             &mut sampled,
         )?;
         sampled.movement.in_scaffolding = scaffold.inside;
-        // Sneaking over supported scaffolding descends through it at a fixed speed.
+        sampled.movement.over_scaffolding = scaffold.over;
+        sampled.movement.in_ascending_block = scaffold.ascending;
+        sampled.movement.over_descending_block = scaffold.over_descending;
+        // Sneaking over a climbable block descends through it at a fixed speed.
         sampled.descend_through =
             input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
+        sampled.movement.descending_through_block = sampled.descend_through;
         if sampled.descend_through && !input.skip_travel {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
-        // The scaffold ascent precedes every other jump response.
+        // The climbing-block ascent precedes every other jump response.
         let scaffold_jump = input.jumping
             && input.mode != MovementMode::Flying
             && !jump_suppressed
             && !sampled.descend_through
-            && scaffold.inside;
+            && (scaffold.inside || scaffold.ascending);
         if input.jumping && input.mode != MovementMode::Flying {
             if jump_suppressed {
                 if sampled.movement.in_water {
@@ -368,7 +376,9 @@ impl Simulator {
             let wall_climb = retained_collisions.x || retained_collisions.z;
             if climb_jump || wall_climb {
                 next.velocity.y = CLIMB_SPEED;
-            } else if input.sneaking && next.velocity.y < 0.0 {
+            } else if input.sneaking && next.velocity.y < 0.0 && !snow_climb {
+                // Incomplete: the hold reads a block property whose powder-snow
+                // value is untraced; only climbable blocks hold here.
                 next.velocity.y = 0.0;
             }
         }
@@ -507,9 +517,10 @@ impl Simulator {
                 &mut sampled.block_samples,
             )?;
             identity = identity.merge(&feet.identity)?;
-            feet.value
-                .flags
-                .contains(crate::BlockPhysicsFlags::CLIMBABLE)
+            let flags = feet.value.flags;
+            flags.contains(crate::BlockPhysicsFlags::CLIMBABLE)
+                || (input.can_stand_on_snow
+                    && flags.contains(crate::BlockPhysicsFlags::POWDER_SNOW))
         } else {
             false
         };
@@ -719,6 +730,19 @@ fn movement_impulse(axis: f64) -> f64 {
 
 #[cfg(test)]
 mod environment_review_tests;
+
+/// Whether powder snow fills the feet cell, reusing this tick's earlier read.
+fn feet_is_powder_snow(
+    world: &impl CollisionWorld,
+    position: Vec3,
+    sampled: &mut environment::SampledEnvironment,
+) -> Result<bool, crate::WorldQueryError> {
+    let (facts, fresh) = sampled.primary(world, environment::block_at(position)?)?;
+    if let Some(fresh) = fresh {
+        sampled.identity = sampled.identity.merge(&fresh)?;
+    }
+    Ok(facts.flags.contains(crate::BlockPhysicsFlags::POWDER_SNOW))
+}
 
 /// Applies ground-jump motion independently of travel, including its cooldown and sprint impulse.
 fn jump_from_ground(

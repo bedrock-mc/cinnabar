@@ -23,6 +23,8 @@ mod fixed_ticks;
 mod input_requests;
 mod motion_ticks;
 mod posture;
+#[cfg(test)]
+pub(in crate::movement) use posture::ClimberFlags;
 pub(in crate::movement) use posture::SyncPose;
 mod timeline;
 mod visual_correction;
@@ -559,6 +561,7 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        input.can_stand_on_snow = context.mode_intent.can_stand_on_snow;
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
             let context = context.for_next_tick(state.tick);

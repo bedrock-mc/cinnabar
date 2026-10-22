@@ -12,6 +12,31 @@ pub(in crate::movement) struct SyncPose {
     pub moving: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
+    /// Block-climber flags of the latest completed tick.
+    pub climber: ClimberFlags,
+}
+
+/// Block-climber flags that vanilla rewrites locally every movement tick.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::movement) struct ClimberFlags {
+    pub in_scaffolding: bool,
+    pub over_scaffolding: bool,
+    pub descending_through_block: bool,
+    pub in_ascending_block: bool,
+    pub over_descending_block: bool,
+}
+
+impl From<&sim::MovementEnvironment> for ClimberFlags {
+    /// Copies the climber flags a completed tick published.
+    fn from(environment: &sim::MovementEnvironment) -> Self {
+        Self {
+            in_scaffolding: environment.in_scaffolding,
+            over_scaffolding: environment.over_scaffolding,
+            descending_through_block: environment.descending_through_block,
+            in_ascending_block: environment.in_ascending_block,
+            over_descending_block: environment.over_descending_block,
+        }
+    }
 }
 
 impl LocalPhysicsController {
@@ -26,8 +51,8 @@ impl LocalPhysicsController {
 
     /// Locally owned actor flags once a movement sample has completed: the
     /// accepted posture, the current mode (including server flag updates that
-    /// ended a swim, crawl or glide after that sample), movement input and
-    /// terrain collision.
+    /// ended a swim, crawl or glide after that sample), movement input,
+    /// terrain collision and the block-climber flags.
     pub(in crate::movement) fn prediction_sync_pose(&self) -> Option<SyncPose> {
         let sample = self.sample_history.back()?;
         let (sneaking, sprinting) = self.prediction_sync_posture()?;
@@ -40,6 +65,7 @@ impl LocalPhysicsController {
                 .controller_history
                 .back()
                 .map(|frame| !frame.input.no_clip),
+            climber: ClimberFlags::from(&self.last_environment),
         })
     }
 

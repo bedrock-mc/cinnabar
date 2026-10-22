@@ -120,8 +120,6 @@ fn scaffolding_ascends_at_its_own_speed() {
 struct ScaffoldWorld {
     scaffolds: Vec<[i32; 3]>,
     solids: Vec<[i32; 3]>,
-    /// Cells whose runtime ID has no physics metadata.
-    unknown: Vec<[i32; 3]>,
 }
 
 impl ScaffoldWorld {
@@ -167,12 +165,6 @@ impl CollisionWorld for ScaffoldWorld {
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
-        if self.unknown.contains(&block) {
-            return Err(WorldQueryError::UnknownRuntimeId {
-                runtime_id: 7,
-                block,
-            });
-        }
         let flags = if self.scaffolds.contains(&block) {
             BlockPhysicsFlags::SCAFFOLDING
         } else if self.solids.contains(&block) {
@@ -207,7 +199,6 @@ fn sneaking_descends_a_supported_scaffold_column_at_a_fixed_speed() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0], [0, 1, 0]],
         solids: vec![[0, -1, 0]],
-        unknown: Vec::new(),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
     state.on_ground = true;
@@ -226,7 +217,6 @@ fn sneaking_on_a_scaffold_bridge_over_air_stays_on_top() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0]],
         solids: Vec::new(),
-        unknown: Vec::new(),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
     state.on_ground = true;
@@ -243,7 +233,6 @@ fn jumping_inside_scaffolding_climbs_without_a_ground_jump() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0], [0, 1, 0]],
         solids: vec![[0, -1, 0]],
-        unknown: Vec::new(),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
     state.on_ground = true;
@@ -269,7 +258,6 @@ fn the_environment_query_reports_scaffolding_contact() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 1, 0]],
         solids: vec![[0, 0, 0]],
-        unknown: Vec::new(),
     };
     let environment = Simulator::default()
         .movement_environment(
@@ -282,13 +270,12 @@ fn the_environment_query_reports_scaffolding_contact() {
     assert!(environment.value.in_scaffolding);
 }
 
-/// Climbing inside scaffolding never reads the unrelated block under the scaffold.
+/// Scaffolding over air is no ascending block, yet a held jump inside it still climbs.
 #[test]
-fn climbing_inside_scaffolding_ignores_unknown_blocks_below_it() {
+fn climbing_inside_a_scaffold_bridge_over_air_still_ascends() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 1, 0]],
         solids: Vec::new(),
-        unknown: vec![[0, 0, 0]],
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 1.75, 0.5));
     let tick = Simulator::default()
@@ -301,5 +288,147 @@ fn climbing_inside_scaffolding_ignores_unknown_blocks_below_it() {
             &world,
         )
         .unwrap();
+    assert!(tick.environment.in_scaffolding);
+    assert!(!tick.environment.in_ascending_block);
     assert_eq!(tick.movement.y as f32, 0.15_f32);
+}
+
+/// The block climber scans the layer below the feet every tick, not only while sneaking.
+#[test]
+fn standing_on_supported_scaffolding_reports_the_layer_below_without_sneaking() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    state.on_ground = true;
+    let tick = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    let environment = tick.environment;
+    assert!(environment.over_scaffolding);
+    assert!(environment.over_descending_block);
+    assert!(!environment.in_scaffolding);
+    assert!(!environment.in_ascending_block);
+    assert!(!environment.descending_through_block);
+    assert_eq!(tick.position.y, 1.0);
+}
+
+/// Sneaking over supported scaffolding reports the descent it performs.
+#[test]
+fn sneaking_over_supported_scaffolding_reports_the_descent() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [0, 1, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    let environment = tick.environment;
+    assert!(environment.in_scaffolding && environment.in_ascending_block);
+    assert!(environment.over_scaffolding && environment.over_descending_block);
+    assert!(environment.descending_through_block);
+}
+
+fn powder_snow() -> ClimbWorld {
+    ClimbWorld {
+        flags: BlockPhysicsFlags::from_bits(
+            BlockPhysicsFlags::POWDER_SNOW.bits() | BlockPhysicsFlags::PASSABLE.bits(),
+        )
+        .unwrap(),
+    }
+}
+
+/// A snow-standing wearer climbs out of powder snow at the climbing-block speed.
+#[test]
+fn a_held_jump_climbs_powder_snow_only_for_a_snow_standing_wearer() {
+    for can_stand_on_snow in [false, true] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    jumping: true,
+                    can_stand_on_snow,
+                    ..MovementInput::default()
+                },
+                &powder_snow(),
+            )
+            .unwrap();
+        let environment = tick.environment;
+        assert_eq!(environment.in_ascending_block, can_stand_on_snow);
+        assert_eq!(environment.over_descending_block, can_stand_on_snow);
+        assert_eq!(environment.on_climbable, can_stand_on_snow);
+        assert!(!environment.in_scaffolding && !environment.over_scaffolding);
+        assert_eq!(tick.movement.y > 0.0, can_stand_on_snow);
+    }
+}
+
+/// Powder snow is climbable for a snow-standing wearer: descent is clamped as on a ladder.
+#[test]
+fn powder_snow_clamps_a_snow_standing_fall_like_a_ladder() {
+    for can_stand_on_snow in [false, true] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        state.velocity.y = -1.0;
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    can_stand_on_snow,
+                    ..MovementInput::default()
+                },
+                &powder_snow(),
+            )
+            .unwrap();
+        // The fixture's unit speed factors leave the clamped request unscaled.
+        let expected = if can_stand_on_snow { -0.2_f32 } else { -1.0 };
+        assert!(
+            (tick.movement.y as f32 - expected).abs() <= 1.0e-6,
+            "{can_stand_on_snow}: {}",
+            tick.movement.y
+        );
+    }
+}
+
+/// Sneaking over powder snow descends through it for a snow-standing wearer.
+#[test]
+fn sneaking_over_powder_snow_descends_for_a_snow_standing_wearer() {
+    struct SnowBelow;
+    impl CollisionWorld for SnowBelow {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Vec::new()))
+        }
+
+        fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            let flags = if block[1] < 2 {
+                BlockPhysicsFlags::POWDER_SNOW.bits() | BlockPhysicsFlags::PASSABLE.bits()
+            } else {
+                BlockPhysicsFlags::PASSABLE.bits()
+            };
+            ClimbWorld {
+                flags: BlockPhysicsFlags::from_bits(flags).unwrap(),
+            }
+            .block_physics(block)
+        }
+    }
+    let mut state = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                can_stand_on_snow: true,
+                ..MovementInput::default()
+            },
+            &SnowBelow,
+        )
+        .unwrap();
+    assert!(tick.environment.over_descending_block);
+    assert!(tick.environment.descending_through_block);
+    assert!(!tick.environment.in_ascending_block);
+    assert_eq!(tick.movement.y as f32, -0.15_f32);
 }
