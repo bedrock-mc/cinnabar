@@ -26,10 +26,16 @@ type fakeFriendDirectory struct {
 	failCloses int
 	withdrawn  bool
 	members    int
+	invites    int
 }
 
-func (*fakeFriendDirectory) nonce(string) (string, bool)          { return "nonce", true }
-func (*fakeFriendDirectory) invite(context.Context, string) error { return nil }
+func (*fakeFriendDirectory) nonce(string) (string, bool) { return "nonce", true }
+func (d *fakeFriendDirectory) invite(context.Context, string) error {
+	d.mu.Lock()
+	d.invites++
+	d.mu.Unlock()
+	return nil
+}
 
 func (d *fakeFriendDirectory) Close() error {
 	d.mu.Lock()
@@ -162,7 +168,13 @@ func (f *friendHostFixture) loseSignaling(t *testing.T) {
 	t.Helper()
 	lost := f.host.current()
 	f.dropSignaling()
-	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.host.current() != lost })
+	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.replaced(lost) })
+}
+
+// replaced reports whether an endpoint other than lost is installed and listening.
+func (f *friendHostFixture) replaced(lost *friendEndpoint) bool {
+	current := f.host.current()
+	return current != nil && current != lost
 }
 
 // dropSignaling ends the host's newest signaling connection.
@@ -279,11 +291,32 @@ func TestFriendHostCountsDeparturesDuringReconnect(t *testing.T) {
 	_ = leaving.Close()
 	testwait.Eventually(t, 10*time.Second, "departure counted", func() bool { return f.players() == 0 })
 	close(f.resume)
-	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.host.current() != lost })
+	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.replaced(lost) })
 	f.mu.Lock()
 	replacement := f.directories[len(f.directories)-1]
 	f.mu.Unlock()
 	if got := replacement.memberCount(); got != 1 {
 		t.Fatalf("replacement session advertises %d members, want only the host", got)
+	}
+}
+
+// Invites while signaling reconnects fail retryably and never reach the withdrawn session.
+func TestFriendHostRefusesInvitesWhileReconnecting(t *testing.T) {
+	f := startFriendHostFixture(t, 0)
+	f.mu.Lock()
+	f.reopening, f.resume = make(chan struct{}), make(chan struct{})
+	lost := f.directories[0]
+	f.mu.Unlock()
+	f.dropSignaling()
+	<-f.reopening
+	if err := f.host.Invite(t.Context(), "friend"); !errors.Is(err, ErrFriendHostReconnecting) {
+		t.Fatalf("invite while reconnecting = %v, want ErrFriendHostReconnecting", err)
+	}
+	close(f.resume)
+	lost.mu.Lock()
+	invites := lost.invites
+	lost.mu.Unlock()
+	if invites != 0 {
+		t.Fatalf("withdrawn session received %d invites", invites)
 	}
 }

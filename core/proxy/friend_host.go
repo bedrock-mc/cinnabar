@@ -33,6 +33,10 @@ var inviteTitleID = fmt.Sprint(auth.AndroidConfig.TitleID)
 // errNoHostedWorld ends a friend's join when the hosted world closed while it was preparing.
 var errNoHostedWorld = errors.New("the hosted world is no longer open")
 
+// ErrFriendHostReconnecting is returned while the host replaces a lost signaling connection;
+// retrying later can succeed.
+var ErrFriendHostReconnecting = errors.New("friends: reconnecting to Xbox Live; try again shortly")
+
 // FriendWorld describes the open local world a FriendHost advertises.
 type FriendWorld struct {
 	ID       string
@@ -289,6 +293,9 @@ func (h *FriendHost) serve() {
 			return
 		}
 		h.log.Warn("friends: signaling lost; reconnecting without ending friends' sessions")
+		h.mu.Lock()
+		h.endpoint = nil // nothing is advertised until the replacement is installed
+		h.mu.Unlock()
 		h.retire(endpoint)
 		if !h.reconnect() {
 			return
@@ -365,7 +372,9 @@ func (h *FriendHost) addPlayers(delta int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.players += delta
-	h.endpoint.directory.setMembers(h.players + 1)
+	if h.endpoint != nil {
+		h.endpoint.directory.setMembers(h.players + 1)
+	}
 }
 
 // current is the endpoint friends are admitted through.
@@ -415,7 +424,11 @@ func logFriendSessionEnded(log *slog.Logger, xuid string, err error) {
 
 // Invite sends an Xbox Live invite to the world.
 func (h *FriendHost) Invite(ctx context.Context, xuid string) error {
-	return h.current().directory.invite(ctx, xuid)
+	endpoint := h.current()
+	if endpoint == nil {
+		return ErrFriendHostReconnecting
+	}
+	return endpoint.directory.invite(ctx, xuid)
 }
 
 // Done closes once the host has stopped for good; a lost signaling connection is replaced.
@@ -429,7 +442,10 @@ func (h *FriendHost) Close() error {
 	h.cancel()
 	endpoint := h.endpoint
 	h.mu.Unlock()
-	retireErr := endpoint.retire()
+	var retireErr error
+	if endpoint != nil {
+		retireErr = endpoint.retire()
+	}
 	<-h.done
 	h.retries.Wait()
 	stopErr := h.prepared.shutdown()
