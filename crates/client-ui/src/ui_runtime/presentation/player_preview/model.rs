@@ -504,7 +504,7 @@ thread_local! { static BUILT_ON_THIS_THREAD: std::cell::Cell<usize> = const { st
 
 #[cfg(test)]
 mod ground_tests {
-    use super::*;
+    use crate::ui_runtime::presentation::UiPresentationRuntime;
     #[test]
     fn equipping_a_ground_item_preserves_the_character_frame() {
         let mut runtime =
