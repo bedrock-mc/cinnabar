@@ -4,6 +4,21 @@ use super::*;
 use bevy::prelude::In;
 use client_presentation::local_player::LocalViewPose;
 
+/// Records whether the use button holds an accepted use before any
+/// admission can reject this edge, so a rejected press cannot swallow the
+/// release of a use the button now owns.
+pub(crate) fn observe_button(
+    In(input): In<crate::ordered_interactions::InteractionInput>,
+    player: Res<client_state::PlayerRuntime>,
+    mut runtime: ResMut<ItemUseRuntime>,
+) {
+    let allowed = player
+        .facts
+        .game_mode_capabilities()
+        .is_none_or(|caps| caps.can_use_items);
+    runtime.observe_use_button(allowed && input.edge.buttons.held(Action::Use));
+}
+
 /// Resolves one input edge without retaining its pose or unadmitted press.
 pub(crate) fn press(
     In(input): In<crate::ordered_interactions::InteractionInput>,
@@ -31,6 +46,7 @@ pub(crate) fn press(
         .game_mode_capabilities()
         .is_none_or(|caps| caps.can_use_items);
     let held = allowed && input.edge.buttons.held(Action::Use);
+    runtime.observe_use_button(held);
     let scope = context.client_world.stream.as_ref().map(|stream| {
         (
             stream.authority().actor_session_id(),
@@ -58,6 +74,7 @@ pub(crate) fn press(
             delay_fix_enabled,
             aim_rotation: input.context.aim,
             release_facing,
+            sample: None,
         };
         if let Some(proposal) =
             frame::observe(&player, &context, runtime, &movement, &mut view, policy)

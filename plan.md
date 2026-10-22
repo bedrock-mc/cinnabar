@@ -236,6 +236,16 @@ requests, while the locomotion mode keeps one pose); the Riptide spin's entity-h
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.
+word back to the live state, keeping the live spin and glide counters and swim blend.
+Item use reconciles with the word's item-use bit only on movement ticks: a set bit starts
+the selected held use and reports `StartUsingItem`, and a clear bit stops the use without
+a release transaction. Still incomplete: a server start for an item without a held use,
+item-use slowdown on ticks replayed after a stamped start or stop, refreshing the in-use
+stack after a count-only update, ordering game-mode changes against server item-use writes
+(item use observes the game mode once per frame), writes setting several pose flags (the locomotion mode
+keeps one pose), the Riptide spin's entity-hit end, block-climber flags, keeping the live
+camera eye-height blend through replay (vanilla's copy-back leaves it live; Cinnabar
+rebuilds it) and live-server evidence for these adoptions.
 Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 

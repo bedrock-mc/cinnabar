@@ -267,7 +267,7 @@ impl LocalPhysicsController {
     ///
     /// A retained tick rewrites only the client's unchanged run after it, so a
     /// later client transition still wins; stale ticks clamp to the oldest
-    /// frame as vanilla's frame correction does. Pose and spin flags
+    /// frame as vanilla's frame correction does. Pose, spin and item-use flags
     /// follow vanilla's flag corrections (see `server_flags`).
     pub fn apply_server_movement_flags(
         &mut self,

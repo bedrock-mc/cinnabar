@@ -78,6 +78,94 @@ pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
         .expect("item maintenance resources");
 }
 
+/// Reconciles item use with a server `UsingItem` write just before physics
+/// simulates a movement tick, as vanilla's movement-tick start-or-stop system
+/// does; frames without a tick leave the write pending.
+pub(crate) fn adopt_server_item_use(
+    player_runtime: Res<client_state::PlayerRuntime>,
+    mut context: ItemUseContext,
+    mut runtime: ResMut<ItemUseRuntime>,
+    mut movement: ResMut<MovementTicker>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+) {
+    // A write for a new session must not be cancelled by the later session check.
+    runtime.synchronize(context.ui.session_id());
+    if context.client_world.respawn.input_held() {
+        return;
+    }
+    // A world change the ordered drain has yet to see would cancel the use; a
+    // later tick reconciles the write once that drain has run.
+    let dimension = context
+        .client_world
+        .stream
+        .as_ref()
+        .map_or(0, |stream| stream.current_dimension());
+    runtime.observe_world(movement.interaction_authority_identity().0, dimension);
+    if context.ordered.as_deref().is_some_and(|ordered| {
+        ordered.changes_world(movement.interaction_authority_identity().0, dimension)
+    }) {
+        return;
+    }
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+    if let Some(using) = context
+        .physics
+        .as_deref_mut()
+        .and_then(|physics| physics.take_server_using_item())
+    {
+        runtime.adopt_server_using_item(using);
+    }
+    let ticks = context.physics.as_deref().is_some_and(|physics| {
+        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+    });
+    if !ticks {
+        return;
+    }
+    let Some(position) = context
+        .physics
+        .as_deref()
+        .and_then(|physics| physics.network_position())
+    else {
+        return;
+    };
+    runtime.observe_item_use_allowed(item_use_allowed(&player_runtime));
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+    if !runtime.has_server_using_item() {
+        return;
+    }
+    // The next tick physics simulates, whether or not earlier inputs await sending.
+    let sample = gameplay::movement::InteractionSample {
+        tick: movement.next_tick(),
+        position,
+    };
+    let policy = frame::FramePolicy {
+        held: true,
+        before_flush: false,
+        delay_fix_enabled: false,
+        aim_rotation: None,
+        release_facing: Default::default(),
+        sample: Some(sample),
+    };
+    // Presses wait for their own pass; this one resolves only the server write.
+    let mut pending = gameplay::item_use::PendingUseInput::new(false);
+    runtime.with_pending_input(&mut pending, |runtime| {
+        let Some(proposal) = frame::observe(
+            &player_runtime,
+            &context,
+            runtime,
+            &movement,
+            &mut view,
+            policy,
+        ) else {
+            return;
+        };
+        if runtime.resolve_server_using_item(&proposal.frame) {
+            movement.mark_started_using_item(proposal.frame.tick);
+        }
+    });
+    // Observation can stop a use, as a cancelled Riptide release does.
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
 /// Runs after block use so a press that interacted with a block starts no item use.
 fn maintain_item_use(
     player_runtime: ResMut<client_state::PlayerRuntime>,
@@ -133,6 +221,16 @@ fn produce_use(
         runtime.cancel_for_respawn();
         return;
     }
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+    // The latest server write waits in the owner, where a local start or end
+    // supersedes it before the next movement tick reconciles.
+    if let Some(using) = context
+        .physics
+        .as_deref_mut()
+        .and_then(|physics| physics.take_server_using_item())
+    {
+        runtime.adopt_server_using_item(using);
+    }
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -152,11 +250,7 @@ fn produce_use(
             .pressed
             .then(|| gameplay::movement::note_click_drop("use", "screen_open"));
         false
-    } else if player_runtime
-        .facts
-        .game_mode_capabilities()
-        .is_some_and(|caps| !caps.can_use_items)
-    {
+    } else if !item_use_allowed(&player_runtime) {
         use_phase
             .pressed
             .then(|| gameplay::movement::note_click_drop("use", "spectator"));
@@ -164,12 +258,15 @@ fn produce_use(
     } else {
         true
     };
+    runtime.observe_item_use_allowed(item_use_allowed(&player_runtime));
+    runtime.observe_gameplay_focus(focused && !context.focus.ui_focused);
     let held = admitted
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,
             Action::Use,
         );
+    runtime.observe_use_button(held);
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context
@@ -221,6 +318,7 @@ fn produce_use(
         delay_fix_enabled,
         aim_rotation,
         release_facing,
+        sample: None,
     };
     let Some(frozen) = frame::observe(
         &player_runtime,
@@ -230,6 +328,8 @@ fn produce_use(
         &mut view,
         policy,
     ) else {
+        // Observation can stop a use, as a cancelled Riptide release does.
+        publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
         return;
     };
     frame::admit(
@@ -241,6 +341,28 @@ fn produce_use(
         &mut view,
         &frozen,
     );
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
+/// Whether the local player's game mode allows item use.
+fn item_use_allowed(player_runtime: &client_state::PlayerRuntime) -> bool {
+    !player_runtime
+        .facts
+        .game_mode_capabilities()
+        .is_some_and(|caps| !caps.can_use_items)
+}
+
+/// Writes the item-use flag of a local start or end into movement's live flag
+/// word, which later server writes compare with.
+fn publish_local_using_item(
+    runtime: &mut ItemUseRuntime,
+    physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
+) {
+    if let Some(using) = runtime.take_local_using_item()
+        && let Some(physics) = physics
+    {
+        physics.write_local_using_item(using);
+    }
 }
 
 /// Admits use on its logical clock and fences releases behind their captured action facing.

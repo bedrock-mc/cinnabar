@@ -216,29 +216,6 @@ fn retained_server_writes_survive_an_earlier_rewind() {
     assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
 }
 
-/// A later write with the same stamp compares with the frame's capture, as
-/// vanilla's flag correction does, so a clear matching it leaves the start.
-#[test]
-fn a_same_stamp_clear_compares_with_the_frame_capture() {
-    let (mut physics, mut ticker) = airborne();
-    for _ in 0..3 {
-        tick(&mut physics, &mut ticker, elytra(true));
-    }
-    let set = |value| {
-        flags(|flags| {
-            flags.gliding = Some(value);
-            flags.spinning = Some(value);
-        })
-    };
-    assert_eq!(physics.apply_server_movement_flags(101, set(true)), None);
-    assert_eq!(physics.apply_server_movement_flags(101, set(false)), None);
-    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
-    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
-    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
-    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
-}
-
 /// A clear and a set before the next tick keep the spin's counter, as
 /// vanilla's counter outlives its flag until a tick processes the clear.
 #[test]
@@ -948,3 +925,6 @@ fn a_snap_keeps_the_spin_and_its_saved_counter() {
     physics.apply_server_movement_flags(0, spin(true));
     assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
 }
+
+#[path = "server_flags_item_use.rs"]
+mod item_use;

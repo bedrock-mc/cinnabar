@@ -27,7 +27,7 @@ impl ItemUseRuntime {
             return Ok(());
         };
         if active.selection_changed(Some(selection)) || selection.item.is_empty() {
-            self.active = None;
+            self.stop_without_release();
             return Ok(());
         }
         if active.last_progress_tick.is_some_and(|last| tick <= last)

@@ -11,16 +11,16 @@ pub(crate) fn send_movement_prediction_sync(
     client_world: Res<ClientWorld>,
     player_runtime: Res<client_state::PlayerRuntime>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
-    item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
 ) {
     let (Some(network), Some(stream)) = (network.as_deref(), client_world.stream.as_ref()) else {
         return;
     };
+    let using_item = physics.live_using_item();
     gameplay::movement::send_movement_prediction_sync(
         &mut physics,
         &client_interaction::movement::world_view::GameplayWorldView(stream),
         player_runtime.facts.air_drag_modifier(),
-        item_use.is_some_and(|item_use| item_use.is_using()),
+        using_item,
         |packet| network.send_movement_packet(packet).is_ok(),
     );
 }

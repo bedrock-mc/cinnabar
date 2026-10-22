@@ -610,6 +610,8 @@ pub struct MovementFlagUpdate {
     pub crawling: Option<bool>,
     pub has_gravity: Option<bool>,
     pub uniform_air_drag: Option<bool>,
+    /// `UsingItem`, which starts or stops the selected item's use.
+    pub using_item: Option<bool>,
     /// `DamageNearbyMobs`, the Riptide spin.
     pub spinning: Option<bool>,
 }
@@ -647,6 +649,7 @@ impl MovementFlagUpdate {
             crawling: bit(ActorFlag::Crawling.wire_value()),
             has_gravity: bit(ActorFlag::HasGravity.wire_value()),
             uniform_air_drag: bit(ActorFlag::UsesUniformAirDrag.wire_value()),
+            using_item: bit(ActorFlag::UsingItem.wire_value()),
             spinning: bit(ActorFlag::DamageNearbyMobs.wire_value()),
         })
     }

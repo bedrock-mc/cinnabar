@@ -1,5 +1,5 @@
-//! Server pose and Riptide spin flags, modelled on vanilla's actor flag
-//! component and its frame corrections.
+//! Server pose, Riptide spin and item-use flags, modelled on vanilla's actor
+//! flag component and its frame corrections.
 //!
 //! Every completed tick captures the flag word it started with. A server write
 //! stamped at a retained tick becomes a correction of the following frame: the
@@ -8,12 +8,15 @@
 //! the frame it starts from and refreshes every later capture from the replayed
 //! state before re-applying that frame's corrections; the replayed word then
 //! replaces the live one, as vanilla copies every client-owned flag back. A
-//! write stamped at the current tick is queued for the next frame's capture,
-//! one stamped at a future tick joins the current frame's corrections, and an
+//! write
+//! stamped at the current tick is queued for the next frame's capture, one
+//! stamped at a future tick joins the current frame's corrections, and an
 //! unstamped write only changes the live word. Pose rules then continue or end
-//! a pose and the spin runs its lifetime. Flag writes are not start or stop
-//! actions, so each input reports edges relative to the word its tick started
-//! with. Server item-use writes are not adopted yet.
+//! a pose and the spin runs its lifetime. The item-use bit is retained the same
+//! way and handed to the item-use owner through
+//! [`LocalPhysicsController::take_server_using_item`]. Flag writes are not
+//! start or stop actions, so each input reports edges relative to the word its
+//! tick started with.
 
 use super::*;
 
@@ -25,20 +28,21 @@ const POSES: [sim::MovementMode; 3] = [
 ];
 /// Flag word bits after the three pose bits, which follow [`POSES`].
 const SPINNING: u8 = 1 << 3;
+const USING_ITEM: u8 = 1 << 4;
 
-/// The client-owned bits of the actor flag word this module adopts: glide,
-/// swim and crawl poses and the Riptide spin (`DamageNearbyMobs`).
+/// The client-owned bits of the actor flag word: glide, swim and crawl poses,
+/// the Riptide spin (`DamageNearbyMobs`) and item use.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct FlagWord(u8);
 
 impl FlagWord {
     /// The word the local state forms.
-    pub(super) fn capture(mode: sim::MovementMode, spinning: bool) -> Self {
+    pub(super) fn capture(mode: sim::MovementMode, spinning: bool, using_item: bool) -> Self {
         let pose = POSES
             .iter()
             .position(|pose| *pose == mode)
             .map_or(0, |index| 1 << index);
-        Self(pose | if spinning { SPINNING } else { 0 })
+        Self(pose | if spinning { SPINNING } else { 0 } | if using_item { USING_ITEM } else { 0 })
     }
 
     fn has(self, bit: u8) -> bool {
@@ -48,6 +52,10 @@ impl FlagWord {
     /// Whether the word's Riptide spin flag is set.
     pub(super) fn spinning(self) -> bool {
         self.has(SPINNING)
+    }
+
+    pub(super) fn using_item(self) -> bool {
+        self.has(USING_ITEM)
     }
 }
 
@@ -66,6 +74,7 @@ impl FlagWrite {
             (1 << 1, flags.swimming),
             (1 << 2, flags.crawling),
             (SPINNING, flags.spinning),
+            (USING_ITEM, flags.using_item),
         ] {
             if let Some(set) = flag {
                 write.present |= bit;
@@ -227,6 +236,12 @@ pub(super) struct ServerFlagAuthority {
     /// The tick of the local Riptide launch that started the current spin;
     /// a server spin write or the spin's end clears it.
     launched_spin: Option<u64>,
+    /// Item-use bit a server write left in the live word, for the item-use
+    /// owner to reconcile with on its next tick.
+    pending_using_item: Option<bool>,
+    /// The live word's item-use bit: the last of the tick's capture, a local
+    /// start or end, and a server write.
+    live_using_item: bool,
     /// A spin counter a live clear removed, with the tick it was cleared on.
     /// Vanilla's counter outlives its flag until a tick processes the clear.
     cleared_spin: Option<(u64, u8)>,
@@ -298,7 +313,7 @@ pub(super) fn note_spin_end(
 
 /// Applies a correction's pose and spin bits to the live state whose word is
 /// `live`; vanilla writes the same bits into the live actor before deciding
-/// any replay.
+/// any replay. Its item-use bit reaches the item-use owner when written.
 fn apply_live_correction(
     correction: FlagCorrection,
     live: FlagWord,
@@ -316,8 +331,9 @@ fn apply_live_correction(
     }
 }
 
-/// Captures the live word a fixed tick starts with and attaches a correction
-/// queued for it without applying it again, as vanilla moves queued corrections into the captured frame; the
+/// Captures the live word a fixed tick starts with (`using_item` is the
+/// tick's item use) and attaches a correction queued for it without applying
+/// it again, as vanilla moves queued corrections into the captured frame; the
 /// queue keeps it until a later tick, so a failed tick retries with it. The
 /// pose and spin the tick starts from become its action baseline. Returns the
 /// capture, the attached correction and the counters the tick starts with.
@@ -327,7 +343,11 @@ pub(super) fn capture_tick(
     state: &PlayerState,
     input: &mut super::super::TickInput,
 ) -> (FlagWord, FlagCorrection, EntryCounters) {
-    let entry = FlagWord::capture(modes.mode(), state.spin_attack_ticks.is_some());
+    let entry = FlagWord::capture(
+        modes.mode(),
+        state.spin_attack_ticks.is_some(),
+        authority.live_using_item,
+    );
     let dormant = authority.cleared_spin_on(state.tick).unwrap_or(0);
     let counters = EntryCounters::capture(modes, state, dormant);
     let next = state.tick.checked_add(1);
@@ -342,19 +362,40 @@ pub(super) fn capture_tick(
 }
 
 impl LocalPhysicsController {
-    /// The live flag word.
-    fn live_flag_word(&self) -> FlagWord {
+    /// The live flag word, including server writes not yet reconciled.
+    pub(super) fn live_flag_word(&self) -> FlagWord {
         FlagWord::capture(
             self.modes.mode(),
             self.state
                 .as_ref()
                 .is_some_and(|state| state.spin_attack_ticks.is_some()),
+            self.server_flags.live_using_item,
         )
     }
 
-    /// Applies `correction` to the live state.
+    /// Records a local item-use start (`true`) or end (`false`) in the live
+    /// word, as vanilla's start and stop write the flag. Later server writes
+    /// compare with it, and it supersedes a server write the item-use owner
+    /// has not taken yet.
+    pub fn write_local_using_item(&mut self, using: bool) {
+        self.server_flags.live_using_item = using;
+        self.server_flags.pending_using_item = None;
+    }
+
+    /// Writes the item-use bit to the live word and hands it to the item-use
+    /// owner.
+    fn write_server_using_item(&mut self, using: bool) {
+        self.server_flags.live_using_item = using;
+        self.server_flags.pending_using_item = Some(using);
+    }
+
+    /// Applies `correction` to the live state and hands its item-use bit to
+    /// the item-use owner.
     fn correct_live(&mut self, correction: FlagCorrection) {
         let live = self.live_flag_word();
+        if correction.mask & USING_ITEM != 0 {
+            self.write_server_using_item(correction.value & USING_ITEM != 0);
+        }
         if let Some(state) = self.state.as_mut() {
             apply_live_correction(
                 correction,
@@ -374,6 +415,10 @@ impl LocalPhysicsController {
     /// it either way.
     pub(super) fn adopt_live_server_flags(&mut self, tick: u64, write: FlagWrite) {
         let correction = FlagCorrection::against(write, self.live_flag_word());
+        // The item-use owner compares a live item-use write with its own use.
+        if write.present & USING_ITEM != 0 {
+            self.write_server_using_item(write.value & USING_ITEM != 0);
+        }
         if correction.is_empty() {
             return;
         }
@@ -429,6 +474,15 @@ impl LocalPhysicsController {
         true
     }
 
+    /// Copies the item-use bit replay left in the flag word to the live word
+    /// and, when that changes it, hands it to the item-use owner, which
+    /// reconciles with it on the next movement tick.
+    pub(super) fn adopt_replayed_using_item(&mut self, using: bool) {
+        if using != self.server_flags.live_using_item {
+            self.write_server_using_item(using);
+        }
+    }
+
     /// Discards server writes waiting for the next tick when respawn or a
     /// dimension change replaces the old life or world, and ends the old
     /// life's Riptide spin with its saved counter; the spatial snap that
@@ -436,8 +490,21 @@ impl LocalPhysicsController {
     pub fn discard_server_flag_writes(&mut self) {
         self.server_flags.queued = None;
         self.server_flags.cleared_spin = None;
+        self.server_flags.pending_using_item = None;
+        self.server_flags.live_using_item = false;
         if let Some(state) = self.state.as_mut() {
             state.spin_attack_ticks = None;
         }
+    }
+
+    /// The live item-use flag: the last of a server write, a local start or
+    /// end, and a replay's copy-back. The correction sync reports it.
+    pub const fn live_using_item(&self) -> bool {
+        self.server_flags.live_using_item
+    }
+
+    /// Takes the item-use bit a server write left in the live word.
+    pub fn take_server_using_item(&mut self) -> Option<bool> {
+        self.server_flags.pending_using_item.take()
     }
 }
