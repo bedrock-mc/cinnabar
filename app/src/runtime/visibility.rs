@@ -35,6 +35,23 @@ pub(crate) struct CaveVisibilityCache {
 }
 
 impl CaveVisibilityCache {
+    /// Restores hidden sections and discards the proof before culling can be enabled again.
+    fn show_all(&mut self, mut set: impl FnMut(Entity, bool)) {
+        if !self.initialized {
+            return;
+        }
+        for (key, &entity) in &self.rendered {
+            if !self.visible.contains(key) {
+                set(entity, true);
+            }
+        }
+        self.initialized = false;
+        self.visible_rendered = self.rendered.len();
+        self.camera = None;
+        self.graph_generation = None;
+        self.scratch = Default::default();
+    }
+
     pub(crate) fn is_visible(&self, key: SubChunkKey) -> bool {
         !self.initialized || self.visible.contains(&key)
     }
@@ -149,6 +166,8 @@ pub(crate) struct DiagnosticQuads(pub(crate) DiagnosticQuadTracker);
 /// [`chunk_pipeline::CaveVisibilityScratch::set_outward_only`].
 pub(crate) fn refresh_cave_visibility(
     client_world: Res<ClientWorld>,
+    settings: Res<client_state::RuntimeSettings>,
+    preference: Option<ResMut<render_scene::ChunkOcclusionCulling>>,
     camera: Query<(&Transform, Has<ShaderPackRendering>), With<FlyCamera>>,
     mut cache: ResMut<CaveVisibilityCache>,
     mut chunks: Query<&mut Visibility, With<ChunkRenderInstance>>,
@@ -157,6 +176,22 @@ pub(crate) fn refresh_cave_visibility(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::CaveVisibility));
+    let enabled = settings
+        .user_settings_update()
+        .1
+        .video
+        .chunk_occlusion_culling;
+    if let Some(mut preference) = preference {
+        preference.0 = enabled;
+    }
+    if !enabled {
+        cache.show_all(|entity, _| {
+            if let Ok(mut visibility) = chunks.get_mut(entity) {
+                *visibility = Visibility::Inherited;
+            }
+        });
+        return;
+    }
     #[cfg(feature = "developer-control")]
     let started = web_time::Instant::now();
     let work = match (client_world.stream.as_ref(), camera.single()) {

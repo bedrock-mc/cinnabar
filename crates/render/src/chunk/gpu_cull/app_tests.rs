@@ -169,6 +169,42 @@ pub(in crate::chunk) fn camera_transform() -> Transform {
     Transform::from_xyz(-6.0, 20.0, -6.0).looking_at(Vec3::new(8.0, 8.0, 8.0), Vec3::Y)
 }
 
+/// Toggling occlusion changes submission without evicting or remeshing terrain.
+#[test]
+fn occlusion_toggle_preserves_terrain_allocations_and_restores_gpu_culling() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::INDIRECT_FIRST_INSTANCE),
+        Msaa::Off,
+        camera_transform(),
+    );
+    #[derive(Resource, Default)]
+    struct Selected(bool);
+    app.sub_app_mut(RenderApp)
+        .init_resource::<Selected>()
+        .add_systems(
+            Render,
+            (|frame: Res<GpuCullFrame>, mut selected: ResMut<Selected>| {
+                selected.0 = frame.view.is_some();
+            })
+            .in_set(RenderSystems::Render),
+        );
+    insert_meshes(&mut app, &KEYS);
+    for enabled in [true, false, true] {
+        app.world_mut()
+            .resource_mut::<render_scene::ChunkOcclusionCulling>()
+            .0 = enabled;
+        for _ in 0..4 {
+            frame(&mut app);
+        }
+        assert_eq!(app.world().resource::<ChunkEntities>().0.len(), KEYS.len());
+        let render = app.sub_app(RenderApp).world();
+        let cull = render.resource::<GpuCull>();
+        assert_eq!(cull.slot_count() as usize, KEYS.len());
+        assert!(cull.table.records().iter().all(CullRecord::is_live));
+        assert_eq!(render.resource::<Selected>().0, enabled);
+    }
+}
+
 /// Every frame queues, prepares, culls and draws the GPU path without a validation error.
 #[test]
 fn count_capable_devices_run_the_two_phase_cull_through_the_render_schedule() {

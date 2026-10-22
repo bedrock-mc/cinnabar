@@ -133,8 +133,8 @@ impl WorldStream {
         // An evicted key's removal ack must not re-enter the map its eviction just pruned.
         if self.resident.contains(&key) || self.known_air.contains(&key) {
             self.applied_mesh_generations.insert(key, generation);
-            // A section excluded from detail publishes a removal.
-            if self.wants_section_mesh(key) {
+            // A column that wants no mesh was meshed as a removal.
+            if self.wants_mesh(key.chunk()) {
                 self.withdrawn_meshes.remove(&key);
             } else {
                 self.withdrawn_meshes.insert(key);

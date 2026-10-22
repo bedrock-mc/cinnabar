@@ -383,7 +383,7 @@ settings! {
         [(SettingPanel::AccessibilityGameplay, 8)], [SettingsGroup::Accessibility], None, None;
     RenderDistance => "render_distance", slider("options.renderDistance", ui::MIN_RENDER_DISTANCE_CHUNKS as i32, render_api::MAX_VIEW_RADIUS_CHUNKS, ui::MIN_RENDER_DISTANCE_CHUNKS as i32),
         [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
-    VerticalRenderDistance => "vertical_render_distance", slider("Vertical Render Distance", render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED as i32, render_api::terrain_distance::MAX_VERTICAL_DISTANCE_CHUNKS as i32, render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED as i32),
+    ChunkOcclusionCulling => "chunk_occlusion_culling", toggle("Chunk Occlusion Culling", render_api::DEFAULT_CHUNK_OCCLUSION_CULLING),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
     MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
         [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;

@@ -29,15 +29,6 @@ pub fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> Strin
     }
 }
 
-/// Formats a vertical section radius, with zero retaining the complete world height.
-pub fn vertical_distance_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
-    if value == render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED as i32 {
-        translate("options.framerateLimit.max")
-    } else {
-        translate("options.renderDistanceFormat").replace("%s", &value.to_string())
-    }
-}
-
 impl SettingsOptions {
     /// Builds the existing subsystem settings from the controller's saved values.
     pub fn user_settings(&self) -> ui::UserSettings {
@@ -65,8 +56,7 @@ impl SettingsOptions {
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
         settings.video.render_distance_chunks = self.value(SettingId::RenderDistance) as u8;
-        settings.video.vertical_render_distance_chunks =
-            self.value(SettingId::VerticalRenderDistance) as u32;
+        settings.video.chunk_occlusion_culling = self.value(SettingId::ChunkOcclusionCulling) != 0;
         settings.video.view_bobbing =
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
@@ -92,34 +82,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vertical_distance_defaults_to_unlimited_and_survives_save_and_reset() {
+    fn chunk_culling_defaults_on_and_survives_save_and_reset() {
         let mut options = SettingsOptions::default();
-        let id = SettingId::VerticalRenderDistance;
-        assert_eq!(
-            options
-                .user_settings()
-                .video
-                .vertical_render_distance_chunks,
-            render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED
-        );
-        assert!(options.set(id.index(), 4));
-        assert_eq!(options.video_preset(), None);
+        assert!(options.user_settings().video.chunk_occlusion_culling);
+        assert!(options.set(SettingId::ChunkOcclusionCulling.index(), 0));
         let mut restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
-        assert_eq!(
-            restored
-                .user_settings()
-                .video
-                .vertical_render_distance_chunks,
-            4
-        );
+        assert!(!restored.user_settings().video.chunk_occlusion_culling);
         restored.reset_group(super::super::SettingsGroup::Video);
-        assert_eq!(
-            restored
-                .user_settings()
-                .video
-                .vertical_render_distance_chunks,
-            render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED
-        );
+        assert!(restored.user_settings().video.chunk_occlusion_culling);
     }
 
     /// Touch sensitivity survives a save and changes only the touch look multiplier.

@@ -573,7 +573,6 @@ fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
     let size = [1280.0, 720.0];
     for (section, name) in [
         ("video_forced_index", "render_distance"),
-        ("video_forced_index", "vertical_render_distance"),
         ("video_forced_index", "gamma"),
         ("video_forced_index", "field_of_view"),
         (

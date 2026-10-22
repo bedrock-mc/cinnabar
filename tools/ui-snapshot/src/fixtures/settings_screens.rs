@@ -7,15 +7,6 @@ pub(super) fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
 }
 
-/// Focuses the vertical terrain slider at its persisted value in the Video section.
-pub(super) fn settings_video_vertical_distance(chunks: i32) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    let id = SettingId::VerticalRenderDistance;
-    Arc::make_mut(&mut view.settings_options).set(id.index(), chunks);
-    view.focused_action = Some(MenuAction::SettingsOption(id.index() as u16, chunks));
-    Fixture::Menu(Box::new(view))
-}
-
 /// Scrolls the General section to toggle `id` through the client's focus scrolling; a toggle's
 /// action carries the value it switches to.
 pub(super) fn settings_general_toggle(id: SettingId) -> Fixture {
@@ -58,5 +49,17 @@ pub(super) fn settings_keyboard_layout(observed: bool) -> Fixture {
     if observed {
         settings.set_key_label(0x14, "a");
     }
+    Fixture::Menu(Box::new(view))
+}
+
+/// Focuses the occlusion toggle at its saved value in the Video settings viewport.
+pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
+    let mut view = settings("video_forced_index");
+    Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::ChunkOcclusionCulling.index(), i32::from(enabled));
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::ChunkOcclusionCulling.index() as u16,
+        i32::from(!enabled),
+    ));
     Fixture::Menu(Box::new(view))
 }

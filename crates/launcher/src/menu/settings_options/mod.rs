@@ -51,7 +51,7 @@ pub use keybindings::{
     DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
 };
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
-pub use runtime::{frame_rate_label, frame_rate_limit, vertical_distance_label};
+pub use runtime::{frame_rate_label, frame_rate_limit};
 
 /// Persisted toggle shared by the new UI's sizing and settings controls.
 pub const EXTRA_LARGE_UI: &str = SettingId::GuiAccessibilityScaling.name();

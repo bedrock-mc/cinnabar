@@ -354,13 +354,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     #[cfg(target_arch = "wasm32")]
     let options = Some(Arc::clone(&options.0));
-    stream.set_vertical_render_distance(options.as_ref().map_or(
-        render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED,
-        |options| {
-            options.value(launcher::menu::settings_options::SettingId::VerticalRenderDistance)
-                as u32
-        },
-    ));
     let rendering = options
         .as_ref()
         .map_or_else(meshing::MeshRenderSettings::default, |options| {

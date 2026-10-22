@@ -102,7 +102,6 @@ impl WorldStream {
                 self.known_air.retire(),
                 std::mem::take(&mut self.applied_mesh_generations),
                 std::mem::take(&mut self.withdrawn_meshes),
-                std::mem::take(&mut self.vertical_detail.suppressed),
                 std::mem::take(&mut self.mesh_dependency_masks),
                 std::mem::take(&mut self.connectivity),
             )
@@ -122,7 +121,6 @@ impl WorldStream {
                 self.known_air.remove(key);
                 self.applied_mesh_generations.remove(key);
                 self.withdrawn_meshes.remove(key);
-                self.vertical_detail.suppressed.remove(key);
                 self.mesh_dependency_masks.remove(key);
                 if columns.len() == 1 {
                     self.connectivity.remove(key);

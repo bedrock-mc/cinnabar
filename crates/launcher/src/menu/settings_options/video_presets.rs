@@ -57,10 +57,6 @@ use Value::{Default, Fixed, HighestSamples, PerformanceDistance, QualityDistance
 // VSync stays a separate player preference when applying or matching graphics presets.
 const PRESET_OPTIONS: &[PresetOption] = &[
     PresetOption {
-        id: SettingId::VerticalRenderDistance,
-        values: [Default; VideoPreset::ALL.len()],
-    },
-    PresetOption {
         id: SettingId::RenderDistance,
         values: [
             PerformanceDistance(12),

@@ -15,7 +15,6 @@ pub use pose_generation::PoseGeneration;
 mod skin;
 pub mod sprite_mask;
 pub mod sub_chunk_requests;
-pub mod terrain_distance;
 mod ui_backdrop;
 mod ui_coverage_paint;
 pub mod ui_repeat;
@@ -45,6 +44,8 @@ pub use vrr::VrrPreference;
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
 pub const MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
+/// Hidden terrain is culled unless the player disables the optimization.
+pub const DEFAULT_CHUNK_OCCLUSION_CULLING: bool = true;
 /// Retention radius before the server grants one, so an unbounded maximum never pins old terrain.
 pub const UNGRANTED_VIEW_RADIUS_CHUNKS: i32 = 16;
 
