@@ -92,6 +92,9 @@ pub enum Fixture {
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
+    /// Retained Add Server focus after a simulated keyboard reduces the visible height.
+    #[cfg(feature = "test-support")]
+    MenuKeyboard,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -245,6 +248,13 @@ const STATES: &[State] = &[
         size: [256, 128],
         gui_scale: 1,
         fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "add-server-keyboard",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::MenuKeyboard,
     },
     #[cfg(feature = "test-support")]
     State {

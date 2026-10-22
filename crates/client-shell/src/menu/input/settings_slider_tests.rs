@@ -40,6 +40,115 @@ fn settings_swipe_moves_content_without_activating_the_pressed_row() {
     assert!(moved.min().y() < bounds.min().y());
 }
 
+/// A second finger cannot replace the first finger's pending control or release it.
+#[test]
+fn settings_second_finger_does_not_steal_a_pending_tap() {
+    let (mut app, window, option, value, bounds) = accessibility_fixture();
+    let start = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    touch(&mut app, window, start, TouchPhase::Started);
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        app.world_mut().write_message(TouchInput {
+            phase,
+            position: Vec2::ZERO,
+            window,
+            force: None,
+            id: 8,
+        });
+        app.update();
+    }
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value(option),
+        value
+    );
+    touch(&mut app, window, start, TouchPhase::Ended);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value(option),
+        1 - value
+    );
+}
+
+/// Touch menus wait for release, including screens outside Settings.
+#[test]
+fn add_server_fields_do_not_activate_on_touch_down_or_cancel() {
+    let (mut app, window) = shader_fixture();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::Navigate(MenuScreen::AddServer));
+    build(&mut app);
+    let bounds = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::AddAddress)
+        .unwrap();
+    let point = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    let revision = app.world().resource::<MenuRuntime>().field_activation;
+    touch(&mut app, window, point, TouchPhase::Started);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().field_activation,
+        revision
+    );
+    touch(&mut app, window, point, TouchPhase::Canceled);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().field_activation,
+        revision
+    );
+    touch(&mut app, window, point, TouchPhase::Started);
+    touch(&mut app, window, point, TouchPhase::Ended);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().field,
+        Some(MenuField::Address)
+    );
+    assert!(app.world().resource::<MenuRuntime>().field_activation > revision);
+}
+
+/// A short Add Server viewport scrolls under the finger instead of selecting a field.
+#[test]
+fn add_server_overflow_accepts_a_touch_scroll() {
+    let (mut app, window) = shader_fixture();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::Navigate(MenuScreen::AddServer));
+    app.world_mut()
+        .resource_mut::<UiPresentationResource>()
+        .set_safe_area(ui::SafeArea::new(0.0, 0.0, 0.0, 850.0).unwrap());
+    build(&mut app);
+    let bounds = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::AddName)
+        .unwrap();
+    let start = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    let revision = app.world().resource::<MenuRuntime>().field_activation;
+    touch(&mut app, window, start, TouchPhase::Started);
+    touch(&mut app, window, start - Vec2::Y * 100.0, TouchPhase::Moved);
+    touch(&mut app, window, start - Vec2::Y * 100.0, TouchPhase::Ended);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().field_activation,
+        revision
+    );
+    build(&mut app);
+    let moved = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::AddName);
+    assert!(moved.is_none_or(|moved| moved.min().y() < bounds.min().y()));
+}
+
 /// Opens a static settings column with an actionable row and overflowing content.
 fn accessibility_fixture() -> (App, Entity, SettingId, i32, ui::UiRect) {
     let (mut app, window) = shader_fixture();
