@@ -38,6 +38,7 @@ impl MenuRuntime {
     }
 
     /// Queues deletion after confirmation, rejecting stale lists and duplicate requests.
+    /// The host decides whether deleting this entry changes the active renderer.
     pub(super) fn confirm_remove_shader_pack(&mut self, index: u16, revision: u64) {
         if !render_model::SHADER_PACKS_ENABLED
             || revision != self.shader_packs_revision
@@ -54,10 +55,7 @@ impl MenuRuntime {
         };
         self.dialog = None;
         self.shader_pack_removing = Some(std::sync::Arc::from(name.as_str()));
-        self.shader_pack_remove_request = Some(name.clone());
-        if self.shader_pack.as_deref() == Some(name.as_str()) {
-            self.select_renderer(RendererChoice::Vanilla);
-        }
+        self.shader_pack_remove_request = Some(name);
     }
 
     /// Consumes one confirmed library deletion for the host's background worker.
@@ -390,7 +388,26 @@ mod removal_tests {
     use launcher::menu::{MenuAction, MenuDialog};
 
     #[test]
-    fn removal_requires_current_confirmation_and_turns_the_selected_pack_off() {
+    fn removing_a_remembered_pack_preserves_the_applied_renderer() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        for mode in [RenderMode::Vanilla, RenderMode::Enhanced] {
+            let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+            menu.sync_shader_packs(vec!["Dusk.zip".into()]);
+            menu.sync_shader_pack(Some("Dusk.zip"));
+            menu.sync_render_mode(mode);
+            let revision = menu.view().shader_packs_revision;
+            menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+            menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+            assert_eq!(menu.take_shader_pack_removal().as_deref(), Some("Dusk.zip"));
+            assert_eq!(menu.view().render_mode, mode);
+            assert!(menu.take_render_mode_request().is_none());
+        }
+    }
+
+    #[test]
+    fn removal_requires_current_confirmation_and_leaves_mode_changes_to_the_host() {
         if !render_model::SHADER_PACKS_ENABLED {
             return;
         }
@@ -423,7 +440,8 @@ mod removal_tests {
         menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
         menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
         assert_eq!(menu.take_shader_pack_removal().as_deref(), Some("Lumen"));
-        assert_eq!(menu.view().render_mode, ui::RenderMode::Vanilla);
+        assert_eq!(menu.view().render_mode, ui::RenderMode::ShaderPack);
+        assert!(menu.take_render_mode_request().is_none());
         assert_eq!(menu.view().shader_pack_removing.as_deref(), Some("Lumen"));
         menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
         assert!(menu.view().dialog.is_none());

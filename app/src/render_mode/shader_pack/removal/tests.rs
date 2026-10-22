@@ -109,6 +109,41 @@ fn removing_an_inactive_copy_keeps_the_other_pack_selected() {
 }
 
 #[test]
+fn removing_a_library_copy_preserves_an_external_cli_pack_with_the_same_name() {
+    let root = tempfile::tempdir().unwrap();
+    let external = root.path().join("external/Dusk");
+    std::fs::create_dir_all(external.join("shaders")).unwrap();
+    let mut app = fixture(root.path(), Some("Dusk"));
+    app.world_mut()
+        .resource_mut::<RenderModeConfig>()
+        .cli_shader_pack = Some(external.clone());
+    app.update();
+    remove(&mut app, 0);
+    test_time::eventually("the shader copy removal with a CLI override", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    assert!(!root.path().join("shaderpacks/Dusk").exists());
+    assert!(external.join("shaders").is_dir());
+    assert_eq!(
+        app.world().resource::<RenderModeConfig>().cli_shader_pack,
+        Some(external)
+    );
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::ShaderPack);
+    assert!(video.shader_pack.is_none());
+}
+
+#[test]
 fn failed_deletion_restores_controls_and_keeps_the_library_entry() {
     let root = tempfile::tempdir().unwrap();
     let mut app = fixture(root.path(), None);

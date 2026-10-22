@@ -47,7 +47,7 @@ fn start_removal(
     let directory = dirs.packs.clone();
     let mut graphics = GraphicsSettings::of(&settings.user_settings_update().1.video);
     let active = super::selected_pack(&config, &settings.user_settings_update().1.video)
-        .is_some_and(|pack| pack.name == name);
+        .is_some_and(|pack| dirs.pack_path(&name).as_ref() == Some(&pack.path));
     let remembered = graphics.shader_pack.as_deref() == Some(name.as_str());
     if active || remembered {
         if remembered {
