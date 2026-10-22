@@ -89,6 +89,35 @@ pub(super) fn pack_picker() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows first-use import guidance without installed packs or a saved selection.
+pub(super) fn empty_library() -> Fixture {
+    let mut view = super::settings(SettingSection::Shaders.definition().name);
+    Arc::make_mut(&mut view.storage).opens_folders = true;
+    Fixture::Menu(Box::new(view))
+}
+
+/// Exercises wrapping and scrolling with a populated library in a narrow viewport.
+pub(super) fn long_library() -> Fixture {
+    let mut view = super::settings(SettingSection::Shaders.definition().name);
+    view.shader_packs = (0..16)
+        .map(|index| format!("Evening Light {index} with a long descriptive release name.zip"))
+        .collect();
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows the standard confirmation before deleting an imported shader pack.
+pub(super) fn removal_dialog() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.dialog = Some(launcher::menu::MenuDialog::RemoveShaderPack(
+        0,
+        view.shader_packs_revision,
+    ));
+    view.focused_action = Some(MenuAction::DismissDialog);
+    Fixture::Menu(view)
+}
+
 /// Frames the Video shortcut above the graphics controls so its full row is visible.
 pub(super) fn video_shortcut() -> Fixture {
     let Fixture::Menu(mut view) = settings_shaders(false) else {
