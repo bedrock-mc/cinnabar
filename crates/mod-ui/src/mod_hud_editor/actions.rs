@@ -26,6 +26,22 @@ impl HudEditor {
             }]);
         }
         match action {
+            "hud.page_prev" | "hud.page_next" if self.history_buttons => {
+                self.cancel_pointer_input();
+                let layout = template::host::Layout::new(
+                    self.viewport,
+                    self.draft.cards.len(),
+                    self.chrome_scale,
+                );
+                self.handle_page = if action == "hud.page_prev" {
+                    self.handle_page.saturating_sub(1)
+                } else {
+                    self.handle_page
+                        .saturating_add(1)
+                        .min(layout.pages.saturating_sub(1))
+                };
+                self.data_dirty = true;
+            }
             "hud.grid" | "hud.snap" => {
                 self.cancel_drag();
                 if action == "hud.grid" {

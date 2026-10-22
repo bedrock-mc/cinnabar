@@ -69,6 +69,7 @@ pub struct HudEditor {
     reset: bool,
     history_buttons: bool,
     chrome_scale: f64,
+    handle_page: usize,
     grid: bool,
     snap: bool,
     bypass_snap: bool,

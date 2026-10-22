@@ -21,7 +21,7 @@ pub(super) fn png(state: &State, dir: &Path, phase: u8, seconds: f64) -> Result<
     let mut runtime = UiRuntime::new(1);
     runtime.set_lang_catalog(Arc::new(carriers.lang));
     let player = player_state::PlayerState::new(1);
-    let dpi = ui::DpiScale::new(1.).unwrap();
+    let dpi = ui::DpiScale::new(if phase == 4 { 2. } else { 1. }).unwrap();
     let mut view = MenuView::new(true, "Player".into());
     view.screen = MenuScreen::Settings;
     view.touch_available = true;
@@ -32,7 +32,32 @@ pub(super) fn png(state: &State, dir: &Path, phase: u8, seconds: f64) -> Result<
             .map_err(|e| Error::Invalid(e.to_string()))
     };
     draw(&mut presentation)?;
-    if phase != 0 {
+    if phase == 4 {
+        // Reach the final compact page through the same actions used by a finger.
+        while presentation.touch_editor_handle_bounds("menu").is_none() {
+            let [x, y, w, h] = presentation
+                .touch_editor_action_bounds("hud.page_next")
+                .ok_or_else(|| Error::Invalid("compact page action missing".into()))?;
+            if presentation
+                .touch_editor_action_at([x + w / 2., y + h / 2.])
+                .as_deref()
+                != Some("hud.page_next")
+            {
+                return Err(Error::Invalid("compact page action is unreachable".into()));
+            }
+            presentation.touch_editor_pointer([x + w / 2., y + h / 2.], true, false);
+            draw(&mut presentation)?;
+        }
+        let [x, y, w, h] = presentation
+            .touch_editor_handle_bounds("menu")
+            .ok_or_else(|| Error::Invalid("compact Pause handle missing".into()))?;
+        if !presentation
+            .touch_editor_action_at([x + w / 2., y + h / 2.])
+            .is_some_and(|action| action.starts_with("hud.card:"))
+        {
+            return Err(Error::Invalid("compact Pause handle is obstructed".into()));
+        }
+    } else if phase != 0 {
         let [x, y, w, h] = presentation
             .touch_editor_action_bounds("hud.grid")
             .ok_or_else(|| Error::Invalid("Grid action missing".into()))?;

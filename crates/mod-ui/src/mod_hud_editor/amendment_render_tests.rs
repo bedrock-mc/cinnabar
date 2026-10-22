@@ -398,7 +398,7 @@ fn distance_pills_show_bare_numbers_and_fit_at_viewport_edges() {
         ([300., 160.], [40., 40.]),
     ] {
         let mut data = DataSource::new();
-        feedback::measurements(&mut data, viewport, Some(rect), &[]);
+        feedback::measurements(&mut data, viewport, Some(rect), &[], 1.);
         for axis in 0..2 {
             let global = |suffix: &str| {
                 data.global_value(&format!("#measurement_{axis}_{suffix}"))

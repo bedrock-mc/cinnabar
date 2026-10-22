@@ -313,3 +313,81 @@ fn touch_editor_chrome_and_alternate_drag_handles_remain_usable_at_small_scales(
         assert_eq!([original[2], original[3]], [moved[2], moved[3]]);
     }
 }
+
+/// Paging retains a reachable drag target for every control, separate from Save and Cancel.
+#[test]
+fn touch_editor_narrow_high_dpi_handles_never_dispatch_transaction_actions() {
+    for safe in [
+        ui::SafeArea::default(),
+        ui::SafeArea::new(12., 8., 14., 6.).unwrap(),
+    ] {
+        let size = [854, 480];
+        let Some((mut p, runtime, _)) = setup(size) else {
+            return;
+        };
+        p.set_safe_area(safe);
+        let paint = |p: &mut UiPresentationRuntime| {
+            p.build(
+                &player_state::PlayerState::new(1),
+                &runtime,
+                1000,
+                size,
+                ui::DpiScale::new(2.).unwrap(),
+            )
+            .unwrap();
+        };
+        paint(&mut p);
+        let names: Vec<_> = p
+            .screens
+            .touch
+            .editor
+            .as_ref()
+            .unwrap()
+            .draft()
+            .cards
+            .iter()
+            .map(|card| card.id.clone())
+            .collect();
+        for (index, name) in names.iter().enumerate() {
+            for _ in 0..names.len() {
+                if p.touch_editor_handle_bounds(name).is_some() {
+                    break;
+                }
+                let [x, y, w, h] = p.touch_editor_action_bounds("hud.page_next").unwrap();
+                let at = [x + w / 2., y + h / 2.];
+                assert_eq!(
+                    p.touch_editor_action_at(at).as_deref(),
+                    Some("hud.page_next")
+                );
+                p.touch_editor_pointer(at, true, false);
+                paint(&mut p);
+            }
+            let [x, y, w, h] = p
+                .touch_editor_handle_bounds(name)
+                .expect("reachable handle page");
+            assert!(w >= 48. && h >= 48.);
+            let at = [x + w / 2., y + h / 2.];
+            assert_eq!(
+                p.touch_editor_action_at(at),
+                Some(format!("hud.card:{index}")),
+                "{name}"
+            );
+            p.touch_editor_pointer(at, true, true);
+            p.touch_editor_pointer([at[0] + 16., at[1] - 16.], false, true);
+            assert!(
+                p.take_touch_editor_result().is_none(),
+                "{name} must not Save"
+            );
+            p.cancel_touch_editor_pointer();
+            paint(&mut p);
+        }
+        let [x, y, w, h] = p.touch_editor_action_bounds("hud.page_prev").unwrap();
+        p.touch_editor_pointer([x + w / 2., y + h / 2.], true, false);
+        paint(&mut p);
+        assert!(p.take_touch_editor_result().is_none());
+        assert!(
+            p.touch_editor_handle_bounds(names.last().unwrap())
+                .is_none()
+        );
+    }
+}

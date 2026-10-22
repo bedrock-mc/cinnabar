@@ -62,9 +62,42 @@ impl HudEditor {
         }
         let style = self.draft.editor_style.unwrap_or_default();
         let hovered = self.hovered_card();
+        let host_layout = self.history_buttons.then(|| {
+            template::host::Layout::new(self.viewport, self.draft.cards.len(), self.chrome_scale)
+        });
+        if let Some(layout) = &host_layout {
+            self.handle_page = self.handle_page.min(layout.pages - 1);
+            data.set_global(
+                "#hud_handles_title",
+                Scalar::Text(if layout.pages > 1 {
+                    format!("Touch controls ({}/{})", self.handle_page + 1, layout.pages)
+                } else {
+                    "Touch controls".into()
+                }),
+            );
+            for (name, enabled) in [
+                ("prev", self.handle_page > 0),
+                ("next", self.handle_page + 1 < layout.pages),
+            ] {
+                data.set_global(format!("#hud_page_{name}"), Scalar::Bool(enabled));
+                data.set_global(
+                    format!("#hud_page_{name}_alpha"),
+                    Scalar::Num(if enabled { 1. } else { 0.35 }),
+                );
+            }
+        }
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
             data.set_global(format!("#card_{index}_visible"), Scalar::Bool(visible));
+            data.set_global(
+                format!("#hud_handle_{index}_visible"),
+                Scalar::Bool(
+                    visible
+                        && host_layout
+                            .as_ref()
+                            .is_some_and(|layout| index / layout.page_size == self.handle_page),
+                ),
+            );
             data.set_global(format!("#hud_card_{index}_visible"), Scalar::Bool(visible));
             data.set_global(
                 format!("#hud_card_{index}_name"),
@@ -143,12 +176,7 @@ impl HudEditor {
                 f64::from(size[1]),
             ]);
         }
-        let scale = if self.history_buttons {
-            let layout = template::host::Layout::new(
-                self.viewport,
-                self.draft.cards.len(),
-                self.chrome_scale,
-            );
+        let scale = if let Some(layout) = host_layout {
             obstacles.extend([
                 [
                     0.,

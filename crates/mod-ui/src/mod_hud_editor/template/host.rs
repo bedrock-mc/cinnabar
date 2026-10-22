@@ -3,6 +3,7 @@ use super::*;
 
 const HANDLE_WIDTH: f64 = 44.;
 const ACTION_WIDTH: f64 = 48.;
+const PAGE_WIDTH: f64 = 24.;
 const TARGET_HEIGHT: f64 = 24.;
 const HANDLE_PITCH: f64 = 26.;
 const ACTIONS: &[(&str, &str)] = &[
@@ -20,19 +21,21 @@ pub(in super::super) struct Layout {
     pub palette: [f64; 4],
     pub toolbar: [f64; 4],
     palette_columns: usize,
+    pub page_size: usize,
+    pub pages: usize,
     toolbar_columns: usize,
     compact: bool,
 }
 impl Layout {
     /// Wraps labeled handles and actions without changing the editable canvas.
     pub fn new(viewport: [f64; 2], count: usize, scale: f64) -> Self {
-        let compact = viewport[1] < 160. * scale;
-        let palette_columns = (((viewport[0] - 8. * scale) / (HANDLE_WIDTH * scale)).floor()
+        let mut compact = viewport[1] < 160. * scale;
+        let mut palette_columns = (((viewport[0] - 8. * scale) / (HANDLE_WIDTH * scale)).floor()
             as usize)
             .max(1)
             .min(count.max(1));
         let palette_width = palette_columns as f64 * HANDLE_WIDTH * scale;
-        let palette = [
+        let mut palette = [
             ((viewport[0] - palette_width) * 0.5).max(0.),
             20. + if compact { 20. } else { 34. } * scale,
             palette_width,
@@ -47,15 +50,40 @@ impl Layout {
         .min((((viewport[0] - 8. * scale) / (ACTION_WIDTH * scale)).floor() as usize).max(1));
         let width = (toolbar_columns as f64 * ACTION_WIDTH + 8.) * scale;
         let height = (ACTIONS.len().div_ceil(toolbar_columns) as f64 * TARGET_HEIGHT + 4.) * scale;
+        let toolbar_y = viewport[1] - height - 4. * scale;
+        let paged = palette[1] + palette[3] + 8. * scale > toolbar_y;
+        let page_size = if paged {
+            compact = true;
+            palette_columns = (((viewport[0] - (8. + 2. * PAGE_WIDTH) * scale)
+                / (HANDLE_WIDTH * scale))
+                .floor() as usize)
+                .max(1)
+                .min(count.max(1));
+            let width = (palette_columns as f64 * HANDLE_WIDTH + 2. * PAGE_WIDTH) * scale;
+            let height = HANDLE_PITCH * scale;
+            palette = [
+                ((viewport[0] - width) * 0.5).max(0.),
+                (20. + 20. * scale)
+                    .min(toolbar_y - height - 8. * scale)
+                    .max(0.),
+                width,
+                height,
+            ];
+            palette_columns
+        } else {
+            count.max(1)
+        };
         Self {
             palette,
             toolbar: [
                 ((viewport[0] - width) * 0.5).max(0.),
-                viewport[1] - height - 4. * scale,
+                toolbar_y,
                 width,
                 height,
             ],
             palette_columns,
+            page_size,
+            pages: count.div_ceil(page_size).max(1),
             toolbar_columns,
             compact,
         }
@@ -71,12 +99,15 @@ pub(super) fn append(controls: &mut Vec<Value>, hud: &Hud, viewport: [f64; 2], s
     let title_y = 20. + if compact { 4. } else { 6. } * scale;
     let mut title = label(
         style,
-        "Touch controls",
+        "#hud_handles_title",
         [viewport[0], 16. * scale],
         [0., title_y],
     );
     title["text_alignment"] = json!("center");
-    controls.push(named("touch_title", title));
+    title["bindings"] = json!([{"binding_name":"#hud_handles_title"}]);
+    if title_y + 16. * scale <= layout.palette[1] {
+        controls.push(named("touch_title", title));
+    }
     if !compact {
         let mut help = label(
             style,
@@ -91,8 +122,14 @@ pub(super) fn append(controls: &mut Vec<Value>, hud: &Hud, viewport: [f64; 2], s
     let slot = HANDLE_WIDTH * scale;
     let columns = layout.palette_columns;
     for (index, card) in hud.cards.iter().enumerate() {
-        let x = left + (index % columns) as f64 * slot;
-        let y = palette_y + (index / columns) as f64 * HANDLE_PITCH * scale;
+        let item = index % layout.page_size;
+        let x =
+            left + if layout.pages > 1 {
+                PAGE_WIDTH * scale
+            } else {
+                0.
+            } + (item % columns) as f64 * slot;
+        let y = palette_y + (item / columns) as f64 * HANDLE_PITCH * scale;
         let mut text = label(
             style,
             card.editor_name(),
@@ -123,8 +160,46 @@ pub(super) fn append(controls: &mut Vec<Value>, hud: &Hud, viewport: [f64; 2], s
                 named("text", text),
             ],
         );
-        handle["bindings"] = json!([{"binding_name":format!("#hud_card_{index}_visible"),"binding_name_override":"#visible"}]);
+        handle["bindings"] = json!([{"binding_name":format!("#hud_handle_{index}_visible"),"binding_name_override":"#visible"}]);
         controls.push(named(&format!("move_{index}"), handle));
+    }
+    if layout.pages > 1 {
+        for (name, text, x) in [
+            ("prev", "Prev", left),
+            (
+                "next",
+                "Next",
+                left + layout.palette[2] - PAGE_WIDTH * scale,
+            ),
+        ] {
+            let mut text = label(
+                style,
+                text,
+                [(PAGE_WIDTH - 2.) * scale, 12. * scale],
+                [scale, 6. * scale],
+            );
+            text["text_alignment"] = json!("center");
+            let mut button = button(
+                &format!("hud.page_{name}"),
+                [PAGE_WIDTH * scale, TARGET_HEIGHT * scale],
+                [x, palette_y],
+                vec![
+                    named(
+                        "surface",
+                        rect(
+                            [PAGE_WIDTH * scale, TARGET_HEIGHT * scale],
+                            [0.; 2],
+                            [0.055, 0.065, 0.08, 0.97],
+                        ),
+                    ),
+                    named("text", text),
+                ],
+            );
+            button["bindings"] = json!([
+                {"binding_name":format!("#hud_page_{name}"),"binding_name_override":"#enabled"},
+                {"binding_name":format!("#hud_page_{name}_alpha"),"binding_name_override":"#alpha"}]);
+            controls.push(named(&format!("page_{name}"), button));
+        }
     }
     let [x, y, width, height] = layout.toolbar;
     let slot = ACTION_WIDTH * scale;
