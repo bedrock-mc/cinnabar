@@ -1,38 +1,25 @@
-//! Home geometry fits the action, character and utility groups inside the viewport.
+//! Home uses a centered action column with independent character and utility controls.
 
+use super::super::paint::Bounds;
 use ui::IconRef;
 
-pub(super) const LIVE_EVENT_HEIGHT: f32 = 5.2;
-pub(super) const PANEL_PADDING: f32 = 2.4;
-const COMPACT_WIDTH: f32 = 44.0;
-const DESKTOP_WIDTH: f32 = 86.0;
+pub(super) const ROW_HEIGHT: f32 = 32.0;
+pub(super) const COLUMN_WIDTH: f32 = 150.0;
+pub(super) const LIVE_EVENT_HEIGHT: f32 = 26.0;
 
 pub(super) struct Layout {
     pub scale: f32,
-    pub width: f32,
-    pub height: f32,
-    pub outside: f32,
-    pub header_height: f32,
-    pub gap: f32,
-    pub footer_height: f32,
-    pub logo_width: f32,
-    pub logo_height: f32,
+    pub logo: Bounds,
+    pub actions: Bounds,
+    pub footer: Bounds,
+    pub version: Bounds,
     pub compact: bool,
     pub compact_footer: bool,
-}
-
-/// The action group's height in rem, including wardrobe controls on compact layouts.
-pub(super) fn action_group_height(compact: bool) -> f32 {
-    if compact { 29.2 } else { 23.6 }
-}
-
-/// The panel inset in logical pixels, limited by its width.
-pub(super) fn action_padding(rem: f32, width: f32, compact: bool) -> f32 {
-    (rem * if compact { 2.0 } else { PANEL_PADDING }).min(width * 0.08)
+    pub gui: f32,
 }
 
 impl Layout {
-    /// Keeps the normal layout unless the logo, actions and footer cannot fit.
+    /// Fits full-height rows and utility controls without stretching the main column.
     pub(super) fn new(
         rem: f32,
         size: [f32; 2],
@@ -40,65 +27,68 @@ impl Layout {
         live_event: bool,
         update_ready: bool,
     ) -> Self {
-        let margin = (rem * 3.2).min(size[0] * 0.04).min(size[1] * 0.035);
-        let available_width = size[0] - margin * 2.0;
-        let width = (rem * DESKTOP_WIDTH).min(available_width);
-        let compact = width < rem * 68.0 || size[1] < rem * 44.0 || size[0] < size[1] * 0.85;
-        let column_width = if compact {
-            COMPACT_WIDTH
-        } else {
-            DESKTOP_WIDTH
-        };
-        let width = (rem * column_width).min(available_width);
-        let compact_footer = width < rem * 60.0;
-        let footer = if compact_footer { 10.8 } else { 4.8 };
-        let version = if compact_footer { 4.0 } else { 2.8 };
-        let ratio = title.map(|icon| {
-            f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1))
-        });
-        let logo_width = (rem * 56.0).min(width * 0.78);
-        let header_height = if update_ready {
-            super::super::updates::header_height(rem, size, logo_width)
+        let gui = rem / super::super::theme::GUI_PIXELS_PER_REM;
+        let header = if update_ready {
+            super::super::updates::header_height(rem, size, size[0] * 0.55)
         } else {
             0.0
         };
-        let available_height = size[1] - margin * 2.0 - header_height;
-        let logo_height = ratio.map_or(rem * 6.4, |ratio| logo_width / ratio);
-        let outside = logo_height + rem * (3.2 + footer + version);
-        let action_width = width * if compact { 1.0 } else { 0.59 };
+        let compact = size[0] < size[1] || size[1] < gui * 230.0;
+        let compact_footer = size[0] < super::footer::size(rem, false)[0] + gui * 16.0;
+        let rows = (super::ACTIONS.len() + usize::from(compact)) as f32;
+        let footer_size = super::footer::size(rem, compact_footer);
         let event = if live_event { LIVE_EVENT_HEIGHT } else { 0.0 };
-        let group_height = action_group_height(compact);
-        let minimum =
-            rem * (group_height + event) + action_padding(rem, action_width, compact) * 2.0;
-        let scale = if minimum + outside > available_height {
-            // Full-width art and padding bound the content after the width is recalculated.
-            let logo = ratio.map_or(6.4, |ratio| 56.0 / ratio);
-            let pad = if compact { 2.0 } else { PANEL_PADDING };
-            let required = logo + 3.2 + footer + version + group_height + event + pad * 2.0;
-            (available_height / (rem * required)).min(1.0)
-        } else {
-            1.0
-        };
-        let rem = rem * scale;
-        let width = (rem * column_width).min(available_width);
-        let logo_width = (rem * 56.0).min(width * 0.78);
-        let logo_height = ratio.map_or(rem * 6.4, |ratio| logo_width / ratio);
-        let outside = logo_height + rem * (3.2 + footer + version);
-        let action_width = width * if compact { 1.0 } else { 0.59 };
-        let minimum =
-            rem * (group_height + event) + action_padding(rem, action_width, compact) * 2.0;
+        let ratio = title.map_or(5.0, |icon| {
+            f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1))
+        });
+        let logo_width = (size[0] * 0.55).min(size[1] * 0.22 * ratio);
+        let logo_height = logo_width / ratio;
+        let top = header + (size[1] - header) * 0.12;
+        let available = (size[1] - top - logo_height).max(1.0);
+        let required = gui * (rows * ROW_HEIGHT + event + 22.0) + footer_size[1];
+        let scale = (available / required)
+            .min((size[0] - 8.0) / (COLUMN_WIDTH * gui))
+            .min(1.0);
+        let gui = gui * scale;
+        let footer_height = footer_size[1] * scale;
+        let footer_width = (footer_size[0] * scale).min(size[0] - gui * 8.0);
+        let footer_top = size[1] - gui * 14.0 - footer_height;
+        let action_height = rows * ROW_HEIGHT * gui;
+        let natural_top = top
+            + logo_height
+            + ((size[1] - top - logo_height - action_height - gui * 10.0) * 0.5).max(0.0);
+        let action_top = natural_top
+            .max(top + logo_height + gui * event)
+            .min(footer_top - gui * 8.0 - action_height);
         Self {
             scale,
-            width,
-            height: (rem * 34.4).min(available_height - outside).max(minimum),
-            outside,
-            header_height,
-            gap: rem * 1.6,
-            footer_height: rem * footer,
-            logo_width,
-            logo_height,
+            logo: [
+                (size[0] - logo_width) * 0.5,
+                top,
+                (size[0] + logo_width) * 0.5,
+                top + logo_height,
+            ],
+            actions: [
+                (size[0] - COLUMN_WIDTH * gui) * 0.5,
+                action_top,
+                (size[0] + COLUMN_WIDTH * gui) * 0.5,
+                action_top + action_height,
+            ],
+            footer: [
+                (size[0] - footer_width) * 0.5,
+                footer_top,
+                (size[0] + footer_width) * 0.5,
+                footer_top + footer_height,
+            ],
+            version: [
+                gui * 4.0,
+                size[1] - gui * 12.0,
+                size[0] - gui * 4.0,
+                size[1],
+            ],
             compact,
             compact_footer,
+            gui,
         }
     }
 }

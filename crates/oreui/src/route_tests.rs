@@ -5,116 +5,33 @@ use launcher::menu::{MenuAction, MenuField, MenuScreen, MenuView};
 use ui_engine::test_support::fixture_font;
 
 #[test]
-fn pause_dims_the_whole_world_evenly_and_keeps_the_character_clear_of_its_actions() {
-    let mut view = MenuView::new(true, "Fixture".into());
-    view.screen = MenuScreen::Pause;
-    view.over_world = true;
+fn pause_shades_its_action_column_without_covering_the_character() {
+    let view = MenuView::new(true, "Fixture".into());
     let mut preview = None;
     let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
         preview = super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
     });
-    let overlays: Vec<_> = super::test_support::solids(&nodes)
+    let preview = preview.unwrap();
+    let shade = super::test_support::solids(&nodes)
         .into_iter()
-        .filter(|(_, color)| *color == super::theme::OVERLAY_SCREEN)
-        .collect();
-    assert_eq!(
-        overlays,
-        vec![([0.0, 0.0, 1280.0, 720.0], super::theme::OVERLAY_SCREEN)]
-    );
-    let preview = preview.expect("desktop Pause includes the interactive character");
+        .find(|(_, color)| *color == [0, 0, 0, 128])
+        .unwrap()
+        .0;
+    for action in [
+        MenuAction::PauseResume,
+        MenuAction::PauseSettings,
+        MenuAction::PauseDisconnect,
+    ] {
+        let bounds = hits.iter().find(|(found, _)| *found == action).unwrap().1;
+        assert!(bounds.min().x() >= shade[0] && bounds.max().x() <= shade[2]);
+    }
+    assert!(preview.control[0] > shade[2]);
     let wardrobe = hits
         .iter()
         .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
         .unwrap()
         .1;
-    assert!(preview.control[1] < preview.control[3]);
     assert!(preview.control[3] < wardrobe.min().y());
-    assert!(preview.control[0] >= wardrobe.min().x());
-    assert!(preview.control[2] <= wardrobe.max().x());
-}
-
-#[test]
-fn pause_card_has_no_green_stripe_above_the_logo() {
-    let view = MenuView::new(true, "Fixture".into());
-    let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-        super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
-    });
-    let resume = hits
-        .iter()
-        .find(|(action, _)| *action == MenuAction::PauseResume)
-        .unwrap()
-        .1;
-    for (bounds, color) in super::test_support::solids(&nodes) {
-        if color == super::theme::PRIMARY_ROLE.fill {
-            assert!(
-                bounds[1] >= resume.min().y() && bounds[3] <= resume.max().y(),
-                "green belongs to the Resume action, not the card edge"
-            );
-        }
-    }
-}
-
-#[test]
-fn pause_resume_follows_its_caption_without_a_large_empty_gap() {
-    let view = MenuView::new(true, "Fixture".into());
-    let mut rem = 0.0;
-    let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-        rem = canvas.rem;
-        super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
-    });
-    let caption = nodes.iter().find(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. }
-        if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "Pick up where you left off."
-    )).unwrap().bounds();
-    let resume = hits
-        .iter()
-        .find(|(action, _)| *action == MenuAction::PauseResume)
-        .unwrap()
-        .1;
-    let gap = resume.min().y() - caption.max().y();
-    assert!(
-        gap >= 0.0 && gap <= rem * 2.4,
-        "caption-to-action gap: {gap}"
-    );
-}
-
-#[test]
-fn pause_actions_align_with_the_character_footer_and_logo_has_extra_top_space() {
-    let view = MenuView::new(true, "Fixture".into());
-    let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-        canvas.title_artwork = Some(ui::IconRef {
-            page: 1,
-            uv: [0, 0, 300, 100],
-            glint: false,
-        });
-        super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
-    });
-    let bounds = |action| hits.iter().find(|(found, _)| *found == action).unwrap().1;
-    let leave = bounds(MenuAction::PauseDisconnect);
-    let wardrobe = bounds(MenuAction::Navigate(MenuScreen::DressingRoom));
-    assert!(
-        (leave.max().y() - wardrobe.max().y()).abs() < 0.01,
-        "the menu and character actions share the panel's bottom inset"
-    );
-    let heading = nodes.iter().find(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. }
-        if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "YOUR CHARACTER"
-    )).unwrap().bounds();
-    let logo = nodes
-        .iter()
-        .find(|node| {
-            matches!(
-                node.visual(),
-                ui::UiVisual::Sprite {
-                    texture_page: 1,
-                    ..
-                }
-            )
-        })
-        .unwrap()
-        .bounds();
-    assert!(
-        logo.min().y() > heading.min().y(),
-        "the logo has more top breathing room than the text heading"
-    );
 }
 
 #[test]

@@ -1,80 +1,95 @@
-//! Pause keeps full-height actions and a clear character area in short windows.
+//! Pause action geometry remains consistent and reachable across GUI scales.
 
 use super::*;
-use crate::{review_tests::paint, theme::GUI_PIXELS_PER_REM};
+use crate::review_tests::paint;
 use ui_engine::text_metrics::TextMetrics;
 
 #[test]
-fn pause_scales_actions_together_at_the_window_minimum() {
-    for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [480.0, 270.0], [1000.0, 560.0]] {
+fn pause_actions_use_standard_height_and_separators() {
+    for (size, scale) in [([854.0, 460.0], 1), ([1280.0, 700.0], 2)] {
         let metrics = TextMetrics::for_viewport(
-            size.map(|value| value as u32),
+            size.map(|v| v as u32),
             ui::DpiScale::new(1.0).unwrap(),
-            Some(2),
+            Some(scale),
         );
-        let rem = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32 * GUI_PIXELS_PER_REM;
-        let view = MenuView::new(true, "Fixture".into());
-        let mut preview = None;
+        let gui = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let (_, hits, _) = paint(Default::default(), |c| {
             c.metrics = metrics;
-            c.rem = rem;
-            c.title_artwork = Some(ui::IconRef {
-                page: 18,
-                uv: [0, 0, 400, 80],
-                glint: false,
-            });
-            preview = draw(c, &view, size, &|_| None).unwrap();
-            assert_eq!(c.rem, rem);
-            assert_eq!(c.metrics.scale, metrics.scale);
+            c.rem = gui * GUI_PIXELS_PER_REM;
+            draw(c, &MenuView::new(true, "Fixture".into()), size, &|_| None).unwrap();
         });
-        let compact = preview.is_none();
-        let margin = (rem * 2.4).min(size[0] * 0.04).min(size[1] * 0.025);
-        let scale = ((size[1] - margin * 2.0) / (rem * minimum_height(compact, true))).min(1.0);
+        let mut previous = None;
         for action in [
             MenuAction::PauseResume,
             MenuAction::PauseSettings,
             MenuAction::PauseDisconnect,
-            MenuAction::Navigate(MenuScreen::DressingRoom),
         ] {
-            let bounds = hits.iter().find(|(found, _)| *found == action).unwrap().1;
-            assert!(
-                (bounds.height() - rem * scale * ACTION_HEIGHT).abs() < 0.001,
-                "{action:?} must share the group scale at {size:?}"
-            );
-            assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
-            assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
-        }
-        if let Some(preview) = preview {
-            assert!(preview.control[3] > preview.control[1]);
-            let wardrobe = hits
-                .iter()
-                .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
-                .unwrap()
-                .1;
-            assert!(preview.control[3] < wardrobe.min().y());
+            let b = hits.iter().find(|(found, _)| *found == action).unwrap().1;
+            assert!((b.height() - 28.0 * gui).abs() < 0.01);
+            if let Some(y) = previous {
+                assert!((b.min().y() - y - 31.0 * gui).abs() < 0.01);
+            }
+            previous = Some(b.min().y());
+            assert!(b.max().x() < size[0] * 0.56);
         }
     }
 }
 
 #[test]
-fn pause_keeps_existing_geometry_at_short_desktop_and_normal_sizes() {
-    let view = MenuView::new(true, "Fixture".into());
-    for size in [[1000.0, 560.0], [1920.0, 1080.0]] {
-        let (_, hits, _) = paint(Default::default(), |c| {
-            c.title_artwork = Some(ui::IconRef {
-                page: 18,
-                uv: [0, 0, 400, 80],
-                glint: false,
+fn every_pause_action_fits_without_overlapping_the_preview() {
+    for size in [
+        ui::MIN_WINDOW_LOGICAL_SIZE,
+        [480.0, 270.0],
+        [480.0, 640.0],
+        [1000.0, 560.0],
+        [1280.0, 720.0],
+    ] {
+        for scale in [1, 2, 4, 8] {
+            let metrics = TextMetrics::for_viewport(
+                size.map(|v| v as u32),
+                ui::DpiScale::new(1.0).unwrap(),
+                Some(scale),
+            );
+            let mut preview = None;
+            let (_, hits, _) = paint(Default::default(), |c| {
+                c.metrics = metrics;
+                c.rem =
+                    metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32 * GUI_PIXELS_PER_REM;
+                let rem = c.rem;
+                c.title_artwork = Some(ui::IconRef {
+                    page: 18,
+                    uv: [0, 0, 300, 100],
+                    glint: false,
+                });
+                preview = draw(c, &MenuView::new(true, "Fixture".into()), size, &|_| None).unwrap();
+                assert_eq!(c.rem, rem);
+                assert_eq!(c.metrics.scale, metrics.scale);
             });
-            draw(c, &view, size, &|_| None).unwrap();
-        });
-        let resume = hits
-            .iter()
-            .find(|(action, _)| *action == MenuAction::PauseResume)
-            .unwrap()
-            .1;
-        assert!((resume.min().x() - ((size[0] - 780.0) * 0.5 + 24.0)).abs() < 0.001);
-        assert!((resume.min().y() - ((size[1] - 496.0) * 0.5 + 296.0)).abs() < 0.001);
-        assert!((resume.height() - 48.0).abs() < 0.001);
+            assert_eq!(hits.len(), 4);
+            for (i, (_, b)) in hits.iter().enumerate() {
+                assert!(
+                    b.min().x() >= 0.0 && b.max().x() <= size[0] + 0.01,
+                    "{size:?} {b:?}"
+                );
+                assert!(b.min().y() >= 0.0 && b.max().y() <= size[1] + 0.01);
+                for (_, other) in &hits[i + 1..] {
+                    assert!(
+                        b.max().x() <= other.min().x()
+                            || other.max().x() <= b.min().x()
+                            || b.max().y() <= other.min().y()
+                            || other.max().y() <= b.min().y()
+                    );
+                }
+            }
+            if let Some(p) = preview {
+                assert!(p.control[3] > p.control[1]);
+                let wardrobe = hits
+                    .iter()
+                    .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
+                    .unwrap()
+                    .1;
+                assert!(p.control[3] < wardrobe.min().y());
+            }
+        }
     }
 }

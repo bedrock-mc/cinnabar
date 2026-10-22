@@ -1,178 +1,127 @@
+//! Pause keeps its action column separate from the player preview.
+
 use super::{
     CharacterPreview,
     paint::Canvas,
-    theme::{CAPTION, HEADER5, TEXT, TEXT_DIMMER},
+    theme::{CAPTION, GUI_PIXELS_PER_REM, TEXT},
     widgets::{self, Variant},
 };
 use launcher::menu::{MenuAction, MenuScreen, MenuView};
-use ui_engine::engine::screen::PaintError;
-use ui_engine::engine::screen::Translate;
+use ui_engine::engine::screen::{PaintError, Translate};
 
 #[cfg(test)]
 mod tests;
 
-const ACTION_HEIGHT: f32 = 4.8;
-const ACTION_GAP: f32 = 1.2;
-const COMPACT_PADDING: f32 = 1.6;
-const VERTICAL_PADDING: f32 = 3.2;
-const LOGO_TOP_GAP: f32 = 0.8;
-const LOGO_HEIGHT: f32 = 8.8;
-const LOGO_BOTTOM_GAP: f32 = 2.0;
-const HEADING_HEIGHT: f32 = HEADER5.line + 0.8;
-const CAPTION_HEIGHT: f32 = CAPTION.line + 1.6;
+const ACTION_HEIGHT: f32 = 28.0;
+const ACTION_GAP: f32 = 3.0;
+const PANEL_EXPANSION: f32 = 1.13;
+const LEFT_PANEL_FRACTION: f32 = 0.55;
+const MENU_FRACTION: f32 = 0.6;
+const MENU_OFFSET: f32 = 0.13;
 
-/// The compact card includes the wardrobe among its actions.
-fn action_count(compact: bool) -> f32 {
-    if compact { 4.0 } else { 3.0 }
-}
-
-/// The space needed for the heading, full-height actions and optional title art, in rem.
-fn minimum_height(compact: bool, title: bool) -> f32 {
-    let count = action_count(compact);
-    let padding = if compact {
-        COMPACT_PADDING
-    } else {
-        VERTICAL_PADDING
-    };
-    let logo = if !compact && title {
-        LOGO_TOP_GAP + LOGO_HEIGHT + LOGO_BOTTOM_GAP
-    } else {
-        0.0
-    };
-    padding * 2.0
-        + logo
-        + HEADING_HEIGHT
-        + CAPTION_HEIGHT
-        + ACTION_HEIGHT * count
-        + ACTION_GAP * (count - 1.0)
-}
-
-/// A uniform world overlay frames the actions and the interactive character together.
+/// Draws the supported pause actions at a common GUI scale, fitting small windows as a group.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
 ) -> Result<Option<CharacterPreview>, PaintError> {
-    let margin = canvas.r(2.4).min(size[0] * 0.04).min(size[1] * 0.025);
-    let width = canvas.r(78.0).min(size[0] - margin * 2.0);
-    let compact = width < canvas.r(58.0) || size[1] < canvas.r(44.0);
-    let minimum = minimum_height(compact, canvas.title_artwork.is_some());
-    let scale = ((size[1] - margin * 2.0) / canvas.r(minimum)).min(1.0);
+    let gui = canvas.rem / GUI_PIXELS_PER_REM;
+    let compact = size[0] < gui * 360.0 || size[1] < gui * 230.0;
+    let count = if compact { 4.0 } else { 3.0 };
+    let width = if compact {
+        (size[0] - gui * 8.0).min(gui * 148.0)
+    } else {
+        size[0] * PANEL_EXPANSION * LEFT_PANEL_FRACTION * MENU_FRACTION - gui * 10.0
+    };
+    let ratio = canvas.title_artwork.map_or(5.0, |icon| {
+        f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1))
+    });
+    let title = width / ratio;
+    let required = title + gui * (4.0 + count * ACTION_HEIGHT + (count - 1.0) * ACTION_GAP + 16.0);
+    let scale = ((size[1] - gui * 4.0).max(1.0) / required).min(1.0);
     canvas.with_scale(scale, |canvas| {
-        draw_layout(canvas, view, size, translate, margin, compact, minimum)
+        draw_layout(canvas, view, size, translate, compact, width * scale, ratio)
     })
 }
 
-/// Draws the pause group with its original layout and a shared geometry and text scale.
+/// Paints a centered action stack inside the left-side shade and a separate wardrobe.
 fn draw_layout(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-    margin: f32,
     compact: bool,
-    minimum: f32,
+    width: f32,
+    title_ratio: f32,
 ) -> Result<Option<CharacterPreview>, PaintError> {
-    widgets::screen_overlay(canvas, size)?;
-    let width = canvas.r(78.0).min(size[0] - margin * 2.0);
-    let pad = canvas.r(if compact { COMPACT_PADDING } else { 2.4 });
-    let vertical_pad = if compact {
-        pad
+    let gui = canvas.rem / GUI_PIXELS_PER_REM;
+    let left = (1.0 - PANEL_EXPANSION) * size[0] * 0.5;
+    let panel_width = size[0] * PANEL_EXPANSION * LEFT_PANEL_FRACTION;
+    let center = if compact {
+        size[0] * 0.5
     } else {
-        canvas.r(VERTICAL_PADDING)
+        left + panel_width * (0.5 + MENU_FRACTION * MENU_OFFSET)
     };
-    let gap = canvas.r(ACTION_GAP);
-    let action_height = canvas.r(ACTION_HEIGHT);
-    let height = canvas
-        .r(if compact { 32.0 } else { 49.6 })
-        .min(size[1] - margin * 2.0)
-        .max(canvas.r(minimum));
-    let left = (size[0] - width) * 0.5;
-    let top = (size[1] - height) * 0.5;
-    let bottom = top + height;
-    let action_right = if compact {
-        left + width
-    } else {
-        left + width * 0.54
-    };
-    widgets::panel(canvas, [left, top, action_right, bottom])?;
-    let x = left + pad;
-    let right = action_right - pad;
-    let mut y = top + vertical_pad;
-    if !compact && let Some(icon) = canvas.title_artwork {
-        y += canvas.r(LOGO_TOP_GAP);
-        let box_height = canvas.r(LOGO_HEIGHT);
-        let ratio =
-            f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1));
-        let art_width = (box_height * ratio).min(right - x);
-        let art_height = art_width / ratio;
-        let art_left = (x + right - art_width) * 0.5;
-        canvas.icon_ref(
-            icon,
-            [
-                art_left,
-                y + (box_height - art_height) * 0.5,
-                art_left + art_width,
-                y + (box_height + art_height) * 0.5,
-            ],
-        )?;
-        y += box_height + canvas.r(LOGO_BOTTOM_GAP);
-    }
-    let count = action_count(compact);
-    let heading_height = canvas.r(HEADING_HEIGHT);
-    let caption_height = canvas.r(CAPTION_HEIGHT);
-    if !compact {
-        let group_height =
-            heading_height + caption_height + action_height * count + gap * (count - 1.0);
-        y = y.max(bottom - vertical_pad - group_height);
-    }
-    canvas.text_line("GAME MENU", [x, y], right - x, HEADER5, TEXT)?;
-    y += heading_height;
-    canvas.text_line(
-        if view.updates.ready.is_some() {
-            "Update ready"
-        } else {
-            "Pick up where you left off."
-        },
-        [x, y],
-        right - x,
-        CAPTION,
-        TEXT_DIMMER,
+    canvas.overlay(size, [0, 0, 0, 26])?;
+    canvas.fill(
+        [
+            0.0,
+            0.0,
+            if compact { size[0] } else { left + panel_width },
+            size[1],
+        ],
+        [0, 0, 0, 128],
     )?;
-    let button_height = action_height
-        .min((bottom - vertical_pad - y - caption_height - gap * (count - 1.0)) / count);
-    y += caption_height;
-    for (label, variant, action) in [
-        ("Resume game", Variant::Hero, MenuAction::PauseResume),
-        ("Settings", Variant::Secondary, MenuAction::PauseSettings),
+    let count = if compact { 4.0 } else { 3.0 };
+    let title_height = width / title_ratio;
+    let height = title_height + gui * (4.0 + count * ACTION_HEIGHT + (count - 1.0) * ACTION_GAP);
+    let x = center - width * 0.5;
+    let right = center + width * 0.5;
+    let mut y = (size[1] - height) * 0.5;
+    let logo = [x, y, right, y + title_height];
+    if let Some(icon) = canvas.title_artwork {
+        canvas.icon_ref(icon, logo)?;
+    } else {
+        canvas.text_centred(
+            launcher::PRODUCT_NAME,
+            logo,
+            super::theme::HEADER3,
+            TEXT,
+            false,
+        )?;
+    }
+    y += title_height + gui * 4.0;
+    for (label, action) in [
+        ("Resume Game", MenuAction::PauseResume),
+        ("Settings", MenuAction::PauseSettings),
     ] {
         widgets::button(
             canvas,
             view,
-            [x, y, right, y + button_height],
-            variant,
+            [x, y, right, y + gui * ACTION_HEIGHT],
+            Variant::Secondary,
             label,
             Some(action),
         )?;
-        y += button_height + gap;
+        y += gui * (ACTION_HEIGHT + ACTION_GAP);
     }
     if compact {
         widgets::button(
             canvas,
             view,
-            [x, y, right, y + button_height],
-            Variant::Neutral,
+            [x, y, right, y + gui * ACTION_HEIGHT],
+            Variant::Secondary,
             "Dressing Room",
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
         )?;
-        y += button_height + gap;
+        y += gui * (ACTION_HEIGHT + ACTION_GAP);
     }
     let quit = translate("pauseScreen.quit").unwrap_or_else(|| "Save & Quit".into());
     widgets::button(
         canvas,
         view,
-        [x, y, right, y + button_height],
+        [x, y, right, y + gui * ACTION_HEIGHT],
         Variant::Neutral,
         &quit,
         Some(MenuAction::PauseDisconnect),
@@ -180,46 +129,28 @@ fn draw_layout(
     if compact {
         return Ok(None);
     }
-    let character = [action_right + canvas.r(1.6), top, left + width, bottom];
-    widgets::panel(canvas, character)?;
-    let cx = character[0] + pad;
-    let cr = character[2] - pad;
-    canvas.text_line(
-        "YOUR CHARACTER",
-        [cx, top + vertical_pad],
-        cr - cx,
-        HEADER5,
-        TEXT,
-    )?;
-    canvas.text_line(
+    let center = size[0] * 0.81;
+    let width = gui * 80.0;
+    let top = size[1] * 0.33;
+    let bottom = size[1] * 0.72;
+    let x = center - width * 0.5;
+    let right = center + width * 0.5;
+    canvas.text_centred(
         launcher::menu::profile::current_name(view),
-        [cx, top + vertical_pad + heading_height],
-        cr - cx,
+        [x, top - gui * 12.0, right, top - gui * 2.0],
         CAPTION,
-        TEXT_DIMMER,
+        TEXT,
+        false,
     )?;
-    let footer_top = bottom - vertical_pad - action_height;
     widgets::button(
         canvas,
         view,
-        [cx, footer_top, cr, bottom - vertical_pad],
+        [x, bottom, right, bottom + gui * 24.0],
         Variant::Secondary,
         "Dressing Room",
         Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
     )?;
-    let hint = [
-        cx,
-        footer_top - canvas.r(3.6),
-        cr,
-        footer_top - canvas.r(1.2),
-    ];
-    canvas.text_centred("Drag to rotate", hint, CAPTION, TEXT_DIMMER, false)?;
-    let preview = [
-        cx,
-        top + vertical_pad + canvas.r(7.2),
-        cr,
-        hint[1] - canvas.r(0.8),
-    ];
+    let preview = [x, top, right, bottom - gui * 6.0];
     Ok(Some(CharacterPreview {
         control: preview,
         clip: preview,

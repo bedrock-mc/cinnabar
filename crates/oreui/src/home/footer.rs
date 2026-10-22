@@ -9,6 +9,20 @@ use {
     ui::IconRef,
 };
 
+const HEIGHT: f32 = 4.8;
+const GAP: f32 = 1.2;
+const WIDTHS: [f32; 4] = [20.0, 14.0, 16.0, 8.0];
+
+/// Returns the natural utility row width and the height of its selected wrapping.
+pub(super) fn size(rem: f32, compact: bool) -> [f32; 2] {
+    let width = WIDTHS.iter().sum::<f32>() + GAP * (WIDTHS.len() - 1) as f32;
+    let rows = if compact { WIDTHS.len().div_ceil(2) } else { 1 };
+    [
+        rem * width,
+        rem * (HEIGHT * rows as f32 + GAP * (rows - 1) as f32),
+    ]
+}
+
 /// Draws account and utility controls with their original widths and compact wrapping.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -18,9 +32,9 @@ pub(super) fn draw(
     portrait: Option<IconRef>,
 ) -> Result<(), PaintError> {
     let region = canvas.begin_focus_region(focus::HEADER, b, None, true)?;
-    let gap = canvas.r(1.2);
-    let height = canvas.r(4.8);
-    let widths = [20.0, 14.0, 16.0, 8.0];
+    let gap = canvas.r(GAP);
+    let height = canvas.r(HEIGHT);
+    let widths = WIDTHS;
     let total = widths.iter().sum::<f32>();
     let gaps = gap * (widths.len() - 1) as f32;
     let row_width = (canvas.r(total) + gaps).min(b[2] - b[0]);
