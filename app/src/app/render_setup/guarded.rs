@@ -23,13 +23,13 @@ use bevy::{
         settings::{RenderCreation, WgpuSettings},
     },
 };
-use launcher::graphics_backend::{Backend, Platform, candidates, default_order};
+use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
 
 #[derive(Resource)]
 struct RendererGuard(StartupGuard);
 
-/// Applies explicit overrides, vendor defaults and crash recovery before device creation.
+/// Applies explicit overrides, platform defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
@@ -49,19 +49,11 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let defaults = guard
-        .recovery
-        .working
-        .as_ref()
-        .and_then(|attempt| attempt.adapter.as_ref())
-        .map_or_else(
-            || platform.backends().to_vec(),
-            |adapter| default_order(platform, adapter),
-        );
+    let defaults = platform.backends();
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
-    let automatic = candidates(&defaults, &supported, None, None, &[]);
+    let automatic = candidates(defaults, &supported, None, None, &[]);
     let ((creation, chosen), fallback) = with_video_fallback(
         environment.is_some(),
         video,
@@ -70,7 +62,7 @@ pub(super) fn render_plugin(
         |video, excluded| {
             let explicit = environment.is_some() || video.is_some();
             let allowed = candidates(
-                &defaults,
+                defaults,
                 &supported,
                 environment.as_deref(),
                 video,

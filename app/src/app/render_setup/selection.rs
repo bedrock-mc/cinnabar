@@ -1,7 +1,7 @@
 //! Probes APIs separately, ranks eligible adapters, and exhausts device candidates.
 
 use anyhow::{Context, Result, bail};
-use launcher::graphics_backend::{Adapter, Backend, Platform, blocklist, default_order};
+use launcher::graphics_backend::{Adapter, Backend, Platform, blocklist};
 use launcher_host::renderer_startup::{Attempt, Stage, StartupGuard};
 
 use super::device::log;
@@ -160,14 +160,14 @@ fn device_rank(kind: wgpu::DeviceType, preference: wgpu::PowerPreference) -> u8 
     }
 }
 
-/// Ranks device types by power preference, then uses the vendor's default backend order.
+/// Ranks device types by power preference, then uses the platform's default backend order.
 pub(super) fn rank<T>(
     candidates: &mut [Candidate<T>],
     platform: Platform,
     preference: wgpu::PowerPreference,
 ) {
+    let order = platform.backends();
     candidates.sort_by_key(|candidate| {
-        let order = default_order(platform, &candidate.identity);
         (
             device_rank(candidate.device_type, preference),
             order

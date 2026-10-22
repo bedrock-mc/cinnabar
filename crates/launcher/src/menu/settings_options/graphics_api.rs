@@ -127,8 +127,26 @@ mod tests {
                 .filter(|&choice| visible(choice, platform))
                 .filter_map(backend)
                 .collect();
-            assert_eq!(offered, platform.backends());
+            // Menu order follows the fixed saved indices, not the platform's startup order.
+            assert_eq!(offered.len(), platform.backends().len(), "{platform:?}");
+            assert!(
+                platform.backends().iter().all(|api| offered.contains(api)),
+                "{platform:?}"
+            );
         }
+    }
+
+    #[test]
+    fn saved_indices_keep_their_api_independent_of_platform_order() {
+        assert_eq!(
+            (0..CHOICES.len()).map(backend).collect::<Vec<_>>(),
+            [
+                None,
+                Some(Backend::Vulkan),
+                Some(Backend::Dx12),
+                Some(Backend::Metal)
+            ]
+        );
     }
 
     #[test]
