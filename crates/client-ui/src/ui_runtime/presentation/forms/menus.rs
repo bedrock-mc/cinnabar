@@ -245,6 +245,7 @@ impl UiPresentationRuntime {
                     launcher::menu::MenuField::WorldName
                     | launcher::menu::MenuField::WorldSeed
                     | launcher::menu::MenuField::FriendQuery
+                    | launcher::menu::MenuField::SettingsQuery
                     | launcher::menu::MenuField::SkinName
                     | launcher::menu::MenuField::RealmCode
                     | launcher::menu::MenuField::MacroCommand(_) => {

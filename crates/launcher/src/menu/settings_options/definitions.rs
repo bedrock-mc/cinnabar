@@ -506,9 +506,9 @@ settings! {
     UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
         [(SettingPanel::Updates, 0)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
-        [(SettingPanel::GeneralNetwork, 4)], [], None, None;
+        [(SettingPanel::ModUpdates, 0)], [], None, None;
     ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),
-        [(SettingPanel::GeneralNetwork, 5)], [], None, None;
+        [(SettingPanel::ModUpdates, 1)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),
@@ -600,7 +600,7 @@ settings! {
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
-        [], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),

@@ -394,6 +394,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::IsInLava => truth(actor.fluid().is_some_and(|(_, lava)| lava)),
         Q::ArmorTextureSlot => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
         Q::ArmorColorSlot => armor_color_slot(context, argument(0), argument(1)),
+        Q::EquipmentCount => f32::from(context.equipment_count),
         Q::HasArmorSlot => truth(match arguments {
             [slot] => {
                 let slot = slot.number().floor();

@@ -67,7 +67,9 @@ impl PlayerInventoryLedger {
 
     pub(super) fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
         Some(match slot.container {
-            StackRequestContainer::PlayerInventory => Cell::Inventory(slot.slot),
+            StackRequestContainer::PlayerInventory | StackRequestContainer::CombinedInventory => {
+                Cell::Inventory(slot.slot)
+            }
             StackRequestContainer::Cursor => Cell::Cursor,
             StackRequestContainer::Armor => Cell::Armor(slot.slot),
             StackRequestContainer::Offhand => Cell::Offhand,
@@ -128,6 +130,17 @@ pub(super) const fn valid_storage_window_id(window_id: i32) -> bool {
 pub(crate) struct WindowAddress {
     pub(super) identity: ContainerIdentity,
     pub(super) kind: protocol::WindowKind,
+}
+
+/// `request_slot` for a player cell under the combined hotbar-and-inventory name.
+pub(super) fn combined_request_slot(
+    slot: u8,
+    stack_network_id: i32,
+) -> Result<StackRequestSlot, InventoryGestureError> {
+    request_slot(Cell::Inventory(slot), stack_network_id, None).map(|slot| StackRequestSlot {
+        container: StackRequestContainer::CombinedInventory,
+        ..slot
+    })
 }
 
 pub(super) fn request_slot(

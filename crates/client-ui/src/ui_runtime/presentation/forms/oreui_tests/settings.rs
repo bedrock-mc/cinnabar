@@ -339,3 +339,58 @@ fn settings_scale_choices_do_not_publish_slider_capture_geometry() {
     }
     assert_eq!(presentation.gui_scale_slider_track(), None);
 }
+
+/// Query edits reset result scrolling without moving the fixed editor.
+#[test]
+fn settings_search_resets_result_scrolling_on_each_query_change() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = settings_view("accessibility_forced_index");
+    view.settings_query = "volume".to_owned();
+    view.field = Some(launcher::menu::MenuField::SettingsQuery);
+    view.focused_action = Some(MenuAction::SearchSettings);
+    let size = [1280.0, 720.0];
+    presentation.menu_scrolls.clear_areas();
+    present(&mut presentation, &view, size);
+    let field = presentation
+        .menu_hit_targets
+        .iter()
+        .find_map(|(action, bounds)| (*action == MenuAction::SearchSettings).then_some(*bounds))
+        .unwrap();
+    let result = presentation
+        .menu_hit_targets
+        .iter()
+        .find_map(|(action, bounds)| {
+            matches!(action, MenuAction::SettingsOption(..)).then_some(*bounds)
+        })
+        .unwrap();
+    assert!(field.max().y() <= result.min().y());
+    assert!(presentation.scroll_menu(centre(result), -1000.0, false));
+    presentation.menu_seconds += 0.2;
+    presentation.menu_scrolls.clear_areas();
+    present(&mut presentation, &view, size);
+    assert!(
+        presentation
+            .menu_scrolls
+            .offsets()
+            .values()
+            .any(|offset| *offset > 0.0)
+    );
+    view.settings_query = "audio".to_owned();
+    for _ in 0..2 {
+        presentation.menu_scrolls.clear_areas();
+        present(&mut presentation, &view, size);
+        assert!(
+            presentation
+                .menu_scrolls
+                .offsets()
+                .values()
+                .all(|offset| *offset == 0.0)
+        );
+        let current = presentation
+            .menu_hit_targets
+            .iter()
+            .find_map(|(action, bounds)| (*action == MenuAction::SearchSettings).then_some(*bounds))
+            .unwrap();
+        assert_eq!(field, current);
+    }
+}

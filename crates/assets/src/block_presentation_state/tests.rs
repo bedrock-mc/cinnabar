@@ -40,6 +40,7 @@ fn admitted_registry_covers_every_portal_and_crafter_state_in_both_id_spaces() {
                         _ => PortalAxis::Unknown,
                     }),
                     crafter_triggered: None,
+                    beacon_base: false,
                 }
             }
             "minecraft:crafter" => {
@@ -49,6 +50,7 @@ fn admitted_registry_covers_every_portal_and_crafter_state_in_both_id_spaces() {
                         source["triggered_bit"]["value"].as_u64().unwrap() != 0,
                     ),
                     portal_axis: None,
+                    beacon_base: false,
                 }
             }
             _ => continue,
@@ -133,4 +135,28 @@ fn admitted_portal_axis_lookup_allocates_nothing() {
     println!(
         "portal state allocations: parse={old_allocations}, admitted lookup={new_allocations}"
     );
+}
+
+#[test]
+fn every_beacon_base_block_is_admitted_in_both_id_spaces_and_nothing_else_is() {
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let admitted = BlockPresentationStates::from_records(&records);
+    let mut seen = std::collections::BTreeSet::new();
+    for record in records.iter() {
+        let base = BEACON_BASE_BLOCKS.contains(&record.name.as_ref());
+        if base {
+            seen.insert(record.name.to_string());
+        }
+        for (mode, id) in [
+            (NetworkIdMode::Sequential, record.sequential_id),
+            (NetworkIdMode::Hashed, record.network_hash),
+        ] {
+            assert_eq!(admitted.get(mode, id).beacon_base, base, "{}", record.name);
+        }
+    }
+    assert_eq!(seen.len(), BEACON_BASE_BLOCKS.len());
 }

@@ -21,6 +21,7 @@ use render_model::{
 mod alpha;
 mod attack;
 mod block_items;
+mod body;
 mod camera;
 mod combat;
 mod diagnostics;
@@ -146,6 +147,8 @@ pub struct EquipmentRuntime {
     java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
     /// Render-controller models queued beyond the scene's binding geometries.
     selected_geometries: std::collections::BTreeSet<EntityRigId>,
+    /// Startup equipment meshes returned to the scene for registration.
+    startup_geometries: std::collections::BTreeSet<EntityRigId>,
     /// The strip frame each held dial (compass or clock) shows this frame.
     dial_frames: inventory::DialFrames,
 }
@@ -288,6 +291,7 @@ impl EquipmentRuntime {
             native_meshes: BTreeMap::new(),
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
+            startup_geometries: geometries.iter().copied().map(equipment_rig_id).collect(),
             dial_frames: Default::default(),
             external_armor: external_armor::ExternalArmor::new(catalog.as_deref()),
             assets,
@@ -531,6 +535,11 @@ impl EquipmentRuntime {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }
             }
+        }
+        if let Some(animation) = animation
+            && let Some(item) = &input.body
+        {
+            self.push_body(body, item, input, animation, layers);
         }
         wearing_elytra
     }

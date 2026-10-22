@@ -421,28 +421,35 @@ fn contains(outer: UiRect, inner: UiRect) -> bool {
 
 #[test]
 fn settings_scrolling_never_publishes_offscreen_or_cross_panel_hits() {
-    let view = settings_view("accessibility_forced_index");
-    for size in [[640.0, 360.0], [1280.0, 720.0], [2560.0, 1440.0]] {
-        let initial = paint(&view, size, HashMap::new());
-        let offsets = initial
-            .areas
-            .iter()
-            .map(|area| (area.key.clone(), area.max))
-            .collect();
-        for frame in [initial, paint(&view, size, offsets)] {
-            let window = ui_engine::engine::rect(0.0, 0.0, size[0], size[1]).unwrap();
-            let (side, content) = (panel(&frame, true), panel(&frame, false));
-            assert!(contains(window, side.viewport));
-            assert!(contains(window, content.viewport));
-            assert!(side.viewport.max().x() <= content.viewport.min().x());
-            for (action, bounds) in &frame.hits {
-                assert!(contains(window, *bounds), "{size:?}: {action:?}");
-                match action {
-                    MenuAction::SettingsSection(_) => assert!(contains(side.viewport, *bounds)),
-                    MenuAction::AddBack => {}
-                    _ => assert!(contains(content.viewport, *bounds), "{size:?}: {action:?}"),
+    let mut view = settings_view("accessibility_forced_index");
+    for query in ["", "vsync"] {
+        view.settings_query = query.to_owned();
+        for size in [[640.0, 360.0], [1280.0, 720.0], [2560.0, 1440.0]] {
+            let initial = paint(&view, size, HashMap::new());
+            let offsets = initial
+                .areas
+                .iter()
+                .map(|area| (area.key.clone(), area.max))
+                .collect();
+            for frame in [initial, paint(&view, size, offsets)] {
+                let window = ui_engine::engine::rect(0.0, 0.0, size[0], size[1]).unwrap();
+                let (side, content) = (panel(&frame, true), panel(&frame, false));
+                assert!(contains(window, side.viewport));
+                assert!(contains(window, content.viewport));
+                assert!(side.viewport.max().x() <= content.viewport.min().x());
+                for (action, bounds) in &frame.hits {
+                    assert!(contains(window, *bounds), "{size:?}: {action:?}");
+                    match action {
+                        MenuAction::SettingsSection(_) => assert!(contains(side.viewport, *bounds)),
+                        MenuAction::SearchSettings | MenuAction::ClearSettingsSearch => {
+                            assert!(bounds.max().y() <= side.viewport.min().y());
+                            assert!(bounds.max().y() <= content.viewport.min().y());
+                        }
+                        MenuAction::AddBack => {}
+                        _ => assert!(contains(content.viewport, *bounds), "{size:?}: {action:?}"),
+                    }
+                    assert_eq!(hit(&frame.hits, centre(*bounds)), Some(*action));
                 }
-                assert_eq!(hit(&frame.hits, centre(*bounds)), Some(*action));
             }
         }
     }
