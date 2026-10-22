@@ -273,7 +273,8 @@ impl PlayerInventoryLedger {
                     ..
                 }
         );
-        let (preview, predicted_set) = match craft {
+        // `materialized`: the predicted stack carries the result's real item data, so it may merge.
+        let (preview, predicted_set, materialized) = match craft {
             ScreenCraft::Predicted { output, .. } | ScreenCraft::Cartography { output, .. } => {
                 if self.negotiated_item_entry(output.network_id).is_none() {
                     return Err(InventoryGestureError::InvalidRequest);
@@ -299,7 +300,10 @@ impl PlayerInventoryLedger {
                     overlay: None,
                     acknowledged_request_id: None,
                 };
-                (held.clone(), Some(held))
+                // A stonecutter recipe's output is the whole item; other recipe screens carry
+                // their inputs' data.
+                let materialized = kind == WindowKind::Stonecutter;
+                (held.clone(), Some(held), materialized)
             }
             ScreenCraft::Anvil {
                 output: Some(output),
@@ -316,7 +320,7 @@ impl PlayerInventoryLedger {
                     overlay: None,
                     acknowledged_request_id: None,
                 };
-                (held.clone(), Some(held))
+                (held.clone(), Some(held), true)
             }
             // The loom's patterned banner has no client-side form; the copy
             // stands in until the server restates the cursor.
@@ -341,7 +345,7 @@ impl PlayerInventoryLedger {
                     overlay: None,
                     acknowledged_request_id: None,
                 };
-                (held.clone(), Some(held))
+                (held.clone(), Some(held), false)
             }
             _ => {
                 let preview = self
@@ -352,7 +356,7 @@ impl PlayerInventoryLedger {
                 if preview.stack.stack_network_id <= 0 {
                     return Err(InventoryGestureError::AwaitingIdentity);
                 }
-                (preview, None)
+                (preview, None, true)
             }
         };
         let entry = self
@@ -494,12 +498,7 @@ impl PlayerInventoryLedger {
         } else {
             let capacity = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
             let plan = self
-                // The loom's banner stands in without its pattern, so it may not merge.
-                .spread_plan(
-                    &preview.stack,
-                    capacity,
-                    matches!(craft, ScreenCraft::Loom { .. }),
-                )
+                .spread_plan(&preview.stack, capacity, !materialized)
                 .ok_or(InventoryGestureError::InvalidRequest)?;
             for (cell, amount, into) in plan {
                 registry_bound_merge |= into.is_some();

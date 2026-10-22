@@ -1037,3 +1037,55 @@ fn shift_taken_loom_results_only_fill_empty_cells() {
     assert_eq!((destination.slot, destination.stack_network_id), (1, 0));
     assert_eq!(ledger.displayed_stack(0).unwrap().count, 3);
 }
+
+/// Recipe predictions that lack the result's item data (a named map) only fill empty cells,
+/// while a stonecutter output, which is the whole item, still joins an equal partial stack.
+#[test]
+fn unmaterialized_recipe_results_only_fill_empty_cells() {
+    for (window_type, input, materialized) in [
+        (protocol::WINDOW_TYPE_CARTOGRAPHY, 12, false),
+        (protocol::WINDOW_TYPE_STONECUTTER, 3, true),
+    ] {
+        let mut ledger = ledger_with(&[(0, stack(90, 3))]);
+        open(&mut ledger, 5, window_type);
+        let name = protocol::ui_slot_container_name(input).unwrap();
+        ledger.apply(&slot_update(
+            named(124, name),
+            u16::from(input),
+            stack(40, 2),
+        ));
+        let output = protocol::RecipeOutput {
+            network_id: 6,
+            aux: 0,
+            count: 1,
+            block_runtime_id: 0,
+            empty_envelope: false,
+        };
+        let craft = if materialized {
+            ScreenCraft::Predicted {
+                recipe_network_id: 9,
+                output,
+            }
+        } else {
+            ScreenCraft::Cartography {
+                recipe_network_id: 9,
+                output,
+                name: Arc::from("Map"),
+            }
+        };
+        ledger
+            .begin_screen_output_into(&craft, CraftSink::Inventory)
+            .unwrap();
+        let Some(StackRequestAction::Place { destination, .. }) =
+            ledger.newest_request().unwrap().actions.last().cloned()
+        else {
+            panic!("the result is placed");
+        };
+        let expected = if materialized { (0, 90) } else { (1, 0) };
+        assert_eq!(
+            (destination.slot, destination.stack_network_id),
+            expected,
+            "window type {window_type}"
+        );
+    }
+}
