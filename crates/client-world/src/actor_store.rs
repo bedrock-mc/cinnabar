@@ -267,13 +267,11 @@ impl ActorSnapshot {
             hitboxes: None,
         };
         snapshot.set_current_pose(pose);
-        // A falling block's spawn position carries its network offset, which its box sets; the
-        // vanilla offset comes off here and `apply_metadata` rebases onto the spawn's box.
-        if snapshot.is_falling_block() {
-            snapshot.shift_poses_y(
-                -snapshot.falling_block_network_offset(),
-                -snapshot.falling_block_network_offset(),
-            );
+        // Falling-block and boat spawn positions carry their network offset, as movement does;
+        // a falling block's box sets it and `apply_metadata` rebases onto the spawn's box.
+        let spawn_offset = snapshot.spawn_network_offset();
+        if spawn_offset != 0.0 {
+            snapshot.shift_poses_y(-spawn_offset, -spawn_offset);
         }
         snapshot.apply_metadata(&spawn.metadata, hitbox_budget);
         snapshot.apply_attributes(&spawn.attributes);
@@ -484,9 +482,9 @@ impl ActorSnapshot {
         self.shift_interpolation_targets_y(network_delta, spawn_delta);
     }
 
-    /// Spawn packets need vertical normalization only for falling-block constructors.
+    /// Spawn packets need vertical normalization only for falling-block and boat constructors.
     fn spawn_network_offset(&self) -> f32 {
-        if self.is_falling_block() {
+        if self.is_falling_block() || self.entity_fact.native_class == NativeEntityClass::Boat {
             self.network_position_offset()
         } else {
             0.0
