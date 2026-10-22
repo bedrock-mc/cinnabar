@@ -7,10 +7,10 @@
 
 use std::{path::Path, sync::Arc};
 
+use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
     RegistryRecord, RuntimeAssets, VisualKind, VisualSupport, read_registry_for_protocol,
-    registry::BlockTraits,
 };
 
 use pack_compile_input::image::decode_texture;
@@ -33,6 +33,10 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
 ];
+
+/// Blocks whose vanilla block shape the item renderer cannot tessellate, so their items show
+/// the carried texture flat: barrier and the light blocks.
+const FLAT_TRAITS: BlockTraits = BlockTraits::INVISIBLE.union(BlockTraits::LIGHT_BLOCK);
 
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
@@ -84,11 +88,10 @@ impl IconBlocks {
             return false;
         };
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
-        FLAT_FAMILIES.contains(&record.model_family)
-            // Barriers and light blocks share a GUI shape the item renderer cannot tessellate.
-            || record
-                .traits
-                .intersects(BlockTraits::INVISIBLE | BlockTraits::LIGHT_BLOCK)
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::LeafLitter
+            || FLAT_FAMILIES.contains(&record.model_family)
+            || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
             || (record.model_family == ModelFamily::Unknown
                 && assets::facts::block_render_fact(&record.name).flat_icon)
@@ -329,48 +332,109 @@ mod tests {
         }
     }
 
+    /// Barrier declares world textures, while light blocks declare only carried ones; both items
+    /// draw that texture flat.
+    #[test]
+    fn barrier_and_light_block_items_draw_their_carried_texture_flat() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("textures")).unwrap();
+        for (path, json) in [
+            (
+                "blocks.json",
+                r#"{"barrier":{"textures":"barrier"},
+                    "light_block_0":{"carried_textures":"light_block_0"},
+                    "light_block_15":{"carried_textures":"light_block_15"},
+                    "stone":{"textures":"stone"}}"#,
+            ),
+            (
+                "textures/terrain_texture.json",
+                r#"{"texture_data":{
+                    "barrier":{"textures":"textures/blocks/barrier"},
+                    "light_block_0":{"textures":"textures/items/light_block_0"},
+                    "light_block_15":{"textures":"textures/items/light_block_15"},
+                    "stone":{"textures":"textures/blocks/stone"}}}"#,
+            ),
+            ("textures/flipbook_textures.json", "[]"),
+        ] {
+            std::fs::write(root.path().join(path), json).unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let flat_textures = |name: &str| {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .map(|record| BlockVisualId(record.sequential_id))
+                .collect();
+            assert!(!states.is_empty(), "{name} is not registered");
+            states
+                .into_iter()
+                .map(|state| {
+                    blocks
+                        .is_flat(&world, state)
+                        .then(|| blocks.texture_path(state))
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        };
+        for (name, texture) in [
+            ("minecraft:barrier", "textures/blocks/barrier"),
+            ("minecraft:light_block_0", "textures/items/light_block_0"),
+            ("minecraft:light_block_15", "textures/items/light_block_15"),
+        ] {
+            assert!(
+                flat_textures(name)
+                    .iter()
+                    .all(|path| path.as_deref() == Some(texture)),
+                "{name} must draw {texture} flat"
+            );
+        }
+        assert!(flat_textures("minecraft:stone").iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn leaf_litter_uses_a_flat_carried_icon_for_every_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::create_dir_all(root.join("textures")).unwrap();
+        std::fs::write(
+            root.join("blocks.json"),
+            r#"{"leaf_litter":{"textures":"ground","carried_textures":"carried"}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("textures/terrain_texture.json"),
+            r#"{"texture_data":{"ground":{"textures":"textures/blocks/litter"},"carried":{"textures":"textures/items/litter"}}}"#).unwrap();
+        std::fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
+        let blocks = IconBlocks::read(root).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let records: Vec<_> = blocks
+            .records
+            .iter()
+            .filter(|record| record.name.as_ref() == "minecraft:leaf_litter")
+            .collect();
+        assert!(!records.is_empty());
+        for record in records {
+            assert!(
+                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
+                "{}",
+                record.canonical_state
+            );
+            assert_eq!(
+                blocks
+                    .texture_path(BlockVisualId(record.sequential_id))
+                    .as_deref(),
+                Some("textures/items/litter")
+            );
+        }
+    }
+
+    /// Writes the block and texture catalogs needed to load icon test fixtures.
     fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
         std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
         std::fs::write(root.join("blocks.json"), blocks).unwrap();
         std::fs::write(root.join("textures/terrain_texture.json"), terrain).unwrap();
         std::fs::write(root.join("textures/flipbook_textures.json"), flipbooks).unwrap();
-    }
-
-    fn record(blocks: &IconBlocks, name: &str) -> BlockVisualId {
-        BlockVisualId(
-            blocks
-                .records
-                .iter()
-                .find(|record| record.name.as_ref() == name)
-                .unwrap()
-                .sequential_id,
-        )
-    }
-
-    /// Light blocks declare only carried textures and barriers have no tessellated GUI shape;
-    /// both draw their art flat.
-    #[test]
-    fn light_blocks_and_barriers_draw_flat_carried_art() {
-        let root = tempfile::tempdir().unwrap();
-        write_pack(
-            root.path(),
-            r#"{"light_block_7":{"carried_textures":"light_block_7"},"barrier":{"textures":"barrier"}}"#,
-            r#"{"texture_data":{"light_block_7":{"textures":"textures/blocks/light_7"},"barrier":{"textures":"textures/blocks/barrier"}}}"#,
-            "[]",
-        );
-        let blocks = IconBlocks::read(root.path()).unwrap();
-        let world = RuntimeAssets::diagnostic();
-        let light = record(&blocks, "minecraft:light_block_7");
-        let barrier = record(&blocks, "minecraft:barrier");
-        assert!(blocks.is_flat(&world, light) && blocks.is_flat(&world, barrier));
-        assert_eq!(
-            blocks.texture_path(light).as_deref(),
-            Some("textures/blocks/light_7")
-        );
-        assert_eq!(
-            blocks.texture_path(barrier).as_deref(),
-            Some("textures/blocks/barrier")
-        );
     }
 
     /// A flat icon shows one frame of a flipbook strip, while other textures keep their size.

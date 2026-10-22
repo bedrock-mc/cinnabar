@@ -41,6 +41,16 @@ impl MenuModifiers {
         }
     }
 
+    /// Current physical modifiers for host-owned layout editing.
+    pub(super) fn field(&self) -> ui::mod_panel::FieldModifiers {
+        ui::mod_panel::FieldModifiers {
+            shift: self.shift(),
+            control: self.0 & 3 != 0,
+            super_key: self.0 & 12 != 0,
+            alt: self.0 & 48 != 0,
+        }
+    }
+
     pub(super) fn shortcut(&self) -> bool {
         self.0 & 0b0000_1111 != 0 && self.0 & 0b0011_0000 == 0
     }

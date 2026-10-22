@@ -218,10 +218,12 @@ pub(super) fn prepare_actor_pipelines(
     let mut ready = true;
     for (camera, msaa, enhanced) in &views {
         has_view = true;
-        ready &= pipeline
-            .prewarm(&cache, *msaa, camera.hdr, enhanced.is_some())
-            .is_some()
-            && pipeline.ready(&cache, *msaa, camera.hdr, enhanced.is_some());
+        for msaa in crate::pipeline_warmup::sample_modes(*msaa) {
+            ready &= pipeline
+                .prewarm(&cache, msaa, camera.hdr, enhanced.is_some())
+                .is_some()
+                && pipeline.ready(&cache, msaa, camera.hdr, enhanced.is_some());
+        }
     }
     readiness.publish(has_view && ready);
 }

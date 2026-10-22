@@ -13,8 +13,10 @@ impl ExternalArmor {
     pub(super) fn new(catalog: Option<&RuntimeEquipmentCatalog>) -> Self {
         let mut items = BTreeMap::<Box<str>, Vec<Box<str>>>::new();
         for binding in catalog.into_iter().flat_map(|catalog| catalog.bindings()) {
-            if matches!(binding.category, EquipmentCategory::Armor { .. })
-                && binding.geometry.resolution == EntityDependencyResolution::External
+            if matches!(
+                binding.category,
+                EquipmentCategory::Armor { .. } | EquipmentCategory::ArmorAndHeld { .. }
+            ) && binding.geometry.resolution == EntityDependencyResolution::External
                 && binding.attachable.is_none()
             {
                 items

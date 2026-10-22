@@ -3327,6 +3327,34 @@
       ]
     },
     {
+      "id": "render-furnace",
+      "fact": "render:Furnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:furnace",
+        "minecraft:blast_furnace",
+        "minecraft:smoker"
+      ]
+    },
+    {
+      "id": "render-lit-furnace",
+      "fact": "render:LitFurnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:lit_furnace",
+        "minecraft:lit_blast_furnace",
+        "minecraft:lit_smoker"
+      ]
+    },
+    {
+      "id": "render-facing-cube",
+      "fact": "render:FacingCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:loom"
+      ]
+    },
+    {
       "id": "render-composter",
       "fact": "render:Composter",
       "status": "provisional",
@@ -3849,6 +3877,14 @@
       "fact": "render:HangingSign",
       "status": "provisional",
       "suffix": "hanging_sign"
+    },
+    {
+      "id": "render-leaf-litter",
+      "fact": "render:LeafLitter",
+      "status": "verified",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
     },
     {
       "id": "flat-icon-lantern",

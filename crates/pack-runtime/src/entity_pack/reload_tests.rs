@@ -211,3 +211,17 @@ fn equal_digests_cannot_share_different_pixel_bytes() {
         shared.equipment.as_ref().unwrap().textures()[0].rgba8
     );
 }
+
+/// A join without packs records no layer listings, yet a later entity pack must recompile.
+#[test]
+fn an_entity_pack_added_to_a_packless_session_recompiles_entities() {
+    let (catalog, cache) = (base_catalog(), EntityCache::default());
+    let packless = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let (_, reads) = resolve(&cache, &packless, &catalog);
+    let added = crate::test_support::stack(&[(
+        "entity/fixture.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor"}}}"#,
+    )]);
+    let previous = resource_pack::PackAdmission::Validated(packless);
+    assert!(crate::reload_diff::Changes::between(&added, Some((&previous, &reads))).entities);
+}

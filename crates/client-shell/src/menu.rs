@@ -100,6 +100,7 @@ pub struct MenuRuntime {
     pressed: Option<MenuAction>,
     pointer_down: bool,
     touch_available: bool,
+    touch_editor_open: bool,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
@@ -757,7 +758,8 @@ impl MenuRuntime {
             | MenuAction::SettingsResetKey(_)
             | MenuAction::SettingsMacroCommand(_)
             | MenuAction::SettingsResetChat
-            | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
+            | MenuAction::SettingsAdvancedGraphics
+            | MenuAction::EditTouchControls) => self.activate_settings(action),
             MenuAction::Respawn => {
                 if self.death_controls_ready() {
                     self.request_respawn();

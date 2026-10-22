@@ -37,7 +37,7 @@ pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
-    item_has_enchantment_list,
+    item_has_enchantment_list, item_id_aux,
 };
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
@@ -45,7 +45,7 @@ pub use nbt_edit::{
     item_custom_name, item_filtered_custom_name, item_has_trim, item_repair_cost,
 };
 pub use shooter::ItemShooter;
-pub use user_data::item_user_data_equal;
+pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 
 /// The single item shape 1.26.40 puts on the wire.
 ///

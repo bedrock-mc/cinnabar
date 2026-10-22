@@ -64,6 +64,7 @@ pub use attachable::{
     compile_textures as compile_equipment_textures,
     compile_textures_for_assets as compile_equipment_textures_for_assets,
     compile_textures_for_assets_with as compile_equipment_textures_for_assets_with,
+    compile_textures_for_assets_with_priorities as compile_equipment_textures_for_assets_with_priorities,
     compile_textures_with as compile_equipment_textures_with, decode_equipment_raster,
 };
 
