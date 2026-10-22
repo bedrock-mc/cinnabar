@@ -2,6 +2,18 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Reads the target's component proof without predicting unknown native interactions.
+    pub fn offered_throwable_use(
+        &self,
+        runtime_id: u64,
+        item: &protocol::VerifiedNetworkItemStack,
+    ) -> assets::entity::offered_use::OfferedUse {
+        self.actor(runtime_id).map_or(
+            assets::entity::offered_use::OfferedUse::Unresolved,
+            |actor| self.actors.offered_throwable_use(actor, item),
+        )
+    }
+
     /// Publishes local placement, reanchoring animation only when presentation changes.
     pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
         self.actors.set_local_presentation_position(

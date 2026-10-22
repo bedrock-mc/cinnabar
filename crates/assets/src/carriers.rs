@@ -196,6 +196,7 @@ pub const ENTITY_FACTS: Carrier = Carrier {
 };
 pub const ENTITY: Carrier = Carrier {
     inputs: &[
+        Input::File(crate::facts::entity::SOURCE_PATH),
         Input::Pack,
         Input::Manifest(VANILLA_MANIFEST),
         Input::File(crate::item::grip::GRIP_INPUT_PATH),
@@ -391,6 +392,7 @@ pub const AUDIO: Carrier = carrier(
 );
 pub const ACTOR: Carrier = Carrier {
     inputs: &[
+        Input::File(crate::facts::entity::SOURCE_PATH),
         Input::Pack,
         Input::Manifest(VANILLA_MANIFEST),
         Input::BehaviorPack,
@@ -417,6 +419,7 @@ pub const AUDIO_BANK: Carrier = Carrier {
 };
 pub const EQUIPMENT: Carrier = Carrier {
     inputs: &[
+        Input::File(crate::facts::entity::SOURCE_PATH),
         Input::Pack,
         Input::Manifest(VANILLA_MANIFEST),
         Input::BehaviorPack,

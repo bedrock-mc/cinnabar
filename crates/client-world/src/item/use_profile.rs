@@ -96,6 +96,15 @@ pub fn resolve_item_use(
 }
 
 impl ItemStateStore {
+    /// Returns an unchanged retail throwable identity; server component behavior stays unresolved.
+    pub(crate) fn retail_throwable_identifier(&self, network_id: i32) -> Option<&str> {
+        let record = self.registry.get(&network_id)?;
+        (!record.component_based
+            && self.facts.retail_id(network_id).is_some()
+            && self.item_use_profile(network_id).kind == Some(assets::item_use::ItemUseKind::Throw))
+        .then_some(record.identifier.as_ref())
+    }
+
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
         self.presentation_generation = Arc::new(());

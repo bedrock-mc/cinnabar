@@ -376,6 +376,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
+  Actor-use transactions precede throwable use when verified component and held-item
+  facts rule out every possible offering. Unresolved native resolvers, behavior sources,
+  component groups and callback state retain conservative interaction handling.
+  Complete native resolver coverage, filter/property and item-tag conditions, dynamic
+  group activation, ride eligibility metadata and matched in-world interaction acceptance
+  remain incomplete; this scoped throwable correction closes no interaction gate.
   Block-item purchases await an authoritative result preview to retain its block identity.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
   explicit server fuel declarations keep priority. Named station responses retain

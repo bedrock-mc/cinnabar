@@ -32,6 +32,8 @@ impl ActorStore {
                 &entry.base_identifier
             };
             let mut fact = EntityFacts::pinned().get(base);
+            // A declared base does not verify a custom actor's interaction resolver.
+            fact.actor_use_resolver = Default::default();
             if !entry.base_identifier.is_empty() && fact.class_key == 0 {
                 self.actor_identifier_skips += 1;
             }

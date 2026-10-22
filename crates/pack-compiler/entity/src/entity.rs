@@ -19,6 +19,7 @@ mod attachable;
 pub(crate) mod collect;
 mod geometry;
 mod geometry_layers;
+mod offered_use;
 mod seats;
 pub use geometry_layers::select_entity_geometry;
 mod item;
@@ -500,7 +501,11 @@ fn assemble(
         }
     };
     let reference_outcomes = animation.outcomes;
-    let interaction_traits = assets::interactions::compile(&symbols);
+    let mut interaction_traits = assets::interactions::compile(&symbols);
+    let mut offered_uses = offered_use::compile(&symbols, &sources, source_payloads)?;
+    for entry in &mut interaction_traits {
+        entry.offered_use = offered_uses.remove(&entry.identifier).unwrap_or_default();
+    }
     let assets = CompiledEntityAssets {
         seat_layouts,
         interaction_traits,

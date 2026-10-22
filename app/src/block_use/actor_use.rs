@@ -97,7 +97,13 @@ pub(super) fn prepare(
         .authority()
         .actor(hit.runtime_id)
         .map_or(LocalUse::Interact, |actor| {
-            LocalUse::for_actor(&actor.kind, context.ui.gameplay_hud().has_interact_text())
+            LocalUse::for_actor(
+                &actor.kind,
+                context.ui.gameplay_hud().has_interact_text(),
+                stream
+                    .authority()
+                    .offered_throwable_use(hit.runtime_id, &selection.item),
+            )
         });
     Some(ActorUse {
         packet,

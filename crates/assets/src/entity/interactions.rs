@@ -68,6 +68,7 @@ impl EntityInteractionTraits {
 pub struct EntityInteractionDescriptor {
     pub identifier: Box<str>,
     pub traits: EntityInteractionTraits,
+    pub offered_use: super::offered_use::EntityUseAdmission,
 }
 
 /// Hashes the compiled facts source used by entity carriers.
@@ -125,7 +126,11 @@ fn inventory(
     }
     entries
         .into_iter()
-        .map(|(identifier, traits)| EntityInteractionDescriptor { identifier, traits })
+        .map(|(identifier, traits)| EntityInteractionDescriptor {
+            identifier,
+            traits,
+            offered_use: Default::default(),
+        })
         .collect()
 }
 
@@ -148,11 +153,19 @@ pub(super) fn validate(compiled: &CompiledEntityAssets) -> Result<(), AssetError
     if source.source_bytes != length || source.source_sha256 != hash {
         return Err(invalid("interaction trait source identity changed"));
     }
-    if compiled.interaction_traits != compile(&compiled.symbols) {
+    if compiled
+        .interaction_traits
+        .iter()
+        .map(|entry| (&entry.identifier, entry.traits))
+        .ne(compile(&compiled.symbols)
+            .iter()
+            .map(|entry| (&entry.identifier, entry.traits)))
+    {
         return Err(invalid(
             "interaction traits disagree with the collected entity inventory",
         ));
     }
+    super::offered_use::validate(compiled)?;
     Ok(())
 }
 

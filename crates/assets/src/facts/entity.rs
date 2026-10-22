@@ -116,6 +116,7 @@ impl ShadowRadius {
 #[serde(deny_unknown_fields)]
 pub struct EntityFact {
     pub native_class: NativeEntityClass,
+    pub actor_use_resolver: crate::entity::offered_use::ActorUseResolver,
     /// Stable within this carrier's sorted constructor inventory; zero is unresolved.
     pub class_key: u16,
     pub shadow: ShadowRadius,
@@ -141,6 +142,7 @@ impl Default for EntityFact {
     fn default() -> Self {
         Self {
             native_class: NativeEntityClass::Unresolved,
+            actor_use_resolver: Default::default(),
             class_key: 0,
             shadow: ShadowRadius::Width(1.0),
             shadow_drop: 0.0,

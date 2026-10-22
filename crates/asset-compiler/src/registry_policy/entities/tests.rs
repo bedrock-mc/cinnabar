@@ -123,3 +123,39 @@ fn collidable_defaults_come_from_components_and_keep_conditional_groups_separate
     assert!(!source.entries["fixture:conditional"].collidable);
     assert!(!source.entries["fixture:ordinary"].collidable);
 }
+
+#[test]
+fn every_admitted_actor_requires_an_explicit_use_resolver_disposition() {
+    let mut policy: serde_json::Value = serde_json::from_slice(super::super::POLICY).unwrap();
+    let rule = policy["entity_rules"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|rule| rule["facts"].get("actor_use_resolver").is_some())
+        .unwrap();
+    rule["members"].as_array_mut().unwrap().remove(0);
+    let scratch = tempfile::tempdir().unwrap();
+    let error = compile(
+        &root(),
+        scratch.path(),
+        &serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("use resolver dispositions"));
+}
+
+#[test]
+fn a_new_inventory_actor_cannot_silently_inherit_a_use_resolver() {
+    let scratch = tempfile::tempdir().unwrap();
+    let actors_path = scratch.path().join(ACTORS_PATH);
+    std::fs::create_dir_all(actors_path.parent().unwrap()).unwrap();
+    let mut actors = std::fs::read_to_string(root().join(ACTORS_PATH)).unwrap();
+    actors.push_str("minecraft:fixture_new_actor\n");
+    std::fs::write(&actors_path, actors).unwrap();
+    let components_path = scratch.path().join(COMPONENTS_PATH);
+    std::fs::create_dir_all(components_path.parent().unwrap()).unwrap();
+    std::fs::copy(root().join(COMPONENTS_PATH), components_path).unwrap();
+    let output = tempfile::tempdir().unwrap();
+    let error = compile(scratch.path(), output.path(), super::super::POLICY).unwrap_err();
+    assert!(error.to_string().contains("use resolver dispositions"));
+}

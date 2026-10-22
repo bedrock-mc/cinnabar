@@ -103,6 +103,17 @@ fn fixture_with_network(
         client_session::CapturedPackets,
     ),
 ) -> (World, client_session::CapturedPackets) {
+    fixture_with_entity_assets((network, captured), None)
+}
+
+/// Supplies optional original entity-component facts to the production admission fixture.
+fn fixture_with_entity_assets(
+    (network, captured): (
+        NetworkHandle<PackApplication>,
+        client_session::CapturedPackets,
+    ),
+    entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+) -> (World, client_session::CapturedPackets) {
     let bytes = assets::pinned_block_registry_bytes();
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(bytes, version).unwrap();
@@ -121,7 +132,7 @@ fn fixture_with_network(
     )
     .unwrap();
     let position = [4.5, 2.620_01, 8.5];
-    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+    let bootstrap = protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
         local_player_unique_id: 1,
@@ -129,7 +140,18 @@ fn fixture_with_network(
         world_spawn_position: [4, 1, 8],
         air_network_id: id("minecraft:air"),
         block_network_ids_are_hashes: false,
-    });
+    };
+    let mut stream = if let Some(entity_assets) = entity_assets {
+        chunk_pipeline::WorldStream::new_with_asset_sets(
+            bootstrap,
+            std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+            entity_assets,
+            [0.0, client_world::server_position::SAFE_SERVER_HEIGHT, 0.0],
+            None,
+        )
+    } else {
+        chunk_pipeline::WorldStream::new(bootstrap)
+    };
     stream.submit(1, empty_column(0, 0)).unwrap();
     stream
         .submit(

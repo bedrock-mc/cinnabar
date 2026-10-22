@@ -167,3 +167,168 @@ fn a_throwable_used_on_a_player_without_an_interaction_still_throws() {
 fn a_server_offered_player_interaction_consumes_the_use() {
     assert_eq!(throw_at_player("action.interact.ride.horse"), ["interact"]);
 }
+
+/// Uses original component facts with the production actor and held-item FIFO producers.
+fn throw_at_entity(
+    identifier: &str,
+    offered_use: assets::entity::offered_use::EntityUseAdmission,
+    interact_text: &str,
+) -> Vec<&'static str> {
+    let mut compiled =
+        assets::carriers::startup::test_carriers::synthetic_interaction_assets(identifier);
+    let mut sources = compiled.sources.into_vec();
+    sources.insert(
+        0,
+        assets::EntityAssetSource {
+            path: "behavior/entities/fixture.json".into(),
+            source_bytes: 1,
+            source_sha256: [1; 32],
+        },
+    );
+    let (source_bytes, source_sha256) = assets::item_use::source_identity();
+    sources.push(assets::EntityAssetSource {
+        path: assets::item_use::SOURCE_PATH.into(),
+        source_bytes,
+        source_sha256,
+    });
+    compiled.symbols[0].source_index += 1;
+    compiled.sources = sources.into();
+    compiled.item_use_profiles = assets::item_use::compile(&compiled.item_visuals);
+    compiled
+        .interaction_traits
+        .iter_mut()
+        .find(|entry| entry.identifier.as_ref() == identifier)
+        .unwrap()
+        .offered_use = offered_use;
+    let entities = std::sync::Arc::new(
+        assets::RuntimeEntityAssets::decode(&assets::encode_entity_blob(&compiled).unwrap())
+            .unwrap(),
+    );
+    let (mut world, mut captured) = super::fixture_with_entity_assets(
+        NetworkHandle::<PackApplication>::stub_capturing_packets(),
+        Some(entities),
+    );
+    super::item_use_tests::hold_snowball(&mut world);
+    spawn_kind(
+        &mut world,
+        7.5,
+        protocol::ActorKind::Entity {
+            identifier: identifier.into(),
+        },
+    );
+    world
+        .resource_mut::<UiRuntimeResource>()
+        .apply_local_metadata(
+            7,
+            u64::MAX,
+            &[protocol::ActorMetadata {
+                key: protocol_ids::ActorDataKey::InteractText.wire_value(),
+                value: protocol::ActorMetadataValue::String(interact_text.into()),
+            }],
+        )
+        .unwrap();
+    world.run_system_cached(produce_block_use).unwrap();
+    produce_air_use(&mut world);
+    captured
+        .drain()
+        .into_iter()
+        .filter_map(|packet| match observe_transaction(&packet)?.body {
+            TransactionBody::ItemUseOnActor(tx) => {
+                assert_eq!(tx.runtime_id, 99);
+                assert_eq!(tx.action, Some(ActorUseAction::Interact));
+                Some("interact")
+            }
+            TransactionBody::ItemUse(_) => Some("use"),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A no-offering descriptor is evidence only alongside the actor's verified resolver disposition.
+fn no_component_offering() -> assets::entity::offered_use::EntityUseAdmission {
+    assets::entity::offered_use::EntityUseAdmission::Components {
+        source: 0,
+        offerings: Box::new([]),
+    }
+}
+
+#[test]
+fn a_throwable_used_on_a_zombie_without_an_offering_still_throws_after_interact() {
+    assert_eq!(
+        throw_at_entity("minecraft:zombie", no_component_offering(), ""),
+        ["interact", "use"]
+    );
+}
+
+#[test]
+fn server_text_native_prevent_default_and_unresolved_actors_preserve_interaction() {
+    assert_eq!(
+        throw_at_entity(
+            "minecraft:zombie",
+            no_component_offering(),
+            "action.interact.fixture"
+        ),
+        ["interact"]
+    );
+    assert_eq!(
+        throw_at_entity("minecraft:armor_stand", no_component_offering(), ""),
+        ["interact"]
+    );
+    assert_eq!(
+        throw_at_entity("minecraft:villager_v2", no_component_offering(), ""),
+        ["interact"]
+    );
+    assert_eq!(
+        throw_at_entity("minecraft:zombie", Default::default(), ""),
+        ["interact"]
+    );
+}
+
+#[test]
+fn possible_ride_feed_equipment_and_offhand_offerings_consume_the_actor_press() {
+    use assets::entity::offered_use::{
+        ComponentUse, EntityUseAdmission, UseCondition, UseSelector,
+    };
+    for (identifier, component, condition) in [
+        (
+            "minecraft:horse",
+            "minecraft:rideable",
+            UseCondition::Unresolved,
+        ),
+        (
+            "minecraft:happy_ghast",
+            "minecraft:ageable",
+            UseCondition::HeldItem {
+                identifier: "minecraft:snowball".into(),
+                metadata: None,
+            },
+        ),
+        (
+            "minecraft:zombie",
+            "minecraft:equippable",
+            UseCondition::HeldItem {
+                identifier: "minecraft:snowball".into(),
+                metadata: None,
+            },
+        ),
+        (
+            "minecraft:zombie",
+            "minecraft:interact",
+            UseCondition::Unresolved,
+        ),
+    ] {
+        let definition = EntityUseAdmission::Components {
+            source: 0,
+            offerings: Box::from([ComponentUse {
+                selector: UseSelector::UnresolvedComponentGroup { group: 0 },
+                component: component.into(),
+                condition,
+            }]),
+        };
+        assert_eq!(
+            throw_at_entity(identifier, definition, ""),
+            ["interact"],
+            "{component}"
+        );
+    }
+}

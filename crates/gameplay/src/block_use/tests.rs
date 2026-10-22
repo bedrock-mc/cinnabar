@@ -595,9 +595,18 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
     let villager = protocol::ActorKind::Entity {
         identifier: "minecraft:villager_v2".into(),
     };
-    assert_eq!(LocalUse::for_actor(&player, false), LocalUse::Nothing);
-    assert_eq!(LocalUse::for_actor(&player, true), LocalUse::Interact);
-    assert_eq!(LocalUse::for_actor(&villager, false), LocalUse::Interact);
+    assert_eq!(
+        LocalUse::for_actor(&player, false, Default::default()),
+        LocalUse::Nothing
+    );
+    assert_eq!(
+        LocalUse::for_actor(&player, true, Default::default()),
+        LocalUse::Interact
+    );
+    assert_eq!(
+        LocalUse::for_actor(&villager, false, Default::default()),
+        LocalUse::Interact
+    );
     let mut runtime = BlockUseRuntime::default();
     let clock = RepeatClock::for_game_mode(
         Duration::from_millis(1_000),
@@ -609,7 +618,7 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
         ItemUseTrigger::PlayerInput,
         Duration::from_millis(1_000),
         1,
-        LocalUse::for_actor(&player, false),
+        LocalUse::for_actor(&player, false, Default::default()),
         clock,
     );
     assert!(!runtime.press_interacted());
@@ -622,4 +631,31 @@ fn placement_obstruction_rounds_world_faces_before_comparing() {
     let local_shape = ([0.6, 0.0, 0.0], [1.0, 1.0, 1.0]);
     assert!(!super::overlaps([8_388_608, 0, 0], local_shape, actor));
     assert!(super::overlaps([8_388_608, 0, 0], super::FULL_CELL, actor));
+}
+
+#[test]
+fn an_actor_without_an_offering_leaves_the_press_for_default_item_use() {
+    let target = protocol::ActorKind::Entity {
+        identifier: "fixture:target".into(),
+    };
+    let outcome = LocalUse::for_actor(
+        &target,
+        false,
+        assets::entity::offered_use::OfferedUse::Absent,
+    );
+    let mut runtime = BlockUseRuntime::default();
+    let clock = clock(1_000, 0.0);
+    assert!(runtime.admit(
+        ItemUseTrigger::PlayerInput,
+        Duration::from_millis(1_000),
+        1,
+        outcome,
+        clock,
+        true
+    ));
+    assert!(
+        !runtime.press_interacted(),
+        "the same press must be available to held-item use"
+    );
+    assert!(!runtime.press_pending());
 }
