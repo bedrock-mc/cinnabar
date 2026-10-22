@@ -70,7 +70,7 @@ fn totem_activation_publishes_only_the_local_player_event() {
 }
 
 /// Supplies a local pose without server-authored health attributes.
-fn local_health_feed() -> crate::LocalPlayerFeed {
+pub(super) fn local_health_feed() -> crate::LocalPlayerFeed {
     crate::LocalPlayerFeed {
         game_mode: None,
         prefer_client_skin: false,

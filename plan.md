@@ -486,7 +486,9 @@ replacement/deferred releases, mounted inventory, sign filtering/length/structur
 native emote admission/cancellation/timing, overlapping dimension/respawn loading screens,
 and server-authored chat hover/input behavior. Respawn readiness retires the death route
 and pending retries independently of a later health refresh, in UI packet order; a later
-authoritative life-to-death transition opens a fresh route. Regression coverage does not
+authoritative life-to-death transition opens a fresh route and withholds player input
+until respawn readiness, even when no respawn-search packet arrives. Dimension changes
+keep that hold and input ticks keep advancing. Regression coverage does not
 close live server, loading-screen or other-device acceptance. Keep native input state
 independent of custom emote playback and presentation-only changes.
 

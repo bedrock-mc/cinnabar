@@ -79,7 +79,8 @@ impl CommittedGameplayState<'_> {
         }
         if matches!(
             control,
-            CommittedControlEvent::PlayerListChanged { .. }
+            CommittedControlEvent::LocalDeath { .. }
+                | CommittedControlEvent::PlayerListChanged { .. }
                 | CommittedControlEvent::DimensionChangeAck { .. }
                 | CommittedControlEvent::ClientInputLocks { .. }
         ) {
@@ -402,6 +403,7 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalMovementBoost { .. }
+            | CommittedControlEvent::LocalDeath { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
                 unreachable!(

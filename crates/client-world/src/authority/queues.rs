@@ -1,6 +1,13 @@
 use super::*;
 
 impl WorldAuthority {
+    /// Publishes each accepted local death once, preserving life state across actor replacement.
+    pub(super) fn publish_local_life(&mut self, sequence: u64, dead: bool) {
+        if dead && !self.local_player_dead {
+            self.push_committed_control(CommittedControlEvent::LocalDeath { sequence });
+        }
+        self.local_player_dead = dead;
+    }
     /// Counts consumer deltas that retain world admission credit.
     pub fn retained_commit_count(&self) -> usize {
         self.committed_controls

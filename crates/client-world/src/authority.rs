@@ -39,6 +39,8 @@ mod biomes;
 mod block_events;
 mod block_identities;
 mod local_actor_move;
+#[cfg(test)]
+mod local_death_tests;
 pub use block_identities::PreparedBlockIdentities;
 mod combat;
 mod commits;
@@ -88,7 +90,8 @@ pub(crate) fn allocate_actor_session_id() -> u64 {
         })
         .expect("actor session identity space exhausted")
 }
-pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+/// An attribute update can publish both movement changes and a local death.
+pub const COMMITTED_CONTROL_CAPACITY: usize = 2 * MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
@@ -132,6 +135,8 @@ pub struct WorldAuthority {
     resolved_server_position: ResolvedServerPosition,
     latest_movement_correction_tick: Option<u64>,
     actor_session_id: u64,
+    /// Logical life state survives replacement of the synthetic actor during dimension changes.
+    local_player_dead: bool,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
     committed_audio: VecDeque<CommittedAudioEvent>,
@@ -213,6 +218,7 @@ impl WorldAuthority {
             resolved_server_position,
             latest_movement_correction_tick: None,
             actor_session_id,
+            local_player_dead: false,
             committed_controls: VecDeque::new(),
             committed_ui: VecDeque::new(),
             committed_audio: VecDeque::new(),

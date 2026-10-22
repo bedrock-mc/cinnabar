@@ -41,11 +41,23 @@ impl ActorStore {
         self.local_health_skips
     }
 
-    /// Applies SetHealth to the local actor, retaining it until the first pose when necessary.
-    pub(crate) fn set_local_health(&mut self, runtime_id: u64, value: i32) {
+    /// Reports accepted death state, including health received before the first local pose.
+    pub(crate) fn local_player_dead(&self, runtime_id: u64) -> bool {
+        self.actors.get(&runtime_id).map_or_else(
+            || {
+                self.pending_local_health
+                    .as_ref()
+                    .is_some_and(|health| health.current <= 0.0)
+            },
+            |actor| actor.status.dead,
+        )
+    }
+
+    /// Applies SetHealth, retaining it before the first pose, and reports whether it was accepted.
+    pub(crate) fn set_local_health(&mut self, runtime_id: u64, value: i32) -> bool {
         let Ok(value) = u16::try_from(value) else {
             self.skip_local_health();
-            return;
+            return false;
         };
         let mut health = self
             .actors
@@ -63,7 +75,7 @@ impl ActorStore {
             });
         if !health.min.is_finite() || !health.max.is_finite() || health.min > health.max {
             self.skip_local_health();
-            return;
+            return false;
         }
         let previous = health.current.ceil();
         health.current = f32::from(value).clamp(health.min, health.max);
@@ -72,7 +84,7 @@ impl ActorStore {
             self.pending_local_health = None;
             if actor.apply_attributes(&[health]) {
                 self.skip_local_health();
-                return;
+                return false;
             }
             actor.sync_status_from_health();
             if dropped {
@@ -96,6 +108,7 @@ impl ActorStore {
                 }
             }
         }
+        true
     }
 
     /// Counts rejected local updates and reports them at a bounded logarithmic rate.

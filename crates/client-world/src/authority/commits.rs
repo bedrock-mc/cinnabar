@@ -127,6 +127,27 @@ impl WorldAuthority {
                     self.commit_local_actor_move(sequence, *movement);
                     self.resolve_actor_teleport(movement);
                 }
+                let (local_life_update, explicit_death) = match &event {
+                    ActorEvent::Attributes(update)
+                        if update.runtime_id == self.local_player_runtime_id
+                            && update.dimension == self.current_dimension
+                            && update.attributes.iter().any(|attribute| {
+                                attribute.name.as_ref() == Attribute::Health.wire_name()
+                            }) =>
+                    {
+                        (true, None)
+                    }
+                    ActorEvent::Status(status)
+                        if status.runtime_id == self.local_player_runtime_id =>
+                    {
+                        match status.kind {
+                            protocol::ActorStatusKind::Death => (true, Some(true)),
+                            protocol::ActorStatusKind::SpawnAlive => (true, Some(false)),
+                            _ => (false, None),
+                        }
+                    }
+                    _ => (false, None),
+                };
                 let player_list_changed =
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
@@ -169,7 +190,6 @@ impl WorldAuthority {
                     if let Some(attribute) = movement {
                         self.local_movement_speed = Some(attribute.current);
                     }
-                    // One control per update keeps admission's one-slot reservation exact.
                     if movement.is_some()
                         || underwater.is_some()
                         || lava.is_some()
@@ -296,6 +316,21 @@ impl WorldAuthority {
                         }),
                     });
                 }
+                if local_life_update
+                    && matches!(
+                        result,
+                        crate::actor_store::ActorApplyResult::Updated
+                            | crate::actor_store::ActorApplyResult::MissingActor
+                            | crate::actor_store::ActorApplyResult::CapacityRejected
+                    )
+                {
+                    self.publish_local_life(
+                        sequence,
+                        explicit_death.unwrap_or_else(|| {
+                            self.actors.local_player_dead(self.local_player_runtime_id)
+                        }),
+                    );
+                }
                 if local_hurt {
                     self.push_committed_control(CommittedControlEvent::LocalHurt {
                         sequence,
@@ -377,8 +412,15 @@ impl WorldAuthority {
                         ))
                     }
                     UiEvent::Hud(protocol::HudEvent::Health { health }) => {
-                        self.actors
-                            .set_local_health(self.local_player_runtime_id, health);
+                        if self
+                            .actors
+                            .set_local_health(self.local_player_runtime_id, health)
+                        {
+                            self.publish_local_life(
+                                sequence,
+                                self.actors.local_player_dead(self.local_player_runtime_id),
+                            );
+                        }
                         if health <= 0 {
                             self.observe_totem_status(self.local_player_runtime_id, false);
                         }

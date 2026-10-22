@@ -156,6 +156,10 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::MovementEffectEvent,
     },
+    /// An accepted local alive-to-dead transition; input waits for respawn readiness.
+    LocalDeath {
+        sequence: u64,
+    },
     /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
     /// vector toward the damage source when a recent knockback impulse implies one.
     LocalHurt {
