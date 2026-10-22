@@ -12,6 +12,8 @@ mod anvil;
 mod authored_models;
 #[path = "tests/barrel.rs"]
 pub(crate) mod barrel;
+#[path = "tests/beacon.rs"]
+mod beacon;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]
@@ -38,6 +40,8 @@ mod end_rod;
 mod facing_cube;
 #[path = "tests/flowerbed.rs"]
 mod flowerbed;
+#[path = "tests/furnace.rs"]
+mod furnace;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]
@@ -58,6 +62,8 @@ mod potted_plants;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/straw_beds.rs"]
+mod straw_beds;
 #[path = "tests/torch.rs"]
 mod torch;
 #[path = "tests/trapdoor.rs"]

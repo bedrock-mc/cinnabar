@@ -18,6 +18,7 @@ pub use error::UiRuntimeError;
 pub mod forms;
 pub mod gameplay_authority;
 pub mod gameplay_hud;
+pub mod grindstone;
 pub mod hud_adapter;
 pub mod interaction;
 pub mod inventory_actions;
@@ -140,6 +141,8 @@ pub struct UiRuntime {
     pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
+    /// The open window's position and the block entity id found there.
+    storage_block: Option<([i32; 3], Arc<str>)>,
     last_fifo_sequence: Option<u64>,
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
@@ -198,6 +201,8 @@ pub struct UiRuntime {
     /// Last known life state also retains the dead-to-alive reason retirement history.
     last_known_local_player_alive: Option<bool>,
     local_player_health_available: bool,
+    local_player_respawn_ready: bool,
+    local_player_death_generation: u64,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
@@ -214,6 +219,7 @@ pub struct UiRuntime {
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
     anvil_cache: anvil::cache::PreviewCache,
+    grindstone_cache: grindstone::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -235,6 +241,7 @@ impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
         Self {
             item_fuel_catalog: None,
+            storage_block: None,
             session_id,
             #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
@@ -304,6 +311,8 @@ impl UiRuntime {
             local_actor_damage: None,
             last_known_local_player_alive: None,
             local_player_health_available: false,
+            local_player_respawn_ready: false,
+            local_player_death_generation: 0,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
@@ -316,6 +325,7 @@ impl UiRuntime {
             food_catalog: None,
             stack_facts: Default::default(),
             anvil_cache: Default::default(),
+            grindstone_cache: Default::default(),
             item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
@@ -470,6 +480,9 @@ impl UiRuntime {
         let ledger = player_runtime.inventory_commands();
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
+        }
+        if let Some((position, block_entity)) = &self.storage_block {
+            ledger.name_storage_block(*position, Some(&**block_entity));
         }
         ledger
     }
@@ -645,6 +658,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        self.grindstone_cache = Default::default();
         #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;
@@ -704,6 +718,8 @@ impl UiRuntime {
         self.local_actor_damage = None;
         self.last_known_local_player_alive = None;
         self.local_player_health_available = false;
+        self.local_player_respawn_ready = false;
+        self.local_player_death_generation = 0;
         self.hurt_pending = false;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;

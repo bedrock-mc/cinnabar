@@ -76,6 +76,73 @@ fn only_chat_history_background_follows_opacity_on_rebind() {
     }
 }
 
+/// Captured sliders follow value segments and retain their option when the finger leaves the track.
+#[test]
+fn captured_chat_slider_clamps_and_survives_drift_between_value_segments() {
+    let index = launcher::menu::settings_options::SettingId::ChatBackgroundOpacity.index() as u16;
+    let mut chat = ChatScreen::default();
+    chat.settings.set_open(true);
+    let action = |value| launcher::menu::MenuAction::SettingsOption(index, value);
+    for (slot, value) in [0, 50, 100].into_iter().enumerate() {
+        let rect = UiRect::new(
+            ui::UiPoint::new(slot as f32 * 10.0, 0.0).unwrap(),
+            ui::UiPoint::new((slot + 1) as f32 * 10.0, 20.0).unwrap(),
+        )
+        .unwrap();
+        chat.hits.push((
+            ChatHit::SettingsAction(action(value)),
+            rect,
+            "slider".into(),
+        ));
+    }
+    assert_eq!(
+        chat.slider_at(ui::UiPoint::new(9.0, 5.0).unwrap()),
+        Some(index)
+    );
+    assert_eq!(
+        chat.slider_action(index, ui::UiPoint::new(11.0, 5.0).unwrap()),
+        Some(action(50))
+    );
+    assert_eq!(
+        chat.slider_action(index, ui::UiPoint::new(100.0, 200.0).unwrap()),
+        Some(action(100))
+    );
+    assert_eq!(
+        chat.slider_action(index, ui::UiPoint::new(-100.0, -200.0).unwrap()),
+        Some(action(0))
+    );
+    chat.settings.set_open(false);
+    assert_eq!(
+        chat.slider_action(index, ui::UiPoint::new(11.0, 5.0).unwrap()),
+        None
+    );
+}
+
+/// Only an uncovered, painted history viewport may capture a scrolling finger.
+#[test]
+fn history_touch_capture_excludes_popups_and_other_controls() {
+    let point = ui::UiPoint::new(20.0, 20.0).unwrap();
+    let mut chat = ChatScreen {
+        history_bounds: Some(
+            ui::UiRect::new(
+                ui::UiPoint::new(0.0, 0.0).unwrap(),
+                ui::UiPoint::new(100.0, 100.0).unwrap(),
+            )
+            .unwrap(),
+        ),
+        ..Default::default()
+    };
+    assert!(chat.history_contains(point));
+    assert!(!chat.history_contains(ui::UiPoint::new(200.0, 20.0).unwrap()));
+    chat.settings.set_open(true);
+    assert!(!chat.history_contains(point));
+    chat.settings.set_open(false);
+    chat.pending_link = Some("https://example.test".into());
+    assert!(!chat.history_contains(point));
+    chat.close();
+    assert!(!chat.history_contains(point));
+}
+
 #[test]
 fn review_chat_settings_own_wheel_input() {
     let mut chat = ChatScreen {

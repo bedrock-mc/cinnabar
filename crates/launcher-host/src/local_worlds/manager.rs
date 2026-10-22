@@ -23,6 +23,20 @@ use super::{
 const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
 /// Outlasts the Docker probe's own timeout.
 const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
+/// Covers a first sign-in's profile load; a start then proceeds without an operator.
+const DEFAULT_HOST_WAIT: Duration = Duration::from_secs(30);
+/// How often a start waiting on the host rechecks its cancel.
+const HOST_POLL: Duration = Duration::from_millis(50);
+
+/// The account hosting later opens, which BDS makes an operator as a vanilla world owner is.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum Host {
+    #[default]
+    SignedOut,
+    /// Signed in with the XUID still loading; starts wait for it.
+    Loading,
+    Xuid(String),
+}
 
 /// The runner of each backend; a missing one cannot host worlds.
 #[derive(Clone, Default)]
@@ -57,6 +71,8 @@ pub(crate) struct Parts {
     pub stop_timeout: Duration,
     /// How long a create waits for a runtime detection in flight.
     pub runtime_wait: Duration,
+    /// How long a start waits for a [`Host::Loading`] host.
+    pub host_wait: Duration,
 }
 
 impl Parts {
@@ -69,6 +85,7 @@ impl Parts {
             unavailable: Vec::new(),
             stop_timeout: DEFAULT_STOP_TIMEOUT,
             runtime_wait: DEFAULT_RUNTIME_WAIT,
+            host_wait: DEFAULT_HOST_WAIT,
         }
     }
 }
@@ -95,6 +112,13 @@ struct Inner {
     stop_timeout: Duration,
     runtime_wait: Duration,
     life: Mutex<Life>,
+    host_wait: Duration,
+    /// Read by each start; see [`Manager::set_host`].
+    host: Mutex<Host>,
+    host_changed: Condvar,
+    /// Starts that have waited on a loading host, so tests can publish it mid-wait.
+    #[cfg(test)]
+    host_waits: std::sync::atomic::AtomicUsize,
     subscribers: Mutex<Vec<Sender<()>>>,
     /// Background starts, stops and exit watches still running.
     background: Mutex<usize>,
@@ -176,6 +200,11 @@ impl Manager {
                 stop_timeout: parts.stop_timeout,
                 runtime_wait: parts.runtime_wait,
                 life: Mutex::default(),
+                host_wait: parts.host_wait,
+                host: Mutex::default(),
+                host_changed: Condvar::new(),
+                #[cfg(test)]
+                host_waits: Default::default(),
                 subscribers: Mutex::default(),
                 background: Mutex::new(0),
                 background_done: Condvar::new(),
@@ -189,8 +218,16 @@ impl Manager {
         self.inner.store.reclaim_abandoned_imports();
     }
 
-    /// Saved worlds, most recently played first.
+    /// Saved worlds after pending server saves finish, most recently played first.
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
+        let after: Vec<_> = lock(&self.inner.life)
+            .retiring
+            .iter()
+            .map(|retiring| retiring.done.clone())
+            .collect();
+        for done in after {
+            let _ = done.recv();
+        }
         self.inner.store.list()
     }
 
@@ -340,6 +377,44 @@ impl Manager {
         }
     }
 
+    /// Names the account that later starts make an operator; a malformed XUID grants nobody.
+    pub fn set_host(&self, host: Host) {
+        let host = match host {
+            Host::Xuid(xuid) if !bridge::valid_cinnabar_xuid(&xuid) => Host::SignedOut,
+            host => host,
+        };
+        *lock(&self.inner.host) = host;
+        self.inner.host_changed.notify_all();
+    }
+
+    /// The host's XUID once it is no longer loading, the wait expires or `cancel` fires.
+    fn host_xuid(&self, cancel: &Cancel) -> Option<String> {
+        let deadline = std::time::Instant::now() + self.inner.host_wait;
+        let mut host = lock(&self.inner.host);
+        #[cfg(test)]
+        if *host == Host::Loading {
+            self.inner
+                .host_waits
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        while *host == Host::Loading && !cancel.is_cancelled() {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            host = self
+                .inner
+                .host_changed
+                .wait_timeout(host, left.min(HOST_POLL))
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        match &*host {
+            Host::Xuid(xuid) => Some(xuid.clone()),
+            Host::SignedOut | Host::Loading => None,
+        }
+    }
+
     /// Begins starting a world and returns at once; poll [`Self::status`] for readiness.
     /// Reopening the world that is already starting or running does nothing, and an open while
     /// the last world still saves starts its server once that one has exited.
@@ -393,6 +468,8 @@ impl Manager {
             world,
             dir,
             view_distance,
+            options_unapplied: false,
+            host_xuid: None,
         };
         let started = self.background(move |manager| {
             manager.start(&spec, &cancel, generation, after);
@@ -416,10 +493,30 @@ impl Manager {
                 break;
             }
         }
+        // Only BDS grants the host operator.
+        let host_xuid = (spec.world.backend == Backend::Bds)
+            .then(|| self.host_xuid(cancel))
+            .flatten();
+        let mut fresh_world = None;
+        let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
             Err(WorldError::Cancelled)
         } else {
-            self.inner.runners.start(spec, cancel)
+            self.inner.store.snapshot(&spec.world.id).and_then(
+                |(world, pending, options_unapplied)| {
+                    applied = pending;
+                    let fresh = StartSpec {
+                        world,
+                        dir: spec.dir.clone(),
+                        view_distance: spec.view_distance,
+                        options_unapplied,
+                        host_xuid,
+                    };
+                    let started = self.inner.runners.start(&fresh, cancel);
+                    fresh_world = Some(fresh.world);
+                    started
+                },
+            )
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
@@ -439,12 +536,15 @@ impl Manager {
                 return;
             }
         };
+        if let Some(world) = fresh_world {
+            life.world = Some(world);
+        }
         life.instance = Some(Arc::clone(&instance));
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
         drop(life);
-        if let Err(error) = self.inner.store.touch(&spec.world.id) {
+        if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
         }
         if paused {
@@ -626,6 +726,9 @@ impl Manager {
                 name: world.name.clone(),
                 game_mode: world.game_mode,
                 backend: world.backend,
+                multiplayer_disabled: !world
+                    .options
+                    .enabled(launcher::local_worlds::options::WorldOption::Multiplayer),
             }),
             target,
             error: life.failure.clone(),

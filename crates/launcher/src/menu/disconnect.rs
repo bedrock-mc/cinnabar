@@ -90,6 +90,7 @@ pub const SERVER_SENT_KEYS: &[&str] = &bridge::contract::CORE_DISCONNECT_KEYS;
 pub fn body_fallback(key: &'static str) -> &'static str {
     match key {
         bridge::contract::DISCONNECT_KEY_DEVICE_CLOCK => DEVICE_CLOCK_TEXT,
+        bridge::contract::DISCONNECT_KEY_LOCAL_WORLD_OFFLINE => LOCAL_WORLD_OFFLINE_TEXT,
         _ => key,
     }
 }
@@ -97,6 +98,11 @@ pub fn body_fallback(key: &'static str) -> &'static str {
 const DEVICE_CLOCK_TEXT: &str = concat!(
     "Your device's clock is behind, so sign-in was rejected. ",
     "Turn on automatic date and time, then try again."
+);
+
+const LOCAL_WORLD_OFFLINE_TEXT: &str = concat!(
+    "Bedrock Dedicated Server worlds need a network connection, even in single-player. ",
+    "Connect to a network, then try again."
 );
 
 /// A server's disconnect text: a known `DisconnectFailReason` name reads as

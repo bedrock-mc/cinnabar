@@ -79,9 +79,10 @@ pub fn paint(
     lang: &RuntimeLangCatalog,
     icons: &[IconRef; session::ITEMS.len()],
     selected: bool,
+    block_identity: i32,
     frame: &mut PaintFrame<'_>,
 ) -> Result<(), Error> {
-    let mut player = session::player()?;
+    let mut player = session::player(block_identity)?;
     let mut screen = ContainerScreen::default();
     let first = draw(
         engine,
@@ -138,7 +139,7 @@ pub fn paint(
             .book_recipes(false, false, usize::from(index), 1)
             .pop()
             .ok_or_else(|| Error::Invalid("craft fixture selected recipe is absent".into()))?;
-        match player.inventory.begin_book_craft(&recipe.recipe) {
+        match player.inventory.begin_book_craft(&recipe.recipe, false) {
             Ok(_) | Err(InventoryGestureError::InvalidRequest) => {}
             Err(error) => {
                 return Err(Error::Invalid(format!(
@@ -170,7 +171,7 @@ pub fn paint_cursor(
     icons: &[IconRef; session::ITEMS.len()],
     frame: &mut PaintFrame<'_>,
 ) -> Result<(), Error> {
-    let mut player = session::player()?;
+    let mut player = session::player(0)?;
     player
         .inventory
         .ledger_mut()

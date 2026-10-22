@@ -9,15 +9,38 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
 // The physics seed combines shared state facts with client movement rules.
 
-const (
-	v2193PhysicsReservedCount = 654 - v2193EducationStateCount
-)
+// v2193PhysicsReservedCount derives neutral-state expectations from the hash-bound admission inventory.
+var v2193PhysicsReservedCount = sync.OnceValue(func() int {
+	data, err := os.ReadFile(filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v2193.bin"))
+	if err != nil {
+		panic(err)
+	}
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		panic(err)
+	}
+	if actual := fmt.Sprintf("%x", sha256.Sum256(data)); actual != blockHash {
+		panic(fmt.Errorf("reserved-state inventory SHA-256 %s does not match %s", actual, blockHash))
+	}
+	_, records, err := decodeBREGRecords(data, v2193BlockProtocol)
+	if err != nil {
+		panic(err)
+	}
+	count := 0
+	for _, record := range records {
+		if record.Name == retailReservedName {
+			count++
+		}
+	}
+	return count
+})
 
 // writeV2193PhysicsProjection binds shared physics facts to the selected block carrier.
 func writeV2193PhysicsProjectionOracle(bregPath, outputPath, shaOutputPath, manifestPath string) error {
@@ -122,8 +145,8 @@ func projectV2193PhysicsRecords(records []Record) ([]PhysicsRecord, error) {
 		}
 		physics[i] = entry
 	}
-	if reserved != v2193PhysicsReservedCount {
-		return nil, fmt.Errorf("v2193 physics projection found %d cinnabar:reserved states, want exactly %d", reserved, v2193PhysicsReservedCount)
+	if reserved != v2193PhysicsReservedCount() {
+		return nil, fmt.Errorf("v2193 physics projection found %d cinnabar:reserved states, want exactly %d", reserved, v2193PhysicsReservedCount())
 	}
 	for _, override := range reviewedPhysicsOverrides {
 		if counts[override.Name] != override.StateCount {
@@ -140,11 +163,11 @@ func crossCheckV2193PhysicsManifest(payload []byte) error {
 	if err := decoder.Decode(&manifest); err != nil {
 		return fmt.Errorf("decode v2193 physics projection manifest: %w", err)
 	}
-	if manifest.Projection.DeniedCount != v2193PhysicsReservedCount {
-		return fmt.Errorf("v2193 projection manifest denies %d states, want exactly %d", manifest.Projection.DeniedCount, v2193PhysicsReservedCount)
+	if manifest.Projection.DeniedCount != v2193PhysicsReservedCount() {
+		return fmt.Errorf("v2193 projection manifest denies %d states, want exactly %d", manifest.Projection.DeniedCount, v2193PhysicsReservedCount())
 	}
-	if manifest.Projection.EducationStates != v2193EducationStateCount {
-		return fmt.Errorf("v2193 projection manifest has %d Education states, want %d", manifest.Projection.EducationStates, v2193EducationStateCount)
+	if manifest.Projection.EducationStates != v2193EducationStateCount() {
+		return fmt.Errorf("v2193 projection manifest has %d Education states, want %d", manifest.Projection.EducationStates, v2193EducationStateCount())
 	}
 	blockHash, err := targetpin.BlockHash()
 	if err != nil {

@@ -11,6 +11,7 @@ mod beam;
 mod bed;
 mod bell;
 mod book;
+mod chalkboard;
 mod chest;
 mod conduit;
 mod crack;
@@ -19,6 +20,8 @@ mod dragon_death;
 pub mod draw_ranges;
 mod frame;
 
+#[cfg(test)]
+mod head_item_tests;
 mod heads;
 mod held;
 mod items;
@@ -42,6 +45,7 @@ pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
 pub use bell::{BellAttachment, BellModel, swing_degrees};
 pub use book::{BookPose, EnchantingBook};
+pub use chalkboard::ChalkboardModel;
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use conduit::ConduitModel;
 pub use crack::{

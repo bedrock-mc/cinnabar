@@ -56,8 +56,8 @@ impl UiRuntime {
             .begin_creative_take(id, destination, Some(count))
     }
 
-    /// Crafts crafting recipe `network_id` once from inventory ingredients onto the cursor, as
-    /// a recipe book click does.
+    /// Crafts crafting recipe `network_id` once from inventory ingredients into the inventory,
+    /// as a recipe book click does.
     pub fn mod_fill_recipe(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -72,6 +72,6 @@ impl UiRuntime {
                     .cloned()
             })
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        player_runtime.inventory.begin_book_craft(&recipe)
+        player_runtime.inventory.begin_book_craft(&recipe, false)
     }
 }

@@ -1,0 +1,179 @@
+//! Confirmed deletion of imported copies, with file work kept off the frame thread.
+
+use super::super::{
+    GraphicsSettings, RuntimeSettings, save_graphics_settings, set_graphics_settings,
+};
+use super::{MenuRuntime, RenderModeConfig, refresh};
+use bevy::{prelude::*, time::Real};
+use client_shell::ui_resources::UiRuntimeResource;
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, mpsc},
+};
+
+struct RemovalOutcome {
+    result: Result<(), String>,
+    selected_path: Option<PathBuf>,
+    removed: bool,
+}
+
+#[derive(Resource, Default)]
+struct RemovalWorker(Option<(String, Mutex<mpsc::Receiver<RemovalOutcome>>)>);
+
+/// Orders removal after menu choices and before the renderer sees its new request.
+pub(in crate::render_mode) fn configure(app: &mut App) {
+    app.init_resource::<RemovalWorker>().add_systems(
+        Update,
+        (start_removal, finish_removal)
+            .chain()
+            .after(super::super::apply_menu_render_mode)
+            .before(super::sync_shader_pack_request),
+    );
+}
+
+/// Starts one deletion with a snapshot of the selected path for the worker to resolve.
+fn start_removal(
+    mut worker: ResMut<RemovalWorker>,
+    config: Res<RenderModeConfig>,
+    menu: Option<ResMut<MenuRuntime>>,
+    settings: Res<RuntimeSettings>,
+) {
+    if worker.0.is_some() {
+        return;
+    }
+    let Some(mut menu) = menu else {
+        return;
+    };
+    let Some(name) = menu.take_shader_pack_removal() else {
+        return;
+    };
+    let Some(dirs) = config.shader_packs.as_ref() else {
+        menu.finish_shader_pack_removal();
+        return;
+    };
+    let directory = dirs.packs.clone();
+    let library_path = directory.join(&name);
+    let selected_path = super::selected_pack(&config, &settings.user_settings_update().1.video)
+        .map(|pack| pack.path);
+    let (send, receive) = mpsc::channel();
+    worker.0 = Some((name.clone(), Mutex::new(receive)));
+    let spawned = std::thread::Builder::new()
+        .name("shader pack removal".into())
+        .spawn(move || {
+            let selected_path =
+                selected_path.filter(|selected| selected_entry(selected, &library_path));
+            let result =
+                shaderpack::remove_pack(&directory, &name).map_err(|error| error.to_string());
+            let removed = result.is_ok()
+                || matches!(std::fs::symlink_metadata(directory.join(&name)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound);
+            let _ = send.send(RemovalOutcome {
+                result,
+                selected_path,
+                removed,
+            });
+        });
+    if let Err(error) = spawned {
+        warn!(%error, "shader pack removal worker could not start");
+    }
+}
+
+/// Resolves whether the selected root is the library entry or one of its nested roots.
+/// Run this before deletion on the worker, since path resolution reads the filesystem.
+fn selected_entry(selected: &Path, library: &Path) -> bool {
+    if selected == library
+        || entry_location(library).is_some_and(|library| {
+            selected
+                .ancestors()
+                .filter_map(entry_location)
+                .any(|selected| selected == library)
+        })
+    {
+        return true;
+    }
+    if std::fs::symlink_metadata(library).is_ok_and(|entry| entry.file_type().is_symlink()) {
+        return false;
+    }
+    match (selected.canonicalize(), library.canonicalize()) {
+        (Ok(selected), Ok(library)) => selected.starts_with(library),
+        _ => false,
+    }
+}
+
+/// Resolves an entry's parent without following the entry's own link to its target.
+fn entry_location(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    Some(parent.canonicalize().ok()?.join(name))
+}
+
+/// Applies the deletion outcome without overriding a newer selection, then re-lists packs.
+fn finish_removal(
+    mut worker: ResMut<RemovalWorker>,
+    mut config: ResMut<RenderModeConfig>,
+    mut settings: ResMut<RuntimeSettings>,
+    menu: Option<ResMut<MenuRuntime>>,
+    ui: Option<ResMut<UiRuntimeResource>>,
+    time: Res<Time<Real>>,
+) {
+    let Some((name, receive)) = worker.0.as_mut() else {
+        return;
+    };
+    let outcome = match receive
+        .get_mut()
+        .unwrap_or_else(|e| e.into_inner())
+        .try_recv()
+    {
+        Ok(outcome) => outcome,
+        Err(mpsc::TryRecvError::Empty) => return,
+        Err(mpsc::TryRecvError::Disconnected) => RemovalOutcome {
+            result: Err("removal worker stopped".into()),
+            selected_path: None,
+            removed: false,
+        },
+    };
+    let video = &settings.user_settings_update().1.video;
+    let mut graphics = GraphicsSettings::of(video);
+    // The worker resolved the selection that the deleted entry backs, including through
+    // links. That counts only while the same selection is current, so a newer pick survives.
+    let affected = outcome.selected_path.is_some()
+        && super::selected_pack(&config, video).map(|pack| pack.path) == outcome.selected_path;
+    let library = config.cli_shader_pack.is_none();
+    let active = graphics.mode == ui::RenderMode::ShaderPack
+        && (affected || (library && graphics.shader_pack.as_deref() == Some(name.as_str())));
+    let remembered = graphics.shader_pack.as_deref() == Some(name.as_str());
+    if outcome.removed && (active || remembered) {
+        if remembered || (active && library) {
+            graphics.shader_pack = None;
+        }
+        if active {
+            graphics.mode = ui::RenderMode::Vanilla;
+            config.cli_shader_pack = None;
+        }
+        set_graphics_settings(&mut settings, &graphics);
+        if let Some(path) = &config.path
+            && let Err(error) = save_graphics_settings(path, &graphics)
+        {
+            warn!(%error, "removed shader pack selection could not be saved");
+        }
+    }
+    let message = match outcome.result {
+        Ok(()) => format!("Removed shader pack {name}"),
+        Err(error) => format!("Could not remove shader pack {name}: {error}"),
+    };
+    worker.0 = None;
+    if let Some(mut menu) = menu {
+        menu.finish_shader_pack_removal();
+        refresh(&mut config, &mut menu);
+    }
+    if let Some(mut ui) = ui {
+        let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+        ui.0.push_client_toast(Arc::from("Shader Packs"), Arc::from(message), now);
+    }
+}
+
+#[cfg(test)]
+mod tests;

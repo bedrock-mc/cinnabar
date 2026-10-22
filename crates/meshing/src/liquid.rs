@@ -144,11 +144,8 @@ impl LiquidPart {
 #[derive(Clone, Copy)]
 struct OcclusionPart {
     occludes: bool,
-    /// A full cube can block the liquid sampler without hiding a liquid face.
-    /// Native flow reads Material.blocksMotion, while height
-    /// samples exclude cube-shaped neighbours. In particular,
-    /// transparent ice is not an air sample or a downhill opening.
-    full_cube: bool,
+    /// Full-cell liquid barriers block height and flow samples without hiding a liquid face.
+    full_cell_barrier: bool,
     /// Bit per face: the primary occludes and that face's material is opaque.
     opaque_faces: u8,
 }
@@ -160,9 +157,17 @@ impl OcclusionPart {
             .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
         Self {
             occludes: occluder.is_some(),
-            full_cube: contributors
-                .primary_entry()
-                .is_some_and(|entry| is_full_cube(assets, entry.kind, entry.model_template)),
+            full_cell_barrier: contributors.primary_entry().is_some_and(|entry| {
+                entry
+                    .sequential_id
+                    .and_then(|id| {
+                        assets::facts::liquid::pinned_facts(NetworkIdMode::Sequential, id)
+                    })
+                    .and_then(|facts| facts.full_cell_barrier)
+                    .unwrap_or_else(|| {
+                        fallback_cube_barrier(assets, entry.kind, entry.model_template)
+                    })
+            }),
             opaque_faces: occluder.map_or(0, |entry| {
                 Face::ALL
                     .into_iter()
@@ -177,8 +182,8 @@ impl OcclusionPart {
     }
 }
 
-/// Transparent cube templates block liquid flow without hiding transparent contact faces.
-fn is_full_cube(assets: &RuntimeAssets, kind: VisualKind, model_template: u32) -> bool {
+/// Unclassified families retain the cube-based liquid barrier fallback.
+fn fallback_cube_barrier(assets: &RuntimeAssets, kind: VisualKind, model_template: u32) -> bool {
     kind == VisualKind::Cube
         || (kind == VisualKind::Model
             && assets
@@ -194,7 +199,7 @@ const LIQUID_KNOWN: u16 = 1 << 14;
 const LIQUID_PRESENT: u16 = 1 << 13;
 const OCCLUSION_KNOWN: u16 = 1 << 12;
 const OCCLUDES: u16 = 1 << 11;
-const FULL_CUBE: u16 = 1 << 10;
+const FULL_CELL_BARRIER: u16 = 1 << 10;
 
 /// Mesh-job sampler that memoizes each halo cell's facts on first use; flow,
 /// corner-height and face checks revisit the same cells many times. The two
@@ -288,8 +293,8 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
             if part.occludes {
                 updated |= OCCLUDES;
             }
-            if part.full_cube {
-                updated |= FULL_CUBE;
+            if part.full_cell_barrier {
+                updated |= FULL_CELL_BARRIER;
             }
         }
         self.facts[index].set(updated);
@@ -346,7 +351,7 @@ trait LiquidSampler {
             Some(_) => self
                 .occlusion_part(neighbourhood, coordinate)
                 .is_none_or(|occlusion| {
-                    !(occlusion.full_cube
+                    !(occlusion.full_cell_barrier
                         || (occlusion.occludes
                             && contacting_faces.iter().all(|&face| occlusion.opaque(face))))
                 }),
@@ -401,7 +406,7 @@ impl LiquidSampler for Sampler<'_, '_> {
         let flags = self.flags(neighbourhood, index, coordinate, OCCLUSION_KNOWN)?;
         (flags & NO_SOURCE == 0).then_some(OcclusionPart {
             occludes: flags & OCCLUDES != 0,
-            full_cube: flags & FULL_CUBE != 0,
+            full_cell_barrier: flags & FULL_CELL_BARRIER != 0,
             opaque_faces: flags as u8,
         })
     }
