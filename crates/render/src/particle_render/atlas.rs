@@ -109,9 +109,9 @@ fn upload(
     base: &[u8],
     factor: u32,
 ) -> Option<(Texture, TextureView)> {
-    let reduced = reduce(side, side, base, factor);
+    let reduced = reduced_base(side, base, factor);
     let (extent, pixels) = match &reduced {
-        Some(([width, _], pixels)) => (*width, pixels.as_slice()),
+        Some((width, pixels)) => (*width, pixels.as_slice()),
         None if factor == 1 => (side, base),
         None => return None,
     };
@@ -140,6 +140,16 @@ fn upload(
         texture.create_view(&TextureViewDescriptor::default())
     })?;
     Some((texture, view))
+}
+
+/// The base box-filtered by `factor`, with the fallback texel restored: filtering blends it with
+/// its transparent neighbours, and fallback particles sample it at the origin.
+fn reduced_base(side: u32, base: &[u8], factor: u32) -> Option<(u32, Vec<u8>)> {
+    let ([width, _], mut pixels) = reduce(side, side, base, factor)?;
+    pixels
+        .get_mut(..particles::FALLBACK_TEXEL.len())?
+        .copy_from_slice(&particles::FALLBACK_TEXEL);
+    Some((width, pixels))
 }
 
 /// Box-filters `rgba` by `factor`; `None` when no reduction applies or it cannot be expressed.
@@ -186,4 +196,26 @@ fn write_rect(
             depth_or_array_layers: 1,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A reduced atlas keeps fallback particles opaque white instead of a dark, discarded blend.
+    #[test]
+    fn reduction_keeps_the_fallback_texel_opaque_white() {
+        let side = 8;
+        let mut base = vec![0; (side * side * 4) as usize];
+        base[..4].copy_from_slice(&particles::FALLBACK_TEXEL);
+        let texture = [10, 20, 30, 255];
+        for x in 2..4 {
+            base[x * 4..x * 4 + 4].copy_from_slice(&texture);
+        }
+        let (width, pixels) = reduced_base(side, &base, 2).unwrap();
+        assert_eq!(width, side / 2);
+        assert_eq!(pixels[..4], particles::FALLBACK_TEXEL);
+        // Neighbouring artwork is still filtered, not overwritten.
+        assert_eq!(pixels[4..8], [5, 10, 15, 127]);
+    }
 }

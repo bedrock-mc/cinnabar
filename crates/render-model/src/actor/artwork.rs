@@ -14,9 +14,12 @@ use std::{
 mod color_mask_tests;
 #[path = "artwork/multitexture.rs"]
 mod multitexture;
+#[path = "artwork/page_budget.rs"]
+mod page_budget;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
+use page_budget::{push_group, within_page_budget};
 #[path = "artwork/pixel_cache.rs"]
 mod pixel_cache;
 #[cfg(test)]
@@ -32,16 +35,6 @@ mod retained_equipment_tests;
 pub type ActorArtworkPageId = u16;
 /// Player skins occupy page zero; generic artwork occupies the remaining page IDs.
 pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
-/// Layers per generic entity page, within every backend's array-layer limit.
-const MAX_ACTOR_PAGE_LAYERS: usize = 256;
-/// One page is one GPU allocation; large rasters split so a failed or replaced page stays small.
-const MAX_ACTOR_PAGE_BYTES: usize = 32 * 1024 * 1024;
-
-/// Layers per page for rasters of one size; a raster larger than the cap gets its own page.
-fn page_layers(width: u16, height: u16) -> usize {
-    let layer = usize::from(width) * usize::from(height) * 4;
-    (MAX_ACTOR_PAGE_BYTES / layer.max(1)).clamp(1, MAX_ACTOR_PAGE_LAYERS)
-}
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
 // startup art takes about 20 MiB. It covers full pack and equipment art; a page past it is
 // downscaled to fit, never dropped.
@@ -69,30 +62,6 @@ impl EquipmentRaster {
             rgba8: rgba8.into(),
         })
     }
-}
-
-fn within_page_budget(generic_pages: usize, declared_pixel_bytes: usize) -> bool {
-    generic_pages < MAX_ACTOR_TEXTURE_PAGES && declared_pixel_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES
-}
-
-/// Appends `page`, box-filtered down until it fits the byte budget, and returns its page id;
-/// `None` only once every page id is taken.
-fn push_page(
-    pages: &mut Vec<ActorTexturePage>,
-    gpu_bytes: &mut usize,
-    page: ActorTexturePage,
-) -> Option<ActorArtworkPageId> {
-    let mut page = page;
-    while !within_page_budget(pages.len() + 1, gpu_bytes.saturating_add(page.rgba8.len())) {
-        let longest = u32::from(page.width.max(page.height));
-        if pages.len() + 1 >= MAX_ACTOR_TEXTURE_PAGES || longest <= 1 {
-            return None;
-        }
-        page = page.fit_within(longest / 2).into_owned();
-    }
-    *gpu_bytes += page.rgba8.len();
-    pages.push(page);
-    ActorArtworkPageId::try_from(pages.len()).ok()
 }
 
 /// Copies ordered texture layers into one allocation without a per-byte iterator.
@@ -265,23 +234,23 @@ impl ActorArtworkPages {
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = player_page_bytes();
         for ((width, height, color_mask, multitexture), indices) in groups {
-            // Three-sampler layers must share a page, so those keep the layer limit alone.
-            let layers = if multitexture {
-                MAX_ACTOR_PAGE_LAYERS
-            } else {
-                page_layers(width, height)
-            };
-            for indices in indices.chunks(layers) {
-                let pixels = multitexture::page_pixels(catalog, indices, width, height);
-                let page = ActorTexturePage {
+            let placed = push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                multitexture,
+                |indices| ActorTexturePage {
                     width,
                     height,
                     layers: indices.len() as u32,
-                    rgba8: pixels.into(),
+                    rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
                     color_mask,
                     multitexture,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
+                },
+            );
+            for (indices, page) in placed {
+                let Some(page) = page else {
                     continue;
                 };
                 for (layer, index) in indices.iter().enumerate() {
@@ -429,30 +398,41 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height, color_mask), indices) in groups {
-            for indices in indices.chunks(page_layers(width, height)) {
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update((indices.len() as u32).to_le_bytes());
-                let bytes: usize = indices
-                    .iter()
-                    .map(|index| rasters[*index].rgba8.len())
-                    .sum();
-                hasher.update((bytes as u64).to_le_bytes());
-                hasher.update([u8::from(color_mask)]);
-                hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
-                let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| &rasters[*index].rgba8),
-                    &mut hasher,
-                );
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: Arc::clone(&pixels),
-                    color_mask,
-                    multitexture: false,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
+            let mut built = Vec::new();
+            let placed = push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                false,
+                |indices| {
+                    hasher.update(width.to_le_bytes());
+                    hasher.update(height.to_le_bytes());
+                    hasher.update((indices.len() as u32).to_le_bytes());
+                    let bytes: usize = indices
+                        .iter()
+                        .map(|index| rasters[*index].rgba8.len())
+                        .sum();
+                    hasher.update((bytes as u64).to_le_bytes());
+                    hasher.update([u8::from(color_mask)]);
+                    hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
+                    let (key, pixels) = pixel_cache::pack(
+                        indices.iter().map(|index| &rasters[*index].rgba8),
+                        &mut hasher,
+                    );
+                    built.push((key, Arc::clone(&pixels)));
+                    ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: pixels,
+                        color_mask,
+                        multitexture: false,
+                    }
+                },
+            );
+            for ((indices, page), (key, pixels)) in placed.into_iter().zip(built) {
+                let Some(page) = page else {
                     continue;
                 };
                 let index = usize::from(page) - 1;
@@ -501,30 +481,41 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
-            for indices in indices.chunks(page_layers(width, height)) {
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update((indices.len() as u32).to_le_bytes());
-                let bytes: usize = indices
-                    .iter()
-                    .map(|index| textures[*index].rgba8.len())
-                    .sum();
-                hasher.update((bytes as u64).to_le_bytes());
-                hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
-                hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
-                let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| &textures[*index].rgba8),
-                    &mut hasher,
-                );
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: Arc::clone(&pixels),
-                    color_mask: false,
-                    multitexture: false,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
+            let mut built = Vec::new();
+            let placed = push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                false,
+                |indices| {
+                    hasher.update(width.to_le_bytes());
+                    hasher.update(height.to_le_bytes());
+                    hasher.update((indices.len() as u32).to_le_bytes());
+                    let bytes: usize = indices
+                        .iter()
+                        .map(|index| textures[*index].rgba8.len())
+                        .sum();
+                    hasher.update((bytes as u64).to_le_bytes());
+                    hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
+                    hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
+                    let (key, pixels) = pixel_cache::pack(
+                        indices.iter().map(|index| &textures[*index].rgba8),
+                        &mut hasher,
+                    );
+                    built.push((key, Arc::clone(&pixels)));
+                    ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: pixels,
+                        color_mask: false,
+                        multitexture: false,
+                    }
+                },
+            );
+            for ((indices, page), (key, pixels)) in placed.into_iter().zip(built) {
+                let Some(page) = page else {
                     continue;
                 };
                 let index = usize::from(page) - 1;

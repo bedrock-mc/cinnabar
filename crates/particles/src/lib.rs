@@ -18,7 +18,7 @@ mod world;
 pub mod ambient;
 pub mod tiles;
 
-pub use atlas::{ATLAS_SIDE, AtlasPatch, TILE_SLOT, particle_textures_fit};
+pub use atlas::{ATLAS_SIDE, AtlasPatch, FALLBACK_TEXEL, TILE_SLOT, particle_textures_fit};
 pub use dragon_egg::dragon_egg_teleport_requests;
 pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
