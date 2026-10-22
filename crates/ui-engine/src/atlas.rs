@@ -680,7 +680,10 @@ impl ServerAtlas {
         }
         let (found, settled) = if is_remote(key) {
             match self.remote.as_ref()?.state(key) {
-                RemoteImage::Ready(bytes) => (source(bytes), true),
+                RemoteImage::Ready(bytes) => (
+                    source(bytes).filter(|source| source.bytes.len() <= self.remote_allowance()),
+                    true,
+                ),
                 RemoteImage::Failed => (None, true),
                 RemoteImage::Loading => (None, false),
             }
@@ -695,6 +698,20 @@ impl ServerAtlas {
             extra.insert(key.to_owned(), found.clone());
         }
         found
+    }
+
+    /// Downloaded bytes the fallback cache may still keep. Every URL counts, with no small-image
+    /// exemption, because the server chooses them all.
+    fn remote_allowance(&self) -> usize {
+        let held: usize = self
+            .extra
+            .borrow()
+            .iter()
+            .filter(|(key, _)| is_remote(key))
+            .filter_map(|(_, source)| source.as_ref())
+            .map(|source| source.bytes.len())
+            .sum();
+        render_model::MAX_UI_NATIVE_SHEET_BYTES.saturating_sub(held)
     }
 
     pub fn placement(&self, key: &str) -> Option<ServerTexture> {

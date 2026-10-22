@@ -451,3 +451,37 @@ fn a_host_without_workers_completes_large_images_inline() {
         "a large encoding decodes inline"
     );
 }
+
+/// Serves the same downloaded image for every URL.
+struct SameImage(Arc<[u8]>);
+
+impl RemoteSource for SameImage {
+    fn state(&self, _: &str) -> RemoteImage {
+        RemoteImage::Ready(self.0.clone())
+    }
+}
+
+// Downloaded form images had no byte allowance, so a form of large URLs pinned each body (up to
+// 64 MiB) for 512 atlas entries.
+#[test]
+fn downloaded_images_stay_within_one_byte_allowance() {
+    let (_, encoded) = large_noise();
+    let remote: Arc<dyn RemoteSource> = Arc::new(SameImage(Arc::from(encoded)));
+    let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(remote));
+    let urls = (0..64).map(|index| format!("https://images.test/{index}.png"));
+    let found = urls
+        .filter(|url| atlas.fallback_size(url).is_some())
+        .count();
+    assert!(
+        found > 0,
+        "a downloaded image within the allowance is drawn"
+    );
+    let retained: usize = atlas
+        .extra
+        .borrow()
+        .values()
+        .flatten()
+        .map(|source| source.bytes.len())
+        .sum();
+    assert!(retained <= render_model::MAX_UI_NATIVE_SHEET_BYTES);
+}

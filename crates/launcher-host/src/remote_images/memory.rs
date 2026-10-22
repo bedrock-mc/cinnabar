@@ -14,6 +14,9 @@ use super::{FORM_IMAGES, client, download};
 
 /// Most URLs remembered, loading ones included; the oldest settled entry goes first.
 const MAX_ENTRIES: usize = 64;
+/// Downloaded bytes kept at once; past it the oldest downloaded images go first and download
+/// again when asked. One image at the download limit still fits.
+const MAX_READY_BYTES: usize = FORM_IMAGES.max_bytes;
 /// Requests waiting for a download slot; the oldest are dropped first.
 const MAX_QUEUED: usize = MAX_ENTRIES;
 /// Downloads in flight at once, so one slow host cannot hold up the rest.
@@ -44,19 +47,35 @@ struct Entries {
     order: VecDeque<String>,
     /// When a drawn screen last asked for each loading URL.
     asked: HashMap<String, Instant>,
+    /// Total length of the `Ready` images in `states`.
+    ready_bytes: usize,
 }
 
 impl Entries {
-    /// Evicts the oldest settled URLs, then the oldest loading ones, down to [`MAX_ENTRIES`].
+    /// Evicts the oldest settled URLs, then the oldest loading ones, down to [`MAX_ENTRIES`], and
+    /// the oldest downloaded images down to [`MAX_READY_BYTES`].
     fn trim(&mut self) {
-        while self.order.len() > MAX_ENTRIES {
-            let position = self
-                .order
-                .iter()
-                .position(|key| self.states.get(key) != Some(&RemoteState::Loading))
-                .unwrap_or(0);
+        loop {
+            let position =
+                if self.order.len() > MAX_ENTRIES {
+                    self.order
+                        .iter()
+                        .position(|key| self.states.get(key) != Some(&RemoteState::Loading))
+                        .unwrap_or(0)
+                } else if self.ready_bytes > MAX_READY_BYTES {
+                    let Some(position) = self.order.iter().position(|key| {
+                        matches!(self.states.get(key), Some(RemoteState::Ready(_)))
+                    }) else {
+                        return;
+                    };
+                    position
+                } else {
+                    return;
+                };
             if let Some(key) = self.order.remove(position) {
-                self.states.remove(&key);
+                if let Some(RemoteState::Ready(bytes)) = self.states.remove(&key) {
+                    self.ready_bytes -= bytes.len();
+                }
                 self.asked.remove(&key);
             }
         }
@@ -122,9 +141,18 @@ impl Remote {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         entries.asked.remove(&url);
         if let Some(state) = entries.states.get_mut(&url) {
+            let replaced = match state {
+                RemoteState::Ready(old) => old.len(),
+                _ => 0,
+            };
             *state = bytes.map_or(RemoteState::Failed, |bytes| {
                 RemoteState::Ready(bytes.into())
             });
+            let added = match state {
+                RemoteState::Ready(new) => new.len(),
+                _ => 0,
+            };
+            entries.ready_bytes = entries.ready_bytes - replaced + added;
         }
         entries.trim();
     }
@@ -330,6 +358,31 @@ pub mod tests {
         assert!(entries.states.len() <= MAX_ENTRIES);
         assert_eq!(entries.order.len(), entries.states.len());
         assert!(entries.asked.is_empty());
+    }
+
+    // Large form images counted only toward the entry limit, so 64 of them could keep GiBs resident.
+    #[test]
+    fn downloaded_images_stay_within_the_byte_budget() {
+        let remote = Remote::default();
+        let size = MAX_READY_BYTES / 4 + 1;
+        let keys = (0..5)
+            .map(|index| format!("fixture:{index}"))
+            .collect::<Vec<_>>();
+        for key in &keys {
+            {
+                let mut entries = remote.entries.lock().unwrap();
+                entries.states.insert(key.clone(), RemoteState::Loading);
+                entries.order.push_back(key.clone());
+            }
+            remote.finish(key.clone(), Some(vec![0; size]));
+        }
+        let entries = remote.entries.lock().unwrap();
+        assert!(entries.ready_bytes <= MAX_READY_BYTES);
+        assert_eq!(entries.ready_bytes, 3 * size);
+        assert!(!entries.states.contains_key("fixture:0"));
+        assert!(!entries.states.contains_key("fixture:1"));
+        assert!(entries.states.contains_key("fixture:4"));
+        assert_eq!(entries.order.len(), entries.states.len());
     }
 
     // Loading entries and queued URLs were unbounded, so a flood of new URLs grew without limit.
