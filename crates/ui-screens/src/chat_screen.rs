@@ -401,6 +401,53 @@ impl ChatScreen {
         self.pointer = position;
     }
 
+    /// Identifies a settings slider from its current painted value segments.
+    pub fn slider_at(&self, point: UiPoint) -> Option<u16> {
+        use launcher::menu::{
+            MenuAction,
+            settings_options::{SETTINGS_OPTIONS, SettingKind},
+        };
+        if !self.settings.open || self.pending_link.is_some() {
+            return None;
+        }
+        let ChatHit::SettingsAction(MenuAction::SettingsOption(index, _)) = self.hit_test(point)?
+        else {
+            return None;
+        };
+        SETTINGS_OPTIONS
+            .get(usize::from(index))
+            .is_some_and(|option| matches!(option.kind, SettingKind::Slider))
+            .then_some(index)
+    }
+
+    /// Maps a captured slider finger horizontally, including beyond its painted endpoints.
+    pub fn slider_action(&self, index: u16, point: UiPoint) -> Option<launcher::menu::MenuAction> {
+        use launcher::menu::MenuAction;
+        if !self.settings.open || self.pending_link.is_some() {
+            return None;
+        }
+        let segments = || {
+            self.hits.iter().filter_map(|(hit, bounds, _)| match hit {
+                ChatHit::SettingsAction(action @ MenuAction::SettingsOption(at, _))
+                    if *at == index =>
+                {
+                    Some((*action, *bounds))
+                }
+                _ => None,
+            })
+        };
+        let left = segments()
+            .map(|(_, bounds)| bounds.min().x())
+            .reduce(f32::min)?;
+        let right = segments()
+            .map(|(_, bounds)| bounds.max().x())
+            .reduce(f32::max)?;
+        let x = point.x().clamp(left, right);
+        segments().rev().find_map(|(action, bounds)| {
+            (x >= bounds.min().x() && x <= bounds.max().x()).then_some(action)
+        })
+    }
+
     /// Whether a finger may start scrolling history, excluding modal chat controls.
     pub fn history_contains(&self, point: UiPoint) -> bool {
         !self.settings.open

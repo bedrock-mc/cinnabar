@@ -31,6 +31,43 @@ fn toggles_keep_their_own_state() {
     assert!(screen.visible("t_off"));
 }
 
+/// Touch releases interact only with the control that accepted their corresponding press.
+#[test]
+fn touch_release_over_a_different_toggle_cannot_change_it() {
+    for start in [[150.0, 150.0], [5.0, 5.0], [55.0, 5.0]] {
+        let mut screen = Screen::new(page(vec![
+            toggle(
+                "a",
+                json!({"toggle_name":"a", "toggle_default_state":false}),
+            ),
+            toggle(
+                "b",
+                json!({"toggle_name":"b", "toggle_default_state":false, "offset":[50,0]}),
+            ),
+        ]));
+        for (down, point) in [(true, start), (false, [55.0, 5.0])] {
+            let regions = screen.regions();
+            let output = screen.dispatcher.button(
+                &regions,
+                &mut screen.view,
+                json_ui::ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point: Some(point),
+                    mode: InputMode::Touch,
+                    now: 0.0,
+                },
+            );
+            let changed = output.events.iter().any(|event| matches!(event, ScreenEvent::Toggle { name, checked:true, .. } if name == "b"));
+            assert_eq!(
+                changed,
+                !down && start == [55.0, 5.0],
+                "start={start:?}, down={down}"
+            );
+        }
+    }
+}
+
 // T3: selecting a radio member checks it and unchecks the rest of its group.
 #[test]
 fn radio_groups_stay_exclusive() {

@@ -9,6 +9,14 @@ pub(crate) struct ChatTouch {
     finger: Option<(u64, UiPoint, UiPoint)>,
     dragged: bool,
     history: bool,
+    slider: Option<u16>,
+    last_action: Option<launcher::menu::MenuAction>,
+}
+
+/// A completed ordinary tap or one changed value from the finger's captured slider.
+pub(super) enum ChatTouchAction {
+    Tap(UiPoint, UiPoint),
+    Slider(launcher::menu::MenuAction),
 }
 
 impl ChatTouch {
@@ -22,7 +30,7 @@ impl ChatTouch {
         &mut self,
         touches: &Touches,
         presentation: &mut UiPresentationRuntime,
-    ) -> Option<(UiPoint, UiPoint)> {
+    ) -> Option<ChatTouchAction> {
         if self.finger.is_none()
             && let Some(touch) = touches.iter_just_pressed().next()
             && let Ok(point) = UiPoint::new(touch.position().x, touch.position().y)
@@ -30,6 +38,8 @@ impl ChatTouch {
             self.finger = Some((touch.id(), point, point));
             self.dragged = false;
             self.history = presentation.chat_history_contains(point);
+            self.slider = presentation.chat_slider_at(point);
+            self.last_action = None;
         }
         let (id, start, last) = self.finger?;
         let touch = touches.get_pressed(id).or_else(|| touches.get_released(id));
@@ -39,6 +49,15 @@ impl ChatTouch {
             self.cancel();
             return None;
         };
+        if let Some(index) = self.slider {
+            let action = presentation.chat_slider_action(index, point);
+            let changed = action.filter(|action| self.last_action != Some(*action));
+            self.last_action = action;
+            if action.is_none() || touches.get_pressed(id).is_none() {
+                self.cancel();
+            }
+            return changed.map(ChatTouchAction::Slider);
+        }
         let distance = (point.x() - start.x()).hypot(point.y() - start.y());
         self.dragged |= distance > ui::TOUCH_DRAG_DISTANCE;
         if self.dragged && self.history {
@@ -48,7 +67,7 @@ impl ChatTouch {
         if touches.get_pressed(id).is_some() {
             None
         } else {
-            let tap = (!self.dragged).then_some((start, point));
+            let tap = (!self.dragged).then_some(ChatTouchAction::Tap(start, point));
             self.cancel();
             tap
         }
@@ -77,8 +96,8 @@ mod tests {
             presentation,
             taps,
         } = &mut *fixture;
-        if let Some(tap) = gesture.drive(&touches, presentation) {
-            taps.push(tap);
+        if let Some(ChatTouchAction::Tap(start, end)) = gesture.drive(&touches, presentation) {
+            taps.push((start, end));
         }
     }
 

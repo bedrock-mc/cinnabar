@@ -95,8 +95,11 @@ impl Dispatcher {
             };
             let previous = self.last.insert((region.key.clone(), index), input.down);
             // Interaction edge: the press, or the release on touch.
-            let edge = input.mode != InputMode::Touch;
-            let interacted = previous != Some(edge) && input.down == edge;
+            let interacted = if input.mode == InputMode::Touch {
+                !input.down && previous == Some(true)
+            } else {
+                input.down && previous != Some(true)
+            };
             let fired = event(
                 region,
                 &mapping.to,

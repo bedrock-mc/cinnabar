@@ -101,10 +101,18 @@ pub(crate) fn drive_chat_ui_actions(
     {
         presses.push(position);
     }
-    if let Some((start, end)) = gesture.drive(&touches, &mut presentation)
-        && presentation.hit_test_chat(start) == presentation.hit_test_chat(end)
-    {
-        presses.push(end);
+    match gesture.drive(&touches, &mut presentation) {
+        Some(touch::ChatTouchAction::Tap(start, end))
+            if presentation.hit_test_chat(start) == presentation.hit_test_chat(end) =>
+        {
+            presses.push(end);
+        }
+        Some(touch::ChatTouchAction::Slider(action)) => {
+            if let Some(menu) = menu.as_deref_mut() {
+                menu.activate(action);
+            }
+        }
+        _ => {}
     }
     for position in presses {
         let hit = presentation.hit_test_chat(position);
