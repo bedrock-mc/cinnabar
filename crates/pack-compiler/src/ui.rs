@@ -218,8 +218,8 @@ fn referenced_textures(files: &[UiFile]) -> BTreeSet<String> {
             visit(&value, &mut paths);
         }
     }
-    let builtin = pack_json::parse_jsonc(assets::TOUCH_CONTROLS_LAYOUT)
-        .expect("built-in touch layout parses");
+    let builtin =
+        pack_json::parse_jsonc(assets::TOUCH_LAYOUT).expect("built-in touch layout parses");
     visit(&builtin, &mut paths);
     paths
 }

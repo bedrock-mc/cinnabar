@@ -21,7 +21,7 @@ mod item_glint;
 pub const UI_CARRIER_MAGIC: [u8; 8] = *b"MCBEUI01";
 pub const UI_CARRIER_VERSION: u32 = 2;
 /// Shared gameplay touch layout, used for rendering and compiled image retention.
-pub const TOUCH_CONTROLS_LAYOUT: &[u8] = include_bytes!("../../../assets/touch-controls.json");
+pub const TOUCH_LAYOUT: &[u8] = include_bytes!("../../../assets/touch-controls.json");
 pub const SPLASH_RESOURCE_PATH: &str = "splashes.json";
 pub const MAX_UI_ATLAS_PAGES: usize = 16;
 /// Bound on an atlas page's width and height in pixels.
