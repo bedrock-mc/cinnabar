@@ -6,7 +6,7 @@ use bevy::{
         With,
     },
     render::{
-        Render, RenderApp, RenderSystems,
+        Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
         renderer::{RenderQueue, render_system},
         view::window::ExtractedWindow,
     },
@@ -29,6 +29,8 @@ impl Plugin for StartupPresentationPlugin {
         render_app
             .insert_resource(feedback)
             .init_resource::<PresentationProbe>()
+            .init_resource::<ExtractedSurfaceEpoch>()
+            .add_systems(ExtractSchedule, extract_surface_epoch)
             .add_systems(
                 Render,
                 capture_surface
@@ -40,6 +42,18 @@ impl Plugin for StartupPresentationPlugin {
                 observe_presentation.in_set(crate::device_poll::FrameSubmissions),
             );
     }
+}
+
+/// The surface generation belonging to this extracted frame, even if main has advanced.
+#[derive(Default, Resource)]
+struct ExtractedSurfaceEpoch(Option<u64>);
+
+/// Snapshots generation while main-world window extraction is still exclusive.
+fn extract_surface_epoch(
+    feedback: Extract<Res<StartupPresentation>>,
+    mut epoch: ResMut<ExtractedSurfaceEpoch>,
+) {
+    epoch.0 = feedback.content_epoch();
 }
 
 #[derive(Default, Resource)]
@@ -67,10 +81,10 @@ impl PresentationProbe {
 fn capture_surface(
     windows: Query<(Entity, &ExtractedWindow), With<PrimaryWindow>>,
     mut probe: ResMut<PresentationProbe>,
-    feedback: Res<StartupPresentation>,
+    epoch: Res<ExtractedSurfaceEpoch>,
 ) {
     probe.surface = if probe.submitted < StartupPresentation::REQUIRED_FRAMES
-        || probe.content_submitted != feedback.content_epoch()
+        || probe.content_submitted != epoch.0
     {
         windows
             .iter()
@@ -90,6 +104,7 @@ fn observe_presentation(
     )>,
     queue: Res<RenderQueue>,
     feedback: Res<StartupPresentation>,
+    epoch: Res<ExtractedSurfaceEpoch>,
 ) {
     let presented_window = probe
         .surface
@@ -97,7 +112,7 @@ fn observe_presentation(
         .filter(|(_, window)| window.swap_chain_texture.is_none())
         .map(|(main, _)| main.id());
     let consumed = presented_window.is_some();
-    if let Some(epoch) = feedback.content_epoch()
+    if let Some(epoch) = epoch.0
         && consumed
         && probe.content_submitted != Some(epoch)
         && layers.iter().any(|(camera, layer)| {
@@ -118,6 +133,30 @@ fn observe_presentation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extracted_frame_keeps_its_generation_when_main_replaces_the_surface() {
+        use bevy::{ecs::system::RunSystemOnce, prelude::World, render::MainWorld};
+        let mut app = App::new();
+        app.add_plugins(StartupPresentationPlugin);
+        let feedback = app.world().resource::<StartupPresentation>().clone();
+        feedback.replace_content_surface(true);
+        let original = feedback.content_epoch();
+        let mut main = MainWorld::default();
+        main.insert_resource(feedback.clone());
+        let mut render = World::new();
+        render.insert_resource(main);
+        render.init_resource::<ExtractedSurfaceEpoch>();
+        render.run_system_once(extract_surface_epoch).unwrap();
+        feedback.replace_content_surface(false);
+        feedback.replace_content_surface(true);
+        assert_eq!(render.resource::<ExtractedSurfaceEpoch>().0, original);
+        feedback.record_content_frame(render.resource::<ExtractedSurfaceEpoch>().0.unwrap());
+        assert!(!feedback.has_presented_content());
+        render.run_system_once(extract_surface_epoch).unwrap();
+        feedback.record_content_frame(render.resource::<ExtractedSurfaceEpoch>().0.unwrap());
+        assert!(feedback.has_presented_content());
+    }
 
     #[test]
     fn absent_unpresented_and_repeated_surfaces_never_count_as_completed_frames() {
