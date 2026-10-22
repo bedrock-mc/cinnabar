@@ -405,23 +405,29 @@ fn destination_readiness_rejects_incomplete_segments_and_previous_frame_presenta
             depth_or_array_layers: 1,
         },
     );
-    let mut frame = frame_layer(&raster, true);
+    let frame = frame_layer(&raster, true);
     assert!(!frame.complete_content());
     assert!(!frame.presented_complete_content());
-    *frame.held.lock().unwrap() = Some(held(input()));
-    assert!(frame.complete_content());
-    let segment = retained_layer(
-        device,
-        Extent3d {
-            width: 2,
-            height: 2,
-            depth_or_array_layers: 1,
-        },
+    frame.record_content_draw(true, true);
+    assert!(
+        frame.held.lock().unwrap().is_none(),
+        "scratch output need not be cached"
     );
-    frame.segments.push(frame_layer(&segment, false));
-    assert!(!frame.complete_content());
-    *frame.segments[0].held.lock().unwrap() = Some(held(input()));
     assert!(frame.complete_content());
+    assert!(
+        !frame.presented_complete_content(),
+        "encoding alone is not presentation"
+    );
+    frame.record_content_draw(false, true);
+    assert!(
+        !frame.complete_content(),
+        "partial encoding must keep feedback visible"
+    );
+    frame.record_content_draw(true, false);
+    assert!(
+        !frame.complete_content(),
+        "empty encoding must keep feedback visible"
+    );
     frame.content_presented.store(true, Ordering::Relaxed);
     assert!(frame.presented_complete_content());
     assert!(!frame_layer(&raster, true).presented_complete_content());

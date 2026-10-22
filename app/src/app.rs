@@ -502,25 +502,41 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .transpose()
         .context("load persistent login client ID")?;
 
-    // Validate local carriers before starting a connection: an asset failure
-    // must not launch the core or wait on a server the client cannot render.
+    // Validate local carriers before admitting a connection, including a cancelled launch.
     if let Some(address) = args.address.as_deref() {
-        let child = spawn_core_for_address(
-            &layout,
-            &socket_dir,
-            address,
-            None,
-            client_blob_cache.enables_upstream_client_cache(),
-            false,
-        )
-        .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
-        core_process.replace(child);
-        if let Err(error) = wait_for_core(&socket_dir) {
-            launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
-            return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
+        let admitted = crate::startup_feedback::while_active(
+            || feedback.cancelled(),
+            || {
+                let child = spawn_core_for_address(
+                    &layout,
+                    &socket_dir,
+                    address,
+                    None,
+                    client_blob_cache.enables_upstream_client_cache(),
+                    false,
+                )
+                .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
+                core_process.replace(child);
+                wait_for_core(&socket_dir)
+                    .with_context(|| format!("wait for Go core endpoint for {address}"))
+            },
+        );
+        match admitted {
+            Ok(Some(())) => {}
+            outcome => {
+                launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
+                outcome?;
+                return Ok(());
+            }
         }
-    } else if connection_requested {
-        preflight_bridge_endpoint(&socket_dir)?;
+    } else if connection_requested
+        && crate::startup_feedback::while_active(
+            || feedback.cancelled(),
+            || preflight_bridge_endpoint(&socket_dir),
+        )?
+        .is_none()
+    {
+        return Ok(());
     }
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
@@ -873,7 +889,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             First,
             (
                 crate::lifecycle::acknowledge_startup,
-                crate::startup_feedback::finish,
+                (
+                    crate::startup_feedback::synchronize_surface,
+                    crate::startup_feedback::finish,
+                )
+                    .chain(),
             ),
         );
     crate::lifecycle::heartbeat::configure(&mut app);

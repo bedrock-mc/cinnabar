@@ -64,6 +64,10 @@ pub(crate) struct UiLayerTexture {
     bindings: Arc<Mutex<CompositeBindings>>,
     /// Set when the frame's final layer is left for [`ui_present`] to composite.
     present: AtomicBool,
+    /// Complete nonempty encoding is independent of retained-raster eligibility.
+    content_drawn: AtomicBool,
+    /// Whether a deferred layer reached the scene before ordinary output.
+    composited: AtomicBool,
     /// Whether this frame composited a complete nonempty interface.
     content_presented: AtomicBool,
     /// Whether this frame already wrote the final camera output.
@@ -136,16 +140,15 @@ impl UiLayerTexture {
         self.content_presented.load(Ordering::Relaxed)
     }
 
-    /// Incomplete or empty segments never qualify a destination screen for handoff.
+    /// Records actual encoding, including scratch rasters and trailing inversion passes.
+    pub(crate) fn record_content_draw(&self, complete: bool, encoded: bool) {
+        self.content_drawn
+            .store(complete && encoded, Ordering::Relaxed);
+    }
+
+    /// Incomplete or empty encoding never qualifies a destination screen for handoff.
     fn complete_content(&self) -> bool {
-        std::iter::once(self).chain(&self.segments).all(|segment| {
-            segment
-                .held
-                .lock()
-                .expect("UI layer content lock")
-                .as_ref()
-                .is_some_and(|held| held.encoded)
-        })
+        self.content_drawn.load(Ordering::Relaxed)
     }
 
     /// Leaves the final layer for the output pass to composite.
@@ -161,6 +164,8 @@ impl UiLayerTexture {
             held: Arc::default(),
             bindings: Arc::default(),
             present: AtomicBool::new(false),
+            content_drawn: AtomicBool::new(false),
+            composited: AtomicBool::new(false),
             content_presented: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             direct_output: false,
@@ -392,6 +397,8 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
         held: Arc::clone(&layer.held),
         bindings: Arc::clone(&layer.bindings),
         present: AtomicBool::new(false),
+        content_drawn: AtomicBool::new(false),
+        composited: AtomicBool::new(false),
         content_presented: AtomicBool::new(false),
         presented: AtomicBool::new(false),
         direct_output,
@@ -704,6 +711,7 @@ pub(crate) fn ui_present(
     };
     layer.presented.store(false, Ordering::Relaxed);
     layer.content_presented.store(false, Ordering::Relaxed);
+    layer.composited.store(false, Ordering::Relaxed);
     if !layer.present.load(Ordering::Relaxed) {
         return;
     }
@@ -752,17 +760,72 @@ pub(crate) fn ui_present(
             &layout,
         );
         layer.presented.store(true, Ordering::Relaxed);
-        layer
-            .content_presented
-            .store(layer.complete_content(), Ordering::Relaxed);
+
         return;
     }
     if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
         composite(&mut context, world, target, layer, pipeline, &layout);
-        layer
-            .content_presented
-            .store(layer.complete_content(), Ordering::Relaxed);
+        layer.composited.store(true, Ordering::Relaxed);
     }
+}
+
+/// Qualifies content only after direct output or a successfully encoded ordinary output blit.
+fn observe_ui_output(
+    view: bevy::render::renderer::ViewQuery<(
+        &ViewTarget,
+        &bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
+        Option<&ExtractedCamera>,
+        Option<&UiLayerTexture>,
+        Option<&bevy::render::view::ResolvedCompositingSpace>,
+    )>,
+    cache: Res<PipelineCache>,
+    blit: Res<bevy::core_pipeline::blit::BlitPipeline>,
+    mut pipelines: ResMut<
+        bevy::render::render_resource::SpecializedRenderPipelines<
+            bevy::core_pipeline::blit::BlitPipeline,
+        >,
+    >,
+) {
+    let (target, _, camera, layer, space) = view.into_inner();
+    let Some(layer) = layer else {
+        return;
+    };
+    if !layer.complete_content() {
+        return;
+    }
+    if layer.presented.load(Ordering::Relaxed) {
+        layer.content_presented.store(true, Ordering::Relaxed);
+        return;
+    }
+    if layer.present.load(Ordering::Relaxed) && !layer.composited.load(Ordering::Relaxed) {
+        return;
+    }
+    let blend_state = match camera.map(|camera| &camera.output_mode) {
+        Some(CameraOutputMode::Skip) => return,
+        Some(CameraOutputMode::Write { blend_state, .. }) => blend_state.or_else(|| {
+            camera
+                .filter(|camera| camera.sorted_camera_index_for_target > 0)
+                .map(|_| BlendState::ALPHA_BLENDING)
+        }),
+        None => None,
+    };
+    let Some(target_format) = target.out_texture_view_format() else {
+        return;
+    };
+    let pipeline = pipelines.specialize(
+        &cache,
+        &blit,
+        bevy::core_pipeline::blit::BlitPipelineKey {
+            target_format,
+            blend_state,
+            samples: 1,
+            source_space: bevy::render::view::ResolvedCompositingSpace::space(space),
+        },
+    );
+    layer.content_presented.store(
+        cache.get_render_pipeline(pipeline).is_some(),
+        Ordering::Relaxed,
+    );
 }
 
 /// Runs Bevy's output blit unless the HUD composite already wrote the final image.
@@ -804,6 +867,7 @@ pub(crate) fn install_present_node(world: &mut World) {
                 .after(ui_present)
                 .after(Core3dSystems::PostProcess)
                 .run_if(needs_output_blit),
+                observe_ui_output.after(ui_present).after(upscaling),
             ));
         })
         .is_ok();

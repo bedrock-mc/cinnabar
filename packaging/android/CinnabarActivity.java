@@ -12,6 +12,8 @@ import android.view.WindowManager;
 public final class CinnabarActivity extends NativeActivity {
     private volatile int bottomObstruction;
     private StartupScreen startup;
+    private volatile boolean startupActive;
+    private volatile long startupGeneration;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -29,10 +31,25 @@ public final class CinnabarActivity extends NativeActivity {
         decor.requestApplyInsets();
     }
 
+    @Override protected void onResume() {
+        startupGeneration++;
+        startupActive = true;
+        super.onResume();
+    }
+
+    @Override protected void onPause() {
+        startupActive = false;
+        startupGeneration++;
+        super.onPause();
+    }
+
     /** Native startup reports work on its own thread; only the activity thread owns views. */
     public void startupProgress(String message) {
+        final long generation = startupGeneration;
+        final boolean active = startupActive;
         runOnUiThread(() -> {
-            if (!isFinishing() && !isDestroyed() && startup != null) startup.update(message);
+            if (active && startupActive && generation == startupGeneration
+                    && !isFinishing() && !isDestroyed() && startup != null) startup.update(message);
         });
     }
 

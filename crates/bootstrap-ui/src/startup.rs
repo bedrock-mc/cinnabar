@@ -4,9 +4,10 @@ mod window;
 
 use anyhow::{Context, Result};
 use launcher::startup::{Event, Message, Stage};
+use launcher_host::lifecycle::children::{self, EXIT_GRACE, Spawned};
 use std::{
     io::{BufRead, BufReader, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{ChildStdin, Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -20,7 +21,7 @@ pub const FLAG: &str = "--startup-screen";
 
 /// Owns the loading process and closes it on every return or unwind from client startup.
 pub struct Controller {
-    child: Mutex<Child>,
+    child: Spawned,
     input: Mutex<Option<ChildStdin>>,
     cancelled: Arc<AtomicBool>,
 }
@@ -29,16 +30,17 @@ impl Controller {
     /// Starts feedback and waits briefly for its first submitted frame. An unavailable display
     /// returns an error so callers can continue with their normal startup diagnostics.
     pub fn start(size: [f32; 2]) -> Result<Self> {
-        let mut child = Command::new(std::env::current_exe()?)
-            .arg(FLAG)
-            .args(size.map(|value| value.to_string()))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .context("open startup screen")?;
-        let input = child.stdin.take();
-        let output = child.stdout.take().context("startup screen output")?;
+        let child = children::spawn(
+            Command::new(std::env::current_exe()?)
+                .arg(FLAG)
+                .args(size.map(|value| value.to_string()))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit()),
+        )
+        .context("open startup screen")?;
+        let input = child.take_stdin();
+        let output = child.take_stdout().context("startup screen output")?;
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
         let (shown, first_frame) = mpsc::channel();
@@ -56,7 +58,7 @@ impl Controller {
             }
         });
         let controller = Self {
-            child: Mutex::new(child),
+            child,
             input: Mutex::new(input),
             cancelled,
         };
@@ -97,11 +99,7 @@ impl Drop for Controller {
     /// EOF ends a responsive helper; killing and reaping also handles a stalled display driver.
     fn drop(&mut self) {
         self.input.get_mut().expect("startup input lock").take();
-        let child = self.child.get_mut().expect("startup child lock");
-        if child.try_wait().ok().flatten().is_none() {
-            let _ = child.kill();
-        }
-        let _ = child.wait();
+        self.child.stop(EXIT_GRACE);
     }
 }
 

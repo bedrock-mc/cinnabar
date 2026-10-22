@@ -2,8 +2,8 @@
 
 use bevy::prelude::Resource;
 use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU8, Ordering},
+    Arc, Mutex,
+    atomic::{AtomicU8, Ordering},
 };
 
 /// Counts successful primary-window presentations whose submitted GPU work has completed.
@@ -13,7 +13,14 @@ pub struct StartupPresentation(Arc<Feedback>);
 #[derive(Default)]
 struct Feedback {
     frames: AtomicU8,
-    content: AtomicBool,
+    content: Mutex<Content>,
+}
+
+#[derive(Default)]
+struct Content {
+    epoch: u64,
+    active: bool,
+    ready: bool,
 }
 
 impl StartupPresentation {
@@ -30,14 +37,32 @@ impl StartupPresentation {
             });
     }
 
-    /// Records a completed frame containing a fully drawn destination interface.
-    pub fn record_content_frame(&self) {
-        self.0.content.store(true, Ordering::Release);
+    /// Starts a new native-surface lifetime, invalidating both pending and published feedback.
+    pub fn replace_content_surface(&self, active: bool) {
+        let mut content = self.0.content.lock().expect("startup content lock");
+        content.epoch += 1;
+        content.active = active;
+        content.ready = false;
     }
 
-    /// Clear-only frames cannot dismiss startup feedback.
+    /// Identifies the currently usable native surface; hidden/offscreen views have none.
+    pub fn content_epoch(&self) -> Option<u64> {
+        let content = self.0.content.lock().expect("startup content lock");
+        content.active.then_some(content.epoch)
+    }
+
+    /// Accepts GPU completion only for the surface that submitted the destination frame.
+    pub fn record_content_frame(&self, epoch: u64) {
+        let mut content = self.0.content.lock().expect("startup content lock");
+        if content.active && content.epoch == epoch {
+            content.ready = true;
+        }
+    }
+
+    /// Clear-only frames and completions from retired surfaces cannot dismiss feedback.
     pub fn has_presented_content(&self) -> bool {
-        self.0.content.load(Ordering::Acquire)
+        let content = self.0.content.lock().expect("startup content lock");
+        content.active && content.ready
     }
 
     /// Whether enough presented frames have completed to confirm client startup.
@@ -72,7 +97,33 @@ mod tests {
         render_feedback.record_completed_frame();
         assert!(feedback.is_complete());
         assert!(!feedback.has_presented_content());
-        render_feedback.record_content_frame();
+        feedback.replace_content_surface(true);
+        render_feedback.record_content_frame(feedback.content_epoch().unwrap());
+        assert!(feedback.has_presented_content());
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn old_surface_callbacks_and_unconsumed_readiness_do_not_survive_replacement() {
+        let feedback = StartupPresentation::default();
+        feedback.replace_content_surface(true);
+        let old = feedback.content_epoch().unwrap();
+        feedback.record_content_frame(old);
+        assert!(feedback.has_presented_content());
+        feedback.replace_content_surface(false);
+        assert!(!feedback.has_presented_content());
+        assert_eq!(feedback.content_epoch(), None);
+        feedback.record_content_frame(old);
+        assert!(!feedback.has_presented_content());
+        feedback.replace_content_surface(true);
+        let new = feedback.content_epoch().unwrap();
+        feedback.record_content_frame(old);
+        assert!(!feedback.has_presented_content());
+        feedback.record_content_frame(new);
         assert!(feedback.has_presented_content());
     }
 }

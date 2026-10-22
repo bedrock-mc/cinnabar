@@ -67,24 +67,93 @@ impl Feedback {
     }
 }
 
+/// Tracks the main thread's native handle before any pending handoff is consumed.
+pub(crate) fn synchronize_surface(
+    presentation: Res<render_scene::startup_presentation::StartupPresentation>,
+    windows: Query<
+        (Entity, Ref<bevy::window::RawHandleWrapper>),
+        With<bevy::window::PrimaryWindow>,
+    >,
+    mut previous: Local<Option<(Entity, bevy::ecs::change_detection::Tick)>>,
+) {
+    let current = windows
+        .single()
+        .ok()
+        .map(|(entity, handle)| (entity, handle.last_changed()));
+    if current != *previous {
+        *previous = current;
+        presentation.replace_content_surface(current.is_some());
+    }
+}
+
 /// Hands off after actual UI content, rather than merely counting cleared swapchain images.
 pub(crate) fn finish(
     feedback: Res<Feedback>,
     presentation: Res<render_scene::startup_presentation::StartupPresentation>,
-    mut sent: Local<bool>,
+    mut sent: Local<Option<u64>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if *sent {
-        return;
-    }
     if feedback.cancelled() {
-        *sent = true;
         exit.write(AppExit::Success);
-    } else if presentation.has_presented_content() {
-        *sent = true;
+    } else if let Some(epoch) = presentation.content_epoch()
+        && *sent != Some(epoch)
+        && presentation.has_presented_content()
+    {
+        *sent = Some(epoch);
         if let Some(desktop) = &feedback.desktop {
             desktop.ready();
         }
         Feedback::notify(Message::Ready);
+    }
+}
+
+/// Revokes an expensive ownership boundary before entry and prefers quiet cancellation on exit.
+pub(crate) fn while_active<T>(
+    cancelled: impl Fn() -> bool,
+    work: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<Option<T>> {
+    if cancelled() {
+        return Ok(None);
+    }
+    let result = work();
+    if cancelled() {
+        Ok(None)
+    } else {
+        result.map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::while_active;
+    use std::cell::Cell;
+
+    #[test]
+    fn cancelled_preparation_never_admits_a_connection() {
+        let admitted = Cell::new(false);
+        let result = while_active(
+            || true,
+            || {
+                admitted.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(result.is_none());
+        assert!(!admitted.get());
+    }
+
+    #[test]
+    fn cancellation_during_preflight_is_quiet_even_when_the_endpoint_fails() {
+        let cancelled = Cell::new(false);
+        let result = while_active(
+            || cancelled.get(),
+            || -> anyhow::Result<()> {
+                cancelled.set(true);
+                anyhow::bail!("endpoint failed");
+            },
+        )
+        .unwrap();
+        assert!(result.is_none());
     }
 }

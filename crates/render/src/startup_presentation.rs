@@ -46,7 +46,7 @@ impl Plugin for StartupPresentationPlugin {
 struct PresentationProbe {
     surface: Option<Entity>,
     submitted: u8,
-    content_submitted: bool,
+    content_submitted: Option<u64>,
 }
 
 impl PresentationProbe {
@@ -67,15 +67,17 @@ impl PresentationProbe {
 fn capture_surface(
     windows: Query<(Entity, &ExtractedWindow), With<PrimaryWindow>>,
     mut probe: ResMut<PresentationProbe>,
+    feedback: Res<StartupPresentation>,
 ) {
-    probe.surface =
-        if probe.submitted < StartupPresentation::REQUIRED_FRAMES || !probe.content_submitted {
-            windows
-                .iter()
-                .find_map(|(entity, window)| window.swap_chain_texture.is_some().then_some(entity))
-        } else {
-            None
-        };
+    probe.surface = if probe.submitted < StartupPresentation::REQUIRED_FRAMES
+        || probe.content_submitted != feedback.content_epoch()
+    {
+        windows
+            .iter()
+            .find_map(|(entity, window)| window.swap_chain_texture.is_some().then_some(entity))
+    } else {
+        None
+    };
 }
 
 /// Present takes the surface texture; GPU feedback arrives only after that frame's work finishes.
@@ -95,13 +97,17 @@ fn observe_presentation(
         .filter(|(_, window)| window.swap_chain_texture.is_none())
         .map(|(main, _)| main.id());
     let consumed = presented_window.is_some();
-    if consumed && !probe.content_submitted && layers.iter().any(|(camera, layer)| {
-        matches!(&camera.target, Some(bevy::camera::NormalizedRenderTarget::Window(window)) if Some(window.entity()) == presented_window)
-            && layer.presented_complete_content()
-    }) {
-        probe.content_submitted = true;
+    if let Some(epoch) = feedback.content_epoch()
+        && consumed
+        && probe.content_submitted != Some(epoch)
+        && layers.iter().any(|(camera, layer)| {
+            matches!(&camera.target, Some(bevy::camera::NormalizedRenderTarget::Window(window)) if Some(window.entity()) == presented_window)
+                && layer.presented_complete_content()
+        })
+    {
+        probe.content_submitted = Some(epoch);
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || feedback.record_content_frame());
+        crate::device_poll::on_frame_complete(&queue, move || feedback.record_content_frame(epoch));
     }
     if probe.take_presented(consumed) {
         let feedback = feedback.clone();

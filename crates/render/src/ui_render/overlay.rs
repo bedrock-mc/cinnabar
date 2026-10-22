@@ -513,6 +513,8 @@ pub(crate) fn ui_overlay(
     // crosshair) must see the scene, so the layer composites before it.
     let raster_count = plan.layer_count();
     let mut raster_index = 0;
+    let mut frame_complete = true;
+    let mut frame_encoded = false;
     for segment in &plan.segments {
         let layered = &batches[segment.layered.clone()];
         let retained = if layered.is_empty() {
@@ -594,8 +596,8 @@ pub(crate) fn ui_overlay(
                 profile.record_damage(rect);
             }
         }
-        let encoded = if layered.is_empty() {
-            false
+        let (complete, encoded) = if layered.is_empty() {
+            (true, false)
         } else if damage == UiDamage::Unchanged {
             // Color reuse must still advance scope transitions before the next invert.
             for (_, batch, _) in layered {
@@ -608,7 +610,7 @@ pub(crate) fn ui_overlay(
                     publication.clone(),
                 );
             }
-            encoded
+            (true, encoded)
         } else {
             let drawn = super::filter::draw_layer(
                 context,
@@ -629,8 +631,10 @@ pub(crate) fn ui_overlay(
                     .map(|content| (content, drawn.encoded)),
                 publication.clone(),
             );
-            drawn.encoded
+            (drawn.complete, drawn.encoded)
         };
+        frame_complete &= complete;
+        frame_encoded |= encoded;
         if encoded {
             if segment.present {
                 layer.defer_present();
@@ -651,6 +655,7 @@ pub(crate) fn ui_overlay(
             model_lifetime.enter(batch.isolated_depth_scope);
             let needs_depth = batch.depth_test != 0 || batch.depth_write != 0;
             if scoped && needs_depth && model_depth.is_none() {
+                frame_complete = false;
                 continue;
             }
             let id = if scoped {
@@ -662,6 +667,7 @@ pub(crate) fn ui_overlay(
             };
             let Some(pipeline) = id.and_then(|id| pipeline_cache.get_render_pipeline(id)) else {
                 // Still compiling: skip the crosshair rather than blend it wrong.
+                frame_complete = false;
                 continue;
             };
             // HUD layers and invert batches share the current resolved scene texture.
@@ -691,6 +697,7 @@ pub(crate) fn ui_overlay(
             if scoped && needs_depth {
                 model_lifetime.encoded();
             }
+            frame_encoded = true;
             pass.set_render_pipeline(pipeline);
             draw_batches(
                 &mut pass,
@@ -708,6 +715,7 @@ pub(crate) fn ui_overlay(
             );
         }
     }
+    layer.record_content_draw(frame_complete, frame_encoded);
     Ok(())
 }
 
