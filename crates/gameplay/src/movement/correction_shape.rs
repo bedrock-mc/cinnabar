@@ -405,7 +405,12 @@ pub fn reconcile_timeline_rewind(
             return Err(fault);
         }
     };
-    candidate_ticker.apply_correction_plan(&plan)?;
+    if let Err(fault) = candidate_ticker.apply_correction_plan(&plan) {
+        // The replay succeeded, so vanilla's rewind happened even though the
+        // queued samples could not adopt it.
+        physics.prediction_sync.arm();
+        return Err(fault);
+    }
     *physics = candidate_physics;
     *ticker = candidate_ticker;
     Ok(plan.outcome)

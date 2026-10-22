@@ -263,7 +263,6 @@ impl Simulator {
         // Sneaking over supported scaffolding descends through it at a fixed speed.
         sampled.descend_through =
             input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
-        sampled.movement.descending_through_scaffolding = sampled.descend_through;
         if sampled.descend_through && !input.skip_travel {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }

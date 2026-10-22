@@ -1170,3 +1170,30 @@ fn a_failed_replay_fallback_keeps_the_prediction_sync() {
     );
     assert!(prediction_sync_scheduled(&mut physics));
 }
+
+/// A timeline rewind whose replay succeeds but whose queued samples reject it still schedules the sync.
+#[test]
+fn a_rejected_queue_after_a_timeline_rewind_keeps_the_prediction_sync() {
+    let world = VersionedWall(1);
+    let (mut physics, _) = three_predicted_ticks(&world);
+    let mut longer = LocalPhysicsController::default();
+    longer.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = longer.advance_with_context(
+        Duration::from_millis(250),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    // Queued ticks beyond the replayed history make the queue reject the rebuilt plan.
+    let mut ticker = ticker_with_samples(frame.samples);
+    let rewind = physics.queue_server_motion([0.6, 0.4, 0.0], 102).unwrap();
+    let result = reconcile_timeline_rewind(&mut ticker, &mut physics, rewind, &world);
+    assert!(
+        matches!(
+            result,
+            Err(super::PhysicsAuthorityFault::PendingTickMismatch { .. })
+        ),
+        "{result:?}"
+    );
+    assert!(prediction_sync_scheduled(&mut physics));
+}

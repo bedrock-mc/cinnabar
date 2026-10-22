@@ -14,10 +14,6 @@ pub(in crate::movement) struct SyncPose {
     pub spinning: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
-    /// Scaffolding at the feet layer.
-    pub in_scaffolding: bool,
-    /// A sneak descent through supported scaffolding.
-    pub descending_through_scaffolding: bool,
 }
 
 impl LocalPhysicsController {
@@ -32,8 +28,8 @@ impl LocalPhysicsController {
 
     /// Locally owned actor flags once a movement sample has completed: the
     /// accepted posture, the current mode (including server flag updates that
-    /// ended a swim or crawl after that sample), movement input, riptide spin,
-    /// terrain collision and scaffolding contact.
+    /// ended a swim or crawl after that sample), movement input, riptide spin
+    /// and terrain collision.
     pub(in crate::movement) fn prediction_sync_pose(&self) -> Option<SyncPose> {
         let sample = self.sample_history.back()?;
         let (sneaking, sprinting) = self.prediction_sync_posture()?;
@@ -47,8 +43,6 @@ impl LocalPhysicsController {
                 .controller_history
                 .back()
                 .map(|frame| !frame.input.no_clip),
-            in_scaffolding: self.last_environment.in_scaffolding,
-            descending_through_scaffolding: self.last_environment.descending_through_scaffolding,
         })
     }
 

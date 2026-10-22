@@ -78,10 +78,10 @@ pub fn send_movement_prediction_sync(
 /// Overlays the flags the client owns onto the server's flag words.
 ///
 /// Vanilla sends its own actor flag words. The client itself sets sneaking,
-/// sprinting, item use, movement, collision, riptide spin, scaffolding contact
-/// and descent, and the swimming, crawling and gliding poses. Cinnabar samples
-/// the scaffolding below the feet only while sneaking, so the over-scaffolding
-/// and ascending/descending-block flags remain the server's for now.
+/// sprinting, item use, movement, collision, riptide spin and the swimming,
+/// crawling and gliding poses. Its block climber also sets the scaffolding and
+/// powder-snow climbing flags, which Cinnabar does not model completely yet,
+/// so those and every other flag remain the server's.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
     pose: Option<SyncPose>,
@@ -106,11 +106,6 @@ fn predicted_flag_words(
             pose.mode == sim::MovementMode::Crawling,
         ),
         (ActorFlag::Gliding, pose.mode == sim::MovementMode::Gliding),
-        (ActorFlag::InScaffolding, pose.in_scaffolding),
-        (
-            ActorFlag::DescendThroughBlock,
-            pose.descending_through_scaffolding,
-        ),
     ] {
         set_flag(&mut words, flag, enabled);
     }
@@ -576,8 +571,6 @@ mod tests {
             ActorFlag::Swimming,
             ActorFlag::Crawling,
             ActorFlag::Gliding,
-            ActorFlag::InScaffolding,
-            ActorFlag::DescendThroughBlock,
         ];
         let mut stale = owned.to_vec();
         stale.push(ActorFlag::AlwaysShowName);
@@ -602,8 +595,6 @@ mod tests {
             moving: false,
             spinning: false,
             has_collision: Some(false),
-            in_scaffolding: false,
-            descending_through_scaffolding: false,
         };
         assert_eq!(
             predicted_flag_words(&metadata, Some(idle), false),
@@ -666,15 +657,6 @@ mod tests {
                 },
                 false,
                 vec![ActorFlag::HasCollision],
-            ),
-            (
-                SyncPose {
-                    in_scaffolding: true,
-                    descending_through_scaffolding: true,
-                    ..idle
-                },
-                false,
-                vec![ActorFlag::InScaffolding, ActorFlag::DescendThroughBlock],
             ),
         ] {
             let mut expected = flags;
