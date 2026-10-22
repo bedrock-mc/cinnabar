@@ -240,3 +240,77 @@ fn extra_large_noninteractive_loading_keeps_title_and_details_visible() {
         }
     }
 }
+
+/// Narrow, enlarged settings must reflow the selected shader card instead of pushing
+/// its controls past the panel, where scrolling can't reach them.
+#[test]
+fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
+    use launcher::menu::{
+        RendererChoice,
+        settings_sections::SettingSection,
+        settings_storage::{StorageAction, StorageFolder},
+    };
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [240.0, 720.0], [400.0, 250.0]] {
+        for enabled in [0, 1] {
+            let mut view =
+                crate::test_support::settings_view(SettingSection::Shaders.definition().name);
+            view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+            view.render_mode = ui::RenderMode::ShaderPack;
+            view.shader_pack = Some("Dusk.zip".into());
+            let selected = RendererChoice::ShaderPack(0, view.shader_packs_revision);
+            view.renderer = Some(selected);
+            view.shader_options_available = true;
+            view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+            Arc::make_mut(&mut view.storage).opens_folders = true;
+            Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), enabled);
+            let metrics = TextMetrics::for_viewport(
+                size.map(|value| value as u32),
+                DpiScale::new(1.0).unwrap(),
+                Some(2),
+            );
+            let mut screen = OreUiScreen::default();
+            paint_with_scrolls(
+                &mut screen,
+                &view,
+                metrics,
+                size,
+                &mut MenuScrolls::default(),
+            );
+            let paint = screen.take_paint().unwrap();
+            let panel = paint
+                .scrolls
+                .iter()
+                .find(|area| area.key.starts_with("oreui_settings/"))
+                .expect("settings content scroll view")
+                .viewport;
+            for action in [
+                MenuAction::SelectRenderer(RendererChoice::Vanilla),
+                MenuAction::SelectRenderer(selected),
+                MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+                    1,
+                    view.shader_packs_revision,
+                )),
+                MenuAction::RemoveShaderPackDialog(0, view.shader_packs_revision),
+                MenuAction::ShaderOptions(launcher::shader_options::Action::Open),
+                MenuAction::ReloadShaders,
+                MenuAction::SettingsStorage(StorageAction::OpenFolder(StorageFolder::ShaderPacks)),
+            ] {
+                let bounds = paint
+                    .geometry
+                    .focus_targets
+                    .iter()
+                    .find(|target| target.action == action)
+                    .unwrap_or_else(|| panic!("{size:?} xl={enabled}: {action:?} is focusable"))
+                    .bounds;
+                assert!(bounds.width() > 0.0, "{size:?} xl={enabled}: {action:?}");
+                assert!(
+                    bounds.min().x() >= panel.min().x() && bounds.max().x() <= panel.max().x(),
+                    "{size:?} xl={enabled}: {action:?} at {bounds:?} leaves {panel:?}"
+                );
+            }
+        }
+    }
+}

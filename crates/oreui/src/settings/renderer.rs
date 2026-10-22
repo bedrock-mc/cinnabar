@@ -182,8 +182,12 @@ impl Chip {
         }
     }
 
-    /// Draws the chip from its top-left corner; returns its right edge.
-    fn draw(self, canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<f32, PaintError> {
+    fn width(self, canvas: &mut Canvas<'_>) -> Result<f32, PaintError> {
+        Ok(canvas.measure(self.label(), CAPTION)? + canvas.r(1.6))
+    }
+
+    /// Draws the chip from its top-left corner.
+    fn draw(self, canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), PaintError> {
         let [fill, text] = match self {
             Self::Active => [theme::PRIMARY_ROLE.fill, TEXT],
             Self::Failed => [theme::DESTRUCTIVE.fill, TEXT],
@@ -191,12 +195,15 @@ impl Chip {
                 [theme::NEUTRAL80.fill, TEXT_DIMMER]
             }
         };
-        let width = canvas.measure(self.label(), CAPTION)? + canvas.r(1.6);
-        let bounds = [at[0], at[1], at[0] + width, at[1] + canvas.r(2.0)];
+        let bounds = [
+            at[0],
+            at[1],
+            at[0] + self.width(canvas)?,
+            at[1] + canvas.r(2.0),
+        ];
         canvas.fill(bounds, fill)?;
         canvas.frame(bounds, EDGE, theme::BORDER)?;
-        canvas.text_centred(self.label(), bounds, CAPTION, text, false)?;
-        Ok(bounds[2])
+        canvas.text_centred(self.label(), bounds, CAPTION, text, false)
     }
 }
 
@@ -213,6 +220,7 @@ struct Entry<'a> {
 }
 
 /// Draws a compact row, or the selected card with deletion, failure, settings and reload.
+/// Narrow cards drop the icon tile and the indent, and wrap chips and controls onto new rows.
 fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintError> {
     let view = content.view;
     let [left, right] = content.inset();
@@ -220,14 +228,22 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
     let canvas = &mut *content.canvas;
     let locked = view.shader_pack_removing.is_some();
     let pad = canvas.r(1.2);
-    let tile = canvas.r(3.6);
-    let tile_left = left + canvas.r(4.8);
-    let text_left = tile_left + tile + pad;
-    let corner = canvas.r(4.0);
-    let select_right = if entry.remove.is_some() {
-        right - pad - corner - canvas.r(0.4)
+    let button = canvas.r(4.4);
+    let gap = canvas.r(0.8);
+    let narrow = right - left < canvas.r(28.0);
+    // Delete leaves the corner for the control rows when the name would have no room beside it.
+    let corner = (!narrow).then_some(entry.remove).flatten();
+    let select_right = if corner.is_some() {
+        right - 2.0 * pad - button
     } else {
         right
+    };
+    let tile_left = left + canvas.r(4.8);
+    let tile = if narrow { 0.0 } else { canvas.r(3.6) };
+    let text_left = if narrow {
+        tile_left
+    } else {
+        tile_left + tile + pad
     };
     let text_right = select_right.min(right - pad);
     let width = (text_right - text_left).max(1.0);
@@ -240,30 +256,88 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
             .max(canvas.r(CAPTION.line)),
         None => 0.0,
     };
-    let chip_height = if entry.chips.is_empty() {
+    let chip_line = canvas.r(2.4);
+    let widths = entry
+        .chips
+        .iter()
+        .map(|chip| chip.width(canvas))
+        .collect::<Result<Vec<_>, _>>()?;
+    // A chip wider than the name column runs under the radio instead of past the card.
+    let chips_left = if widths.iter().any(|chip_width| *chip_width > width) {
+        left + pad
+    } else {
+        text_left
+    };
+    let chips_width = text_right - chips_left;
+    let mut chips = Vec::with_capacity(entry.chips.len());
+    let (mut x, mut row) = (0.0, 0.0);
+    for (chip, chip_width) in entry.chips.iter().zip(widths) {
+        if x > 0.0 && x + chip_width > chips_width {
+            (x, row) = (0.0, row + chip_line);
+        }
+        chips.push((*chip, [x, row]));
+        x += chip_width + canvas.r(0.6);
+    }
+    let chip_height = if chips.is_empty() {
         0.0
     } else {
-        canvas.r(2.4)
+        row + chip_line
     };
     let stack = title_height + caption_height + chip_height;
-    let header = (stack + 2.0 * pad).max(tile + 2.0 * pad);
-    let inner = [text_left, right - pad];
+    let header = (stack + 2.0 * pad).max(tile + 2.0 * pad).max(canvas.r(4.8));
+
+    // Controls sit under the name when they fit there, else span the card and wrap.
+    let mut controls: Vec<(Control, f32)> = Vec::new();
+    if entry.controls {
+        if view.shader_options_available {
+            controls.push((
+                Control::Settings,
+                canvas.measure("Settings", BODY)? + canvas.r(6.4),
+            ));
+        }
+        controls.push((Control::Reload, button));
+        if corner.is_none()
+            && let Some(remove) = entry.remove
+        {
+            controls.push((Control::Delete(remove), button));
+        }
+    }
+    let row_width = controls.iter().map(|(_, width)| width + gap).sum::<f32>() - gap;
+    let inner = if right - pad - text_left >= row_width {
+        [text_left, right - pad]
+    } else {
+        [left + pad, right - pad]
+    };
+    let inner_width = (inner[1] - inner[0]).max(1.0);
+    let mut placed = Vec::with_capacity(controls.len());
+    let (mut x, mut row) = (inner[0], 0.0);
+    for (control, natural) in controls {
+        let control_width = match control {
+            Control::Settings if row_width > inner_width => inner_width,
+            _ => natural.min(inner_width),
+        };
+        if x > inner[0] && x + control_width > inner[1] {
+            (x, row) = (inner[0], row + button + gap);
+        }
+        placed.push((control, [x, row, x + control_width, row + button]));
+        x += control_width + gap;
+    }
+    let controls_height = if placed.is_empty() {
+        0.0
+    } else {
+        row + button + pad
+    };
     let failure = entry
         .controls
         .then_some(view.renderer_failure.as_deref())
         .flatten();
     let failure_height = match failure {
         Some(text) => {
-            canvas.measure_height(text, (inner[1] - inner[0] - 2.0 * pad).max(1.0), CAPTION)?
+            canvas.measure_height(text, (inner_width - 2.0 * pad).max(1.0), CAPTION)?
                 + 2.0 * canvas.r(0.8)
                 + canvas.r(0.8)
         }
         None => 0.0,
-    };
-    let controls_height = if entry.controls {
-        canvas.r(4.4) + pad
-    } else {
-        0.0
     };
     let card = [
         left,
@@ -271,6 +345,7 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         right,
         top + header + failure_height + controls_height,
     ];
+
     let state = canvas.interaction(view, entry.select);
     if entry.selected {
         widgets::row(canvas, view, card, true, None)?;
@@ -301,20 +376,22 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         state,
         entry.select.is_some() || entry.selected,
     )?;
-    let tile_bounds = [
-        tile_left,
-        middle - tile * 0.5,
-        tile_left + tile,
-        middle + tile * 0.5,
-    ];
-    canvas.fill(tile_bounds, theme::NEUTRAL80.fill)?;
-    canvas.frame(tile_bounds, EDGE, theme::BORDER)?;
-    super::super::icons::draw_centred(
-        canvas,
-        entry.icon,
-        tile_bounds,
-        if entry.selected { TEXT } else { TEXT_DIMMER },
-    )?;
+    if tile > 0.0 {
+        let tile_bounds = [
+            tile_left,
+            middle - tile * 0.5,
+            tile_left + tile,
+            middle + tile * 0.5,
+        ];
+        canvas.fill(tile_bounds, theme::NEUTRAL80.fill)?;
+        canvas.frame(tile_bounds, EDGE, theme::BORDER)?;
+        super::super::icons::draw_centred(
+            canvas,
+            entry.icon,
+            tile_bounds,
+            if entry.selected { TEXT } else { TEXT_DIMMER },
+        )?;
+    }
     let mut y = top + (header - stack) * 0.5;
     canvas.text(entry.title, [text_left, y], width, BODY, TEXT, false)?;
     y += title_height;
@@ -322,19 +399,18 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         canvas.text(caption, [text_left, y], width, CAPTION, TEXT_DIMMER, false)?;
         y += caption_height;
     }
-    let mut x = text_left;
-    for chip in entry.chips {
-        x = chip.draw(canvas, [x, y + canvas.r(0.4)])? + canvas.r(0.6);
+    for (chip, [x, row]) in chips {
+        chip.draw(canvas, [chips_left + x, y + row + canvas.r(0.4)])?;
     }
-    if let Some(remove) = entry.remove {
+    if let Some(remove) = corner {
         widgets::icon_button(
             canvas,
             view,
             [
-                right - pad - corner,
+                right - pad - button,
                 top + pad,
                 right - pad,
-                top + pad + corner,
+                top + pad + button,
             ],
             Variant::Neutral,
             Icon::Trash,
@@ -353,43 +429,52 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         canvas.text(
             text,
             [inner[0] + pad, y + canvas.r(0.8)],
-            (inner[1] - inner[0] - 2.0 * pad).max(1.0),
+            (inner_width - 2.0 * pad).max(1.0),
             CAPTION,
             TEXT_DIMMER,
             false,
         )?;
         y = bounds[3] + canvas.r(0.8);
     }
-    if entry.controls {
-        let height = canvas.r(4.4);
-        let gap = canvas.r(0.8);
-        let mut x = inner[0];
-        if view.shader_options_available {
-            let label = "Settings";
-            let width = (canvas.measure(label, BODY)? + canvas.r(6.4))
-                .min(inner[1] - inner[0] - height - gap)
-                .max(height);
-            widgets::button(
+    for (control, at) in placed {
+        let bounds = [at[0], y + at[1], at[2], y + at[3]];
+        match control {
+            Control::Settings => widgets::button(
                 canvas,
                 view,
-                [x, y, x + width, y + height],
+                bounds,
                 Variant::Secondary,
-                label,
+                "Settings",
                 (!locked).then_some(MenuAction::ShaderOptions(Action::Open)),
-            )?;
-            x += width + gap;
+            )?,
+            Control::Reload => widgets::icon_button(
+                canvas,
+                view,
+                bounds,
+                Variant::Secondary,
+                Icon::Reload,
+                (!locked).then_some(MenuAction::ReloadShaders),
+            )?,
+            Control::Delete(remove) => widgets::icon_button(
+                canvas,
+                view,
+                bounds,
+                Variant::Neutral,
+                Icon::Trash,
+                (!locked).then_some(remove),
+            )?,
         }
-        widgets::icon_button(
-            canvas,
-            view,
-            [x, y, x + height, y + height],
-            Variant::Secondary,
-            Icon::Reload,
-            (!locked).then_some(MenuAction::ReloadShaders),
-        )?;
     }
     content.y = card[3] + content.canvas.r(0.8);
     Ok(())
+}
+
+/// A selected card's control, in reading and focus order.
+#[derive(Clone, Copy)]
+enum Control {
+    Settings,
+    Reload,
+    Delete(MenuAction),
 }
 
 /// The informative note under the section heading.
@@ -401,7 +486,9 @@ fn banner(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
     let [icon_width, _] = Icon::Info
         .texels()
         .map(|texels| canvas.r(texels as f32 * EDGE));
-    let text_left = left + bar + pad + icon_width + pad;
+    // A narrow column keeps the accent bar but gives the icon's room to the text.
+    let icon = right - left >= canvas.r(24.0);
+    let text_left = left + bar + pad + if icon { icon_width + pad } else { 0.0 };
     let width = (right - pad - text_left).max(1.0);
     let height = canvas
         .measure_height(text, width, CAPTION)?
@@ -414,17 +501,19 @@ fn banner(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
         [left, bounds[1], left + bar, bounds[3]],
         theme::INFORMATIVE_TINT,
     )?;
-    super::super::icons::draw_centred(
-        canvas,
-        Icon::Info,
-        [
-            left + bar + pad,
-            bounds[1],
-            left + bar + pad + icon_width,
-            bounds[3],
-        ],
-        theme::INFORMATIVE_TINT,
-    )?;
+    if icon {
+        super::super::icons::draw_centred(
+            canvas,
+            Icon::Info,
+            [
+                left + bar + pad,
+                bounds[1],
+                left + bar + pad + icon_width,
+                bounds[3],
+            ],
+            theme::INFORMATIVE_TINT,
+        )?;
+    }
     canvas.text(
         text,
         [text_left, bounds[1] + canvas.r(0.8)],
@@ -444,7 +533,11 @@ fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let canvas = &mut *content.canvas;
     let empty = view.shader_packs.is_empty();
-    let pad = canvas.r(if empty { 3.2 } else { 1.6 });
+    let pad = canvas.r(if empty && right - left >= canvas.r(32.0) {
+        3.2
+    } else {
+        1.6
+    });
     let title = "Drop a .zip or folder here";
     let caption = empty.then_some("Shader packs you add appear in this list.");
     let open = view
@@ -454,8 +547,11 @@ fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             StorageFolder::ShaderPacks,
         )));
     let label = "Open folder";
-    let button = [canvas.measure(label, BODY)? + canvas.r(4.8), canvas.r(4.4)];
     let full = (right - left - 2.0 * pad).max(1.0);
+    let button = [
+        (canvas.measure(label, BODY)? + canvas.r(4.8)).min(full),
+        canvas.r(4.4),
+    ];
     let inline =
         open.is_none() || (!empty && canvas.measure(title, BODY)? + pad + button[0] <= full);
     let width = if inline && open.is_some() {

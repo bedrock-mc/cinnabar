@@ -974,6 +974,12 @@ const STATES: &[State] = &[
         fixture: || shader_pack::settings_shaders(false),
     },
     State {
+        name: "settings-shaders-narrow-extra-large",
+        size: [240, 2400],
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::narrow_extra_large,
+    },
+    State {
         name: "settings-shaders-loading",
         size: SIZE,
         gui_scale: GUI_SCALE,

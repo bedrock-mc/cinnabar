@@ -122,6 +122,18 @@ pub(super) fn long_library() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// The failed selected card with every control at the narrowest settings width, enlarged.
+pub(super) fn narrow_extra_large() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(true) else {
+        unreachable!()
+    };
+    Arc::make_mut(&mut view.storage).opens_folders = true;
+    let enlarged = Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::GuiAccessibilityScaling.index(), 1);
+    debug_assert!(enlarged);
+    Fixture::Menu(view)
+}
+
 /// Shows the standard confirmation before deleting an imported shader pack.
 pub(super) fn removal_dialog() -> Fixture {
     let Fixture::Menu(mut view) = settings_shaders(false) else {
