@@ -181,6 +181,37 @@ impl PlayerInventoryLedger {
         recipe: &RecipeHandle,
         all: bool,
     ) -> Result<i32, InventoryGestureError> {
+        let crafts = if all { self.max_auto_crafts(recipe) } else { 1 };
+        if crafts == 0 {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        // Craft as many times as one encodable request allows; the rest waits for another click.
+        let mut submission = self.auto_craft_submission(recipe, crafts);
+        if matches!(submission, Err(InventoryGestureError::InvalidRequest)) && crafts > 1 {
+            let (mut low, mut high) = (1u8, crafts - 1);
+            submission = self.auto_craft_submission(recipe, 1);
+            while low < high && submission.is_ok() {
+                let middle = low + (high - low).div_ceil(2);
+                match self.auto_craft_submission(recipe, middle) {
+                    Ok(fits) => {
+                        low = middle;
+                        submission = Ok(fits);
+                    }
+                    Err(InventoryGestureError::InvalidRequest) => high = middle - 1,
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        self.submit(submission?)
+    }
+
+    /// Plans one recipe-book request of `crafts` without reserving an ID or changing cells;
+    /// `InvalidRequest` when it cannot be made or would not fit one encodable request.
+    fn auto_craft_submission(
+        &self,
+        recipe: &RecipeHandle,
+        crafts: u8,
+    ) -> Result<Submission, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
         let output = recipe.output();
@@ -193,10 +224,6 @@ impl PlayerInventoryLedger {
         let one_craft = created_stack(output, u16::from(output.count), 0);
         // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
         if !self.player_cell_fits(&one_craft, capacity) {
-            return Err(InventoryGestureError::InvalidRequest);
-        }
-        let crafts = if all { self.max_auto_crafts(recipe) } else { 1 };
-        if crafts == 0 {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let sources = self
@@ -333,7 +360,7 @@ impl PlayerInventoryLedger {
         if actions.len() > protocol::MAX_STACK_REQUEST_ACTIONS {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        self.submit(Submission {
+        Ok(Submission {
             actions,
             groups,
             personal_generation,
