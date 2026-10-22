@@ -17,6 +17,8 @@ use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
 mod allocation;
+mod materials;
+pub(crate) use materials::AutoCraftMaterials;
 
 impl PlayerInventoryLedger {
     /// Settled stacks with intact retained bytes and a negotiated binding can supply ingredients.

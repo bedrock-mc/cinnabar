@@ -126,3 +126,51 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
         [1, 3]
     );
 }
+
+#[test]
+fn unchanged_book_inputs_reuse_one_listing_and_material_changes_rebuild_it() {
+    let mut session = session();
+    let registry = protocol::vanilla_item_registry();
+    let planks = registry
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap();
+    let held = |count| {
+        InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(0),
+            storage_item: NetworkItemStack::empty(),
+            slots: Arc::from([NetworkItemStack {
+                network_id: planks.network_id,
+                count,
+                stack_network_id: 1,
+                ..NetworkItemStack::empty()
+            }]),
+        })
+    };
+    let builds = |session: &InventorySession| session.book_cache.lock().unwrap().builds;
+    session.ledger_mut().apply(&held(4));
+    // A screen reads the book several times a frame: icons, rows, pages and hover.
+    for _ in 0..8 {
+        assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+        assert_eq!(session.book_recipes(false, true, 1, 1).len(), 1);
+    }
+    assert_eq!(
+        builds(&session),
+        1,
+        "unchanged inputs evaluate materials once"
+    );
+    session.ledger_mut().apply(&held(4));
+    assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+    assert_eq!(
+        builds(&session),
+        1,
+        "an identical restatement keeps the listing"
+    );
+    session.ledger_mut().apply(&held(0));
+    assert!(session.book_recipes(true, false, 0, usize::MAX).is_empty());
+    assert_eq!(
+        builds(&session),
+        2,
+        "a material change rebuilds the listing"
+    );
+}

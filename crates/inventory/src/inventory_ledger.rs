@@ -59,6 +59,7 @@ mod response;
 mod revisions;
 mod screen_actions;
 mod trading;
+pub(crate) use auto_craft::AutoCraftMaterials;
 pub use trading::{ResolvedTrade, TradeState};
 #[cfg(test)]
 mod screens_tests;

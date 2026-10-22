@@ -7,7 +7,6 @@ use super::UiRuntime;
 use super::inventory_drag::PointerAction;
 use super::presentation::inventory_pointer::InventoryScreen;
 use super::presentation::screens::{BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS};
-use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
     CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
     InventoryTarget, PlayerInventoryLedger, ScreenCraft,
@@ -118,20 +117,11 @@ pub fn recipe_book_entries<'a>(
         }
         return entries;
     }
-    let shown: std::collections::HashSet<i32> = ledger
-        .creative_catalog()
-        .map(|catalog| {
-            creative_entries(
-                catalog,
-                runtime.creative_tab(player_runtime),
-                &state.search,
-                |item| item_name(ledger, runtime, item),
-            )
-            .iter()
-            .map(|item| item.stack.network_id)
-            .collect()
-        })
-        .unwrap_or_default();
+    // The retained creative filter answers the same tab and search without renaming every item.
+    let shown: std::collections::HashSet<i32> = visible_creative_entries(player_runtime, runtime)
+        .iter()
+        .map(|item| item.stack.network_id)
+        .collect();
     runtime
         .book_recipes(player_runtime, 0, usize::MAX)
         .into_iter()
