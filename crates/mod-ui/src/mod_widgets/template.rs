@@ -23,6 +23,7 @@ pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
                 && left.scale == right.scale
                 && left.row_layout == right.row_layout
                 && left.width == right.width
+                && left.editor_size == right.editor_size
                 && left.row_height == right.row_height
                 && left.icon_size == right.icon_size
                 && left.text_scale == right.text_scale
