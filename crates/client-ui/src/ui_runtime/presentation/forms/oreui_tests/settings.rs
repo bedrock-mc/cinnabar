@@ -371,7 +371,7 @@ fn settings_search_resets_result_scrolling_on_each_query_change() {
             .values()
             .any(|offset| *offset > 0.0)
     );
-    view.settings_query = "sound".to_owned();
+    view.settings_query = "audio".to_owned();
     for _ in 0..2 {
         presentation.menu_scrolls.clear_areas();
         present(&mut presentation, &view, size);

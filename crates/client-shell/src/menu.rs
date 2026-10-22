@@ -725,8 +725,10 @@ impl MenuRuntime {
             }
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
-            MenuAction::SettingsSection(section) | MenuAction::SettingsSearchSection(section) => {
-                self.activate_settings_section(section)
+            MenuAction::SettingsSection(section) => self.activate_settings_section(section),
+            MenuAction::SettingsSearchSection(section) => {
+                self.focus_pointer(MenuAction::SettingsSection(section));
+                self.activate_settings_section(section);
             }
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
