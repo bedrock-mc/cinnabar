@@ -1,5 +1,7 @@
 //! Native package preparation starts only after signed artifact verification.
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
@@ -11,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Prepares a complete macOS bundle or an executable AppImage on the install filesystem.
+/// Prepares a complete bundle, extracted AppDir or executable AppImage on the install filesystem.
 pub(crate) fn candidate(artifact: &Path, work: &Path, target: &Path) -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -19,10 +21,7 @@ pub(crate) fn candidate(artifact: &Path, work: &Path, target: &Path) -> Result<P
     }
     #[cfg(target_os = "linux")]
     {
-        use std::{fs, os::unix::fs::PermissionsExt};
-        let _ = (work, target);
-        fs::set_permissions(artifact, fs::Permissions::from_mode(0o755))?;
-        Ok(artifact.to_owned())
+        linux::candidate(artifact, work, target)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {

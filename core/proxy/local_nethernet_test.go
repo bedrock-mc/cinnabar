@@ -193,3 +193,50 @@ func (w teeResponse) Write(b []byte) (int, error) {
 	w.body.Write(b)
 	return w.ResponseWriter.Write(b)
 }
+
+// BDS answers with no candidate when it has only loopback to gather from, as on a device with no
+// network. The dial must fail with that reason instead of waiting for a candidate forever.
+func TestLocalNetherNetCandidatelessAnswerFailsTheDial(t *testing.T) {
+	t.Parallel()
+	log := slog.New(slog.DiscardHandler)
+	handler := endpoint.HandlerConfig{Logger: log}.New()
+	listener, err := nethernet.ListenConfig{Log: log, DisableTrickleICE: true}.Listen(handler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body bytes.Buffer
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(teeResponse{ResponseWriter: recorder, body: &body}, r)
+		answer := body.String()
+		if r.Method == http.MethodPost {
+			var stripped strings.Builder
+			for line := range strings.Lines(answer) {
+				if !strings.HasPrefix(line, "a=candidate:") {
+					stripped.WriteString(line)
+				}
+			}
+			answer = stripped.String()
+		}
+		w.WriteHeader(recorder.Code)
+		_, _ = w.Write([]byte(answer))
+	}))
+	t.Cleanup(server.Close)
+	resolve := withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
+		return localworld.ConnectionTarget{Address: server.Listener.Addr().String(), Transport: localworld.TransportNetherNetHTTP}, true, nil
+	}, onlineStub("online"))
+	target, err := resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	conn, err := target.network.DialContext(ctx, target.address)
+	if err == nil {
+		_ = conn.Close()
+	}
+	if !errors.Is(err, errLocalServerNoRoute) {
+		t.Fatalf("dial = %v, want %v", err, errLocalServerNoRoute)
+	}
+}

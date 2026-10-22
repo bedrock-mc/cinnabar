@@ -9,6 +9,7 @@ use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags};
 mod anchor_probe;
 mod anchor_probe_evidence;
 mod authority;
+mod boosts;
 pub mod bootstrap;
 mod collision_registries;
 pub mod control_modes;

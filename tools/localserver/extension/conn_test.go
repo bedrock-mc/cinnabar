@@ -61,6 +61,16 @@ func (c *fakeConn) WritePacket(pk packet.Packet) error {
 	return nil
 }
 
+// WritePacketImmediate records pks in order, as Dragonfly submits a disconnect.
+func (c *fakeConn) WritePacketImmediate(pks ...packet.Packet) error {
+	for _, pk := range pks {
+		if err := c.WritePacket(pk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *fakeConn) written() []packet.Packet {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -79,7 +89,6 @@ func (c *fakeConn) ClientData() login.ClientData     { return login.ClientData{}
 func (c *fakeConn) ClientCacheEnabled() bool         { return false }
 func (c *fakeConn) ChunkRadius() int                 { return 8 }
 func (c *fakeConn) Latency() time.Duration           { return 0 }
-func (c *fakeConn) Flush() error                     { return nil }
 func (c *fakeConn) RemoteAddr() net.Addr             { return &net.UDPAddr{} }
 func (c *fakeConn) StartGameContext(context.Context, minecraft.GameData) error {
 	return nil

@@ -4,12 +4,25 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
-const v2193EducationStateCount = 2 + 3*3*3*3*2
+// v2193EducationStateCount counts supported names in the independently pinned source palette.
+var v2193EducationStateCount = sync.OnceValue(func() int {
+	states, err := readV2193BlockStates()
+	if err != nil {
+		panic(err)
+	}
+	count := 0
+	for _, state := range states {
+		if isEducationConstructionName(state.Name) {
+			count++
+		}
+	}
+	return count
+})
 
-// Education construction blocks have terrain renderers even when their items
-// are absent from the ordinary creative-item catalog.
+// educationRenderRecord admits supported Education states independently of creative-item admission.
 func educationRenderRecord(identity Record) (Record, bool, error) {
 	if !isEducationConstructionName(identity.Name) {
 		return Record{}, false, nil
@@ -27,6 +40,15 @@ func educationRenderRecord(identity Record) (Record, bool, error) {
 	record.Flags, record.FaceCoverage = 0, 0
 	record.ContributorRole = ContributorPrimary
 	record.ModelState = ModelState{}
+	record.ModelFamily = ModelFamilyUnknown
+	if identity.Name == "minecraft:chalkboard" {
+		property, ok := state["direction"]
+		var direction *uint32
+		if len(state) != 1 || !ok || property.Type != "int" || json.Unmarshal(property.Value, &direction) != nil || direction == nil || *direction >= 16 {
+			return Record{}, false, fmt.Errorf("Education chalkboard has invalid direction state")
+		}
+		return record, true, nil
+	}
 	if identity.Name != "minecraft:border_block" {
 		if len(state) != 0 {
 			return Record{}, false, fmt.Errorf("Education cube %s has unexpected state properties", identity.Name)
@@ -69,7 +91,7 @@ func educationRenderRecord(identity Record) (Record, bool, error) {
 	return record, true, nil
 }
 
-// isEducationConstructionName limits admission to the three construction blocks.
+// isEducationConstructionName limits admission to supported Education blocks.
 func isEducationConstructionName(name string) bool {
-	return name == "minecraft:allow" || name == "minecraft:deny" || name == "minecraft:border_block"
+	return name == "minecraft:allow" || name == "minecraft:deny" || name == "minecraft:border_block" || name == "minecraft:chalkboard"
 }

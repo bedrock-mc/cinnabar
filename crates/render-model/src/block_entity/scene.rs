@@ -15,6 +15,7 @@ use super::{
     beam::BeaconModel,
     bed::BedModel,
     bell::BellModel,
+    chalkboard::{ChalkboardModel, ChalkboardModels},
     chest::ChestModel,
     conduit::ConduitModel,
     crack::{CrackShape, emit_crack},
@@ -38,6 +39,7 @@ pub enum BlockEntityKind {
     Skull(SkullModel),
     Banner(BannerModel),
     Bed(BedModel),
+    Chalkboard(ChalkboardModel),
     Sign(SignModel),
     EnchantTable {
         book: super::book::BookPose,
@@ -76,6 +78,7 @@ impl BlockEntityKind {
         match self {
             Self::Skull(_)
             | Self::Bed(_)
+            | Self::Chalkboard(_)
             | Self::Statue(_)
             | Self::Beacon(_)
             | Self::CrystalBeam(_)
@@ -197,6 +200,7 @@ pub struct BlockEntityScene {
     frame: BlockEntityFrame,
     heads: HeadModels,
     bed: Option<HeadModel>,
+    chalkboards: Arc<ChalkboardModels>,
     rejected_quads: u64,
     /// Inputs of the current frame when it holds no clock-driven kind; unchanged inputs reuse it.
     reusable: Option<(Vec<CrackInstance>, Vec<BlockEntitySubmission>)>,
@@ -214,6 +218,8 @@ impl BlockEntityScene {
     /// Returns the artwork preparer for a join or reload worker.
     pub fn artwork_preparer(&self) -> BlockEntityArtworkPreparer {
         BlockEntityArtworkPreparer::new(&[])
+            .with_heads(self.heads.clone())
+            .with_chalkboards(self.chalkboards.clone())
     }
 
     /// Shares the installed static artwork as the startup fallback for pack workers.
@@ -254,6 +260,7 @@ impl BlockEntityScene {
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         self.prepared = Some(artwork.clone());
+        self.chalkboards = artwork.chalkboards.clone();
         let mut atlas = artwork.atlas.clone();
         let text = self.text.get_or_insert_with(|| {
             DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
@@ -276,6 +283,11 @@ impl BlockEntityScene {
     /// Builds block models from the entity catalog's geometry.
     pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
         self.heads = HeadModels::from_assets(assets);
+        self.chalkboards = Arc::new(ChalkboardModels::from_assets(assets));
+        self.prepared = self.prepared.as_ref().map(|prepared| {
+            self.artwork_preparer()
+                .with_chalkboard_assets(&prepared.with_heads(&self.heads), None)
+        });
         self.bed = assets
             .geometries()
             .iter()
@@ -385,7 +397,7 @@ impl BlockEntityScene {
             emit_submission(
                 builder,
                 atlas,
-                (&self.heads, self.bed.as_ref()),
+                (&self.heads, self.bed.as_ref(), &self.chalkboards),
                 submission,
                 clock,
             );
@@ -483,7 +495,7 @@ mod reach_tests;
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
-    (heads, bed): (&HeadModels, Option<&HeadModel>),
+    (heads, bed, chalkboards): (&HeadModels, Option<&HeadModel>, &ChalkboardModels),
     submission: &BlockEntitySubmission,
     clock: SceneClock,
 ) {
@@ -494,6 +506,9 @@ fn emit_submission(
         BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model, bed),
+        BlockEntityKind::Chalkboard(model) => {
+            super::chalkboard::emit(builder, atlas, chalkboards, block, model)
+        }
         BlockEntityKind::Sign(model) => super::sign::emit(builder, block, model),
         BlockEntityKind::EnchantTable { book } => {
             super::book::emit_enchant_table(builder, atlas, block, *book);

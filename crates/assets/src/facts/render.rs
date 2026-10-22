@@ -91,6 +91,7 @@ pub enum BlockRenderKind {
     Torchflower,
     AuthoredModel,
     GrassCross,
+    LeafLitter,
 }
 
 /// Cold identity admission for pack compilation; frame paths retain typed model handles.
@@ -197,7 +198,8 @@ impl BlockRenderKind {
             | R::Lever
             | R::EndRod
             | R::LightningRod => (true, true, true, true),
-            R::GrassCross
+            R::LeafLitter
+            | R::GrassCross
             | R::Chain
             | R::Ladder
             | R::Seagrass

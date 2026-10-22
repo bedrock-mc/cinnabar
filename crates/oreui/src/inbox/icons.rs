@@ -2,29 +2,9 @@
 use super::super::motion::{Kind, opacity};
 use super::super::theme::{EDGE, NEUTRAL20};
 use {
-    super::{Canvas, PaintError, TEXT},
+    super::{Canvas, PaintError},
     launcher::menu::{MenuAction, MenuView, inbox::Action},
 };
-
-/// Pixel outline of the trash glyph in the supplied vanilla capture.
-pub(super) fn trash_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), PaintError> {
-    let [x, y] = at;
-    let p = canvas.r(0.2);
-    for [a, b, c, d] in [
-        [0., 3., 9., 4.],
-        [2., 1., 7., 2.],
-        [2., 2., 3., 3.],
-        [6., 2., 7., 3.],
-        [1., 5., 2., 13.],
-        [7., 5., 8., 13.],
-        [2., 12., 7., 13.],
-        [3., 6., 4., 11.],
-        [5., 6., 6., 11.],
-    ] {
-        canvas.fill([x + a * p, y + b * p, x + c * p, y + d * p], TEXT)?;
-    }
-    Ok(())
-}
 
 /// Three filter sliders, as in the supplied header capture.
 pub(super) fn filter_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), PaintError> {

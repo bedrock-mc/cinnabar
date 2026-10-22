@@ -22,6 +22,7 @@ impl PlayerInventoryLedger {
             .iter_mut()
             .filter(|request| request.request_id < predecessor)
         {
+            let derived_result = request.predicts_derived_result();
             let mut changed = false;
             let mut metadata = Vec::new();
             for prediction in request
@@ -53,8 +54,18 @@ impl PlayerInventoryLedger {
                         (None, None) => true,
                         _ => false,
                     };
+                    let same_data = match (prediction.before.as_ref(), replacement.as_ref()) {
+                        (Some(before), Some(after)) => {
+                            before.stack.count == after.stack.count
+                                && before.stack.nbt_digest == after.stack.nbt_digest
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
                     if request.state == InventoryPendingState::AwaitingTransport
-                        && (!same_item || *authority == RollbackAuthority::Unknown)
+                        && (!same_item
+                            || *authority == RollbackAuthority::Unknown
+                            || (derived_result && !same_data))
                     {
                         invalid = Some(request.request_id);
                         break 'requests;
@@ -73,20 +84,18 @@ impl PlayerInventoryLedger {
                 for prediction in &request.predicted {
                     cells.set(prediction.cell, prediction.before.clone());
                 }
-                for slot in request
-                    .actions
-                    .iter_mut()
-                    .flat_map(crate::inventory_ledger::helpers::action_slots_mut)
-                {
-                    if slot.stack_network_id == request.request_id {
-                        continue;
-                    }
-                    if let Some(cell) = self.request_cell(*slot) {
-                        slot.stack_network_id = cells
-                            .get(cell)
-                            .map_or(0, |held| held.stack.stack_network_id);
-                    }
-                }
+                self.rebind_actions_in_order(
+                    &mut request.actions,
+                    request.request_id,
+                    |cell| {
+                        Some(
+                            cells
+                                .get(cell)
+                                .map_or(0, |held| held.stack.stack_network_id),
+                        )
+                    },
+                    |cell| cells.get(cell).map(|held| held.stack.count),
+                );
                 let mut placements = Vec::new();
                 if !request.groups.iter_mut().all(|group| {
                     group.rebind(&cells);

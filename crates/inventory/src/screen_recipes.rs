@@ -166,15 +166,17 @@ impl InventorySession {
             && self.crafting_authority.book_recipe_unlocked(recipe)
     }
 
-    /// Rechecks recipe discovery at the action frontier before allocating any request.
+    /// Rechecks recipe discovery at the action frontier, then auto-crafts once or, with `all`,
+    /// up to one output stack.
     pub fn begin_book_craft(
         &mut self,
         recipe: &RecipeHandle,
+        all: bool,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
         if !self.book_recipe_selectable(recipe) {
             return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
         }
-        self.ledger_mut().begin_auto_craft(recipe)
+        self.ledger_mut().begin_auto_craft(recipe, all)
     }
 
     /// Lists one variant per output for the open grid, with pagination after grouping.
@@ -193,6 +195,7 @@ impl InventorySession {
         };
         let ledger = self.ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
+        let inputs = ledger.auto_craft_inputs();
         let mut listed: Vec<BookGroup> = Vec::new();
         let mut outputs: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
         for recipe in catalog.crafting_recipes().filter(|recipe| {
@@ -205,7 +208,7 @@ impl InventorySession {
                 }
         }) {
             let unlocked = self.crafting_authority.book_recipe_unlocked(recipe);
-            let craftable = ledger.can_auto_craft(recipe);
+            let craftable = inputs.can_craft(recipe);
             let held = craftable || ledger.holds_any_ingredient(recipe);
             let candidate = BookGroup::new(recipe, unlocked, craftable, held);
             let output = recipe.output();

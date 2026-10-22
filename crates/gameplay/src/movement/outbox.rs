@@ -257,11 +257,23 @@ pub fn flush_player_auth_inputs_guarded<E>(
                     sample.snapshot,
                     &protocol::PlayerAuthInputInteractions::default(),
                 )?;
-                Ok::<_, PlayerAuthInputError>(InteractionPacketGuard::new(
+                let mut guard = InteractionPacketGuard::new(
                     *publisher.borrow(),
                     publisher.subscribe(),
                     movement_packet,
-                ))
+                );
+                if let Some(action) = sample
+                    .mining
+                    .as_ref()
+                    .and_then(|mining| mining.creative_destroy)
+                {
+                    guard = guard.with_preceding_packet(protocol::creative_destroy_block_packet(
+                        action.local_runtime_id,
+                        action.position,
+                        action.face,
+                    ));
+                }
+                Ok::<_, PlayerAuthInputError>(guard)
             })
             .transpose()
             .map_err(MovementSendError::Encode)?;
@@ -686,8 +698,10 @@ impl MovementTicker {
         else {
             return false;
         };
+        let creative_destroy = payload.creative_destroy;
         let (interactions, mining_request) = payload.into_interactions(sample.snapshot.position);
         sample.mining = Some(crate::mining::QueuedMiningInteraction {
+            creative_destroy,
             interactions,
             mining_request,
         });
