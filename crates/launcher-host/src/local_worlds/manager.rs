@@ -401,6 +401,7 @@ impl Manager {
             world,
             dir,
             view_distance,
+            options_unapplied: false,
         };
         let started = self.background(move |manager| {
             manager.start(&spec, &cancel, generation, after);
@@ -429,20 +430,20 @@ impl Manager {
         let started = if cancel.is_cancelled() {
             Err(WorldError::Cancelled)
         } else {
-            self.inner
-                .store
-                .snapshot(&spec.world.id)
-                .and_then(|(world, pending)| {
+            self.inner.store.snapshot(&spec.world.id).and_then(
+                |(world, pending, options_unapplied)| {
                     applied = pending;
                     let fresh = StartSpec {
                         world,
                         dir: spec.dir.clone(),
                         view_distance: spec.view_distance,
+                        options_unapplied,
                     };
                     let started = self.inner.runners.start(&fresh, cancel);
                     fresh_world = Some(fresh.world);
                     started
-                })
+                },
+            )
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {

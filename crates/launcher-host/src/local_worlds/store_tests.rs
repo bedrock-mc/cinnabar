@@ -464,7 +464,7 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
             },
         )
         .unwrap();
-    let (pending, applied) = store.snapshot(&original.id).unwrap();
+    let (pending, applied, _) = store.snapshot(&original.id).unwrap();
     assert_eq!(pending.options.get(O::RandomTickSpeed), 7);
     super::super::level_dat::configure(&pending, &level, false).unwrap();
     store.touch(&original.id, &applied).unwrap();
@@ -595,7 +595,7 @@ fn world_options_edits_saved_during_a_start_stay_pending() {
             .unwrap();
     };
     edit(7);
-    let (starting, applied) = store.snapshot(&original.id).unwrap();
+    let (starting, applied, _) = store.snapshot(&original.id).unwrap();
     super::super::level_dat::configure(&starting, &level, false).unwrap();
     edit(9);
     store.touch(&original.id, &applied).unwrap();
@@ -607,4 +607,32 @@ fn world_options_edits_saved_during_a_start_stay_pending() {
             .get(O::RandomTickSpeed),
         9
     );
+}
+
+/// A first start that left BDS's level data but never applied the options still applies the
+/// creation-only settings and requested rules on the retry.
+#[test]
+fn world_options_survive_a_first_start_that_failed_after_bds_created_the_world() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let dir = scratch();
+    let store = store(&dir);
+    let mut new = new_world("Retried");
+    new.backend = Some(Backend::Bds);
+    for id in [O::StartingMap, O::BonusChest, O::KeepInventory] {
+        new.options.set(id, 1);
+    }
+    let created = store.create(&new).unwrap();
+    let level = store.dir(&created.id).unwrap().join(LEVEL_DIR);
+    fs::create_dir_all(&level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    let (world, _, unapplied) = store.snapshot(&created.id).unwrap();
+    assert!(unapplied);
+    assert!(world.options.enabled(O::KeepInventory));
+    super::super::level_dat::configure(&world, &level, unapplied).unwrap();
+    let written = super::super::level_dat::try_read_options(&level.join("level.dat")).unwrap();
+    for id in [O::StartingMap, O::BonusChest, O::KeepInventory] {
+        assert!(written.enabled(id), "{id:?}");
+    }
+    store.touch(&created.id, &Default::default()).unwrap();
+    assert!(!store.snapshot(&created.id).unwrap().2);
 }

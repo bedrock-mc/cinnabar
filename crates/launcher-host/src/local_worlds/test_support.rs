@@ -58,6 +58,7 @@ pub(crate) fn spec(dir: &Path) -> StartSpec {
         world: world(),
         dir: dir.to_path_buf(),
         view_distance: None,
+        options_unapplied: false,
     }
 }
 

@@ -96,6 +96,8 @@ struct Record<'a> {
     seed: i64,
     options: &'a launcher::local_worlds::options::WorldOptions,
     pending_options: &'a launcher::local_worlds::options::OptionChanges,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    options_unapplied: bool,
     created_unix: i64,
     last_played_unix: i64,
 }
@@ -120,6 +122,9 @@ struct Saved {
     options: Option<launcher::local_worlds::options::WorldOptions>,
     #[serde(default)]
     pending_options: launcher::local_worlds::options::OptionChanges,
+    /// A created world whose options no successful start has written to its level data yet.
+    #[serde(default)]
+    options_unapplied: bool,
     #[serde(default)]
     created_unix: i64,
     #[serde(default)]
@@ -235,6 +240,8 @@ impl Store {
             Ok(LevelData::Read(bytes)) => super::level_dat::options_from(bytes),
             _ => None,
         };
+        // Until a start applies them, the requested options outrank level data BDS defaulted.
+        let current = current.filter(|_| !saved.options_unapplied);
         let mut options = match (saved.options, current) {
             (Some(mut options), Some(current)) => {
                 options.merge_server_rules(&current);
@@ -264,11 +271,12 @@ impl Store {
         &self,
         world: &World,
         pending_options: &launcher::local_worlds::options::OptionChanges,
+        options_unapplied: bool,
     ) -> Result<(), WorldError> {
         let dir = self.dir(&world.id)?;
         create_private_dir(&dir)
             .map_err(|error| failed(format!("create world directory: {error}")))?;
-        write_record(&dir, world, pending_options)
+        write_record(&dir, world, pending_options, options_unapplied)
     }
 
     /// Validates `world` and saves it with a fresh id.
@@ -276,7 +284,7 @@ impl Store {
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         let state = self.lock();
         let world = new_record(&state, id, world)?;
-        self.write(&world, &Default::default())?;
+        self.write(&world, &Default::default(), true)?;
         Ok(world)
     }
 
@@ -346,7 +354,7 @@ impl Store {
             id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         }
         let mut world = new_record(&state, id, world)?;
-        write_record(&staging.dir, &world, &Default::default())?;
+        write_record(&staging.dir, &world, &Default::default(), false)?;
         let dir = self.root.join(&world.id);
         fs::rename(&staging.dir, &dir)
             .map_err(|error| failed(format!("publish imported world: {error}")))?;
@@ -405,25 +413,32 @@ impl Store {
         if let Some(options) = &update.options {
             world.options.apply_changes(options);
         }
-        let mut pending = self.saved(id)?.pending_options;
+        let saved = self.saved(id)?;
+        let mut pending = saved.pending_options;
         if let Some(changes) = &update.options {
             pending.extend(changes);
         }
-        self.write(&world, &pending)?;
+        self.write(&world, &pending, saved.options_unapplied)?;
         Ok(world)
     }
 
-    /// A world to start, with the pending edits its start applies.
+    /// A world to start, the pending edits its start applies, and whether its options have
+    /// never been applied, so the start also writes the creation-only ones.
     pub(crate) fn snapshot(
         &self,
         id: &str,
-    ) -> Result<(World, launcher::local_worlds::options::OptionChanges), WorldError> {
+    ) -> Result<(World, launcher::local_worlds::options::OptionChanges, bool), WorldError> {
         let _state = self.lock();
-        Ok((self.read(id)?, self.saved(id)?.pending_options))
+        let saved = self.saved(id)?;
+        Ok((
+            self.read(id)?,
+            saved.pending_options,
+            saved.options_unapplied,
+        ))
     }
 
-    /// Records that a world was just played and that its start applied `applied`; edits saved
-    /// since that snapshot stay pending.
+    /// Records that a world was just played and that its start applied the options and
+    /// `applied` edits; edits saved since that snapshot stay pending.
     pub(crate) fn touch(
         &self,
         id: &str,
@@ -434,7 +449,7 @@ impl Store {
         world.last_played_unix = state.now();
         let mut pending = self.saved(id)?.pending_options;
         pending.acknowledge(applied);
-        self.write(&world, &pending)
+        self.write(&world, &pending, false)
     }
 
     /// Removes a world and all of its saved data.
@@ -491,6 +506,7 @@ fn write_record(
     dir: &Path,
     world: &World,
     pending_options: &launcher::local_worlds::options::OptionChanges,
+    options_unapplied: bool,
 ) -> Result<(), WorldError> {
     let raw = serde_json::to_vec_pretty(&Record {
         id: &world.id,
@@ -502,6 +518,7 @@ fn write_record(
         seed: world.seed,
         options: &world.options,
         pending_options,
+        options_unapplied,
         created_unix: world.created_unix,
         last_played_unix: world.last_played_unix,
     })

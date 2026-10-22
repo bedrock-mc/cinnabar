@@ -118,9 +118,10 @@ impl Runner for BdsRunner {
             let process = run("bds create")?;
             Ok(move || process.stop(super::process::SAVE_BUDGET))
         });
-        if let Err(error) =
-            created.and_then(|fresh| super::level_dat::configure(&spec.world, &world_dir, fresh))
-        {
+        if let Err(error) = created.and_then(|created| {
+            let fresh = created || spec.options_unapplied;
+            super::level_dat::configure(&spec.world, &world_dir, fresh)
+        }) {
             unlink_world(&link);
             return Err(error);
         }

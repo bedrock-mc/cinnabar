@@ -290,7 +290,7 @@ impl BdsRunner {
             let instance = run("bds-container create")?;
             Ok(move || instance.stop(SAVE_BUDGET))
         })?;
-        super::level_dat::configure(&spec.world, &world_dir, fresh)?;
+        super::level_dat::configure(&spec.world, &world_dir, fresh || spec.options_unapplied)?;
         let instance = Arc::new(run("bds-container")?);
         let watched = Arc::clone(&instance);
         thread::spawn(move || {
