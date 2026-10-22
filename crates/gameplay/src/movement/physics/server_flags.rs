@@ -175,6 +175,14 @@ pub(super) struct ServerFlagAuthority {
 }
 
 impl ServerFlagAuthority {
+    /// The spin counter a live clear on `tick` removed; it still counts until
+    /// a tick processes the clear.
+    pub(super) fn cleared_spin_on(&self, tick: u64) -> Option<u8> {
+        self.cleared_spin
+            .filter(|(cleared, _)| *cleared == tick)
+            .map(|(_, ticks)| ticks)
+    }
+
     /// Drops writes that belong to discarded frames.
     pub(super) fn reset_history(&mut self) {
         self.queued = None;
@@ -189,11 +197,7 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
         return;
     }
     if spinning {
-        let restored = authority
-            .cleared_spin
-            .filter(|(tick, _)| *tick == state.tick)
-            .map_or(0, |(_, ticks)| ticks);
-        state.spin_attack_ticks = Some(restored);
+        state.spin_attack_ticks = Some(authority.cleared_spin_on(state.tick).unwrap_or(0));
     } else {
         authority.cleared_spin = state.spin_attack_ticks.map(|ticks| (state.tick, ticks));
         state.spin_attack_ticks = None;

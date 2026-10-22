@@ -626,3 +626,22 @@ fn a_server_swim_start_advances_the_swim_blend_on_the_next_tick() {
     tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     assert!(physics.state().unwrap().swim_amount > 0.0);
 }
+
+/// A replay right after a same-tick server clear restores the spin with the
+/// counter the clear saved, since no tick has processed the clear yet.
+#[test]
+fn replay_after_a_same_tick_clear_keeps_the_saved_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(101, write(true));
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}

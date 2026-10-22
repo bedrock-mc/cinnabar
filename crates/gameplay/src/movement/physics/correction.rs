@@ -223,11 +223,13 @@ impl LocalPhysicsController {
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
-        // Replay copies the spin flag back but not its counter.
-        let live_spin = self
-            .state
-            .as_ref()
-            .and_then(|state| state.spin_attack_ticks);
+        // Replay copies the spin flag back but not its counter, which a clear
+        // on the current tick has not reset yet.
+        let live_spin = self.state.as_ref().and_then(|state| {
+            state
+                .spin_attack_ticks
+                .or_else(|| self.server_flags.cleared_spin_on(state.tick))
+        });
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let (replay, replayed_ticks) = self
