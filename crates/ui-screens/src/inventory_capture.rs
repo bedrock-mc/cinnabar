@@ -104,6 +104,9 @@ pub fn capture_contents(
             };
             let icon = resolve_icon(&stack, None);
             crafting.output = Some((icon, stack));
+        } else if let Some(stack) = ledger.created_output_stack() {
+            let icon = resolve_icon(stack, None);
+            crafting.output = Some((icon, stack.clone()));
         }
     }
     // Hover names for the open container's cells (JSON-UI tooltips).

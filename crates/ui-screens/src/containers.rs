@@ -731,7 +731,13 @@ pub fn screen_data(
             data.set_collection("crafting_input_items", grid);
             let output = match frame.crafting_output {
                 Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
-                None => cells.cell(None, None, None),
+                None => {
+                    if let Some(stack) = ledger.created_output_stack() {
+                        cells.cell(Some(stack), None, None)
+                    } else {
+                        cells.cell(None, None, None)
+                    }
+                }
             };
             data.set_collection("crafting_output_items", vec![output]);
             let armor = (0..4u8)
@@ -829,13 +835,9 @@ fn station_cell<'a>(
             }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
-                // Anvil and grindstone results are the client's prediction until the server
-                // states one.
+                // The anvil's result is the client's prediction until the server states one.
                 (None, Some(output))
-                    if matches!(
-                        ledger.window_kind(),
-                        Some(protocol::WindowKind::Anvil | protocol::WindowKind::Grindstone)
-                    ) =>
+                    if ledger.window_kind() == Some(protocol::WindowKind::Anvil) =>
                 {
                     (Some(&output.stack), output.icon, output.durability)
                 }

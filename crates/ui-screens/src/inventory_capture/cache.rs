@@ -247,7 +247,7 @@ impl InventoryProjectionCache {
                         ..NetworkItemStack::empty()
                     })
                 }
-                _ => None,
+                _ => ledger.created_output_stack().cloned(),
             };
             self.output.read(stack.as_ref(), None);
         }
