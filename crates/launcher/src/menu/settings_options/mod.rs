@@ -16,6 +16,7 @@ pub mod persistence;
 pub mod render_distance;
 pub mod reset;
 pub mod runtime;
+pub mod touch_layout;
 pub mod video_presets;
 pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
@@ -96,6 +97,7 @@ pub struct SettingsOptions {
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
     server_list: super::server_list::ServerListPreferences,
+    touch_layout: touch_layout::TouchLayout,
 }
 
 impl Default for SettingsOptions {
@@ -112,6 +114,7 @@ impl Default for SettingsOptions {
             command_macros: None,
             emote_slots: None,
             server_list: super::server_list::ServerListPreferences::default(),
+            touch_layout: Default::default(),
         }
     }
 }

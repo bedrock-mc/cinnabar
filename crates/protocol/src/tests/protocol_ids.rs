@@ -11,11 +11,11 @@ fn generated_groups_cover_every_fixture_value_and_preserve_wire_ids() {
     macro_rules! check {
         ($($group:ident),* $(,)?) => {$({
             let values = fixture["groups"][stringify!($group)].as_object().unwrap();
-            let extra = match stringify!($group) { "ActorDataKey" => extensions.as_object().unwrap().len(), "Effect" => 1, _ => 0 };
+            let extra = match stringify!($group) { "ActorDataKey" => extensions.as_object().unwrap().len(), _ => 0 };
             assert_eq!($group::ALL.len(), values.len() + extra);
             for variant in $group::ALL {
                 let name = format!("{variant:?}");
-                if (stringify!($group) == "ActorDataKey" && extensions.get(&name).is_some()) || name == "Weaving" { continue; }
+                if stringify!($group) == "ActorDataKey" && extensions.get(&name).is_some() { continue; }
                 let expected = values[&name].as_i64().unwrap();
                 assert_eq!(variant.wire_value() as i64, expected, "{}::{name}", stringify!($group));
                 assert_eq!($group::from_wire(variant.wire_value()).unwrap().wire_value(), variant.wire_value());
@@ -90,6 +90,8 @@ fn fixed_open_window_lengths_match_the_pinned_container_contract() {
 /// Checks movement names and word-specific flags against their explicit contract.
 #[test]
 fn movement_extensions_match_the_named_contract() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../protocol-ids/data/protocol-ids.json")).unwrap();
     let contract: serde_json::Value = serde_json::from_str(include_str!(
         "../../../protocol-ids/data/movement-contract.json"
     ))
@@ -124,7 +126,7 @@ fn movement_extensions_match_the_named_contract() {
     }
     assert_eq!(
         Effect::Weaving.wire_value() as i64,
-        contract["numeric"]["Effect"]["Weaving"].as_i64().unwrap()
+        fixture["groups"]["Effect"]["Weaving"].as_i64().unwrap()
     );
     assert_eq!(
         protocol_ids::SPRINT_SPEED_MODIFIER_ID,

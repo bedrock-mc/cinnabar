@@ -78,7 +78,8 @@ type OverlayView = (
     Option<&'static Overlay>,
 );
 
-/// Prepares each opted-in view before its first label, retaining unchanged GPU resources.
+/// Prepares each opted-in view before its first label, retaining unchanged GPU resources,
+/// and releases the layer of views that no longer use it.
 pub(super) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
@@ -86,6 +87,9 @@ pub(super) fn prepare(
 ) {
     for (entity, target, depth, msaa, enhanced, pack, overlay) in &views {
         if !enabled(enhanced, pack) {
+            if overlay.is_some() {
+                commands.entity(entity).remove::<Overlay>();
+            }
             continue;
         }
         if overlay.is_some_and(|overlay| {

@@ -156,6 +156,10 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::MovementEffectEvent,
     },
+    /// An accepted local alive-to-dead transition; input waits for respawn readiness.
+    LocalDeath {
+        sequence: u64,
+    },
     /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
     /// vector toward the damage source when a recent knockback impulse implies one.
     LocalHurt {
@@ -236,6 +240,12 @@ pub enum CommittedUiEvent {
         sequence: u64,
         server_tick: u64,
         attributes: Arc<[ActorAttribute]>,
+    },
+    /// Spawn health and the resulting mount share one UI FIFO position.
+    LocalSpawn {
+        sequence: u64,
+        health: Arc<[ActorAttribute]>,
+        ridden_unique_id: Option<i64>,
     },
     /// Local-player SetEntityData entries (air supply, freezing strength, ...).
     LocalMetadata {

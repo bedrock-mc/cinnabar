@@ -213,8 +213,8 @@ func TestStandbyServerWithoutAStartLine(t *testing.T) {
 	}
 }
 
-// A standby server refuses Experiences, whose blocks its warm-up would already have locked out.
-func TestStandbyServerRefusesExperiences(t *testing.T) {
+// A standby server can host an empty Experience directory without registry warm-up.
+func TestStandbyServerAcceptsExperiences(t *testing.T) {
 	dir := t.TempDir()
 	start, err := json.Marshal([]string{
 		"-dir", dir, "-addr", "127.0.0.1:0",
@@ -225,7 +225,24 @@ func TestStandbyServerRefusesExperiences(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	err = run([]string{standbyFlag}, strings.NewReader(standbyStart+string(start)+"\n"), &stdout, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "standby") || stdout.Len() != 0 {
+	if err != nil || stdout.String() != "ready\n" {
 		t.Fatalf("err = %v, stdout = %q", err, stdout.String())
+	}
+}
+
+// TestFlatOnlyGeneration rejects unsupported terrain and removed generation options before startup.
+func TestFlatOnlyGeneration(t *testing.T) {
+	base := []string{"-dir", "unused", "-addr", "127.0.0.1:0"}
+	for _, extra := range [][]string{
+		{"-generator", "normal"}, {"-seed", "-7"}, {"-pregen-radius", "1"},
+		{"-generation-stats"}, {"-chunk-workers", "0"}, {"-chunk-workers", "17"},
+	} {
+		if _, err := parseSettings(append(append([]string{}, base...), extra...), io.Discard); err == nil {
+			t.Fatalf("unsupported options accepted: %v", extra)
+		}
+	}
+	s, err := parseSettings(append(base, "-generator", "flat"), io.Discard)
+	if err != nil || s.generator != "flat" {
+		t.Fatalf("flat settings: %+v, %v", s, err)
 	}
 }
