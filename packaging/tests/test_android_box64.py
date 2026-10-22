@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -137,6 +138,56 @@ if name == pin["helper_library"]:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not packaged", result.stderr)
 
+    def test_loopback_is_routable_and_kernel_interfaces_are_preserved(self):
+        """Exercise the real adapter with only loopback, online, down and empty interfaces."""
+        if sys.platform != "linux":
+            self.skipTest("missing fixture: Linux host for the Android interface adapter")
+        compiler = shutil.which("c++")
+        if not compiler:
+            self.skipTest("missing fixture: C++ compiler for the Android interface adapter")
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "adapter"
+            result = subprocess.run([
+                compiler, "-std=c++17", "-fno-exceptions", "-fno-rtti",
+                *shlex.split(os.environ.get("CINNABAR_HOST_CXXFLAGS", "")),
+                "-include", str(ROOT / "packaging/android/box64/network.h"),
+                "-Dgetifaddrs=cinnabar_getifaddrs", "-Dfreeifaddrs=cinnabar_freeifaddrs",
+                str(ROOT / "packaging/android/box64/network.cpp"),
+                str(ROOT / "packaging/tests/android_network_adapter.cpp"), "-o", str(executable),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("routed loopback adapter ok", result.stdout)
+
+    def test_android_dns_proxy_protocol(self):
+        """Serve the real resolver adapter a scripted Android resolver on a temporary socket.
+
+        CINNABAR_HOST_CXXFLAGS adds host compiler flags such as sanitizers.
+        """
+        if sys.platform != "linux":
+            self.skipTest("missing fixture: Linux host for the Android resolver adapter")
+        compiler = shutil.which("c++")
+        if not compiler:
+            self.skipTest("missing fixture: C++ compiler for the Android resolver adapter")
+        box64 = ROOT / "packaging/android/box64"
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "dns-adapter"
+            result = subprocess.run([
+                compiler, "-std=c++17", "-fno-exceptions", "-fno-rtti", "-pthread",
+                *shlex.split(os.environ.get("CINNABAR_HOST_CXXFLAGS", "")), "-I", str(box64),
+                str(box64 / "dns.cpp"), str(ROOT / "packaging/tests/android_dns_adapter.cpp"),
+                "-o", str(executable),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("android resolver adapter ok", result.stdout)
+            self.assertEqual(result.stderr.count("Android resolver unavailable"), 1, result.stderr)
+            missing = next((line for line in result.stdout.splitlines() if "missing fixture:" in line), None)
+            if missing:
+                self.skipTest(missing)
+
     def test_linux_guest_starts_on_android(self):
         """Check Linux startup, locale, threads, storage and sockets on a selected emulator."""
         serial = os.environ.get("CINNABAR_ANDROID_TEST_SERIAL")
@@ -158,6 +209,7 @@ if name == pin["helper_library"]:
 #include <ctype.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/socket.h>
@@ -174,8 +226,22 @@ int main(int argc, char **argv) {
         loopback4 |= item->ifa_addr->sa_family == AF_INET;
         loopback6 |= item->ifa_addr->sa_family == AF_INET6;
     }
+    int routed = 0;
+    for (struct ifaddrs *item = addresses; item; item = item->ifa_next) {
+        struct sockaddr_in *address = (struct sockaddr_in *)item->ifa_addr;
+        if (!address || address->sin_family != AF_INET || (item->ifa_flags & IFF_LOOPBACK)) continue;
+        routed |= address->sin_addr.s_addr == htonl(INADDR_LOOPBACK)
+            && (item->ifa_flags & (IFF_UP | IFF_RUNNING)) == (IFF_UP | IFF_RUNNING);
+    }
     freeifaddrs(addresses);
-    assert(loopback4 && loopback6);
+    assert(loopback4 && loopback6 && routed);
+    struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
+    struct addrinfo *resolved = NULL;
+    assert(getaddrinfo("localhost", "80", &hints, &resolved) == 0 && resolved);
+    freeaddrinfo(resolved);
+    resolved = NULL;
+    assert(getaddrinfo("localhost", "80", NULL, &resolved) == 0 && resolved);
+    freeaddrinfo(resolved);
     pthread_t thread;
     int value = 0;
     assert(pthread_create(&thread, NULL, worker, &value) == 0);

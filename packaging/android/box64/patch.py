@@ -1,4 +1,4 @@
-"""Route interface allocation and release through the Android networking adapter."""
+"""Route interface enumeration and name resolution through the Android networking adapters."""
 from pathlib import Path
 import sys
 
@@ -10,6 +10,8 @@ def patch(root: Path) -> None:
     for old, new in [
         ('GOW(getifaddrs, iFp)', 'GOWM(getifaddrs, iFEp)'),
         ('GOW(freeifaddrs, vFp)', 'GOWM(freeifaddrs, vFEp)'),
+        # Results keep GNU's layout, so the unchanged native freeaddrinfo releases them.
+        ('GO(getaddrinfo, iFpppp)', 'GOM(getaddrinfo, iFEpppp)'),
     ]:
         if new in text:
             assert text.count(new) == 1 and old not in text

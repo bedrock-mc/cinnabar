@@ -66,24 +66,26 @@ and `CINNABAR_ANDROID_BDS_CXX` if the compilers are not named `aarch64-linux-gnu
 `aarch64-linux-gnu-g++`.
 
 The experimental runtime packages an Android-adapted GNU C Library, uses Android-compatible
-interface enumeration and requests stronger x86 memory ordering from the translator. A
-target-SDK-35 test app on an Android 15 emulator has started BDS,
+interface enumeration and name resolution, and requests stronger x86 memory ordering from the
+translator. A target-SDK-35 test app on an Android 15 emulator has started BDS,
 created a world, saved a changed spawn position, shut down cleanly and reopened the same world
-with SELinux enforcing. A production protocol client also completes login and spawn; the
-emulator run needed a longer diagnostic deadline than the standard live test. This runtime test
-does not establish acceptance of the complete client APK or physical phones.
+with SELinux enforcing. Two consecutive runs with every external network interface down also
+completed transport negotiation, signed-out login, spawn and clean shutdown using the production
+protocol client. The emulator runs needed a longer diagnostic deadline than the standard live
+test. This runtime test does not establish acceptance of the complete client APK or physical phones.
 
 Starting a BDS world after accepting its EULA acquires the official
 Linux server and pinned guest runtime on first use. No server binaries or game assets ship in
-the APK. Dragonfly remains available as an alternative. Login, offline play, lifecycle and performance acceptance
-remain incomplete across supported Android versions, CPU vendors and 4/16 KB page devices.
-When all external network interfaces are down, the client reports that BDS needs a network
-connection. Earlier startup
-aborts leave extended reliability testing open.
+the APK. Dragonfly remains available as an alternative. Login, offline play, lifecycle and
+performance acceptance remain incomplete across supported Android versions, CPU vendors and
+4/16 KB page devices.
+The Android runtime supplies a route over the existing loopback interface so an installed world
+can be joined without Wi-Fi or mobile data. Initial server and guest-runtime downloads still
+require a connection. Earlier startup aborts leave extended reliability testing open.
 BDS worlds cannot pause simulation.
 
 With an emulator running, the runtime probe can check the packaged helper under the app's
-normal permissions, including IPv4/IPv6 enumeration, threads, storage and UDP:
+normal permissions, including IPv4/IPv6 enumeration, offline name resolution, threads, storage and UDP:
 
 ```sh
 ANDROID_HOME=/path/to/android-sdk CINNABAR_ANDROID_TEST_SERIAL=emulator-5554 \

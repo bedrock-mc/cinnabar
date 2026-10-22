@@ -1,4 +1,4 @@
-# Add Android's application-safe interface enumeration to the Linux translator.
+# Add Android's application-safe interface enumeration and name resolution to the Linux translator.
 enable_language(CXX)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../runtime.json")
 function(cinnabar_android_network)
@@ -33,8 +33,11 @@ function(cinnabar_android_network)
     target_compile_options(android_network PRIVATE -fno-exceptions -fno-rtti -nostdinc++
         -include "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/network.h")
     target_compile_definitions(android_network PRIVATE getifaddrs=cinnabar_getifaddrs freeifaddrs=cinnabar_freeifaddrs)
+    add_library(android_dns OBJECT "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/dns.cpp")
+    target_compile_features(android_dns PRIVATE cxx_std_17)
+    target_compile_options(android_dns PRIVATE -fno-exceptions -fno-rtti -nostdinc++)
     # No C++ runtime is needed: allocation, logging and fd ownership use libc.
-    target_sources(box64 PRIVATE $<TARGET_OBJECTS:android_network>)
+    target_sources(box64 PRIVATE $<TARGET_OBJECTS:android_network> $<TARGET_OBJECTS:android_dns>)
     set_target_properties(box64 PROPERTIES LINKER_LANGUAGE C)
 endfunction()
 cmake_language(DEFER CALL cinnabar_android_network)

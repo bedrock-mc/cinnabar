@@ -525,10 +525,10 @@ Create and edit forms persist BDS advanced, multiplayer and cheat options throug
 catalog and generated server properties and level data. Pack and experiment configuration,
 hardcore, flat presets, Education Edition, operator status for a signed-out host and live
 acceptance of every option on supported platforms remain incomplete.
-hardcore, flat presets, Education Edition and live acceptance of every option on supported
-platforms remain incomplete.
-Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
-offers no NetherNet route, so the join fails with an explanation instead of connecting.
+The Android translated runtime supplies a loopback route and passes two consecutive offline
+transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
+Offline acceptance in the full APK and on physical phones remains open. Other BDS hosts can still
+offer no NetherNet route with every external interface down, producing an explanatory error.
 
 See [local worlds](docs/local-worlds.md).
 
@@ -565,11 +565,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
   and saves a world, shuts down cleanly and reopens it in a target-SDK-35 test app on an
   Android 15 VM with SELinux enforcing.
-  Production protocol login and spawn also pass with an extended diagnostic deadline.
-  Translation requests stronger x86 memory ordering. With all external network interfaces down,
-  BDS reports that it needs a network connection; earlier startup aborts leave reliability acceptance
-  open. Full APK,
-  physical-device, offline, lifecycle, performance and 4/16 KB compatibility acceptance remain incomplete.
+  Production protocol login and spawn also pass with an extended diagnostic deadline, including
+  two consecutive runs with all external interfaces down. Translation requests stronger x86
+  memory ordering, adds a loopback route and uses Android's resolver for host names. Earlier
+  startup aborts leave reliability acceptance open. Full APK, physical-device, offline lifecycle,
+  performance and 4/16 KB compatibility acceptance remain incomplete.
+  Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.

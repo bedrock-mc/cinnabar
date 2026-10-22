@@ -20,7 +20,7 @@ Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and g
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 Android bundles Dragonfly and a translated BDS runtime, with BDS the default for new worlds.
 The BDS runtime starts, saves and reopens worlds in an Android 15 test-app sandbox, including
-production protocol login and spawn. BDS acquires the Linux server archive and pinned guest
+production protocol login and spawn with every external interface down. BDS acquires the Linux server archive and pinned guest
 runtime on first use. Android does not probe for Docker or offer a container installer. Full client,
 physical-device, offline, lifecycle and performance acceptance remain incomplete; see
 [Android](android.md).
@@ -115,7 +115,10 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Offline:** native BDS gathers ICE candidates only from non-loopback interfaces and has no other
   transport, so on a device with no network its SDP answer carries no candidate. The core fails such
   a join at once with `cinnabar.disconnect.localWorldOffline` rather than waiting for a candidate.
-  Joining a BDS world offline remains unsupported.
+  The Android translator supplies an additional route over the existing loopback interface and
+  passes offline transport, signed-out login and spawn in the emulator sandbox. This does not
+  change native desktop BDS. Initial Android server/runtime downloads require a connection;
+  full-APK and physical-phone offline acceptance remain open.
 
 ## Core route
 
