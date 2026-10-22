@@ -6,7 +6,7 @@ use super::super::cells::Cell;
 use super::super::{PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
 /// What every inventory cell holds, as recipe-book availability reads it. Together with the
-/// item registry this decides each book recipe's availability; comparing it checks no bytes.
+/// item registry this decides each book recipe's availability. Comparing it validates nothing.
 #[derive(Debug)]
 pub(crate) struct AutoCraftMaterials([Option<Source>; PLAYER_INVENTORY_SLOT_COUNT]);
 
@@ -15,7 +15,7 @@ struct Source {
     network_id: i32,
     metadata: u32,
     count: u16,
-    /// Retained so identity comparison never aliases a reused allocation.
+    /// Compared by identity first, then by content, so restated stacks keep the listing.
     extra_data: Arc<[u8]>,
     awaiting_identity: bool,
 }
@@ -25,7 +25,8 @@ impl PartialEq for Source {
         self.network_id == other.network_id
             && self.metadata == other.metadata
             && self.count == other.count
-            && Arc::ptr_eq(&self.extra_data, &other.extra_data)
+            && (Arc::ptr_eq(&self.extra_data, &other.extra_data)
+                || self.extra_data == other.extra_data)
             && self.awaiting_identity == other.awaiting_identity
     }
 }
