@@ -487,24 +487,26 @@ impl BlockUseRuntime {
     }
 }
 
-/// The state a switch use predicts for the clicked block.
+/// The cell and state a switch use predicts within the observed world.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
-    stream: &impl crate::GameplayWorld,
+    mode: assets::NetworkIdMode,
+    _world: &sim::PaletteWorld<'_>,
+    position: [i32; 3],
     clicked: u32,
-) -> Option<u32> {
-    let mode = stream.network_id_mode();
+) -> Option<([i32; 3], u32)> {
     let states = toggled_states(
         collisions.block_facts(mode, clicked),
         collisions.block_canonical_state(mode, clicked)?,
     )?;
-    collisions.block_state_runtime_id(
+    let block = collisions.block_state_runtime_id(
         mode,
         assets::facts::BlockStateIdentity::Compiled(
             collisions.block_facts(mode, clicked).identity?,
         ),
         &states,
-    )
+    )?;
+    Some((position, block))
 }
 
 /// Trapdoors and levers flip `open_bit`; an
