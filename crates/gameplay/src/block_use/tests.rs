@@ -547,16 +547,16 @@ fn held_block_uses_repeat_for_any_hand() {
     );
     assert_eq!(packets.len(), 2);
     assert_eq!(format!("{:?}", packets[0].kind()), "AnimatePacket");
-    let decoded = protocol::decode_batch(protocol::encode(&packets[0]).unwrap()).unwrap();
-    let bedrock_protocol_1_26_51::packets::Packet::Animate(swing) = &*decoded[0].data else {
+    let mut decoded = protocol::decode_batch(protocol::encode(&packets[0]).unwrap()).unwrap();
+    let Some(protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Action(swing))) =
+        protocol::into_world_event(decoded.remove(0), 0).unwrap()
+    else {
         panic!("expected swing");
     };
-    assert_eq!(swing.target_actor_runtime_id.0, 42);
-    assert_eq!(swing.data.0, 0.0);
-    assert_eq!(
-        swing.swing_source.as_ref().unwrap().to_string_lossy(),
-        "interact"
-    );
+    assert_eq!(&*swing.actor_runtime_ids, &[42]);
+    assert_eq!(swing.kind, protocol::ActorActionKind::SwingArm);
+    assert_eq!(swing.data, 0.0);
+    assert_eq!(swing.swing_source.as_deref(), Some("interact"));
     let envelope = protocol::test_support::transactions::observe_transaction(&packets[1]).unwrap();
     assert_eq!(envelope.legacy_request_id, 0);
     assert_eq!(envelope.legacy_set_slots, None);
