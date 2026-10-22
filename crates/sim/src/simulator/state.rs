@@ -40,6 +40,10 @@ pub struct PlayerState {
     /// Resolved faces survive center rounding and deterministic replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) collision_shape: Option<CollisionShape>,
+    /// Fall distance after the previous tick, which this tick's powder snow
+    /// collision reads. Corrections restore it with the retained tick.
+    #[serde(default, skip_serializing_if = "is_zero_distance")]
+    pub(super) fall_distance: f32,
     /// Block-climber contact measured after the previous tick's move, which
     /// this tick's descent action, climb jump and gravity read. Like vanilla's
     /// actor flags, it survives placements and corrections until the climber
@@ -90,8 +94,15 @@ impl PlayerState {
             },
             previous_rotation: None,
             collision_shape: None,
+            fall_distance: 0.0,
             climber: None,
         }
+    }
+
+    /// Fall distance after the latest tick, which powder snow's collision reads.
+    #[must_use]
+    pub const fn fall_distance(&self) -> f32 {
+        self.fall_distance
     }
 
     /// Keeps `previous`'s block-climber contact through a spatial reset, as
@@ -225,6 +236,11 @@ pub enum SimulationError {
     TickOverflow,
 }
 
+/// Omits a zero fall distance from serialized states.
+fn is_zero_distance(value: &f32) -> bool {
+    *value == 0.0
+}
+
 pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
     if let Some(shape) = state.collision_shape {
         if !shape.bounds.min.is_finite()
@@ -237,6 +253,11 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
             });
         }
         crate::world::validate_collision_query(shape.bounds)?;
+    }
+    if !state.fall_distance.is_finite() {
+        return Err(SimulationError::NonFiniteState {
+            field: "fall_distance",
+        });
     }
     if !state.swim_amount.is_finite() || !(0.0..=1.0).contains(&state.swim_amount) {
         return Err(SimulationError::InvalidSwimAmount);

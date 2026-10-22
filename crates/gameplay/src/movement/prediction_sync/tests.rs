@@ -736,6 +736,43 @@ fn a_snapped_freeze_over_unreadable_terrain_reports_the_kept_contact() {
     assert!(climber.descending_through_block);
 }
 
+/// Each input mode feeds the descent action its own request: the sneak
+/// request with a keyboard, the held toggle-sneak control with a gamepad, and
+/// the touch descend control, which the touch layout lacks.
+#[test]
+fn the_descent_request_follows_the_input_mode() {
+    for (mode, toggle_held, descends) in [
+        (protocol::PlayerInputMode::Mouse, false, true),
+        (protocol::PlayerInputMode::GamePad, false, false),
+        (protocol::PlayerInputMode::GamePad, true, true),
+        (protocol::PlayerInputMode::Touch, true, false),
+    ] {
+        let mut physics = due_physics();
+        physics.advance_with_context(
+            std::time::Duration::from_millis(50),
+            sim::MovementInput {
+                sneaking: true,
+                ..Default::default()
+            },
+            crate::movement::PhysicsSampleContext {
+                input_mode: mode,
+                input: crate::movement::TickInput {
+                    sneak_down: true,
+                    sneak_toggle_down: toggle_held,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &ScaffoldColumn,
+        );
+        let climber = physics.prediction_sync_pose().unwrap().climber.unwrap();
+        assert_eq!(
+            climber.descending_through_block, descends,
+            "{mode:?} {toggle_held}"
+        );
+    }
+}
+
 /// Measured ticks publish their own climber flags; unmeasured stationary ticks
 /// keep the previous ones and spectator ticks leave the server's.
 #[test]

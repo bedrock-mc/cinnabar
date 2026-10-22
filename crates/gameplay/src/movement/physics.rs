@@ -550,6 +550,11 @@ impl LocalPhysicsController {
         let sprint_request = input.sprinting;
         let requested_movement_speed = input.movement_speed;
         let sneak_request = input.sneaking;
+        input.descent_request = Some(input_requests::descent_request(
+            context.input_mode,
+            sneak_request,
+            context.input.sneak_toggle_down,
+        ));
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;

@@ -65,6 +65,19 @@ fn persist_sneak_is_sent_for_touch_and_gamepad_only() {
     }
 }
 
+/// SneakToggleDown follows the held toggle-sneak control.
+#[test]
+fn sneak_toggle_down_is_sent_while_the_toggle_control_is_held() {
+    let mut sample = settle_tests::settled_sample(41, [0.0; 3]);
+    for held in [false, true] {
+        sample.input.sneak_toggle_down = held;
+        assert_eq!(
+            flags(&sample) & PlayerInputFlags::SNEAK_TOGGLE_DOWN.bits() != 0,
+            held
+        );
+    }
+}
+
 /// Events from several render frames reach the next tick once, even if it ends released.
 #[test]
 fn a_tickless_tap_preserves_both_edges_and_does_not_repeat_them() {

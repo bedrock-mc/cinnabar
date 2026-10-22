@@ -57,6 +57,23 @@ impl LocalPhysicsController {
             context.input.sneak.pressed = false;
             context.input.sneak.held = false;
             context.input.sneak_down = false;
+            context.input.sneak_toggle_down = false;
         }
+    }
+}
+
+/// Vanilla's per-input-mode request to descend through a climbable block:
+/// the sneak request with a keyboard, the toggle-sneak control held while
+/// sneak is toggled on with a gamepad, and the touch descend-scaffolding
+/// control, which Cinnabar's touch layout does not provide yet.
+pub(super) fn descent_request(
+    mode: protocol::PlayerInputMode,
+    sneak_request: bool,
+    sneak_toggle_down: bool,
+) -> bool {
+    match mode {
+        protocol::PlayerInputMode::Mouse => sneak_request,
+        protocol::PlayerInputMode::GamePad => sneak_toggle_down && sneak_request,
+        protocol::PlayerInputMode::Touch => false,
     }
 }

@@ -223,10 +223,14 @@ The block climber's scaffolding and climbable-block flags are rewritten locally 
 each move and reported in the sync. Cells without usable facts count as empty, ticks
 whose movement origin is unavailable keep the previous contact, spectators keep the
 server's flags, and contact before the first measured tick is measured at that tick's
-start; these recovery policies are untraced and incomplete. Confirmed gaps: powder snow has no contextual collision
-for a snow-standing wearer (standing on its top, the fall-into shape), the simulator keeps
-no fall distance for the climber to reset, and the descent request reads sneak in every
-input mode. Whether powder snow holds a sneaking climber is untraced, so it is incomplete.
+start; these recovery policies are untraced and incomplete. Powder snow collides through
+the mover's contextual query (full block for snow-standing wearers, the fall-into shape
+after falls over 2.5 blocks), and the simulator keeps vanilla's fall distance for it.
+Confirmed gaps: the touch layout has no descend-scaffolding control, so touch descent is
+never requested; fall distance halves in lava after, not before, adding the previous drop;
+the elytra's one-block fall distance uses the pre-glide velocity, an untraced ordering;
+and fall-distance resets traced only on 26.30 (flight toggle, riptide, bubble columns,
+honey) are not modelled.
 Animation-only flags must remain separate from gameplay and correction authority.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames

@@ -26,6 +26,7 @@ mod liquid_native;
 mod modes;
 mod movement_parity;
 mod palette_world;
+mod powder_snow;
 mod prediction;
 mod primary_block_lookup;
 mod processed_controls;

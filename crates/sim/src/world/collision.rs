@@ -67,6 +67,7 @@ impl<'a> PaletteWorld<'a> {
                     block: None,
                     runtime_id: None,
                     cell_has_scaffolding: None,
+                    powder_snow: false,
                 });
             }
         }
@@ -128,6 +129,20 @@ impl<'a> PaletteWorld<'a> {
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
                         let shapes = self.block_collision_shapes(block, physics, query)?;
                         if shapes.is_empty() {
+                            // Powder snow has no shape of its own; a mover-aware
+                            // query decides whether its block box collides.
+                            let cell = unit_block_box(block);
+                            if physics.flags.contains(BlockPhysicsFlags::POWDER_SNOW)
+                                && cell.intersects(query)
+                            {
+                                emit(CollisionInstance {
+                                    shape: cell,
+                                    block: Some(block),
+                                    runtime_id: Some(runtime_id),
+                                    cell_has_scaffolding: Some(cell_has_scaffolding),
+                                    powder_snow: true,
+                                });
+                            }
                             continue;
                         }
                         let offset = physics.shape_offset(block);
@@ -139,6 +154,7 @@ impl<'a> PaletteWorld<'a> {
                                     block: Some(block),
                                     runtime_id: Some(runtime_id),
                                     cell_has_scaffolding: Some(cell_has_scaffolding),
+                                    powder_snow: false,
                                 });
                             }
                         }
@@ -154,12 +170,23 @@ impl<'a> PaletteWorld<'a> {
                         block: None,
                         runtime_id: None,
                         cell_has_scaffolding: None,
+                        powder_snow: false,
                     });
                 }
             }
         }
         Ok(identity)
     }
+}
+
+/// The unit box of one block cell.
+fn unit_block_box(block: [i32; 3]) -> Aabb {
+    let min = Vec3::new(
+        f64::from(block[0]),
+        f64::from(block[1]),
+        f64::from(block[2]),
+    );
+    Aabb::new(min, Vec3::new(min.x + 1.0, min.y + 1.0, min.z + 1.0))
 }
 
 #[cfg(test)]

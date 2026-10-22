@@ -37,6 +37,7 @@ pub(super) fn tick(
     }
     next.collision_shape = None;
     next.climber = None;
+    next.fall_distance = 0.0;
     next.on_ground = false;
     next.collisions = AxisCollisions::default();
     next.jump_delay = 0;

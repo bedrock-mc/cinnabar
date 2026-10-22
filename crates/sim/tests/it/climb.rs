@@ -504,6 +504,54 @@ fn an_identity_conflict_under_the_scaffold_still_fails_the_tick() {
     );
 }
 
+/// A captured descent request replaces the sneak state for the descent action.
+#[test]
+fn the_descent_follows_the_captured_request() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [0, 1, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    for (sneaking, request, descends) in [
+        (true, Some(false), false),
+        (false, Some(true), true),
+        (true, None, true),
+    ] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    sneaking,
+                    descent_request: request,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert_eq!(
+            tick.environment.descending_through_block, descends,
+            "{sneaking} {request:?}"
+        );
+    }
+}
+
+/// Climbing contact clears the fall distance while falling through scaffolding.
+#[test]
+fn falling_through_scaffolding_keeps_no_fall_distance() {
+    let world = ScaffoldWorld {
+        scaffolds: (0..8).map(|y| [0, y, 0]).collect(),
+        solids: vec![[0, -1, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 6.0, 0.5));
+    for _ in 0..4 {
+        let tick = Simulator::default()
+            .tick(&mut state, MovementInput::default(), &world)
+            .unwrap();
+        assert!(tick.environment.in_scaffolding);
+        assert_eq!(state.fall_distance(), 0.0);
+    }
+}
+
 /// A tick with suppressed travel still starts the descent, without moving.
 #[test]
 fn skipped_travel_still_starts_the_scaffold_descent() {

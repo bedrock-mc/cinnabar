@@ -29,12 +29,21 @@ pub(super) struct ClimberContact {
     /// A climbable block at the layer below the feet (`OverDescendingBlock`),
     /// which a descent request sinks through.
     pub over_descending: bool,
+    /// The first climbable block found below the feet is powder snow, which
+    /// keeps the fall distance the climber otherwise clears.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_descending_snow: bool,
 }
 
 impl ClimberContact {
     /// Whether the descent action sinks through this contact's descending block.
     pub(super) fn descends(self, input: &MovementInput) -> bool {
         descends_through_block(input, self.over_descending)
+    }
+
+    /// Whether any of the four contact flags is set.
+    fn any(self) -> bool {
+        self.inside || self.over || self.ascending || self.over_descending
     }
 
     /// Publishes the four contact flags as measured.
@@ -47,11 +56,14 @@ impl ClimberContact {
     }
 }
 
-/// Vanilla's descent action: the descent request over a climbable block
-/// (`OverDescendingBlock`) sinks through it, except while riding.
+/// Vanilla's descent action: the input mode's descent request over a
+/// climbable block (`OverDescendingBlock`) sinks through it, except while
+/// riding. Inputs without a captured request use the sneak state.
 #[must_use]
 pub fn descends_through_block(input: &MovementInput, over_descending_block: bool) -> bool {
-    input.mode != MovementMode::Riding && input.sneaking && over_descending_block
+    input.mode != MovementMode::Riding
+        && input.descent_request.unwrap_or(input.sneaking)
+        && over_descending_block
 }
 
 /// Runs the block climber after the tick's move, as vanilla does, and retains
@@ -92,6 +104,10 @@ pub(super) fn finish_tick(
     }
     if let Some(contact) = state.climber {
         contact.publish(&mut result.environment);
+        // Climbing contact clears the fall distance, except over powder snow.
+        if contact.any() && !contact.over_descending_snow {
+            state.fall_distance = 0.0;
+        }
     }
 }
 
@@ -115,6 +131,8 @@ fn measure(
 struct LayerContact {
     scaffolding: bool,
     climbable: bool,
+    /// The first climbable block found is powder snow.
+    snow: bool,
 }
 
 /// Feet layer and the layer below it, from the box's float feet height.
@@ -142,6 +160,7 @@ pub(super) fn sample_climber(
         over: under.scaffolding,
         ascending: at_feet.climbable,
         over_descending: under.climbable,
+        over_descending_snow: under.snow,
     })
 }
 
@@ -179,8 +198,8 @@ fn scan_layer(
             if let Some(can_stand_on_snow) = climber
                 && !contact.climbable
             {
-                contact.climbable = (can_stand_on_snow
-                    && flags.contains(BlockPhysicsFlags::POWDER_SNOW))
+                contact.snow = can_stand_on_snow && flags.contains(BlockPhysicsFlags::POWDER_SNOW);
+                contact.climbable = contact.snow
                     || (scaffolding
                         && readable(rests_on_support(world, sampled, [x, y - 1, z]))?
                             .unwrap_or(false));
@@ -241,21 +260,43 @@ fn rests_on_support(
     Ok(!air && !water)
 }
 
-/// Scaffolding is solid only under the feet of a player not descending through it.
+/// A mover's contextual collision: scaffolding is solid only under the feet
+/// of a player not descending through it, and powder snow collides as
+/// [`super::powder_snow::collision_shape`] decides.
 pub(super) struct ScaffoldingView<'a, W> {
     inner: &'a W,
     player: Aabb,
     descending: bool,
+    powder_snow: super::powder_snow::PowderSnowStance,
 }
 
 impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
     /// Retains the pre-move box used by the native contextual collision query.
+    /// Powder snow stays passable until [`Self::with_powder_snow`] supplies
+    /// the mover's fall distance and snow-standing capability.
     pub(super) const fn new(inner: &'a W, player: Aabb, descending: bool) -> Self {
         Self {
             inner,
             player,
             descending,
+            powder_snow: super::powder_snow::PowderSnowStance {
+                feet_y: player.min.y,
+                descending,
+                fall_distance: 0.0,
+                can_stand_on_snow: false,
+            },
         }
+    }
+
+    /// Adds the mover facts powder snow's collision reads.
+    pub(super) const fn with_powder_snow(
+        mut self,
+        fall_distance: f32,
+        can_stand_on_snow: bool,
+    ) -> Self {
+        self.powder_snow.fall_distance = fall_distance;
+        self.powder_snow.can_stand_on_snow = can_stand_on_snow;
+        self
     }
 }
 
@@ -286,10 +327,14 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
         &self,
         query: Aabb,
     ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
-        let colliders = self.inner.collision_boxes_with_provenance(query)?;
-        let mut kept = Vec::with_capacity(colliders.value.len());
+        let colliders = self.inner.collision_boxes_for_mover(query)?;
+        let crate::MoverColliders {
+            colliders: candidates,
+            powder_snow,
+        } = colliders.value;
+        let mut kept = Vec::with_capacity(candidates.len() + powder_snow.len());
         let mut identity = colliders.identity;
-        for collider in colliders.value {
+        for collider in candidates {
             let bounds = collider.aabb;
             let solid_top = !self.descending
                 && self.player.min.y as f32 >= bounds.max.y as f32 - TOP_TOLERANCE
@@ -314,6 +359,18 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
                 }
             }
             kept.push(collider);
+        }
+        for block in powder_snow {
+            if let Some(aabb) = super::powder_snow::collision_shape(block, self.powder_snow)
+                && aabb.intersects(query)
+            {
+                kept.push(ProvenancedCollider {
+                    aabb,
+                    block: Some(block),
+                    runtime_id: None,
+                    cell_has_scaffolding: Some(false),
+                });
+            }
         }
         Ok(CollisionQuery {
             value: kept,

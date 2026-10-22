@@ -135,6 +135,23 @@ pub trait CollisionWorld {
         })
     }
 
+    /// Colliders for a mover's own move, from the same scan as
+    /// [`Self::collision_boxes_with_provenance`], plus the powder snow cells
+    /// whose collision depends on the mover. The default reports no such cells.
+    fn collision_boxes_for_mover(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<super::MoverColliders>, WorldQueryError> {
+        let colliders = self.collision_boxes_with_provenance(query)?;
+        Ok(CollisionQuery {
+            identity: colliders.identity,
+            value: super::MoverColliders {
+                colliders: colliders.value,
+                powder_snow: Vec::new(),
+            },
+        })
+    }
+
     /// Visits material facts from the primary layer upward, without retaining an identity.
     /// All layers are checked, including those after a visitor has found its answer.
     /// Discard visited values if the query fails. Palette worlds allocate no sample storage.
