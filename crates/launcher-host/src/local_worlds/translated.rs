@@ -119,7 +119,7 @@ impl Translation {
         })
     }
 
-    /// The backend is available for explicit selection; Dragonfly remains the default.
+    /// A complete packaged runtime makes BDS available as the default backend.
     pub(super) fn runtime(&self) -> RuntimeInfo {
         RuntimeInfo::translated()
     }

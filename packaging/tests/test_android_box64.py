@@ -19,7 +19,7 @@ PIN = RUNTIME["bds_translation"]
 
 
 class AndroidBox64Tests(unittest.TestCase):
-    def build_fixture(self, enabled, missing=False, replacement=False):
+    def build_fixture(self, missing=False, replacement=False):
         """Run production staging with compiler outputs supplied by a deterministic fixture."""
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -54,10 +54,7 @@ shutil.copyfile(sys.argv[-1], sys.argv[sys.argv.index("-o") + 1])
         strip.chmod(0o755)
         env = dict(os.environ, PATH=f"{tools}{os.pathsep}{os.environ['PATH']}",
                    FIXTURE_MANIFEST=str(ROOT / "packaging/android/runtime.json"))
-        env.pop("CINNABAR_ANDROID_EXPERIMENTAL_BDS", None)
         env.pop("CINNABAR_ANDROID_BDS_NATIVE_DIR", None)
-        if enabled:
-            env["CINNABAR_ANDROID_EXPERIMENTAL_BDS"] = "1"
         if missing:
             env["MISSING_RUNTIME"] = PIN["native_runtime"]["libraries"][-1]["source"]
         if replacement:
@@ -80,13 +77,8 @@ build_box64
                                 capture_output=True, text=True)
         return result, libs
 
-    def test_ordinary_packages_omit_the_experimental_runtime(self):
-        result, libs = self.build_fixture(False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((libs / PIN["helper_library"]).exists())
-
     def test_complete_native_runtime_is_installed_as_executable_apk_libraries(self):
-        result, libs = self.build_fixture(True)
+        result, libs = self.build_fixture()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((libs / PIN["helper_library"]).read_bytes(), b"translator fixture")
         for library in PIN["native_runtime"]["libraries"]:
@@ -96,11 +88,11 @@ build_box64
                 self.assertTrue(path.stat().st_mode & 0o100)
 
     def test_incomplete_native_runtime_stops_packaging(self):
-        result, _ = self.build_fixture(True, missing=True)
+        result, _ = self.build_fixture(missing=True)
         self.assertNotEqual(result.returncode, 0)
 
     def test_modified_native_libraries_can_replace_the_bundled_runtime(self):
-        result, libs = self.build_fixture(True, replacement=True)
+        result, libs = self.build_fixture(replacement=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         for library in PIN["native_runtime"]["libraries"]:
             self.assertEqual((libs / library["packaged"]).read_text(), "modified " + library["source"])

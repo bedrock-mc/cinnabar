@@ -22,7 +22,8 @@ attach the ZIP to the crash report. Nothing is uploaded automatically.
 
 ## Build and install
 
-Install a JDK, Go, librsvg or ImageMagick for the launcher icon, the Rust toolchain from
+Install a JDK, Go, CMake, Ninja, a Linux ARM64 GCC/G++ cross-toolchain, librsvg or ImageMagick
+for the launcher icon, the Rust toolchain from
 `rust-toolchain.toml` with the `aarch64-linux-android` target, the `cargo-ndk` version in
 `packaging/android/runtime.json`, and
 the Android SDK platform, build-tools and NDK versions pinned there. Then run:
@@ -57,9 +58,8 @@ Dragonfly is bundled for local worlds, with Normal or Flat terrain. The server r
 APK's native-library directory and saves worlds in private app storage. Android creation,
 reopening, offline play and suspend/resume still need device acceptance.
 
-BDS remains unavailable in ordinary Android builds. An experimental Box64 backend can be included
-by installing CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain, then setting
-`CINNABAR_ANDROID_EXPERIMENTAL_BDS=1` when building the APK. Set `CINNABAR_ANDROID_BDS_CC`
+BDS is the default for new worlds. Android APK builds include the Box64 runtime and require
+CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain. Set `CINNABAR_ANDROID_BDS_CC`
 and `CINNABAR_ANDROID_BDS_CXX` if the compilers are not named `aarch64-linux-gnu-gcc` and
 `aarch64-linux-gnu-g++`.
 
@@ -71,9 +71,9 @@ with SELinux enforcing. A production protocol client also completes login and sp
 emulator run needed a longer diagnostic deadline than the standard live test. This runtime test
 does not establish acceptance of the complete client APK or physical phones.
 
-In experimental builds, explicitly selecting BDS and accepting its EULA acquires the official
+Starting a BDS world after accepting its EULA acquires the official
 Linux server and pinned guest runtime on first use. No server binaries or game assets ship in
-the APK. Dragonfly remains the default. Login, offline play, lifecycle and performance acceptance
+the APK. Dragonfly remains available as an alternative. Login, offline play, lifecycle and performance acceptance
 remain incomplete across supported Android versions, CPU vendors and 4/16 KB page devices.
 The transport still times out when all external network interfaces are down. Earlier startup
 aborts leave extended reliability testing open.

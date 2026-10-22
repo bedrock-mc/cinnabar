@@ -5,10 +5,6 @@
 build_box64() {
     local helper
     helper="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bds_translation"]["helper_library"])' "$here/runtime.json")"
-    if [[ "${CINNABAR_ANDROID_EXPERIMENTAL_BDS:-0}" != 1 ]]; then
-        rm -f "$libs/$helper"
-        return
-    fi
     local build="$out/bds-runtime"
     local compiler="${CINNABAR_ANDROID_BDS_CC:-aarch64-linux-gnu-gcc}"
     cmake -S "$here/box64" -B "$build" -G Ninja \

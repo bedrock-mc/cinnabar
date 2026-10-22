@@ -98,7 +98,7 @@ fn android_detection_requires_the_bundled_helper_and_does_not_change_desktop_hos
     assert_eq!(translation.runtime().kind, RuntimeKind::Translated);
     assert_eq!(
         super::super::manager::default_backend(&translation.runtime()),
-        bridge::Backend::Dragonfly
+        bridge::Backend::Bds
     );
     for os in ["linux", "darwin", "windows"] {
         assert!(

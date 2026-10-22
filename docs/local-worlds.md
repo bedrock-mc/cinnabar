@@ -14,16 +14,16 @@ Each world records the backend that created it (`world.json`) and always reopens
 | `bds` container | Desktop hosts without a native build, with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
 | `dragonfly` | built-in local server on every supported host | Normal terrain through `bedrock-mc/vanilla-gen`, or Dragonfly's flat generator; mob behavior has parity gaps. |
 
-The create screen defaults to Dragonfly and Normal (Vanilla). Backend and generator are independent choices;
+The create screen defaults to BDS and Normal (Vanilla). Backend and generator are independent choices;
 both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
 Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
 A world created without a backend takes the machine's default: BDS where it can run, else Dragonfly.
 Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
-Android bundles Dragonfly. An opt-in BDS runtime starts, saves and reopens worlds in an
-Android 15 test-app sandbox, including production protocol login and spawn. Ordinary APKs
-keep BDS unavailable pending full client and device acceptance. Experimental builds acquire
-the Linux BDS archive and pinned guest runtime on first use. Android does not probe for Docker or offer a container installer. Full client,
+Android bundles Dragonfly and a translated BDS runtime, with BDS the default for new worlds.
+The BDS runtime starts, saves and reopens worlds in an Android 15 test-app sandbox, including
+production protocol login and spawn. BDS acquires the Linux server archive and pinned guest
+runtime on first use. Android does not probe for Docker or offer a container installer. Full client,
 physical-device, offline, lifecycle and performance acceptance remain incomplete; see
 [Android](android.md).
 
