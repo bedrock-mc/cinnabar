@@ -120,6 +120,9 @@ impl ItemStateStore {
             {
                 ticks = ticks.or_else(|| self.use_durations.as_ref()?.get(alias.as_ref()).copied());
             }
+            if let Some(components) = entry.components.as_deref() {
+                admit_shooter(&mut profile, components);
+            }
             if let Some(overlay) = self
                 .use_overlays
                 .as_ref()
@@ -185,9 +188,9 @@ impl ItemStateStore {
     }
 }
 
-/// Converts parsed wire evidence once before applying the common authored overlay.
-fn overlay_components(profile: &mut ItemUseProfile, components: &protocol::ItemComponents) {
-    // A drawing shooter starts a held use that its release ends, as a bow does.
+/// Admits a drawing shooter as a held use that its release ends, as a bow does. It runs before
+/// any overlay so authored and wire facts refine the admitted use instead of being dropped.
+fn admit_shooter(profile: &mut ItemUseProfile, components: &protocol::ItemComponents) {
     if matches!(profile, ItemUseProfile::Unresolved)
         && components
             .shooter
@@ -205,6 +208,10 @@ fn overlay_components(profile: &mut ItemUseProfile, components: &protocol::ItemC
             duration_alias: None,
         };
     }
+}
+
+/// Converts parsed wire evidence once before applying the common authored overlay.
+fn overlay_components(profile: &mut ItemUseProfile, components: &protocol::ItemComponents) {
     let overlay = assets::equipment::CompiledItemUseOverlay {
         identifier: Box::from(""),
         duration_ticks: components.use_duration_ticks,
@@ -527,6 +534,56 @@ mod tests {
         assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
         assert_eq!(profile.movement, 0.65);
         assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    #[test]
+    fn authored_shooter_slowdown_and_cooldown_survive_admission_under_wire_facts() {
+        let blaster = |movement: Option<f64>| protocol::ItemComponents {
+            use_duration_ticks: Some(2_000_000_000),
+            use_modifiers_present: movement.is_some(),
+            use_movement_modifier_bits: movement.map(f64::to_bits),
+            shooter: Some(protocol::ItemShooter {
+                draws: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(15000, "fixture:authored_blaster", blaster(None)),
+                entry(15001, "fixture:wire_blaster", blaster(Some(0.65))),
+            ]),
+        }));
+        let authored = |identifier: &str| {
+            (
+                Box::from(identifier),
+                assets::equipment::CompiledItemUseOverlay {
+                    identifier: Box::from(identifier),
+                    duration_ticks: None,
+                    food_can_always_eat: None,
+                    consumption: None,
+                    use_modifiers_present: true,
+                    movement_modifier_bits: Some(0.4_f64.to_bits()),
+                    cooldown: Some(assets::item_use::ItemUseCategory {
+                        category: "fixture:blasters".into(),
+                        ticks: 6,
+                    }),
+                },
+            )
+        };
+        store.set_use_overlays(Arc::new(BTreeMap::from([
+            authored("fixture:authored_blaster"),
+            authored("fixture:wire_blaster"),
+        ])));
+        let authored = store.item_use_profile(15000);
+        assert_eq!(authored.kind, Some(ItemUseKind::Hold));
+        assert_eq!(authored.movement, 0.4);
+        assert_eq!(authored.cooldown.map(|cooldown| cooldown.ticks), Some(6));
+        let wire = store.item_use_profile(15001);
+        assert_eq!(wire.kind, Some(ItemUseKind::Hold));
+        assert_eq!(wire.movement, 0.65);
+        assert_eq!(wire.cooldown.map(|cooldown| cooldown.ticks), Some(6));
     }
 
     #[test]
