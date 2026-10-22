@@ -153,7 +153,9 @@ mod tests {
             );
             assert!(REGISTRATION.with(|registration| registration.get().is_none()));
             std::thread::spawn(move || {
-                assert_eq!(converted.next(), Some(0.25));
+                for _ in 0..32 {
+                    assert_eq!(converted.next(), Some(0.25));
+                }
                 assert_eq!(ATTEMPTS.with(std::cell::Cell::get), 1);
             })
             .join()
