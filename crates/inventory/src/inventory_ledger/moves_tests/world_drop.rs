@@ -153,8 +153,7 @@ fn unanswered_legacy_drops_do_not_delay_play_or_require_a_refresh() {
 fn queued_drops_serialize_the_established_legacy_source_and_world_descriptor() {
     for second_amount in [1, 2] {
         let mut ledger = known_ledger(&[(2, digested(stack(6, 100, 3)))]);
-        let first = ledger.begin_world_drop(2, Some(1)).unwrap();
-        let first_legacy = drop_legacy_id(&ledger, first);
+        ledger.begin_world_drop(2, Some(1)).unwrap();
         let second = ledger.begin_world_drop(2, Some(second_amount)).unwrap();
         let second_legacy = drop_legacy_id(&ledger, second);
         assert!(ledger.mark_transport_enqueued(0));

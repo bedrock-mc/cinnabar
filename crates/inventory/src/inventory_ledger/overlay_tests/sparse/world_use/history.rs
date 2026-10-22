@@ -356,7 +356,7 @@ fn consumption_rebuilds_an_unsent_drop_from_restored_backing() {
     assert_eq!(ledger.confirmed_stack(Cell::Inventory(0)).unwrap().count, 4);
     answer_drop(&mut ledger, screen, true, 4);
     queue_drop(&mut ledger, true);
-    let consumption = consume_backing(&mut ledger, 0);
+    consume_backing(&mut ledger, 0);
     let (packet, _) = ledger.pending_batch().unwrap().unwrap();
     let transaction = protocol::test_support::transactions::observe_transaction(&packet).unwrap();
     assert_eq!(
