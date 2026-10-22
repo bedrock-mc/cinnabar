@@ -507,7 +507,12 @@ impl PlayerInventoryLedger {
         } else {
             let capacity = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
             let plan = self
-                .spread_plan(&preview.stack, capacity)
+                // The loom's banner stands in without its pattern, so it may not merge.
+                .spread_plan(
+                    &preview.stack,
+                    capacity,
+                    matches!(craft, ScreenCraft::Loom { .. }),
+                )
                 .ok_or(InventoryGestureError::InvalidRequest)?;
             for (cell, amount, into) in plan {
                 registry_bound_merge |= into.is_some();
