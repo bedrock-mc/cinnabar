@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod auto_craft;
+#[cfg(test)]
+pub(crate) use auto_craft::take_source_validations;
 mod bundles;
 mod cancellation;
 mod cells;
