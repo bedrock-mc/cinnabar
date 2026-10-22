@@ -583,6 +583,8 @@ settings! {
         [(SettingPanel::VideoCustomization, 10)], [SettingsGroup::Video], None, None;
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
+    EstheticTab => "esthetic_tab", toggle("options.estheticTab", true),
+        [(SettingPanel::VideoCustomization, 12)], [SettingsGroup::Video], None, Some("options.estheticTab.name");
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
     DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),

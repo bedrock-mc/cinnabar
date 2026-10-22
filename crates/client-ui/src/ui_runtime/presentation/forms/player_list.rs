@@ -66,7 +66,14 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        list.paint(renderer, runtime.player_roster.rows(), &mut paint_frame)?;
+        let esthetic = self
+            .screens
+            .chat
+            .settings
+            .options()
+            .esthetic_tab();
+        let server_title = "- Motaz -";
+        list.paint_styled(renderer, runtime.player_roster.rows(), &mut paint_frame, esthetic, Some(server_title))?;
         Ok(())
     }
 }

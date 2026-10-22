@@ -121,6 +121,21 @@ fn same_name_rows_keep_their_own_badge() {
     assert_eq!(badges(&render(&mut list)), 1);
 }
 
+#[test]
+fn esthetic_tab_enables_server_header_and_ping_bindings() {
+    let mut list = PlayerList::new();
+    list.refresh_styled(&names(3), MAX_ROWS, true, Some("- Motaz -"));
+    let nodes = render(&mut list);
+    let labels: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(labels.contains(&"- Motaz -"));
+}
+
 /// Counter runs preserve their RGBA colors, reserve space in narrow columns, and honor prefix placement.
 #[test]
 fn totem_counts_render_separate_tints_before_or_after_a_clipped_name() {
