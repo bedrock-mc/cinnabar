@@ -1,6 +1,7 @@
 //! The grouped crafting-book listing, retained while every input its discovery and material
 //! checks read stays the same. Screens read the book several times a frame, and recomputing
 //! each recipe's availability against the inventory every time stalls large catalogs.
+//! The listing names recipes by id only, so it never keeps a replaced catalog's recipes alive.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -19,8 +20,18 @@ pub(crate) struct Cache {
 /// Grouped outputs in catalog order, and their positions with craftable outputs first.
 #[derive(Debug, Default)]
 pub(super) struct Listing {
-    pub(super) groups: Vec<BookGroup>,
+    pub(super) groups: Vec<ListedGroup>,
     pub(super) craftable_first: Vec<usize>,
+}
+
+/// One grouped output: its preferred candidate's recipe id and what its variants share.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ListedGroup {
+    pub(super) recipe: u32,
+    pub(super) craftable: bool,
+    pub(super) held: bool,
+    /// Discovery has not unlocked the preferred candidate.
+    pub(super) locked: bool,
 }
 
 #[derive(Debug)]
@@ -101,8 +112,17 @@ fn build(inventory: &InventorySession, small: bool) -> Listing {
             groups.push(candidate);
         }
     }
+    let groups: Vec<ListedGroup> = groups
+        .into_iter()
+        .map(|group| ListedGroup {
+            recipe: group.entry.recipe.network_id(),
+            craftable: group.entry.craftable,
+            held: group.held,
+            locked: group.rank.0,
+        })
+        .collect();
     let mut craftable_first: Vec<usize> = (0..groups.len()).collect();
-    craftable_first.sort_by_key(|index| !groups[*index].entry.craftable);
+    craftable_first.sort_by_key(|index| !groups[*index].craftable);
     Listing {
         groups,
         craftable_first,

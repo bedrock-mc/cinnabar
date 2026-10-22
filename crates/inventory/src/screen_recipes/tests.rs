@@ -24,8 +24,22 @@ fn session() -> InventorySession {
     let registry = ItemRegistryEvent {
         entries: protocol::vanilla_item_registry(),
     };
-    let output = registry
-        .entries
+    let update = decode_recipe_update(&recipe_body()).unwrap();
+    let mut session = InventorySession::new(1);
+    session.ledger_mut().apply_registry(&registry);
+    session.crafting_authority.observe(
+        1,
+        1,
+        &crate::InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)),
+    );
+    session.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
+    session.crafting_authority.advance();
+    session
+}
+
+/// A CraftingData body with four crafting-table recipes, each a fresh decoded batch.
+fn recipe_body() -> Vec<u8> {
+    let output = protocol::vanilla_item_registry()
         .iter()
         .find(|item| item.identifier.as_ref() == "minecraft:crafting_table")
         .unwrap()
@@ -63,17 +77,7 @@ fn session() -> InventorySession {
         uint(&mut body, 0);
     }
     body.push(1);
-    let update = decode_recipe_update(&body).unwrap();
-    let mut session = InventorySession::new(1);
-    session.ledger_mut().apply_registry(&registry);
-    session.crafting_authority.observe(
-        1,
-        1,
-        &crate::InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)),
-    );
-    session.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
-    session.crafting_authority.advance();
-    session
+    body
 }
 
 #[test]
@@ -249,4 +253,28 @@ fn a_digest_only_update_rebuilds_the_book_listing() {
             "the book agrees with an immediate craftability check"
         );
     }
+}
+
+#[test]
+fn replacing_recipes_while_the_book_is_closed_frees_the_old_batch() {
+    let mut session = session();
+    assert!(!session.book_recipes(false, false, 0, usize::MAX).is_empty());
+    let old = session.screen_catalog().unwrap().recipe(2).unwrap();
+    let revision = session.screen_catalog().unwrap().revision();
+    // A new CraftingData arrives; nothing reads the book afterwards.
+    session.crafting_authority.observe(
+        1,
+        2,
+        &crate::InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(
+            decode_recipe_update(&recipe_body()).unwrap(),
+        )),
+    );
+    session.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+    session.crafting_authority.advance();
+    assert_ne!(session.screen_catalog().unwrap().revision(), revision);
+    assert_eq!(
+        old.batch_owners(),
+        1,
+        "only this test still holds the replaced batch, so its budget credit can return"
+    );
 }

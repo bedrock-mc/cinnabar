@@ -23,7 +23,6 @@ pub struct BookRecipe {
     pub craftable: bool,
 }
 
-#[derive(Debug)]
 struct BookGroup {
     entry: BookRecipe,
     rank: (bool, bool, bool, i32),
@@ -194,7 +193,7 @@ impl InventorySession {
         skip: usize,
         take: usize,
     ) -> Vec<BookRecipe> {
-        let (Some(_), Some(rules)) = (self.screen_catalog(), self.crafting_rules()) else {
+        let (Some(catalog), Some(rules)) = (self.screen_catalog(), self.crafting_rules()) else {
             return Vec::new();
         };
         let listing = book_cache::listing(self);
@@ -206,10 +205,15 @@ impl InventorySession {
                 } else {
                     position
                 };
-                &listing.groups[index]
+                listing.groups[index]
             })
-            .filter(|group| (!filtering || group.held) && (!group.rank.0 || show_locked))
-            .map(|group| group.entry.clone())
+            .filter(|group| (!filtering || group.held) && (!group.locked || show_locked))
+            .filter_map(|group| {
+                Some(BookRecipe {
+                    recipe: catalog.recipe(group.recipe)?,
+                    craftable: group.craftable,
+                })
+            })
             .skip(skip)
             .take(take)
             .collect()
