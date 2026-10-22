@@ -100,6 +100,28 @@ pub fn prediction_sync_attributes(packet: &Packet) -> Option<[f32; 9]> {
     Some(sync.movement_attributes.map(|value| value.0))
 }
 
+/// The scale, width and height a ClientMovementPredictionSync `packet` reports.
+#[must_use]
+pub fn prediction_sync_bounding_box(packet: &Packet) -> Option<[f32; 3]> {
+    let packets::Packet::ClientMovementPredictionSync(sync) = &*packet.data else {
+        return None;
+    };
+    Some(
+        sync.actor_bounding_box
+            .actor_data_bounding_box
+            .map(|value| value.0),
+    )
+}
+
+/// The three actor flag words a ClientMovementPredictionSync `packet` reports.
+#[must_use]
+pub fn prediction_sync_flags(packet: &Packet) -> Option<[u64; 3]> {
+    let packets::Packet::ClientMovementPredictionSync(sync) = &*packet.data else {
+        return None;
+    };
+    Some(sync.actor_data_flag.actor_flag_bitset_data.0)
+}
+
 /// The held-item update a MobEquipment `packet` sends, or `None` for any other packet.
 #[must_use]
 pub fn equipment(packet: &Packet) -> Option<EquipmentObservation> {

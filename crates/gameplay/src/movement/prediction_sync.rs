@@ -54,11 +54,17 @@ pub fn send_movement_prediction_sync(
         },
         air_drag_modifier,
     );
+    let actor_flags = predicted_flag_words(
+        &actor.metadata,
+        physics.prediction_sync_posture(),
+        physics.prediction_sync_mode(),
+    );
     let sync = MovementPredictionSync {
-        actor_flags: predicted_flag_words(&actor.metadata, physics.prediction_sync_posture()),
+        actor_flags,
         bounding_box: predicted_bounding_box(
             &actor.metadata,
             physics.prediction_sync_walking_height(),
+            actor_flags,
         ),
         attributes,
         unique_id: stream.local_player_unique_id(),
@@ -70,23 +76,50 @@ pub fn send_movement_prediction_sync(
 }
 
 /// Overlays current accepted posture while preserving flags owned by server metadata.
+///
+/// Vanilla sends its own actor flag words, where the client sets sneaking,
+/// sprinting and the swimming, crawling and gliding poses as it predicts them.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
     posture: Option<(bool, bool)>,
+    mode: Option<sim::MovementMode>,
 ) -> [u64; 3] {
     let mut words = flag_words(metadata);
     if let Some((sneaking, sprinting)) = posture {
-        for (flag, enabled) in [
-            (ActorFlag::Sneaking, sneaking),
-            (ActorFlag::Sprinting, sprinting),
+        set_flag(&mut words, ActorFlag::Sneaking, sneaking);
+        set_flag(&mut words, ActorFlag::Sprinting, sprinting);
+    }
+    if let Some(mode) = mode {
+        for (flag, pose) in [
+            (ActorFlag::Swimming, sim::MovementMode::Swimming),
+            (ActorFlag::Crawling, sim::MovementMode::Crawling),
+            (ActorFlag::Gliding, sim::MovementMode::Gliding),
         ] {
-            let bit = flag.wire_value() as usize;
-            let mask = 1_u64 << (bit % u64::BITS as usize);
-            let word = &mut words[bit / u64::BITS as usize];
-            *word = (*word & !mask) | if enabled { mask } else { 0 };
+            set_flag(&mut words, flag, mode == pose);
         }
     }
     words
+}
+
+/// Word index and mask of one actor flag in the three wire flag words.
+fn flag_slot(flag: ActorFlag) -> (usize, u64) {
+    let bit = flag.wire_value() as usize;
+    (
+        bit / u64::BITS as usize,
+        1_u64 << (bit % u64::BITS as usize),
+    )
+}
+
+/// Sets or clears one actor flag across the three wire flag words.
+fn set_flag(words: &mut [u64; 3], flag: ActorFlag, enabled: bool) {
+    let (word, mask) = flag_slot(flag);
+    words[word] = (words[word] & !mask) | if enabled { mask } else { 0 };
+}
+
+/// Whether one actor flag is set in the three wire flag words.
+fn flag_set(words: &[u64; 3], flag: ActorFlag) -> bool {
+    let (word, mask) = flag_slot(flag);
+    words[word] & mask != 0
 }
 
 /// Reads all server-owned flag words, defaulting absent words to zero.
@@ -102,16 +135,39 @@ fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
     ]
 }
 
-/// Uses current accepted walking size for the standard unscaled player model.
-/// Other models and poses retain their supplied metadata until their local contracts are available.
+/// Flags that put a player in a horizontal pose: gliding, a riptide spin, swimming and crawling.
+const HORIZONTAL_POSE_FLAGS: [ActorFlag; 4] = [
+    ActorFlag::Gliding,
+    ActorFlag::DamageNearbyMobs,
+    ActorFlag::Swimming,
+    ActorFlag::Crawling,
+];
+
+/// Sizes the standard unscaled player model from the sent pose, as vanilla's
+/// player size update does: a horizontal pose uses the width as its height,
+/// otherwise the current accepted walking size applies once a sample exists.
+/// Other models retain their supplied metadata until their local contracts are available.
 fn predicted_bounding_box(
     metadata: &HashMap<u32, ActorMetadataValue>,
     walking_height: Option<f32>,
+    flags: [u64; 3],
 ) -> [f32; 3] {
     let mut size = bounding_box(metadata);
-    if size == [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]
-        && let Some(height) = walking_height
+    let width = sim::PLAYER_WIDTH as f32;
+    let pose_heights = [
+        sim::PLAYER_HEIGHT as f32,
+        sim::MovementMode::Walking.hitbox_height(true) as f32,
+        width,
+    ];
+    if size[..2] != [1.0, width] || !pose_heights.contains(&size[2]) {
+        return size;
+    }
+    if HORIZONTAL_POSE_FLAGS
+        .into_iter()
+        .any(|flag| flag_set(&flags, flag))
     {
+        size[2] = width;
+    } else if let Some(height) = walking_height {
         size[2] = height;
     }
     size
@@ -197,9 +253,9 @@ mod tests {
         let metadata = HashMap::new();
         let standing = [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32];
         let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
-        assert_eq!(predicted_bounding_box(&metadata, None), standing);
+        assert_eq!(predicted_bounding_box(&metadata, None, [0; 3]), standing);
         assert_eq!(
-            predicted_bounding_box(&metadata, Some(crouching)),
+            predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
             [standing[0], standing[1], crouching]
         );
         for key in [
@@ -209,7 +265,7 @@ mod tests {
         ] {
             let metadata = HashMap::from([(key.wire_value(), ActorMetadataValue::Float(2.0))]);
             assert_eq!(
-                predicted_bounding_box(&metadata, Some(crouching)),
+                predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
                 bounding_box(&metadata)
             );
         }
@@ -467,6 +523,182 @@ mod tests {
                 );
                 assert_eq!(physics.prediction_sync.due(), !accepted);
             }
+        }
+    }
+
+    /// Pose flags follow the accepted local mode; without a completed sample the server words stand.
+    #[test]
+    fn pose_flags_follow_the_local_mode() {
+        let bit = |flag: ActorFlag| {
+            let wire = flag.wire_value() as usize;
+            (wire / 64, 1_u64 << (wire % 64))
+        };
+        let (swim_word, swim) = bit(ActorFlag::Swimming);
+        let (crawl_word, crawl) = bit(ActorFlag::Crawling);
+        let (glide_word, glide) = bit(ActorFlag::Gliding);
+        let unrelated = 1_u64 << ActorFlag::AlwaysShowName.wire_value();
+        let mut server = [unrelated, 0, 0];
+        server[swim_word] |= swim;
+        let metadata = HashMap::from([
+            (
+                ActorDataKey::Flags.wire_value(),
+                ActorMetadataValue::Flags(server[0]),
+            ),
+            (
+                ActorDataKey::FlagsTwo.wire_value(),
+                ActorMetadataValue::FlagsExtended(server[1]),
+            ),
+        ]);
+        assert_eq!(predicted_flag_words(&metadata, None, None), server);
+        for (mode, expected) in [
+            (sim::MovementMode::Walking, None),
+            (sim::MovementMode::Swimming, Some((swim_word, swim))),
+            (sim::MovementMode::Crawling, Some((crawl_word, crawl))),
+            (sim::MovementMode::Gliding, Some((glide_word, glide))),
+        ] {
+            let mut words = [unrelated, 0, 0];
+            if let Some((word, mask)) = expected {
+                words[word] |= mask;
+            }
+            assert_eq!(
+                predicted_flag_words(&metadata, None, Some(mode)),
+                words,
+                "{mode:?}"
+            );
+        }
+    }
+
+    struct DeepWater;
+
+    impl sim::CollisionWorld for DeepWater {
+        /// Leaves the swimmer unconstrained.
+        fn collision_boxes(
+            &self,
+            _query: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+
+        /// Fills every block with still water.
+        fn block_physics(
+            &self,
+            _block: [i32; 3],
+        ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+            Ok(sim::BlockPhysicsSample {
+                layers: Box::new([sim::BlockPhysicsFacts {
+                    friction: 0.6,
+                    horizontal_speed_factor: 1.0,
+                    vertical_speed_factor: 1.0,
+                    fluid_height_blocks: 1.0,
+                    flags: sim::BlockPhysicsFlags::WATER,
+                    surface_response: sim::SurfaceResponse::None,
+                }]),
+                identity: sim::CollisionQuery::synthetic(()).identity,
+            })
+        }
+    }
+
+    /// A sync that falls due mid-swim reports the swim even when server metadata lacks it.
+    #[test]
+    fn correction_sync_reports_a_local_swim_before_server_metadata() {
+        let swim = 1_u64 << ActorFlag::Swimming.wire_value();
+        let actor = local_actor();
+        let mut physics = due_physics();
+        let input = sim::MovementInput {
+            forward: 1.0,
+            sprinting: true,
+            ..Default::default()
+        };
+        for _ in 0..4 {
+            physics.advance(std::time::Duration::from_millis(50), input, &DeepWater);
+        }
+        assert_eq!(physics.mode(), sim::MovementMode::Swimming);
+        let mut sent = None;
+        send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+            sent = Some(packet);
+            true
+        });
+        let sent = sent.expect("due correction sync");
+        let flags =
+            protocol::test_support::packets::prediction_sync_flags(&sent).expect("wrong packet");
+        assert_ne!(
+            flags[0] & swim,
+            0,
+            "the sync must carry the local swim pose"
+        );
+        let size = protocol::test_support::packets::prediction_sync_bounding_box(&sent)
+            .expect("wrong packet");
+        assert_eq!(
+            size,
+            [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_WIDTH as f32]
+        );
+    }
+
+    /// Every horizontal pose sends the width as the height, overriding the walking size.
+    #[test]
+    fn horizontal_poses_send_the_width_as_the_height() {
+        let width = sim::PLAYER_WIDTH as f32;
+        let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
+        let standing = HashMap::new();
+        let swimming_echo = HashMap::from([(
+            ActorDataKey::Height.wire_value(),
+            ActorMetadataValue::Float(width),
+        )]);
+        for flag in HORIZONTAL_POSE_FLAGS {
+            let mut words = [0; 3];
+            set_flag(&mut words, flag, true);
+            for metadata in [&standing, &swimming_echo] {
+                assert_eq!(
+                    predicted_bounding_box(metadata, Some(crouching), words),
+                    [1.0, width, width],
+                    "{flag:?}"
+                );
+            }
+        }
+        assert_eq!(
+            predicted_bounding_box(&swimming_echo, Some(sim::PLAYER_HEIGHT as f32), [0; 3]),
+            [1.0, width, sim::PLAYER_HEIGHT as f32],
+            "a completed walking sample replaces a stale horizontal echo"
+        );
+    }
+
+    /// Only a replayed correction schedules a sync; a snap (far teleport, respawn) does not.
+    #[test]
+    fn only_replayed_corrections_schedule_a_sync() {
+        for (mode, scheduled) in [
+            (
+                crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                true,
+            ),
+            (crate::movement::PhysicsCorrectionMode::Snap, false),
+        ] {
+            let mut physics = LocalPhysicsController::default();
+            physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+            let frame = physics.advance(
+                std::time::Duration::from_millis(100),
+                sim::MovementInput::default(),
+                &OpenWorld,
+            );
+            let first = frame.samples.first().expect("completed tick").clone();
+            physics
+                .apply_correction(
+                    crate::movement::PhysicsAnchor {
+                        network_position: first.position,
+                        tick: first.tick,
+                        on_ground: false,
+                        velocity: Some(first.velocity),
+                    },
+                    mode,
+                    None,
+                    &OpenWorld,
+                )
+                .expect("correction applies");
+            let mut ticks = 0;
+            while !physics.prediction_sync.due() && ticks < 400 {
+                physics.prediction_sync.tick();
+                ticks += 1;
+            }
+            assert_eq!(physics.prediction_sync.due(), scheduled, "{mode:?}");
         }
     }
 

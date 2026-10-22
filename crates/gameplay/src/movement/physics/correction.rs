@@ -33,7 +33,11 @@ impl LocalPhysicsController {
                     f64::from(velocity[2]),
                 )
             });
-        self.prediction_sync.arm();
+        // Vanilla marks an actor corrected only on its rewind path, so snaps
+        // (far teleports, respawns, dimension changes) never schedule a sync.
+        if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained) {
+            self.prediction_sync.arm();
+        }
         if matches!(mode, PhysicsCorrectionMode::Snap) {
             let jump_delay = self.state.as_ref().map_or(0, |state| state.jump_delay);
             let swim_amount = self.state.as_ref().map_or(0.0, |state| state.swim_amount);

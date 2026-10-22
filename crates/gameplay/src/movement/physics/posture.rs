@@ -12,6 +12,12 @@ impl LocalPhysicsController {
         ))
     }
 
+    /// Accepted locomotion mode once a movement sample has completed, including
+    /// server flag updates that ended a swim or crawl after that sample.
+    pub(in crate::movement) fn prediction_sync_mode(&self) -> Option<sim::MovementMode> {
+        self.sample_history.back().map(|_| self.modes.mode())
+    }
+
     /// Uses completed walking size with any newer accepted server sneak state.
     pub(in crate::movement) fn prediction_sync_walking_height(&self) -> Option<f32> {
         let frame = self.controller_history.back()?;
