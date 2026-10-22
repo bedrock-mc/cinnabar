@@ -83,6 +83,7 @@ pub enum MenuDialog {
     Exit,
     DeathQuit,
     RemoveSaved(usize),
+    RemoveShaderPack(u16, u64),
     StorageDelete,
     StorageError,
     /// A dismissible host notice whose body is supplied by the menu view.
@@ -195,6 +196,8 @@ pub enum MenuAction {
     SettingsShaders,
     /// Re-lists shader packs and reloads the selected pack with its saved options.
     ReloadShaders,
+    RemoveShaderPackDialog(u16, u64),
+    ConfirmRemoveShaderPack(u16, u64),
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,

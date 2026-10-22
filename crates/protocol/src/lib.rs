@@ -179,8 +179,8 @@ pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
     ItemBannerPattern, ItemBook, ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry,
-    ItemRegistryEvent, ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown,
-    KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    ItemRegistryEvent, ItemRegistryVersion, ItemShooter, ItemStackFacts, ItemStackFactsCache,
+    ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, held_items_match, item_banner_patterns,
     item_banner_type, item_book, item_bundle_id, item_charged_projectile, item_custom_color,
@@ -192,7 +192,7 @@ pub use item::{
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
     item_custom_name, item_extra_lock, item_extra_slot_locked, item_filtered_custom_name,
-    item_repair_cost, item_user_data_equal,
+    item_has_trim, item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};

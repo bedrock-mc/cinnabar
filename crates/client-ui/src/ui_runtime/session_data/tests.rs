@@ -705,3 +705,25 @@ fn items_are_named_with_their_aux() {
     assert_eq!(data.items[0].name, "minecraft:wool#14");
     assert_eq!(data.items[1].name, "minecraft:wool#0");
 }
+
+#[test]
+fn recipes_publish_every_result_a_craft_creates() {
+    let recipe = RecipeFixture {
+        net_id: 20,
+        ..RecipeFixture::shapeless(
+            "test:with_extra",
+            vec![descriptor("name", "minecraft:oak_planks", 0)],
+            vec![OutputFixture::new(5, 1), OutputFixture::new(7, 2)],
+        )
+    };
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![recipe]).update()));
+    let data = build(&creative(), &catalog);
+    let outputs: Vec<_> = data.recipes[0]
+        .outputs
+        .iter()
+        .map(|output| output.key.identifier.as_str())
+        .collect();
+    assert_eq!(outputs, ["minecraft:bed", "minecraft:stick"]);
+}

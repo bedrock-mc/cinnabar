@@ -55,6 +55,15 @@ Manual installers are copied out of the waiting stage before opening. A newer do
 change can replace that stage while the handed-off installer remains available. Manual copies use
 the same lease and handoff retention window as copied update helpers.
 
+On Linux, launching an AppImage downloaded by Cinnabar also checks the installation created by
+`install.sh`. If that installed copy is older, the ready card offers **Restart and update** to
+finish installing the downloaded release. The signed manifest and image are verified again, and
+the helper replaces the installed AppDir so the application-menu launcher opens the new version.
+This action requires a click even when install-on-quit is enabled. AppImages launched from other
+locations remain portable copies.
+If the original client is still open, the card asks you to close the other windows first and
+offers installation once that client exits.
+
 The updater retains its verified offer while a later download replaces the cache. The helper
 revalidates that offer and queries the installed executable's version and build under the apply
 lease. If the installation is already at that build or newer, it skips the swap and relaunches.

@@ -67,7 +67,7 @@ fn echoing_an_nbt_name_and_restating_it_preserve_edits() {
     let preview = runtime.anvil_preview(&player).unwrap();
     assert_eq!(preview.outcome.custom_name, Some(Some("Edited".into())));
     assert_eq!(preview.outcome.cost, 4);
-    assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("Edited"));
+    assert_eq!(take_rename(&runtime, &player).as_deref(), Some("Edited"));
     edit_input(
         &mut runtime,
         &mut player,
@@ -107,5 +107,5 @@ fn a_changed_authoritative_name_still_refreshes_the_prefill() {
         runtime.anvil_preview(&player).unwrap().outcome.custom_name,
         None
     );
-    assert_eq!(runtime.anvil_rename(&player), None);
+    assert_eq!(take_rename(&runtime, &player).as_deref(), Some("Changed"));
 }

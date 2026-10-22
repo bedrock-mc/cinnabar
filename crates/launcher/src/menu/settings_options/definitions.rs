@@ -338,17 +338,17 @@ settings! {
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
-        [(SettingPanel::AccessibilityUi, 3)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
-        [(SettingPanel::AccessibilityUi, 2), (SettingPanel::Chat, 4)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 4)], [SettingsGroup::Chat], None, None;
     ControllerSensitivity => "controller_sensitivity", slider("options.sensitivity", 0, 100, 50),
         [(SettingPanel::Controller, 0)], [], None, Some("options.controller.sensitivity.name");
     SpyglassGamepadDampening => "spyglass_gamepad_dampening", slider("options.spyglassdampen", 0, 100, 50),
         [(SettingPanel::Controller, 1)], [], None, Some("options.spyglassdampen.name");
     HudTextBackgroundOpacity => "hud_text_background_opacity", slider("options.hudTextBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 0)], [SettingsGroup::Accessibility], None, None;
     ChatBackgroundOpacity => "chat_background_opacity", slider("options.chatBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 0), (SettingPanel::Chat, 1)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 1)], [SettingsGroup::Chat], None, None;
     Darkness => "darkness", slider("options.darknessEffectModifier", 0, 100, 100),
         [(SettingPanel::AccessibilityGameplay, 1)], [SettingsGroup::Accessibility], None, None;
     ScreenDistortion => "screen_distortion", slider("options.screenDistortion", 0, 100, 100),
@@ -470,7 +470,7 @@ settings! {
     CopyCoordinateUi => "copy_coordinate_ui", toggle("options.copyCoordinateUI", false),
         [(SettingPanel::CreatorCoordinates, 0)], [], None, Some("options.copyCoordinateUI.name");
     GuiAccessibilityScaling => "gui_accessibility_scaling", toggle("options.gui.accessibility.scaling", false),
-        [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
+        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
@@ -506,7 +506,7 @@ settings! {
     FullScreen => "full_screen", host("options.fullscreen"),
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
-        [(SettingPanel::AccessibilityUi, 4), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

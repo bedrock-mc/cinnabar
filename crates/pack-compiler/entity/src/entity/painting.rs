@@ -110,13 +110,13 @@ pub(super) fn complete_bindings(
 }
 
 /// Keeps every authored payload intact when its path matches a generated document.
-fn unused_source_path(path: String, payloads: &SourcePayloads) -> String {
+pub(super) fn unused_source_path(path: String, payloads: &SourcePayloads) -> String {
     if !payloads.contains_key(path.as_str()) {
         return path;
     }
     let stem = path
         .strip_suffix(".json")
-        .expect("generated painting documents are JSON");
+        .expect("generated documents are JSON");
     let mut suffix = 1;
     loop {
         let candidate = format!("{stem}_{suffix}.json");
@@ -128,9 +128,9 @@ fn unused_source_path(path: String, payloads: &SourcePayloads) -> String {
 }
 
 /// Serializes one original generated document before testing whole-part admission.
-fn encode_document(path: String, value: Value) -> Result<(String, Vec<u8>), AssetError> {
+pub(super) fn encode_document(path: String, value: Value) -> Result<(String, Vec<u8>), AssetError> {
     let bytes =
-        serde_json::to_vec(&value).map_err(|_| invalid("painting binding encoding failed"))?;
+        serde_json::to_vec(&value).map_err(|_| invalid("generated binding encoding failed"))?;
     Ok((path, bytes))
 }
 

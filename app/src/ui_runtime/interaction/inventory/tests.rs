@@ -14,6 +14,7 @@ use ui_screens::container_actions::ReaderButton;
 const SIZE: [u32; 2] = [800, 600];
 
 mod ordered;
+mod scrollbar;
 
 #[test]
 fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {
@@ -103,6 +104,15 @@ fn presentation(
     player: &client_state::PlayerRuntime,
     runtime: &UiRuntime,
 ) -> UiPresentationRuntime {
+    presentation_with_controls(player, runtime, &[])
+}
+
+/// Extends the original screen fixture with controls used by pointer-routing tests.
+fn presentation_with_controls(
+    player: &client_state::PlayerRuntime,
+    runtime: &UiRuntime,
+    extra: &[serde_json::Value],
+) -> UiPresentationRuntime {
     let files = [
         ("ui/_global_variables.json".to_owned(), b"{}".to_vec()),
         (
@@ -118,7 +128,7 @@ fn presentation(
             ("crafting", "inventory_screen", "button.menu_exit"),
         ]
         .map(|(namespace, root, action)| {
-            let source = serde_json::json!({
+            let mut source = serde_json::json!({
                 "namespace": namespace,
                 (root): {
                     "type": "screen", "size": [160, 100],
@@ -131,6 +141,10 @@ fn presentation(
                     }}]
                 }
             });
+            source[root]["controls"]
+                .as_array_mut()
+                .unwrap()
+                .extend_from_slice(extra);
             (
                 format!("ui/{namespace}.json"),
                 serde_json::to_vec(&source).unwrap(),

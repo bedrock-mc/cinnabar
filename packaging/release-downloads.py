@@ -28,6 +28,8 @@ def render_installer():
                             if release["track"] == "rolling")
     values = {"REPOSITORY": config["repository"], "CHECKSUM_ASSET": config["checksums"],
               "LINUX_X86_64_ASSET": config["assets"]["linux"]["x86_64"],
+              "LINUX_APP_DIR": config["linux_install"]["app_dir"],
+              "LINUX_CURRENT": config["linux_install"]["current"],
               "TAGGED_CHANNEL": tagged, "TAGGED_CHANNEL_LABEL": tagged.capitalize(),
               "ROLLING_CHANNEL": rolling, "ROLLING_TAG": release["tag"]}
     for key, value in values.items():
