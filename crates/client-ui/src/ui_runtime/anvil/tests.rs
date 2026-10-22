@@ -30,18 +30,16 @@ fn entry(identifier: &str, network_id: i32) -> ItemRegistryEntry {
     }
 }
 
-/// The name a take sends for the result it would take: the prediction, else the target.
+/// The name a take sends: the prediction's, else the target's take name.
 fn take_rename(runtime: &UiRuntime, player: &player_state::PlayerState) -> Option<Arc<str>> {
-    let result = runtime
-        .anvil_preview(player)
-        .map(|preview| preview.stack.clone())
-        .or_else(|| {
-            runtime
-                .inventory_ledger(player)
-                .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
-                .cloned()
-        })?;
-    runtime.anvil_rename(player, &result)
+    if let Some(preview) = runtime.anvil_preview(player) {
+        return preview.take_name.clone();
+    }
+    let target = runtime
+        .inventory_ledger(player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))?
+        .clone();
+    runtime.anvil_take_name(player, target.network_id, target.metadata)
 }
 
 /// Puts `stack` in anvil UI `slot`.
@@ -968,4 +966,36 @@ fn overlay_only_names_survive_until_an_actual_rename() {
             assert_eq!(protocol::item_filtered_custom_name(&edited), None);
         }
     }
+}
+
+/// Typing the default name back over a custom name removes it in both the request and the
+/// prediction, as the server does for a missing name.
+#[test]
+fn typing_the_default_name_removes_a_custom_name_everywhere() {
+    let (mut runtime, mut player) = anvil();
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        NetworkItemStack::empty(),
+    );
+    runtime.sync_anvil_name(&player);
+    let default = runtime.screen_state().anvil_name.clone();
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            custom_name: Some(Some("Blade".into())),
+            ..Default::default()
+        },
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, "Blade");
+    runtime.screen_state_mut().anvil_name = default;
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.take_name, None);
+    assert_eq!(preview.outcome.custom_name, Some(None));
+    assert_eq!(protocol::item_custom_name(&preview.stack.extra_data), None);
+    assert_eq!(preview.outcome.cost, 1);
 }

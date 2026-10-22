@@ -13,6 +13,8 @@ pub(super) mod cache;
 pub struct AnvilPreview {
     pub stack: NetworkItemStack,
     pub outcome: inventory::AnvilOutcome,
+    /// The name the take sends; the prediction applied the same text.
+    pub take_name: Option<std::sync::Arc<str>>,
 }
 
 /// The target and resolved name last used to prefill the editable field.
@@ -176,22 +178,24 @@ impl UiRuntime {
             })
     }
 
-    /// The name-box text a take of `result` sends: always, unless it is the result's default
-    /// name. The server keeps an equal custom name and reads no text as clearing one.
-    pub(super) fn anvil_rename(
+    /// The name a take of a `network_id`/`metadata` result sends, which the prediction also
+    /// applies: the name-box text, or `None` for the result's default name. The server reads a
+    /// missing name like empty text, which removes a custom name.
+    pub(super) fn anvil_take_name(
         &self,
         player_runtime: &player_state::PlayerState,
-        result: &NetworkItemStack,
+        network_id: i32,
+        metadata: u32,
     ) -> Option<std::sync::Arc<str>> {
         let name = self.screen_state().anvil_name.as_str();
         let default = self
             .inventory_ledger(player_runtime)
-            .negotiated_item_entry(result.network_id)
+            .negotiated_item_entry(network_id)
             .map(|entry| {
                 super::presentation::inventory_tooltip::default_name(
                     self,
                     &entry.identifier,
-                    result.metadata,
+                    metadata,
                 )
             });
         (default.as_deref() != Some(name)).then(|| std::sync::Arc::from(name))
@@ -281,10 +285,29 @@ impl UiRuntime {
         let creative =
             player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
         let current_name = self.anvil_target_name(player_runtime)?;
+        // A plain book enchanted from a book becomes the enchanted book, whose default name
+        // decides what the take sends.
+        let ledger = self.inventory_ledger(player_runtime);
+        let book_result = left.fact.traits.contains(assets::facts::ItemTraits::BOOK)
+            && !left
+                .fact
+                .traits
+                .contains(assets::facts::ItemTraits::ENCHANTED_BOOK)
+            && right.as_ref().is_some_and(|right| {
+                right
+                    .fact
+                    .traits
+                    .contains(assets::facts::ItemTraits::ENCHANTED_BOOK)
+            });
+        let (result_id, result_metadata) = match ledger.item_facts().enchanted_book_id() {
+            Some(book) if book_result => (book, 0),
+            _ => (left.stack.network_id, left.stack.metadata),
+        };
+        let take_name = self.anvil_take_name(player_runtime, result_id, result_metadata);
         let outcome = inventory::evaluate_anvil(
             &left.item(),
             right_item.as_ref(),
-            &self.screen_state().anvil_name,
+            take_name.as_deref().unwrap_or(""),
             &current_name,
             creative,
         )?;
@@ -319,7 +342,11 @@ impl UiRuntime {
         stack.stack_network_id = 0;
         stack.nbt_digest = Sha256::digest(&extra_data).into();
         stack.extra_data = extra_data;
-        Some(AnvilPreview { stack, outcome })
+        Some(AnvilPreview {
+            stack,
+            outcome,
+            take_name,
+        })
     }
 
     /// The anvil output shown to the player, preferring the server's result to prediction.

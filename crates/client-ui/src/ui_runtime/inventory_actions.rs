@@ -574,7 +574,11 @@ impl UiRuntime {
                     .created_output_stack()
                     .cloned()
                 {
-                    (self.anvil_rename(player_runtime, &created), None, 0)
+                    (
+                        self.anvil_take_name(player_runtime, created.network_id, created.metadata),
+                        None,
+                        0,
+                    )
                 } else {
                     let preview = self
                         .anvil_preview(player_runtime)
@@ -583,7 +587,7 @@ impl UiRuntime {
                         return Err(InventoryGestureError::InvalidRequest);
                     }
                     (
-                        self.anvil_rename(player_runtime, &preview.stack),
+                        preview.take_name.clone(),
                         Some(preview.stack.clone()),
                         preview.outcome.material_used,
                     )
