@@ -86,6 +86,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+- [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
+  use pack geometry in all four directions; sleeping and picking remain unqualified.
   Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
   bottom offset rounds to the model grid; matched world and replacement-pack
   captures, carried-item presentation and finer coordinate precision remain open.
@@ -140,6 +142,9 @@ and resource qualification; they do not imply these systems need to be written.
   NBT variant and strict-final witness without deferrals.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
+  Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
+  accepting server actor displacement alone does not complete this behavior.
+  Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
@@ -257,6 +262,8 @@ performance qualification remains open.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Player deaths hide after their brief sequence while retaining the actor; later
+  server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
@@ -418,6 +425,10 @@ authoritative life-to-death transition opens a fresh route. Regression coverage 
 close live server, loading-screen or other-device acceptance. Keep native input state
 independent of custom emote playback and presentation-only changes.
 
+Chat message Send controls resolve command text from an overlapping sibling editor.
+Missing, disabled or ambiguous message editors cannot submit the main chat draft.
+Live acceptance of name clicks, inventory opening, typing and history together remains open.
+
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
@@ -501,6 +512,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
+  Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
+  rendering acceptance remains incomplete.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
   Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.

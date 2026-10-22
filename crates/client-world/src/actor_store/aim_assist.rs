@@ -55,15 +55,7 @@ impl ActorStore {
     /// Custom actor classes and remote-player spectator state are retained at packet admission.
     pub(crate) fn camera_aim_assist_eligible(&self, actor: &ActorSnapshot) -> Option<bool> {
         match &actor.kind {
-            ActorKind::Player { .. } => Some(
-                !matches!(
-                    actor.player_game_mode,
-                    Some(protocol::GameModeUpdate::Explicit(
-                        protocol::PlayerGameMode::Spectator
-                    ))
-                ) && (actor.player_game_mode != Some(protocol::GameModeUpdate::WorldDefault)
-                    || self.world_default_game_mode != Some(protocol::PlayerGameMode::Spectator)),
-            ),
+            ActorKind::Player { .. } => Some(!actor.is_spectator(self.world_default_game_mode)),
             ActorKind::Entity { .. } => actor.interaction_traits.aim_assist(),
         }
     }

@@ -107,6 +107,7 @@ impl ActorStore {
             }
             actor.advance_creeper_swell();
             actor.status.tick();
+            actor.finish_player_death(self.world_default_game_mode);
             let using_item = actor.is_using_item();
             actor.status.advance_kinetic_hit(using_item);
         }
