@@ -257,6 +257,13 @@ output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live
 performance qualification remains open.
 
+Body-slot equipment retains its replicated identity and selects authored attachable
+geometry, artwork and owner-root placement. Startup harness definitions are completed
+from tagged items and present pack resources. Resource-only session overrides reuse
+those definitions while preserving authored item conditions. Expression roots retain
+the worn slot through owner placement; worn equipment counts exclude hands.
+Multi-pass body equipment and matched native visual qualification remain incomplete.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact

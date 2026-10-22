@@ -681,6 +681,8 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// Occupied local armor-container slots, independent of item admission and hands.
+    pub equipment_count: u8,
     /// Numerical registry identities for the main hand and off hand; zero means empty.
     pub held_network_ids: [i32; 2],
     /// The main-hand stack's data value.
@@ -789,6 +791,7 @@ pub(crate) struct ActorStore {
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_equipment_count: u8,
     local_held_network_ids: [i32; 2],
     local_main_metadata: u32,
     local_held_variants: [actor_animation::StackVariant; 2],
