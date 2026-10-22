@@ -36,10 +36,10 @@ mod crops;
 mod dragon_egg;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
+#[path = "tests/facing.rs"]
+mod facing;
 #[path = "tests/flowerbed.rs"]
 mod flowerbed;
-#[path = "tests/furnace.rs"]
-mod furnace;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]

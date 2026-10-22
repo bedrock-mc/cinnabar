@@ -78,13 +78,32 @@ domain!(TextureSelector {
     Torchflower
 });
 
-/// Identifies the built-in furnace pair and whether its front uses lit artwork.
-pub fn furnace_lit(identifier: &str) -> Option<bool> {
-    match identifier {
-        "minecraft:furnace" => Some(false),
-        "minecraft:lit_furnace" => Some(true),
-        _ => None,
-    }
+/// How a built-in block's world faces pick its authored face slots, by native block class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FaceSlots {
+    /// The front on the cardinal face reads south, or east when lit; other sides read north.
+    Furnace { lit: bool },
+    /// The front on the cardinal face reads south, other sides north and both caps up.
+    Pumpkin,
+    /// The north-authored block turned to its horizontal `direction`, caps flipped to match.
+    FaceDirectional,
+}
+
+/// The native face-slot class of a built-in block whose faces follow its facing state.
+pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
+    Some(match identifier {
+        "minecraft:furnace" | "minecraft:blast_furnace" | "minecraft:smoker" => {
+            FaceSlots::Furnace { lit: false }
+        }
+        "minecraft:lit_furnace" | "minecraft:lit_blast_furnace" | "minecraft:lit_smoker" => {
+            FaceSlots::Furnace { lit: true }
+        }
+        "minecraft:pumpkin" | "minecraft:carved_pumpkin" | "minecraft:lit_pumpkin" => {
+            FaceSlots::Pumpkin
+        }
+        "minecraft:loom" => FaceSlots::FaceDirectional,
+        _ => return None,
+    })
 }
 
 /// Native material aliases whose names overlap actor and item identifiers.
