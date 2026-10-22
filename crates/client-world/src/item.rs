@@ -29,6 +29,8 @@ mod glint;
 mod grip;
 #[cfg(test)]
 mod presentation_tests;
+#[cfg(test)]
+mod visual_route_tests;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
@@ -641,36 +643,42 @@ impl ItemStateStore {
         self.resolve_visual(identifier, 0)
     }
 
+    /// The compiled route for `identifier` at `metadata`. Like the icon catalog, a variant with
+    /// no visual of its own draws the item's base variant, so a server's legacy aux value on a
+    /// flattened block item still draws that block.
     fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
         let Some(assets) = self.assets.as_ref() else {
             return ItemVisualRoute::Missing;
         };
-        let key = ItemVisualKey {
-            identifier: identifier.into(),
-            metadata,
-        };
-        if let Ok(index) = assets
-            .item_visuals()
-            .binary_search_by(|visual| visual.key.cmp(&key))
-        {
-            return match assets.item_visuals()[index].route {
-                ItemVisualDefinitionRoute::Sprite { .. } => {
-                    ItemVisualRoute::Compiled(ItemVisualId(index as u32))
-                }
-                ItemVisualDefinitionRoute::BlockItem { block_visual } => {
-                    ItemVisualRoute::BlockItem(BlockVisualId(block_visual.0))
-                }
-                ItemVisualDefinitionRoute::EmptyHand => ItemVisualRoute::EmptyHand,
-                ItemVisualDefinitionRoute::Missing => ItemVisualRoute::Missing,
+        let exact = |metadata| {
+            let key = ItemVisualKey {
+                identifier: identifier.into(),
+                metadata,
             };
-        }
-        assets
-            .item_visual_aliases()
-            .binary_search_by(|alias| alias.key.cmp(&key))
-            .ok()
-            .map_or(ItemVisualRoute::Missing, |index| {
-                ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual)
-            })
+            if let Ok(index) = assets
+                .item_visuals()
+                .binary_search_by(|visual| visual.key.cmp(&key))
+            {
+                return Some(match assets.item_visuals()[index].route {
+                    ItemVisualDefinitionRoute::Sprite { .. } => {
+                        ItemVisualRoute::Compiled(ItemVisualId(index as u32))
+                    }
+                    ItemVisualDefinitionRoute::BlockItem { block_visual } => {
+                        ItemVisualRoute::BlockItem(BlockVisualId(block_visual.0))
+                    }
+                    ItemVisualDefinitionRoute::EmptyHand => ItemVisualRoute::EmptyHand,
+                    ItemVisualDefinitionRoute::Missing => ItemVisualRoute::Missing,
+                });
+            }
+            assets
+                .item_visual_aliases()
+                .binary_search_by(|alias| alias.key.cmp(&key))
+                .ok()
+                .map(|index| ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual))
+        };
+        exact(metadata)
+            .or_else(|| (metadata != 0).then(|| exact(0)).flatten())
+            .unwrap_or(ItemVisualRoute::Missing)
     }
 
     fn retain_pending(&mut self, key: EquipmentKey) {
@@ -726,27 +734,6 @@ fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> Ite
         return route;
     }
     ItemVisualRoute::RetainedBlock { block_runtime_id }
-}
-
-#[cfg(test)]
-mod visual_route_tests {
-    use super::*;
-
-    #[test]
-    fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
-        let sprite = ItemVisualRoute::Compiled(ItemVisualId(7));
-        for block_runtime_id in [1, i32::MIN] {
-            assert_eq!(classify_retained_block(sprite, block_runtime_id), sprite);
-        }
-        let block = ItemVisualRoute::BlockItem(BlockVisualId(3));
-        assert_eq!(classify_retained_block(block, 1), block);
-        assert_eq!(
-            classify_retained_block(ItemVisualRoute::Missing, i32::MIN),
-            ItemVisualRoute::RetainedBlock {
-                block_runtime_id: i32::MIN,
-            }
-        );
-    }
 }
 
 /// Resolves item-owned facts once for this registry generation.
