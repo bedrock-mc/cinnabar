@@ -12,8 +12,11 @@ pub(in crate::movement) struct SyncPose {
     pub moving: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
-    /// Block-climber flags of the latest completed tick.
-    pub climber: ClimberFlags,
+    /// Block-climber flags of the latest retained tick that sampled terrain.
+    /// Immobile ticks stay in place and keep the earlier contact. Spectator
+    /// ticks sample no terrain, so they and an empty history leave the
+    /// server's flags.
+    pub climber: Option<ClimberFlags>,
 }
 
 /// Block-climber flags that vanilla rewrites locally every movement tick.
@@ -65,7 +68,13 @@ impl LocalPhysicsController {
                 .controller_history
                 .back()
                 .map(|frame| !frame.input.no_clip),
-            climber: ClimberFlags::from(&self.last_environment),
+            climber: self
+                .controller_history
+                .iter()
+                .rev()
+                .find(|frame| !frame.input.immobile)
+                .filter(|frame| !frame.input.spectator)
+                .map(|frame| ClimberFlags::from(&frame.environment)),
         })
     }
 

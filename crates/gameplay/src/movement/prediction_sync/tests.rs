@@ -373,7 +373,7 @@ fn client_owned_flags_follow_local_state() {
         mode: sim::MovementMode::Walking,
         moving: false,
         has_collision: Some(false),
-        climber: ClimberFlags::default(),
+        climber: Some(ClimberFlags::default()),
     };
     assert_eq!(
         predicted_flag_words(&metadata, Some(idle), false),
@@ -431,13 +431,28 @@ fn client_owned_flags_follow_local_state() {
         ),
         (
             SyncPose {
-                climber: ClimberFlags {
+                climber: Some(ClimberFlags {
                     in_scaffolding: true,
                     over_scaffolding: true,
                     descending_through_block: true,
                     in_ascending_block: true,
                     over_descending_block: true,
-                },
+                }),
+                ..idle
+            },
+            false,
+            vec![
+                ActorFlag::InScaffolding,
+                ActorFlag::OverScaffolding,
+                ActorFlag::DescendThroughBlock,
+                ActorFlag::InAscendingBlock,
+                ActorFlag::OverDescendingBlock,
+            ],
+        ),
+        (
+            // Without a terrain-sampling tick the server's climber flags stand.
+            SyncPose {
+                climber: None,
                 ..idle
             },
             false,
@@ -556,7 +571,8 @@ impl sim::CollisionWorld for ScaffoldColumn {
     }
 }
 
-/// A sync reports the local block-climber flags even when server metadata lacks them.
+/// A sync reports the local block-climber flags even when server metadata lacks
+/// them, and an immobile tick, which samples no terrain, keeps the earlier contact.
 #[test]
 fn correction_sync_reports_local_block_climber_flags() {
     let climber = [
@@ -566,30 +582,47 @@ fn correction_sync_reports_local_block_climber_flags() {
         ActorFlag::InAscendingBlock,
         ActorFlag::OverDescendingBlock,
     ];
+    for frozen in [false, true] {
+        let flags = climber_sync_flags(frozen);
+        for flag in climber {
+            assert!(
+                flag_set(&flags, flag),
+                "{flag:?} must come from the local tick (frozen: {frozen})"
+            );
+        }
+    }
+}
+
+/// Sends a due sync after a sneaking tick in scaffolding, optionally followed by an immobile tick.
+fn climber_sync_flags(frozen: bool) -> [u64; 3] {
     let actor = local_actor();
     let mut physics = due_physics();
+    let sneaking = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
     physics.advance(
         std::time::Duration::from_millis(50),
-        sim::MovementInput {
-            sneaking: true,
-            ..Default::default()
-        },
+        sneaking,
         &ScaffoldColumn,
     );
+    if frozen {
+        physics.advance(
+            std::time::Duration::from_millis(50),
+            sim::MovementInput {
+                immobile: true,
+                ..sneaking
+            },
+            &ScaffoldColumn,
+        );
+    }
     let mut sent = None;
     send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
         sent = Some(packet);
         true
     });
-    let flags =
-        protocol::test_support::packets::prediction_sync_flags(&sent.expect("due correction sync"))
-            .expect("wrong packet");
-    for flag in climber {
-        assert!(
-            flag_set(&flags, flag),
-            "{flag:?} must come from the local tick"
-        );
-    }
+    protocol::test_support::packets::prediction_sync_flags(&sent.expect("due correction sync"))
+        .expect("wrong packet")
 }
 
 /// Every horizontal pose sends the width as the height, overriding the walking size.

@@ -255,7 +255,9 @@ impl Simulator {
         // Powder snow climbs like a ladder for a wearer who can stand on it.
         let snow_climb = input.can_stand_on_snow
             && !sampled.movement.on_climbable
-            && feet_is_powder_snow(world, next.position, &mut sampled)?;
+            && scaffolding::primary(world, &mut sampled, environment::block_at(next.position)?)?
+                .flags
+                .contains(crate::BlockPhysicsFlags::POWDER_SNOW);
         sampled.movement.on_climbable |= snow_climb;
         let scaffold = scaffolding::sample_climber(
             world,
@@ -267,11 +269,12 @@ impl Simulator {
         sampled.movement.over_scaffolding = scaffold.over;
         sampled.movement.in_ascending_block = scaffold.ascending;
         sampled.movement.over_descending_block = scaffold.over_descending;
-        // Sneaking over a climbable block descends through it at a fixed speed.
+        // Sneaking over a climbable block descends through it at a fixed speed,
+        // even on a tick whose travel is suppressed.
         sampled.descend_through =
             input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
         sampled.movement.descending_through_block = sampled.descend_through;
-        if sampled.descend_through && !input.skip_travel {
+        if sampled.descend_through {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
@@ -730,19 +733,6 @@ fn movement_impulse(axis: f64) -> f64 {
 
 #[cfg(test)]
 mod environment_review_tests;
-
-/// Whether powder snow fills the feet cell, reusing this tick's earlier read.
-fn feet_is_powder_snow(
-    world: &impl CollisionWorld,
-    position: Vec3,
-    sampled: &mut environment::SampledEnvironment,
-) -> Result<bool, crate::WorldQueryError> {
-    let (facts, fresh) = sampled.primary(world, environment::block_at(position)?)?;
-    if let Some(fresh) = fresh {
-        sampled.identity = sampled.identity.merge(&fresh)?;
-    }
-    Ok(facts.flags.contains(crate::BlockPhysicsFlags::POWDER_SNOW))
-}
 
 /// Applies ground-jump motion independently of travel, including its cooldown and sprint impulse.
 fn jump_from_ground(

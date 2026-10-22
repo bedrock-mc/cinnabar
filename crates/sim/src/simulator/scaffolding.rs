@@ -102,7 +102,8 @@ fn scan_layer(
     Ok(contact)
 }
 
-fn primary(
+/// Reads a primary block through this tick's cache, merging a fresh read's identity.
+pub(super) fn primary(
     world: &(impl CollisionWorld + ?Sized),
     sampled: &mut SampledEnvironment,
     block: [i32; 3],

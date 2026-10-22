@@ -211,6 +211,30 @@ fn sneaking_descends_a_supported_scaffold_column_at_a_fixed_speed() {
     }
 }
 
+/// A tick with suppressed travel still starts the descent, without moving.
+#[test]
+fn skipped_travel_still_starts_the_scaffold_descent() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [0, 1, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
+    state.on_ground = true;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                skip_travel: true,
+                ..sneaking()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(tick.environment.descending_through_block);
+    assert_eq!(tick.position.y, 2.0);
+    assert_eq!(tick.velocity.y as f32, -0.15_f32);
+}
+
 /// A scaffold bridge over air is not a descending block, so sneaking keeps its support.
 #[test]
 fn sneaking_on_a_scaffold_bridge_over_air_stays_on_top() {

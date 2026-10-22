@@ -108,19 +108,25 @@ fn predicted_flag_words(
             pose.mode == sim::MovementMode::Crawling,
         ),
         (ActorFlag::Gliding, pose.mode == sim::MovementMode::Gliding),
-        (ActorFlag::InScaffolding, pose.climber.in_scaffolding),
-        (ActorFlag::OverScaffolding, pose.climber.over_scaffolding),
-        (
-            ActorFlag::DescendThroughBlock,
-            pose.climber.descending_through_block,
-        ),
-        (ActorFlag::InAscendingBlock, pose.climber.in_ascending_block),
-        (
-            ActorFlag::OverDescendingBlock,
-            pose.climber.over_descending_block,
-        ),
     ] {
         set_flag(&mut words, flag, enabled);
+    }
+    if let Some(climber) = pose.climber {
+        for (flag, enabled) in [
+            (ActorFlag::InScaffolding, climber.in_scaffolding),
+            (ActorFlag::OverScaffolding, climber.over_scaffolding),
+            (
+                ActorFlag::DescendThroughBlock,
+                climber.descending_through_block,
+            ),
+            (ActorFlag::InAscendingBlock, climber.in_ascending_block),
+            (
+                ActorFlag::OverDescendingBlock,
+                climber.over_descending_block,
+            ),
+        ] {
+            set_flag(&mut words, flag, enabled);
+        }
     }
     if let Some(has_collision) = pose.has_collision {
         set_flag(&mut words, ActorFlag::HasCollision, has_collision);
