@@ -525,3 +525,49 @@ fn frame_uploads_stage_cloud_records_and_colour() {
     assert_eq!(stats.staged_writes, 2);
     assert_eq!(stats.fallback_writes, 0);
 }
+
+/// A cold window must not wait behind unrelated work occupying every shared worker.
+#[test]
+fn cold_cloud_window_does_not_wait_for_a_busy_worker_pool() {
+    let _world = world();
+    let pool = bevy::tasks::AsyncComputeTaskPool::get();
+    let workers = pool.thread_num();
+    let release = Arc::new(std::sync::Barrier::new(workers + 1));
+    let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let blockers = (0..workers)
+        .map(|_| {
+            let release = Arc::clone(&release);
+            let started = Arc::clone(&started);
+            pool.spawn(async move {
+                started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                release.wait();
+            })
+        })
+        .collect::<Vec<_>>();
+    test_time::eventually("every shared worker is busy", || {
+        started.load(std::sync::atomic::Ordering::SeqCst) == workers
+    });
+    let runtime = runtime(255);
+    let config = CloudRenderConfig::legacy_fancy();
+    let viewport = CloudViewport::try_new(
+        [100.0, -40.0],
+        config.mesh_size(),
+        config.grid_size(),
+        false,
+        false,
+    )
+    .unwrap();
+    let mut cache = mesh_cache::CloudMeshCache::default();
+    cache.set_identity([0x41; 32]);
+    cache.prefetch(&runtime, viewport, false);
+    let (mesh, missed) = cache.get(&runtime, viewport, false, false).unwrap();
+    release.wait();
+    for blocker in blockers {
+        bevy::tasks::block_on(blocker);
+    }
+    assert!(missed);
+    assert_eq!(
+        mesh.records.as_ref(),
+        mesh_cloud_viewport(runtime.texture(AtmosphereRole::Clouds).unwrap(), viewport).unwrap()
+    );
+}
