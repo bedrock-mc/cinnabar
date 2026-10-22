@@ -6842,7 +6842,6 @@
     "powered_prefix": "powered",
     "materials": {
       "elytra": "UnmaskedArmor",
-      "harness": "AlphaTestNoCull",
       "skeleton": "AlphaTestNoCull",
       "experience_orb": "AlphaTest",
       "player_spectator": "AlphaBlend",
