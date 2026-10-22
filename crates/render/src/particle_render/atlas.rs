@@ -44,11 +44,11 @@ pub(super) fn prepare(
         // A full-size retry may fit once in-flight frames retire the released atlas.
         install(gpu, device, queue, !released);
         let uploaded = gpu.texture.is_some();
-        gpu.atlas.retry.record(uploaded, released, queue);
+        gpu.atlas.retry.record(uploaded, released.then_some(queue));
     } else if gpu.atlas.retry.take_ready() {
         install(gpu, device, queue, true);
         let uploaded = gpu.texture.is_some();
-        gpu.atlas.retry.record(uploaded, false, queue);
+        gpu.atlas.retry.record(uploaded, None);
     }
     if let Some(texture) = &gpu.texture
         && frame.patch_seq != gpu.uploaded_seq
@@ -115,8 +115,9 @@ fn upload(
         None if factor == 1 => (side, base),
         None => return None,
     };
-    let texture = gpu_allocation::checked(device, "particle atlas", pixels.len() as u64, || {
-        let texture = device.create_texture(&TextureDescriptor {
+    let texture = gpu_allocation::texture(
+        device,
+        &TextureDescriptor {
             label: Some("particle atlas"),
             size: Extent3d {
                 width: extent,
@@ -130,9 +131,10 @@ fn upload(
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             // Shader packs read the stored gamma bytes through an `Rgba8Unorm` view.
             view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
-        });
+        },
+    )?;
+    gpu_allocation::checked(device, "particle atlas upload", pixels.len() as u64, || {
         write_rect(queue, &texture, [0, 0], [extent, extent], pixels);
-        texture
     })?;
     let view = gpu_allocation::checked(device, "particle atlas view", 0, || {
         texture.create_view(&TextureViewDescriptor::default())
