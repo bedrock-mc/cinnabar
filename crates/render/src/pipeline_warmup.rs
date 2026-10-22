@@ -9,7 +9,8 @@ use std::collections::HashSet;
 use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
     prelude::{
-        App, BevyError, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet, error,
+        App, BevyError, Has, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet,
+        error,
     },
     render::{
         Render, RenderApp, RenderSystems,
@@ -27,6 +28,7 @@ pub(crate) struct WarmView {
     pub msaa: Msaa,
     pub hdr: bool,
     pub enhanced: bool,
+    pub shader_pack: bool,
     /// The surface or image format the view finally writes; absent until its target exists.
     pub output: Option<TextureFormat>,
 }
@@ -122,22 +124,28 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
     Some(render_app)
 }
 
-fn collect_views(
-    views: Query<(
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-        Option<&ViewTarget>,
-        Option<&render_scene::EnhancedRendering>,
-    )>,
-    mut registry: ResMut<WarmupRegistry>,
-) {
+/// The camera state that selects each view's pipeline variants.
+type ViewKeys<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static bevy::render::camera::ExtractedCamera,
+        &'static Msaa,
+        Option<&'static ViewTarget>,
+        Option<&'static render_scene::EnhancedRendering>,
+        Has<render_scene::shaderpack::ShaderPackRendering>,
+    ),
+>;
+
+fn collect_views(views: ViewKeys, mut registry: ResMut<WarmupRegistry>) {
     registry.views.clear();
     registry.pending = false;
-    for (camera, msaa, target, enhanced) in &views {
+    for (camera, msaa, target, enhanced, shader_pack) in &views {
         let key = WarmView {
             msaa: *msaa,
             hdr: camera.hdr,
             enhanced: enhanced.is_some(),
+            shader_pack,
             output: target.and_then(ViewTarget::out_texture_view_format),
         };
         if !registry.views.contains(&key) {
