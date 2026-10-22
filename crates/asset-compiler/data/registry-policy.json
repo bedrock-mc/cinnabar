@@ -583,7 +583,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "3ea3593aa723e2f4c89b982d2d0b60492167ad28e950085ab1dd239a5181de86",
+    "identifiers_sha256": "089ff2002c44d51b4da56b88941ffd01bbd5639d60ac6839f031e2a0ffb20712",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -663,6 +663,7 @@
       "minecraft:yellow_shulker_box"
     ],
     "unresolved": [
+      "minecraft:chalkboard",
       "minecraft:soul_soil"
     ]
   },
@@ -4160,6 +4161,14 @@
         "minecraft:bamboo",
         "minecraft:bamboo_sapling"
       ]
+    },
+    {
+      "id": "chalkboard-render",
+      "fact": "render:EntityDrawn",
+      "status": "provisional",
+      "members": [
+        "minecraft:chalkboard"
+      ]
     }
   ],
   "item_rules": [
@@ -6346,6 +6355,19 @@
       },
       "members": [
         "minecraft:vault"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "ChalkboardBlock",
+        "route": "model",
+        "renderer": "chalkboard",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:chalkboard"
       ],
       "status": "provisional"
     }

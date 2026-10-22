@@ -22,18 +22,18 @@
     "unresolved_retail": [
       "minecraft:straw_bed"
     ],
-    "denied_count": 490,
-    "denied_fingerprint": "40ea99af25c7d74a39ff7133af07436a0e20a21fe3875c98106e8a6d173fb874",
-    "education_states": 164
+    "denied_count": 474,
+    "denied_fingerprint": "391413b43388acb764da6b1a803ee0394fb2556b90a93de65dcefcaf9f36cab3",
+    "education_states": 180
   },
   "output": {
     "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "38b45931675c91da339ef1e916e684da541d706d622b4399937f49e91feced82"
+    "sha256": "7b0094383e5b18fbd14186dbaf95b03d5bd21ce3b30443ed0bce150d88cd842f"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "659f0a87c0c375324f9e34efcd4540d84a0ae59ce51a321dc7636d6032598b00"
+    "sha256": "601173bc65e4e31f77c9e03eab37266bd9146107221912fccb4d598be8f86577"
   }
 }

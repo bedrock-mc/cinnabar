@@ -520,6 +520,8 @@ fn compile_application(
     let server_ui = record(&mut dependencies, Subscriber::Ui, ui?);
     let server_sounds = record(&mut dependencies, Subscriber::Sounds, sounds?);
     let entities = record(&mut dependencies, Subscriber::Entities, entities?);
+    let block_entity_art =
+        super::block_entity_art::with_entities(block_entity_art, entities.as_deref());
     // Artwork reads join the entity subscriber's rather than replacing them.
     let (entity_artwork, artwork_inputs) = artwork?;
     if let Some(inputs) = artwork_inputs {

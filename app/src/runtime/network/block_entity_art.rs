@@ -53,3 +53,19 @@ pub(super) fn prepare_over(
     }).map_err(|error| bevy::log::warn!(%error, "block-entity artwork retained after invalid atlas overlay")).ok()?;
     preparer.prepare(&assets)
 }
+
+/// Pairs the active catalog's board models with worker-built pixels, restoring startup on removal.
+pub(super) fn with_entities(
+    artwork: Option<Arc<PreparedBlockEntityArtwork>>,
+    entities: Option<&assets::SessionEntityPack>,
+) -> Option<Arc<PreparedBlockEntityArtwork>> {
+    let Some(base) = BASE.get() else {
+        return artwork;
+    };
+    artwork.map(|artwork| {
+        Arc::new(
+            base.preparer
+                .with_chalkboard_assets(&artwork, entities.map(|pack| pack.assets.as_ref())),
+        )
+    })
+}

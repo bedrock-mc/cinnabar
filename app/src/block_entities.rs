@@ -5,6 +5,7 @@
 //! renders from block states alone.
 
 mod books;
+mod chalkboard;
 mod containers;
 mod cracks;
 mod describe;
