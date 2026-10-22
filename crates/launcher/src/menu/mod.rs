@@ -108,8 +108,7 @@ pub enum MenuField {
     MacroCommand(usize),
 }
 
-/// One renderer or shader-pack choice. Shader packs carry their list revision so an old
-/// picker action cannot select a different pack after discovery changes.
+/// A renderer or shader-pack choice; packs carry their list revision so stale picks miss.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum RendererChoice {
     /// The vanilla renderer ("Off").

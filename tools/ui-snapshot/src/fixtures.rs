@@ -643,60 +643,6 @@ const STATES: &[State] = &[
         fixture: out_of_game::play_worlds_importing,
     },
     State {
-        name: "world-create-general",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(0),
-    },
-    State {
-        name: "world-create-advanced",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(1),
-    },
-    State {
-        name: "world-create-multiplayer",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(2),
-    },
-    State {
-        name: "world-create-cheats",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(3),
-    },
-    State {
-        name: "world-create-resource-packs",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(4),
-    },
-    State {
-        name: "world-create-behaviour-packs",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(5),
-    },
-    State {
-        name: "world-create-experiments",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(6),
-    },
-    State {
-        name: "world-create-advanced-all",
-        size: [1280, 2048],
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(1),
-    },
-    State {
-        name: "world-edit-advanced",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: out_of_game::world_edit_advanced,
-    },
-    State {
         name: "world-edit-after-delete-back",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -1030,5 +976,8 @@ pub fn settings(section: &str) -> MenuView {
 
 /// Enumerates every fixture, including the independently owned Social settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(social_settings::STATES)
+    STATES
+        .iter()
+        .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(social_settings::STATES)
 }

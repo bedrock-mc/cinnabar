@@ -1,6 +1,6 @@
 //! Anonymous session-boundary and launcher popup fixtures.
 
-use super::{Arc, Fixture, SettingSection, settings};
+use super::{Arc, Fixture, GUI_SCALE, SIZE, SettingSection, State, settings};
 use launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuView};
 
 /// Creates a menu fixture with no account or network services.
@@ -281,3 +281,61 @@ pub(super) fn world_edit_advanced() -> Fixture {
     view.local.edited = Some(world);
     Fixture::Menu(view)
 }
+
+/// Create and edit world-form states, one per tab plus the tall full-advanced view.
+pub(super) const WORLD_FORM_STATES: &[State] = &[
+    State {
+        name: "world-create-general",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(0),
+    },
+    State {
+        name: "world-create-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(1),
+    },
+    State {
+        name: "world-create-multiplayer",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(2),
+    },
+    State {
+        name: "world-create-cheats",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(3),
+    },
+    State {
+        name: "world-create-resource-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(4),
+    },
+    State {
+        name: "world-create-behaviour-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(5),
+    },
+    State {
+        name: "world-create-experiments",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(6),
+    },
+    State {
+        name: "world-create-advanced-all",
+        size: [1280, 2048],
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(1),
+    },
+    State {
+        name: "world-edit-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: world_edit_advanced,
+    },
+];
