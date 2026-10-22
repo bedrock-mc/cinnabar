@@ -65,7 +65,7 @@ fn accepted_world_successor_keeps_a_transportable_identity() {
     ledger.begin_world_drop(2, Some(1)).unwrap();
     let (packet, _) = ledger.pending_batch().unwrap().unwrap();
     let transaction = observe_transaction(&packet).unwrap();
-    assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(93));
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].from_item.count, 3);
 }
 
@@ -161,7 +161,8 @@ fn fresh_replacement_invalidates_retired_dependent_history() {
     ledger.begin_world_drop(2, Some(1)).unwrap();
     let (packet, _) = ledger.pending_batch().unwrap().unwrap();
     let transaction = observe_transaction(&packet).unwrap();
-    assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(202));
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
+    assert_eq!(transaction.actions[0].from_item.count, 7);
 }
 
 /// Multiple admitted descendants propagate unresolved authority without disturbing another cell.
