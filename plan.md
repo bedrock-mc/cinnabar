@@ -701,9 +701,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   files and generated helper copies have storage limits, and input files must be regular files.
   Option-menu reads use the same compiler limits; closing the menu reaps its reader.
   Render-view admission failures reach the pack picker and restore the native renderer.
-  Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas builds cancel between
-  passes skip frames without a loaded pack. Retired loads cancel between translation programs
-  and GPU batches; rapid selections share one load worker. Atlas builds cancel between
+  Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
+  builds cancel between
   source, pixel and upload stages, and one cancelled build retires before its replacement
   starts. Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
