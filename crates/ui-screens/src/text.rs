@@ -18,7 +18,15 @@ pub fn resolve_chat_line<'a>(
     node: &'a ChatMessage,
     translate: impl Fn(&str) -> Option<Arc<str>>,
 ) -> Cow<'a, str> {
-    match node.kind {
+    resolve_chat_line_formatted(node, translate, None)
+}
+
+pub fn resolve_chat_line_formatted<'a>(
+    node: &'a ChatMessage,
+    translate: impl Fn(&str) -> Option<Arc<str>>,
+    mention_color: Option<char>,
+) -> Cow<'a, str> {
+    let raw = match node.kind {
         ChatMessageKind::Translation => {
             let template = json_ui::localize_text_chars(&node.message, &translate);
             let arguments = node
@@ -42,6 +50,63 @@ pub fn resolve_chat_line<'a>(
             _ => Cow::Borrowed(node.message.as_ref()),
         },
         _ => Cow::Borrowed(node.message.as_ref()),
+    };
+
+    if let Some(code) = mention_color {
+        let with_mentions = highlight_mentions(raw.as_ref(), code);
+        match with_mentions {
+            Cow::Owned(s) => Cow::Owned(s),
+            Cow::Borrowed(_) => raw,
+        }
+    } else {
+        raw
+    }
+}
+
+/// Highlights @mentions with §{mention_code}@mention§r.
+pub fn highlight_mentions(text: &str, mention_code: char) -> Cow<'_, str> {
+    if !text.contains('@') {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut chars = text.char_indices().peekable();
+    let mut last_end = 0;
+
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '@' {
+            let is_boundary = idx == 0
+                || text[..idx]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|prev| prev.is_whitespace() || prev == ':' || prev == '<');
+            if is_boundary {
+                let start = idx;
+                let mut end = idx + 1;
+                while let Some(&(next_idx, next_ch)) = chars.peek() {
+                    if next_ch.is_alphanumeric() || next_ch == '_' {
+                        chars.next();
+                        end = next_idx + next_ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                if end > start + 1 {
+                    out.push_str(&text[last_end..start]);
+                    out.push('§');
+                    out.push(mention_code);
+                    out.push_str(&text[start..end]);
+                    out.push('§');
+                    out.push('r');
+                    last_end = end;
+                }
+            }
+        }
+    }
+    if last_end == 0 {
+        Cow::Borrowed(text)
+    } else {
+        out.push_str(&text[last_end..]);
+        Cow::Owned(out)
     }
 }
 
@@ -73,6 +138,20 @@ mod tests {
             message: Arc::from(text),
             parameters: parameters.iter().map(|value| Arc::from(*value)).collect(),
         }
+    }
+
+    #[test]
+    fn mentions_are_highlighted_with_selected_color() {
+        let text = "Hello @PlayerName how are you?";
+        let formatted = highlight_mentions(text, 'e');
+        assert_eq!(formatted, "Hello §e@PlayerName§r how are you?");
+    }
+
+    #[test]
+    fn emails_or_inner_ats_are_not_mentions() {
+        let text = "Contact test@example.com for info";
+        let formatted = highlight_mentions(text, 'e');
+        assert_eq!(formatted, "Contact test@example.com for info");
     }
 
     #[test]

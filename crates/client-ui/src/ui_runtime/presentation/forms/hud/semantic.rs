@@ -7,7 +7,7 @@ use launcher::menu::settings_options::{SettingId, SettingsOptions};
 use ui::{BossBarView, IconRef, TimedText};
 use ui_screens::text::bounded_text;
 
-use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
+use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line_formatted};
 use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES};
 use crate::ui_runtime::{Translator, UiRuntime};
 
@@ -25,7 +25,7 @@ pub(in crate::ui_runtime::presentation) struct SemanticHud {
     // Keep the language tables alive so their addresses cannot be reused under this key.
     _translator: Translator,
     chat_rows: Vec<u64>,
-    chat_options: Option<(f64, char, bool)>,
+    chat_options: Option<(f64, char, char, bool)>,
     sidebar_key: Option<(u64, u64, bool)>,
     bosses: Vec<BossBarView>,
     world_text: components::WorldTextInput,
@@ -317,7 +317,13 @@ impl SemanticHud {
         reset: bool,
     ) -> bool {
         let hidden = settings.value(SettingId::HideChat) != 0;
-        let options = (settings.chat_lifetime(), settings.chat_color_code(), hidden);
+        let mention_code = settings.mentions_color_code();
+        let options = (
+            settings.chat_lifetime(),
+            settings.chat_color_code(),
+            mention_code,
+            hidden,
+        );
         let horizon = seconds(now) - options.0 - 1.0;
         let rows = || {
             runtime
@@ -345,7 +351,11 @@ impl SemanticHud {
                 .map(|(id, line)| {
                     let born = line.received_millis.min(now);
                     self.chat_rows.push(id);
-                    let text = resolve_chat_line(line, |key| runtime.translation(key));
+                    let text = resolve_chat_line_formatted(
+                        line,
+                        |key| runtime.translation(key),
+                        Some(mention_code),
+                    );
                     Timed {
                         text: bounded_visible_text(text.as_ref()).to_owned(),
                         born: seconds(born),

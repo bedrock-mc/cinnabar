@@ -875,7 +875,7 @@ impl Canvas<'_> {
                     } else {
                         Cow::Borrowed(text.as_str())
                     };
-                    format!("§{code}{text}")
+                    apply_chat_color(text.as_ref(), code)
                 });
             let (text, localize) = colored
                 .as_deref()
@@ -956,4 +956,36 @@ impl Canvas<'_> {
         };
         self.push(visual, bounds)
     }
+}
+
+/// Applies active chat color prefix and restores it across Minecraft format resets (§r, §f).
+fn apply_chat_color(text: &str, code: char) -> String {
+    let mut result = String::with_capacity(text.len() + 16);
+    result.push('§');
+    result.push(code);
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '§' {
+            if let Some(&next) = chars.peek() {
+                chars.next();
+                if next == 'r' {
+                    result.push('§');
+                    result.push('r');
+                    result.push('§');
+                    result.push(code);
+                } else if next == 'f' {
+                    result.push('§');
+                    result.push(code);
+                } else {
+                    result.push('§');
+                    result.push(next);
+                }
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }

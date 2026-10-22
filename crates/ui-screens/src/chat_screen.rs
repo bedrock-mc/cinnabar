@@ -23,7 +23,7 @@ use ui_engine::engine::{
 use crate::chat_coordinates::ChatCoordinates;
 use crate::regions::{segments, window_rect};
 use crate::settings_chat::ChatSettings;
-use crate::text::{bounded_visible_text, resolve_chat_line};
+use crate::text::{bounded_visible_text, resolve_chat_line_formatted};
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
@@ -647,7 +647,7 @@ fn chat_data(
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
         .filter(|_| settings.value(SettingId::HideChat) == 0)
         .map(|line| {
-            let text = resolve_chat_line(line, translate);
+            let text = resolve_chat_line_formatted(line, translate, Some(settings.mentions_color_code()));
             FactoryItem::new("chat_screen_messages", 0.0)
                 .value(
                     "#text",
@@ -656,6 +656,7 @@ fn chat_data(
                 .var("chat_font_type", Value::from("default"))
                 .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
                 .var("chat_line_spacing", Value::from(chat_text.line_spacing))
+                .var("chat_background_opacity", Value::from(crate::settings_chat::background_opacity(settings)))
         })
         .collect();
     data.set_factory("messages_factory", items);
