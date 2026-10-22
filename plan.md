@@ -570,6 +570,10 @@ See [local worlds](docs/local-worlds.md).
 Qualify audio admission, spatial playback, music and lifecycle behavior on supported
 platforms. Missing source music/ambience requires lawful local input or the documented
 fallback; do not bundle game assets to fill gaps.
+Native audio follows changes to the system default output on its owner thread, retaining
+active and queued sounds across output replacement and retrying unavailable devices.
+Automated transport tests cover switching and recovery. The polling cadence is provisional;
+native switch timing and live Bluetooth/platform acceptance remain incomplete.
 
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
