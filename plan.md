@@ -227,12 +227,15 @@ without start/stop actions. Each retained frame captures the flag word it starts
 stamped write becomes a correction of the following frame where it differs from that
 capture without scheduling a replay itself (a future stamp joins the current frame), and
 replay keeps the starting frame's capture, refreshes later ones and copies the replayed
-word back to the live state, keeping the live spin and glide counters and swim blend.
+word back to the live state, keeping the live spin and glide counters, swim blend and
+camera eye blend.
 Still incomplete: server `UsingItem` writes, which vanilla keeps in the same word and
-reconciles with local item use on movement ticks; writes setting several pose flags (the
-locomotion mode keeps one pose), the Riptide spin's entity-hit end, block-climber flags,
-keeping the live camera eye-height blend through replay (vanilla's copy-back leaves it live;
-Cinnabar rebuilds it) and live-server evidence for these adoptions.
+reconciles with local item use on movement ticks; pose flags as independent bits (vanilla's
+glide, swim and crawl triggers each keep their own bit and report actions only from their own
+requests, while the locomotion mode keeps one pose); the Riptide spin's entity-hit end, which
+needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
+player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
+live-server evidence for these adoptions.
 Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
