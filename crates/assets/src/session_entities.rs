@@ -3,9 +3,10 @@ use crate::{
     ActorArtworkBinding, ActorPoseMode, ActorTexture, AssetError, RuntimeEntityAssets,
     RuntimeEquipmentCatalog,
 };
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 /// The pack's entity catalog with the artwork of its eligible rigs.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SessionEntityPack {
     pub assets: Arc<RuntimeEntityAssets>,
     pub textures: Arc<[ActorTexture]>,
@@ -15,6 +16,27 @@ pub struct SessionEntityPack {
 }
 
 impl SessionEntityPack {
+    /// Shares equipment buffers with equal actor pixels while preserving catalog content.
+    pub fn with_shared_equipment_pixels(self: Arc<Self>) -> Arc<Self> {
+        if self.textures.is_empty() {
+            return self;
+        }
+        let Some(equipment) = self.equipment.as_ref() else {
+            return self;
+        };
+        let mut equipment = equipment.as_ref().clone();
+        let shared = {
+            let pixels = SharedActorPixels::new(&self.textures);
+            equipment.share_texture_pixels(|bytes| pixels.share(bytes))
+        };
+        if !shared {
+            return self;
+        }
+        let mut next = Arc::unwrap_or_clone(self);
+        next.equipment = Some(Arc::new(equipment));
+        Arc::new(next)
+    }
+
     /// Bytes [`Self::decode`] reads back; `entity_blob` is the encoding `assets` was built from.
     pub fn encode(&self, entity_blob: &[u8]) -> Result<Vec<u8>, AssetError> {
         let actor = encode_artwork(&self.textures, &self.bindings);
@@ -70,10 +92,17 @@ impl SessionEntityPack {
                     detail: "session entity artwork is malformed".into(),
                 }
             })?;
-        let equipment = section()?
-            .map(RuntimeEquipmentCatalog::decode)
-            .transpose()?
-            .map(Arc::new);
+        let equipment = {
+            let pixels = SharedActorPixels::new(&textures);
+            section()?
+                .map(|bytes| {
+                    RuntimeEquipmentCatalog::decode_with_shared_pixels(bytes, |bytes| {
+                        pixels.share(bytes)
+                    })
+                })
+                .transpose()?
+                .map(Arc::new)
+        };
         if section()?.is_some() {
             return Err(AssetError::InvalidCompiledAssets {
                 detail: "session entity pack has trailing bytes".into(),
@@ -182,4 +211,42 @@ fn decode_artwork(bytes: &[u8]) -> Option<(Vec<ActorTexture>, Vec<ActorArtworkBi
         });
     }
     rest.is_empty().then_some((textures, bindings))
+}
+
+/// Looks up equal bytes while the actor catalog keeps their immutable buffers alive.
+struct SharedActorPixels<'a> {
+    by_digest: std::collections::BTreeMap<[u8; 32], Vec<&'a Arc<[u8]>>>,
+    addresses: std::collections::BTreeSet<(*const u8, usize)>,
+}
+
+impl<'a> SharedActorPixels<'a> {
+    /// Indexes digest candidates and allocations already shared by this catalog.
+    fn new(textures: &'a [ActorTexture]) -> Self {
+        let mut by_digest = std::collections::BTreeMap::<_, Vec<_>>::new();
+        let mut addresses = std::collections::BTreeSet::new();
+        for texture in textures {
+            by_digest
+                .entry(texture.pixel_sha256)
+                .or_default()
+                .push(&texture.rgba8);
+            addresses.insert((texture.rgba8.as_ptr(), texture.rgba8.len()));
+        }
+        Self {
+            by_digest,
+            addresses,
+        }
+    }
+
+    /// Exact comparison keeps digest collisions from changing any texture's bytes.
+    fn share(&self, bytes: &[u8]) -> Option<Arc<[u8]>> {
+        if self.by_digest.is_empty() || self.addresses.contains(&(bytes.as_ptr(), bytes.len())) {
+            return None;
+        }
+        let digest: [u8; 32] = Sha256::digest(bytes).into();
+        self.by_digest
+            .get(&digest)?
+            .iter()
+            .find(|candidate| candidate.as_ref() == bytes)
+            .map(|pixels| Arc::clone(pixels))
+    }
 }

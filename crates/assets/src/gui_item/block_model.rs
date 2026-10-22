@@ -1,5 +1,6 @@
 //! Shared quads and texels for block thumbnails and native GUI meshes.
-//! Connected shapes still use the provisional cube inventory projection.
+//! Fences draw Bedrock's dedicated inventory shape; other connected shapes still draw
+//! their world template.
 
 use crate::{
     BlockFace, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_DISABLE_AO,
@@ -36,8 +37,8 @@ pub enum GuiBlockReject {
     Texture,
 }
 
-/// The quads a block item draws: a cube's camera-facing GUI surfaces, or its template's quads,
-/// with a fence showing its post and east/west arms (connection mask 2 | 8).
+/// The quads a block item draws: a cube's camera-facing GUI surfaces, a fence's inventory
+/// shape, or its template's quads.
 pub fn block_item_quads(
     kind: VisualKind,
     faces: [u32; 6],
@@ -60,16 +61,12 @@ pub fn block_item_quads(
             let first = templates
                 .get(template as usize)
                 .ok_or(GuiBlockReject::Geometry)?;
-            let offsets: &[u32] = if first.flags
-                & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
+            if first.flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
                 != 0
             {
-                &[0, 11]
+                out.extend(inventory_fence_quads(faces[BlockFace::South as usize]));
             } else {
-                &[0]
-            };
-            for offset in offsets {
-                let parts = crate::model_template_parts(templates, template + offset)
+                let parts = crate::model_template_parts(templates, template)
                     .ok_or(GuiBlockReject::Geometry)?;
                 for part in parts {
                     let start = part.quad_start as usize;
@@ -96,6 +93,54 @@ pub fn block_item_quads(
         return Err(GuiBlockReject::Geometry);
     }
     Ok(out)
+}
+
+/// Bedrock's inventory fence in block pixels: two end posts joined by two rails that overhang
+/// the block by two pixels. Rails split at the block edges so each piece's UVs wrap inside one
+/// texture tile; the splits are internal and do not change the silhouette.
+const INVENTORY_FENCE_BOXES: [([i8; 3], [i8; 3]); 8] = [
+    ([6, 0, 0], [10, 16, 4]),
+    ([6, 0, 12], [10, 16, 16]),
+    ([7, 13, -2], [9, 15, 0]),
+    ([7, 13, 0], [9, 15, 16]),
+    ([7, 13, 16], [9, 15, 18]),
+    ([7, 5, -2], [9, 7, 0]),
+    ([7, 5, 0], [9, 7, 16]),
+    ([7, 5, 16], [9, 7, 18]),
+];
+
+/// Every outward face of the inventory fence, with native position-derived UVs. Held items
+/// draw these one-sided, so faces hidden from the inventory camera are kept.
+fn inventory_fence_quads(material: u32) -> impl Iterator<Item = GuiBlockQuad> {
+    INVENTORY_FENCE_BOXES
+        .into_iter()
+        .flat_map(move |(min, max)| {
+            BlockFace::ALL.map(|face| {
+                let (unit, _) = cube_face(face);
+                let corners = unit.map(|corner| {
+                    std::array::from_fn(|axis| {
+                        let [min, max] = [min[axis], max[axis]].map(f32::from);
+                        (min + corner[axis] * (max - min)) / 16.0
+                    })
+                });
+                let mut uvs = corners.map(|[x, y, z]| match face {
+                    BlockFace::Up | BlockFace::Down => [x, z],
+                    BlockFace::North | BlockFace::South => [x, 1.0 - y],
+                    BlockFace::West | BlockFace::East => [z, 1.0 - y],
+                });
+                for axis in 0..2 {
+                    let tile = uvs.iter().map(|uv| uv[axis]).fold(f32::INFINITY, f32::min);
+                    for uv in &mut uvs {
+                        uv[axis] -= tile.floor();
+                    }
+                }
+                GuiBlockQuad {
+                    corners,
+                    uvs,
+                    material,
+                }
+            })
+        })
 }
 
 /// Reads a material's first-mip tile, side and alpha mode from its texture page.
@@ -238,6 +283,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn fences_draw_the_native_two_post_inventory_shape() {
+        let template = ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags: MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        };
+        let quads = block_item_quads(VisualKind::Model, [7; 6], Some(0), &[template], &[]).unwrap();
+        assert_eq!(
+            quads.len(),
+            INVENTORY_FENCE_BOXES.len() * BlockFace::ALL.len()
+        );
+        let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
+        for quad in &quads {
+            assert_eq!(quad.material, 7);
+            assert!(quad.uvs.iter().flatten().all(|uv| (0.0..=1.0).contains(uv)));
+            for point in quad.corners {
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+            }
+        }
+        // Posts span the block's Z edges and both rails overhang them by two pixels.
+        assert_eq!(bounds, [[0.375, 0.0, -0.125], [0.625, 1.0, 1.125]]);
+        let tops = quads
+            .iter()
+            .filter(|quad| quad.corners.iter().all(|point| point[1] == 1.0))
+            .count();
+        assert_eq!(tops, 2, "only the two posts reach the top");
+        // Held fences draw one-sided, so faces hidden from the inventory camera remain.
+        let post_east_faces = quads
+            .iter()
+            .filter(|quad| quad.corners.iter().all(|point| point[0] == 0.625))
+            .count();
+        assert_eq!(post_east_faces, 2);
     }
 
     #[test]

@@ -34,7 +34,7 @@ func (w controlWorlds) SetLocal(report control.LocalWorld) error {
 func localStatus(report control.LocalWorld) localworld.Status {
 	status := localworld.Status{State: localworld.State(report.State), Error: report.Error}
 	if world := report.World; world != nil {
-		status.World = &localworld.World{ID: world.ID, Name: world.Name, GameMode: world.GameMode, Backend: world.Backend}
+		status.World = &localworld.World{ID: world.ID, Name: world.Name, GameMode: world.GameMode, Backend: world.Backend, MultiplayerDisabled: world.MultiplayerDisabled}
 	}
 	if target := report.Target; target != nil {
 		status.Target = &localworld.ConnectionTarget{

@@ -73,11 +73,12 @@ fn auto_craft_reassigns_the_only_exact_item_from_an_earlier_tag() {
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 1), (10, PLANKS, 102, 1)]);
     assert!(ledger.can_auto_craft(&recipe));
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(consumes(&ledger), [(10, 1, 102), (9, 1, 101)]);
     assert!(ledger.target_stack(InventoryTarget::Player(9)).is_none());
     assert!(ledger.target_stack(InventoryTarget::Player(10)).is_none());
-    assert_eq!(ledger.cursor_stack().unwrap().network_id, FURNACE);
+    assert_eq!(placed_outputs(&ledger)[0].1.network_id, FURNACE);
+    assert!(ledger.cursor_stack().is_none());
 }
 
 #[test]
@@ -94,7 +95,7 @@ fn auto_craft_splits_quantities_across_slots_and_reuses_one_stack_for_two_demand
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 3), (10, PLANKS, 102, 1), (11, PLANKS, 103, 1)]);
     assert!(ledger.can_auto_craft(&recipe));
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(
         consumes(&ledger),
         [(9, 1, 101), (10, 1, 102), (11, 1, 103), (9, 2, 101)]
@@ -102,7 +103,7 @@ fn auto_craft_splits_quantities_across_slots_and_reuses_one_stack_for_two_demand
     for slot in [9, 10, 11] {
         assert!(ledger.target_stack(InventoryTarget::Player(slot)).is_none());
     }
-    assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+    assert_eq!(placed_outputs(&ledger)[0].1.count, 1);
 }
 
 #[test]
@@ -114,7 +115,7 @@ fn auto_craft_follows_a_chain_of_prior_tag_assignments() {
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 1), (10, PLANKS, 102, 1), (11, COBBLE, 103, 1)]);
     assert!(ledger.can_auto_craft(&recipe));
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(consumes(&ledger), [(10, 1, 102), (11, 1, 103), (9, 1, 101)]);
 }
 
@@ -125,7 +126,7 @@ fn successful_first_choice_allocations_keep_their_existing_order() {
         IngredientFixture::named("minecraft:oak_log", 0),
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 2), (10, PLANKS, 102, 1)]);
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(consumes(&ledger), [(9, 1, 101), (9, 1, 101)]);
     assert_eq!(
         ledger
@@ -149,7 +150,7 @@ fn an_incomplete_allocation_leaves_inventory_and_request_queue_unchanged() {
     let pending = ledger.pending_request_count();
     assert!(!ledger.can_auto_craft(&recipe));
     assert_eq!(
-        ledger.begin_auto_craft(&recipe),
+        ledger.begin_auto_craft(&recipe, false),
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(ledger.pending_request_count(), pending);

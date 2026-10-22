@@ -189,8 +189,16 @@ impl Manager {
         self.inner.store.reclaim_abandoned_imports();
     }
 
-    /// Saved worlds, most recently played first.
+    /// Saved worlds after pending server saves finish, most recently played first.
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
+        let after: Vec<_> = lock(&self.inner.life)
+            .retiring
+            .iter()
+            .map(|retiring| retiring.done.clone())
+            .collect();
+        for done in after {
+            let _ = done.recv();
+        }
         self.inner.store.list()
     }
 
@@ -393,6 +401,7 @@ impl Manager {
             world,
             dir,
             view_distance,
+            options_unapplied: false,
         };
         let started = self.background(move |manager| {
             manager.start(&spec, &cancel, generation, after);
@@ -416,10 +425,25 @@ impl Manager {
                 break;
             }
         }
+        let mut fresh_world = None;
+        let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
             Err(WorldError::Cancelled)
         } else {
-            self.inner.runners.start(spec, cancel)
+            self.inner.store.snapshot(&spec.world.id).and_then(
+                |(world, pending, options_unapplied)| {
+                    applied = pending;
+                    let fresh = StartSpec {
+                        world,
+                        dir: spec.dir.clone(),
+                        view_distance: spec.view_distance,
+                        options_unapplied,
+                    };
+                    let started = self.inner.runners.start(&fresh, cancel);
+                    fresh_world = Some(fresh.world);
+                    started
+                },
+            )
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
@@ -439,12 +463,15 @@ impl Manager {
                 return;
             }
         };
+        if let Some(world) = fresh_world {
+            life.world = Some(world);
+        }
         life.instance = Some(Arc::clone(&instance));
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
         drop(life);
-        if let Err(error) = self.inner.store.touch(&spec.world.id) {
+        if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
         }
         if paused {
@@ -626,6 +653,9 @@ impl Manager {
                 name: world.name.clone(),
                 game_mode: world.game_mode,
                 backend: world.backend,
+                multiplayer_disabled: !world
+                    .options
+                    .enabled(launcher::local_worlds::options::WorldOption::Multiplayer),
             }),
             target,
             error: life.failure.clone(),

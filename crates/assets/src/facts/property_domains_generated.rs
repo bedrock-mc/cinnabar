@@ -95,7 +95,9 @@ impl BlockProperty {
             ]),
             Self::DeadBit => super::PropertyDomain::Bool,
             Self::Deprecated => super::PropertyDomain::Int(&[0, 1, 2, 3]),
-            Self::Direction => super::PropertyDomain::Int(&[0, 1, 2, 3]),
+            Self::Direction => {
+                super::PropertyDomain::Int(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+            }
             Self::DirtType => super::PropertyDomain::String(&["normal", "coarse"]),
             Self::DisarmedBit => super::PropertyDomain::Bool,
             Self::DoorHingeBit => super::PropertyDomain::Bool,

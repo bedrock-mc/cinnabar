@@ -35,7 +35,13 @@ pub fn client_command(target: &Path) -> Command {
     let executable = target.join("Contents/MacOS/cinnabar");
     #[cfg(windows)]
     let executable = target.join(update_manifest::runtime::executable("CLIENT", "windows"));
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(target_os = "linux")]
+    let executable = if target.is_dir() {
+        target.join(crate::target::APP_RUN)
+    } else {
+        target.to_owned()
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     let executable = target.to_owned();
     let mut command = Command::new(executable);
     command
@@ -44,7 +50,9 @@ pub fn client_command(target: &Path) -> Command {
         .stdout(Stdio::null());
     #[cfg(target_os = "linux")]
     {
-        command.arg("--appimage-extract-and-run");
+        if !target.is_dir() {
+            command.arg("--appimage-extract-and-run");
+        }
         for name in APPIMAGE_RUNTIME_ENV {
             command.env_remove(name);
         }

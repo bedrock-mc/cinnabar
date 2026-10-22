@@ -1931,22 +1931,22 @@ literal = "minecraft:is_spear"
 reason = "Authored component tag vocabulary parsed at the assets-free protocol boundary and checked against the pinned tag fixture."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "block_face"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "vertical_half"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "cardinal_direction"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "facing_direction"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
@@ -1956,22 +1956,27 @@ literal = "minecraft:crafting_table"
 reason = "Custom-block component name admitted from the wire, not the vanilla block."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
+literal = "sixteen_way_rotation"
+reason = "Custom-block placement-state schema names admitted from the wire."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_north"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_east"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_south"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_west"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
