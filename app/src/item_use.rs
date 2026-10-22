@@ -133,6 +133,13 @@ fn produce_use(
         runtime.cancel_for_respawn();
         return;
     }
+    if let Some(using) = context
+        .physics
+        .as_deref_mut()
+        .and_then(|physics| physics.take_server_using_item())
+    {
+        runtime.adopt_server_using_item(using);
+    }
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),

@@ -1,6 +1,7 @@
 //! Tick-stamped authoritative edits (motion, attributes, flags) entering the
 //! rewind timeline.
 
+use super::server_flags::pose_flags;
 use super::*;
 
 /// Placement of a tick-stamped authoritative update on the prediction timeline.
@@ -253,21 +254,29 @@ pub(crate) struct BoostRetime {
     previous: Vec<bool>,
 }
 
-/// Sprint and sneak states the live control latches adopt from the server.
+/// Server flag changes the next fixed tick adopts: the sprint and sneak latches,
+/// and the pose and spin it reports without start or stop actions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ServerControlFlags {
     pub sprinting: Option<bool>,
     pub sneaking: Option<bool>,
+    /// Locomotion mode a server pose flag left.
+    pub mode: Option<sim::MovementMode>,
+    /// Riptide spin a server flag started or cancelled.
+    pub spinning: Option<bool>,
 }
 
 impl LocalPhysicsController {
     /// Applies server movement flags stamped `tick` (`SetActorData`); returns
-    /// the tick to replay from when retained inputs changed.
+    /// the tick to replay from when retained history changed.
     ///
-    /// A retained tick rewrites only the client's unchanged run after it, so a
-    /// later client transition still wins; stale ticks clamp to the oldest
-    /// frame as vanilla's frame correction does. Modes are only ended, never
-    /// started: entry needs environment predicates the flag does not carry.
+    /// As vanilla's flag difference does, a retained tick changes only flags
+    /// whose server value differs from the local value at that tick, so a later
+    /// client transition still wins; stale ticks clamp to the oldest frame as
+    /// vanilla's frame correction does, and zero, current and future ticks
+    /// replace the live flags. Pose and spin flags start or end the local pose,
+    /// whose own rules then continue or end it; `UsingItem` waits for the
+    /// item-use owner.
     pub fn apply_server_movement_flags(
         &mut self,
         tick: u64,
@@ -280,9 +289,12 @@ impl LocalPhysicsController {
             TimelineSlot::Stale => self.history.oldest_tick(),
         };
         let Some(tick) = rewind else {
+            self.note_server_using_item(None, flags.using_item);
+            self.adopt_live_spin(flags.spinning);
             self.adopt_live_flags(flags);
             return None;
         };
+        self.note_server_using_item(Some(tick), flags.using_item);
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
         let mut changed = false;
@@ -332,22 +344,28 @@ impl LocalPhysicsController {
             changed |= edited;
             present.sneaking = reached.then_some(sneaking);
         }
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag != Some(false) || anchor.mode != mode {
-                continue;
-            }
-            let (edited, reached) = rewrite_run(
-                self.history.retained_inputs_after_mut(tick),
-                |input| input.mode == mode,
-                |input| input.mode = sim::MovementMode::Walking,
-            );
-            changed |= edited;
-            if reached {
-                self.modes.end(mode);
+        changed |= self.retain_server_spin(tick, flags.spinning);
+        if self.retain_server_pose_start(tick, anchor.mode, flags) {
+            changed = true;
+        } else {
+            for (flag, mode) in pose_flags(flags) {
+                if flag != Some(false) || anchor.mode != mode {
+                    continue;
+                }
+                let (edited, reached) = rewrite_run(
+                    self.history.retained_inputs_after_mut(tick),
+                    |input| input.mode == mode,
+                    |input| input.mode = sim::MovementMode::Walking,
+                );
+                changed |= edited;
+                if edited {
+                    self.mark_server_change_after(tick, |input| {
+                        input.server_mode = Some(sim::MovementMode::Walking);
+                    });
+                }
+                if reached {
+                    self.modes.end(mode);
+                }
             }
         }
         self.adopt_live_flags(client_world::MovementFlagUpdate {
@@ -359,21 +377,13 @@ impl LocalPhysicsController {
         changed.then_some(tick)
     }
 
-    /// Takes the sprint/sneak states the control latches must adopt.
+    /// Takes the server flag changes the next fixed tick adopts.
     pub fn take_server_control_flags(&mut self) -> Option<ServerControlFlags> {
         self.server_control_flags.take()
     }
 
     fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag == Some(false) {
-                self.modes.end(mode);
-            }
-        }
+        self.adopt_live_pose(flags);
         if !pose_flag_controls_sneak(self.modes.mode()) {
             flags.sneaking = None;
         }

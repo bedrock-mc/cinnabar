@@ -95,6 +95,15 @@ impl PredictionHistory {
             .map(|frame| &frame.state)
     }
 
+    /// Mutable state retained after `tick`, for authoritative edits a following
+    /// replay must start from.
+    pub fn state_at_mut(&mut self, tick: u64) -> Option<&mut PlayerState> {
+        self.frames
+            .iter_mut()
+            .find(|frame| frame.state.tick == tick)
+            .map(|frame| &mut frame.state)
+    }
+
     /// Returns the immutable world retained for a tick, when its adapter supports snapshots.
     pub fn world_at(&self, tick: u64) -> Option<&crate::CollisionSnapshot> {
         self.frames

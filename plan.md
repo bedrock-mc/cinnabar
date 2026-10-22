@@ -222,7 +222,12 @@ poses and bounds, history loss, replay authority, send phase and live-server beh
 Animation-only flags must remain separate from gameplay and correction authority.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
-and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
+and replay. Server item-use, glide/swim/crawl and Riptide spin flags start or end the
+local state without start/stop actions; stamped writes apply only when they differ from
+the local value at their tick. Still incomplete: a server start for an item without a held
+use, item-use slowdown on ticks replayed after a stamped start or stop, block-climber flags
+and live-server evidence for these adoptions.
+Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),

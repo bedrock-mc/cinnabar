@@ -16,6 +16,7 @@ mod correction;
 mod dimension_wait;
 mod prediction_corrections;
 mod riptide;
+mod server_flags;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
@@ -280,6 +281,8 @@ pub struct LocalPhysicsController {
     server_control_flags: Option<ServerControlFlags>,
     /// Accepted server posture newer than the latest completed sample.
     live_posture: ServerControlFlags,
+    /// Server `UsingItem` value the item-use owner has yet to adopt.
+    server_using_item: Option<bool>,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
@@ -325,6 +328,7 @@ impl Default for LocalPhysicsController {
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             live_posture: Default::default(),
+            server_using_item: None,
             riptide_pending: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
@@ -385,6 +389,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
+        self.server_using_item = None;
         self.riptide_pending = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -732,6 +737,7 @@ impl LocalPhysicsController {
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
                         server_sprinting: tick_input.server_sprinting,
+                        using_item: item_use_modifier.is_some(),
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,

@@ -27,6 +27,8 @@ pub(super) struct ControllerFrame {
     pub requested_sprint: bool,
     pub sprint_down: bool,
     pub server_sprinting: Option<bool>,
+    /// An accepted item use ran during this tick (vanilla's `UsingItem` flag).
+    pub using_item: bool,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,

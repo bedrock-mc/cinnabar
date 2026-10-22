@@ -208,6 +208,15 @@ impl ModeTracker {
         }
     }
 
+    /// Enters `mode` as a server flag set does. The next selection applies the
+    /// mode's own continuation rules, as vanilla's stop intents read the flag.
+    pub(super) fn start(&mut self, mode: MovementMode) {
+        if self.mode != mode {
+            self.mode = mode;
+            self.fall_fly_ticks = 0;
+        }
+    }
+
     /// Picks this tick's mode.
     pub(super) fn select(
         &mut self,

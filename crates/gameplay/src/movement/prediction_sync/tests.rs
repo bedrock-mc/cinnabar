@@ -344,6 +344,7 @@ fn client_owned_flags_follow_local_state() {
         ActorFlag::Swimming,
         ActorFlag::Crawling,
         ActorFlag::Gliding,
+        ActorFlag::DamageNearbyMobs,
     ];
     let mut stale = owned.to_vec();
     stale.push(ActorFlag::AlwaysShowName);
@@ -367,6 +368,7 @@ fn client_owned_flags_follow_local_state() {
         mode: sim::MovementMode::Walking,
         moving: false,
         has_collision: Some(false),
+        spinning: false,
     };
     assert_eq!(
         predicted_flag_words(&metadata, Some(idle), false),
@@ -421,6 +423,14 @@ fn client_owned_flags_follow_local_state() {
             },
             false,
             vec![ActorFlag::HasCollision],
+        ),
+        (
+            SyncPose {
+                spinning: true,
+                ..idle
+            },
+            false,
+            vec![ActorFlag::DamageNearbyMobs],
         ),
     ] {
         let mut expected = flags;

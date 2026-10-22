@@ -12,6 +12,8 @@ pub(in crate::movement) struct SyncPose {
     pub moving: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
+    /// A Riptide spin, including one a server flag started or cancelled.
+    pub spinning: bool,
 }
 
 impl LocalPhysicsController {
@@ -25,9 +27,9 @@ impl LocalPhysicsController {
     }
 
     /// Locally owned actor flags once a movement sample has completed: the
-    /// accepted posture, the current mode (including server flag updates that
-    /// ended a swim, crawl or glide after that sample), movement input and
-    /// terrain collision.
+    /// accepted posture, the current mode and Riptide spin (including server
+    /// flag updates that started or ended them after that sample), movement
+    /// input and terrain collision.
     pub(in crate::movement) fn prediction_sync_pose(&self) -> Option<SyncPose> {
         let sample = self.sample_history.back()?;
         let (sneaking, sprinting) = self.prediction_sync_posture()?;
@@ -40,6 +42,10 @@ impl LocalPhysicsController {
                 .controller_history
                 .back()
                 .map(|frame| !frame.input.no_clip),
+            spinning: self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.spin_attack_ticks.is_some()),
         })
     }
 

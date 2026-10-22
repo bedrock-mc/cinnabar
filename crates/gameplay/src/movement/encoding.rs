@@ -37,7 +37,9 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
     if sample.processed.spin_started {
         flags |= PlayerInputFlags::START_SPIN_ATTACK;
     }
-    if !sample.processed.spinning && (previous.spinning || sample.processed.spin_started) {
+    // Server flag changes are not actions: compare with the state they left.
+    let previous_spinning = sample.input.server_spinning.unwrap_or(previous.spinning);
+    if !sample.processed.spinning && (previous_spinning || sample.processed.spin_started) {
         flags |= PlayerInputFlags::STOP_SPIN_ATTACK;
     }
 
@@ -117,6 +119,7 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
     use sim::MovementMode::{Crawling, Flying, Gliding, Swimming};
     let mut flags = PlayerInputFlags::NONE;
     let current = sample.processed.mode;
+    let previous_mode = sample.input.server_mode.unwrap_or(previous.mode);
     for (mode, start, stop) in [
         (
             Swimming,
@@ -134,7 +137,7 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
             PlayerInputFlags::STOP_CRAWLING,
         ),
     ] {
-        match (current == mode, previous.mode == mode) {
+        match (current == mode, previous_mode == mode) {
             (true, false) => flags |= start,
             (false, true) => flags |= stop,
             _ => {}
