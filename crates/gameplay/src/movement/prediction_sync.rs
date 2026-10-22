@@ -34,7 +34,7 @@ const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 /// Sends a due correction sync and clears its countdown only after admission.
 /// `air_drag_modifier` is the session's last accepted finite value, which
 /// outlives the replay history that dimension waits and hard corrections clear.
-/// `using_item` is the accepted item use, including one a server flag started.
+/// `using_item` is the accepted local item use.
 pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
@@ -80,8 +80,10 @@ pub fn send_movement_prediction_sync(
 /// Vanilla sends its own actor flag words. The client itself sets sneaking,
 /// sprinting, item use, movement, collision, the Riptide spin and the
 /// swimming, crawling and gliding poses, and adopts the server's changes to
-/// them; Cinnabar's local state adopts those changes too. Block-climber flags
-/// remain the server's until the client models them, as does every other flag.
+/// them. Cinnabar's local state adopts those changes too, except that server
+/// item-use changes do not yet start or stop the local use, so item use here
+/// is the accepted local use. Block-climber flags remain the server's until
+/// the client models them, as does every other flag.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
     pose: Option<SyncPose>,

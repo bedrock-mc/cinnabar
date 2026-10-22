@@ -222,16 +222,15 @@ poses and bounds, history loss, replay authority, send phase and live-server beh
 Animation-only flags must remain separate from gameplay and correction authority.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
-and replay. Server item-use, glide/swim/crawl and Riptide spin flags start or end the
-local state; pose and spin writes are not start/stop actions, while an item-use start
-reports `StartUsingItem`. Each retained frame captures the flag word it starts with; a
+and replay. Server glide/swim/crawl and Riptide spin flags start or end the local state
+without start/stop actions. Each retained frame captures the flag word it starts with; a
 stamped write becomes a correction of the following frame where it differs from that
 capture without scheduling a replay itself (a future stamp joins the current frame), and
-replay keeps the starting frame's capture, refreshes later ones and keeps live bits whose
-replayed result matches the original one. Item use
-reconciles with the word only on movement ticks. Still
-incomplete: a server start for an item without a held use, item-use slowdown on ticks
-replayed after a stamped start or stop, writes setting several pose flags (the locomotion
+replay keeps the starting frame's capture, refreshes later ones and keeps live bits it
+did not change. The word also retains server item-use writes,
+but they do not yet start or stop the local item use, which vanilla reconciles with the
+word on movement ticks (reporting `StartUsingItem` for a start). Still incomplete: that
+item-use adoption, writes setting several pose flags (the locomotion
 mode keeps one pose), the Riptide spin's entity-hit end, block-climber flags and
 live-server evidence for these adoptions.
 Live-server pickup and remote-player stance acceptance remains outstanding.

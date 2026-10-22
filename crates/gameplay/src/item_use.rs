@@ -10,7 +10,6 @@ mod admission;
 pub mod classify;
 mod crossbow;
 mod progress;
-mod server_flag;
 pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
@@ -30,9 +29,6 @@ struct ActiveUse {
     crossbow: bool,
     riptide: bool,
     last_progress_tick: Option<u64>,
-    /// The use button started or has held this use, so button-up releases it.
-    /// A use a server flag started is released only after the button held it.
-    button_owned: bool,
 }
 
 /// Stack and environment facts for a selected trident.
@@ -158,13 +154,6 @@ pub struct ItemUseRuntime {
     riptide_launch: Option<RiptideLaunch>,
     /// Selection, eligibility and facing captured together at the first release edge.
     riptide_release: Option<RiptideRelease>,
-    /// Server `UsingItem` value awaiting a movement tick to reconcile with.
-    server_using: Option<bool>,
-    /// The item-use flag a local start or end last wrote, until movement's
-    /// live flag word takes it.
-    local_using: Option<bool>,
-    /// Gameplay had input focus on the last observed frame.
-    gameplay_focused: bool,
 }
 
 impl ItemUseRuntime {
@@ -202,8 +191,6 @@ impl ItemUseRuntime {
             self.active = None;
             self.riptide_release = None;
             self.release_pending = false;
-            self.server_using = None;
-            self.local_using = Some(false);
         }
     }
 
@@ -243,9 +230,7 @@ impl ItemUseRuntime {
 
     /// Whether an accepted use has observed button-up or still owes its deferred release.
     pub fn is_releasing(&self, held: bool) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| (active.button_owned && !held) || self.release_pending)
+        self.active.is_some() && (!held || self.release_pending)
     }
 
     /// Reports an observed release that still belongs to the accepted use.
@@ -332,8 +317,6 @@ impl ItemUseRuntime {
         self.release_pending = false;
         self.riptide_launch = None;
         self.riptide_release = None;
-        self.server_using = None;
-        self.local_using = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -373,7 +356,8 @@ impl ItemUseRuntime {
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        let edge = self.pending.latched_press || self.release_pending || self.is_releasing(held);
+        let edge =
+            self.pending.latched_press || self.release_pending || (self.active.is_some() && !held);
         let ticked = self
             .last_frame_tick
             .is_some_and(|tick| movement.completed_tick() >= tick);
@@ -392,7 +376,6 @@ impl ItemUseRuntime {
             frame.riptide_facing,
         );
         self.last_frame_tick = Some(frame.tick);
-        let was_using = self.active.is_some();
         self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.pending.latched_press);
@@ -405,24 +388,13 @@ impl ItemUseRuntime {
                         .is_none_or(|selection| selection.item.block_runtime_id() == 0));
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
-        if frame.held
-            && let Some(active) = self.active.as_mut()
-        {
-            active.button_owned = true;
-        }
         let release_pending = std::mem::take(&mut self.release_pending);
         self.end_use(frame, &mut outcome, release_pending);
-        let ended = was_using && self.active.is_none();
         if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, &mut outcome);
         }
         if !frame.held {
             self.repeat_armed = false;
-        }
-        if ended || outcome.started {
-            // A local start or end writes the item-use flag after any server write.
-            self.server_using = None;
-            self.local_using = Some(self.active.is_some());
         }
         outcome
     }
@@ -450,7 +422,7 @@ impl ItemUseRuntime {
         let depleted =
             frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);
         // Queue pressure must not turn an already-observed early release into a full charge.
-        if !release_pending && depleted && (frame.held || active.crossbow || !active.button_owned) {
+        if !release_pending && depleted && (frame.held || active.crossbow) {
             // A depleted use finishes locally, without a release transaction.
             // A crossbow stores its loaded projectile for the next press's pose/action.
             if active.crossbow && frame.charge_projectile.is_some() {
@@ -463,7 +435,7 @@ impl ItemUseRuntime {
             self.active = None;
             return;
         }
-        if (frame.held || !active.button_owned) && !release_pending {
+        if frame.held && !release_pending {
             return;
         }
         let launch = self.riptide_release.take().and_then(|release| {
@@ -552,7 +524,6 @@ impl ItemUseRuntime {
                     crossbow: crossbow::is_crossbow(air_use),
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
                     last_progress_tick: None,
-                    button_owned: true,
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {

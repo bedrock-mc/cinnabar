@@ -6,15 +6,16 @@
 //! bits that differ from that frame's capture, applied to the live state at
 //! once and again whenever replay passes the frame. Replay keeps the capture of
 //! the frame it starts from and refreshes every later capture from the replayed
-//! state before re-applying that frame's corrections, and afterwards keeps
-//! only the bits whose replayed value differs from the original. A write stamped at the current tick
-//! is queued for the next frame's capture, one stamped at a future tick joins
-//! the current frame's corrections, and an unstamped write only changes the
-//! live word. The local systems then read the
-//! word each tick: pose rules continue or end a pose, the spin runs its
-//! lifetime, and item use reconciles with the word before the tick simulates.
-//! Flag writes are not start or stop actions, so each input reports edges
-//! relative to the word its tick started with.
+//! state before re-applying that frame's corrections; afterwards the live
+//! state takes the bits the replay changed and keeps the others. A write
+//! stamped at the current tick is queued for the next frame's capture, one
+//! stamped at a future tick joins the current frame's corrections, and an
+//! unstamped write only changes the live word. Pose rules then continue or end
+//! a pose and the spin runs its lifetime. The item-use bit is retained the same
+//! way and handed to the item-use owner through
+//! [`LocalPhysicsController::take_server_using_item`]. Flag writes are not
+//! start or stop actions, so each input reports edges relative to the word its
+//! tick started with.
 
 use super::*;
 

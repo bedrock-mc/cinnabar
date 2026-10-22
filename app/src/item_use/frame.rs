@@ -18,8 +18,6 @@ pub(super) struct FramePolicy {
     pub delay_fix_enabled: bool,
     pub aim_rotation: Option<bevy::prelude::Quat>,
     pub release_facing: gameplay::item_use::RiptideFacing,
-    /// Resolves against this tick instead of the next unsent one.
-    pub sample: Option<gameplay::movement::InteractionSample>,
 }
 
 /// Observes one proposal without executing a held-use tick or sending a packet.
@@ -37,7 +35,6 @@ pub(super) fn observe(
         delay_fix_enabled,
         aim_rotation,
         release_facing,
-        sample: pinned_sample,
     } = policy;
     let stream = context.client_world.stream.as_ref()?;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -96,9 +93,7 @@ pub(super) fn observe(
     if movement.has_held_release() {
         return None;
     }
-    let sample = if let Some(sample) = pinned_sample {
-        Some(sample)
-    } else if before_flush {
+    let sample = if before_flush {
         movement
             .newest_unsent_sample()
             .map(Into::into)
