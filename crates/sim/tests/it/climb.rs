@@ -542,7 +542,8 @@ fn falling_through_scaffolding_keeps_no_fall_distance() {
         scaffolds: (0..8).map(|y| [0, y, 0]).collect(),
         solids: vec![[0, -1, 0]],
     };
-    let mut state = PlayerState::new(Vec3::new(0.5, 6.0, 0.5));
+    // Mid-cell, the feet fall inside the scaffold until they reach the top below.
+    let mut state = PlayerState::new(Vec3::new(0.5, 6.9, 0.5));
     for _ in 0..4 {
         let tick = Simulator::default()
             .tick(&mut state, MovementInput::default(), &world)
