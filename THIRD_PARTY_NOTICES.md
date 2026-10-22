@@ -18,7 +18,9 @@ copyright the Free Software Foundation and its other contributors; the Android a
 are copyright (c) 2023 Ivan Max under the MIT license in
 `assets/licenses/Termux-glibc-MIT.txt`. GNU license texts and additional required notices are
 retained in `assets/licenses/glibc-*.txt`. The native package, upstream source archive and
-platform patch set are identified in `packaging/android/runtime.json`.
+platform patch set are identified in `packaging/android/runtime.json`. The unchanged native
+package, matching GNU source, platform adaptations and notices are also preserved in the
+[Android runtime dependency release](https://github.com/cinnabar-mc/cinnabar/releases/tag/android-bds-runtime-20261022).
 The adaptations also include Android Bionic code under BSD and Apache 2.0 and
 BSD-licensed `libandroid-shmem`, with Android ashmem code under Apache 2.0. Their notices are retained in
 `assets/licenses/Android-Bionic-BSD.txt`, `libandroid-shmem-BSD.txt`,

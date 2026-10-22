@@ -15,7 +15,7 @@
     "archive_bytes": 21018321,
     "guest_library": "libgcc_s.so.1",
     "native_runtime": {
-      "url": "https://service.termux-pacman.dev/gpkg/aarch64/glibc-2.44-0-aarch64.pkg.tar.xz",
+      "url": "https://github.com/cinnabar-mc/cinnabar/releases/download/android-bds-runtime-20261022/glibc-2.44-0-aarch64.pkg.tar.xz",
       "sha256": "8725a20d85fa35a094cf092286295668fd5292247128c4bb8101585ba063799c",
       "prefix": "data/data/com.termux/files/usr/glibc/lib",
       "source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.44.tar.xz",
@@ -51,7 +51,10 @@
           "source": "librt.so.1",
           "packaged": "libbds_rt.so"
         }
-      ]
+      ],
+      "upstream_url": "https://service.termux-pacman.dev/gpkg/aarch64/glibc-2.44-0-aarch64.pkg.tar.xz",
+      "source_mirror_url": "https://github.com/cinnabar-mc/cinnabar/releases/download/android-bds-runtime-20261022/glibc-2.44.tar.xz",
+      "patches_mirror_url": "https://github.com/cinnabar-mc/cinnabar/releases/download/android-bds-runtime-20261022/glibc-packages-c2b00b9.tar.gz"
     },
     "network_adapter": {
       "files": [

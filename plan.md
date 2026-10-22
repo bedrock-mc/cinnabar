@@ -566,8 +566,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   and saves a world, shuts down cleanly and reopens it in a target-SDK-35 test app on an
   Android 15 VM with SELinux enforcing.
   Production protocol login and spawn also pass with an extended diagnostic deadline.
-  Translation requests stronger x86 memory ordering. The transport still times out with all
-  external network interfaces down, and earlier startup aborts leave reliability acceptance
+  Translation requests stronger x86 memory ordering. With all external network interfaces down,
+  BDS reports that it needs a network connection; earlier startup aborts leave reliability acceptance
   open. Full APK,
   physical-device, offline, lifecycle, performance and 4/16 KB compatibility acceptance remain incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,

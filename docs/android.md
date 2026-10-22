@@ -59,7 +59,9 @@ APK's native-library directory and saves worlds in private app storage. Android 
 reopening, offline play and suspend/resume still need device acceptance.
 
 BDS is the default for new worlds. Android APK builds include the Box64 runtime and require
-CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain. Set `CINNABAR_ANDROID_BDS_CC`
+CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain. The tested native runtime package
+is preserved in a project-owned dependency release, with the same content hash and matching
+sources; its URLs are in `packaging/android/runtime.json`. Set `CINNABAR_ANDROID_BDS_CC`
 and `CINNABAR_ANDROID_BDS_CXX` if the compilers are not named `aarch64-linux-gnu-gcc` and
 `aarch64-linux-gnu-g++`.
 
@@ -75,7 +77,8 @@ Starting a BDS world after accepting its EULA acquires the official
 Linux server and pinned guest runtime on first use. No server binaries or game assets ship in
 the APK. Dragonfly remains available as an alternative. Login, offline play, lifecycle and performance acceptance
 remain incomplete across supported Android versions, CPU vendors and 4/16 KB page devices.
-The transport still times out when all external network interfaces are down. Earlier startup
+When all external network interfaces are down, the client reports that BDS needs a network
+connection. Earlier startup
 aborts leave extended reliability testing open.
 BDS worlds cannot pause simulation.
 
