@@ -2,6 +2,8 @@
 
 mod announcements;
 mod handoff;
+#[cfg(target_os = "linux")]
+mod manual;
 mod releases;
 #[cfg(test)]
 mod tests;
@@ -28,10 +30,13 @@ use update_manifest::channel::Channel;
 /// Fallback poll between launch checks and release notices.
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const CHECK_POLL_INTERVAL: Duration = Duration::from_secs(60);
+const MANUAL_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 static LAYOUT: OnceLock<InstallLayout> = OnceLock::new();
 static STATE: Mutex<State> = Mutex::new(State::new());
+#[cfg(target_os = "linux")]
+static MANUAL: OnceLock<manual::Running> = OnceLock::new();
 #[cfg(unix)]
 static STARTUP: OnceLock<update_installer::recovery::Startup> = OnceLock::new();
 
@@ -42,6 +47,8 @@ struct Ready {
     notice: Notice,
     channel: Channel,
     switch_now: bool,
+    /// The installed destination when this process runs from a downloaded manual package.
+    target: Option<PathBuf>,
     /// Keeps the offered stage alive while a later download replaces the cache.
     lease: Option<std::sync::Arc<std::fs::File>>,
 }
@@ -60,6 +67,7 @@ impl Ready {
             stage,
             channel: Channel::parse(&selected.manifest.channel).expect("verified release channel"),
             switch_now,
+            target: None,
             lease: Some(std::sync::Arc::new(reader)),
             notice: Notice {
                 version: selected.manifest.version,
@@ -71,6 +79,7 @@ impl Ready {
 }
 
 struct State {
+    manual_download: bool,
     updater: Option<update_installer::lease::Updater>,
     last_poll: Option<u64>,
     preferences: Preferences,
@@ -105,9 +114,16 @@ impl State {
     fn tick(&mut self, root: &std::path::Path, now: u64) -> bool {
         if self.running
             || self.requested
-            || self
-                .last_poll
-                .is_some_and(|last| now >= last && now - last < CHECK_POLL_INTERVAL.as_secs())
+            || self.last_poll.is_some_and(|last| {
+                now >= last
+                    && now - last
+                        < if self.manual_download && self.updater.is_none() {
+                            MANUAL_POLL_INTERVAL
+                        } else {
+                            CHECK_POLL_INTERVAL
+                        }
+                        .as_secs()
+            })
         {
             return false;
         }
@@ -214,6 +230,7 @@ impl State {
     /// Holds one session's preferences and consent, without a persisted transaction state.
     const fn new() -> Self {
         Self {
+            manual_download: false,
             updater: None,
             last_poll: None,
             preferences: Preferences::DEFAULT,
@@ -237,10 +254,14 @@ impl State {
 
     /// An explicit Later choice suppresses the optional quit-time install for this session too.
     fn applies_on_exit(&self, now: OffsetDateTime) -> bool {
-        self.ready
-            .as_ref()
-            .is_some_and(|ready| ready.notice.writable && ready.expires > now)
-            && (self.requested || (self.preferences.install_on_quit && !self.dismissed))
+        self.ready.as_ref().is_some_and(|ready| {
+            ready.notice.writable
+                && ready.expires > now
+                && (self.requested
+                    || (ready.target.is_none()
+                        && self.preferences.install_on_quit
+                        && !self.dismissed))
+        })
     }
 
     /// Freezes the offered stage and cancels background work before accepting shutdown.
@@ -329,6 +350,13 @@ pub fn check_in_background(layout: &InstallLayout) {
         return;
     }
     let _ = LAYOUT.set(layout.clone());
+    #[cfg(target_os = "linux")]
+    if let Some(running) = manual::Running::detect(layout) {
+        let _ = MANUAL.set(running);
+        if let Ok(mut state) = STATE.lock() {
+            state.manual_download = true;
+        }
+    }
     tick(OffsetDateTime::now_utc());
     #[cfg(unix)]
     if let Ok(startup) =
@@ -369,6 +397,7 @@ pub fn view() -> View {
     if state.updater.is_none() {
         return View {
             active: false,
+            manual_pending: state.manual_download,
             ..View::default()
         };
     }
@@ -455,7 +484,7 @@ pub fn apply_after_exit() {
         && let Err(error) = handoff::spawn_or_restart(
             || handoff::spawn(layout, &ready),
             || {
-                handoff::installed_target().and_then(|target| {
+                handoff::apply_target(&ready).and_then(|target| {
                     startup::Tree::spawn(&mut startup::client_command(&target))
                         .map(drop)
                         .map_err(Into::into)

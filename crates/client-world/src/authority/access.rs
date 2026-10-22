@@ -75,13 +75,18 @@ impl WorldAuthority {
         &self.resolved_biome_tints
     }
     /// Resolves and retains a server position using this session's existing anchor.
-    pub fn resolve_position(&mut self, position: [f32; 3]) -> ResolvedServerPosition {
+    pub fn resolve_position(
+        &mut self,
+        sequence: u64,
+        position: [f32; 3],
+    ) -> ResolvedServerPosition {
         let resolved = resolve_server_position(
             position,
             self.resolved_server_position.position,
             self.resolved_server_position.surface_anchor,
         );
         self.resolved_server_position = resolved;
+        self.retain_local_actor_position(sequence, resolved.position.map(Some));
         resolved
     }
     /// Accepts correction ticks in their original nondecreasing order.

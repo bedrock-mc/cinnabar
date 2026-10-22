@@ -23,6 +23,14 @@ fn next_version() -> String {
     )
 }
 
+/// Shows a downloaded update waiting for the original client to close.
+pub(super) fn pending() -> Fixture {
+    let mut view = MenuView::new(true, "Player".into());
+    view.updates.active = false;
+    view.updates.manual_pending = true;
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows the authenticated account placement without loading a real account or skin.
 pub(super) fn signed_in() -> Fixture {
     let Fixture::Menu(mut view) = home(true, false) else {

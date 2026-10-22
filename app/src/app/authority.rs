@@ -4,6 +4,7 @@ use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_befor
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
+    app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
     app.add_systems(
         bevy::prelude::Startup,
         (

@@ -29,6 +29,8 @@ pub(super) struct LocalWorldsUi {
     actions: Vec<LocalWorldAction>,
     pub(super) name: ui::ChatEditor,
     pub(super) seed: ui::ChatEditor,
+    pub(super) options:
+        std::collections::BTreeMap<launcher::local_worlds::options::WorldOption, ui::ChatEditor>,
     /// The world being joined, for the loading screen's connect stage.
     joining: Option<String>,
     world_id: Option<String>,
@@ -38,9 +40,22 @@ pub(super) struct LocalWorldsUi {
     max_players: Option<u32>,
     /// The worlds screen was showing last frame, so a server was already readied for it.
     prepared: bool,
+    /// Numeric options focused since the last sync, whose text still goes to the module after
+    /// focus leaves.
+    editing: std::collections::BTreeSet<launcher::local_worlds::options::WorldOption>,
 }
 
 impl LocalWorldsUi {
+    /// Starts editing a numeric option from the text the module keeps for it.
+    pub(super) fn begin_option_edit(&mut self, id: launcher::local_worlds::options::WorldOption) {
+        let text = self.view.numeric_text(id);
+        self.options
+            .get_mut(&id)
+            .expect("numeric world option")
+            .set_text(&text);
+        self.editing.insert(id);
+    }
+
     /// Local preparation progress covers standalone prompts and owns their input.
     pub(super) fn progress_open(&self) -> bool {
         self.view.progress.is_some()
@@ -54,11 +69,27 @@ impl Default for LocalWorldsUi {
             actions: Vec::new(),
             name: super::input::fields::field_editor(MenuField::WorldName),
             seed: super::input::fields::field_editor(MenuField::WorldSeed),
+            options: launcher::local_worlds::options::WorldOption::ALL
+                .iter()
+                .filter(|id| {
+                    matches!(
+                        id.definition().control,
+                        launcher::local_worlds::options::Control::Number { .. }
+                    )
+                })
+                .map(|&id| {
+                    (
+                        id,
+                        super::input::fields::field_editor(MenuField::WorldOption(id)),
+                    )
+                })
+                .collect(),
             joining: None,
             world_id: None,
             hosted: false,
             max_players: None,
             prepared: false,
+            editing: Default::default(),
         }
     }
 }
@@ -143,7 +174,12 @@ impl MenuRuntime {
         }
         if let Some(id) = worlds.take_ready() {
             let world = worlds.menu().worlds().iter().find(|world| world.id == id);
-            let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
+            let hosted = world.is_some_and(|world| {
+                world.backend == Backend::Bds
+                    && world
+                        .options
+                        .enabled(launcher::local_worlds::options::WorldOption::Multiplayer)
+            });
             self.local_ui.world_id = Some(id.clone());
             let name = world.map_or(id, |world| world.name.clone());
             self.request_local_world_join(name, hosted);
@@ -195,6 +231,10 @@ impl MenuRuntime {
             }
             _ => {}
         }
+        for &id in &self.local_ui.editing {
+            view.option_text
+                .insert(id, self.local_ui.options[&id].as_str().to_owned());
+        }
         view
     }
 
@@ -211,6 +251,19 @@ impl MenuRuntime {
     }
 
     fn push_local_text(&mut self, worlds: &mut LocalWorlds) {
+        let ui = &self.local_ui;
+        for &id in &ui.editing {
+            let text = ui.options[&id].as_str();
+            if matches!(ui.view.screen, Screen::Create | Screen::Edit)
+                && text != ui.view.numeric_text(id)
+            {
+                worlds.input(Input::SetOptionText(id, text.to_owned()));
+            }
+        }
+        let field = self.field;
+        self.local_ui
+            .editing
+            .retain(|&id| field == Some(MenuField::WorldOption(id)));
         let ui = &self.local_ui;
         let view = &ui.view;
         match view.screen {
@@ -250,7 +303,7 @@ impl MenuRuntime {
         if !matches!(view.screen, Screen::Create | Screen::Edit)
             && matches!(
                 self.field,
-                Some(MenuField::WorldName | MenuField::WorldSeed)
+                Some(MenuField::WorldName | MenuField::WorldSeed | MenuField::WorldOption(_))
             )
         {
             self.field = None;
@@ -283,39 +336,75 @@ impl MenuRuntime {
             Screen::List | Screen::Opening | Screen::BackendPrompt => None,
             // The import modal has no buttons and the copy cannot be interrupted.
             Screen::Importing => Some(Vec::new()),
-            Screen::Create => match view.tab {
-                Tab::General => local(&[
-                    A::Create,
-                    A::Tab(Tab::Advanced),
-                    A::NameField,
-                    A::GameMode(GameMode::Survival),
-                    A::GameMode(GameMode::Creative),
-                    A::Difficulty(Difficulty::Peaceful),
-                    A::Difficulty(Difficulty::Easy),
-                    A::Difficulty(Difficulty::Normal),
-                    A::Difficulty(Difficulty::Hard),
-                ]),
-                Tab::Advanced => local(&[
-                    A::Create,
-                    A::Tab(Tab::General),
-                    A::SeedField,
-                    A::Backend(bridge::Backend::Bds),
-                    A::Flat(false),
-                    A::Flat(true),
-                ]),
-            },
-            Screen::Edit => local(&[
-                A::PlayFromEdit,
-                A::NameField,
-                A::GameMode(GameMode::Survival),
-                A::GameMode(GameMode::Creative),
-                A::GameMode(GameMode::Adventure),
-                A::Difficulty(Difficulty::Peaceful),
-                A::Difficulty(Difficulty::Easy),
-                A::Difficulty(Difficulty::Normal),
-                A::Difficulty(Difficulty::Hard),
-                A::Delete,
-            ]),
+            Screen::Create | Screen::Edit => {
+                let editing = view.screen == Screen::Edit;
+                let options = view
+                    .edit
+                    .as_ref()
+                    .filter(|_| editing)
+                    .map_or(&view.create.options, |edit| &edit.options);
+                let mut actions = vec![if editing { A::PlayFromEdit } else { A::Create }];
+                actions.extend(
+                    Tab::ALL
+                        .iter()
+                        .copied()
+                        .filter(|tab| {
+                            tab.supported() && (*tab == Tab::General || view.options_available())
+                        })
+                        .map(A::Tab),
+                );
+                match view.tab {
+                    Tab::General => {
+                        actions.push(A::NameField);
+                        actions.extend(
+                            [GameMode::Survival, GameMode::Creative]
+                                .into_iter()
+                                .map(A::GameMode),
+                        );
+                        if editing {
+                            actions.push(A::GameMode(GameMode::Adventure));
+                        }
+                        actions.extend(
+                            [
+                                Difficulty::Peaceful,
+                                Difficulty::Easy,
+                                Difficulty::Normal,
+                                Difficulty::Hard,
+                            ]
+                            .into_iter()
+                            .map(A::Difficulty),
+                        );
+                        if editing {
+                            actions.push(A::Delete);
+                        }
+                    }
+                    Tab::Advanced if !editing => {
+                        actions.extend([A::SeedField, A::Flat(false), A::Flat(true)])
+                    }
+                    _ => {}
+                }
+                for &id in launcher::local_worlds::options::WorldOption::ALL {
+                    let definition = id.definition();
+                    if !view.options_available()
+                        || definition.tab != view.tab
+                        || !options.editable(id, editing)
+                    {
+                        continue;
+                    }
+                    match definition.control {
+                        launcher::local_worlds::options::Control::Toggle => {
+                            actions.push(A::Option(id, 1 - options.get(id)))
+                        }
+                        launcher::local_worlds::options::Control::Choice(choices) => {
+                            actions.extend(choices.iter().map(|choice| A::Option(id, choice.value)))
+                        }
+                        launcher::local_worlds::options::Control::Number { .. } => {
+                            actions.push(A::OptionField(id))
+                        }
+                    }
+                }
+                local(&actions)
+            }
             Screen::Templates => Some(vec![MenuAction::LocalWorld(A::BeginCreate)]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
             Screen::Eula => local(&[A::AcceptEula, A::ViewEula, A::Back]),
@@ -574,5 +663,114 @@ mod tests {
         menu.sync_local_worlds(&mut worlds, false);
         assert_eq!(menu.view().local.screen, Screen::List);
         assert_eq!(menu.field, None, "leaving the form drops its field");
+    }
+    #[test]
+    fn world_options_numeric_edits_survive_losing_field_focus() {
+        use launcher::local_worlds::options::WorldOption as O;
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let mut worlds = LocalWorlds::default();
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::BeginCreate));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        menu.local_ui
+            .options
+            .get_mut(&O::SleepPercentage)
+            .unwrap()
+            .set_text("35");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Cheats)));
+        assert_eq!(menu.field, None);
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(
+            worlds.menu().create_form().options.get(O::SleepPercentage),
+            35
+        );
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        assert_eq!(menu.local_ui.options[&O::SleepPercentage].as_str(), "35");
+        menu.local_ui
+            .options
+            .get_mut(&O::SleepPercentage)
+            .unwrap()
+            .set_text("999");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Create));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert!(worlds.menu().form_error().is_some());
+        assert!(!worlds.menu().busy());
+    }
+    /// Leaving a field keeps its invalid text instead of reverting to the last valid prefix.
+    #[test]
+    fn invalid_numeric_text_survives_losing_field_focus() {
+        use launcher::local_worlds::options::WorldOption as O;
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let mut worlds = LocalWorlds::default();
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::BeginCreate));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        let editor = menu.local_ui.options.get_mut(&O::SleepPercentage).unwrap();
+        editor.set_text("35");
+        menu.sync_local_worlds(&mut worlds, false);
+        let editor = menu.local_ui.options.get_mut(&O::SleepPercentage).unwrap();
+        editor.set_text("355");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Cheats)));
+        assert_eq!(menu.field, None);
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(worlds.menu().view().numeric_text(O::SleepPercentage), "355");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Create));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert!(worlds.menu().form_error().is_some());
+        assert!(!worlds.menu().busy());
+    }
+
+    /// Back saves an edit, so an invalid number must stop it before the last valid prefix saves.
+    #[test]
+    fn edit_back_refuses_an_invalid_numeric_option() {
+        use launcher::local_worlds::{model::Event, options::WorldOption as O, world::World};
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let mut worlds = LocalWorlds::default();
+        worlds.apply(Event::Listed(vec![World {
+            options: Default::default(),
+            id: "world-id".into(),
+            name: "Saved".into(),
+            game_mode: GameMode::Survival,
+            generator: launcher::local_worlds::world::Generator::Normal,
+            difficulty: launcher::local_worlds::world::Difficulty::Normal,
+            backend: Backend::Bds,
+            seed: 1,
+            created_unix: 0,
+            last_played_unix: 0,
+            options_unavailable: false,
+            size_bytes: 0,
+        }]));
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Edit(0)));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(worlds.menu().screen(), Screen::Edit);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        let editor = menu.local_ui.options.get_mut(&O::SleepPercentage).unwrap();
+        editor.set_text("35");
+        menu.sync_local_worlds(&mut worlds, false);
+        let editor = menu.local_ui.options.get_mut(&O::SleepPercentage).unwrap();
+        editor.set_text("355");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Back));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(worlds.menu().screen(), Screen::Edit);
+        assert!(worlds.menu().form_error().is_some());
+        assert!(!worlds.menu().busy(), "nothing was saved");
     }
 }

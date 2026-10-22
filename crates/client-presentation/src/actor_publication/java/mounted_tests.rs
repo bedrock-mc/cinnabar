@@ -228,6 +228,7 @@ fn remote_mounted_head_interpolates_tick_angles_and_ignores_the_pending_target()
                     head_yaw: Some(yaw),
                     on_ground: Some(true),
                     teleported: false,
+                    force_local_move: false,
                     player_mode: None,
                     source_tick: None,
                     interpolation: protocol::ActorInterpolation {
@@ -311,6 +312,7 @@ fn mount_yaw_interpolates_across_the_wrap_without_changing_cape_yaw() {
                 head_yaw: Some(-179.0),
                 on_ground: Some(true),
                 teleported: false,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: protocol::ActorInterpolation {

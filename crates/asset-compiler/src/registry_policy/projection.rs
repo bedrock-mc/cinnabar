@@ -124,16 +124,28 @@ pub(super) fn collision(f: &BlockFact) -> Result<CollisionSeed> {
     })
 }
 
-/// Admits the three Education construction blocks using their explicit state schemas.
+/// Admits supported Education blocks using their explicit state schemas.
 fn education(f: &BlockFact) -> Result<Option<RegistryRecord>> {
     if !matches!(
         f.name.as_str(),
-        "minecraft:allow" | "minecraft:deny" | "minecraft:border_block"
+        "minecraft:allow" | "minecraft:deny" | "minecraft:border_block" | "minecraft:chalkboard"
     ) {
         return Ok(None);
     }
     let fields: BTreeMap<String, Scalar> = serde_json::from_str(&f.state)?;
     let mut record = identity(f);
+    if f.name == "minecraft:chalkboard" {
+        let direction = fields
+            .get("direction")
+            .ok_or("chalkboard direction missing")?;
+        check(
+            fields.len() == 1
+                && direction.kind == "int"
+                && direction.value.as_u64().is_some_and(|value| value < 16),
+            "invalid chalkboard state",
+        )?;
+        return Ok(Some(record));
+    }
     if f.name != "minecraft:border_block" {
         check(fields.is_empty(), "Education cube has unexpected state")?;
         record.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
@@ -288,7 +300,7 @@ pub(super) fn project(
         records.push(record);
     }
     check(
-        stats.education_states == 2 + 3usize.pow(4) * 2,
+        stats.education_states == 2 + 3usize.pow(4) * 2 + 16,
         "Education construction palette count mismatch",
     )?;
     check(
@@ -303,4 +315,34 @@ pub(super) fn project(
     )?;
     stats.denied_fingerprint = format!("{:x}", denied.finalize());
     Ok((records, stats))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chalkboard_admission_preserves_every_direction_without_cube_flags() {
+        for direction in 0..16 {
+            let fact = BlockFact {
+                sequential_id: direction,
+                network_hash: direction + 100,
+                name: "minecraft:chalkboard".into(),
+                state: format!(r#"{{"direction":{{"type":"int","value":{direction}}}}}"#),
+                shape_id: 0,
+                boxes: None,
+                friction: 0.6,
+                emission: 0,
+                filter: 0,
+                can_contain_liquid_source: false,
+            };
+            let record = education(&fact)
+                .unwrap()
+                .expect("chalkboard states must not be reserved placeholders");
+            assert_eq!(record.name.as_ref(), fact.name);
+            assert_eq!(record.canonical_state.as_ref(), fact.state);
+            assert_eq!(record.sequential_id, direction);
+            assert!(!record.flags.contains(BlockFlags::CUBE_GEOMETRY));
+        }
+    }
 }

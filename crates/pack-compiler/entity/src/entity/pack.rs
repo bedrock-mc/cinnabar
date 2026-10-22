@@ -358,14 +358,20 @@ fn compile_selected(
     ) {
         return Some(Err(error));
     }
-    // Authored attachables and texture-only artwork each make a pack worth retaining.
+    // Authored attachables, block-entity models and texture-only artwork retain a pack.
     let has_attachables = sources
         .iter()
         .any(|source| source.path.starts_with("attachables/"));
     let has_artwork = sources
         .iter()
         .any(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
-    if !has_attachables
+    let has_chalkboards = geometries.values().any(|geometry| {
+        assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL
+            .iter()
+            .any(|size| geometry.identifier.as_ref() == size.geometry())
+    });
+    if !has_chalkboards
+        && !has_attachables
         && !has_artwork
         && !symbols
             .keys()

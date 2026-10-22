@@ -1,6 +1,6 @@
 //! Anonymous session-boundary and launcher popup fixtures.
 
-use super::{Arc, Fixture, SettingSection, settings};
+use super::{Arc, Fixture, GUI_SCALE, SIZE, SettingSection, State, settings};
 use launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuView};
 
 /// Creates a menu fixture with no account or network services.
@@ -248,6 +248,7 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
     use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};
     let mut worlds = WorldsMenu::default();
     let _ = worlds.apply(Event::Listed(vec![World {
+        options: Default::default(),
         id: "original-fixture".into(),
         name: "Fixture World".into(),
         game_mode: Default::default(),
@@ -257,6 +258,7 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }]));
     for input in [
@@ -279,3 +281,99 @@ pub(super) fn settings_storage() -> Fixture {
     Arc::make_mut(&mut view.storage).opens_folders = true;
     Fixture::Menu(Box::new(view))
 }
+
+/// Shows an anonymous Create World tab without starting a server.
+pub(super) fn world_create(tab: usize) -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Play;
+    view.local.screen = launcher::local_worlds::Screen::Create;
+    view.local.tab = launcher::local_worlds::Tab::ALL[tab];
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows saved BDS generation settings beside editable advanced rules.
+pub(super) fn world_edit_advanced() -> Fixture {
+    use launcher::local_worlds::{
+        form::EditForm,
+        world::{Difficulty, Generator, World},
+    };
+    let Fixture::Menu(mut view) = world_create(1) else {
+        unreachable!()
+    };
+    let world = World {
+        id: "fixture".into(),
+        name: "Fixture World".into(),
+        game_mode: bridge::GameMode::Survival,
+        generator: Generator::Normal,
+        difficulty: Difficulty::Normal,
+        backend: bridge::Backend::Bds,
+        seed: -42,
+        options: Default::default(),
+        created_unix: 0,
+        last_played_unix: 0,
+        options_unavailable: false,
+        size_bytes: 0,
+    };
+    view.local.screen = launcher::local_worlds::Screen::Edit;
+    view.local.edit = Some(EditForm::of(&world));
+    view.local.edited = Some(world);
+    Fixture::Menu(view)
+}
+
+/// Create and edit world-form states, one per tab plus the tall full-advanced view.
+pub(super) const WORLD_FORM_STATES: &[State] = &[
+    State {
+        name: "world-create-general",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(0),
+    },
+    State {
+        name: "world-create-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(1),
+    },
+    State {
+        name: "world-create-multiplayer",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(2),
+    },
+    State {
+        name: "world-create-cheats",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(3),
+    },
+    State {
+        name: "world-create-resource-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(4),
+    },
+    State {
+        name: "world-create-behaviour-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(5),
+    },
+    State {
+        name: "world-create-experiments",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(6),
+    },
+    State {
+        name: "world-create-advanced-all",
+        size: [1280, 2048],
+        gui_scale: GUI_SCALE,
+        fixture: || world_create(1),
+    },
+    State {
+        name: "world-edit-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: world_edit_advanced,
+    },
+];
