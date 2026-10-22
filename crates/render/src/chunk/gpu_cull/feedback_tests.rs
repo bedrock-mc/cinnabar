@@ -365,9 +365,10 @@ fn adaptive_gpu_probes_keep_cpu_batches_without_rebuilding_or_sorting() {
     );
     assert_eq!(samples[1] - samples[0], PROBE_INTERVAL);
     let paths = app.sub_app(RenderApp).world().resource::<Paths>();
-    assert!(
-        paths.gpu > gpu_frames,
-        "the steady view must exercise a GPU probe"
+    assert_eq!(
+        paths.gpu - gpu_frames,
+        4,
+        "two probes need two GPU frames each"
     );
     assert!(
         paths.cpu > cpu_frames,

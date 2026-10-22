@@ -6,8 +6,9 @@ use std::{borrow::Cow, num::NonZeroU64};
 use wgpu::util::DeviceExt;
 
 use super::model::{
-    CULL_WORKGROUP, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_DRAWS,
-    DECISION_HIDDEN, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HIZ_PADDING, PHASE_COUNT,
+    CULL_WORKGROUP, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_CUTOUT_SHIFT,
+    DECISION_DRAWS, DECISION_HIDDEN, DECISION_LIQUID_SHIFT, DECISION_MODEL_SHIFT,
+    DECISION_SOLID_MASK, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HIZ_PADDING, PHASE_COUNT,
     STREAM_COUNT, args_words, draw_offset_bytes, group_count,
 };
 
@@ -23,6 +24,22 @@ pub fn cull_shader_source() -> String {
         .replace("CULL_DECISION_DRAWS", &format!("{DECISION_DRAWS}u"))
         .replace("CULL_DECISION_CANDIDATE", &format!("{DECISION_CANDIDATE}u"))
         .replace("CULL_DECISION_HIDDEN", &format!("{DECISION_HIDDEN}u"))
+        .replace(
+            "CULL_DECISION_SOLID_MASK",
+            &format!("{DECISION_SOLID_MASK}u"),
+        )
+        .replace(
+            "CULL_DECISION_CUTOUT_SHIFT",
+            &format!("{DECISION_CUTOUT_SHIFT}u"),
+        )
+        .replace(
+            "CULL_DECISION_MODEL_SHIFT",
+            &format!("{DECISION_MODEL_SHIFT}u"),
+        )
+        .replace(
+            "CULL_DECISION_LIQUID_SHIFT",
+            &format!("{DECISION_LIQUID_SHIFT}u"),
+        )
         .replace("CULL_SIDE", &format!("{}i", world::SUB_CHUNK_SIDE))
         .replace("CULL_HIZ_PADDING", &float(HIZ_PADDING))
         .replace("CULL_RELATIVE_SLACK", &float(FRUSTUM_RELATIVE_SLACK))

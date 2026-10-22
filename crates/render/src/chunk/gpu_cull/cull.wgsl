@@ -17,6 +17,10 @@ const PHASE_LATE: u32 = 1u;
 const DECISION_DRAWS: u32 = CULL_DECISION_DRAWS;
 const DECISION_CANDIDATE: u32 = CULL_DECISION_CANDIDATE;
 const DECISION_HIDDEN: u32 = CULL_DECISION_HIDDEN;
+const DECISION_SOLID_MASK: u32 = CULL_DECISION_SOLID_MASK;
+const DECISION_CUTOUT_SHIFT: u32 = CULL_DECISION_CUTOUT_SHIFT;
+const DECISION_MODEL_SHIFT: u32 = CULL_DECISION_MODEL_SHIFT;
+const DECISION_LIQUID_SHIFT: u32 = CULL_DECISION_LIQUID_SHIFT;
 const OCCLUSION_WORDS: u32 = WORKGROUP / 32u;
 
 // Scalar origin fields keep the record free of packed vec3 storage.
@@ -262,7 +266,10 @@ fn cutout_range(record: CullRecord) -> vec2<u32> {
 }
 
 fn unpack_draws(draws: u32) -> vec4<u32> {
-    return vec4(draws & 3u, (draws >> 2u) & 1u, (draws >> 3u) & 1u, (draws >> 4u) & 1u);
+    return vec4(draws & DECISION_SOLID_MASK,
+        (draws >> DECISION_CUTOUT_SHIFT) & 1u,
+        (draws >> DECISION_MODEL_SHIFT) & 1u,
+        (draws >> DECISION_LIQUID_SHIFT) & 1u);
 }
 
 fn record_decision(slot: u32) -> u32 {
@@ -287,7 +294,8 @@ fn record_decision(slot: u32) -> u32 {
     let cutout = u32(cutout_range(record).y != 0u);
     let model = u32(record.model_count != 0u);
     let liquid = u32(record.liquid_count != 0u);
-    return solid | (cutout << 2u) | (model << 3u) | (liquid << 4u) | feedback;
+    return solid | (cutout << DECISION_CUTOUT_SHIFT)
+        | (model << DECISION_MODEL_SHIFT) | (liquid << DECISION_LIQUID_SHIFT) | feedback;
 }
 
 fn inclusive_scan(lid: u32) {

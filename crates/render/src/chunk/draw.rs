@@ -19,7 +19,7 @@ type ChunkViewQuery = (
     Read<bevy::render::camera::ExtractedCamera>,
 );
 
-/// Each indirect draw path's batches, retained across GPU occlusion probes.
+/// Each indirect draw path's batches, retained while its view remains active.
 type IndirectBatches = (
     ResMut<'static, ChunkIndirectBatches>,
     ResMut<'static, ChunkModelIndirectBatches>,
@@ -125,7 +125,7 @@ pub(in crate::chunk) fn queue_chunks(
     let model_indirect_draw = draw_functions.id::<DrawModelIndirectCommands>();
     let depth_liquid_direct_draw = draw_functions.id::<DrawDepthLiquidCommands>();
     let depth_liquid_indirect_draw = draw_functions.id::<DrawDepthLiquidIndirectCommands>();
-    // Keep active views' indirect batches across CPU drawing and GPU occlusion probes.
+    // Keep active views' indirect batches on either draw path.
     let mut indirect_views = Vec::new();
     if draw_mode == ChunkDrawMode::Unsupported {
         retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);

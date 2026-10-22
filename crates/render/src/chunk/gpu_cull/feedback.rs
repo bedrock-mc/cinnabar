@@ -176,7 +176,7 @@ impl GpuCullFeedback {
         sample.state.store(RECORDING, Ordering::Release);
     }
 
-    /// Copies decisions after the late cull; draw stream bits remain independent of feedback.
+    /// Marks the late pass as encoded and copies decisions for any reserved sample.
     pub(super) fn encode(&self, encoder: &mut wgpu::CommandEncoder, decisions: &wgpu::Buffer) {
         self.encoded_frame
             .store(self.admission.frame, Ordering::Release);

@@ -164,8 +164,8 @@ and resource qualification; they do not imply these systems need to be written.
 ### Lighting, atmosphere and publication
 
 - Chunk occlusion culling remains enabled by default and can be disabled in Video
-  settings for comparison. It uses visibility proofs rather than a vertical distance
-  cutoff. The indirect renderer samples rejection counts asynchronously and skips GPU
+  settings for comparison. It hides only sections proved invisible. The indirect
+  renderer samples rejection counts asynchronously and skips GPU
   occlusion when it rejects too little terrain. Periodic probes warm GPU visibility
   before sampling and retain the CPU command caches between paths.
   Matched-output frame-time and movement qualification remain incomplete.

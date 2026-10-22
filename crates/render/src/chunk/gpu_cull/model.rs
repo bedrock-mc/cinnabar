@@ -16,11 +16,16 @@ pub const MAX_SOLID_RUNS: u32 = 3;
 pub const ARGS_WORDS: u32 = 5;
 pub const STREAM_COUNT: usize = 4;
 pub const PHASE_COUNT: usize = 2;
-/// Low bits of a record decision describe its four draw streams.
-pub const DECISION_DRAWS: u32 = (1 << 5) - 1;
+/// Draw fields follow the bits needed for the solid run count.
+pub const DECISION_CUTOUT_SHIFT: u32 = u32::BITS - MAX_SOLID_RUNS.leading_zeros();
+pub const DECISION_SOLID_MASK: u32 = (1 << DECISION_CUTOUT_SHIFT) - 1;
+pub const DECISION_MODEL_SHIFT: u32 = DECISION_CUTOUT_SHIFT + 1;
+pub const DECISION_LIQUID_SHIFT: u32 = DECISION_MODEL_SHIFT + 1;
 /// Feedback distinguishes a frustum-visible candidate from an occluded one.
-pub const DECISION_CANDIDATE: u32 = 1 << 5;
-pub const DECISION_HIDDEN: u32 = 1 << 6;
+pub const DECISION_CANDIDATE: u32 = 1 << (DECISION_LIQUID_SHIFT + 1);
+pub const DECISION_HIDDEN: u32 = DECISION_CANDIDATE << 1;
+/// Low bits of a record decision describe its four draw streams.
+pub const DECISION_DRAWS: u32 = DECISION_CANDIDATE - 1;
 /// Hi-Z boxes grow by this many blocks so rasterised depth never lands outside them.
 pub const HIZ_PADDING: f32 = 1.0 / 16.0;
 /// Relative and absolute slack that keeps the GPU frustum test a superset of the CPU one.
