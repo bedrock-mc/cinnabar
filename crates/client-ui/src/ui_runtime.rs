@@ -189,6 +189,7 @@ pub struct UiRuntime {
     inventory_keys: interaction::InventoryKeys,
     screen: screen_state::ScreenState,
     furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
+    recipe_book_icons: Arc<std::sync::Mutex<presentation::forms::BookIconCache>>,
     emotes: emotes::EmoteState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
@@ -308,6 +309,7 @@ impl UiRuntime {
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
             furnace_projection: Arc::default(),
+            recipe_book_icons: Arc::default(),
             lang_catalog: None,
             active_lang: None,
             server_lang: None,

@@ -39,8 +39,17 @@ pub(super) fn recipe_entries(
                 icon,
             );
         } else {
+            let sources = presentation::forms::BookIconSources {
+                registry: items.authority.map(|authority| {
+                    std::sync::Arc::clone(authority.item_presentation_generation())
+                }),
+                catalog: presentation.icon_catalog.clone(),
+                session_icons: presentation.session_icon_generation(),
+                dials: presentation.dial_frames(),
+            };
             window_icons.book_entries =
-                presentation::forms::recipe_book_icons(player_runtime, runtime, icon);
+                presentation::forms::recipe_book_icons(player_runtime, runtime, sources, icon)
+                    .to_vec();
         }
     }
 }
