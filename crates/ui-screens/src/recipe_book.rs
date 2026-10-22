@@ -166,8 +166,13 @@ pub fn book_data(
                 icons.push(icon);
                 item = item.with("#item_renderer_data", Scalar::Num((icons.len() - 1) as f64));
             }
-            let count = entry.stack().count;
+            let stack = entry.stack();
+            let count = stack.count;
             item.with(
+                "#item_id_aux",
+                Scalar::Int(i64::from(protocol::item_id_aux(&stack))),
+            )
+            .with(
                 "#recipe_craftable_count",
                 Scalar::Text(if count > 1 && !creative {
                     count.to_string()
