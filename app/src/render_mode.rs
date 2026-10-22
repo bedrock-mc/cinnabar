@@ -198,6 +198,7 @@ impl Plugin for RenderModePlugin {
                 shader_pack_revision: 0,
             })
             .init_resource::<ShaderPackRequest>()
+            .add_message::<bevy::window::WindowFocused>()
             .init_resource::<shader_pack::reload::ShaderPackReloadReport>()
             .add_systems(Startup, seed_render_mode)
             .add_systems(
