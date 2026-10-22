@@ -5,6 +5,8 @@ use sim::MovementEffects;
 use super::physics::MovementEffectSource;
 
 const TRACKED_EFFECT_COUNT: usize = 8;
+/// Glide boost the client predicts for its own rocket until a server boost restates it.
+const PREDICTED_ROCKET_BOOST_TICKS: u32 = 20;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -252,6 +254,20 @@ impl LocalMovementEffectTimeline {
         self.boosts[boost.index()] = remaining;
     }
 
+    /// Starts the glide boost of a rocket used while gliding from the next simulated tick.
+    /// A longer or unbounded boost already running is kept.
+    pub fn predict_rocket_boost(&mut self) {
+        let predicted = BoostSpan::Ticks(PREDICTED_ROCKET_BOOST_TICKS);
+        let lane = &mut self.boosts[MovementBoost::Glide.index()];
+        *lane = Some(match *lane {
+            Some(BoostSpan::Ticks(ticks)) if ticks > PREDICTED_ROCKET_BOOST_TICKS => {
+                BoostSpan::Ticks(ticks)
+            }
+            Some(BoostSpan::Unbounded) => BoostSpan::Unbounded,
+            _ => predicted,
+        });
+    }
+
     /// Wire amplifiers of the effects that scale destroy speed.
     pub fn mining_effects(&self) -> MiningEffects {
         let amplifier =
@@ -418,6 +434,27 @@ mod tests {
             timeline.commit_successful_tick();
         }
         assert!(timeline.snapshot().dolphin_boost);
+        assert!(!timeline.snapshot().glide_boost);
+    }
+
+    /// A rocket's own boost lasts without a server packet, never shortening a longer one.
+    #[test]
+    fn predicted_rocket_boost_runs_twenty_ticks_and_keeps_a_longer_boost() {
+        let mut timeline = LocalMovementEffectTimeline::default();
+        timeline.begin_session(1);
+        timeline.predict_rocket_boost();
+        for _ in 0..PREDICTED_ROCKET_BOOST_TICKS {
+            assert!(timeline.snapshot().glide_boost);
+            timeline.commit_successful_tick();
+        }
+        assert!(!timeline.snapshot().glide_boost);
+
+        timeline.set_movement_boost(1, 1, MovementBoost::Glide, Some(BoostSpan::Ticks(30)));
+        timeline.predict_rocket_boost();
+        for _ in 0..30 {
+            assert!(timeline.snapshot().glide_boost);
+            timeline.commit_successful_tick();
+        }
         assert!(!timeline.snapshot().glide_boost);
     }
 

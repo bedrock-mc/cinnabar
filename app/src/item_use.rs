@@ -58,7 +58,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     client_world: Res<'w, ClientWorld>,
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
-    effects: Res<'w, LocalMovementEffectTimeline>,
+    effects: ResMut<'w, LocalMovementEffectTimeline>,
     physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     weather: Option<Res<'w, render_scene::AtmosphereViewInputs>>,
     network: Res<'w, NetworkHandle<PackApplication>>,
