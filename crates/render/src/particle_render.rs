@@ -62,7 +62,7 @@ const MERGE_RETAINED_CAPACITY_FACTOR: usize = 4;
 #[path = "particle_render/atlas.rs"]
 mod atlas;
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 #[path = "particle_render/atlas_fault_tests.rs"]
 mod atlas_fault_tests;
 

@@ -1,9 +1,8 @@
-//! Recoverable render allocations: out-of-memory skips the owner's work instead of
-//! quitting. Other GPU errors remain fatal.
+//! Scoped render allocations: out-of-memory skips or retries the owner's work instead of
+//! reaching Bevy's render error handler.
 
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
-    error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy},
     render_resource::{
         Buffer, BufferDescriptor, BufferUsages, Origin3d, TexelCopyBufferLayout,
         TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
@@ -14,69 +13,6 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-
-/// Keeps rendering after an uncaptured out-of-memory error; other errors keep Bevy's policy.
-/// Install after the render plugin so this handler replaces the default.
-pub fn install_error_policy(app: &mut bevy::app::App) {
-    app.insert_resource(RenderErrorHandler(error_policy));
-}
-
-/// wgpu reports out-of-memory per failed operation and leaves the device usable; a real device
-/// loss arrives separately as `DeviceLost`, and later use of the failed resource stays fatal.
-fn error_policy(
-    error: &RenderError,
-    main_world: &mut bevy::ecs::world::World,
-    render_world: &mut bevy::ecs::world::World,
-) -> RenderErrorPolicy {
-    if error.ty == ErrorType::OutOfMemory {
-        bevy::log::warn_once!("GPU memory exhausted; continuing without the failed allocation");
-        record_memory_loss();
-        return RenderErrorPolicy::Ignore;
-    }
-    (RenderErrorHandler::default().0)(error, main_world, render_world)
-}
-
-/// Swallowed out-of-memory errors so far; any unscoped write may have been dropped since an
-/// owner last uploaded.
-#[cfg(not(test))]
-static MEMORY_LOSS_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(test)]
-thread_local! { static MEMORY_LOSS_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
-
-/// Advances the epoch; tests keep it per thread so parallel fixtures stay independent.
-pub(crate) fn record_memory_loss() {
-    #[cfg(not(test))]
-    MEMORY_LOSS_EPOCH.fetch_add(1, Ordering::AcqRel);
-    #[cfg(test)]
-    MEMORY_LOSS_EPOCH.with(|epoch| epoch.set(epoch.get() + 1));
-}
-
-/// The current memory-loss epoch.
-fn memory_loss_epoch() -> u64 {
-    #[cfg(not(test))]
-    return MEMORY_LOSS_EPOCH.load(Ordering::Acquire);
-    #[cfg(test)]
-    MEMORY_LOSS_EPOCH.with(std::cell::Cell::get)
-}
-
-/// The memory-loss epoch an owner last uploaded its full content at.
-pub(crate) struct UploadEpoch(u64);
-
-impl Default for UploadEpoch {
-    /// Starts at the current epoch: a new owner has lost nothing yet.
-    fn default() -> Self {
-        Self(memory_loss_epoch())
-    }
-}
-
-impl UploadEpoch {
-    /// Returns `true` once after a swallowed out-of-memory error, when the owner must invalidate
-    /// and re-upload everything it tracks as uploaded.
-    pub(crate) fn lost(&mut self) -> bool {
-        let epoch = memory_loss_epoch();
-        std::mem::replace(&mut self.0, epoch) != epoch
-    }
-}
 
 /// Returns no resource when allocation or staging ran out of memory on this thread.
 /// WebGPU reports errors asynchronously through Bevy's device error handler instead.
@@ -302,41 +238,6 @@ pub(crate) fn inject(hook: impl FnMut(&str, u64) -> bool + 'static) -> impl Drop
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::{
-        app::AppExit,
-        ecs::{message::Messages, world::World},
-    };
-
-    // An uncaptured out-of-memory error keeps the client running; other errors still quit.
-    #[test]
-    fn out_of_memory_keeps_rendering_while_validation_errors_still_quit() {
-        let error = |ty| RenderError {
-            ty,
-            description: String::new(),
-            source: None,
-        };
-        let (mut main_world, mut render_world) = (World::new(), World::new());
-        main_world.init_resource::<Messages<AppExit>>();
-        let mut owner = UploadEpoch::default();
-        let policy = error_policy(
-            &error(ErrorType::OutOfMemory),
-            &mut main_world,
-            &mut render_world,
-        );
-        assert!(matches!(policy, RenderErrorPolicy::Ignore));
-        assert!(main_world.resource::<Messages<AppExit>>().is_empty());
-        // The swallowed error may have dropped a write, so owners re-upload exactly once.
-        assert!(owner.lost());
-        assert!(!owner.lost());
-        assert!(!UploadEpoch::default().lost());
-        let policy = error_policy(
-            &error(ErrorType::Validation),
-            &mut main_world,
-            &mut render_world,
-        );
-        assert!(matches!(policy, RenderErrorPolicy::StopRendering));
-        assert!(!main_world.resource::<Messages<AppExit>>().is_empty());
-    }
 
     // A failure with nothing released still retries, backing off to a bounded interval.
     #[test]

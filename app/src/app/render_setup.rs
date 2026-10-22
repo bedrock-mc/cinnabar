@@ -38,8 +38,7 @@ pub(super) struct RendererSetup {
 }
 
 impl bevy::prelude::Plugin for RendererSetup {
-    /// Keeps GL on the same display as Bevy's windows and installs first-frame and
-    /// out-of-memory recovery.
+    /// Keeps GL on the same display as Bevy's windows and installs first-frame recovery.
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut settings = WgpuSettings::default();
         render::device_settings::configure(&mut settings);
@@ -52,7 +51,6 @@ impl bevy::prelude::Plugin for RendererSetup {
         )
         .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
         app.add_plugins(renderer);
-        render::install_error_policy(app);
     }
 }
 

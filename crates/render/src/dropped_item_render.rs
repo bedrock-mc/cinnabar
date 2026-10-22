@@ -156,8 +156,6 @@ struct ItemGpu {
     atlas_view: Option<TextureView>,
     /// Waits to retry a failed upload until released atlas memory retires.
     upload: crate::gpu_allocation::UploadRetry,
-    /// A swallowed out-of-memory error rebuilds the atlas, meshes and glint.
-    epoch: crate::gpu_allocation::UploadEpoch,
     models_revision: u64,
     /// Current model slots given priority during the last resource rebuild.
     prioritized_models: Vec<bool>,
@@ -284,7 +282,6 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         _atlas: None,
         atlas_view: None,
         upload: crate::gpu_allocation::UploadRetry::default(),
-        epoch: crate::gpu_allocation::UploadEpoch::default(),
         models_revision: u64::MAX,
         prioritized_models: Vec::new(),
         dynamic_count: 0,
@@ -334,13 +331,8 @@ fn prepare_items(
                         || (priority_changed && range.capacity_rejected))
             })
     });
-    let lost = gpu.epoch.lost();
-    if lost {
-        gpu.glint = None;
-    }
     let failed = gpu.upload.failed();
-    if lost
-        || gpu.models_revision != scene.models_revision
+    if gpu.models_revision != scene.models_revision
         || (failed && gpu.upload.take_ready())
         || (!failed && (gpu.atlas_view.is_none() || missing_current))
     {
