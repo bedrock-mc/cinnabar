@@ -130,7 +130,7 @@ mod tests {
     /// A stack with a server id, so an omitted id on the wire is observable.
     fn identified(count: u16, stack_network_id: i32) -> VerifiedNetworkItemStack {
         let extra: std::sync::Arc<[u8]> = std::sync::Arc::from([0x0a, 0x00, 0x00]);
-        let digest = sha2::Digest::digest(&extra).into();
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(&extra).into();
         let stack = crate::NetworkItemStack {
             network_id: 321,
             metadata: 0,
