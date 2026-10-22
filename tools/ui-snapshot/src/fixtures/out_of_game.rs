@@ -220,6 +220,7 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }]));
     for input in [
@@ -272,6 +273,7 @@ pub(super) fn world_edit_advanced() -> Fixture {
         options: Default::default(),
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     };
     view.local.screen = launcher::local_worlds::Screen::Edit;

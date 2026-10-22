@@ -13,7 +13,6 @@ use std::{
 use crossbeam_channel::Receiver;
 
 use crate::lifecycle::children;
-use launcher::local_worlds::options::WorldOption;
 use launcher::local_worlds::world::{SetupState, UnavailableReason};
 
 use super::{
@@ -134,13 +133,14 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
             "SERVER_UDP_PORTS",
             bds_udp_mapping(args.host_port, BDS_CONTAINER_UDP_PORT, players),
         ),
+        ("ENABLE_LAN_VISIBILITY", args.lan_visible.to_string()),
         // The image's shim for IPv6 binds Docker cannot serve.
         ("ENABLE_BDS_V6BIND_FIX", "TRUE".to_owned()),
     ] {
         run.push("-e".to_owned());
         run.push(format!("{key}={value}"));
     }
-    for (key, value) in option_properties(args.spec, args.lan_visible) {
+    for (key, value) in option_properties(args.spec) {
         run.push("-e".to_owned());
         run.push(format!(
             "{}={value}",
@@ -223,8 +223,6 @@ impl BdsRunner {
             return Err(WorldError::ImageNotPinned);
         }
         let max_players = world_player_limit(spec, self.max_players);
-        // Ports are published on loopback only, so other devices could never join from LAN.
-        let lan_visible = false;
         self.check_docker(cancel)?;
         self.ensure_image(cancel)?;
         let binary = provisioner.ensure(cancel)?;
@@ -240,7 +238,7 @@ impl BdsRunner {
         // A leftover of an earlier crash would hold the name and its ports.
         self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
         let port = free_bds_port(max_players, self.host_port)?;
-        if lan_visible {
+        if self.lan_visible {
             let lan_port = if self.lan_host_port == 0 {
                 LAN_DISCOVERY_PORT
             } else {
@@ -248,9 +246,7 @@ impl BdsRunner {
             };
             check_bds_lan_port(port, max_players, lan_port)?;
         }
-        let mut world = spec.world.clone();
-        world.options.set(WorldOption::LanVisible, 0);
-        super::level_dat::configure(&world, &spec.dir.join(LEVEL_DIR))?;
+        super::level_dat::configure(&spec.world, &spec.dir.join(LEVEL_DIR))?;
         let mut command = self.docker();
         command.args(container_args(&ContainerArgs {
             spec,
@@ -259,7 +255,7 @@ impl BdsRunner {
             install,
             host_port: port,
             max_players,
-            lan_visible,
+            lan_visible: self.lan_visible,
             lan_host_port: self.lan_host_port,
         }));
         let launched = launch(
@@ -287,7 +283,7 @@ impl BdsRunner {
             name,
             removed: Once::new(),
             max_players,
-            lan_address: lan_visible.then(|| lan_address(self.lan_host_port)),
+            lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
         });
         let watched = Arc::clone(&instance);
         thread::spawn(move || {

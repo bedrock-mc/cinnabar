@@ -20,6 +20,7 @@ fn world(id: &str, name: &str) -> World {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }
 }
@@ -866,22 +867,26 @@ fn world_options_edits_keep_the_form_baseline_when_the_list_refreshes() {
     assert_eq!(changes.get(O::RandomTickSpeed), None);
 }
 
-/// Container ports stay on loopback, so LAN visibility reads off and cannot be switched on there.
+/// Options of a BDS world whose level data is unreadable stay hidden and unchangeable.
 #[test]
-fn the_container_runtime_locks_lan_visibility_off() {
-    use super::super::options::WorldOption as O;
-    let mut menu = loaded(&["a"]);
-    let mut ready = status(WorldState::Idle, "");
-    ready.world_id = None;
-    ready.setup = Some(setup(SetupState::Ready));
-    menu.apply(Event::Prefs(Prefs::default(), ready));
-    menu.update(Input::BeginCreate);
-    assert!(menu.create_form().options.enabled(O::LanVisible));
-    let view = menu.view();
-    assert_eq!(view.option_value(&view.create.options, O::LanVisible), 0);
-    assert!(!view.option_editable(&view.create.options, O::LanVisible, false));
-    menu.update(Input::SetOption(O::LanVisible, 0));
-    menu.update(Input::SetOption(O::LanVisible, 1));
-    assert!(menu.create_form().options.enabled(O::LanVisible));
-    assert!(view.option_editable(&view.create.options, O::Multiplayer, false));
+fn world_options_are_unavailable_when_level_data_cannot_be_read() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![World {
+        backend: Backend::Bds,
+        options_unavailable: true,
+        ..world("id0", "Oversized")
+    }]));
+    menu.update(Input::BeginEdit(0));
+    assert!(!menu.view().options_available());
+    menu.update(Input::SelectTab(Tab::Advanced));
+    assert_eq!(menu.view().tab, Tab::General);
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    assert!(
+        !menu
+            .edit_form()
+            .unwrap()
+            .options
+            .enabled(O::ShowCoordinates)
+    );
 }

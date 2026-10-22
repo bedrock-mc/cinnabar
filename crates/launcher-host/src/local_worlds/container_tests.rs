@@ -33,7 +33,6 @@ fn container_runner(dir: &Path, image: &str, docker_down: bool) -> (BdsRunner, s
     write_script(&docker, FAKE_DOCKER);
     let log = dir.join("docker.log");
     let mut runner = BdsRunner::new(Arc::new(provisioner), image.to_owned());
-    runner.lan_host_port = super::super::ports::free_loopback_port().expect("test discovery port");
     runner.docker = docker.to_string_lossy().into_owned();
     runner
         .env
@@ -58,14 +57,8 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     assert_eq!(runner.provisioner.status().0.state, SetupState::Ready);
     let world_dir = dir.path().join("world");
     let spec = spec(&world_dir);
-    assert!(spec.world.options.lan_visible());
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
     assert!(!instance.can_pause(), "container BDS cannot pause");
-    assert_eq!(
-        instance.lan_address(),
-        None,
-        "loopback ports cannot serve LAN"
-    );
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     let calls = docker_log(&log);
     let name = container_name(&spec.world.id);

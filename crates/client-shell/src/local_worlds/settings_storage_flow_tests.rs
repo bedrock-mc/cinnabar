@@ -34,6 +34,7 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }]));
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));

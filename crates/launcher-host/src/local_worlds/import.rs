@@ -136,19 +136,14 @@ struct LevelSettings {
     seed: Option<i64>,
 }
 
-/// Reads `level.dat`: an 8-byte header, then a little-endian NBT compound. An unreadable file
-/// yields what was read before the damage.
+/// Reads `level.dat`: an 8-byte header, then a little-endian NBT compound. A damaged file
+/// yields what was read before the damage; an oversized one, the defaults.
 fn read_level_dat(path: &Path) -> LevelSettings {
     let mut settings = LevelSettings {
         generator: Generator::Normal,
         ..LevelSettings::default()
     };
-    let mut bytes = Vec::new();
-    let read = fs::File::open(path).and_then(|file| {
-        file.take(super::level_dat::MAX_LEVEL_DAT_BYTES)
-            .read_to_end(&mut bytes)
-    });
-    if read.is_ok() {
+    if let Ok(super::level_dat::LevelData::Read(bytes)) = super::level_dat::read(path) {
         let _ = Nbt(bytes.get(8..).unwrap_or_default()).root(&mut settings);
     }
     settings

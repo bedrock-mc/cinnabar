@@ -36,7 +36,7 @@ impl RuntimeKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Native => "native",
-            Self::Container => launcher::local_worlds::world::CONTAINER_RUNTIME,
+            Self::Container => "container",
             Self::None => "none",
         }
     }

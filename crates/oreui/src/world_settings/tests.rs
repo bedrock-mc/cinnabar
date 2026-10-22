@@ -210,6 +210,7 @@ fn world_options_edit_shows_the_saved_seed_without_generation_inputs() {
         options: Default::default(),
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     };
     let mut menu = WorldsMenu::default();

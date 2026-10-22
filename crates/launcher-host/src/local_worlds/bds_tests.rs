@@ -179,7 +179,7 @@ fn world_options_properties_match_native_and_container_configuration() {
                 .wire
                 .to_owned(),
         };
-        let native = server_properties(&spec, 5000, 8, true);
+        let native = server_properties(&spec, 5000, 8, false);
         assert!(
             native.lines().any(|line| line == format!("{key}={text}")),
             "{id:?}: {native}"
@@ -191,7 +191,7 @@ fn world_options_properties_match_native_and_container_configuration() {
             install: dir.path(),
             host_port: 5000,
             max_players: 8,
-            lan_visible: true,
+            lan_visible: false,
             lan_host_port: 0,
         });
         let environment = format!("{}={text}", key.replace('-', "_").to_ascii_uppercase());
@@ -202,7 +202,6 @@ fn world_options_properties_match_native_and_container_configuration() {
     }
     spec.world.options.set(O::Multiplayer, 0);
     assert_eq!(world_player_limit(&spec, 8), 1);
-    assert!(!spec.world.options.lan_visible());
     spec.world.options.set(O::Multiplayer, 1);
     assert_eq!(world_player_limit(&spec, 8), 8);
 }

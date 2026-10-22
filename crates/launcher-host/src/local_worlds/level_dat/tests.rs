@@ -202,8 +202,6 @@ fn world_options_read_multiplayer_from_the_effective_flags_bds_saves() {
     let mut fields = read_fields(&bytes[8..]).unwrap();
     put(&mut fields, "MultiplayerGame", 1, &[1]);
     put(&mut fields, "MultiplayerGameIntent", 1, &[0]);
-    put(&mut fields, "LANBroadcast", 1, &[1]);
-    put(&mut fields, "LANBroadcastIntent", 1, &[0]);
     let mut body = vec![10, 0, 0];
     for (_, tag) in fields {
         body.extend(tag);
@@ -216,32 +214,26 @@ fn world_options_read_multiplayer_from_the_effective_flags_bds_saves() {
     fs::write(dir.path().join("level.dat"), &fixture).unwrap();
     let options = read_options(&dir.path().join("level.dat"));
     assert!(options.enabled(O::Multiplayer));
-    assert!(options.lan_visible());
 }
 
-/// Imported files are untrusted, so an oversized one is refused without reading it whole.
+/// An oversized file is never parsed, and opening the world leaves it byte-identical.
 #[test]
-fn world_options_ignore_level_data_beyond_the_read_bound() {
+fn world_options_leave_level_data_beyond_the_read_bound_untouched() {
     let mut world = test_support::world();
     world.options.set(O::ShowCoordinates, 1);
     let bytes = configured(&world, &[]).unwrap();
-    let mut fields = read_fields(&bytes[8..]).unwrap();
-    let padding = MAX_LEVEL_DAT_BYTES as usize;
-    let mut blob = (padding as i32).to_le_bytes().to_vec();
-    blob.resize(4 + padding, 0);
-    put(&mut fields, "padding", 7, &blob);
-    let mut body = vec![10, 0, 0];
-    for (_, tag) in fields {
-        body.extend(tag);
-    }
-    body.push(0);
-    let mut oversized = bytes[..4].to_vec();
-    oversized.extend((body.len() as u32).to_le_bytes());
-    oversized.extend(body);
+    let oversized = test_support::padded_level_dat(&bytes, MAX_LEVEL_DAT_BYTES as usize);
+    assert!(
+        configured(&world, &oversized).is_some(),
+        "the fixture is valid"
+    );
     let dir = test_support::scratch();
     let path = dir.path().join("level.dat");
     fs::write(&path, &oversized).unwrap();
     assert!(try_read_options(&path).is_none());
+    world.options.set(O::ShowCoordinates, 0);
+    configure(&world, dir.path()).unwrap();
+    assert!(fs::read(&path).unwrap() == oversized);
     fs::write(&path, &bytes).unwrap();
     assert!(try_read_options(&path).unwrap().enabled(O::ShowCoordinates));
 }

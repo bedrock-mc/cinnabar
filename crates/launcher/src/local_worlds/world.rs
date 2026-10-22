@@ -35,6 +35,8 @@ pub struct World {
     pub backend: Backend,
     pub seed: i64,
     pub options: super::options::WorldOptions,
+    /// Its `level.dat` exceeds the read bound, so options are neither shown nor written.
+    pub options_unavailable: bool,
     pub created_unix: i64,
     pub last_played_unix: i64,
     /// Bytes on disk.
@@ -123,9 +125,6 @@ pub enum SetupState {
     Failed,
 }
 
-/// [`Setup::runtime`] for the Linux build in a container, whose ports stay on loopback.
-pub const CONTAINER_RUNTIME: &str = "container";
-
 /// Dedicated-server setup as reported in [`WorldStatus`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Setup {
@@ -137,7 +136,7 @@ pub struct Setup {
     pub layers_total: u32,
     pub eula_accepted: bool,
     pub error: Option<String>,
-    /// `native`, [`CONTAINER_RUNTIME`] or `none`.
+    /// `native`, `container` or `none`.
     pub runtime: String,
     pub reason: Option<String>,
 }

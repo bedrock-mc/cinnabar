@@ -10,7 +10,9 @@ use launcher::local_worlds::world::{Difficulty, Generator, NewWorld, Prefs, Worl
 use serde::{Deserialize, Serialize};
 
 use super::{
-    create_private_dir, lock,
+    create_private_dir,
+    level_dat::LevelData,
+    lock,
     provision::unix_now,
     world::{WorldError, failed, validate_name},
 };
@@ -227,6 +229,21 @@ impl Store {
             "normal" => Generator::Normal,
             _ => return Err(corrupt()),
         };
+        let level = super::level_dat::read(&self.root.join(id).join(LEVEL_DIR).join("level.dat"));
+        let options_unavailable = matches!(level, Ok(LevelData::Oversized));
+        let current = match &level {
+            Ok(LevelData::Read(bytes)) => super::level_dat::options_from(bytes),
+            _ => None,
+        };
+        let mut options = match (saved.options, current) {
+            (Some(mut options), Some(current)) => {
+                options.merge_server_rules(&current);
+                options
+            }
+            (Some(options), None) => options,
+            (None, current) => current.unwrap_or_default(),
+        };
+        options.apply_changes(&saved.pending_options);
         Ok(World {
             id: saved.id,
             name: saved.name,
@@ -235,22 +252,10 @@ impl Store {
             difficulty: saved.difficulty,
             backend,
             seed: saved.seed,
-            options: {
-                let path = self.root.join(id).join(LEVEL_DIR).join("level.dat");
-                let mut options = match saved.options {
-                    Some(mut options) => {
-                        if let Some(current) = super::level_dat::try_read_options(&path) {
-                            options.merge_server_rules(&current);
-                        }
-                        options
-                    }
-                    None => super::level_dat::read_options(&path),
-                };
-                options.apply_changes(&saved.pending_options);
-                options
-            },
+            options,
             created_unix: saved.created_unix,
             last_played_unix: saved.last_played_unix,
+            options_unavailable,
             size_bytes: 0,
         })
     }
@@ -503,6 +508,7 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
         options: world.options.clone(),
         created_unix: now,
         last_played_unix: now,
+        options_unavailable: false,
         size_bytes: 0,
     })
 }

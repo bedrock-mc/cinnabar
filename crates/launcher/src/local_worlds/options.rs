@@ -112,7 +112,6 @@ options! {
     RespawnRadius: "Respawn radius", Advanced, 10, Number { min: 0, max: 128 }, false, Rule("spawnradius"), false;
     SimulationDistance: "Simulation distance", Advanced, 4, Number { min: 4, max: 12 }, false, Property("tick-distance", "serverChunkTickRange"), false;
     Multiplayer: "Multiplayer game", Multiplayer, 1, Toggle, false, Level("MultiplayerGame"), false;
-    LanVisible: "Visible to LAN players", Multiplayer, 1, Toggle, false, Property("enable-lan-visibility", "LANBroadcast"), false;
     PlayerPermissions: "Default player permission", Multiplayer, 1, Control::Choice(PERMISSIONS), false, Property("default-player-permission-level", "playerPermissionsLevel"), false;
     PlayerWaypoints: "Player waypoints", Multiplayer, 1, Control::Choice(WAYPOINTS), false, Rule("playerwaypoints"), false;
     ActivateCheats: "Activate cheats", Cheats, 0, Toggle, false, Property("allow-cheats", "cheatsEnabled"), false;
@@ -178,15 +177,9 @@ impl WorldOptions {
     pub fn editable(&self, id: WorldOption, editing: bool) -> bool {
         !(editing && id.definition().creation_only)
             && match id {
-                WorldOption::LanVisible => self.enabled(WorldOption::Multiplayer),
                 WorldOption::SleepPercentage => self.enabled(WorldOption::SleepSkipNight),
                 _ => true,
             }
-    }
-
-    /// Whether local multiplayer and its LAN discovery are both enabled.
-    pub fn lan_visible(&self) -> bool {
-        self.enabled(WorldOption::Multiplayer) && self.enabled(WorldOption::LanVisible)
     }
 }
 

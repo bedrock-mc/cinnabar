@@ -17,12 +17,38 @@ use std::{
 /// `level.dat` holds a few kilobytes of settings; anything far larger is not read.
 pub(super) const MAX_LEVEL_DAT_BYTES: u64 = 1 << 20;
 
-/// Prepares new level data or replaces only owned fields in an existing world.
+/// A world's `level.dat`, read no further than [`MAX_LEVEL_DAT_BYTES`].
+pub(super) enum LevelData {
+    Missing,
+    Read(Vec<u8>),
+    /// Larger than the bound; never parsed or rewritten.
+    Oversized,
+}
+
+/// Reads `path` without loading more than the bound.
+pub(super) fn read(path: &Path) -> io::Result<LevelData> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(LevelData::Missing),
+        Err(error) => return Err(error),
+    };
+    let mut bytes = Vec::new();
+    file.take(MAX_LEVEL_DAT_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok(if bytes.len() as u64 > MAX_LEVEL_DAT_BYTES {
+        LevelData::Oversized
+    } else {
+        LevelData::Read(bytes)
+    })
+}
+
+/// Prepares new level data or replaces only owned fields in an existing world; leaves an
+/// oversized file untouched for BDS to read itself.
 pub(super) fn configure(world: &World, dir: &Path) -> Result<(), WorldError> {
     let path = dir.join("level.dat");
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+    let bytes = match read(&path) {
+        Ok(LevelData::Missing) => Vec::new(),
+        Ok(LevelData::Read(bytes)) => bytes,
+        Ok(LevelData::Oversized) => return Ok(()),
         Err(error) => return Err(failed(format!("read world settings: {error}"))),
     };
     let data = configured(world, &bytes).ok_or_else(|| failed("invalid world level data"))?;
@@ -88,8 +114,6 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
         };
         let value = if id == O::SleepPercentage && !options.enabled(O::SleepSkipNight) {
             101
-        } else if id == O::LanVisible {
-            i32::from(options.lan_visible())
         } else {
             options.get(id)
         };
@@ -109,12 +133,6 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
         "MultiplayerGameIntent",
         1,
         &[u8::from(options.enabled(O::Multiplayer))],
-    );
-    put(
-        &mut fields,
-        "LANBroadcastIntent",
-        1,
-        &[u8::from(options.enabled(O::LanVisible))],
     );
     put(
         &mut fields,
@@ -260,27 +278,26 @@ pub(super) fn read_options(path: &Path) -> launcher::local_worlds::options::Worl
     try_read_options(path).unwrap_or_default()
 }
 
-/// Reads options only from a complete, well-formed level-data file.
+/// Reads options only from a complete, well-formed level-data file within the bound.
 pub(super) fn try_read_options(
     path: &Path,
 ) -> Option<launcher::local_worlds::options::WorldOptions> {
-    let mut options = launcher::local_worlds::options::WorldOptions::default();
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(MAX_LEVEL_DAT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_LEVEL_DAT_BYTES {
+    let LevelData::Read(bytes) = read(path).ok()? else {
         return None;
-    }
+    };
+    options_from(&bytes)
+}
+
+/// Parses options from complete level data.
+pub(super) fn options_from(bytes: &[u8]) -> Option<launcher::local_worlds::options::WorldOptions> {
+    let mut options = launcher::local_worlds::options::WorldOptions::default();
     let size = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?) as usize;
     if bytes.len() - 8 != size {
         return None;
     }
     let fields = read_fields(bytes.get(8..)?)?;
     // BDS saves `MultiplayerGameIntent` as 0 even for multiplayer worlds; only the effective
-    // `MultiplayerGame` and `LANBroadcast` flags describe a saved world.
+    // `MultiplayerGame` flag describes a saved world.
     for &id in O::ALL {
         let key = match id.definition().storage {
             Storage::Rule(key) | Storage::Level(key) | Storage::Property(_, key) => key,

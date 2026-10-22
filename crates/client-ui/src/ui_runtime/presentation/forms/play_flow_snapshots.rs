@@ -361,6 +361,7 @@ fn snapshot_local_worlds() {
         seed: 1,
         created_unix: 1_790_553_600,
         last_played_unix: 1_790_553_600,
+        options_unavailable: false,
         size_bytes: 12 * 1024 * 1024,
     };
     let shot = |menu: &WorldsMenu, name: &str| {

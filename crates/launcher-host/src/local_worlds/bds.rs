@@ -50,6 +50,8 @@ pub(crate) struct BdsRunner {
     pub max_players: u32,
     /// Zero selects an available loopback TCP and UDP window.
     pub host_port: u16,
+    /// Enables BDS's LAN discovery.
+    pub lan_visible: bool,
     /// Container-only discovery host port; zero uses the default discovery port.
     pub lan_host_port: u16,
     /// The Docker-compatible CLI of the container runtime.
@@ -66,6 +68,7 @@ impl BdsRunner {
             start_timeout: None,
             max_players: HOSTED_WORLD_MAX_PLAYERS,
             host_port: 0,
+            lan_visible: false,
             lan_host_port: 0,
             docker: DOCKER.to_owned(),
             image,
@@ -80,7 +83,6 @@ impl Runner for BdsRunner {
         }
         let binary = self.provisioner.ensure(cancel)?;
         let max_players = world_player_limit(spec, self.max_players);
-        let lan_visible = spec.world.options.lan_visible();
         let port = free_bds_port(max_players, self.host_port)?;
         let install = install_dir(&binary)?;
         let world_dir = spec.dir.join(LEVEL_DIR);
@@ -89,7 +91,7 @@ impl Runner for BdsRunner {
         super::level_dat::configure(&spec.world, &world_dir)?;
         let link = install.join("worlds").join(&spec.world.id);
         link_world(&link, &world_dir)?;
-        let properties = server_properties(spec, port, max_players, lan_visible);
+        let properties = server_properties(spec, port, max_players, self.lan_visible);
         if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
         {
             unlink_world(&link);
@@ -122,7 +124,7 @@ impl Runner for BdsRunner {
             process,
             link,
             unlinked: Once::new(),
-            lan_address: lan_visible.then(|| lan_address(0)),
+            lan_address: self.lan_visible.then(|| lan_address(0)),
             max_players,
         });
         let watched = Arc::clone(&instance);
@@ -234,12 +236,13 @@ pub(crate) fn server_properties(
         ("view-distance", view.to_string()),
         ("player-idle-timeout", "0".to_owned()),
         ("transport", BDS_TRANSPORT.to_owned()),
+        ("enable-lan-visibility", lan_visible.to_string()),
         ("texturepack-required", "false".to_owned()),
         ("content-log-file-enabled", "false".to_owned()),
     ] {
         let _ = writeln!(properties, "{key}={value}");
     }
-    for (key, value) in option_properties(spec, lan_visible) {
+    for (key, value) in option_properties(spec) {
         let _ = writeln!(properties, "{key}={value}");
     }
     properties
@@ -255,10 +258,7 @@ pub(crate) fn world_player_limit(spec: &StartSpec, configured: u32) -> u32 {
 }
 
 /// Generates the shared option properties used by native and container BDS.
-pub(crate) fn option_properties(
-    spec: &StartSpec,
-    lan_visible: bool,
-) -> Vec<(&'static str, String)> {
+pub(crate) fn option_properties(spec: &StartSpec) -> Vec<(&'static str, String)> {
     O::ALL
         .iter()
         .filter_map(|&id| {
@@ -268,12 +268,7 @@ pub(crate) fn option_properties(
             };
             let options = &spec.world.options;
             let value = match definition.control {
-                launcher::local_worlds::options::Control::Toggle => (if id == O::LanVisible {
-                    lan_visible && options.lan_visible()
-                } else {
-                    options.enabled(id)
-                })
-                .to_string(),
+                launcher::local_worlds::options::Control::Toggle => options.enabled(id).to_string(),
                 launcher::local_worlds::options::Control::Choice(choices) => choices
                     .iter()
                     .find(|choice| choice.value == options.get(id))

@@ -494,16 +494,13 @@ fn world_options_inactive_preferences_survive_configuration_and_reload() {
     let loaded = store.get(&world.id).unwrap();
     assert_eq!(loaded.options.get(O::SleepPercentage), 35);
     assert!(!loaded.options.enabled(O::SleepSkipNight));
-    assert!(loaded.options.enabled(O::LanVisible));
     assert!(!loaded.options.enabled(O::Multiplayer));
     let mut server = loaded;
     server.options.set(O::Multiplayer, 1);
-    server.options.set(O::LanVisible, 0);
     server.options.set(O::FireSpreads, 0);
     super::super::level_dat::configure(&server, &level).unwrap();
     let loaded = store.get(&world.id).unwrap();
     assert!(!loaded.options.enabled(O::Multiplayer));
-    assert!(loaded.options.enabled(O::LanVisible));
     assert!(!loaded.options.enabled(O::FireSpreads));
 }
 
@@ -537,4 +534,31 @@ fn world_options_menu_deltas_preserve_rules_changed_after_the_cached_list() {
     let saved = store.update(id, update).unwrap();
     assert_eq!(saved.options.get(O::RandomTickSpeed), 42);
     assert!(saved.options.enabled(O::ShowCoordinates));
+}
+
+/// A world whose level data exceeds the read bound reports its options unavailable and
+/// keeps that file byte-identical through opening and configuration.
+#[test]
+fn oversized_level_data_marks_options_unavailable_and_stays_untouched() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let dir = scratch();
+    let store = store(&dir);
+    let mut new = new_world("Oversized");
+    new.options.set(O::ShowCoordinates, 1);
+    let world = store.create(&new).unwrap();
+    let level = store.dir(&world.id).unwrap().join(LEVEL_DIR);
+    fs::create_dir_all(&level).unwrap();
+    super::super::level_dat::configure(&world, &level).unwrap();
+    assert!(!store.get(&world.id).unwrap().options_unavailable);
+    let path = level.join("level.dat");
+    let oversized = crate::local_worlds::test_support::padded_level_dat(
+        &fs::read(&path).unwrap(),
+        super::super::level_dat::MAX_LEVEL_DAT_BYTES as usize,
+    );
+    fs::write(&path, &oversized).unwrap();
+    let opened = store.get(&world.id).unwrap();
+    assert!(opened.options_unavailable);
+    assert!(opened.options.enabled(O::ShowCoordinates));
+    super::super::level_dat::configure(&opened, &level).unwrap();
+    assert!(fs::read(&path).unwrap() == oversized);
 }

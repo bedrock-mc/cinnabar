@@ -161,6 +161,7 @@ fn review_short_world_settings_are_scrollable() {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }]));
     worlds.update(launcher::local_worlds::Input::BeginEdit(0));

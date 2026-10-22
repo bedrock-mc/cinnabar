@@ -6,7 +6,6 @@ use bridge::{Backend, GameMode, WorldState};
 use std::path::PathBuf;
 
 use super::form::{CreateForm, EditForm, validate_name};
-use super::options::{WorldOption, WorldOptions};
 use super::progress::{self, Progress};
 use super::prompt::{DOCKER_URL, Prompt, PromptButton, PromptFor, PromptKind};
 
@@ -171,30 +170,16 @@ pub struct WorldsView {
     /// Whether the selected BDS backend can run on this machine.
     pub bds_can_run: bool,
     pub bds_unavailable: Option<UnavailableReason>,
-    /// True on the container runtime, which publishes its ports on loopback only.
-    pub lan_unavailable: bool,
 }
 
 impl WorldsView {
-    /// Whether a control can change on this machine as well as under its world's dependencies.
-    pub fn option_editable(&self, options: &WorldOptions, id: WorldOption, editing: bool) -> bool {
-        options.editable(id, editing) && !(id == WorldOption::LanVisible && self.lan_unavailable)
-    }
-
-    /// The value a control shows; LAN discovery reads as off where it cannot work.
-    pub fn option_value(&self, options: &WorldOptions, id: WorldOption) -> i32 {
-        if id == WorldOption::LanVisible && self.lan_unavailable {
-            0
-        } else {
-            options.get(id)
-        }
-    }
-    /// Whether the active form uses the BDS backend that supports world options.
+    /// Whether the active form uses the BDS backend that supports world options, with level
+    /// data small enough to read and write them.
     pub fn options_available(&self) -> bool {
         if self.edit.is_some() {
             self.edited
                 .as_ref()
-                .is_some_and(|world| world.backend == Backend::Bds)
+                .is_some_and(|world| world.backend == Backend::Bds && !world.options_unavailable)
         } else {
             self.create.backend == Backend::Bds
         }
@@ -269,7 +254,6 @@ impl WorldsMenu {
             busy: self.busy,
             bds_can_run: self.bds_can_run(),
             bds_unavailable: self.unavailable,
-            lan_unavailable: self.lan_unavailable(),
         }
     }
 
@@ -317,13 +301,6 @@ impl WorldsMenu {
             .find(|w| w.id == id)
             .map_or("", |w| w.name.as_str());
         Some(progress::progress(self.opening_status.as_ref(), name))
-    }
-
-    /// True while the dedicated server runs in a container, which LAN players cannot reach.
-    pub fn lan_unavailable(&self) -> bool {
-        self.setup
-            .as_ref()
-            .is_some_and(|setup| setup.runtime == super::world::CONTAINER_RUNTIME)
     }
 
     /// False once the dedicated server is reported unable to run here.
@@ -532,14 +509,11 @@ impl WorldsMenu {
                     && self.view().options_available() =>
             {
                 self.form_error = None;
-                let view = self.view();
                 match (&mut self.edit, self.screen) {
-                    (Some(edit), Screen::Edit) if view.option_editable(&edit.options, id, true) => {
+                    (Some(edit), Screen::Edit) if edit.options.editable(id, true) => {
                         edit.options.set(id, value);
                     }
-                    (_, Screen::Create)
-                        if view.option_editable(&self.create.options, id, false) =>
-                    {
+                    (_, Screen::Create) if self.create.options.editable(id, false) => {
                         self.create.options.set(id, value);
                     }
                     _ => {}

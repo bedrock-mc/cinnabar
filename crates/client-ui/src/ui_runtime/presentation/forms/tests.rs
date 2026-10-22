@@ -834,6 +834,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         seed: 1,
         created_unix: 1,
         last_played_unix: 1,
+        options_unavailable: false,
         size_bytes: 0,
     };
     let base = |menu: &WorldsMenu| {

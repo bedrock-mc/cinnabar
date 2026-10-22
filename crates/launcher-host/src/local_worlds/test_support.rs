@@ -48,6 +48,7 @@ pub(crate) fn world() -> World {
         seed: -7,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }
 }
@@ -476,4 +477,19 @@ impl Runner for FakeRunner {
         self.discarded
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
+}
+
+/// Valid level data grown by an `extra`-byte array tag, for read-bound fixtures.
+pub(crate) fn padded_level_dat(level: &[u8], extra: usize) -> Vec<u8> {
+    let mut body = level[8..level.len() - 1].to_vec();
+    body.push(7);
+    body.extend(7u16.to_le_bytes());
+    body.extend(b"padding");
+    body.extend((extra as i32).to_le_bytes());
+    body.resize(body.len() + extra, 0);
+    body.push(0);
+    let mut bytes = level[..4].to_vec();
+    bytes.extend((body.len() as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes
 }

@@ -31,13 +31,14 @@ the world file supplies the current rules, including changes saved during play. 
 the host updates the owned fields in `level.dat` and preserves other tags. Game rules, starting map,
 bonus chest, sleep settings,
 respawn radius and daylight settings use level data. Server properties apply cheats, simulation
-distance and default player permissions to both native and container servers, and LAN discovery to
-native ones; container ports stay on loopback, so LAN visibility is off and locked there.
-Turning multiplayer off limits the server to its host, withdraws friend hosting and disables discovery.
+distance and default player permissions to both native and container servers.
+Turning multiplayer off limits the server to its host and withdraws friend hosting.
+LAN visibility is not offered: both runtimes bind and advertise loopback only, so discovery stays off.
 Reopening waits for the prior server to finish saving before it reloads rules and applies pending edits.
 Seed and terrain apply during creation; starting map and bonus chest are also fixed after creation.
 The edit screen exposes the remaining options.
-Older and imported worlds recover their options from level data.
+Older and imported worlds recover their options from level data. A `level.dat` over 1 MiB is
+never parsed or rewritten; that world's options show as unavailable.
 
 Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
 friends-broadcast settings are not exposed on the local BDS multiplayer page. Hardcore remains
@@ -68,7 +69,7 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   not satisfy BDS and vice versa, so do not share one folder across backends.
 - **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`,
   the multiplayer player limit, client view distance (5–32), independent simulation distance (4–12),
-  `transport=nethernet` and the world's LAN visibility preference. Seed and level type apply at creation only.
+  `transport=nethernet` and `enable-lan-visibility=false`. Seed and level type apply at creation only.
 - **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
   the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the
   generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.
@@ -76,7 +77,7 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
 - **Exposure:** native BDS listens on a random port with offline authentication and the configured player limit.
-  The container publishes its transport ports on `127.0.0.1` only.
+  The container publishes its transport and enabled discovery ports on `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save

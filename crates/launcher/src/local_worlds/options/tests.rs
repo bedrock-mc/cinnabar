@@ -46,19 +46,12 @@ fn world_options_gated_changes_enable_cheats_and_disabling_restores_defaults() {
 }
 
 #[test]
-fn world_options_daylight_modes_and_lan_compose() {
+fn world_options_daylight_modes_compose() {
     let mut options = WorldOptions::default();
     options.set(WorldOption::AlwaysDay, 1);
     assert!(!options.enabled(WorldOption::DaylightCycle));
     options.set(WorldOption::DaylightCycle, 1);
     assert!(!options.enabled(WorldOption::AlwaysDay));
-    assert!(options.lan_visible());
-    options.set(WorldOption::Multiplayer, 0);
-    assert!(!options.lan_visible());
-    options.set(WorldOption::Multiplayer, 1);
-    assert!(options.lan_visible());
-    options.set(WorldOption::LanVisible, 0);
-    assert!(!options.lan_visible());
 }
 
 #[test]

@@ -103,6 +103,7 @@ fn the_edited_world_gets_atlas_space_from_play_and_storage() {
         seed: 0,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     });
     let mut presentation =
