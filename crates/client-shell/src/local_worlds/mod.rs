@@ -260,4 +260,12 @@ impl Plugin for LocalWorldsPlugin {
 }
 
 #[cfg(test)]
+impl LocalWorlds {
+    /// Delivers a core event without a core, dropping the effects it would send back.
+    pub(crate) fn apply(&mut self, event: model::Event) {
+        self.menu.apply(event);
+    }
+}
+
+#[cfg(test)]
 mod tests;

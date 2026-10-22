@@ -41,8 +41,6 @@ const LEVEL_DAT: &str = "level.dat";
 const LEVEL_NAME_FILE: &str = "levelname.txt";
 /// Finder's resource-fork folder beside the world in archives zipped on macOS.
 const MAC_METADATA_DIR: &str = "__MACOSX";
-/// `level.dat` holds a few kilobytes of settings; anything far larger is not read.
-const MAX_LEVEL_DAT_BYTES: u64 = 1 << 20;
 const FALLBACK_NAME: &str = "Imported world";
 
 /// Unpacks `archive` into a new world on `backend`. A refused or cancelled import leaves nothing
@@ -146,8 +144,10 @@ fn read_level_dat(path: &Path) -> LevelSettings {
         ..LevelSettings::default()
     };
     let mut bytes = Vec::new();
-    let read = fs::File::open(path)
-        .and_then(|file| file.take(MAX_LEVEL_DAT_BYTES).read_to_end(&mut bytes));
+    let read = fs::File::open(path).and_then(|file| {
+        file.take(super::level_dat::MAX_LEVEL_DAT_BYTES)
+            .read_to_end(&mut bytes)
+    });
     if read.is_ok() {
         let _ = Nbt(bytes.get(8..).unwrap_or_default()).root(&mut settings);
     }

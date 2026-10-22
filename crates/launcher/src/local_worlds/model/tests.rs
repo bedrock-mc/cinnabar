@@ -865,3 +865,23 @@ fn world_options_edits_keep_the_form_baseline_when_the_list_refreshes() {
     assert_eq!(changes.get(O::ShowCoordinates), Some(1));
     assert_eq!(changes.get(O::RandomTickSpeed), None);
 }
+
+/// Container ports stay on loopback, so LAN visibility reads off and cannot be switched on there.
+#[test]
+fn the_container_runtime_locks_lan_visibility_off() {
+    use super::super::options::WorldOption as O;
+    let mut menu = loaded(&["a"]);
+    let mut ready = status(WorldState::Idle, "");
+    ready.world_id = None;
+    ready.setup = Some(setup(SetupState::Ready));
+    menu.apply(Event::Prefs(Prefs::default(), ready));
+    menu.update(Input::BeginCreate);
+    assert!(menu.create_form().options.enabled(O::LanVisible));
+    let view = menu.view();
+    assert_eq!(view.option_value(&view.create.options, O::LanVisible), 0);
+    assert!(!view.option_editable(&view.create.options, O::LanVisible, false));
+    menu.update(Input::SetOption(O::LanVisible, 0));
+    menu.update(Input::SetOption(O::LanVisible, 1));
+    assert!(menu.create_form().options.enabled(O::LanVisible));
+    assert!(view.option_editable(&view.create.options, O::Multiplayer, false));
+}

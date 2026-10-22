@@ -134,15 +134,20 @@ impl MenuRuntime {
         }
         self.local_ui.prepared = on_worlds;
         for action in std::mem::take(&mut self.local_ui.actions) {
-            if matches!(
-                action,
-                LocalWorldAction::Create | LocalWorldAction::PlayFromEdit
-            ) && self.local_ui.options.iter().any(|(&id, editor)| {
-                !editor
-                    .as_str()
-                    .parse::<i32>()
-                    .is_ok_and(|value| id.accepts(value))
-            }) {
+            // Back from the edit screen saves it too.
+            let submits = match action {
+                LocalWorldAction::Create | LocalWorldAction::PlayFromEdit => true,
+                LocalWorldAction::Back => worlds.menu().screen() == Screen::Edit,
+                _ => false,
+            };
+            if submits
+                && self.local_ui.options.iter().any(|(&id, editor)| {
+                    !editor
+                        .as_str()
+                        .parse::<i32>()
+                        .is_ok_and(|value| id.accepts(value))
+                })
+            {
                 worlds.input(Input::InvalidOption);
                 continue;
             }
@@ -273,7 +278,7 @@ impl MenuRuntime {
                 if let Ok(value) = editor.as_str().parse::<i32>()
                     && value != options.get(id)
                     && id.accepts(value)
-                    && options.editable(id, view.screen == Screen::Edit)
+                    && view.option_editable(options, id, view.screen == Screen::Edit)
                 {
                     worlds.input(Input::SetOption(id, value));
                 }
@@ -400,7 +405,7 @@ impl MenuRuntime {
                     let definition = id.definition();
                     if !view.options_available()
                         || definition.tab != view.tab
-                        || !options.editable(id, editing)
+                        || !view.option_editable(options, id, editing)
                     {
                         continue;
                     }
@@ -661,5 +666,44 @@ mod tests {
         menu.sync_local_worlds(&mut worlds, false);
         assert!(worlds.menu().form_error().is_some());
         assert!(!worlds.menu().busy());
+    }
+    /// Back saves an edit, so an invalid number must stop it before the last valid prefix saves.
+    #[test]
+    fn edit_back_refuses_an_invalid_numeric_option() {
+        use launcher::local_worlds::{model::Event, options::WorldOption as O, world::World};
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let mut worlds = LocalWorlds::default();
+        worlds.apply(Event::Listed(vec![World {
+            options: Default::default(),
+            id: "world-id".into(),
+            name: "Saved".into(),
+            game_mode: GameMode::Survival,
+            generator: launcher::local_worlds::world::Generator::Normal,
+            difficulty: launcher::local_worlds::world::Difficulty::Normal,
+            backend: Backend::Bds,
+            seed: 1,
+            created_unix: 0,
+            last_played_unix: 0,
+            size_bytes: 0,
+        }]));
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Edit(0)));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(worlds.menu().screen(), Screen::Edit);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        let editor = menu.local_ui.options.get_mut(&O::SleepPercentage).unwrap();
+        editor.set_text("35");
+        menu.sync_local_worlds(&mut worlds, false);
+        let editor = menu.local_ui.options.get_mut(&O::SleepPercentage).unwrap();
+        editor.set_text("355");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Back));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(worlds.menu().screen(), Screen::Edit);
+        assert!(worlds.menu().form_error().is_some());
+        assert!(!worlds.menu().busy(), "nothing was saved");
     }
 }

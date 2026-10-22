@@ -31,7 +31,8 @@ the world file supplies the current rules, including changes saved during play. 
 the host updates the owned fields in `level.dat` and preserves other tags. Game rules, starting map,
 bonus chest, sleep settings,
 respawn radius and daylight settings use level data. Server properties apply cheats, simulation
-distance, default player permissions and LAN discovery to both native and container servers.
+distance and default player permissions to both native and container servers, and LAN discovery to
+native ones; container ports stay on loopback, so LAN visibility is off and locked there.
 Turning multiplayer off limits the server to its host, withdraws friend hosting and disables discovery.
 Reopening waits for the prior server to finish saving before it reloads rules and applies pending edits.
 Seed and terrain apply during creation; starting map and bonus chest are also fixed after creation.
@@ -75,7 +76,7 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
 - **Exposure:** native BDS listens on a random port with offline authentication and the configured player limit.
-  The container publishes its transport and enabled discovery ports on `127.0.0.1` only.
+  The container publishes its transport ports on `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
@@ -122,4 +123,5 @@ mode on each join, while keeping the host's other saved data. BDS launches use `
 
 The owner-requested natural generator has not passed version-matched Bedrock terrain parity; its source targets
 Java-style generation. Dragonfly's mob AI and other parity gaps remain open. Docker-mounted LevelDB on macOS
-can be slow. A killed client can leave a container running; the next start of that world removes it.
+can be slow. A killed client can leave a container running; the next start of that world removes it
+before reserving ports.

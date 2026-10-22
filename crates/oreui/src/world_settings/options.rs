@@ -29,7 +29,7 @@ pub(super) fn draw(
             continue;
         }
         y = sections::row(canvas, area, y, |canvas, inner| {
-            let enabled = !local_view.busy && options.editable(id, editing);
+            let enabled = !local_view.busy && local_view.option_editable(options, id, editing);
             match definition.control {
                 Control::Toggle => {
                     let width = canvas.r(7.6);
@@ -46,7 +46,7 @@ pub(super) fn draw(
                         canvas,
                         view,
                         [inner[2] - canvas.r(6.4), (inner[1] + bottom - height) * 0.5],
-                        options.enabled(id),
+                        local_view.option_value(options, id) != 0,
                         action,
                         enabled,
                     )?;

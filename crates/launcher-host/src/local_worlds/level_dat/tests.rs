@@ -218,3 +218,30 @@ fn world_options_read_multiplayer_from_the_effective_flags_bds_saves() {
     assert!(options.enabled(O::Multiplayer));
     assert!(options.lan_visible());
 }
+
+/// Imported files are untrusted, so an oversized one is refused without reading it whole.
+#[test]
+fn world_options_ignore_level_data_beyond_the_read_bound() {
+    let mut world = test_support::world();
+    world.options.set(O::ShowCoordinates, 1);
+    let bytes = configured(&world, &[]).unwrap();
+    let mut fields = read_fields(&bytes[8..]).unwrap();
+    let padding = MAX_LEVEL_DAT_BYTES as usize;
+    let mut blob = (padding as i32).to_le_bytes().to_vec();
+    blob.resize(4 + padding, 0);
+    put(&mut fields, "padding", 7, &blob);
+    let mut body = vec![10, 0, 0];
+    for (_, tag) in fields {
+        body.extend(tag);
+    }
+    body.push(0);
+    let mut oversized = bytes[..4].to_vec();
+    oversized.extend((body.len() as u32).to_le_bytes());
+    oversized.extend(body);
+    let dir = test_support::scratch();
+    let path = dir.path().join("level.dat");
+    fs::write(&path, &oversized).unwrap();
+    assert!(try_read_options(&path).is_none());
+    fs::write(&path, &bytes).unwrap();
+    assert!(try_read_options(&path).unwrap().enabled(O::ShowCoordinates));
+}

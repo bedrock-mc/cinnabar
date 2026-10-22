@@ -13,6 +13,7 @@ use std::{
 use crossbeam_channel::Receiver;
 
 use crate::lifecycle::children;
+use launcher::local_worlds::options::WorldOption;
 use launcher::local_worlds::world::{SetupState, UnavailableReason};
 
 use super::{
@@ -222,7 +223,8 @@ impl BdsRunner {
             return Err(WorldError::ImageNotPinned);
         }
         let max_players = world_player_limit(spec, self.max_players);
-        let lan_visible = spec.world.options.lan_visible();
+        // Ports are published on loopback only, so other devices could never join from LAN.
+        let lan_visible = false;
         self.check_docker(cancel)?;
         self.ensure_image(cancel)?;
         let binary = provisioner.ensure(cancel)?;
@@ -234,6 +236,9 @@ impl BdsRunner {
         link_versioned_binary(&binary, &version)?;
         create_private_dir(&spec.dir.join(LEVEL_DIR))
             .map_err(|error| failed(format!("create world folder: {error}")))?;
+        let name = container_name(&spec.world.id);
+        // A leftover of an earlier crash would hold the name and its ports.
+        self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
         let port = free_bds_port(max_players, self.host_port)?;
         if lan_visible {
             let lan_port = if self.lan_host_port == 0 {
@@ -243,10 +248,9 @@ impl BdsRunner {
             };
             check_bds_lan_port(port, max_players, lan_port)?;
         }
-        super::level_dat::configure(&spec.world, &spec.dir.join(LEVEL_DIR))?;
-        let name = container_name(&spec.world.id);
-        // A leftover of an earlier crash would hold the name.
-        self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
+        let mut world = spec.world.clone();
+        world.options.set(WorldOption::LanVisible, 0);
+        super::level_dat::configure(&world, &spec.dir.join(LEVEL_DIR))?;
         let mut command = self.docker();
         command.args(container_args(&ContainerArgs {
             spec,

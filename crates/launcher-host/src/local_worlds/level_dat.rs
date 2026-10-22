@@ -8,7 +8,14 @@ use launcher::local_worlds::{
     options::{Control, Storage, WorldOption as O},
     world::{Generator, World},
 };
-use std::{fs, io, path::Path};
+use std::{
+    fs,
+    io::{self, Read},
+    path::Path,
+};
+
+/// `level.dat` holds a few kilobytes of settings; anything far larger is not read.
+pub(super) const MAX_LEVEL_DAT_BYTES: u64 = 1 << 20;
 
 /// Prepares new level data or replaces only owned fields in an existing world.
 pub(super) fn configure(world: &World, dir: &Path) -> Result<(), WorldError> {
@@ -258,7 +265,15 @@ pub(super) fn try_read_options(
     path: &Path,
 ) -> Option<launcher::local_worlds::options::WorldOptions> {
     let mut options = launcher::local_worlds::options::WorldOptions::default();
-    let bytes = fs::read(path).ok()?;
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(MAX_LEVEL_DAT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_LEVEL_DAT_BYTES {
+        return None;
+    }
     let size = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?) as usize;
     if bytes.len() - 8 != size {
         return None;

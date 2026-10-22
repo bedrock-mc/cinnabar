@@ -57,12 +57,15 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     let (runner, log) = container_runner(dir.path(), IMAGE, false);
     assert_eq!(runner.provisioner.status().0.state, SetupState::Ready);
     let world_dir = dir.path().join("world");
-    let mut spec = spec(&world_dir);
-    spec.world
-        .options
-        .set(launcher::local_worlds::options::WorldOption::LanVisible, 0);
+    let spec = spec(&world_dir);
+    assert!(spec.world.options.lan_visible());
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
     assert!(!instance.can_pause(), "container BDS cannot pause");
+    assert_eq!(
+        instance.lan_address(),
+        None,
+        "loopback ports cannot serve LAN"
+    );
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     let calls = docker_log(&log);
     let name = container_name(&spec.world.id);
@@ -111,6 +114,24 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
         calls.trim_end().lines().last(),
         Some(format!("rm -f {name}").as_str()),
         "cleanup is the last Docker call"
+    );
+}
+
+/// A crashed run's container still holds its ports, so it goes before ports are reserved.
+#[cfg(unix)]
+#[test]
+fn a_leftover_container_is_removed_before_ports_are_reserved() {
+    let dir = scratch();
+    let (mut runner, log) = container_runner(dir.path(), IMAGE, false);
+    let held = std::net::TcpListener::bind((super::super::ports::LOCAL_SERVER_HOST, 0)).unwrap();
+    runner.host_port = held.local_addr().unwrap().port();
+    let spec = spec(&dir.path().join("world"));
+    assert!(runner.start(&spec, &Cancel::never()).is_err());
+    let name = container_name(&spec.world.id);
+    assert!(
+        docker_log(&log).contains(&format!("rm -f {name}")),
+        "{}",
+        docker_log(&log)
     );
 }
 
