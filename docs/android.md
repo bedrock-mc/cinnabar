@@ -1,10 +1,10 @@
 # Android (experimental)
 
 The Android client is the desktop client built for arm64-v8a Android 8+ devices with Vulkan.
-The APK holds the client library, the Go core and `assetc`, plus the prep kit. It ships no game
-assets: first launch asks you to accept the Minecraft EULA, then downloads Mojang's sample
-resource pack and compiles the carriers into the app's private storage. Keep the app open
-until setup finishes.
+The APK holds the client library, the Go core, the Dragonfly local server and `assetc`, plus
+the prep kit. It ships no game assets: first launch asks you to accept the Minecraft EULA,
+then downloads Mojang's sample resource pack and compiles the carriers into the app's private
+storage. Keep the app open until setup finishes.
 
 ## Release APKs
 
@@ -51,13 +51,53 @@ the on-screen controls. A hardware keyboard and mouse also drive gameplay.
 Launcher text fields, including server addresses and the People drawer, request the on-screen
 keyboard. People search filters friends currently playing; it does not search Xbox users.
 
+## Local worlds
+
+Dragonfly is bundled for local worlds, with Normal or Flat terrain. The server runs from the
+APK's native-library directory and saves worlds in private app storage. Android creation,
+reopening, offline play and suspend/resume still need device acceptance.
+
+BDS remains unavailable in ordinary Android builds. An experimental Box64 backend can be included
+by installing CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain, then setting
+`CINNABAR_ANDROID_EXPERIMENTAL_BDS=1` when building the APK. Set `CINNABAR_ANDROID_BDS_CC`
+and `CINNABAR_ANDROID_BDS_CXX` if the compilers are not named `aarch64-linux-gnu-gcc` and
+`aarch64-linux-gnu-g++`.
+
+The experimental runtime packages an Android-adapted GNU C Library, uses Android-compatible
+interface enumeration and requests stronger x86 memory ordering from the translator. A
+target-SDK-35 test app on an Android 15 emulator has started BDS,
+created a world, saved a changed spawn position, shut down cleanly and reopened the same world
+with SELinux enforcing. A production protocol client also completes login and spawn; the
+emulator run needed a longer diagnostic deadline than the standard live test. This runtime test
+does not establish acceptance of the complete client APK or physical phones.
+
+In experimental builds, explicitly selecting BDS and accepting its EULA acquires the official
+Linux server and pinned guest runtime on first use. No server binaries or game assets ship in
+the APK. Dragonfly remains the default. Login, offline play, lifecycle and performance acceptance
+remain incomplete across supported Android versions, CPU vendors and 4/16 KB page devices.
+The transport still times out when all external network interfaces are down. Earlier startup
+aborts leave extended reliability testing open.
+BDS worlds cannot pause simulation.
+
+With an emulator running, the runtime probe can check the packaged helper under the app's
+normal permissions, including IPv4/IPv6 enumeration, threads, storage and UDP:
+
+```sh
+ANDROID_HOME=/path/to/android-sdk CINNABAR_ANDROID_TEST_SERIAL=emulator-5554 \
+  CINNABAR_ANDROID_BDS_LIBS=target/android/stage/lib/arm64-v8a \
+  python3 -m unittest discover -s packaging/tests -p test_android_box64.py
+```
+
+Put the SDK platform-tools and JDK on `PATH`. The probe uses an original Linux test program
+and does not require Minecraft assets or a server download.
+
 ## Not supported yet
 
 Typing chat, commands or sign text still needs a hardware keyboard. Featured servers need only
 sign-in, whose code you enter on another device.
 These stay keyboard, mouse or controller only: dropping the held item from the hotbar, pick
 block, the emote wheel, the player list, perspective, and mod or server Experience key
-bindings. Also missing are the Back gesture, clipboard, opening links, local worlds, Microsoft
+bindings. Also missing are the Back gesture, clipboard, opening links, Microsoft
 sign-in while the app is in the background, touch scrolling in forms and menus outside Settings,
 and the native touch layouts, remapping and control customization. Device performance, audio
 and suspend/resume are untested. See

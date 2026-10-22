@@ -16,6 +16,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/pion/webrtc/v4"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
@@ -58,9 +59,18 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 				// status requests or SDP offers to another origin.
 				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			}}.New()
+			// Local worlds need a candidate even with Wi-Fi and mobile data disabled.
+			settings := webrtc.SettingEngine{}
+			settings.SetIncludeLoopbackCandidate(true)
 			return &resolvedUpstreamTarget{
 				address: "http://" + target.Address,
-				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{Signaling: client}, status: client},
+				network: localNetherNetNetwork{
+					NetherNet: minecraft.NetherNet{
+						Signaling: client,
+						Dialer:    nethernet.Dialer{API: webrtc.NewAPI(webrtc.WithSettingEngine(settings))},
+					},
+					status: client,
+				},
 			}, nil
 		default:
 			return nil, fmt.Errorf("unsupported local transport %q", target.Transport)

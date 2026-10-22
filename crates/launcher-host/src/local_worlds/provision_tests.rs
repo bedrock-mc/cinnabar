@@ -1,12 +1,42 @@
 use std::sync::atomic::Ordering;
 
 use super::*;
-use crate::local_worlds::test_support::{FakeMojang, build_zip, scratch};
+use crate::local_worlds::test_support::{FakeMojang, VERSION, build_zip, scratch};
 
 const MAC: Platform = Platform {
     os: "darwin",
     arch: "arm64",
 };
+
+#[test]
+fn translated_servers_download_and_record_the_linux_platform() {
+    let dir = scratch();
+    let mojang = FakeMojang::start(VERSION, build_zip(&[("bedrock_server", b"server")]));
+    let mut provisioner = mojang.provisioner(dir.path());
+    provisioner.platform = Platform {
+        os: "android",
+        arch: "arm64",
+    };
+    provisioner.set_runtime(RuntimeInfo::translated());
+    assert_eq!(
+        provisioner.download_platform(),
+        Platform {
+            os: "linux",
+            arch: "amd64"
+        }
+    );
+    assert!(matches!(
+        provisioner.ensure(&Cancel::never()),
+        Err(WorldError::EulaRequired)
+    ));
+    provisioner.accept_eula().unwrap();
+    let server = provisioner.ensure(&Cancel::never()).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(server.parent().unwrap().join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["platform"], "linux/amd64");
+    assert!(manifest["url"].as_str().unwrap().contains("/bin-linux/"));
+}
 
 #[test]
 fn only_windows_and_linux_x86_64_run_bds() {

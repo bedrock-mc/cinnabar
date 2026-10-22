@@ -55,6 +55,8 @@ pub(crate) struct BdsRunner {
     pub docker: String,
     /// Must name a digest.
     pub image: String,
+    /// An APK-bundled translator; absent for native and container servers.
+    pub translation: Option<super::translated::Translation>,
 }
 
 impl BdsRunner {
@@ -69,14 +71,19 @@ impl BdsRunner {
             lan_host_port: 0,
             docker: DOCKER.to_owned(),
             image,
+            translation: None,
         }
     }
 }
 
 impl Runner for BdsRunner {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
-        if self.provisioner.runtime_info().kind == RuntimeKind::Container {
+        let runtime = self.provisioner.runtime_info().kind;
+        if runtime == RuntimeKind::Container {
             return self.start_container(spec, cancel);
+        }
+        if runtime == RuntimeKind::Translated && self.translation.is_none() {
+            return Err(WorldError::BackendUnavailable);
         }
         let binary = self.provisioner.ensure(cancel)?;
         let max_players = self.max_players.max(1);
@@ -93,7 +100,16 @@ impl Runner for BdsRunner {
             unlink_world(&link);
             return Err(failed(format!("write server.properties: {error}")));
         }
-        let mut command = Command::new(binary.as_os_str());
+        let mut command = match &self.translation {
+            Some(translation) => match translation.command(&binary, &self.provisioner, cancel) {
+                Ok(command) => command,
+                Err(error) => {
+                    unlink_world(&link);
+                    return Err(error);
+                }
+            },
+            None => Command::new(binary.as_os_str()),
+        };
         command
             .current_dir(install)
             .env("LD_LIBRARY_PATH", ".")

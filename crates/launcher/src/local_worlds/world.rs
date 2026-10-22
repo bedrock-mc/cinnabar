@@ -131,7 +131,7 @@ pub struct Setup {
     pub layers_total: u32,
     pub eula_accepted: bool,
     pub error: Option<String>,
-    /// `native`, `container` or `none`.
+    /// `native`, `container`, `translated` or `none`.
     pub runtime: String,
     pub reason: Option<String>,
 }

@@ -6,5 +6,72 @@
   "ndk": "28.2.13676358",
   "cargo_ndk": "3.5.4",
   "core_library": "libbedrock_core.so",
+  "local_server_library": "libbedrock_local_server.so",
+  "bds_translation": {
+    "helper_library": "libbox64.so",
+    "archive_base_url": "https://codeload.github.com/ptitSeb/box64/zip/",
+    "revision": "d96343fbb1777458e4bc3adcd5a4b93c113fd245",
+    "archive_sha256": "c480c0e340597befed96a709c87fcb62eb25903554398f41bf7cb8a3d4f2f4bd",
+    "archive_bytes": 21018321,
+    "guest_library": "libgcc_s.so.1",
+    "native_runtime": {
+      "url": "https://service.termux-pacman.dev/gpkg/aarch64/glibc-2.44-0-aarch64.pkg.tar.xz",
+      "sha256": "8725a20d85fa35a094cf092286295668fd5292247128c4bb8101585ba063799c",
+      "prefix": "data/data/com.termux/files/usr/glibc/lib",
+      "source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.44.tar.xz",
+      "source_sha256": "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667",
+      "patches_url": "https://github.com/termux-pacman/glibc-packages/tree/c2b00b9e5c58d87f548b1793149d389f48bf9bc5/gpkg/glibc",
+      "libraries": [
+        {
+          "source": "ld-linux-aarch64.so.1",
+          "packaged": "libbds_loader.so",
+          "loader": true
+        },
+        {
+          "source": "libc.so.6",
+          "packaged": "libbds_c.so"
+        },
+        {
+          "source": "libm.so.6",
+          "packaged": "libbds_m.so"
+        },
+        {
+          "source": "libresolv.so.2",
+          "packaged": "libbds_resolv.so"
+        },
+        {
+          "source": "libpthread.so.0",
+          "packaged": "libbds_pthread.so"
+        },
+        {
+          "source": "libdl.so.2",
+          "packaged": "libbds_dl.so"
+        },
+        {
+          "source": "librt.so.1",
+          "packaged": "libbds_rt.so"
+        }
+      ]
+    },
+    "network_adapter": {
+      "files": [
+        {
+          "name": "ifaddrs.cpp",
+          "url": "https://raw.githubusercontent.com/aosp-mirror/platform_bionic/731631f300090436d7f5df80d50b6275c8c60a93/libc/bionic/ifaddrs.cpp",
+          "sha256": "6416b09b239c2e93585ec57ebfb558a5cb634ad6bd0cf3d98f8429114b4da453"
+        },
+        {
+          "name": "bionic_netlink.cpp",
+          "url": "https://raw.githubusercontent.com/aosp-mirror/platform_bionic/731631f300090436d7f5df80d50b6275c8c60a93/libc/bionic/bionic_netlink.cpp",
+          "sha256": "ce5430ecb1d33900bf0ef0772fe2c4861a0993e954041e3ff5ae8203fe60079d"
+        },
+        {
+          "name": "bionic_netlink.h",
+          "url": "https://raw.githubusercontent.com/aosp-mirror/platform_bionic/731631f300090436d7f5df80d50b6275c8c60a93/libc/bionic/bionic_netlink.h",
+          "sha256": "3198989e807cdbe96c366d82040a4bad5c0dad5ef01c5520ce13a23cc05f36a2"
+        }
+      ]
+    }
+  },
   "compiler_library": "libassetc.so"
 }

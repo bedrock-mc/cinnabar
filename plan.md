@@ -513,6 +513,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete.
+  Android packages the Dragonfly local-world server and resolves it from the APK's native-library
+  directory. An opt-in BDS build experiment includes a translator and pinned, cached guest runtime;
+  ordinary APKs keep BDS unavailable. An Android-adapted GNU runtime starts BDS, creates
+  and saves a world, shuts down cleanly and reopens it in a target-SDK-35 test app on an
+  Android 15 VM with SELinux enforcing.
+  Production protocol login and spawn also pass with an extended diagnostic deadline.
+  Translation requests stronger x86 memory ordering. The transport still times out with all
+  external network interfaces down, and earlier startup aborts leave reliability acceptance
+  open. Full APK,
+  physical-device, offline, lifecycle, performance and 4/16 KB compatibility acceptance remain incomplete.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
   Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.

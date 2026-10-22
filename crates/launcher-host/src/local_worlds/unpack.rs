@@ -116,7 +116,11 @@ impl Provisioner {
             url: link,
             zip_sha256: digest,
             zip_bytes: size,
-            platform: format!("{}/{}", self.platform.os, self.platform.arch),
+            platform: format!(
+                "{}/{}",
+                self.download_platform().os,
+                self.download_platform().arch
+            ),
             downloaded_unix: unix_now(),
             client_version_prefix: self.prefix(),
         })

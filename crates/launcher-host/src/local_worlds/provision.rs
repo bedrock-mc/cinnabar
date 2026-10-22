@@ -29,6 +29,8 @@ pub(crate) enum RuntimeKind {
     Native,
     /// The Linux build in a Docker-compatible container (macOS).
     Container,
+    /// The Linux build translated by an APK-bundled runtime.
+    Translated,
     None,
 }
 
@@ -37,6 +39,7 @@ impl RuntimeKind {
         match self {
             Self::Native => "native",
             Self::Container => "container",
+            Self::Translated => "translated",
             Self::None => "none",
         }
     }
@@ -52,6 +55,15 @@ pub(crate) struct RuntimeInfo {
 }
 
 impl RuntimeInfo {
+    /// An experimental runtime that translates the Linux server on this host.
+    pub(crate) fn translated() -> Self {
+        Self {
+            kind: RuntimeKind::Translated,
+            reason: "experimental translated Bedrock Dedicated Server".to_owned(),
+            unavailable: None,
+        }
+    }
+
     pub(crate) fn native() -> Self {
         Self {
             kind: RuntimeKind::Native,
@@ -103,6 +115,11 @@ impl Platform {
     /// Whether Mojang ships a dedicated server for this platform.
     pub(crate) fn runs_bds(self) -> bool {
         matches!(self.os, "windows" | "linux") && self.arch == "amd64"
+    }
+
+    /// Whether this host can use the desktop container runtime for BDS.
+    pub(crate) fn runs_containers(self) -> bool {
+        !matches!(self.os, "android" | "ios")
     }
 }
 
@@ -295,10 +312,21 @@ impl Provisioner {
     }
 
     pub(super) fn binary_name(&self) -> &'static str {
-        if self.platform.os == "windows" {
+        if self.download_platform().os == "windows" {
             "bedrock_server.exe"
         } else {
             "bedrock_server"
+        }
+    }
+
+    /// The server archive's platform, independently of the host that runs it.
+    pub(super) fn download_platform(&self) -> Platform {
+        match self.runtime_info().kind {
+            RuntimeKind::Container | RuntimeKind::Translated => Platform {
+                os: "linux",
+                arch: "amd64",
+            },
+            _ => self.platform,
         }
     }
 
@@ -426,13 +454,13 @@ impl Provisioner {
         self.fail_with("dedicated server download failed", error)
     }
 
-    /// The server binary, downloading and unpacking it first if needed. The container runtime gets
-    /// the Linux build, which runs inside the container.
+    /// The server binary, downloading and unpacking it first if needed. Container and translated
+    /// runtimes acquire the Linux build independently of the host platform.
     pub(crate) fn ensure(&self, cancel: &Cancel) -> Result<PathBuf, WorldError> {
         let _ensuring = lock(&self.ensure_lock);
         if !matches!(
             self.runtime_info().kind,
-            RuntimeKind::Native | RuntimeKind::Container
+            RuntimeKind::Native | RuntimeKind::Container | RuntimeKind::Translated
         ) {
             return Err(WorldError::BackendUnavailable);
         }

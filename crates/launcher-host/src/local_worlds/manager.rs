@@ -73,11 +73,11 @@ impl Parts {
     }
 }
 
-/// BDS when it can run natively or in a container, else Dragonfly.
+/// BDS on desktop runtimes; experimental translated worlds require explicit selection.
 pub(crate) fn default_backend(runtime: &RuntimeInfo) -> Backend {
     match runtime.kind {
         RuntimeKind::Native | RuntimeKind::Container => Backend::Bds,
-        RuntimeKind::None => Backend::Dragonfly,
+        RuntimeKind::Translated | RuntimeKind::None => Backend::Dragonfly,
     }
 }
 
