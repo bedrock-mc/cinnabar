@@ -126,3 +126,39 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
         [1, 3]
     );
 }
+
+#[test]
+fn recipe_book_validates_each_occupied_source_once_per_projection() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    session
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(0),
+            storage_item: NetworkItemStack::empty(),
+            slots: Arc::from([NetworkItemStack {
+                network_id: planks,
+                count: 4,
+                stack_network_id: 1,
+                ..NetworkItemStack::empty()
+            }]),
+        }));
+    crate::inventory_ledger::take_source_validations();
+    let listed = session.book_recipes(false, false, 0, usize::MAX);
+    assert_eq!(
+        listed
+            .iter()
+            .map(|entry| entry.recipe.network_id())
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(
+        crate::inventory_ledger::take_source_validations(),
+        1,
+        "source bytes must be checked once, independent of recipe and ingredient counts"
+    );
+}

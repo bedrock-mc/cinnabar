@@ -62,23 +62,25 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 				// status requests or SDP offers to another origin.
 				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			}}.New()
-			// Local worlds need a candidate even with Wi-Fi and mobile data disabled.
-			settings := webrtc.SettingEngine{}
-			settings.SetIncludeLoopbackCandidate(true)
 			return &resolvedUpstreamTarget{
 				address: "http://" + target.Address,
-				network: localNetherNetNetwork{
-					NetherNet: minecraft.NetherNet{
-						Signaling: localSignaling{client},
-						Dialer:    nethernet.Dialer{API: webrtc.NewAPI(webrtc.WithSettingEngine(settings))},
-					},
-					status: client,
-				},
+				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{
+					Signaling: localSignaling{client},
+					Dialer:    nethernet.Dialer{API: localNetherNetAPI()},
+				}, status: client},
 			}, nil
 		default:
 			return nil, fmt.Errorf("unsupported local transport %q", target.Transport)
 		}
 	}
+}
+
+// localNetherNetAPI includes same-device routes even when every external interface is down.
+// External candidates remain available for container port mappings.
+func localNetherNetAPI() *webrtc.API {
+	var settings webrtc.SettingEngine
+	settings.SetIncludeLoopbackCandidate(true)
+	return webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 }
 
 // errLocalServerNoRoute reports a local server that answered a join without any ICE candidate.

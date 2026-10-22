@@ -765,6 +765,18 @@ const STATES: &[State] = &[
         },
     },
     State {
+        name: "settings-video-culling-on",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_video_culling(true),
+    },
+    State {
+        name: "settings-video-culling-off",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_video_culling(false),
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -816,7 +828,7 @@ const STATES: &[State] = &[
         name: "settings-general",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_screens::settings_general_toggle(SettingId::EcomodeToggle),
+        fixture: || settings_screens::settings_general_toggle(SettingId::FilterProfanity),
     },
     State {
         name: "settings-updates",
@@ -964,4 +976,5 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(shader_pack::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
+        .chain(settings_screens::PAGE_STATES)
 }

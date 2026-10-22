@@ -95,8 +95,8 @@ pub struct ActionEvent {
 /// Events finalized under the frame's bindings, context and authority.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OrderedActions {
-    initial_buttons: ActionButtons,
-    events: Vec<ActionEvent>,
+    pub(crate) initial_buttons: ActionButtons,
+    pub(crate) events: Vec<ActionEvent>,
     overflowed: bool,
     neutral: bool,
 }

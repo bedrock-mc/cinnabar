@@ -78,6 +78,8 @@ and resource qualification; they do not imply these systems need to be written.
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
   against native output while preserving packed storage and the shared quad contract.
+  Terrain particles use the dimension biome fallback until their column is published;
+  initial-join rendered colour acceptance remains incomplete.
 - [ ] Confirm or replace provisional biome blending using version-matched radius and
   kernel evidence. Cover abrupt boundaries, special foliage, custom-biome fallback,
   missing neighbours, replacement, teleport/eviction, GPU output and performance.
@@ -132,6 +134,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close the exhaustive residual-family inventory for the pinned target. Every
   non-air state needs an authoritative accepted visual; provisional fallback does not count.
   Require zero diagnostic/provisional-fallback counters and current resource-cost evidence.
+  Leaf litter has state-driven ground patches and flat carried-item routing. Its focused
+  regressions, registry regeneration and Linux rendered comparison pass; matched native
+  visual and replacement-pack qualification remain incomplete.
 - [ ] Close coral-fan native placement and rendered acceptance for floor/wall orientations
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
@@ -162,6 +167,13 @@ and resource qualification; they do not imply these systems need to be written.
   sprites and their display/input conditions; invisible terrain alone does not close acceptance.
 
 ### Lighting, atmosphere and publication
+
+- Chunk occlusion culling remains enabled by default and can be disabled in Video
+  settings for comparison. It hides only sections proved invisible. The indirect
+  renderer samples rejection counts asynchronously and skips GPU
+  occlusion when it rejects too little terrain. Periodic probes warm GPU visibility
+  before sampling and retain the CPU command caches between paths.
+  Matched-output frame-time and movement qualification remain incomplete.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
@@ -277,6 +289,8 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
+  Skin cubes retain signed extents after negative inflation. Rendered qualification of
+  server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
@@ -426,6 +440,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
+  Recipe-book projections validate each occupied ingredient source once across the catalog.
+  First-open and repeated-open inventory timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
@@ -529,6 +545,11 @@ The Android translated runtime supplies a loopback route and passes two consecut
 transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
 Offline acceptance in the full APK and on physical phones remains open. Other BDS hosts can still
 offer no NetherNet route with every external interface down, producing an explanatory error.
+hardcore, flat presets, Education Edition and live acceptance of every option on supported
+platforms remain incomplete.
+Local HTTP and LAN joins include client loopback ICE candidates. Full offline play of native
+BDS worlds is still a confirmed gap: without a non-loopback network interface BDS
+offers no NetherNet route, so the join fails with an explanation instead of connecting.
 
 See [local worlds](docs/local-worlds.md).
 
@@ -576,14 +597,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
+  Android pack, mod, skin and cape imports open the system document picker and copy the
+  chosen documents into app cache storage before importing them; device acceptance and skin
+  imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Native click caps and local weather overrides have transactional host APIs and
+  offline behavior coverage; populated-world interaction and rendering acceptance
+  remain unverified.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance. Packet extensions now
