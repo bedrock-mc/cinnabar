@@ -49,6 +49,16 @@ pub struct BudgetAllocator<A>(pub A);
 /// Enables the heap budget only in an executable that installed the accounting allocator.
 pub(super) fn enable() -> bool {
     ACCOUNTING.active.store(true, Ordering::Relaxed);
+    // Some runtimes enter main without allocating. Probe the global allocator explicitly.
+    let layout = Layout::new::<u8>();
+    // SAFETY: the probe uses a valid nonzero layout and is released with the same layout.
+    unsafe {
+        let pointer = std::alloc::alloc(layout);
+        if pointer.is_null() {
+            return false;
+        }
+        std::alloc::dealloc(pointer, layout);
+    }
     ACCOUNTING.installed.load(Ordering::Relaxed)
 }
 
