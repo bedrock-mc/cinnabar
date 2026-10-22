@@ -92,6 +92,9 @@ pub enum Fixture {
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
+    /// Retained Add Server focus after a simulated keyboard reduces the visible height.
+    #[cfg(feature = "test-support")]
+    MenuKeyboard,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -245,6 +248,13 @@ const STATES: &[State] = &[
         size: [256, 128],
         gui_scale: 1,
         fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "add-server-keyboard",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::MenuKeyboard,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -643,60 +653,6 @@ const STATES: &[State] = &[
         fixture: out_of_game::play_worlds_importing,
     },
     State {
-        name: "world-create-general",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(0),
-    },
-    State {
-        name: "world-create-advanced",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(1),
-    },
-    State {
-        name: "world-create-multiplayer",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(2),
-    },
-    State {
-        name: "world-create-cheats",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(3),
-    },
-    State {
-        name: "world-create-resource-packs",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(4),
-    },
-    State {
-        name: "world-create-behaviour-packs",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(5),
-    },
-    State {
-        name: "world-create-experiments",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(6),
-    },
-    State {
-        name: "world-create-advanced-all",
-        size: [1280, 2048],
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::world_create(1),
-    },
-    State {
-        name: "world-edit-advanced",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: out_of_game::world_edit_advanced,
-    },
-    State {
         name: "world-edit-after-delete-back",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -880,11 +836,11 @@ const STATES: &[State] = &[
         fixture: || updates::settings(launcher::menu::updates::Status::Failed),
     },
     State {
-        name: "settings-general-mod-updates-passive",
+        name: "settings-updates-mod-updates-passive",
         size: [1280, 1200],
         gui_scale: GUI_SCALE,
         fixture: || {
-            let mut view = settings(SettingSection::General.definition().name);
+            let mut view = settings(SettingSection::Updates.definition().name);
             view.updates.active = false;
             Fixture::Menu(Box::new(view))
         },
@@ -1028,7 +984,11 @@ pub fn settings(section: &str) -> MenuView {
     view
 }
 
-/// Enumerates every fixture, including the independently owned Social settings states.
+/// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(social_settings::STATES)
+    STATES
+        .iter()
+        .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(social_settings::STATES)
+        .chain(settings_screens::SEARCH_STATES)
 }
