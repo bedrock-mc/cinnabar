@@ -26,7 +26,7 @@ fn world_event(world: &mut World, event: protocol::WorldEvent) {
     let stream = client.stream.as_mut().unwrap();
     let sequence = stream.committed_sequence() + 1;
     stream.submit(sequence, event).unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "boundary terrain ingress", || {
+    test_time::eventually("boundary terrain ingress", || {
         stream.poll(NETWORK_POSITION, 0);
         stream.committed_sequence() >= sequence
     });

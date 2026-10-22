@@ -42,7 +42,7 @@ fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
             })),
         )
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "fixture actor spawn", || {
+    test_time::eventually("fixture actor spawn", || {
         stream.poll([4.5, 2.620_01, 8.5], 0);
         stream.committed_sequence() >= sequence
     });

@@ -34,7 +34,7 @@ fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
                 }]),
             )
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "ledge fixture decode", || {
+        test_time::eventually("ledge fixture decode", || {
             stream.poll(start, 0);
             stream.committed_sequence() >= 4
         });
