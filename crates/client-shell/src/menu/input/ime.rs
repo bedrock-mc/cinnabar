@@ -11,13 +11,36 @@ use bevy::{
 };
 
 /// The editor that owns the window's platform text input this frame.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextOwner {
     Menu,
     Chat,
 }
 
-/// Requests the platform keyboard for menu fields and chat, and delivers menu composition once.
+/// Whether focused chat requests the platform keyboard. Android's activity delivers on-screen
+/// keyboard text as key events, which chat already types; desktop chat leaves IME composition
+/// off and takes hardware key text.
+pub const CHAT_PLATFORM_KEYBOARD: bool = cfg!(target_os = "android");
+
+/// Picks the editor that owns platform text: a visible menu's focused field, else focused chat
+/// where chat requests the platform keyboard.
+fn text_owner(
+    available: bool,
+    menu: &MenuRuntime,
+    chat_focused: bool,
+    chat_keyboard: bool,
+) -> Option<TextOwner> {
+    if !available {
+        None
+    } else if menu.is_visible() {
+        (!menu.is_connecting() && menu.field.is_some()).then_some(TextOwner::Menu)
+    } else {
+        (chat_keyboard && chat_focused).then_some(TextOwner::Chat)
+    }
+}
+
+/// Requests the platform keyboard for menu fields and Android chat, and delivers menu
+/// composition once.
 #[allow(
     clippy::too_many_arguments,
     reason = "Window text ownership follows menu, screen and platform input authority."
@@ -50,16 +73,14 @@ pub fn drive_window_ime(
         && !runtime.as_ref().is_some_and(|runtime| {
             runtime.server_forms().owns_input() || runtime.credits().owns_input()
         });
-    let owner = if !available {
-        None
-    } else if menu.is_visible() {
-        (!menu.is_connecting() && menu.field.is_some()).then_some(TextOwner::Menu)
-    } else {
+    let owner = text_owner(
+        available,
+        &menu,
         runtime
             .as_ref()
-            .is_some_and(|runtime| runtime.chat_focused())
-            .then_some(TextOwner::Chat)
-    };
+            .is_some_and(|runtime| runtime.chat_focused()),
+        CHAT_PLATFORM_KEYBOARD,
+    );
     let enabled = owner.is_some();
     let mod_editor = presentation.as_ref().is_some_and(|presentation| {
         presentation.mod_ui().mod_panel_field_focused() || presentation.mod_ui().mod_text_focused()
@@ -90,7 +111,6 @@ pub fn drive_window_ime(
     }
     *activation = menu.field_activation;
     *owned = owner;
-    // Chat reads its commits in order with its keys and presses (`drive_chat_keyboard_input`).
     if let Some(messages) = messages.as_deref() {
         for event in cursor.read(messages) {
             if owner == Some(TextOwner::Menu)
@@ -232,7 +252,20 @@ mod tests {
         assert!(!app.world().get::<Window>(window).unwrap().ime_enabled);
     }
 
-    /// Opening chat in game requests the keyboard, and closing chat releases platform text input.
+    /// Chat owns platform text only where it requests the keyboard, and never over a menu.
+    #[test]
+    fn chat_owns_platform_text_only_where_it_requests_the_keyboard() {
+        let mut menu = MenuRuntime::new(false, 2, "Player".into());
+        assert_eq!(text_owner(true, &menu, true, true), Some(TextOwner::Chat));
+        assert_eq!(text_owner(true, &menu, true, false), None);
+        assert_eq!(text_owner(false, &menu, true, true), None);
+        assert_eq!(text_owner(true, &menu, false, true), None);
+        menu.show_home();
+        assert_eq!(text_owner(true, &menu, true, true), None);
+    }
+
+    /// Opening chat in game requests the platform keyboard where chat uses it, and closing chat
+    /// releases platform text input.
     #[test]
     fn gameplay_chat_owns_platform_keyboard_while_focused() {
         let mut app = App::new();
@@ -258,11 +291,15 @@ mod tests {
             .resource_mut::<UiRuntimeResource>()
             .open_chat(&mut player);
         app.update();
-        assert!(app.world().get::<Window>(window).unwrap().ime_enabled);
-        assert!(
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().ime_enabled,
+            CHAT_PLATFORM_KEYBOARD
+        );
+        assert_eq!(
             app.world()
                 .resource::<crate::platform_text::KeyboardRequests>()
-                .requested(window)
+                .requested(window),
+            CHAT_PLATFORM_KEYBOARD
         );
         app.world_mut()
             .resource_mut::<UiRuntimeResource>()

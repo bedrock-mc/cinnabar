@@ -7,7 +7,7 @@ use std::sync::{
 
 mod command_chat;
 mod focus;
-mod platform_text;
+mod platform_back;
 
 #[test]
 fn mouse_back_closes_the_chat_popup_before_chat_and_consumes_its_press() {

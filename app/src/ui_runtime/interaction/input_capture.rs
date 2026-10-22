@@ -2,8 +2,8 @@
 use bevy::{
     input::{ButtonState, mouse::AccumulatedMouseMotion},
     math::Vec2,
-    prelude::{ButtonInput, Entity, KeyCode, MouseButton},
-    window::{CursorGrabMode, CursorOptions, Ime, WindowEvent},
+    prelude::{ButtonInput, KeyCode, MouseButton},
+    window::{CursorGrabMode, CursorOptions, WindowEvent},
 };
 use client_ui::ui_runtime::UiRuntime;
 
@@ -76,62 +76,6 @@ pub(crate) fn ordered_pointer_presses<'a>(
     presses
 }
 
-/// Platform text committed to one window this frame, positioned among the frame's keys.
-#[derive(Debug, Default, PartialEq)]
-pub(crate) struct OrderedCommits<'a> {
-    pub(crate) commits: Vec<ImeCommit<'a>>,
-    /// Keyboard events, by index among the frame's keys, that repeat the commit just before
-    /// them as typed text with no identified key, as text-injecting adapters do.
-    pub(crate) mirrors: Vec<usize>,
-}
-
-/// One committed text and the number of keyboard events, and of key presses, before it.
-#[derive(Debug, PartialEq)]
-pub(crate) struct ImeCommit<'a> {
-    pub(crate) keys: usize,
-    pub(crate) presses: usize,
-    pub(crate) value: &'a str,
-}
-
-/// Scans the ordered window stream for the window's IME commits and their typed mirrors.
-pub(crate) fn ordered_ime_commits<'a>(
-    events: impl IntoIterator<Item = &'a WindowEvent>,
-    window: Entity,
-) -> OrderedCommits<'a> {
-    let (mut keys, mut presses) = (0, 0);
-    let mut scan = OrderedCommits::default();
-    let mut previous: Option<&str> = None;
-    for event in events {
-        let mut committed = None;
-        match event {
-            WindowEvent::KeyboardInput(input) => {
-                if input.state == ButtonState::Pressed
-                    && matches!(input.key_code, KeyCode::Unidentified(_))
-                    && previous.is_some_and(|value| input.text.as_deref() == Some(value))
-                {
-                    scan.mirrors.push(keys);
-                }
-                keys += 1;
-                presses += usize::from(input.state == ButtonState::Pressed);
-            }
-            WindowEvent::Ime(Ime::Commit {
-                window: target,
-                value,
-            }) if *target == window => {
-                scan.commits.push(ImeCommit {
-                    keys,
-                    presses,
-                    value: value.as_str(),
-                });
-                committed = Some(value.as_str());
-            }
-            _ => {}
-        }
-        previous = committed;
-    }
-    scan
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,48 +142,6 @@ mod tests {
         assert!(keys.get_pressed().next().is_none());
         assert!(mouse_buttons.get_pressed().next().is_none());
         assert_eq!(mouse_motion.delta, Vec2::ZERO);
-    }
-
-    /// Commits count earlier keys and presses, and only an unidentified repeat of the commit
-    /// just before it is its mirror.
-    #[test]
-    fn commit_scan_positions_commits_and_finds_their_mirrors() {
-        use bevy::input::keyboard::{Key, KeyboardInput, NativeKeyCode};
-        let window = Entity::PLACEHOLDER;
-        let key = |key_code, state, text: Option<&str>| {
-            WindowEvent::KeyboardInput(KeyboardInput {
-                key_code,
-                logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
-                state,
-                text: text.map(Into::into),
-                repeat: false,
-                window,
-            })
-        };
-        let commit = |value: &str| {
-            WindowEvent::Ime(Ime::Commit {
-                window,
-                value: value.into(),
-            })
-        };
-        let unidentified = KeyCode::Unidentified(NativeKeyCode::Unidentified);
-        let events = [
-            key(KeyCode::KeyA, ButtonState::Released, None),
-            commit("hi"),
-            key(unidentified, ButtonState::Pressed, Some("hi")),
-            commit("x"),
-            key(KeyCode::KeyX, ButtonState::Pressed, Some("x")),
-            commit("y"),
-            key(unidentified, ButtonState::Pressed, Some("z")),
-        ];
-        let scan = ordered_ime_commits(&events, window);
-        let positions: Vec<_> = scan
-            .commits
-            .iter()
-            .map(|commit| (commit.keys, commit.presses, commit.value))
-            .collect();
-        assert_eq!(positions, [(1, 0, "hi"), (2, 1, "x"), (3, 2, "y")]);
-        assert_eq!(scan.mirrors, [1]);
     }
 
     #[test]
