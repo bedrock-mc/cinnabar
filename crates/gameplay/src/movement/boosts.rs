@@ -12,6 +12,8 @@ const PREDICTED_ROCKET_BOOST_TICKS: u64 = 20;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BoostInterval {
     boost: MovementBoost,
+    /// Server boosts bound older restated server boosts; rocket predictions never do.
+    server: bool,
     start: u64,
     /// First tick no longer boosted; `None` never ends.
     end: Option<u64>,
@@ -52,6 +54,7 @@ impl BoostTimeline {
     pub(super) fn predict_rocket(&mut self, start: u64) {
         self.intervals.push(BoostInterval {
             boost: MovementBoost::Glide,
+            server: false,
             start,
             end: Some(start + PREDICTED_ROCKET_BOOST_TICKS),
         });
@@ -69,10 +72,29 @@ impl BoostTimeline {
             interval.end.is_some_and(|end| end > interval.start)
         });
         let end = match span {
-            BoostSpan::Ticks(ticks) => Some(start + u64::from(ticks)),
+            BoostSpan::Ticks(ticks) => Some(start.saturating_add(u64::from(ticks))),
             BoostSpan::Unbounded => None,
         };
-        self.intervals.push(BoostInterval { boost, start, end });
+        // A restated older boost never outlives a later server boost of its kind.
+        let next_server = self
+            .intervals
+            .iter()
+            .filter(|interval| interval.server && interval.boost == boost && interval.start > start)
+            .map(|interval| interval.start)
+            .min();
+        let end = match (end, next_server) {
+            (Some(end), Some(next)) => Some(end.min(next)),
+            (None, next) => next,
+            (end, None) => end,
+        };
+        if end.is_none_or(|end| end > start) {
+            self.intervals.push(BoostInterval {
+                boost,
+                server: true,
+                start,
+                end,
+            });
+        }
     }
 
     /// Drops intervals that end before `tick`, the first tick a replay can still simulate.
@@ -109,6 +131,16 @@ mod tests {
         timeline.predict_rocket(120);
         timeline.record_server(MovementBoost::Glide, 101, BoostSpan::Ticks(20));
         assert_eq!(glide(&timeline), (101..140).collect::<Vec<_>>());
+    }
+
+    /// Restating an older server boost cannot outlive a later, shorter one.
+    #[test]
+    fn a_restated_older_boost_stops_at_a_later_server_boost() {
+        let mut timeline = BoostTimeline::default();
+        timeline.record_server(MovementBoost::Glide, 100, BoostSpan::Ticks(50));
+        timeline.record_server(MovementBoost::Glide, 110, BoostSpan::Ticks(5));
+        timeline.record_server(MovementBoost::Glide, 100, BoostSpan::Ticks(50));
+        assert_eq!(glide(&timeline), (100..115).collect::<Vec<_>>());
     }
 
     /// A later server boost keeps a rocket's predicted ticks before its own start.
