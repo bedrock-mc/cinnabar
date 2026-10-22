@@ -231,6 +231,11 @@ impl LocalPhysicsController {
                 .or_else(|| self.server_flags.cleared_spin_on(state.tick))
         });
         let live_swim_amount = self.state.as_ref().map(|state| state.swim_amount);
+        let live_modes = self.modes;
+        let live_flag_state = self
+            .state
+            .as_ref()
+            .map(|state| (state.spin_attack_ticks, state.swim_pose_active));
         // Whether a spin was active during the previous replayed tick, which
         // decides the inactive counter a spin set on the next frame resumes.
         let mut spun = anchor_controller
@@ -425,6 +430,16 @@ impl LocalPhysicsController {
             replayed_samples.push(retained.clone());
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
+        // With no tick replayed, no flag word is rebuilt: the live pose and spin
+        // stand, as vanilla's current-tick correction moves the actor without
+        // touching its flags.
+        if replay.replayed_ticks == 0 {
+            modes = live_modes;
+            if let (Some(state), Some((spin, swim_pose))) = (self.state.as_mut(), live_flag_state) {
+                state.spin_attack_ticks = spin;
+                state.swim_pose_active = swim_pose;
+            }
+        }
         // Vanilla copies every client-owned flag of the replayed word back to
         // the live actor, so the replayed pose and spin stand. The spin and
         // glide counters and the swim blend live in their own components,

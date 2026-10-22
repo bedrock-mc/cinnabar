@@ -885,3 +885,27 @@ fn a_positional_correction_keeps_the_counted_spin_stop() {
     .unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// A positional correction at the current tick replays no tick, so it moves
+/// the player without touching the flags: a spin the server set since stays.
+#[test]
+fn a_current_tick_correction_keeps_a_live_spin() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let spin = flags(|flags| flags.spinning = Some(true));
+    physics.apply_server_movement_flags(101, spin);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    let mut position = physics.sample_at(101).unwrap().position;
+    position[0] += 0.25;
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        position,
+        101,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+}
