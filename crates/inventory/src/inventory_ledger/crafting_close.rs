@@ -44,16 +44,28 @@ impl PlayerInventoryLedger {
         Ok(true)
     }
 
-    /// Returns `source` to the player, merging first and dropping what does not fit, in one
-    /// request whose id it returns.
+    /// Returns `source` to the player, merging first and dropping what does not fit.
+    /// Large stacks use several encodable requests; returns the last request's id.
     pub(super) fn return_close_cell(&mut self, source: Cell) -> Result<i32, InventoryGestureError> {
+        let mut last = self.return_close_chunk(source)?;
+        while self.view().get(source).is_some() {
+            last = self.return_close_chunk(source)?;
+        }
+        Ok(last)
+    }
+
+    /// Returns at most one action's quantity so every move or drop stays encodable.
+    fn return_close_chunk(&mut self, source: Cell) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         self.check_surfaces([source])?;
         let from = self
             .named(self.view().get(source).cloned())?
             .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
-        let mut remaining = from.stack.count;
+        let mut remaining = from
+            .stack
+            .count
+            .min(u16::from(protocol::MAX_STACK_REQUEST_AMOUNT));
         let mut actions = Vec::new();
         let mut groups = Vec::new();
         let (mut distinct, mut registry_bound) = (false, false);

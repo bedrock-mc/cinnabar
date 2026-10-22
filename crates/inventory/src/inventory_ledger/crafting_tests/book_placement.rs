@@ -373,3 +373,41 @@ fn placement_reassigns_two_tag_cells_to_fill_a_larger_exact_demand() {
     assert_eq!(grid_count(&ledger, 30), Some((PLANKS, 2)));
     assert!(ledger.crafting_ghost_stack(30).is_none());
 }
+
+/// High-capacity stacks still move through encodable requests, including grid evacuation.
+#[test]
+fn large_stack_placement_and_returns_keep_every_request_encodable() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        *entry = protocol::test_support::items::component_item_registry(
+            &entry.identifier,
+            i16::try_from(entry.network_id).unwrap(),
+            128,
+            0,
+        )
+        .entries[0]
+            .clone();
+    }
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[0] = stack(LOG, 100, 128);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger.apply(&craft_slot(29, stack(COBBLE, 101, 128)));
+    for _ in 0..2 {
+        ledger.begin_recipe_placement(&fixture(1)).unwrap();
+        assert_eq!(grid_count(&ledger, 28), Some((LOG, 128)));
+        assert!(ledger.pending_batch().unwrap().is_some());
+        for action in requests(&ledger).iter().flatten() {
+            if let StackRequestAction::Place { amount, .. } = action {
+                assert!(*amount <= protocol::MAX_STACK_REQUEST_AMOUNT);
+            }
+        }
+    }
+}

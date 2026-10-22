@@ -148,6 +148,8 @@ impl RecipeAllocation<'_> {
             in_grid,
             remaining: self.variants.iter().map(|variant| variant.total).collect(),
             assigned: vec![None; self.counts.len()],
+            #[cfg(test)]
+            work_budget: None,
         };
         search.assign(0, missing).then_some(search.assigned)
     }
@@ -189,6 +191,8 @@ struct Search<'a> {
     in_grid: bool,
     remaining: Vec<u32>,
     assigned: Vec<Option<usize>>,
+    #[cfg(test)]
+    work_budget: Option<usize>,
 }
 
 impl Search<'_> {
@@ -198,40 +202,65 @@ impl Search<'_> {
             && (!self.in_grid || self.allocation.variants[variant].capacity >= self.demands[cell])
     }
 
-    /// Tries every variant, pruning branches with insufficient capacity for remaining cells.
-    fn assign(&mut self, cell: usize, missing: usize) -> bool {
-        if cell == self.demands.len() {
-            return true;
-        }
-        let allocation = self.allocation;
-        let impossible = (cell..self.demands.len())
-            .filter(|cell| {
-                self.demands[*cell] != 0
-                    && !allocation.accepts[*cell]
-                        .iter()
-                        .any(|variant| self.fits(*cell, *variant))
+    /// Rejects any group of remaining cells whose shared supply cannot cover its demand,
+    /// even after omitting the largest demands allowed by the missing-cell budget.
+    fn shared_capacity_fits(&self, first: usize, missing: usize) -> bool {
+        let mut demands: Vec<_> = self.demands[first..].iter().copied().enumerate().collect();
+        demands.sort_unstable_by_key(|(_, demand)| std::cmp::Reverse(*demand));
+        let masks: Vec<usize> = (0..self.remaining.len())
+            .map(|variant| {
+                (first..self.demands.len())
+                    .enumerate()
+                    .fold(0, |mask, (offset, cell)| {
+                        if self.allocation.accepts[cell].contains(&variant)
+                            && self.fits(cell, variant)
+                        {
+                            mask | (1 << offset)
+                        } else {
+                            mask
+                        }
+                    })
             })
-            .count();
-        if impossible > missing {
-            return false;
-        }
-        if missing == 0 {
-            let needed: u32 = self.demands[cell..].iter().copied().map(u32::from).sum();
+            .collect();
+        for subset in 1..(1usize << demands.len()) {
+            let needed: u32 = demands
+                .iter()
+                .filter(|(cell, _)| subset & (1 << cell) != 0)
+                .skip(missing)
+                .map(|(_, demand)| u32::from(*demand))
+                .sum();
+            if needed == 0 {
+                continue;
+            }
             let available: u32 = self
                 .remaining
                 .iter()
-                .enumerate()
-                .filter(|(variant, _)| {
-                    allocation.accepts[cell..]
-                        .iter()
-                        .any(|accepts| accepts.contains(variant))
-                })
-                .map(|(_, count)| *count)
+                .zip(&masks)
+                .filter(|(_, mask)| **mask & subset != 0)
+                .map(|(count, _)| *count)
                 .sum();
             if available < needed {
                 return false;
             }
         }
+        true
+    }
+
+    /// Tries every variant, pruning branches with insufficient capacity for remaining cells.
+    fn assign(&mut self, cell: usize, missing: usize) -> bool {
+        #[cfg(test)]
+        if let Some(budget) = &mut self.work_budget {
+            *budget = budget
+                .checked_sub(1)
+                .expect("allocation work budget exceeded");
+        }
+        if cell == self.demands.len() {
+            return true;
+        }
+        if !self.shared_capacity_fits(cell, missing) {
+            return false;
+        }
+        let allocation = self.allocation;
         let demand = self.demands[cell];
         if demand == 0 {
             return self.assign(cell + 1, missing);
@@ -251,3 +280,6 @@ impl Search<'_> {
         missing > 0 && self.assign(cell + 1, missing - 1)
     }
 }
+
+#[cfg(test)]
+mod tests;

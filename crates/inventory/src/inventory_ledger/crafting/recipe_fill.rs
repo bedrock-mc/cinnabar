@@ -92,11 +92,7 @@ impl PlayerInventoryLedger {
         for (index, transfers) in plan.into_iter().enumerate() {
             let cell = Cell::Craft(slots[index]);
             for (source, amount, _) in transfers {
-                let Some(held) = self.view().get(source).cloned() else {
-                    continue;
-                };
-                let amount = amount.min(held.stack.count);
-                if let Some(request) = self.place_into_grid(source, &held, cell, amount)? {
+                if let Some(request) = self.transfer_recipe_items(source, cell, amount)? {
                     last = request;
                 }
             }
@@ -146,8 +142,7 @@ impl PlayerInventoryLedger {
                     .saturating_sub(now.as_ref().map_or(0, |now| now.stack.count))
                     .min(held.stack.count);
                 if missing != 0
-                    && let Some(request) =
-                        self.transfer_one(cell, &held, destination, now.as_ref(), missing)?
+                    && let Some(request) = self.transfer_recipe_items(cell, destination, missing)?
                 {
                     last = request;
                 }
@@ -162,43 +157,34 @@ impl PlayerInventoryLedger {
         Ok(last)
     }
 
-    /// One Place request from `source` into `cell`; a player cell is named in the combined
-    /// inventory.
-    fn place_into_grid(
+    /// Moves a recipe quantity in encodable requests, reading updated identities each time.
+    /// Player sources use the combined inventory address required for grid placement.
+    fn transfer_recipe_items(
         &mut self,
         source: Cell,
-        held: &Held,
-        cell: Cell,
-        amount: u16,
-    ) -> Result<Option<i32>, InventoryGestureError> {
-        let into = self.view().get(cell).cloned();
-        let Some(mut built) = self.build_transfer(source, held, cell, into.as_ref(), amount)?
-        else {
-            return Ok(None);
-        };
-        if let (Cell::Inventory(_), protocol::StackRequestAction::Place { source, .. }) =
-            (source, &mut built.action)
-        {
-            source.container = StackRequestContainer::CombinedInventory;
-        }
-        let personal_generation = self.gesture_preflight(true)?;
-        self.submit_built(built, personal_generation).map(Some)
-    }
-
-    /// One Place request moving `amount` of `held` from `source` into `destination`.
-    fn transfer_one(
-        &mut self,
-        source: Cell,
-        held: &Held,
         destination: Cell,
-        into: Option<&Held>,
-        amount: u16,
+        total: u16,
     ) -> Result<Option<i32>, InventoryGestureError> {
-        let Some(built) = self.build_transfer(source, held, destination, into, amount)? else {
-            return Ok(None);
-        };
-        let personal_generation = self.gesture_preflight(true)?;
-        self.submit_built(built, personal_generation).map(Some)
+        let mut last = None;
+        for amount in super::action_amounts(total) {
+            let Some(held) = self.view().get(source).cloned() else {
+                break;
+            };
+            let into = self.view().get(destination).cloned();
+            let Some(mut built) =
+                self.build_transfer(source, &held, destination, into.as_ref(), amount)?
+            else {
+                break;
+            };
+            if let (Cell::Inventory(_), protocol::StackRequestAction::Place { source, .. }) =
+                (source, &mut built.action)
+            {
+                source.container = StackRequestContainer::CombinedInventory;
+            }
+            let personal_generation = self.gesture_preflight(true)?;
+            last = Some(self.submit_built(built, personal_generation)?);
+        }
+        Ok(last)
     }
 
     /// A Place into an empty or compatible cell; `None` when `into` cannot take it.
