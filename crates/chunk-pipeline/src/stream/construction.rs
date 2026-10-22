@@ -70,6 +70,7 @@ impl WorldStream {
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
         let _ = &*workers::WORKERS;
+        warm_block_mutation_facts();
         let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
         let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
         let authority = client_world::WorldAuthority::new(
@@ -538,4 +539,16 @@ fn creates_request(event: &WorldEvent) -> bool {
             .map_or(event.requested_sub_chunks != Some(0), |ys| !ys.is_empty()),
         _ => false,
     }
+}
+
+/// Builds the pinned liquid facts every block mutation reads, once per process and off the
+/// commit thread. Built on first use instead, they decode the whole pinned block registry,
+/// about 50 ms, inside the frame that commits the session's first block update.
+fn warm_block_mutation_facts() {
+    static WARMING: std::sync::Once = std::sync::Once::new();
+    WARMING.call_once(|| {
+        workers::detach(|| {
+            let _ = assets::facts::liquid::pinned_facts(assets::NetworkIdMode::Sequential, 0);
+        });
+    });
 }

@@ -227,9 +227,11 @@ fn refresh_visible(
     chunks: &mut Query<&mut Visibility, With<ChunkRenderInstance>>,
 ) -> CaveVisibilityWork {
     let generation = stream.connectivity_generation();
+    // A superset left by removals keeps updating until a bounded rebuild makes it exact.
     if cache.camera == Some(camera_key)
         && cache.graph_generation == Some(generation)
         && cache.scratch.built_outward_only() == outward_only
+        && cache.scratch.is_exact()
         && cache.initialized
     {
         return CaveVisibilityWork::default();

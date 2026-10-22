@@ -87,7 +87,7 @@ impl Lighting {
             std::mem::take(last_dispatched_batch),
             std::mem::take(waiters),
         );
-        workers::retire(move || drop(retired));
+        workers::detach(move || drop(retired));
     }
 
     /// Forgets one source in every index without invalidating dependent meshes; stale scan

@@ -480,6 +480,7 @@ impl WorldStream {
                     return;
                 }
                 self.chunk_radius = Some(radius.min(MAX_VIEW_RADIUS_CHUNKS));
+                self.reserve_connectivity_for_view();
                 self.reevaluate_chunk_retention();
             }
             WorldEvent::PublisherUpdate(update) => {

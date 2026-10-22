@@ -1,6 +1,14 @@
-use super::*;
+use super::{grid::GraphChange, *};
 
-/// Extends `visible` for additions, or fills `replacement` and returns true for a full rebuild.
+/// A superset left by removals or lost connections is replaced by a full traversal once it has
+/// served this many updates, so exact visibility returns within a bounded number of frames.
+pub(super) const SUPERSET_UPDATE_LIMIT: u32 = 16;
+
+/// Extends `visible` for graph changes, or fills `replacement` and returns true for a full
+/// rebuild. Additions and gained connections extend the retained traversal exactly. Removals
+/// and lost connections can only shrink what is reachable, so `visible` stays a superset of the
+/// exact result until a rebuild at most [`SUPERSET_UPDATE_LIMIT`] updates later, or at the next
+/// camera section change, whichever comes first.
 pub(crate) fn update_visible(
     camera: SubChunkKey,
     grid: &ConnectivityGrid,
@@ -15,7 +23,7 @@ pub(crate) fn update_visible(
         || (scratch.outward_only && scratch.camera != Some(camera))
         || scratch.checkpoint.0 != checkpoint.0
         || scratch.checkpoint.1 != checkpoint.1
-        || !grid.retains_additions(scratch.checkpoint.2)
+        || !grid.retains_changes(scratch.checkpoint.2)
         || scratch.camera_present != grid.contains_key(&camera)
     {
         fill_visible(camera, grid, scratch, replacement);
@@ -23,21 +31,39 @@ pub(crate) fn update_visible(
     }
     scratch.added_visible.clear();
     scratch.work = CaveVisibilityWork::default();
-    let additions = grid.additions_since(scratch.checkpoint.2);
-    scratch.work.additions = additions.len();
     let previously_reached = scratch.touched.len();
-    for &key in additions {
+    // Removals and promotions first bring every slot's state up to its current occupant, so
+    // openings then seed against the current layout whatever order the changes came in.
+    for change in grid.changes_since(scratch.checkpoint.2) {
+        match *change {
+            GraphChange::Opened(_) => {}
+            GraphChange::Narrowed => scratch.mark_superset(),
+            GraphChange::Removed(key, cell) => {
+                scratch.forget(grid, key, cell);
+                scratch.mark_superset();
+            }
+            GraphChange::Promoted(key, cell) => scratch.promote(grid, key, cell),
+        }
+    }
+    for change in grid.changes_since(scratch.checkpoint.2) {
+        let GraphChange::Opened(key) = *change else {
+            continue;
+        };
+        scratch.work.additions += 1;
         if scratch.camera_present {
-            seed_addition(key, grid, scratch);
+            seed_opened(key, grid, scratch);
         } else {
             scratch.added_visible.push(key);
         }
     }
     propagate(grid, scratch);
-    if scratch.camera != Some(camera)
+    let superset_updates = scratch.superset_updates.map(|updates| updates + 1);
+    scratch.superset_updates = superset_updates;
+    // A superset traversal cannot prove that a new camera section reaches the same region.
+    let camera_moved = scratch.camera != Some(camera)
         && scratch.camera_present
-        && !camera::same_region(camera, grid, scratch)
-    {
+        && (superset_updates.is_some() || !camera::same_region(camera, grid, scratch));
+    if camera_moved || superset_updates.is_some_and(|updates| updates >= SUPERSET_UPDATE_LIMIT) {
         let attempted = scratch.work;
         fill_visible(camera, grid, scratch, replacement);
         scratch.work.explored_exits += attempted.explored_exits;
@@ -67,11 +93,16 @@ pub(crate) fn update_visible(
     false
 }
 
-/// Replays only neighboring exits that could not cross into this previously absent node.
-fn seed_addition(key: SubChunkKey, grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
+/// Replays only the exits that could not cross into this node before it joined the graph or
+/// gained connections: those entering from reached neighbours, and the camera's own.
+fn seed_opened(key: SubChunkKey, grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
     let Some((node, bits)) = scratch.node(grid, key) else {
         return;
     };
+    let cells = grid.cell_count() as u32;
+    if scratch.camera == Some(key) {
+        scratch.reach(cells, node, touched_faces(bits));
+    }
     for face in Face::ALL {
         let Some(neighbour) = adjacent(key, face) else {
             continue;
@@ -83,7 +114,7 @@ fn seed_addition(key: SubChunkKey, grid: &ConnectivityGrid, scratch: &mut CaveVi
         }
         if state & (1 << opposite(face) as u8) != 0 {
             let exits = (bits >> (face as u64 * 6)) & FACE_MASK & scratch.allowed_exits(key);
-            scratch.reach(grid.cell_count() as u32, node, exits);
+            scratch.reach(cells, node, exits);
         }
     }
 }

@@ -14,6 +14,10 @@ enum Coverage {
     Empty,
 }
 
+/// Where [`WorldStream::terrain_publication_changes`] resumes replaying section membership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerrainPublicationCursor([u64; 2]);
+
 impl WorldStream {
     /// Identifies the stream and dimension visit independently of rendering feature toggles.
     pub fn terrain_publication_source(&self) -> ((u64, u64), u64, u64) {
@@ -30,6 +34,33 @@ impl WorldStream {
     /// Sections whose latest publication receipts may still be used by this stream.
     pub fn terrain_publication_sections(&self) -> impl Iterator<Item = SubChunkKey> + '_ {
         self.resident.iter().chain(self.known_air.iter()).copied()
+    }
+
+    /// The current end of the membership history [`Self::terrain_publication_changes`] replays.
+    pub fn terrain_publication_cursor(&self) -> TerrainPublicationCursor {
+        TerrainPublicationCursor([
+            self.resident.journal_position(),
+            self.known_air.journal_position(),
+        ])
+    }
+
+    /// Each section whose membership in [`Self::terrain_publication_sections`] may have changed
+    /// since `cursor`, possibly repeated, with whether it belongs now. Applying them to the
+    /// sections as of `cursor` yields the current sections. `None` when the bounded history no
+    /// longer reaches back to `cursor`, so the caller reconciles against every section instead.
+    pub fn terrain_publication_changes(
+        &self,
+        cursor: TerrainPublicationCursor,
+    ) -> Option<impl Iterator<Item = (SubChunkKey, bool)> + '_> {
+        let [resident, known_air] = cursor.0;
+        let resident = self.resident.changed_since(resident)?;
+        let known_air = self.known_air.changed_since(known_air)?;
+        Some(resident.chain(known_air).map(|&key| {
+            (
+                key,
+                self.resident.contains(&key) || self.known_air.contains(&key),
+            )
+        }))
     }
 
     /// Changes when section requirements or near membership can change the render target.

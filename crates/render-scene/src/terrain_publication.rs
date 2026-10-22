@@ -40,6 +40,26 @@ impl TerrainPublications {
         state.retained = retained;
     }
 
+    /// Applies each section's current membership, given for every section that may have
+    /// changed since the last reconciliation; the result equals [`Self::retain`] over the
+    /// current sections, without visiting unchanged ones.
+    pub fn apply_membership(&self, changes: impl Iterator<Item = (SubChunkKey, bool)>) {
+        let mut state = self.0.lock().expect("terrain publications");
+        let mut withdrew_empty = false;
+        for (key, retained) in changes {
+            if retained {
+                state.retained.insert(key);
+            } else if state.retained.remove(&key) {
+                // Receipts exist only for retained sections.
+                state.latest.remove(&key);
+                withdrew_empty |= state.empty.remove(&key);
+            }
+        }
+        if withdrew_empty {
+            state.revision = state.revision.wrapping_add(1);
+        }
+    }
+
     /// Records a prepared section; full geometry and withdrawals invalidate older empty proofs.
     /// Equal-generation withdrawals win over empty receipts, regardless of delivery order.
     pub fn record(&self, key: SubChunkKey, generation: u64, empty: bool) {

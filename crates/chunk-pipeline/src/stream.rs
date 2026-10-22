@@ -86,6 +86,7 @@ mod map_data;
 mod meshing;
 mod model;
 mod near_drawn;
+pub use near_drawn::TerrainPublicationCursor;
 mod particle_events;
 mod polling;
 mod prediction;
