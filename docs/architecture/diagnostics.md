@@ -39,7 +39,9 @@ status. A panic the client survives is saved without a window. The monitor bound
 reports and, after the client ends, selects the first report still retained from its final
 panic cascade. It reads that report's saved logs from the same folder. A main-thread stall outside
 loading phases produces a `hang` report while the game keeps running. Before the monitor
-connects, and on Android, in-process writers produce the same folder layout.
+connects, and on Android, in-process writers produce the same folder layout. iOS allows no
+monitor process and `crash-handler` has no iOS fault handler, so there panics are written
+in-process and native faults go unreported.
 
 Every folder holds `report.json`, the session's `client.log` and `core.log` sections,
 `crash.dmp` when a dump exists, `packets.txt`, `decode-samples/` and `flight.log`. The

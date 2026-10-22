@@ -20,11 +20,7 @@ pub fn apply_window_settings(
     };
     // A hidden capture window keeps its requested size instead of taking over a display.
     if window.visible {
-        window.mode = if user.video.fullscreen {
-            bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current)
-        } else {
-            bevy::window::WindowMode::Windowed
-        };
+        window.mode = crate::fullscreen::window_mode(user.video.fullscreen);
     }
     *observed = generation;
 }

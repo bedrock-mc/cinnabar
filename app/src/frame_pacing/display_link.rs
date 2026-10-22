@@ -1,4 +1,6 @@
 //! Requests native refresh for synchronized windows while Metal owns drawable presentation.
+//! On iOS the link is also the app's refresh-rate request: without one, Core Animation
+//! composites a ProMotion iPhone's layer at 60 Hz however fast frames are presented.
 
 use bevy::{
     prelude::{App, Entity, IntoScheduleConfigs, Last, NonSendMut, Query, Res, With},
@@ -11,17 +13,19 @@ use objc2::{
     runtime::{NSObject, NSObjectProtocol},
     sel,
 };
+#[cfg(target_os = "macos")]
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes};
 use objc2_quartz_core::{CADisplayLink, CAFrameRateRange};
 use render::FramePacing;
 use render_model::FrameRate;
+#[cfg(target_os = "macos")]
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::{DisplayRefresh, FramePacingRuntime, PresentModeRuntime, update_frame_pacing};
 
 define_class!(
-    // SAFETY: NSObject has no subclass requirements; the callback stays on AppKit's thread.
+    // SAFETY: NSObject has no subclass requirements; the callback stays on the main thread.
     #[unsafe(super = NSObject)]
     #[name = "CinnabarDisplayRefreshTarget"]
     #[thread_kind = MainThreadOnly]
@@ -112,9 +116,18 @@ fn update_refresh(
     native.0 = window_link(window, rate);
 }
 
-/// Binds to the window so AppKit follows display changes; older systems keep FIFO pacing.
+/// Registers the window's link on the main run loop; systems without links keep FIFO pacing.
 fn window_link(window: Entity, rate: FrameRate) -> Option<WindowRefreshLink> {
-    let main_thread = MainThreadMarker::new()?;
+    let link = native_link(window, MainThreadMarker::new()?)?;
+    set_rate(&link, rate);
+    // SAFETY: This resource and its target live on the main thread that runs this run loop.
+    unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes) };
+    Some(WindowRefreshLink { window, rate, link })
+}
+
+/// Binds to the window so AppKit follows display changes; macOS before 14 has no window links.
+#[cfg(target_os = "macos")]
+fn native_link(window: Entity, main_thread: MainThreadMarker) -> Option<Retained<CADisplayLink>> {
     WINIT_WINDOWS.with_borrow(|windows| {
         let window_handle = windows.get_window(window)?;
         let RawWindowHandle::AppKit(handle) = window_handle.window_handle().ok()?.as_raw() else {
@@ -129,13 +142,19 @@ fn window_link(window: Entity, rate: FrameRate) -> Option<WindowRefreshLink> {
         let target = RefreshTarget::new(window, main_thread);
         // SAFETY: The selector has the documented void(CADisplayLink *) signature, and
         // the availability check above covers macOS versions before display-link support.
-        let link =
-            unsafe { native_window.displayLinkWithTarget_selector(&target, sel!(displayRefresh:)) };
-        set_rate(&link, rate);
-        // SAFETY: This resource and its target live on the same AppKit thread as this run loop.
-        unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes) };
-        Some(WindowRefreshLink { window, rate, link })
+        Some(unsafe {
+            native_window.displayLinkWithTarget_selector(&target, sel!(displayRefresh:))
+        })
     })
+}
+
+/// Follows the main screen, the only display a full-screen iOS app is shown on.
+#[cfg(target_os = "ios")]
+fn native_link(window: Entity, main_thread: MainThreadMarker) -> Option<Retained<CADisplayLink>> {
+    WINIT_WINDOWS.with_borrow(|windows| windows.get_window(window).map(drop))?;
+    let target = RefreshTarget::new(window, main_thread);
+    // SAFETY: The selector has the documented void(CADisplayLink *) signature.
+    Some(unsafe { CADisplayLink::displayLinkWithTarget_selector(&target, sel!(displayRefresh:)) })
 }
 
 /// Makes a precise refresh request without adding a second software frame limiter.

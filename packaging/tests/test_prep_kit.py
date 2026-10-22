@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 LISTED = [line for line in (ROOT / "packaging/common/prep-kit-files.txt").read_text().splitlines() if line]
 BINARIES = [line.split()[0] for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines()]
 STAGE = ROOT / "packaging/common/stage-payload.sh"
+# Checkout data the compiler and the client embed, whose bytes carriers record and the client
+# re-checks at startup.
+EMBEDDED_DATA = ["crates/assets/data", "crates/asset-compiler/data"]
 HOST = {"darwin": "macos", "linux": "linux"}.get(sys.platform)
 FOREIGN = "linux" if HOST == "macos" else "macos"
 
@@ -46,6 +49,25 @@ class PrepKitTests(unittest.TestCase):
         self.assertEqual(LISTED, sorted(set(LISTED), key=str.encode))
         for file in LISTED:
             self.assertTrue((ROOT / file).is_file(), file)
+
+    def test_every_carrier_text_input_checks_out_with_lf_endings(self):
+        # Carriers hash these bytes, so a CRLF checkout would compile carriers that builds
+        # from LF checkouts reject. Binary content is never converted and needs no attribute.
+        result = subprocess.run(
+            ["git", "ls-files", "--eol", "--", *LISTED, *EMBEDDED_DATA],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loose = []
+        for line in result.stdout.splitlines():
+            fields, path = line.split("\t", 1)
+            index, _, attributes = fields.split(maxsplit=2)
+            attributes = attributes.removeprefix("attr/").split()
+            if index != "i/-text" and "-text" not in attributes and "eol=lf" not in attributes:
+                loose.append(path)
+        self.assertEqual(loose, [], "add `text eol=lf` for these in .gitattributes")
 
     def test_unix_staging_ships_the_compiler_and_exactly_the_listed_files(self):
         kit = self.temp / "kit"

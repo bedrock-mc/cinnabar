@@ -29,7 +29,7 @@ func unixEndpointPathNamed(socketDir, endpointName string) string {
 		return direct
 	}
 	digest := sha256.Sum256([]byte(direct))
-	return filepath.Join("/tmp", "cinnabar-"+hex.EncodeToString(digest[:16])+".sock")
+	return filepath.Join(unixEndpointFallbackDir, "cinnabar-"+hex.EncodeToString(digest[:16])+".sock")
 }
 
 type unixEndpointIdentity struct {

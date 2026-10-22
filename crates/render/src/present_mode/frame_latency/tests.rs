@@ -90,9 +90,9 @@ fn worlds(initial: NonZeroU32) -> (World, Entity, NormalizedRenderTarget) {
     (world, render_entity, target)
 }
 
-/// Only display-link delivery reserves a second VSync frame; fallback paths keep one.
+/// Only a drawable held by presentation reserves a second VSync frame; other paths keep one.
 #[test]
-fn vsync_reserves_a_prefetch_slot_only_for_display_link_delivery() {
+fn vsync_reserves_a_slot_only_for_a_drawable_held_by_presentation() {
     assert_eq!(frame_latency(true, false).get(), 1);
     assert_eq!(frame_latency(true, true).get(), 2);
     assert_eq!(frame_latency(false, false).get(), 2);
@@ -102,15 +102,17 @@ fn vsync_reserves_a_prefetch_slot_only_for_display_link_delivery() {
 /// Windows starts with overlap until headroom is measured; other platforms retain their default.
 #[test]
 fn vsync_latency_follows_the_backend_delivery_path() {
-    let expected = if cfg!(target_os = "windows") || metal_display_link_delivery() {
+    let expected = if cfg!(target_os = "windows") || presentation_holds_a_drawable() {
         2
     } else {
         1
     };
     assert_eq!(frame_latency_for_vsync(true).get(), expected);
     assert_eq!(frame_latency_for_vsync(false).get(), 2);
-    #[cfg(not(target_os = "macos"))]
-    assert!(!metal_display_link_delivery());
+    #[cfg(target_os = "ios")]
+    assert!(presentation_holds_a_drawable());
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    assert!(!presentation_holds_a_drawable());
 }
 
 /// Adaptive decisions cannot consume the slot reserved for prefetched Metal drawables.

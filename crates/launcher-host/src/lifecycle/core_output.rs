@@ -15,7 +15,7 @@ use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{ChildStderr, Command, ExitStatus, Stdio},
+    process::{ChildStderr, Command, ExitStatus},
     sync::{
         Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -64,6 +64,12 @@ impl CoreRole {
             Self::SignIn => "auth-events",
             Self::Catalog => "catalog",
         }
+    }
+
+    /// The sign-in helper reports on stdout and stops only when killed; every other core
+    /// writes nothing to stdout and stops once its stdin closes.
+    fn signs_in(self) -> bool {
+        self == Self::SignIn
     }
 }
 
@@ -143,7 +149,8 @@ pub fn install(config: Config) -> io::Result<()> {
 
 /// Spawns a core-family process as a tracked child (see [`children::spawn`]) with `-log-level`,
 /// and with the installed routes also `-crash-output`, its stderr in `core.log` and its exit
-/// watched. Without them stderr is discarded and the level is the core's default, info.
+/// watched. Without them stderr is discarded and the level is the core's default, info. The
+/// role decides stdin and stdout, so `command` carries only the program and arguments.
 pub fn spawn(command: &mut Command, role: CoreRole) -> io::Result<Spawned> {
     match INSTALLED.get() {
         Some(output) => output.spawn(command, role),
@@ -196,12 +203,7 @@ impl CoreOutput {
         if let Some(path) = &crash_output {
             command.arg("-crash-output").arg(path);
         }
-        command.stderr(if self.log.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        });
-        let child = children::spawn(command)?;
+        let child = start(command, role, self.log.is_some())?;
         let (Some(log), Some(stderr)) = (&self.log, child.take_stderr()) else {
             return Ok(child);
         };
@@ -223,6 +225,27 @@ impl CoreOutput {
             return Err(error);
         }
         Ok(child)
+    }
+}
+
+/// Starts a core with stdin piped (null for the sign-in helper), stdout piped only for the
+/// sign-in helper's events and stderr piped when `stderr` is routed. iOS cannot start processes,
+/// so there the core runs in this one with pipes for the same streams.
+fn start(command: &mut Command, role: CoreRole, stderr: bool) -> io::Result<Spawned> {
+    let (stdin, stdout) = (!role.signs_in(), role.signs_in());
+    #[cfg(target_os = "ios")]
+    {
+        children::spawn_embedded_core(command, stdin, stdout, stderr)
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        use std::process::Stdio;
+        let pipe = |piped: bool| if piped { Stdio::piped() } else { Stdio::null() };
+        command
+            .stdin(pipe(stdin))
+            .stdout(pipe(stdout))
+            .stderr(pipe(stderr));
+        children::spawn(command)
     }
 }
 

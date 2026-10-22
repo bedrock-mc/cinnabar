@@ -35,7 +35,7 @@ pub fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
     if cfg!(target_os = "windows") {
         return NonZeroU32::new(2).expect("two is nonzero");
     }
-    frame_latency(vsync, metal_display_link_delivery())
+    frame_latency(vsync, presentation_holds_a_drawable())
 }
 
 /// Display timing and queue depth exchanged between the window owner and the renderer.
@@ -58,46 +58,52 @@ impl Default for FrameLatencyFeedback {
     }
 }
 
-/// Uses adaptive feedback only where it cannot consume a display-link prefetch slot.
+/// Uses adaptive feedback only where it cannot consume a drawable held by presentation.
 pub(super) fn selected_latency(vsync: bool, feedback: &FrameLatencyFeedback) -> NonZeroU32 {
     resolve_latency(
         vsync,
-        metal_display_link_delivery(),
+        presentation_holds_a_drawable(),
         feedback.latency.load(Ordering::Acquire),
     )
 }
 
-/// Applies measured feedback while retaining the display-link drawable reservation.
-fn resolve_latency(vsync: bool, display_link: bool, measured: u32) -> NonZeroU32 {
+/// Applies measured feedback while retaining the slot of a drawable held by presentation.
+fn resolve_latency(vsync: bool, held_drawable: bool, measured: u32) -> NonZeroU32 {
     if vsync
-        && !display_link
+        && !held_drawable
         && let Some(latency) = NonZeroU32::new(measured)
     {
         latency
     } else if cfg!(target_os = "windows") {
         NonZeroU32::new(2).expect("two is nonzero")
     } else {
-        frame_latency(vsync, display_link)
+        frame_latency(vsync, held_drawable)
     }
 }
 
-/// One queued frame with VSync, or two when a display link holds a prefetched drawable;
+/// One queued frame with VSync, or two when presentation holds a drawable beyond the queue;
 /// two without VSync to overlap CPU and GPU work.
-const fn frame_latency(vsync: bool, display_link: bool) -> NonZeroU32 {
-    if vsync && !display_link {
+const fn frame_latency(vsync: bool, held_drawable: bool) -> NonZeroU32 {
+    if vsync && !held_drawable {
         NonZeroU32::MIN
     } else {
         NonZeroU32::new(2).expect("two is nonzero")
     }
 }
 
-/// Whether the Metal backend delivers synchronized drawables through a display link.
-fn metal_display_link_delivery() -> bool {
+/// Whether synchronized presentation holds one drawable beyond the queued frame. A macOS display
+/// link prefetches one; iOS keeps each presented drawable until a later refresh, so with one
+/// queued frame (two drawables) an iPhone presents at half its refresh rate.
+fn presentation_holds_a_drawable() -> bool {
     #[cfg(target_os = "macos")]
     {
         wgpu::hal::metal::display_link_delivery_supported()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "ios")]
+    {
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         false
     }

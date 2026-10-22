@@ -1,8 +1,8 @@
 //! Chooses the frame admission cadence from the session's frame-rate limit and window state.
 
 mod display;
-#[cfg(target_os = "macos")]
-pub(crate) mod macos_display_link;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) mod display_link;
 
 use std::time::{Duration, Instant};
 
@@ -98,7 +98,7 @@ impl FramePacingRuntime {
 
     /// Requests the display's full cadence for focused, synchronized native windows,
     /// bounded by the same limits that admit frames. Hidden and fixed-clock runs opt out.
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "ios", test))]
     fn display_link_rate(
         &self,
         intent: PresentationIntent,

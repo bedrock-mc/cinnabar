@@ -87,6 +87,12 @@ impl PlatformStream {
 #[cfg(any(unix, test))]
 const MAX_UNIX_ENDPOINT_PATH_BYTES: usize = 103;
 
+/// Holds the hashed endpoint of a socket directory too long for `sun_path`. An iOS app container
+/// path alone nearly fills `sun_path` and the sandbox has no shared `/tmp`, so there the endpoint
+/// is relative: the iOS host makes its private runtime root the working directory.
+#[cfg(any(unix, test))]
+const UNIX_ENDPOINT_FALLBACK_DIR: &str = if cfg!(target_os = "ios") { "" } else { "/tmp/" };
+
 #[cfg(any(unix, test))]
 fn clean_unix_path_bytes(path: &[u8]) -> Vec<u8> {
     let rooted = path.first() == Some(&b'/');
@@ -137,7 +143,11 @@ fn unix_endpoint_path_bytes(socket_dir: &[u8], endpoint_name: &str) -> Vec<u8> {
         return direct;
     }
     let digest = format!("{:x}", Sha256::digest(&direct));
-    format!("/tmp/cinnabar-{}.sock", &digest[..32]).into_bytes()
+    format!(
+        "{UNIX_ENDPOINT_FALLBACK_DIR}cinnabar-{}.sock",
+        &digest[..32]
+    )
+    .into_bytes()
 }
 
 pub(crate) fn endpoint_path(socket_dir: &Path, kind: EndpointKind) -> std::path::PathBuf {

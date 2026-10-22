@@ -31,7 +31,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         bevy::prelude::PreUpdate,
         crate::ui_runtime::touch_pointer::emulate_ui_pointer
             .before(bevy::input::InputSystems)
-            .run_if(|| cfg!(target_os = "android")),
+            .run_if(|| launcher::TOUCH_PRIMARY),
     )
     .add_systems(
         Update,

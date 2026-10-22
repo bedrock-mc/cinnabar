@@ -35,7 +35,8 @@ pub fn run_first_run_setup() -> i32 {
 }
 
 /// The `--crash-monitor` child process: logs to its own `crash-monitor.log`, then watches the
-/// client until it exits and reports a crash; returns its exit code.
+/// client until it exits and reports a crash; returns its exit code. iOS cannot start one.
+#[cfg(not(target_os = "ios"))]
 pub fn run_crash_monitor() -> i32 {
     crate::app::logging::install(crate::app::logging::Process::Monitor);
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
@@ -67,8 +68,9 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     let layout = InstallLayout::discover().context("resolve install layout")?;
     crate::app::logging::apply_saved_verbose_setting(&layout);
     crash::prune_reports(&layout);
-    // The monitor starts first, so it can report even a failure of the rest of startup.
-    let monitor = if cfg!(target_os = "android") {
+    // The monitor starts first, so it can report even a failure of the rest of startup. Android
+    // and iOS start none, and report crashes in-process.
+    let monitor = if cfg!(any(target_os = "android", target_os = "ios")) {
         None
     } else {
         crash::monitor::MonitorCommand::current_exe().ok()
@@ -110,10 +112,20 @@ pub fn show_failure(error: &anyhow::Error) {
     };
     let text = format!("{error:#}");
     if !crash::report_failure(stage, &text) {
-        use launcher_host::native_dialog::{NativePrompter, Prompter};
-        NativePrompter.alert(&crash_monitor::window::failure_title(stage), &text);
+        alert_failure(stage, &text);
     }
 }
+
+/// Shows `text` in a native alert titled for `stage` as the crash window would be.
+#[cfg(not(target_os = "ios"))]
+fn alert_failure(stage: Stage, text: &str) {
+    use launcher_host::native_dialog::{NativePrompter, Prompter};
+    NativePrompter.alert(&crash_monitor::window::failure_title(stage), text);
+}
+
+/// Shows nothing: iOS has no dialog tool here, so the logged failure is its only record.
+#[cfg(target_os = "ios")]
+fn alert_failure(_stage: Stage, _text: &str) {}
 
 /// Acknowledges startup once the renderer confirms several completed primary-window frames.
 pub fn acknowledge_startup(

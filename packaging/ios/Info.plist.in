@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>@EXECUTABLE@</string>
+  <key>CFBundleIdentifier</key><string>@BUNDLE_ID@</string>
+  <key>CFBundleName</key><string>@PRODUCT_NAME@</string>
+  <key>CFBundleDisplayName</key><string>@PRODUCT_NAME@</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+  <key>LSRequiresIPhoneOS</key><true/>
+  <key>MinimumOSVersion</key><string>@DEPLOYMENT_TARGET@</string>
+  <key>DTPlatformName</key><string>iphoneos</string>
+  <key>DTPlatformVersion</key><string>@SDK_VERSION@</string>
+  <key>DTSDKName</key><string>iphoneos@SDK_VERSION@</string>
+  <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+  <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string><string>metal</string></array>
+  <!-- An empty launch screen opts into the device's native resolution without a storyboard. -->
+  <key>UILaunchScreen</key><dict/>
+  <key>UIRequiresFullScreen</key><true/>
+  <key>UIStatusBarHidden</key><true/>
+  <key>UIViewControllerBasedStatusBarAppearance</key><false/>
+  <!-- ProMotion iPhones hold apps to 60 Hz unless they opt out of the minimum frame duration. -->
+  <key>CADisableMinimumFrameDurationOnPhone</key><true/>
+  <!-- Game Mode gives a full-screen game priority on the CPU and GPU. iOS 18 reads the
+       GameController key; later releases read the LaunchServices key the macOS bundle uses. -->
+  <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+  <key>LSSupportsGameMode</key><true/>
+  <key>GCSupportsGameMode</key><true/>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+  <key>UISupportedInterfaceOrientations~ipad</key>
+  <array>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+  <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+  <!-- Documents/ holds config, logs and shader packs; these expose it in the Files app. -->
+  <key>UIFileSharingEnabled</key><true/>
+  <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+  <key>NSLocalNetworkUsageDescription</key><string>@PRODUCT_NAME@ connects to Bedrock servers on your local network.</string>
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
+  <!-- iOS appends @2x/@3x and ~ipad to these base names when it picks an icon file. -->
+  <key>CFBundleIcons</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+      <key>CFBundleIconFiles</key><array><string>AppIcon60x60</string></array>
+    </dict>
+  </dict>
+  <key>CFBundleIcons~ipad</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+      <key>CFBundleIconFiles</key>
+      <array>
+        <string>AppIcon60x60</string>
+        <string>AppIcon76x76</string>
+        <string>AppIcon83.5x83.5</string>
+      </array>
+    </dict>
+  </dict>
+</dict>
+</plist>

@@ -34,6 +34,12 @@ crates/assets/data/entity-facts-*.bin binary
 crates/assets/data/entity-facts-expansion-*.tsv text eol=lf
 crates/asset-compiler/data/entity-components-*.json text eol=lf
 packaging/common/prep-kit-files.txt text eol=lf
+# Carriers hash the bytes of their checkout inputs, and the runtime compares those hashes with
+# the copies it embeds; a CRLF checkout would compile carriers that LF-checkout builds reject.
+crates/assets/data/*.json text eol=lf
+crates/assets/data/*.tsv text eol=lf
+crates/assets/data/*.txt text eol=lf
+crates/asset-compiler/data/*.json text eol=lf
 assets/bedrock-target.json text eol=lf
 crates/assets/data/facts-expansion-v*.tsv text eol=lf
 crates/assets/data/vocabulary-v*.txt text eol=lf

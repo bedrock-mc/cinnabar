@@ -692,7 +692,7 @@ impl MenuView {
             pressed: None,
             navigation_focus_visible: true,
             gamepad_input: false,
-            touch_available: cfg!(target_os = "android"),
+            touch_available: crate::TOUCH_PRIMARY,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,

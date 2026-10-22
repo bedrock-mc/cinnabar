@@ -3,7 +3,7 @@ use super::*;
 use std::{
     fs,
     path::PathBuf,
-    process::Child,
+    process::{Child, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 

@@ -423,7 +423,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .context("JSON-UI engine is missing its carrier catalog")?,
     );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
-    ui_presentation.enable_touch_controls(cfg!(target_os = "android"));
+    ui_presentation.enable_touch_controls(launcher::TOUCH_PRIMARY);
     // OreUI artwork is decoded once for every native screen.
     if let Some(images) = oreui::images::load_optional_oreui_images(
         loaded_assets
@@ -609,8 +609,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
-    #[cfg(target_os = "macos")]
-    crate::frame_pacing::macos_display_link::install(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    crate::frame_pacing::display_link::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {

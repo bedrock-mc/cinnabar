@@ -9,7 +9,7 @@ use bridge::ConnectTarget;
 use launcher::{install_layout::InstallLayout, menu::DEFAULT_PORT};
 use std::{
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
 };
 
 pub struct LauncherCore {
@@ -139,9 +139,7 @@ fn launcher_command(
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
         .arg("-device-file")
-        .arg(layout.device_profile_file())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null());
+        .arg(layout.device_profile_file());
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
     if lease_game_cache {
         command

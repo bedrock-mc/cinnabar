@@ -1,7 +1,7 @@
 use std::{
     io::Read,
     path::Path,
-    process::{Command, Stdio},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -146,9 +146,7 @@ impl AuthSupervisor {
             Command::new(executable)
                 .arg("-auth-events")
                 .arg("-auth-cache")
-                .arg(cache)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped()),
+                .arg(cache),
             crate::lifecycle::core_output::CoreRole::SignIn,
         )
         .with_context(|| format!("start sign-in helper {}", executable.display()))?;
@@ -457,6 +455,7 @@ fn safe_message(value: &str) -> String {
 mod tests {
     use std::{
         fs,
+        process::Stdio,
         time::{Duration, Instant},
     };
 

@@ -30,6 +30,8 @@ pub(crate) fn dispatch() {
     {
         std::process::exit(lifecycle::run_first_run_setup());
     }
+    // iOS starts no monitor, so it is never re-run as one.
+    #[cfg(not(target_os = "ios"))]
     if mode.as_ref().is_some_and(|arg| arg == crash::MONITOR_FLAG) {
         std::process::exit(lifecycle::run_crash_monitor());
     }

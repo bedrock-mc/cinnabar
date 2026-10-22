@@ -9,7 +9,7 @@
 use std::{
     fs::{File, OpenOptions},
     io,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         OnceLock,
         atomic::{AtomicU32, AtomicU64, Ordering},
@@ -150,7 +150,9 @@ static WATCHED: OnceLock<Heartbeat> = OnceLock::new();
 /// Creates a heartbeat file for this process in `crash_dir` named by `pid` and `nonce`, owned
 /// by the calling thread, and makes [`tick`] and [`Loading`] write it. Returns its path for the
 /// monitor; the mapping lives as long as the process. Fails when a heartbeat already exists.
-pub(super) fn watch(crash_dir: &Path, pid: u32, nonce: u64) -> io::Result<PathBuf> {
+/// iOS starts no monitor, so it never watches and [`tick`] and [`Loading`] write nothing.
+#[cfg(not(target_os = "ios"))]
+pub(super) fn watch(crash_dir: &Path, pid: u32, nonce: u64) -> io::Result<std::path::PathBuf> {
     std::fs::create_dir_all(crash_dir)?;
     let path = crash_dir.join(format!(".heartbeat-{pid}-{nonce:016x}"));
     let heartbeat = Heartbeat::create(&path)?;

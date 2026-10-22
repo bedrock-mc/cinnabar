@@ -1,0 +1,81 @@
+name: iOS
+
+# Builds the experimental arm64 iPhone/iPad IPA for iOS packaging changes, for `ios/*` branches
+# (so a fork branch yields an IPA without upstream access) and on demand. The artifact is
+# unsigned and carries no game assets: users inject their own compiled carriers with
+# packaging/ios/add-assets.py, and the sideloading tool signs the IPA with their Apple ID.
+on:
+  pull_request:
+    paths:
+      - packaging/ios/**
+      - .github/workflows/ios.yml
+  push:
+    branches:
+      - ios/**
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    name: Build arm64 IPA
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      # Parallel codegen without LTO keeps this build affordable.
+      CINNABAR_IOS_PROFILE: play
+      CARGO_INCREMENTAL: "0"
+      FORK_CACHE_PATHS: |
+        ~/.cargo/registry/index
+        ~/.cargo/registry/cache
+        ~/.cargo/git/db
+        ~/.cargo/build
+        target/aarch64-apple-ios
+        ~/go/pkg/mod
+        ~/Library/Caches/go-build
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain and the iOS target
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      # Forks keep their own Rust and Go build cache between `ios/*` pushes, saved even when the
+      # build fails so the next push resumes it. The upstream shared cache has no budget for this
+      # lane (.github/actions/build-cache/budgets.json), so upstream runs skip it.
+      - name: Restore the fork build cache
+        id: cache
+        if: github.repository != 'cinnabar-mc/cinnabar'
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.FORK_CACHE_PATHS }}
+          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'core/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'core/go.sum') }}-
+            ios-${{ runner.os }}-
+      - name: Install the icon renderer
+        run: brew install librsvg
+      - name: Build the IPA
+        run: bash packaging/ios/build-ipa.sh
+      - name: Save the fork build cache
+        if: always() && steps.cache.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.FORK_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cinnabar-ios-unsigned
+          path: target/ios/*-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

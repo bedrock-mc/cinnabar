@@ -1,0 +1,28 @@
+[package]
+name = "cinnabar-ios"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+reads = ["packaging/ios/runtime.json"]
+
+# The iOS app's executable; elsewhere it is an empty program, so desktop builds still compile it.
+[[bin]]
+name = "cinnabar-ios"
+path = "src/main.rs"
+test = false
+doctest = false
+
+[target.'cfg(target_os = "ios")'.dependencies]
+anyhow.workspace = true
+# Java shader packs are part of what an iPhone build is used to check, so they are compiled in.
+cinnabar = { path = "../../../app", default-features = false, features = ["shaderpacks"] }
+diagnostics = { path = "../../../crates/diagnostics" }
+launcher = { path = "../../../crates/launcher" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -2,6 +2,7 @@
 members = [
     "app",
     "packaging/android/client",
+    "packaging/ios/client",
     "crates/acceptance",
     "crates/actor-animation",
     "crates/crash-monitor",

@@ -19,13 +19,11 @@ test-support = []
 cosmetics = { path = "../cosmetics" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }
-crash-handler = "0.8.1"
 crash-report = { path = "../crash-report" }
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
 launcher = { path = "../launcher" }
 memmap2 = "0.9"
-minidumper = "0.11"
 resource-pack = { path = "../resource-pack" }
 getrandom = "0.3"
 protocol = { path = "../protocol" }
@@ -43,6 +41,11 @@ update-installer = { path = "../update-installer" }
 update-manifest = { path = "../update-manifest" }
 url = "2"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+# iOS has no second process for a crash monitor, and these crates have no iOS fault handler.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+crash-handler = "0.8.1"
+minidumper = "0.11"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

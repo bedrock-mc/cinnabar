@@ -425,6 +425,12 @@ allowed_dependencies = ["app", "assets", "first-run", "launcher"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
+name = "cinnabar-ios"
+path = "packaging/ios/client"
+allowed_dependencies = ["app", "diagnostics", "launcher"]
+forbidden_dependencies = ["asset-compiler"]
+
+[[crates]]
 name = "sim"
 path = "crates/sim"
 allowed_dependencies = ["simulation-clock", "assets", "block-transform", "world", "protocol-ids"]

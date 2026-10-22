@@ -12,11 +12,7 @@
 //! `minidumper` does not say which connection a message came from, so the token is what tells
 //! the client's messages from anyone else's.
 
-use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
 
 use crash_report::report::{Identity, Report, Thread};
 use serde::{Deserialize, Serialize};
@@ -188,7 +184,9 @@ impl DumpContext {
 }
 
 /// The `minidumper` name of the socket file at `path`, which the monitor's command line names.
-pub fn socket_name(path: &Path) -> minidumper::SocketName<'_> {
+/// iOS runs no monitor, so it has no socket to name.
+#[cfg(not(target_os = "ios"))]
+pub fn socket_name(path: &std::path::Path) -> minidumper::SocketName<'_> {
     minidumper::SocketName::Path(path)
 }
 

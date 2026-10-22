@@ -138,6 +138,7 @@ fn available_registry_matches_all_platform_candidates_without_gl() {
         Platform::Linux,
         Platform::Android,
         Platform::Macos,
+        Platform::Ios,
     ];
     for platform in platforms {
         let supported = platform.backends();

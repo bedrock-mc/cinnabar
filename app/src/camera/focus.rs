@@ -21,8 +21,9 @@ use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 #[cfg(any(windows, test))]
 mod native;
 
-/// Whether the platform can lock the OS cursor; Android's window backend rejects every grab.
-const OS_CURSOR_GRAB: bool = !cfg!(target_os = "android");
+/// Whether the platform can lock the OS cursor; winit's Android and UIKit backends reject every
+/// grab.
+const OS_CURSOR_GRAB: bool = !cfg!(any(target_os = "android", target_os = "ios"));
 
 /// Installs focus tracking without opening or calling into a native window.
 pub(super) fn install(app: &mut App) {

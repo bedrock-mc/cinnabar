@@ -4,11 +4,7 @@ use crate::{
     lifecycle::children::Spawned,
 };
 use launcher::{install_layout::InstallLayout, menu::view::CatalogFile};
-use std::{
-    fs,
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::{fs, path::PathBuf, process::Command};
 
 #[derive(Debug)]
 pub struct Catalog {
@@ -45,9 +41,7 @@ impl Catalog {
             .arg("-catalog-file")
             .arg(&self.path)
             .arg("-auth-cache")
-            .arg(auth_cache)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null());
+            .arg(auth_cache);
         match crate::lifecycle::core_output::spawn(
             &mut command,
             crate::lifecycle::core_output::CoreRole::Catalog,

@@ -10,6 +10,8 @@ use diagnostics::logging::CallerLayer;
 pub(crate) enum Process {
     Client,
     Setup,
+    /// The crash monitor, which iOS cannot start.
+    #[cfg(not(target_os = "ios"))]
     Monitor,
 }
 
@@ -34,7 +36,9 @@ fn base_filter() -> String {
 pub(crate) fn install(process: Process) {
     let layers = match process {
         Process::Client => profiler_layers(),
-        Process::Setup | Process::Monitor => Vec::new(),
+        Process::Setup => Vec::new(),
+        #[cfg(not(target_os = "ios"))]
+        Process::Monitor => Vec::new(),
     };
     let installed = diagnostics::logging::install(diagnostics::logging::Options {
         base_filter: base_filter(),

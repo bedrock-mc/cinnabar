@@ -86,13 +86,21 @@ fn is_fullscreen(window: &Window) -> bool {
     window.mode != WindowMode::Windowed
 }
 
+/// The primary window's mode for a fullscreen preference. Where the platform only shows the
+/// app full screen, the window always fills its one display, so a windowed size never applies.
+pub fn window_mode(fullscreen: bool) -> WindowMode {
+    if launcher::FULLSCREEN_ONLY {
+        WindowMode::BorderlessFullscreen(MonitorSelection::Primary)
+    } else if fullscreen {
+        WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+    } else {
+        WindowMode::Windowed
+    }
+}
+
 fn set_fullscreen(window: &mut Window, fullscreen: bool) {
     if fullscreen != is_fullscreen(window) {
-        window.mode = if fullscreen {
-            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
-        } else {
-            WindowMode::Windowed
-        };
+        window.mode = window_mode(fullscreen);
     }
 }
 

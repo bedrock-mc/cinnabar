@@ -122,6 +122,7 @@ mod tests {
             Platform::Linux,
             Platform::Android,
             Platform::Macos,
+            Platform::Ios,
         ] {
             let offered: Vec<_> = (0..CHOICES.len())
                 .filter(|&choice| visible(choice, platform))

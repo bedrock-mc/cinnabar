@@ -2,13 +2,13 @@
 
 use std::sync::{Arc, Mutex, PoisonError, TryLockError};
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 use arboard::{Clipboard as SystemClipboard, Error as SystemClipboardError};
 use ui::ChatClipboard;
-#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+#[cfg(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))]
 use unavailable::{Clipboard as SystemClipboard, Error as SystemClipboardError};
 
-#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+#[cfg(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))]
 mod unavailable;
 
 /// Handle to the process-wide platform clipboard.
@@ -177,8 +177,11 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
     }
 }
 
-// The fakes report arboard's errors, which Android builds lack.
-#[cfg(all(test, not(any(target_os = "android", target_arch = "wasm32"))))]
+// The fakes report arboard's errors, which Android and iOS builds lack.
+#[cfg(all(
+    test,
+    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+))]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

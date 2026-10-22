@@ -127,7 +127,6 @@ test-alloc = { path = "../crates/test-alloc", optional = true }
 mimalloc = { workspace = true, optional = true }
 client-extensions = { path = "../crates/client-extensions" }
 bootstrap-ui = { path = "../crates/bootstrap-ui" }
-crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
@@ -152,6 +151,10 @@ uuid.workspace = true
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 
+# The out-of-process crash monitor; iOS cannot start a second process.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios")))'.dependencies]
+crash-monitor = { path = "../crates/crash-monitor" }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["webgpu"] }
 
@@ -160,8 +163,11 @@ wgpu = { workspace = true, features = ["gles"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
-objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
+
+# The display link that requests full ProMotion and window refresh rates.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSRunLoop", "NSString"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CADisplayLink", "CAFrameRateRange"] }
 

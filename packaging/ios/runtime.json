@@ -1,0 +1,7 @@
+{
+  "bundle_id": "app.cinnabar.client",
+  "executable": "Cinnabar",
+  "resource_dir": "local",
+  "deployment_target": "17.0",
+  "xcode": "26"
+}

@@ -12,6 +12,7 @@ use bevy::{
 };
 
 /// The primary window; `frame_latency` must suit the session's VSync choice from the start.
+/// Platforms that only show the app full screen get a full-screen window from the start.
 pub(super) fn primary_window(
     title: String,
     present_mode: PresentMode,
@@ -20,6 +21,7 @@ pub(super) fn primary_window(
     Window {
         title,
         present_mode,
+        mode: client_shell::fullscreen::window_mode(false),
         desired_maximum_frame_latency: Some(frame_latency),
         resize_constraints: WindowResizeConstraints {
             min_width: ui::MIN_WINDOW_LOGICAL_SIZE[0],

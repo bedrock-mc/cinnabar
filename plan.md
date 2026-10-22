@@ -551,6 +551,15 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
+- The iOS IPA (`docs/ios.md`) runs each Go core in-process from a linked C archive and loads
+  carriers injected into the bundle. On an iPhone 18 Pro Max (iOS 27) it launches full screen,
+  renders with Metal, signs in and joins servers, including a Java shader pack; servers that
+  send large packs need the increased-memory-limit capability. The 120 Hz display link and
+  Game Mode have no device evidence yet. Safe-area insets are not applied, so the Dynamic Island
+  can cover HUD edges, and there is no render-scale option for the native 3× drawable. Touch,
+  soft-keyboard entry and keyboard overlap remain unverified. On-device first-run preparation,
+  native crash capture, clipboard, link opening, local worlds and mods (no JIT) remain
+  unavailable.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
@@ -645,7 +654,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 
-See [Android](docs/android.md), [mods](docs/modding-spike.md),
+See [Android](docs/android.md), [iOS](docs/ios.md), [mods](docs/modding-spike.md),
 [server experiences](docs/server-experiences.md) and
 [experience runtime](docs/experience-runtime.md) for existing implementation contracts.
 

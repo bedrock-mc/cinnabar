@@ -54,9 +54,10 @@ stage_prep_kit() {
     done < <(prep_kit_files)
 }
 
-# stage_resources <resource_root> <assetc_binary>: physics registry, notices, licenses, UI font, prep kit.
-stage_resources() {
-    local resources="$1" assetc="$2"
+# stage_shared_resources <resource_root>: physics registry, notices, licenses and UI font, the
+# resources every platform ships, including those that cannot run the prep kit.
+stage_shared_resources() {
+    local resources="$1"
     mkdir -p "$resources/assets"
     install -m 0644 "$repo_root/crates/assets/data/block-physics-v2193.bin" "$resources/assets/block-physics-v2193.bin"
     install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$resources/assets/THIRD_PARTY_NOTICES.md"
@@ -68,7 +69,12 @@ stage_resources() {
     require_file "$font" 'restore the bundled Cinnangles Sans source'
     install -d "$resources/fonts"
     install -m 0644 "$font" "$resources/fonts/${font##*/}"
-    stage_prep_kit "$resources/prep-kit" "$assetc"
+}
+
+# stage_resources <resource_root> <assetc_binary>: the shared resources plus the prep kit.
+stage_resources() {
+    stage_shared_resources "$1"
+    stage_prep_kit "$1/prep-kit" "$2"
 }
 
 # ui_font_path: the bundled Cinnangles Sans source; first-run draws with it.

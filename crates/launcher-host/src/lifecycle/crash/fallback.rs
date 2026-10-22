@@ -1,6 +1,7 @@
 //! In-process crash folders for when no monitor is connected: before it is up, when it could
-//! not start, and on Android, which has none. Panic and Windows native reports carry the
-//! staging [`super::attachments`]; a Unix fatal signal writes only its prepared folder.
+//! not start, and on Android and iOS, which have none. Panic and Windows native reports carry the
+//! staging [`super::attachments`]; a Unix fatal signal writes only its prepared folder, which iOS,
+//! without a native fault handler, never prepares.
 
 use std::path::PathBuf;
 
@@ -130,19 +131,19 @@ mod windows {
 
 /// The folder a fatal signal writes, prepared outside the handler. Only startup and the periods
 /// without a monitor prepare new ones.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 static PREPARED: std::sync::atomic::AtomicPtr<crash_report::prepared::Prepared> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 /// Set once a handler may be reading [`PREPARED`]; snapshots replaced after that stay allocated.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 static READING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The section buffer, allocated once and used only by the first reporting handler.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 static SCRATCH: std::sync::atomic::AtomicPtr<u8> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
 /// Prepares the folder a fatal signal writes from the current state.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 pub(super) fn prepare(context: &Context) {
     use std::sync::atomic::Ordering;
 
@@ -181,7 +182,7 @@ pub(super) fn prepare(context: &Context) {
 }
 
 /// Writes the prepared folder with async-signal-safe calls only.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 pub(super) fn write_native(crash: &crash_handler::CrashContext) {
     use std::sync::atomic::Ordering;
 
@@ -263,7 +264,7 @@ fn fault(crash: &crash_handler::CrashContext) -> crash_report::prepared::SignalF
 }
 
 /// Unix milliseconds from the async-signal-safe `clock_gettime`.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 fn signal_safe_now_ms() -> u64 {
     // SAFETY: clock_gettime only writes the supplied timespec.
     let mut now: libc::timespec = unsafe { std::mem::zeroed() };

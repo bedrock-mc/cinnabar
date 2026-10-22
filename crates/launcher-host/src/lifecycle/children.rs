@@ -1,5 +1,6 @@
 //! Every helper process the client spawns stays tracked until reaped, so each exit path (normal
-//! exit, the shutdown watchdog, a panic, SIGINT/SIGTERM) can end it by its own handle.
+//! exit, the shutdown watchdog, a panic, SIGINT/SIGTERM) can end it by its own handle. iOS
+//! cannot start processes, so there a core runs in this process and is tracked the same way.
 
 use std::{
     io,
@@ -34,10 +35,71 @@ pub enum StopOutcome {
     Unreaped,
 }
 
+/// A tracked worker: a child process, or on iOS a core running in this process.
+#[derive(Debug)]
+enum Process {
+    Os(Child),
+    #[cfg(target_os = "ios")]
+    Embedded(embedded::Core),
+}
+
+impl Process {
+    fn id(&self) -> u32 {
+        match self {
+            Self::Os(child) => child.id(),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(core) => core.id(),
+        }
+    }
+
+    fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        match self {
+            Self::Os(child) => child.try_wait(),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(core) => Ok(core.try_wait()),
+        }
+    }
+
+    /// SIGKILL for a child; an in-process core can only be cancelled.
+    fn kill(&mut self) {
+        match self {
+            Self::Os(child) => {
+                let _ = child.kill();
+            }
+            #[cfg(target_os = "ios")]
+            Self::Embedded(core) => core.cancel(),
+        }
+    }
+
+    fn take_stdin(&mut self) -> Option<ChildStdin> {
+        match self {
+            Self::Os(child) => child.stdin.take(),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(core) => core.stdin.take(),
+        }
+    }
+
+    fn take_stdout(&mut self) -> Option<ChildStdout> {
+        match self {
+            Self::Os(child) => child.stdout.take(),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(core) => core.stdout.take(),
+        }
+    }
+
+    fn take_stderr(&mut self) -> Option<ChildStderr> {
+        match self {
+            Self::Os(child) => child.stderr.take(),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(core) => core.stderr.take(),
+        }
+    }
+}
+
 /// A child and how long it may take to exit once asked to stop, before any signal reaches it.
 #[derive(Debug)]
 struct Tracked {
-    child: Mutex<Child>,
+    child: Mutex<Process>,
     grace: Duration,
     /// Exit sweeps leave it running: it watches this process and ends itself afterwards.
     outlives: bool,
@@ -47,7 +109,7 @@ struct Tracked {
 }
 
 impl Tracked {
-    fn new(child: Child, grace: Duration, outlives: bool) -> Self {
+    fn new(child: Process, grace: Duration, outlives: bool) -> Self {
         Self {
             child: Mutex::new(child),
             grace,
@@ -58,7 +120,7 @@ impl Tracked {
 
     /// Records a stop request when the child is still running; one that already exited ended
     /// on its own.
-    fn request_stop(&self, child: &mut Child) {
+    fn request_stop(&self, child: &mut Process) {
         if running(child) {
             self.stop_requested.store(true, Ordering::Release);
         }
@@ -117,7 +179,7 @@ impl Children {
 
     /// [`Self::track`] for a child that needs up to `grace` to exit after its stop request.
     fn track_with(&self, child: Child, grace: Duration) -> Spawned {
-        let entry = Arc::new(Tracked::new(child, grace, false));
+        let entry = Arc::new(Tracked::new(Process::Os(child), grace, false));
         let mut live = lock(&self.live);
         live.entries
             .retain(|entry| running(&mut lock(&entry.child)));
@@ -130,18 +192,30 @@ impl Children {
         Spawned(entry)
     }
 
-    /// Spawns and registers under the same lock that revokes shutdown authority; exit sweeps wait
-    /// `grace` for the child before signalling it, or skip an `outlives` child entirely.
+    /// Spawns and registers a child; see [`Self::start`].
     fn spawn(&self, command: &mut Command, grace: Duration, outlives: bool) -> io::Result<Spawned> {
+        self.start(grace, outlives, || {
+            #[cfg(unix)]
+            seal_inherited_sockets();
+            #[cfg(all(windows, not(debug_assertions)))]
+            crate::desktop::windows::hide_console(command);
+            command.spawn().map(Process::Os)
+        })
+    }
+
+    /// Starts and registers a worker under the same lock that revokes shutdown authority; exit
+    /// sweeps wait `grace` for it before signalling it, or skip an `outlives` worker entirely.
+    fn start(
+        &self,
+        grace: Duration,
+        outlives: bool,
+        start: impl FnOnce() -> io::Result<Process>,
+    ) -> io::Result<Spawned> {
         let mut live = lock(&self.live);
         if live.shutting_down {
             return Err(io::Error::other("client is shutting down"));
         }
-        #[cfg(unix)]
-        seal_inherited_sockets();
-        #[cfg(all(windows, not(debug_assertions)))]
-        crate::desktop::windows::hide_console(command);
-        let entry = Arc::new(Tracked::new(command.spawn()?, grace, outlives));
+        let entry = Arc::new(Tracked::new(start()?, grace, outlives));
         live.entries
             .retain(|entry| running(&mut lock(&entry.child)));
         live.entries.push(Arc::clone(&entry));
@@ -239,6 +313,24 @@ pub fn spawn_outliving(command: &mut Command) -> io::Result<Spawned> {
     CHILDREN.spawn(command, Duration::ZERO, true)
 }
 
+/// Runs a core command in this process, since iOS cannot start processes: the linked core gets
+/// the command's arguments and pipes for the requested streams. It is tracked like a child:
+/// closing its stdin, then cancelling it, stand in for stdin EOF and SIGTERM.
+#[cfg(target_os = "ios")]
+pub fn spawn_embedded_core(
+    command: &Command,
+    stdin: bool,
+    stdout: bool,
+    stderr: bool,
+) -> io::Result<Spawned> {
+    CHILDREN.start(Duration::ZERO, false, || {
+        embedded::Core::start(command, stdin, stdout, stderr).map(Process::Embedded)
+    })
+}
+
+#[cfg(target_os = "ios")]
+mod embedded;
+
 /// Marks every open socket close-on-exec before a spawn, so no child holds a listener or
 /// connection a C library opened without the flag (Tracy's listener would stall every capture).
 #[cfg(unix)]
@@ -312,7 +404,8 @@ impl Spawned {
     #[cfg(windows)]
     pub(crate) fn process_handle(&self) -> io::Result<std::os::windows::io::OwnedHandle> {
         use std::os::windows::io::AsHandle;
-        lock(&self.0.child).as_handle().try_clone_to_owned()
+        let Process::Os(child) = &*lock(&self.0.child);
+        child.as_handle().try_clone_to_owned()
     }
 
     pub fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
@@ -320,22 +413,22 @@ impl Spawned {
     }
 
     pub fn take_stdout(&self) -> Option<ChildStdout> {
-        lock(&self.0.child).stdout.take()
+        lock(&self.0.child).take_stdout()
     }
 
     pub fn take_stdin(&self) -> Option<ChildStdin> {
-        lock(&self.0.child).stdin.take()
+        lock(&self.0.child).take_stdin()
     }
 
     pub fn take_stderr(&self) -> Option<ChildStderr> {
-        lock(&self.0.child).stderr.take()
+        lock(&self.0.child).take_stderr()
     }
 
     /// Sends SIGKILL without waiting; a no-op once reaped.
     pub fn kill(&self) {
         let mut child = lock(&self.0.child);
         self.0.request_stop(&mut child);
-        let _ = child.kill();
+        child.kill();
     }
 
     /// A handle a watcher thread uses to see this child's exit, without authority to stop it.
@@ -380,7 +473,7 @@ fn escalate(entries: &[Entry], graceful: Duration) -> Vec<StopOutcome> {
     for entry in entries {
         let mut child = lock(&entry.child);
         entry.request_stop(&mut child);
-        drop(child.stdin.take());
+        drop(child.take_stdin());
     }
     let steps = [
         (StopOutcome::Exited, graceful),
@@ -425,11 +518,19 @@ fn escalate(entries: &[Entry], graceful: Duration) -> Vec<StopOutcome> {
 }
 
 /// Signals a child the caller has just seen running under this same lock, so its PID cannot
-/// have been reaped and reused.
-fn signal(child: &mut Child, outcome: StopOutcome) {
-    if !running(child) {
+/// have been reaped and reused. An in-process core has no signals and is cancelled instead.
+fn signal(process: &mut Process, outcome: StopOutcome) {
+    if !running(process) {
         return;
     }
+    match process {
+        Process::Os(child) => signal_child(child, outcome),
+        #[cfg(target_os = "ios")]
+        Process::Embedded(core) => core.cancel(),
+    }
+}
+
+fn signal_child(child: &mut Child, outcome: StopOutcome) {
     #[cfg(unix)]
     if outcome == StopOutcome::Terminated {
         let pid = i32::try_from(child.id())
@@ -446,7 +547,7 @@ fn signal(child: &mut Child, outcome: StopOutcome) {
 }
 
 /// An inspection error means the child is not ours to signal any more.
-fn running(child: &mut Child) -> bool {
+fn running(child: &mut Process) -> bool {
     matches!(child.try_wait(), Ok(None))
 }
 

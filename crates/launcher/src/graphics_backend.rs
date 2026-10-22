@@ -51,6 +51,7 @@ pub enum Platform {
     Linux,
     Android,
     Macos,
+    Ios,
 }
 
 impl Platform {
@@ -62,6 +63,8 @@ impl Platform {
             Self::Android
         } else if cfg!(target_os = "macos") {
             Self::Macos
+        } else if cfg!(target_os = "ios") {
+            Self::Ios
         } else {
             Self::Linux
         }
@@ -72,7 +75,7 @@ impl Platform {
         match self {
             Self::Windows => &[Backend::Vulkan, Backend::Dx12],
             Self::Linux | Self::Android => &[Backend::Vulkan],
-            Self::Macos => &[Backend::Metal],
+            Self::Macos | Self::Ios => &[Backend::Metal],
         }
     }
 }

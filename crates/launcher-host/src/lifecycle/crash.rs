@@ -5,15 +5,28 @@
 //! process is gone, and tells the player when the client died. Until it is connected, or
 //! without one, the process writes the folder itself. Either way the folder carries the
 //! [`attachments`] the client keeps in its crash staging directory while it runs.
+//!
+//! iOS allows neither a second process nor a native fault handler from `crash-handler`, so
+//! there the `unavailable` stand-ins replace the handler and the monitor: panics write their
+//! folder in-process, as without a monitor elsewhere, and native faults go unreported.
 
 pub mod attachments;
 pub(crate) mod core_exit;
 mod fallback;
+#[cfg(not(target_os = "ios"))]
 mod handler;
 pub mod heartbeat;
+#[cfg(not(target_os = "ios"))]
 pub mod monitor;
 pub mod protocol;
 pub mod state;
+#[cfg(target_os = "ios")]
+mod unavailable;
+
+#[cfg(target_os = "ios")]
+use unavailable::handler;
+#[cfg(target_os = "ios")]
+pub use unavailable::monitor;
 
 use std::{
     backtrace::Backtrace,
@@ -104,7 +117,7 @@ pub fn install(
         return;
     }
     handler::install(context, hooks);
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "ios")))]
     {
         fallback::prepare(context);
         announce_exit_on_return();
@@ -142,22 +155,24 @@ fn report_panic(
     backtrace: &str,
     now_ms: u64,
 ) -> bool {
-    let Some(client) = monitor::route() else {
-        return false;
+    // The block releases the connection, so reconnecting can reclaim it.
+    let dumped = {
+        let Some(client) = monitor::route() else {
+            return false;
+        };
+        let panic = protocol::Panic {
+            message: message.to_owned(),
+            thread: thread.clone(),
+            backtrace: backtrace.to_owned(),
+            uptime_ms: now_ms.saturating_sub(context.identity.started_at_ms),
+        };
+        let sent = serde_json::to_vec(&panic)
+            .is_ok_and(|panic| monitor::send_on(&client, protocol::PANIC, &panic));
+        if !sent {
+            return false;
+        }
+        handler::dump_this_thread()
     };
-    let panic = protocol::Panic {
-        message: message.to_owned(),
-        thread: thread.clone(),
-        backtrace: backtrace.to_owned(),
-        uptime_ms: now_ms.saturating_sub(context.identity.started_at_ms),
-    };
-    let sent = serde_json::to_vec(&panic)
-        .is_ok_and(|panic| monitor::send_on(&client, protocol::PANIC, &panic));
-    if !sent {
-        return false;
-    }
-    let dumped = handler::dump_this_thread();
-    drop(client);
     if dumped && !monitor::reconnect() {
         tracing::warn!("crash monitor connection lost after a panic dump");
     }
@@ -183,7 +198,7 @@ pub fn report_failure(stage: protocol::Stage, error: &str) -> bool {
 
 /// Any other `exit()` or return from `main` is deliberate too; only signals and aborts bypass
 /// this.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 fn announce_exit_on_return() {
     extern "C" fn announce() {
         announce_exit(protocol::AT_EXIT);
@@ -275,7 +290,7 @@ fn state_changed() {
             monitor::send(protocol::STATE, &state);
         }
     } else {
-        #[cfg(unix)]
+        #[cfg(all(unix, not(target_os = "ios")))]
         fallback::prepare(context);
     }
 }

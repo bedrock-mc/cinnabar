@@ -6,7 +6,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus, Stdio},
+    process::{Command, ExitStatus},
     time::{Duration, Instant},
 };
 
@@ -191,9 +191,7 @@ pub fn core_command_for_address(
         .arg("-resource-pack-cache-dir")
         .arg(layout.resource_pack_cache_dir())
         .arg("-device-file")
-        .arg(layout.device_profile_file())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null());
+        .arg(layout.device_profile_file());
     // Passed only when the spawning session provably owns the verified blob
     // cache whose resolver advertises cache support downstream: the core's
     // upstream advertisement must never lead the downstream one.

@@ -2422,6 +2422,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-ios"
+version = "0.1.25"
+dependencies = [
+ "anyhow",
+ "cinnabar",
+ "diagnostics",
+ "launcher",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cinnabar-mcp"
 version = "0.1.25"
 dependencies = [
