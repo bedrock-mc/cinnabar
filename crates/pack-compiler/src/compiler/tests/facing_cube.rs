@@ -27,9 +27,12 @@ fn material_tag(compiled: &assets::CompiledAssets, material: u32) -> u8 {
     mip.rgba8[(reference.layer() * mip.size * mip.size * 4) as usize]
 }
 
+/// A loom block state name with its typed properties.
+type LoomState<'a> = (&'a str, Box<[(BlockProperty, StateValue)]>);
+
 /// Compiles every registered furnace and loom state with the pack's single-facing face layout.
 fn compile_facing_cubes(
-    loom_state: Option<(&str, Box<[(BlockProperty, StateValue)]>)>,
+    loom_state: Option<LoomState<'_>>,
 ) -> (
     assets::CompiledAssets,
     Vec<RegistryRecord>,
