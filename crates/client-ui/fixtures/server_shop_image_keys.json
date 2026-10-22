@@ -1,0 +1,46 @@
+{
+  "namespace": "server_form",
+  "third_party_server_screen": {
+    "type": "screen",
+    "$screen_content": "server_form.content"
+  },
+  "content": {
+    "type": "panel",
+    "controls": [{"server_form_factory": {
+      "type": "factory",
+      "control_ids": {"long_form": "server_form.long_form"}
+    }}]
+  },
+  "long_form": {
+    "type": "panel", "size": [320, 120], "color": [0.1, 0.12, 0.16],
+    "controls": [
+      {"cells": {
+        "type": "grid", "size": [304, 72], "offset": [8, 24],
+        "anchor_from": "top_left", "anchor_to": "top_left",
+        "grid_dimensions": [8, 2],
+        "collection_name": "form_buttons", "grid_item_template": "server_form.cell",
+        "bindings": [
+          {"binding_name": "#form_button_length"},
+          {"binding_type": "view", "source_property_name": "#form_button_length", "target_property_name": "#maximum_grid_items"}
+        ]
+      }}
+    ]
+  },
+  "cell": {
+    "type": "button", "size": [36, 36],
+    "button_mappings": [{"from_button_id": "button.menu_select", "to_button_id": "button.form_button_click", "mapping_type": "pressed"}],
+    "bindings": [{"binding_type": "collection_details", "binding_collection_name": "form_buttons"}],
+    "controls": [
+      {"frame": {"type": "panel", "size": [34, 34], "color": [0.2, 0.24, 0.3]}},
+      {"item": {
+        "type": "custom", "renderer": "inventory_item_renderer", "size": [20, 20], "layer": 2,
+        "bindings": [
+          {"binding_type": "collection", "binding_collection_name": "form_buttons", "binding_name": "#form_button_texture", "binding_name_override": "#form_button_texture"},
+          {"binding_type": "view", "source_property_name": "('~' + #form_button_texture)", "target_property_name": "#texture"},
+          {"binding_type": "view", "source_property_name": "(#texture - '~')", "target_property_name": "#item_id_aux"},
+          {"binding_type": "view", "source_property_name": "(not ((#form_button_texture = '') or (#form_button_texture = 'loading')))", "target_property_name": "#visible"}
+        ]
+      }}
+    ]
+  }
+}

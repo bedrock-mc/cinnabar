@@ -6,7 +6,9 @@ toggle values migrate: on selects Java 1.7; off selects Bedrock.
 
 The shared combat profile takes precedence for view bobbing, hurt/death camera
 motion and glint. Bedrock 1.12 combat visuals are the deliberate default, with no
-user setting. Java keeps its poses, item animation, sneak eye height and arm sway.
+user setting. Java keeps its poses, item animation and arm sway. The first-person
+camera keeps the Bedrock eye in both modes, including while crouching, because it
+must stay on the eye ray that picks blocks and actors.
 
 Code: `render-model::java_animation` (pose, cape and matrix stacks), `actor-animation` `java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
 
@@ -48,7 +50,6 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | Hand motion | Hurt roll, then view bob, then sway `Rx(0.1·(pitch - armPitch))`, `Ry(0.1·(yaw - armYaw))`; the arm angles move halfway to the look each tick and sway is always on. Yaw keeps complete input turns; neither the lag nor its interpolation wraps to a half turn. |
 | View bob | Walk phase `w = -(d + (d - d_prev)·frame)` (one tick ahead); `T(0.5·sin(wπ)·b, -|cos(wπ)·b|, 0)`, `Rz(3·sin(wπ)·b)`, `Rx(5·|cos(wπ - 0.2)·b|)`, `Rx(fall)`. `d += 0.6` per block walked (not flying, riding or sneaking on the ground); `b` eases 40% a tick to the capped 0.1 horizontal speed on the ground; `fall` eases 80% to `15·atan(-0.2·vy)` in the air. Death sets both targets to zero. |
 | Death roll | `Rz(40 - 8000/(deathTicks + frame + 200))` before hurt roll. The body tips by `min(sqrt((deathTicks + frame - 1)/20 · 1.6), 1) · 90°`. |
-| Sneak camera | Held sneak lowers the rendered eye by 0.08 blocks; release decays the drop by 0.4 per tick, interpolated to the frame. Gameplay keeps the Bedrock eye origin. |
 | Hurt roll | `Rz(-14·sin(h⁴π))`, `h` the hurt time left over 10 ticks; never a direction. |
 | Limbs | Amount eases 40% a tick to `min(4·step, 1)` and the swing accumulates it; each hurt event immediately sets the amount to 1.5, including consecutive hits. Death alone does not apply the boost. The frame reads `swing - amount·(1 - frame)` and the clamped interpolated amount. |
 | Body yaw | Turns 30% toward the walk direction (moving more than 0.05 blocks a tick) or the look while swinging; head lag clamps to ±75, and past 50 degrees the body is pulled a fifth of the lag back. Local head look reads the current render-frame input against that interpolated body heading; remote look remains interpolated between ticks. |

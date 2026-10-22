@@ -27,6 +27,7 @@ impl WorldAuthority {
     pub fn has_pending_spatial_control(&self) -> bool {
         self.committed_controls.iter().any(|control| match control {
             CommittedControlEvent::MovePlayer { .. }
+            | CommittedControlEvent::LocalActorMove { .. }
             | CommittedControlEvent::PlayerMovementCorrection { .. }
             | CommittedControlEvent::ChangeDimension { .. } => true,
             CommittedControlEvent::Respawn { respawn, .. } => respawn.ready_to_spawn(),

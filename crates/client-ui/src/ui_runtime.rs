@@ -199,6 +199,8 @@ pub struct UiRuntime {
     /// Last known life state also retains the dead-to-alive reason retirement history.
     last_known_local_player_alive: Option<bool>,
     local_player_health_available: bool,
+    local_player_respawn_ready: bool,
+    local_player_death_generation: u64,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
@@ -306,6 +308,8 @@ impl UiRuntime {
             local_actor_damage: None,
             last_known_local_player_alive: None,
             local_player_health_available: false,
+            local_player_respawn_ready: false,
+            local_player_death_generation: 0,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
@@ -708,6 +712,8 @@ impl UiRuntime {
         self.local_actor_damage = None;
         self.last_known_local_player_alive = None;
         self.local_player_health_available = false;
+        self.local_player_respawn_ready = false;
+        self.local_player_death_generation = 0;
         self.hurt_pending = false;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;

@@ -35,6 +35,8 @@ pub(crate) struct StartSpec {
     pub dir: PathBuf,
     /// Chunks; `None` takes the backend's default.
     pub view_distance: Option<u32>,
+    /// No start has applied the world's options yet, so creation-only ones still apply.
+    pub options_unapplied: bool,
 }
 
 /// One running local server.

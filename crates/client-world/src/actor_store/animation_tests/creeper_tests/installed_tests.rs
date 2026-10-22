@@ -115,6 +115,7 @@ fn assert_installed_creeper_samples(powered: bool) {
             head_yaw: None,
             on_ground: Some(true),
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),

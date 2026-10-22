@@ -185,7 +185,7 @@ fn passive_clients_keep_mod_checks_without_app_update_controls() {
         };
         sections::draw(
             &mut content,
-            launcher::menu::settings_sections::SettingSection::General,
+            launcher::menu::settings_sections::SettingSection::Updates,
         )
         .unwrap();
     });

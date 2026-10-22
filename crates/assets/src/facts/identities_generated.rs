@@ -7,10 +7,15 @@ pub enum VanillaBlock {
     Bamboo,
     Bedrock,
     Crafter,
+    DiamondBlock,
+    EmeraldBlock,
     EndGateway,
     EndPortal,
     EndPortalFrame,
     Fire,
+    GoldBlock,
+    IronBlock,
+    NetheriteBlock,
     Portal,
 }
 impl VanillaBlock {
@@ -21,10 +26,15 @@ impl VanillaBlock {
             Self::Bamboo => "minecraft:bamboo",
             Self::Bedrock => "minecraft:bedrock",
             Self::Crafter => "minecraft:crafter",
+            Self::DiamondBlock => "minecraft:diamond_block",
+            Self::EmeraldBlock => "minecraft:emerald_block",
             Self::EndGateway => "minecraft:end_gateway",
             Self::EndPortal => "minecraft:end_portal",
             Self::EndPortalFrame => "minecraft:end_portal_frame",
             Self::Fire => "minecraft:fire",
+            Self::GoldBlock => "minecraft:gold_block",
+            Self::IronBlock => "minecraft:iron_block",
+            Self::NetheriteBlock => "minecraft:netherite_block",
             Self::Portal => "minecraft:portal",
         }
     }

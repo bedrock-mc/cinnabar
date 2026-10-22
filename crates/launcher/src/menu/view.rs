@@ -420,6 +420,8 @@ pub struct MenuView {
     /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
     pub navigation_focus_visible: bool,
     pub gamepad_input: bool,
+    /// Touch hardware remains available when a mouse or controller becomes active.
+    pub touch_available: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -429,6 +431,10 @@ pub struct MenuView {
     pub name: String,
     pub address: String,
     pub port: String,
+    /// The friends drawer's editable gamertag filter.
+    pub friend_query: String,
+    /// Transient text filtering settings across categories.
+    pub settings_query: String,
     /// Command box drafts, including invalid edits that have not been saved.
     pub macro_commands: Option<[String; super::settings_options::COMMAND_MACRO_COUNT]>,
     pub message: Option<String>,
@@ -686,9 +692,12 @@ impl MenuView {
             pressed: None,
             navigation_focus_visible: true,
             gamepad_input: false,
+            touch_available: cfg!(target_os = "android"),
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,
+            friend_query: String::new(),
+            settings_query: String::new(),
             field: None,
             caret: MenuCaret {
                 shown: true,
