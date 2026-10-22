@@ -1,5 +1,5 @@
-//! Recipe-book crafting: the auto-craft request draws ingredients straight from
-//! the player inventory and places the result back into it, hotbar first.
+//! Recipe-book crafting: the auto-craft request draws ingredients from the crafting grid and
+//! the player inventory and places the result into the inventory, hotbar first.
 
 use std::sync::Arc;
 
@@ -19,15 +19,29 @@ use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryL
 mod allocation;
 
 /// One ingredient's `(cell, amount, stack id)` sources.
-pub(super) type IngredientSources = Vec<(u8, u16, i32)>;
+pub(super) type IngredientSources = Vec<(Cell, u16, i32)>;
+
+/// The most cells a recipe-book craft draws from: the largest grid and the player inventory.
+pub(super) const SOURCE_CELLS: usize =
+    (super::CraftingGrid::Workbench.width() as usize).pow(2) + PLAYER_INVENTORY_SLOT_COUNT;
 
 impl PlayerInventoryLedger {
+    /// Cells recipe-book availability, placement and crafting draw from, in order: the open
+    /// grid, then the player inventory hotbar first.
+    pub(super) fn recipe_source_cells(&self) -> Vec<Cell> {
+        self.crafting_grid()
+            .slots()
+            .map(Cell::Craft)
+            .chain((0..PLAYER_INVENTORY_SLOT_COUNT as u8).map(Cell::Inventory))
+            .collect()
+    }
+
     /// Settled stacks with intact retained bytes and a negotiated binding can supply ingredients.
     pub(super) fn auto_craft_stack(
         &self,
-        slot: u8,
+        cell: Cell,
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
-        let held = self.view().get(Cell::Inventory(slot))?;
+        let held = self.view().get(cell)?;
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
         (recipe_input_valid(&held.stack)
             && !crate::item_permissions::special_removal_locked(&held.stack.extra_data)
@@ -35,80 +49,75 @@ impl PlayerInventoryLedger {
         .then_some((&held.stack, entry))
     }
 
-    /// Player cells to draw `ingredient` from: `(cell, amount, stack id)`.
-    fn ingredient_sources(
-        &self,
-        ingredient: &RecipeIngredientView,
-        crafts: u8,
-        taken: &[(u8, u16)],
-    ) -> Option<Vec<(u8, u16, i32)>> {
-        let mut needed = u16::from(ingredient.count) * u16::from(crafts);
-        let mut sources = Vec::new();
-        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT as u8 {
-            if needed == 0 {
-                break;
-            }
-            let Some((stack, entry)) = self.auto_craft_stack(slot) else {
-                continue;
-            };
-            let already: u16 = taken
-                .iter()
-                .filter(|(cell, _)| *cell == slot)
-                .map(|(_, amount)| *amount)
-                .sum();
-            if !crate::ingredient_accepts(
+    /// Whether the source stack in `cell` is one `ingredient` accepts.
+    pub(super) fn source_accepts(&self, cell: Cell, ingredient: &RecipeIngredientView) -> bool {
+        self.auto_craft_stack(cell).is_some_and(|(stack, entry)| {
+            crate::ingredient_accepts(
                 ingredient,
                 &entry.identifier,
                 stack.metadata,
                 &entry.item_tags,
-            ) {
+            )
+        })
+    }
+
+    /// Source cells to draw `ingredient` from: `(cell, amount, stack id)`.
+    fn ingredient_sources(
+        &self,
+        ingredient: &RecipeIngredientView,
+        crafts: u8,
+        taken: &[(Cell, u16)],
+    ) -> Option<IngredientSources> {
+        let mut needed = u16::from(ingredient.count) * u16::from(crafts);
+        let mut sources = Vec::new();
+        for cell in self.recipe_source_cells() {
+            if needed == 0 {
+                break;
+            }
+            if !self.source_accepts(cell, ingredient) {
                 continue;
             }
+            let stack = &self.view().get(cell).expect("accepted").stack;
+            let already: u16 = taken
+                .iter()
+                .filter(|(taken, _)| *taken == cell)
+                .map(|(_, amount)| *amount)
+                .sum();
             let amount = needed.min(stack.count.saturating_sub(already));
             if amount > 0 {
                 needed -= amount;
-                sources.push((slot, amount, stack.stack_network_id));
+                sources.push((cell, amount, stack.stack_network_id));
             }
         }
         (needed == 0).then_some(sources)
     }
 
-    /// Whether any inventory stack is one of `recipe`'s ingredients.
+    /// Whether the grid or inventory holds any of `recipe`'s ingredients.
     #[must_use]
     pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
         let views = recipe.ingredient_views();
-        (0..PLAYER_INVENTORY_SLOT_COUNT as u8).any(|slot| {
-            let Some(held) = self.view().get(Cell::Inventory(slot)) else {
-                return false;
-            };
-            let Some(entry) = self.negotiated_item_entry(held.stack.network_id) else {
-                return false;
-            };
-            views.iter().flatten().any(|ingredient| {
-                crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    held.stack.metadata,
-                    &entry.item_tags,
-                )
-            })
+        self.recipe_source_cells().into_iter().any(|cell| {
+            views
+                .iter()
+                .flatten()
+                .any(|ingredient| self.source_accepts(cell, ingredient))
         })
     }
 
-    /// Whether the inventory holds every ingredient of `recipe`.
+    /// Whether the grid and inventory together hold every ingredient of `recipe`.
     #[must_use]
     pub fn can_auto_craft(&self, recipe: &RecipeHandle) -> bool {
         self.auto_craft_sources(recipe, 1).is_some()
     }
 
     /// Shares deterministic ingredient allocation between craftability and request construction:
-    /// each ingredient's `(cell, amount, stack id)` sources, in ingredient order.
+    /// each ingredient's sources, in ingredient order.
     pub(super) fn auto_craft_sources(
         &self,
         recipe: &RecipeHandle,
         crafts: u8,
     ) -> Option<Vec<IngredientSources>> {
-        let mut taken: Vec<(u8, u16)> = Vec::new();
+        let mut taken: Vec<(Cell, u16)> = Vec::new();
         let mut all = Vec::new();
         let ingredients = recipe.ingredient_views();
         for ingredient in ingredients.iter().flatten() {
@@ -126,11 +135,11 @@ impl PlayerInventoryLedger {
     fn auto_craft_descriptor(
         &self,
         ingredient: &RecipeIngredientView,
-        sources: &[(u8, u16, i32)],
+        sources: &[(Cell, u16, i32)],
     ) -> StackItemDescriptor {
         let held = sources
             .first()
-            .and_then(|(slot, _, _)| self.auto_craft_stack(*slot));
+            .and_then(|(cell, _, _)| self.auto_craft_stack(*cell));
         match held {
             Some((_, entry)) if ingredient.tag => StackItemDescriptor::Name {
                 identifier: Arc::clone(&entry.identifier),
@@ -155,22 +164,18 @@ impl PlayerInventoryLedger {
             .iter()
             .map(|ingredient| u16::from(ingredient.count) * u16::from(crafts))
             .collect();
-        let mut counts = [0; PLAYER_INVENTORY_SLOT_COUNT];
-        let mut identities = [0; PLAYER_INVENTORY_SLOT_COUNT];
-        let mut accepts = [[false; PLAYER_INVENTORY_SLOT_COUNT]; protocol::MAX_RECIPE_INGREDIENTS];
-        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
-            let Some((stack, entry)) = self.auto_craft_stack(slot as u8) else {
+        let cells = self.recipe_source_cells();
+        let mut counts = [0; SOURCE_CELLS];
+        let mut identities = [0; SOURCE_CELLS];
+        let mut accepts = [[false; SOURCE_CELLS]; protocol::MAX_RECIPE_INGREDIENTS];
+        for (index, cell) in cells.iter().enumerate() {
+            let Some((stack, _)) = self.auto_craft_stack(*cell) else {
                 continue;
             };
-            counts[slot] = stack.count;
-            identities[slot] = stack.stack_network_id;
-            for (index, ingredient) in ingredients.iter().enumerate() {
-                accepts[index][slot] = crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    stack.metadata,
-                    &entry.item_tags,
-                );
+            counts[index] = stack.count;
+            identities[index] = stack.stack_network_id;
+            for (row, ingredient) in ingredients.iter().enumerate() {
+                accepts[row][index] = self.source_accepts(*cell, ingredient);
             }
         }
         let assigned = allocation::plan(&demands, &counts, &accepts)?;
@@ -182,7 +187,7 @@ impl PlayerInventoryLedger {
                     .copied()
                     .enumerate()
                     .filter(|(_, amount)| *amount > 0)
-                    .map(|(slot, amount)| (slot as u8, amount, identities[slot]))
+                    .map(|(index, amount)| (cells[index], amount, identities[index]))
                     .collect()
             })
             .collect();
@@ -292,15 +297,17 @@ impl PlayerInventoryLedger {
         ];
         let mut groups = Vec::new();
         let mut consumed = Vec::new();
-        for (slot, total, id) in sources.into_iter().flatten() {
-            let cell = Cell::Inventory(slot);
+        for (cell, total, id) in sources.into_iter().flatten() {
             // Crafting accepts ingredients only from the combined inventory name, and each
             // consume carries at most one action's amount.
             for amount in action_amounts(total) {
                 actions.push(StackRequestAction::Consume {
                     amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
-                    source: combined_request_slot(slot, id)?,
+                    source: match cell {
+                        Cell::Inventory(slot) => combined_request_slot(slot, id)?,
+                        cell => request_slot(cell, id, None)?,
+                    },
                 });
                 groups.push(DeltaGroup::Shrink {
                     source: cell,

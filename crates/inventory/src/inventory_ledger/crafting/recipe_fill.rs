@@ -72,7 +72,6 @@ impl PlayerInventoryLedger {
             });
             return Ok(last);
         };
-        let crafts = self.placement_crafts(recipe, &layout);
         let slots: Vec<u8> = grid.slots().collect();
         // Ghosts name what the inventory held before any cell drew from it.
         let ghosts: Vec<_> = layout
@@ -83,39 +82,16 @@ impl PlayerInventoryLedger {
                     .and_then(|ingredient| self.ghost_item(ingredient))
             })
             .collect();
-        // The allocation that found `crafts` reserves each ingredient's sources, so a tag
-        // cell never takes the only item an exact cell needs. An uncraftable recipe has none
-        // and places what each cell finds.
-        let mut planned = self
-            .auto_craft_sources(recipe, crafts)
-            .map(IntoIterator::into_iter);
-        for (index, ingredient) in layout.iter().enumerate() {
-            let Some(ingredient) = ingredient else {
-                continue;
-            };
+        let crafts = self.placement_crafts(&layout);
+        let (plan, _) = self.placement_plan(&layout, crafts);
+        for (index, transfers) in plan.into_iter().enumerate() {
             let cell = Cell::Craft(slots[index]);
-            let sources: Vec<(u8, u16)> = match planned.as_mut().and_then(Iterator::next) {
-                Some(sources) => sources
-                    .into_iter()
-                    .map(|(slot, amount, _)| (slot, amount))
-                    .collect(),
-                None => self
-                    .cell_sources(ingredient, crafts)
-                    .into_iter()
-                    .map(|slot| (slot, u16::MAX))
-                    .collect(),
-            };
-            let mut remaining = u16::from(ingredient.count) * u16::from(crafts);
-            for (slot, reserved) in sources {
-                if remaining == 0 {
-                    break;
-                }
-                let Some(held) = self.view().get(Cell::Inventory(slot)).cloned() else {
+            for (source, amount) in transfers {
+                let Some(held) = self.view().get(source).cloned() else {
                     continue;
                 };
-                let amount = remaining.min(reserved).min(held.stack.count);
-                if let Some(request) = self.place_into_grid(slot, &held, cell, amount)? {
-                    remaining -= amount;
+                let amount = amount.min(held.stack.count);
+                if let Some(request) = self.place_into_grid(source, &held, cell, amount)? {
                     last = request;
                 }
             }
@@ -181,21 +157,23 @@ impl PlayerInventoryLedger {
         Ok(last)
     }
 
-    /// One Place request from player `slot`, named in the combined inventory, into `cell`.
+    /// One Place request from `source` into `cell`; a player cell is named in the combined
+    /// inventory.
     fn place_into_grid(
         &mut self,
-        slot: u8,
+        source: Cell,
         held: &Held,
         cell: Cell,
         amount: u16,
     ) -> Result<Option<i32>, InventoryGestureError> {
         let into = self.view().get(cell).cloned();
-        let source = Cell::Inventory(slot);
         let Some(mut built) = self.build_transfer(source, held, cell, into.as_ref(), amount)?
         else {
             return Ok(None);
         };
-        if let protocol::StackRequestAction::Place { source, .. } = &mut built.action {
+        if let (Cell::Inventory(_), protocol::StackRequestAction::Place { source, .. }) =
+            (source, &mut built.action)
+        {
             source.container = StackRequestContainer::CombinedInventory;
         }
         let personal_generation = self.gesture_preflight(true)?;
@@ -265,29 +243,13 @@ impl PlayerInventoryLedger {
         .map(Some)
     }
 
-    /// Crafts' worth to place per cell: as many as the inventory supplies, at least one, and
-    /// no more than one stack of any ingredient.
-    fn placement_crafts(
-        &self,
-        recipe: &RecipeHandle,
-        layout: &[Option<RecipeIngredientView>],
-    ) -> u8 {
-        let stack_limit = layout
-            .iter()
-            .flatten()
-            .filter_map(|ingredient| {
-                let slot = self.matching_slots(ingredient).next()?;
-                let held = self.view().get(Cell::Inventory(slot))?;
-                let capacity = entry_capacity(self.negotiated_item_entry(held.stack.network_id)?)?;
-                Some(capacity / ingredient.count.max(1))
-            })
-            .min()
-            .unwrap_or(1)
-            .max(1);
-        let (mut low, mut high) = (0u8, stack_limit);
+    /// Crafts' worth to place per cell: the most for which every cell gets one item variant
+    /// holding its whole share, within a stack, else one.
+    fn placement_crafts(&self, layout: &[Option<RecipeIngredientView>]) -> u8 {
+        let (mut low, mut high) = (0u8, u8::MAX);
         while low < high {
             let middle = low + (high - low).div_ceil(2);
-            if self.auto_craft_sources(recipe, middle).is_some() {
+            if self.placement_plan(layout, middle).1 {
                 low = middle;
             } else {
                 high = middle - 1;
@@ -296,66 +258,111 @@ impl PlayerInventoryLedger {
         low.max(1)
     }
 
-    /// Player slots that may fill one cell: one item variant only, the first whose total
-    /// covers `crafts`, else the first variant at all.
-    fn cell_sources(&self, ingredient: &RecipeIngredientView, crafts: u8) -> Vec<u8> {
-        let matching: Vec<u8> = self.matching_slots(ingredient).collect();
-        let needed = u16::from(ingredient.count) * u16::from(crafts);
-        let mut variants: Vec<(&NetworkItemStack, u16)> = Vec::new();
-        for slot in &matching {
-            let stack = &self
-                .view()
-                .get(Cell::Inventory(*slot))
-                .expect("matched")
-                .stack;
+    /// Per grid cell, the `(source, amount)` transfers that give it `crafts` of one item
+    /// variant, and whether every cell got its whole share. Cells trade variants through
+    /// augmenting paths, so a tag cell never keeps the only variant an exact cell accepts; a
+    /// cell no variant can fill stays empty.
+    fn placement_plan(
+        &self,
+        layout: &[Option<RecipeIngredientView>],
+        crafts: u8,
+    ) -> (Vec<Vec<(Cell, u16)>>, bool) {
+        let mut variants: Vec<Variant> = Vec::new();
+        for cell in self.recipe_source_cells() {
+            let Some((stack, entry)) = self.auto_craft_stack(cell) else {
+                continue;
+            };
             match variants
                 .iter_mut()
-                .find(|(first, _)| Self::same_item(first, stack))
+                .find(|variant| Self::same_item(&variant.stack, stack))
             {
-                Some((_, total)) => *total = total.saturating_add(stack.count),
-                None => variants.push((stack, stack.count)),
+                Some(variant) => {
+                    variant.cells.push((cell, stack.count));
+                    variant.total = variant.total.saturating_add(stack.count);
+                }
+                None => variants.push(Variant {
+                    stack: stack.clone(),
+                    capacity: entry_capacity(entry).map_or(0, u16::from),
+                    cells: vec![(cell, stack.count)],
+                    total: stack.count,
+                }),
             }
         }
-        let Some(chosen) = variants
+        let demands: Vec<u16> = layout
             .iter()
-            .find(|(_, total)| *total >= needed)
-            .or(variants.first())
-            .map(|(stack, _)| (*stack).clone())
-        else {
-            return Vec::new();
+            .map(|ingredient| {
+                ingredient.as_ref().map_or(0, |ingredient| {
+                    u16::from(ingredient.count) * u16::from(crafts)
+                })
+            })
+            .collect();
+        let accepts: Vec<Vec<usize>> = layout
+            .iter()
+            .zip(&demands)
+            .map(|(ingredient, demand)| {
+                let Some(ingredient) = ingredient else {
+                    return Vec::new();
+                };
+                (0..variants.len())
+                    .filter(|index| {
+                        let variant = &variants[*index];
+                        *demand <= variant.capacity
+                            && self.source_accepts(variant.cells[0].0, ingredient)
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut matching = Matching {
+            demands: &demands,
+            accepts: &accepts,
+            remaining: variants.iter().map(|variant| variant.total).collect(),
+            assigned: vec![None; layout.len()],
         };
-        matching
-            .into_iter()
-            .filter(|slot| {
-                self.view()
-                    .get(Cell::Inventory(*slot))
-                    .is_some_and(|held| Self::same_item(&held.stack, &chosen))
+        let mut complete = true;
+        for (cell, demand) in demands.iter().enumerate() {
+            if *demand != 0 {
+                let mut visited = vec![false; variants.len()];
+                complete &= matching.assign(cell, &mut visited);
+            }
+        }
+        let mut used: Vec<Vec<u16>> = variants
+            .iter()
+            .map(|variant| vec![0; variant.cells.len()])
+            .collect();
+        let plan = matching
+            .assigned
+            .iter()
+            .zip(&demands)
+            .map(|(variant, demand)| {
+                let Some(variant) = *variant else {
+                    return Vec::new();
+                };
+                let mut needed = *demand;
+                let mut transfers = Vec::new();
+                for ((cell, count), used) in variants[variant].cells.iter().zip(&mut used[variant])
+                {
+                    let amount = needed.min(count - *used);
+                    if amount > 0 {
+                        *used += amount;
+                        needed -= amount;
+                        transfers.push((*cell, amount));
+                    }
+                }
+                transfers
             })
-            .collect()
-    }
-
-    /// Player slots, hotbar first, whose settled stack `ingredient` accepts.
-    fn matching_slots<'a>(
-        &'a self,
-        ingredient: &'a RecipeIngredientView,
-    ) -> impl Iterator<Item = u8> + 'a {
-        (0..PLAYER_INVENTORY_SLOT_COUNT as u8).filter(move |slot| {
-            self.auto_craft_stack(*slot).is_some_and(|(stack, entry)| {
-                crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    stack.metadata,
-                    &entry.item_tags,
-                )
-            })
-        })
+            .collect();
+        (plan, complete)
     }
 
     /// The item a cell shows while empty: the held item the ingredient accepts, else the first
     /// registered one.
     fn ghost_item(&self, ingredient: &RecipeIngredientView) -> Option<NetworkItemStack> {
-        if let Some(slot) = self.matching_slots(ingredient).next() {
-            let stack = &self.view().get(Cell::Inventory(slot))?.stack;
+        if let Some(cell) = self
+            .recipe_source_cells()
+            .into_iter()
+            .find(|cell| self.source_accepts(*cell, ingredient))
+        {
+            let stack = &self.view().get(cell)?.stack;
             return Some(NetworkItemStack {
                 network_id: stack.network_id,
                 metadata: stack.metadata,
@@ -468,4 +475,56 @@ fn grid_layout(
         cells[(index / width) * size + index % width] = view;
     }
     Some(cells)
+}
+
+/// One item variant among the source cells.
+struct Variant {
+    stack: NetworkItemStack,
+    capacity: u16,
+    cells: Vec<(Cell, u16)>,
+    total: u16,
+}
+
+/// Assigns grid cells to variants with room for each cell's whole demand.
+struct Matching<'a> {
+    demands: &'a [u16],
+    accepts: &'a [Vec<usize>],
+    remaining: Vec<u16>,
+    assigned: Vec<Option<usize>>,
+}
+
+impl Matching<'_> {
+    /// Gives `cell` a variant, moving earlier cells to other variants when that frees room;
+    /// leaves every assignment unchanged when it fails.
+    fn assign(&mut self, cell: usize, visited: &mut [bool]) -> bool {
+        let demand = self.demands[cell];
+        for &variant in &self.accepts[cell] {
+            if visited[variant] {
+                continue;
+            }
+            visited[variant] = true;
+            if self.remaining[variant] >= demand {
+                self.take(cell, variant);
+                return true;
+            }
+            for other in 0..self.assigned.len() {
+                if other == cell || self.assigned[other] != Some(variant) {
+                    continue;
+                }
+                self.assigned[other] = None;
+                self.remaining[variant] += self.demands[other];
+                if self.remaining[variant] >= demand && self.assign(other, visited) {
+                    self.take(cell, variant);
+                    return true;
+                }
+                self.take(other, variant);
+            }
+        }
+        false
+    }
+
+    fn take(&mut self, cell: usize, variant: usize) {
+        self.assigned[cell] = Some(variant);
+        self.remaining[variant] -= self.demands[cell];
+    }
 }

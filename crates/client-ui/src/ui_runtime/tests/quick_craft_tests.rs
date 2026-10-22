@@ -159,6 +159,32 @@ fn a_primary_click_lays_the_recipe_into_the_grid() {
     }
 }
 
+/// After a primary click moves the only log into the grid, a secondary click crafts from it.
+#[test]
+fn a_secondary_click_crafts_from_ingredients_a_primary_click_placed() {
+    for workbench in [false, true] {
+        let (mut player, mut runtime, output) = session(workbench);
+        let hit = InventoryCellHit::RecipeBook(0);
+        runtime.perform_pointer_action(&mut player, PointerAction::Click(hit));
+        runtime.perform_pointer_action(&mut player, PointerAction::SecondaryClick(hit));
+        let ledger = player.inventory.ledger();
+        assert_eq!(ledger.pending_request_count(), 2);
+        let first = ledger.crafting_grid().slots().next().unwrap();
+        assert!(
+            ledger
+                .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(first))
+                .is_none()
+        );
+        let crafted = ledger
+            .displayed_stack(0)
+            .expect("the craft lands in the hotbar");
+        assert_eq!(
+            (crafted.network_id, crafted.count),
+            (output.network_id, u16::from(output.count))
+        );
+    }
+}
+
 #[test]
 fn a_held_stack_stops_a_secondary_recipe_click_and_shift_crafts_a_stack() {
     for hit in [

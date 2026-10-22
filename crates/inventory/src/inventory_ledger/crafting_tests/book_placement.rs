@@ -283,3 +283,68 @@ fn placement_reserves_items_for_later_exact_ingredients() {
     assert_eq!(grid_count(&ledger, 28), Some((PLANKS, 1)));
     assert_eq!(grid_count(&ledger, 29), Some((LOG, 1)));
 }
+
+/// A grid cell holds one item variant, so a cell's share comes from a variant that has it all.
+#[test]
+fn a_cell_takes_its_whole_share_from_one_variant() {
+    let mut recipe = RecipeFixture::shaped(
+        "test:pair",
+        1,
+        1,
+        vec![IngredientFixture {
+            count: 2,
+            ..IngredientFixture::tagged("test:wood")
+        }],
+        vec![OutputFixture::new(FURNACE, 1)],
+    );
+    recipe.net_id = 89;
+    let update = CraftingDataFixture::clearing(vec![recipe]).update();
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    let recipe = catalog.recipe(89).unwrap();
+    let mut ledger = stocked(
+        PERSONAL_INVENTORY_WINDOW_TYPE,
+        &[(9, LOG, 100, 1), (10, PLANKS, 101, 2)],
+    );
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        if entry.network_id == LOG || entry.network_id == PLANKS {
+            entry.item_tags = Arc::from([Arc::from("test:wood")]);
+        }
+    }
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    ledger.begin_recipe_placement(&recipe).unwrap();
+    assert_eq!(grid_count(&ledger, 28), Some((PLANKS, 2)));
+    assert_eq!(ledger.displayed_stack(9).map(|stack| stack.count), Some(1));
+}
+
+/// Ingredients already in the grid count toward the book and are consumed where they sit.
+#[test]
+fn a_book_craft_consumes_ingredients_from_the_grid() {
+    let mut ledger = stocked(PERSONAL_INVENTORY_WINDOW_TYPE, &[]);
+    ledger.apply(&craft_slot(28, stack(LOG, 300, 1)));
+    let planks = fixture(1);
+    assert!(ledger.can_auto_craft(&planks));
+    assert!(ledger.holds_any_ingredient(&planks));
+    ledger.begin_auto_craft(&planks, false).unwrap();
+    let consumed: Vec<_> = requests(&ledger)
+        .last()
+        .unwrap()
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Consume { amount, source } => {
+                Some((source.container, source.slot, *amount))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(consumed, [(StackRequestContainer::CraftingInput, 28, 1)]);
+    assert!(grid_count(&ledger, 28).is_none());
+    assert_eq!(
+        ledger.displayed_stack(0).map(|stack| stack.network_id),
+        Some(PLANKS)
+    );
+}
