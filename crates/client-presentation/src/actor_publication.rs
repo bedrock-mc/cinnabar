@@ -16,7 +16,7 @@ mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;
 mod views;
-use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
+use geometry::{SessionGeometryReady, SessionIconInput, apply_session_pack, register_geometries};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;

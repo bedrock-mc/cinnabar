@@ -96,7 +96,10 @@ impl PackApplication {
         blocks: Option<Arc<client_presentation::presentation::equipment::PreparedBlockItems>>,
     ) {
         let Some(base) = base.filter(|_| {
-            self.entities.is_some() || self.block_entity_art.is_some() || blocks.is_some()
+            self.entities.is_some()
+                || self.block_entity_art.is_some()
+                || blocks.is_some()
+                || self.item_icons.is_some()
         }) else {
             self.prepared_actor_artwork = None;
             return;
@@ -108,6 +111,7 @@ impl PackApplication {
                 self.block_entity_art.as_ref(),
             )
             && previous.matches_block_items(blocks.as_ref())
+            && previous.matches_session_icons(self.item_icons.as_ref())
         {
             return;
         }
@@ -117,7 +121,8 @@ impl PackApplication {
                 self.entities.as_ref(),
                 self.block_entity_art.as_ref(),
                 blocks,
-            ),
+            )
+            .with_session_icons(self.item_icons.as_ref()),
         ));
     }
 }
