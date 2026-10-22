@@ -8,7 +8,10 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     thread::{self, JoinHandle},
 };
 
@@ -196,6 +199,8 @@ pub struct Recorder {
     sink: FrameSink,
     writer: Option<JoinHandle<Result<Summary, String>>>,
     settings: VideoSettings,
+    /// Video slots the capture side scheduled, published by [`Recorder::finish`].
+    scheduled: Arc<AtomicU64>,
 }
 
 impl Recorder {
@@ -204,29 +209,34 @@ impl Recorder {
         if let Some(parent) = settings.path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        Self::with_encoder(settings, move |settings, frames| {
-            encode(&ffmpeg, settings, frames)
+        Self::with_encoder(settings, move |settings, frames, scheduled| {
+            encode(&ffmpeg, settings, frames, scheduled)
         })
     }
 
     /// Runs `encoder` on the writer thread over every pushed frame instead of ffmpeg, so
     /// tests can stand in a stalled or counting encoder.
+    /// The encoder reads frames until every sink closes; the scheduled slot count it is
+    /// handed is final once the frames end.
     pub fn with_encoder(
         settings: VideoSettings,
-        encoder: impl FnOnce(&VideoSettings, &Receiver<Frame>) -> Result<Summary, String>
+        encoder: impl FnOnce(&VideoSettings, &Receiver<Frame>, &AtomicU64) -> Result<Summary, String>
         + Send
         + 'static,
     ) -> Result<Self, String> {
         let (sender, receiver) = crossbeam_channel::bounded(QUEUE_FRAMES);
         let thread_settings = settings.clone();
+        let scheduled = Arc::new(AtomicU64::new(0));
+        let thread_scheduled = Arc::clone(&scheduled);
         let writer = thread::Builder::new()
             .name("developer-recorder".into())
-            .spawn(move || encoder(&thread_settings, &receiver))
+            .spawn(move || encoder(&thread_settings, &receiver, &thread_scheduled))
             .map_err(|error| error.to_string())?;
         Ok(Self {
             sink: FrameSink(Arc::new(Mutex::new(Some(sender)))),
             writer: Some(writer),
             settings,
+            scheduled,
         })
     }
 
@@ -239,7 +249,10 @@ impl Recorder {
     }
 
     /// Closes every [`FrameSink`] clone and waits for ffmpeg; then muxes `audio` (a WAV) in.
-    pub fn finish(mut self, audio: Option<&Path>) -> Result<Summary, String> {
+    /// `scheduled` is every video slot the capture side assigned; slots whose capture was
+    /// dropped or never arrived repeat the last frame, so the video spans the whole recording.
+    pub fn finish(mut self, scheduled: u64, audio: Option<&Path>) -> Result<Summary, String> {
+        self.scheduled.store(scheduled, Ordering::Release);
         self.sink.close();
         let summary = match self.writer.take() {
             Some(writer) => writer
@@ -281,6 +294,7 @@ fn encode(
     ffmpeg: &Path,
     settings: &VideoSettings,
     frames: &Receiver<Frame>,
+    scheduled: &AtomicU64,
 ) -> Result<Summary, String> {
     let mut frames = frames.iter().peekable();
     let Some(first) = frames.peek() else {
@@ -301,7 +315,9 @@ fn encode(
         .map_err(|error| format!("start ffmpeg: {error}"))?;
     let stdin = child.stdin.take().ok_or("ffmpeg stdin unavailable")?;
     let written = finish_child(child, stdin, |stdin| {
-        write_ordered(stdin, frames, size, layout)
+        write_ordered(stdin, frames, size, layout, || {
+            scheduled.load(Ordering::Acquire)
+        })
     })?;
     Ok(Summary {
         path: settings.path.clone(),
@@ -334,13 +350,15 @@ pub(crate) struct Written {
 }
 
 /// Writes frames in index order from zero, holding at most [`REORDER_FRAMES`] early captures.
-/// A slot still missing beyond that window, or at the end, repeats the previous frame, so a
-/// lost capture neither stalls the stream nor shortens the video; late arrivals are dropped.
+/// A slot still missing beyond that window, at the end, or up to `scheduled` (read once the
+/// frames end) repeats the previous frame, so a lost capture neither stalls the stream nor
+/// shortens the video; late arrivals are dropped.
 pub(crate) fn write_ordered(
     out: &mut impl Write,
     frames: impl Iterator<Item = Frame>,
     size: [u32; 2],
     layout: PixelLayout,
+    scheduled: impl FnOnce() -> u64,
 ) -> io::Result<Written> {
     let frame_bytes = size[0] as usize * size[1] as usize * 4;
     let mut order = Order::default();
@@ -362,6 +380,7 @@ pub(crate) fn write_ordered(
         order.fill_gap(out)?;
         order.write_ready(out)?;
     }
+    order.fill_to(out, scheduled())?;
     Ok(order.written)
 }
 
@@ -405,10 +424,22 @@ impl Order {
         let Some((&index, frame)) = self.held.first_key_value() else {
             return Ok(());
         };
-        let missing = index - self.next;
         let image = self.last.clone().unwrap_or_else(|| Arc::clone(&frame.data));
-        repeat(out, &image, missing)?;
-        self.next = index;
+        self.fill(out, &image, index)
+    }
+
+    /// Repeats the last written image through slot `end`, once every capture is written.
+    fn fill_to(&mut self, out: &mut impl Write, end: u64) -> io::Result<()> {
+        match self.last.clone() {
+            Some(image) if end > self.next => self.fill(out, &image, end),
+            _ => Ok(()),
+        }
+    }
+
+    fn fill(&mut self, out: &mut impl Write, image: &[u8], end: u64) -> io::Result<()> {
+        let missing = end - self.next;
+        repeat(out, image, missing)?;
+        self.next = end;
         self.written.frames += missing;
         self.written.filled += missing;
         Ok(())
@@ -476,8 +507,14 @@ mod tests {
     fn readbacks_are_written_in_frame_order() {
         let frames = [frame(2, 2), frame(0, 0), frame(1, 1), frame(3, 3)];
         let mut out = Vec::new();
-        let written =
-            write_ordered(&mut out, frames.into_iter(), [1, 1], PixelLayout::Bgra).unwrap();
+        let written = write_ordered(
+            &mut out,
+            frames.into_iter(),
+            [1, 1],
+            PixelLayout::Bgra,
+            || 0,
+        )
+        .unwrap();
         assert_eq!(
             written,
             Written {
@@ -494,7 +531,7 @@ mod tests {
         slow.copies = 3;
         let mut out = Vec::new();
         let frames = [frame(0, 0), slow, frame(4, 4)].into_iter();
-        let written = write_ordered(&mut out, frames, [1, 1], PixelLayout::Bgra).unwrap();
+        let written = write_ordered(&mut out, frames, [1, 1], PixelLayout::Bgra, || 0).unwrap();
         assert_eq!(written.frames, 5);
         assert_eq!(out, [[0; 4], [7; 4], [7; 4], [7; 4], [4; 4]].concat());
     }
@@ -511,7 +548,8 @@ mod tests {
             );
             frame(index, index as u8)
         });
-        let written = write_ordered(&mut out.clone(), frames, [1, 1], PixelLayout::Bgra).unwrap();
+        let written =
+            write_ordered(&mut out.clone(), frames, [1, 1], PixelLayout::Bgra, || 0).unwrap();
         assert_eq!(
             written,
             Written {
@@ -535,15 +573,49 @@ mod tests {
             .chain((2..=REORDER_FRAMES as u64 + 2).map(|index| frame(index, index as u8)))
             .chain(std::iter::once(late));
         let out = Shared::default();
-        let written = write_ordered(&mut out.clone(), frames, [1, 1], PixelLayout::Bgra).unwrap();
+        let written =
+            write_ordered(&mut out.clone(), frames, [1, 1], PixelLayout::Bgra, || 0).unwrap();
         assert_eq!(written.frames, REORDER_FRAMES as u64 + 3);
         assert_eq!(out.slots()[1], 0);
     }
 
     #[test]
+    fn trailing_dropped_slots_repeat_the_last_frame_through_the_scheduled_end() {
+        let mut out = Vec::new();
+        let frames = [frame(0, 0), frame(1, 1), frame(2, 2)].into_iter();
+        let written = write_ordered(&mut out, frames, [1, 1], PixelLayout::Bgra, || 6).unwrap();
+        assert_eq!(
+            written,
+            Written {
+                frames: 6,
+                filled: 3
+            }
+        );
+        assert_eq!(
+            out,
+            [[0; 4], [1; 4], [2; 4], [2; 4], [2; 4], [2; 4]].concat()
+        );
+    }
+
+    #[test]
+    fn finishing_hands_the_scheduled_slot_count_to_the_encoder() {
+        let recorder = Recorder::with_encoder(settings(), |settings, frames, scheduled| {
+            frames.iter().for_each(drop);
+            Ok(Summary {
+                path: settings.path.clone(),
+                frames: scheduled.load(Ordering::Acquire),
+                size: None,
+                filled: 0,
+            })
+        })
+        .unwrap();
+        assert_eq!(recorder.finish(25, None).unwrap().frames, 25);
+    }
+
+    #[test]
     fn a_stalled_encoder_neither_blocks_nor_buffers_real_time_pushes() {
         let (release, gate) = crossbeam_channel::bounded::<()>(0);
-        let recorder = Recorder::with_encoder(settings(), move |settings, frames| {
+        let recorder = Recorder::with_encoder(settings(), move |settings, frames, _| {
             let _ = gate.recv();
             Ok(Summary {
                 path: settings.path.clone(),
@@ -570,12 +642,15 @@ mod tests {
         });
         assert_eq!(*refused.lock().unwrap(), 100 - QUEUE_FRAMES as u64);
         drop(release);
-        assert_eq!(recorder.finish(None).unwrap().frames, QUEUE_FRAMES as u64);
+        assert_eq!(
+            recorder.finish(100, None).unwrap().frames,
+            QUEUE_FRAMES as u64
+        );
     }
 
     #[test]
     fn dropping_a_recorder_with_live_sinks_finishes_the_encode() {
-        let recorder = Recorder::with_encoder(settings(), |settings, frames| {
+        let recorder = Recorder::with_encoder(settings(), |settings, frames, _| {
             Ok(Summary {
                 path: settings.path.clone(),
                 frames: frames.iter().count() as u64,
@@ -603,7 +678,7 @@ mod tests {
         resized.size = [2, 1];
         let mut out = Vec::new();
         let frames = [frame(0, 0), resized].into_iter();
-        assert!(write_ordered(&mut out, frames, [1, 1], PixelLayout::Bgra).is_err());
+        assert!(write_ordered(&mut out, frames, [1, 1], PixelLayout::Bgra, || 0).is_err());
     }
 
     #[test]

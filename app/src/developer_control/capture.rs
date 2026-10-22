@@ -253,7 +253,8 @@ fn capture_frame(world: &mut World, recording: &mut Recording, copies: u64) {
 struct Delivery {
     sink: FrameSink,
     fixed_clock: bool,
-    /// Fixed-clock captures the encoder had no room for, flushed by the next update.
+    /// Fixed-clock captures the encoder had no room for, flushed by the next update. Once
+    /// anything is parked, later captures queue behind it so none overtakes a parked frame.
     parked: Arc<Mutex<VecDeque<Frame>>>,
     /// Real-time video slots dropped while the encoder was behind.
     dropped: Arc<AtomicU64>,
@@ -262,19 +263,39 @@ struct Delivery {
 
 impl Delivery {
     fn deliver(&self, frame: Result<Frame, String>) {
+        if self.fixed_clock {
+            return self.deliver_in_order(frame);
+        }
         match frame.and_then(|frame| self.sink.try_push(frame)) {
             Ok(None) => {}
-            Ok(Some(frame)) if self.fixed_clock => {
-                if let Ok(mut parked) = self.parked.lock() {
-                    parked.push_back(frame);
-                }
-            }
             Ok(Some(frame)) => {
                 if self.dropped.fetch_add(frame.copies, Ordering::Relaxed) == 0 {
                     warn!("developer recording: the encoder is behind; dropping real-time frames");
                 }
             }
             Err(error) => self.fail(error),
+        }
+    }
+
+    /// Queues a fixed-clock capture without waiting, behind any parked capture.
+    fn deliver_in_order(&self, frame: Result<Frame, String>) {
+        let Ok(mut parked) = self.parked.lock() else {
+            return;
+        };
+        let pushed = frame.and_then(|frame| {
+            if parked.is_empty() {
+                self.sink.try_push(frame)
+            } else {
+                Ok(Some(frame))
+            }
+        });
+        match pushed {
+            Ok(None) => {}
+            Ok(Some(frame)) => parked.push_back(frame),
+            Err(error) => {
+                drop(parked);
+                self.fail(error);
+            }
         }
     }
 
@@ -396,10 +417,11 @@ impl Recording {
             })
             .transpose();
         let recorder = self.recorder.take();
+        let scheduled = self.next_index;
         let (summary, wav) = complete_recording(failure, audio, |wav| {
             recorder
                 .ok_or_else(|| "the recording had no encoder".to_owned())?
-                .finish(wav)
+                .finish(scheduled, wav)
         })?;
         let dropped = self.delivery.dropped.load(Ordering::Relaxed);
         if dropped > 0 || summary.filled > 0 {
@@ -543,16 +565,20 @@ mod tests {
         );
     }
 
-    /// Captures `rounds` frames while the encoder is stalled, requesting a screenshot with the
-    /// last; yields the screenshot's outcome receiver once requested and, after the encoder is
-    /// released, the recording's final reply and parked count. Runs on its own thread, so an
-    /// observer blocked on the encoder fails the test's bounded waits instead of hanging it.
+    type Outcome = Result<serde_json::Value, String>;
+
+    /// Captures `rounds` frames while the encoder is stalled, requesting a screenshot into
+    /// `dir` with the last; yields the screenshot's outcome receiver once requested and, after
+    /// the encoder is released, the recording's final reply and parked count. Runs on its own
+    /// thread, so an observer blocked on the encoder fails the test's bounded waits instead of
+    /// hanging it.
     fn screenshot_during_stalled_recording(
         fixed_clock: bool,
         rounds: u64,
+        dir: std::path::PathBuf,
     ) -> (
-        crossbeam_channel::Receiver<crossbeam_channel::Receiver<Result<serde_json::Value, String>>>,
-        crossbeam_channel::Receiver<(Result<serde_json::Value, String>, usize)>,
+        crossbeam_channel::Receiver<crossbeam_channel::Receiver<Outcome>>,
+        crossbeam_channel::Receiver<(Outcome, usize)>,
     ) {
         let (shot_tx, shot_rx) = crossbeam_channel::bounded(1);
         let (done_tx, done_rx) = crossbeam_channel::bounded(1);
@@ -564,7 +590,7 @@ mod tests {
                     fps: 10,
                     codec: developer_control::recorder::Codec::H264,
                 },
-                move |settings, frames| {
+                move |settings, frames, _| {
                     let _ = gate.recv();
                     Ok(developer_control::recorder::Summary {
                         path: settings.path.clone(),
@@ -579,8 +605,6 @@ mod tests {
                 super::Recording::new(recorder, 10, fixed_clock, None, Duration::ZERO);
             let mut app = App::new();
             crate::hud_tools::configure_frame_capture(&mut app);
-            let dir = std::env::temp_dir()
-                .join(format!("cinnabar-stalled-capture-{}", std::process::id()));
             for round in 0..rounds {
                 super::capture_frame(app.world_mut(), &mut recording, 1);
                 if round + 1 == rounds {
@@ -601,21 +625,76 @@ mod tests {
             drop(release);
             let reply = recording.finalize();
             let _ = done_tx.send((reply, parked));
-            let _ = std::fs::remove_dir_all(dir);
         });
         (shot_rx, done_rx)
+    }
+
+    /// A per-test screenshot directory, so concurrent tests never remove each other's files.
+    fn stalled_capture_dir(mode: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "cinnabar-stalled-capture-{mode}-{}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn fixed_clock_captures_never_overtake_a_parked_frame() {
+        let (release, gate) = crossbeam_channel::bounded::<()>(0);
+        let order = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received = std::sync::Arc::clone(&order);
+        let recorder = developer_control::recorder::Recorder::with_encoder(
+            developer_control::recorder::VideoSettings {
+                path: std::path::PathBuf::from("ordered.mp4"),
+                fps: 10,
+                codec: developer_control::recorder::Codec::H264,
+            },
+            move |settings, frames, _| {
+                let _ = gate.recv();
+                for frame in frames {
+                    received.lock().unwrap().push(frame.index);
+                }
+                Ok(developer_control::recorder::Summary {
+                    path: settings.path.clone(),
+                    frames: 0,
+                    size: None,
+                    filled: 0,
+                })
+            },
+        )
+        .unwrap();
+        let mut recording = super::Recording::new(recorder, 10, true, None, Duration::ZERO);
+        let capture = |index| super::frame(&red_image(), index, 1);
+        // The stalled encoder's queue takes eight captures; the ninth is parked.
+        for index in 0..=8 {
+            recording.delivery.deliver(capture(index));
+        }
+        assert_eq!(recording.delivery.parked.lock().unwrap().len(), 1);
+        // The encoder catches up before the next update flushes the parked capture.
+        drop(release);
+        test_time::eventually("the encoder drains its queue", || {
+            order.lock().unwrap().len() == 8
+        });
+        for index in 9..=20 {
+            recording.delivery.deliver(capture(index));
+        }
+        recording.next_index = 21;
+        recording.finalize().unwrap();
+        assert_eq!(*order.lock().unwrap(), (0..=20).collect::<Vec<_>>());
     }
 
     #[test]
     fn a_screenshot_answers_while_a_real_time_recording_is_stalled() {
         let rounds = 40;
-        let (shot, done) = screenshot_during_stalled_recording(false, rounds);
+        let dir = stalled_capture_dir("real-time");
+        let (shot, done) = screenshot_during_stalled_recording(false, rounds, dir.clone());
+        // The reply arrives once the PNG is on disk, so the directory is only removed after it.
         shot.recv_timeout(test_time::DEFAULT_TIMEOUT)
             .expect("capture blocked before the screenshot was requested")
             .recv_timeout(test_time::DEFAULT_TIMEOUT)
             .expect("the screenshot waited behind the stalled encoder")
             .unwrap();
         let (reply, parked) = done.recv_timeout(test_time::DEFAULT_TIMEOUT).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
         let reply = reply.unwrap();
         assert_eq!(parked, 0);
         let dropped = reply["dropped_frames"].as_u64().unwrap();
@@ -626,13 +705,15 @@ mod tests {
     #[test]
     fn a_fixed_clock_recording_parks_frames_instead_of_blocking_the_observer() {
         let rounds = 40;
-        let (shot, done) = screenshot_during_stalled_recording(true, rounds);
+        let dir = stalled_capture_dir("fixed-clock");
+        let (shot, done) = screenshot_during_stalled_recording(true, rounds, dir.clone());
         shot.recv_timeout(test_time::DEFAULT_TIMEOUT)
             .expect("capture blocked before the screenshot was requested")
             .recv_timeout(test_time::DEFAULT_TIMEOUT)
             .expect("the screenshot waited behind the stalled encoder")
             .unwrap();
         let (reply, parked) = done.recv_timeout(test_time::DEFAULT_TIMEOUT).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
         let reply = reply.unwrap();
         assert!(parked > 0, "the stalled encoder left no frame parked");
         assert_eq!(reply["dropped_frames"].as_u64(), Some(0));
