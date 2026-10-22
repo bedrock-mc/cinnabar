@@ -1,9 +1,11 @@
 //! World settings the host changes from Settings while playing their own local world.
 
-use super::model::Effect;
 use super::options::{MEMBER, OPERATOR, Storage, WorldOption};
 use super::world::{Difficulty, World, WorldUpdate};
 use bridge::{Backend, GameMode};
+
+mod edits;
+pub(crate) use edits::Edits;
 
 /// When a change made while the world runs takes effect.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -152,6 +154,8 @@ pub struct View {
     pub world: World,
     /// A change this session saved but the running server did not take.
     pub missed: bool,
+    /// A metadata save failed; the controls show the last confirmed values again.
+    pub error: Option<String>,
     /// Numeric options' text as typed while their box has focus.
     pub option_text: std::collections::BTreeMap<WorldOption, String>,
 }
@@ -162,6 +166,7 @@ impl View {
         (world.backend == Backend::Bds && !world.options_unavailable).then(|| Self {
             world: world.clone(),
             missed: false,
+            error: None,
             option_text: Default::default(),
         })
     }
@@ -249,27 +254,6 @@ pub fn apply(world: &mut World, update: &WorldUpdate) {
     }
     if let Some(changes) = &update.options {
         world.options.apply_changes(changes);
-    }
-}
-
-/// Shows `action` on world `id` at once and returns the effect that saves and applies it.
-pub(super) fn change(worlds: &mut [World], id: &str, action: Action) -> Option<Effect> {
-    let world = worlds.iter_mut().find(|world| world.id == id)?;
-    let update = update(world, action)?;
-    apply(world, &update);
-    Some(Effect::Apply {
-        id: id.to_owned(),
-        update,
-    })
-}
-
-/// Takes the saved world in place of the shown one, keeping its measured size.
-pub(super) fn applied(worlds: &mut [World], world: World) {
-    if let Some(slot) = worlds.iter_mut().find(|slot| slot.id == world.id) {
-        *slot = World {
-            size_bytes: slot.size_bytes,
-            ..world
-        };
     }
 }
 

@@ -83,6 +83,23 @@ fn a_missed_change_is_explained() {
     assert!(missed(&view));
 }
 
+/// Save failures are visible inside Game, where the restored setting can be tried again.
+#[test]
+fn a_save_failure_is_explained_inline() {
+    let mut view = view(false);
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).error =
+        Some("Couldn't save the world".into());
+    let (_, text) = painted(&view);
+    let text: String = text
+        .concat()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert!(text.contains("Couldn'tsavethechange:Couldn'tsavetheworld"));
+    assert!(text.contains("Trythesettingagain."));
+    assert!(actions(&view).contains(&world(Action::Difficulty(Difficulty::Hard))));
+}
+
 fn world(action: Action) -> MenuAction {
     MenuAction::WorldSettings(action)
 }

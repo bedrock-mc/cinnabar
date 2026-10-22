@@ -32,6 +32,15 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 if world.missed && row == GAME_SECTION[0] {
                     value(content, MISSED, "")?;
                 }
+                if row == GAME_SECTION[0]
+                    && let Some(error) = &world.error
+                {
+                    value(
+                        content,
+                        &format!("Couldn't save the change: {error}"),
+                        "Try the setting again.",
+                    )?;
+                }
             }
             Row::Name => value(content, &title, &world.world.name)?,
             Row::GameMode => {

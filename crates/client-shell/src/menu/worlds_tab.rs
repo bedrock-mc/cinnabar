@@ -239,7 +239,7 @@ impl MenuRuntime {
 
     /// Sends Settings' Game section presses and typed numbers to the played world, then mirrors it.
     fn sync_world_settings(&mut self, worlds: &mut LocalWorlds, playing: bool) {
-        use launcher::local_worlds::in_world::{Action, View};
+        use launcher::local_worlds::in_world::Action;
         let id = self.local_ui.world_id.clone().filter(|_| playing);
         let field = self.field;
         let ui = &mut self.local_ui;
@@ -261,13 +261,18 @@ impl MenuRuntime {
                 worlds.input(Input::InWorld(id.clone(), action));
             }
         }
-        ui.in_world = id
-            .and_then(|id| worlds.menu().worlds().iter().find(|world| world.id == id))
-            .and_then(|world| {
-                let mut view = View::of(world)?;
-                view.missed = worlds.menu().missed_live(&world.id);
-                Some(std::sync::Arc::new(view))
-            });
+        let next = id.and_then(|id| worlds.menu().in_world_view(&id));
+        if let (Some(previous), Some(next)) = (&ui.in_world, &next) {
+            for &id in &ui.in_world_editing {
+                let before = previous.world.options.get(id);
+                let after = next.world.options.get(id);
+                let editor = ui.options.get_mut(&id).unwrap();
+                if before != after && editor.as_str().parse::<i32>() == Ok(before) {
+                    editor.set_text(&after.to_string());
+                }
+            }
+        }
+        ui.in_world = next.map(std::sync::Arc::new);
         if ui.in_world.is_none() {
             ui.in_world_editing.clear();
         }
@@ -916,6 +921,28 @@ mod tests {
                 .map(|world| world.numeric_text(O::RespawnRadius)),
             Some("24".to_owned())
         );
+        worlds.apply(Event::ApplyFailed {
+            id: "world-id".into(),
+            revision: 2,
+            error: "Couldn't save the world".into(),
+        });
+        menu.sync_local_worlds(&mut worlds, true);
+        menu.sync_local_worlds(&mut worlds, true);
+        let view = menu.view().world_settings.unwrap();
+        assert_eq!(view.numeric_text(O::RespawnRadius), "10");
+        assert!(view.error.is_some(), "the failure reaches the Game section");
+        assert_eq!(
+            worlds.menu().worlds()[0].options.get(O::RespawnRadius),
+            10,
+            "the focused field does not automatically retry rejected text"
+        );
+        menu.local_ui
+            .options
+            .get_mut(&O::RespawnRadius)
+            .unwrap()
+            .set_text("24");
+        menu.sync_local_worlds(&mut worlds, true);
+        assert_eq!(worlds.menu().worlds()[0].options.get(O::RespawnRadius), 24);
     }
 
     /// Back saves an edit, so an invalid number must stop it before the last valid prefix saves.

@@ -48,7 +48,7 @@ fn read_thumbnails(
     let worlds = match event {
         Event::Listed(worlds) => worlds.as_slice(),
         Event::Created(world) | Event::Updated(world) => std::slice::from_ref(world),
-        Event::Applied(applied) => std::slice::from_ref(&applied.world),
+        Event::Applied { applied, .. } => std::slice::from_ref(&applied.world),
         Event::Imported { worlds, .. } => worlds.as_slice(),
         Event::Deleted(id) => {
             loaded.remove(id);
@@ -211,9 +211,18 @@ fn execute(
         Effect::Update { id, update } => manager
             .update(&id, &update)
             .map_or_else(failed, Event::Updated),
-        Effect::Apply { id, update } => manager
-            .apply(&id, &update)
-            .map_or_else(failed, Event::Applied),
+        Effect::Apply {
+            id,
+            revision,
+            update,
+        } => match manager.apply(&id, &update) {
+            Ok(applied) => Event::Applied { revision, applied },
+            Err(error) => Event::ApplyFailed {
+                id,
+                revision,
+                error: error.public_message(),
+            },
+        },
         Effect::Open(id) => match manager.open(&id, None) {
             Ok(()) => Event::Status(route.status(manager)),
             Err(WorldError::EulaRequired) => Event::EulaRequired,
@@ -288,6 +297,56 @@ fn import_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A metadata write failure restores the saved selection without leaving world settings.
+    #[test]
+    fn a_failed_metadata_save_rolls_back_and_allows_retry() {
+        use launcher::local_worlds::{
+            in_world::Action,
+            model::{Input, Screen, WorldsMenu},
+            world::{Difficulty, NewWorld},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("worlds");
+        let manager = launcher_host::local_worlds::open_store(root.clone()).unwrap();
+        let world = manager
+            .create(&NewWorld {
+                name: "Home".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        // Loading existing BDS metadata needs no installed server or running backend.
+        let metadata = root.join(&world.id).join("world.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&metadata).unwrap()).unwrap();
+        record["backend"] = serde_json::json!(bridge::Backend::Bds);
+        std::fs::write(&metadata, serde_json::to_vec(&record).unwrap()).unwrap();
+        let world = manager.list().unwrap().pop().unwrap();
+        let route = CoreRoute::default();
+        let mut menu = WorldsMenu::default();
+        menu.apply(Event::Listed(vec![world.clone()]));
+        let input = Input::InWorld(world.id.clone(), Action::Difficulty(Difficulty::Hard));
+        let effect = menu.update(input.clone()).pop().unwrap();
+        std::fs::rename(&root, dir.path().join("saved-worlds")).unwrap();
+        std::fs::write(&root, b"blocks the store directory").unwrap();
+        let event = execute(&manager, &route, effect, &|| false).unwrap();
+        assert!(matches!(&event, Event::ApplyFailed { id, .. } if id == &world.id));
+        menu.apply(event);
+        assert_eq!(
+            menu.screen(),
+            Screen::List,
+            "the general error screen is not used"
+        );
+        assert_eq!(menu.worlds()[0].difficulty, world.difficulty);
+        assert!(menu.in_world_view(&world.id).unwrap().error.is_some());
+        let mut retry = menu.update(input);
+        assert_eq!(retry.len(), 1, "the same choice can retry");
+        std::fs::remove_file(&root).unwrap();
+        std::fs::rename(dir.path().join("saved-worlds"), &root).unwrap();
+        menu.apply(execute(&manager, &route, retry.pop().unwrap(), &|| false).unwrap());
+        assert_eq!(menu.worlds()[0].difficulty, Difficulty::Hard);
+        assert!(menu.in_world_view(&world.id).unwrap().error.is_none());
+    }
 
     #[test]
     fn failures_show_only_public_messages() {

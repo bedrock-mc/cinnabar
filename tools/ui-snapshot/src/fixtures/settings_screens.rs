@@ -44,7 +44,23 @@ pub(super) const WORLD_STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: settings_world_game_live_failed,
     },
+    State {
+        name: "settings-world-game-save-failed",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: settings_world_game_save_failed,
+    },
 ];
+
+/// An unsaved change with its confirmed value restored and a retry message.
+fn settings_world_game_save_failed() -> Fixture {
+    let Fixture::Menu(mut view) = settings_world_game(false) else {
+        unreachable!("world settings are a menu fixture");
+    };
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).error =
+        Some("The local world request failed".into());
+    Fixture::Menu(view)
+}
 
 /// A saved setting that could not be sent to the running world.
 fn settings_world_game_live_failed() -> Fixture {

@@ -227,6 +227,11 @@ impl Eq for WorldOptions {}
 pub struct OptionChanges(BTreeMap<WorldOption, i32>);
 
 impl OptionChanges {
+    /// Records an explicit value without applying another option's toggle side effects.
+    pub fn insert(&mut self, id: WorldOption, value: i32) {
+        self.0.insert(id, value);
+    }
+
     /// Whether the menu changed any effective value.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()

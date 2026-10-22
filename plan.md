@@ -539,8 +539,10 @@ import, persistence and hosting/session teardown. The accepted local-world scope
 not establish full vanilla world-generation parity.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
 catalog and generated server properties and level data. Settings' in-game Game section saves
-changes and sends supported live changes through the BDS console. Failed writes show a next-start
-notice, and live edits remain pending until a successful server exit. Pack and experiment configuration,
+changes and sends supported live changes through the BDS console. Metadata save failures restore
+confirmed values and show a retry message in Game; failed console writes show a next-start notice.
+Save replies retain newer pending selections, and live edits remain pending until a successful
+server exit. Pack and experiment configuration,
 hardcore, flat presets, Education Edition, operator status for a signed-out host, the in-game
 Personal Game Mode and Multiplayer section, and live acceptance of every option on supported
 platforms remain incomplete.
