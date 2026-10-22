@@ -80,6 +80,7 @@ fn every_reset_changes_only_its_registered_members_and_keeps_bindings() {
         SettingsGroup::Accessibility,
         SettingsGroup::Audio,
         SettingsGroup::Chat,
+        SettingsGroup::Discord,
     ] {
         let mut options = SettingsOptions::default();
         for row in SETTINGS_OPTIONS {
@@ -137,6 +138,10 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
     assert_eq!(
         SettingSection::Chat.definition().reset_group,
         Some(SettingsGroup::Chat)
+    );
+    assert_eq!(
+        SettingSection::Discord.definition().reset_group,
+        Some(SettingsGroup::Discord)
     );
 }
 
@@ -311,6 +316,34 @@ fn chat_panel_reset_restores_shared_values_and_persists_defaults() {
         assert_eq!(restored.value(option.id), option.default);
     }
     assert_eq!(restored.value(unrelated), unrelated.definition().min);
+}
+
+/// The Discord panel and its detailed rows share one reset group.
+#[test]
+fn discord_panel_reset_restores_all_presence_preferences() {
+    let mut settings = SettingsOptions::default();
+    let displayed: BTreeSet<_> = SettingPanel::Discord
+        .options()
+        .chain(SettingPanel::DiscordDetails.options())
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Discord
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(displayed, reset);
+    for option in SettingsGroup::Discord.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    assert!(settings.reset_group(SettingsGroup::Discord));
+    for option in SettingsGroup::Discord.options() {
+        assert_eq!(settings.value(option.id), option.default);
+    }
 }
 
 /// Old typeface values cannot suppress font sizing or reintroduce a removed selector.

@@ -72,6 +72,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
+  Furnace face slots follow cardinal direction and lit state; native visual comparison
+  and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
@@ -84,6 +86,11 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+- [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
+  use pack geometry in all four directions; sleeping and picking remain unqualified.
+  Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
+  bottom offset rounds to the model grid; matched world and replacement-pack
+  captures, carried-item presentation and finer coordinate precision remain open.
 - [ ] Qualify compact templates for slabs/stairs, thin attached faces, paired doors,
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
@@ -215,6 +222,11 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
 Animation-only flags must remain separate from gameplay and correction authority.
+Snapped corrections and teleports keep the local input tick when the server stamp is
+unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
+Server sneak updates preserve local hold/toggle intent, and the next completed input
+corrects a conflicting stance through start/stop actions retained across tickless frames
+and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
@@ -249,6 +261,8 @@ performance qualification remains open.
   Keep visual eye height and the protocol movement offset as separate owned facts.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
+  Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
+  inventory preview and resource-pack geometry acceptance remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
@@ -261,7 +275,9 @@ Vertical follow and damping restrain jump and landing motion, and local cloth ke
 advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
-on disconnect or revocation; production rollout qualification remains open.
+on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
+and excluded from pointer and keyboard wear selection; production rollout
+qualification remains open.
 
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
@@ -301,6 +317,8 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Outgoing chat uses the session's login name and XUID. Server-authored actor names
+remain available for local presentation and text resolution.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
@@ -314,6 +332,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
+  The desktop mouse Back button uses existing cancellation in menus, containers,
+  chat popups, forms, signs and emotes; binding capture still accepts the button.
+  Cross-platform device acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -353,6 +374,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
+  explicit server fuel declarations keep priority. Named station responses retain
+  accepted stacks at their window indices. Broader custom-fuel and matched server
+  acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
@@ -363,6 +388,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server settings retain drafts across tabs and submit their final values when
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.
+  NPC dialogue actions expose command/URL labels and pointer hit targets through
+  their JSON-UI collection. Actor portraits, matched acceptance for larger action
+  lists and touch/console behavior remain incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
@@ -378,12 +406,23 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
   0–100/default 0 remain provisional host ranges, without confirmed native defaults.
+  Social → Discord now exposes the Rich Presence master switch plus persisted privacy,
+  party-size, elapsed-time and join-request controls; each is applied to the Discord
+  activity payload and the panel has its own reset. Live Discord desktop acceptance and
+  native settings parity remain incomplete.
 
 The inherited interaction acceptance scope also includes full item identity and use phases,
 replacement/deferred releases, mounted inventory, sign filtering/length/structured text,
 native emote admission/cancellation/timing, overlapping dimension/respawn loading screens,
-and server-authored chat hover/input behavior. Keep native input state independent of
-custom emote playback and presentation-only changes.
+and server-authored chat hover/input behavior. Respawn readiness retires the death route
+and pending retries independently of a later health refresh, in UI packet order; a later
+authoritative life-to-death transition opens a fresh route. Regression coverage does not
+close live server, loading-screen or other-device acceptance. Keep native input state
+independent of custom emote playback and presentation-only changes.
+
+Chat message Send controls resolve command text from an overlapping sibling editor.
+Missing, disabled or ambiguous message editors cannot submit the main chat draft.
+Live acceptance of name clicks, inventory opening, typing and history together remains open.
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
@@ -432,6 +471,9 @@ imported entry. Declared sizes, identity, digests and framing remain validated. 
 selections preserve service errors and wait for the account core result. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
 preparation and broader sparse-startup coverage.
+Server handoff keeps the advertised UUID and version for stack selection when a valid
+archive's manifest names another identity; local imports and library selections still match
+exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
@@ -466,6 +508,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Keep browser gesture activation and background work within the host's event-loop rules.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
+  Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.
+  Launcher text fields request platform IME input, and the People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry and full device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.

@@ -55,7 +55,7 @@ pub(super) fn resolve(entry: &ItemRegistryEntry, assets: Option<&RuntimeEntityAs
             return ItemFuel::Unresolved;
         }
     }
-    if entry.component_based {
+    if entry.component_based && !entry.canonical_empty_component_data {
         return ItemFuel::Unresolved;
     }
     assets
@@ -72,6 +72,9 @@ pub(super) fn resolve(entry: &ItemRegistryEntry, assets: Option<&RuntimeEntityAs
         })
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod compatibility_tests;
 
 #[cfg(test)]
 mod tests {

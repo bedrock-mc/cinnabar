@@ -12,7 +12,7 @@ use {
 fn installed_settings_categories_use_their_full_native_icon_cells() {
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping installed_settings_categories_use_their_full_native_icon_cells: installed OreUI bundle unavailable"
+            "skipping installed_settings_categories_use_their_full_native_icon_cells: compiled OreUI artwork carrier unavailable"
         );
         return;
     };

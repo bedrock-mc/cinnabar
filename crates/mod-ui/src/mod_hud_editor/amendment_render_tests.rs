@@ -136,6 +136,182 @@ fn amendment_hidden_artwork_and_steady_frames_retain_catalog_bindings_and_text()
     ));
 }
 
+/// A short distance must not let its wider annotation cover the selected widget or nearby keys.
+#[test]
+fn measurement_captions_keep_selected_and_neighboring_artwork_clear() {
+    let mut ui = ModUi::default();
+    ui.set_mod_panel(
+        crate::PanelUiOwner::Environment(0),
+        Some(&crate::test_support::sample_panel()),
+    )
+    .unwrap();
+    ui.set_mod_panel_open(true);
+    let hud: Hud = serde_json::from_value(serde_json::json!({"cards":[
+        {"id":"fps","anchor":"top_left","offset":[12,37],"width":56,"row_height":18,"rows":[{"label":"FPS","value":"144"}]},
+        {"id":"keys","anchor":"top_left","offset":[0,60],"width":70,"row_height":26,"rows":[{"label":"W","value":""},{"label":"A S D","value":""},{"label":"SPACE","value":""}]}
+    ]})).unwrap();
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let editor = ui.mod_hud_editor.as_mut().unwrap();
+    editor.viewport = [400., 240.];
+    editor.selected = Some(0);
+    let data = editor.data();
+    for axis in 0..2 {
+        assert_eq!(
+            data.global_value(&format!("#measurement_{axis}_visible")),
+            Some(&Scalar::Bool(true))
+        );
+        let Scalar::Json(value) = data
+            .global_value(&format!("#measurement_{axis}_pill"))
+            .unwrap()
+        else {
+            panic!("caption position")
+        };
+        let point: [f64; 2] = serde_json::from_value(value.clone()).unwrap();
+        for (index, card) in editor.draft.cards.iter().enumerate() {
+            let at = editor.card_origin(index);
+            let size = cards::dimensions(card);
+            assert!(
+                point[0] + feedback::pill_size(if axis == 0 { "12" } else { "37" })[0] <= at[0]
+                    || point[0] >= at[0] + size[0]
+                    || point[1] + MEASUREMENT_PILL_HEIGHT <= at[1]
+                    || point[1] >= at[1] + size[1],
+                "caption covers {}",
+                card.id
+            );
+        }
+    }
+}
+
+/// Authored editor typography stays centered inside the distance pill rather than filling its band.
+#[test]
+fn compact_editor_typography_centers_measurements_in_their_backgrounds() {
+    let mut ui = ModUi::default();
+    ui.set_mod_panel(
+        crate::PanelUiOwner::Environment(0),
+        Some(&crate::test_support::sample_panel()),
+    )
+    .unwrap();
+    ui.set_mod_panel_open(true);
+    let hud: Hud = serde_json::from_str(r#"{"editor_style":{"font":"sans","text_scale":0.5,"measurement":[0.1,0.2,0.3,1]},"cards":[{"id":"fps","width":56,"offset":[37,41],"rows":[{"label":"FPS","value":"144"}]}]}"#).unwrap();
+    ui.open_mod_hud_editor(&hud).unwrap();
+    ui.mod_hud_editor.as_mut().unwrap().selected = Some(0);
+    let engine = engine();
+    let font = ui_engine::test_support::fixture_font();
+    let font = font
+        .with_named_font(ui::mod_panel::SANS_FONT_NAME, &font)
+        .unwrap();
+    paint(
+        &mut ui,
+        &engine,
+        &font,
+        &mut ui::TextLayoutCache::new(64, 1 << 24),
+        1.,
+    );
+    let editor = ui.mod_hud_editor.as_ref().unwrap();
+    let mut labels = 0;
+    for node in editor.screen.nodes() {
+        if let json_ui::Draw::Text {
+            text,
+            scale,
+            options,
+            ..
+        } = &node.draw
+            && node.key.contains("measurement_")
+            && node.key.contains("label")
+            && !text.is_empty()
+        {
+            labels += 1;
+            assert_eq!(*scale, MEASUREMENT_FONT_SCALE as f32);
+            assert_eq!(
+                options.font_type.as_deref(),
+                Some(ui::mod_panel::SANS_FONT_NAME)
+            );
+            assert!(node.dest.h < MEASUREMENT_PILL_HEIGHT);
+            assert!(
+                node.dest.y >= node.clip.y
+                    && node.dest.y + node.dest.h <= node.clip.y + node.clip.h
+            );
+        }
+    }
+    assert_eq!(labels, 2);
+}
+
+/// Native selection chrome reserves its full measured caption before placing the inspector and guides.
+#[test]
+fn measured_selection_caption_stays_compact_and_clear_of_the_inspector() {
+    let engine = engine();
+    let font = ui_engine::test_support::fixture_font();
+    let font = font
+        .with_named_font(ui::mod_panel::SANS_FONT_NAME, &font)
+        .unwrap();
+    for width in [56., 130., 400.] {
+        for scale in [0.25, 1.] {
+            let hud: Hud = serde_json::from_value(serde_json::json!({
+                "editor_style":{"selection_caption":true,"font":"sans","text_scale":0.5,"top_clearance":44},
+                "inspector_size":[104,204],
+                "cards":[{"id":"fps","editor_label":"FPS","width":width,"scale":scale,"offset":[12,37],"rows":[{"label":"","value":"144 FPS"}]}]
+            })).unwrap();
+            let mut ui = ModUi::default();
+            ui.set_mod_panel(
+                crate::PanelUiOwner::Environment(0),
+                Some(&crate::test_support::sample_panel()),
+            )
+            .unwrap();
+            ui.set_mod_panel_open(true);
+            ui.open_mod_hud_editor(&hud).unwrap();
+            ui.mod_hud_editor.as_mut().unwrap().selected = Some(0);
+            paint(
+                &mut ui,
+                &engine,
+                &font,
+                &mut ui::TextLayoutCache::new(64, 1 << 24),
+                1.,
+            );
+            let editor = ui.mod_hud_editor.as_ref().unwrap();
+            let caption = editor.caption_bounds.unwrap();
+            assert_eq!(
+                caption[2], 64.,
+                "caption followed widget width {width} at scale {scale}"
+            );
+            let inspector = [editor.inspector.at[0], editor.inspector.at[1], 104., 204.];
+            let overlaps = |a: [f64; 4], b: [f64; 4]| {
+                a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1]
+            };
+            assert!(
+                !overlaps(caption, inspector),
+                "inspector covers the caption"
+            );
+            assert!(editor.screen.nodes().iter().any(|node| node.key.contains("selection_caption") && matches!(&node.draw,json_ui::Draw::Custom { data,.. } if data.get("radius").and_then(serde_json::Value::as_f64)==Some(3.5)) && node.dest.w == 64.));
+            for axis in 0..2 {
+                if editor
+                    .data
+                    .global_value(&format!("#measurement_{axis}_visible"))
+                    != Some(&Scalar::Bool(true))
+                {
+                    continue;
+                }
+                let Scalar::Json(value) = editor
+                    .data
+                    .global_value(&format!("#measurement_{axis}_pill"))
+                    .unwrap()
+                else {
+                    panic!("caption position")
+                };
+                let point: [f64; 2] = serde_json::from_value(value.clone()).unwrap();
+                let Some(Scalar::Num(width)) = editor
+                    .data
+                    .global_value(&format!("#measurement_{axis}_pill_width"))
+                else {
+                    panic!("pill width")
+                };
+                let pill = [point[0], point[1], *width, MEASUREMENT_PILL_HEIGHT];
+                assert!(!overlaps(pill, caption) && !overlaps(pill, inspector));
+                assert!(pill[1] >= 44., "measurement overlaps the authored toolbar");
+            }
+        }
+    }
+}
+
 #[test]
 fn guest_slider_fill_follows_panel_values_without_rebuilding_or_churning_data() {
     let engine = engine();
@@ -222,7 +398,7 @@ fn distance_pills_show_bare_numbers_and_fit_at_viewport_edges() {
         ([300., 160.], [40., 40.]),
     ] {
         let mut data = DataSource::new();
-        feedback::measurements(&mut data, viewport, Some(rect));
+        feedback::measurements(&mut data, viewport, Some(rect), &[]);
         for axis in 0..2 {
             let global = |suffix: &str| {
                 data.global_value(&format!("#measurement_{axis}_{suffix}"))

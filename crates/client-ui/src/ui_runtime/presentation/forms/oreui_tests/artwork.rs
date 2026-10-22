@@ -25,7 +25,6 @@ fn unchanged_native_art_reuses_pages_and_changed_art_replaces_its_range() {
         )])),
         loading_frames: Default::default(),
         animations: Default::default(),
-        source: None,
     };
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     let start = runtime.textures.dynamic_start();

@@ -10,7 +10,7 @@
   "max_value_depth": 4,
   "max_name_bytes": 64,
   "max_state_values": 16,
-  "max_state_combinations": 65536,
+  "max_state_bits": 16,
   "max_bones": 64,
   "max_permutations": 64,
   "max_materials": 32,

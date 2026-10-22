@@ -245,11 +245,12 @@ where
             }
             continue;
         }
-        let packet = finalize_interaction_packet(queued.packet, queued.interaction);
+        let (preceding, packet) = finalize_interaction_packet(queued.packet, queued.interaction);
         // Traces are formatted from the final packet and published only after the write.
         let line = queued
             .physics
             .and_then(|identity| trace_line(identity.session_generation.get(), &packet));
+        packets.extend(preceding);
         packets.push(packet);
         receipts.push(Receipt {
             sub_chunk: queued.sub_chunk,
@@ -395,9 +396,9 @@ async fn publish_receipt<P, W: FnMut(&str)>(
 fn finalize_interaction_packet(
     packet: Packet,
     interaction: Option<InteractionPacketGuard>,
-) -> Packet {
+) -> (Option<Packet>, Packet) {
     match interaction {
         Some(guard) => guard.sanitize(packet),
-        None => packet,
+        None => (None, packet),
     }
 }

@@ -123,7 +123,9 @@ fn placement_trait_and_enum_properties_multiply_states() {
     let mut nbt = named(10, "");
     nbt.extend(named(9, "properties"));
     nbt.extend([10, 4]);
-    for values in [2_u8, 3] {
+    for (name, values) in [("test:two", 2_u8), ("test:three", 3)] {
+        nbt.extend(named(8, "name"));
+        nbt.extend(string(name));
         nbt.extend(named(9, "enum"));
         nbt.extend([8, values * 2]);
         for index in 0..values {
@@ -145,8 +147,12 @@ fn placement_trait_and_enum_properties_multiply_states() {
         (2 * 3 * 4, false)
     );
     let axes = &definition.visual.state_axes;
-    assert_eq!(axes.len(), 1, "unnamed properties carry no axis");
-    assert_eq!(axes[0].name.as_ref(), "minecraft:cardinal_direction");
+    let names: Vec<_> = axes.iter().map(|axis| axis.name.as_ref()).collect();
+    assert_eq!(
+        names,
+        ["minecraft:cardinal_direction", "test:two", "test:three"],
+        "trait states lead the properties"
+    );
     assert_eq!(
         axes[0].values[0],
         super::CustomStateValue::String("south".into())
@@ -345,9 +351,9 @@ fn hashed_states_follow_palette_order() {
     }
 }
 
-// Unnamed properties still count toward the palette but cannot be decoded.
+// A nameless property is the client's empty-named state.
 #[test]
-fn states_the_axes_cannot_account_for_are_not_decoded() {
+fn nameless_properties_decode_under_the_empty_name() {
     let block = custom_block(
         "ns:b",
         &compound(vec![(
@@ -358,7 +364,11 @@ fn states_the_axes_cannot_account_for_are_not_decoded() {
             )])]),
         )]),
     );
-    assert_eq!((block.state_count, block.state_values(0)), (2, None));
+    assert_eq!(block.state_count, 2);
+    assert_eq!(
+        block.state_values(1).as_deref(),
+        Some([CustomStateValue::Int(1)].as_slice())
+    );
 }
 
 #[test]
@@ -651,7 +661,10 @@ fn experience_blocks_fit_the_client_bounds() {
     let limits: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let limit = |name: &str| limits[name].as_u64().unwrap();
-    assert!(limit("max_state_combinations") <= super::MAX_STATES_PER_BLOCK);
+    assert_eq!(
+        limit("max_state_bits"),
+        u64::from(super::states::STATE_BITS)
+    );
     assert!(limit("max_permutations") <= super::MAX_PERMUTATIONS as u64);
 }
 
@@ -660,7 +673,9 @@ fn aggregate_admission_retains_rejected_palette_runs_without_expanding_states() 
     let mut large = named(10, "");
     large.extend(named(9, "properties"));
     large.extend([10, 32]);
-    for _ in 0..16 {
+    for index in 0..16 {
+        large.extend(named(8, "name"));
+        large.extend(string(&format!("test:bit{index}")));
         large.extend(named(9, "enum"));
         large.extend([1, 4, 0, 1, 0]);
     }
@@ -957,4 +972,47 @@ fn custom_components_declare_a_player_interact_handler() {
         "minecraft:custom_components",
         compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
     )])));
+}
+
+// Packs alias faces to shared instances; dropping the alias would draw the `*` texture there.
+#[test]
+fn material_mappings_alias_faces_to_named_instances() {
+    let material = |texture: &str| compound(vec![("texture", text(texture))]);
+    let alias = |target: &str| compound(vec![("value", text(target))]);
+    let root = compound(vec![(
+        "components",
+        compound(vec![(
+            "minecraft:material_instances",
+            compound(vec![
+                (
+                    "materials",
+                    compound(vec![
+                        ("*", material("test_side")),
+                        ("top", material("test_top")),
+                        ("up", material("test_replaced")),
+                    ]),
+                ),
+                (
+                    "mappings",
+                    compound(vec![
+                        ("up", alias("top")),
+                        ("down", alias("top")),
+                        ("north", alias("test:missing")),
+                    ]),
+                ),
+            ]),
+        )]),
+    )]);
+    let block = custom_block("test:aliased", &root);
+    let materials = block.visual.base.materials.as_deref().unwrap();
+    let texture = |name: &str| {
+        materials
+            .iter()
+            .find(|material| material.name.as_ref() == name)
+            .map(|material| material.texture.as_ref())
+    };
+    assert_eq!(texture("up"), Some("test_top"));
+    assert_eq!(texture("down"), Some("test_top"));
+    assert_eq!(texture("north"), None);
+    assert_eq!(materials.len(), 4);
 }

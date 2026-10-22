@@ -598,6 +598,53 @@ fn chat_section_draws_all_chat_panel_options_and_reset() {
     }
 }
 
+/// Every Discord option is reachable from the Social → Discord tab and has a shared reset.
+#[test]
+fn discord_section_draws_all_presence_options_and_reset() {
+    let view = MenuView::new(true, "Player".into());
+    for width in [400.0, 800.0] {
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 100.0 + width],
+                column_width: width,
+                y: 100.0,
+                translate: &|_| None,
+                nested: false,
+            };
+            sections::draw(&mut content, SettingSection::Discord).unwrap();
+        });
+        for panel in [SettingPanel::Discord, SettingPanel::DiscordDetails] {
+            for option in panel.options() {
+                assert!(
+                    hits.iter().any(|(action, _)| match action {
+                        MenuAction::SettingsOption(index, _)
+                        | MenuAction::SettingsDropdown(index) => {
+                            usize::from(*index) == option.id.index()
+                        }
+                        _ => false,
+                    }),
+                    "missing control for {:?}",
+                    option.id
+                );
+            }
+        }
+        assert!(hits.iter().any(|(action, _)| {
+            *action
+                == MenuAction::SettingsResetGroup(
+                    launcher::menu::settings_options::SettingsGroup::Discord,
+                )
+        }));
+        let labels = rendered_text(&nodes).to_ascii_lowercase();
+        assert!(labels.contains("discordrichpresence"));
+        assert!(labels.contains("activitydetails"));
+        assert!(labels.contains("showserverandworlddetails"));
+        assert!(!labels.contains("discord.settings."));
+        assert!(!labels.contains(".description"));
+    }
+}
+
 /// Collects visible glyphs without depending on the painter's text-node splitting.
 fn rendered_text(nodes: &[ui::UiNode]) -> String {
     nodes
