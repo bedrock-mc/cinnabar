@@ -45,7 +45,8 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   runs at a time. Worlds move between backends only where formats allow; dragonfly-written `level.dat` files may
   not satisfy BDS and vice versa, so do not share one folder across backends.
 - **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`, `max-players=1`,
-  view and tick distance from the client's `view_distance` (5-32), `transport=raknet` (1.26.5x defaults to NetherNet,
+  `view-distance` at the client's largest render distance (each RequestChunkRadius picks the radius),
+  `tick-distance=10`, `transport=raknet` (1.26.5x defaults to NetherNet,
   which the core cannot dial) and `enable-lan-visibility=false`. Seed and level type apply at creation only.
 - **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
   the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the

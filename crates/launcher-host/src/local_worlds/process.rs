@@ -33,7 +33,7 @@ const EXIT_POLL: Duration = Duration::from_millis(10);
 pub(crate) struct StartSpec {
     pub world: World,
     pub dir: PathBuf,
-    /// Chunks; `None` takes the backend's default.
+    /// The largest radius a player may be granted, in chunks; `None` allows the client's maximum.
     pub view_distance: Option<u32>,
 }
 

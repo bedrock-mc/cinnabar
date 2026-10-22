@@ -27,7 +27,10 @@ use super::{
 
 const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 pub(crate) const BDS_READY_MARKER: &str = "Server started.";
-pub(crate) const DEFAULT_BDS_VIEW: u32 = 10;
+/// BDS raises a smaller `view-distance` to this; it has no upper bound.
+const MIN_BDS_VIEW: u32 = 5;
+/// Simulation distance in chunks, kept apart from the view ceiling; BDS accepts 4 to 12.
+const BDS_TICK_DISTANCE: u32 = 10;
 /// BDS's `transport` setting for its NetherNet HTTP listener.
 pub(crate) const BDS_TRANSPORT: &str = "nethernet";
 /// Makes existing BDS worlds use the launcher's selected game mode at login.
@@ -186,14 +189,16 @@ impl Instance for BdsInstance {
     }
 }
 
-/// The view distance BDS gets, and the tick distance that follows from it.
+/// BDS's view and tick distances. The view distance only caps each player's RequestChunkRadius, so
+/// it defaults to the largest radius the client requests and a render-distance change needs no
+/// restart.
 pub(crate) fn view_and_tick(spec: &StartSpec) -> (u32, u32) {
     let view = spec
         .view_distance
         .filter(|view| *view > 0)
-        .unwrap_or(DEFAULT_BDS_VIEW)
-        .clamp(5, 32);
-    (view, view.clamp(4, 12))
+        .unwrap_or(render_api::MAX_VIEW_RADIUS_CHUNKS.unsigned_abs())
+        .max(MIN_BDS_VIEW);
+    (view, BDS_TICK_DISTANCE)
 }
 
 /// BDS's `level-type` for a generator.

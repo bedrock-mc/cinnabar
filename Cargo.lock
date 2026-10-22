@@ -5263,6 +5263,7 @@ dependencies = [
  "memmap2",
  "minidumper",
  "protocol",
+ "render-api",
  "reqwest",
  "resource-pack",
  "rustix 1.1.4",
