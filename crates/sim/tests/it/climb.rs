@@ -335,9 +335,9 @@ fn the_climber_scans_the_resolved_collision_box() {
         scaffolds: vec![[0, 0, 0]],
         solids: vec![[0, 1, 0], [0, 2, 0], [1, 0, 0]],
     };
-    let mut state = PlayerState::new(Vec3::new(1.35, 1.0, 0.5));
+    let mut state = PlayerState::new(Vec3::new(1.45, 1.0, 0.5));
     state.on_ground = true;
-    state.velocity.x = -0.2;
+    state.velocity.x = -0.3;
     let tick = Simulator::default()
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
