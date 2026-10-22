@@ -162,6 +162,8 @@ pub struct ItemUseRuntime {
     server_using: Option<bool>,
     /// Gameplay had input focus on the last observed frame.
     gameplay_focused: bool,
+    /// A server-started use's tick whose start a later clear withdrew before it ran.
+    withdrawn_start: Option<u64>,
 }
 
 impl ItemUseRuntime {
@@ -705,6 +707,9 @@ pub fn admit_on_tick(
         send,
     ) {
         movement.mark_started_using_item(frame.tick);
+    }
+    if let Some(tick) = runtime.take_withdrawn_start() {
+        movement.withdraw_started_using_item(tick);
     }
 }
 

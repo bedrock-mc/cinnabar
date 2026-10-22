@@ -329,3 +329,64 @@ fn a_stamped_spin_cancel_applies_live() {
     assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// A live glide and spin write survives a later replay through the tick it
+/// preceded, whatever the stamp it was delivered with.
+#[test]
+fn live_server_writes_survive_a_replay_through_their_tick() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, elytra(true));
+    let start = flags(|flags| {
+        flags.gliding = Some(true);
+        flags.spinning = Some(true);
+    });
+    assert_eq!(physics.apply_server_movement_flags(101, start), None);
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let expected = physics.state().unwrap().spin_attack_ticks;
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, expected);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+}
+
+/// A stamped spin clear keeps its action baseline when no replay follows, so
+/// the next input reports no stop action.
+#[test]
+fn a_stamped_spin_clear_without_replay_reports_no_stop_action() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let clear = flags(|flags| flags.spinning = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// A glide clear and set before a tick keep the glide counter, so a jump
+/// after eleven gliding ticks still ends the glide.
+#[test]
+fn a_glide_clear_and_set_before_a_tick_keep_the_glide_counter() {
+    let (mut physics, mut ticker) = airborne();
+    let jump = |jumping| MovementInput {
+        jumping,
+        ..MovementInput::default()
+    };
+    tick_with(&mut physics, &mut ticker, jump(false), elytra(true));
+    for _ in 0..12 {
+        tick_with(&mut physics, &mut ticker, jump(true), elytra(true));
+    }
+    tick_with(&mut physics, &mut ticker, jump(false), elytra(true));
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let write = |value| flags(|flags| flags.gliding = Some(value));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.apply_server_movement_flags(0, write(true));
+    let sample = tick_with(&mut physics, &mut ticker, jump(true), elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Walking);
+}

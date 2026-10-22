@@ -88,34 +88,54 @@ pub(crate) fn adopt_server_item_use(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
-    let Some(using) = context
+    if let Some(using) = context
         .physics
         .as_deref_mut()
         .and_then(|physics| physics.take_server_using_item())
+    {
+        runtime.adopt_server_using_item(using);
+    }
+    let Some(position) = context
+        .physics
+        .as_deref()
+        .and_then(|physics| physics.network_position())
     else {
         return;
     };
-    runtime.adopt_server_using_item(using);
+    if !runtime.has_server_using_item() {
+        return;
+    }
+    // The next tick physics simulates, whether or not earlier inputs await sending.
+    let sample = gameplay::movement::InteractionSample {
+        tick: movement.next_tick(),
+        position,
+    };
     let policy = frame::FramePolicy {
         held: true,
         before_flush: false,
         delay_fix_enabled: false,
         aim_rotation: None,
         release_facing: Default::default(),
+        sample: Some(sample),
     };
     // Presses wait for their own pass; this one resolves only the server write.
     let mut pending = gameplay::item_use::PendingUseInput::new(false);
     runtime.with_pending_input(&mut pending, |runtime| {
-        if let Some(proposal) = frame::observe(
+        let Some(proposal) = frame::observe(
             &player_runtime,
             &context,
             runtime,
             &movement,
             &mut view,
             policy,
-        ) && runtime.resolve_server_using_item(&proposal.frame)
-        {
+        ) else {
+            return;
+        };
+        if runtime.resolve_server_using_item(&proposal.frame) {
             movement.mark_started_using_item(proposal.frame.tick);
+        }
+        if let Some(tick) = runtime.take_withdrawn_start() {
+            movement.withdraw_started_using_item(tick);
         }
     });
 }
@@ -272,6 +292,7 @@ fn produce_use(
         delay_fix_enabled,
         aim_rotation,
         release_facing,
+        sample: None,
     };
     let Some(frozen) = frame::observe(
         &player_runtime,

@@ -166,15 +166,39 @@ impl ServerFlagAuthority {
 }
 
 impl LocalPhysicsController {
-    /// Ends and starts the live pose from a server write and records the pose
-    /// it leaves for the next tick's action edges.
+    /// Ends and starts the live pose from a server write, records the pose it
+    /// leaves for the next tick's action edges, and retains it for the next
+    /// tick so a replay through that tick keeps it.
     pub(super) fn adopt_live_pose(&mut self, write: PoseWrite) {
         let before = self.modes.mode();
-        write.apply(&mut self.modes);
-        let after = self.modes.mode();
-        if after != before {
-            self.server_control_flags.get_or_insert_default().mode = Some(after);
+        let differing = write.differing_from(before);
+        if differing.resulting(before) == before {
+            return;
         }
+        differing.apply(&mut self.modes);
+        self.server_control_flags.get_or_insert_default().mode = Some(self.modes.mode());
+        if let Some(overlay) = self.live_overlay() {
+            overlay.pose = differing.over(overlay.pose);
+        }
+    }
+
+    /// Writes before the tick after the live state, created on demand.
+    fn live_overlay(&mut self) -> Option<&mut FlagOverlay> {
+        let tick = self.state.as_ref()?.tick;
+        self.retained_overlay(tick)
+    }
+
+    /// Re-applies server writes made after the last completed tick to the
+    /// state a replay rebuilt, and resets the action baseline to them.
+    pub(super) fn reapply_live_server_flags(&mut self) {
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+        let (mode, spinning) = (self.modes.mode(), state.spin_attack_ticks.is_some());
+        self.server_flags.apply_before(&mut self.modes, state);
+        let pending = self.server_control_flags.get_or_insert_default();
+        pending.mode = (self.modes.mode() != mode).then_some(self.modes.mode());
+        pending.spinning = (state.spin_attack_ticks.is_some() != spinning).then_some(!spinning);
     }
 
     /// Writes before the tick after retained `tick`, created on demand.
@@ -218,7 +242,9 @@ impl LocalPhysicsController {
         self.mark_server_change_after(tick, |input| {
             input.server_mode = (left != anchor_mode).then_some(left);
         });
+        // Vanilla applies the correction to the live actor too; replay replaces it.
         differing.apply(&mut self.modes);
+        self.server_control_flags.get_or_insert_default().mode = Some(self.modes.mode());
         true
     }
 
@@ -253,6 +279,9 @@ impl LocalPhysicsController {
             && self.write_live_spin(spinning)
         {
             self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
+            if let Some(overlay) = self.live_overlay() {
+                overlay.spinning = Some(spinning);
+            }
         }
     }
 
@@ -281,7 +310,9 @@ impl LocalPhysicsController {
         };
         overlay.spinning = written;
         self.mark_server_change_after(tick, |input| input.server_spinning = written);
-        self.write_live_spin(spinning);
+        if self.write_live_spin(spinning) {
+            self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
+        }
         true
     }
 
@@ -326,6 +357,8 @@ impl LocalPhysicsController {
             if let Some(overlay) = self.retained_overlay(tick) {
                 overlay.using_item = (local != Some(using)).then_some(using);
             }
+        } else if let Some(overlay) = self.live_overlay() {
+            overlay.using_item = Some(using);
         }
         self.server_flags.pending_using_item = Some(using);
     }

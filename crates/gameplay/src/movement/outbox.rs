@@ -641,6 +641,20 @@ impl MovementTicker {
         self.mark_unsent_flag(tick, protocol::PlayerInputFlags::START_USING_ITEM)
     }
 
+    /// Removes a `StartUsingItem` that a server clear withdrew before its tick ran.
+    pub fn withdraw_started_using_item(&mut self, tick: u64) {
+        let flag = protocol::PlayerInputFlags::START_USING_ITEM;
+        if let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)
+        {
+            sample.snapshot.flags = sample.snapshot.flags.with_mask(flag, false);
+        } else if tick == self.next_tick {
+            self.next_tick_flags = self.next_tick_flags.with_mask(flag, false);
+        }
+    }
+
     fn mark_unsent_flag(&mut self, tick: u64, flag: protocol::PlayerInputFlags) -> bool {
         if let Some(sample) = self
             .outbox

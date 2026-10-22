@@ -202,21 +202,18 @@ impl ModeTracker {
         self.mode = mode;
     }
 
-    /// Ends `mode` when it is current, as a server flag clear does.
+    /// Ends `mode` when it is current, as a server flag clear does. The glide
+    /// counter resets when a tick processes the clear, as vanilla's does.
     pub(super) fn end(&mut self, mode: MovementMode) {
         if self.mode == mode {
             self.mode = MovementMode::Walking;
-            self.fall_fly_ticks = 0;
         }
     }
 
     /// Enters `mode` as a server flag set does. The next selection applies the
     /// mode's own continuation rules, as vanilla's stop intents read the flag.
     pub(super) fn start(&mut self, mode: MovementMode) {
-        if self.mode != mode {
-            self.mode = mode;
-            self.fall_fly_ticks = 0;
-        }
+        self.mode = mode;
     }
 
     /// Picks this tick's mode.

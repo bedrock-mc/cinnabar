@@ -103,3 +103,61 @@ fn losing_focus_releases_a_server_started_use() {
     assert!(runtime.is_releasing(false));
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
 }
+
+/// A server start resolved before physics keeps receiving held-use maintenance
+/// once its tick completes, so its duration can run out.
+#[test]
+fn a_pre_physics_server_start_keeps_its_maintenance() {
+    use crate::test_support::survival_mining::{completed, evidence, ticker_with_ticks};
+    let flush = |movement: &mut crate::movement::MovementTicker| {
+        crate::movement::flush_player_auth_inputs(movement, 8, Some(evidence()), |_, _| {
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+    };
+    let mut movement = ticker_with_ticks(1);
+    flush(&mut movement);
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    let sample = runtime
+        .frame_sample(&movement, false, true)
+        .expect("a server write resolves between ticks");
+    assert!(runtime.resolve_server_using_item(&frame(sample.tick, false)));
+    assert!(runtime.frame_sample(&movement, false, true).is_none());
+    movement
+        .enqueue_completed_physics(completed(sample.tick))
+        .unwrap();
+    flush(&mut movement);
+    assert!(
+        runtime.frame_sample(&movement, false, true).is_some(),
+        "the completed tick resumes maintenance"
+    );
+}
+
+/// A server clear before the started use's tick runs withdraws its
+/// `StartUsingItem`, as vanilla only starts the use when that tick reads the flag.
+#[test]
+fn a_clear_before_the_start_tick_withdraws_start_using_item() {
+    use crate::test_support::survival_mining::{completed, evidence, ticker_with_ticks};
+    let mut movement = ticker_with_ticks(1);
+    crate::movement::flush_player_auth_inputs(&mut movement, 8, Some(evidence()), |_, _| {
+        Ok::<_, ()>(())
+    })
+    .unwrap();
+    let tick = movement.next_tick();
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(tick, false)));
+    assert!(movement.mark_started_using_item(tick));
+    runtime.adopt_server_using_item(false);
+    assert!(!runtime.resolve_server_using_item(&frame(tick, false)));
+    assert_eq!(runtime.take_withdrawn_start(), Some(tick));
+    movement.withdraw_started_using_item(tick);
+    movement.enqueue_completed_physics(completed(tick)).unwrap();
+    let snapshot = movement.pending_snapshots().pop().unwrap();
+    assert_eq!(snapshot.tick, tick);
+    assert_eq!(
+        snapshot.flags.bits() & protocol::PlayerInputFlags::START_USING_ITEM.bits(),
+        0
+    );
+}

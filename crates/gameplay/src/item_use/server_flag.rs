@@ -13,11 +13,25 @@ impl ItemUseRuntime {
         self.server_using = Some(using);
     }
 
+    /// Whether a server `UsingItem` value still awaits a tick.
+    pub const fn has_server_using_item(&self) -> bool {
+        self.server_using.is_some()
+    }
+
+    /// Takes the tick whose `StartUsingItem` a server clear withdrew.
+    pub fn take_withdrawn_start(&mut self) -> Option<u64> {
+        self.withdrawn_start.take()
+    }
+
     /// Resolves a pending server `UsingItem` value against `frame`'s tick
     /// before that tick simulates; returns whether a use started.
     pub fn resolve_server_using_item(&mut self, frame: &UseFrame) -> bool {
         let mut outcome = UseOutcome::default();
         self.apply_server_using_item(frame, &mut outcome);
+        if outcome.started {
+            // Held-use maintenance resumes once this tick completes.
+            self.last_frame_tick = Some(frame.tick);
+        }
         outcome.started
     }
 
@@ -42,10 +56,16 @@ impl ItemUseRuntime {
             Some(false) => {
                 self.server_using = None;
                 // An observed release already ends the use with its transaction.
-                if !self.release_pending {
-                    self.active = None;
-                    self.riptide_release = None;
+                if self.release_pending {
+                    return;
                 }
+                if let Some(active) = self.active.take() {
+                    // A start whose tick has not run never reaches that tick's input.
+                    if !active.button_owned && active.started_tick >= frame.tick {
+                        self.withdrawn_start = Some(active.started_tick);
+                    }
+                }
+                self.riptide_release = None;
             }
             Some(true) if self.active.is_some() => self.server_using = None,
             Some(true) => {

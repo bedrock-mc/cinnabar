@@ -58,6 +58,7 @@ pub(crate) fn press(
             delay_fix_enabled,
             aim_rotation: input.context.aim,
             release_facing,
+            sample: None,
         };
         if let Some(proposal) =
             frame::observe(&player, &context, runtime, &movement, &mut view, policy)

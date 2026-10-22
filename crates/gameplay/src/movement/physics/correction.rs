@@ -386,6 +386,7 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         self.modes = modes;
+        self.reapply_live_server_flags();
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;
         self.last_environment = controller_frames
