@@ -7,7 +7,7 @@ use crate::{AssetError, RuntimeEntityAssets};
 mod alpha;
 pub(crate) mod color_mask;
 mod eligibility;
-pub use alpha::{actor_dissolve_mask_sources, actor_sources_keeping_alpha};
+pub use alpha::actor_sources_keeping_alpha;
 pub use color_mask::{
     native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
     native_actor_texture_uses_multitexture, native_actor_uses_multitexture,

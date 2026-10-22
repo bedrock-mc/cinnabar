@@ -5,7 +5,7 @@ use crate::{EntityAssetSource, EntityRenderData, EntityRenderLayer, EntityRender
 use super::native_actor_texture_preserves_fractional_alpha;
 
 /// Dissolve depth masks retain fractional alpha because their threshold changes each frame.
-pub fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
+fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
     render
         .layers
         .iter()

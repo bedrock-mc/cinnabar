@@ -327,7 +327,8 @@ Actor art keeps its alpha when every material drawing it alpha-tests, or any ble
 lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
 materials but do not define them, so all but the verified kinds in `registry-policy.json`
 are provisional with that rounding; their definitions (alpha test, blend, emissive) remain
-unverified. Each rig geometry routes to the texture its own selection draws, else the
+unverified. Rounding is wrong where alpha is an emissive weight: blaze, magma cube and glow
+squid bodies stay invisible, and spider, enderman and phantom eyes draw clear. Each rig geometry routes to the texture its own selection draws, else the
 default branch. The samples omit the iron golem's body controller; it is completed from
 the pack's default controller until a pinned pack defines it.
 
