@@ -254,6 +254,10 @@ Server sneak updates preserve local hold/toggle intent, and the next completed i
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
+Remote player presentation interpolates received positions along straight segments,
+which can cross a block corner between clear endpoints. Teleports discard that
+segment immediately. Behavioral coverage of these cases does not establish
+live-server movement acceptance.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
