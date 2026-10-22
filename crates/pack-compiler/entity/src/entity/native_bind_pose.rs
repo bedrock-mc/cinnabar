@@ -44,23 +44,25 @@ const OCELOT_SAMPLE_SHA256: [u8; 32] = [
     0x4d, 0xc6, 0x52, 0xc9, 0xed, 0x62, 0x11, 0xb3, 0x8e, 0xd1, 0x61, 0x76, 0x1f, 0xc3, 0x88, 0xc2,
     0xec, 0xee, 0x74, 0x6c, 0xe0, 0x7d, 0xee, 0x33, 0x5a, 0x4e, 0x11, 0x4f, 0xe5, 0x9e, 0x52, 0xda,
 ];
+/// Cube names and the X/Y/Z bind rotation each keeps.
+type CubeBinds = &'static [(&'static str, [f32; 3])];
 // Repaired body cubes retain a +90-degree X bind independently of bone rotation.
 const NATIVE_BODY_BIND_ROTATION: [f32; 3] = [90.0, 0.0, 0.0];
 // Adult fox cubes retain these binds; baby geometry has its own defaults.
 // See docs/reference/fox-rendering.md.
-const FOX_BINDS: &[(&str, [f32; 3])] = &[
+const FOX_BINDS: CubeBinds = &[
     ("body", NATIVE_BODY_BIND_ROTATION),
     ("tail", [80.0, 0.0, 0.0]),
 ];
-const BODY_BINDS: &[(&str, [f32; 3])] = &[("body", NATIVE_BODY_BIND_ROTATION)];
+const BODY_BINDS: CubeBinds = &[("body", NATIVE_BODY_BIND_ROTATION)];
 // Adult cat and ocelot body and tail cubes lie along Z; the baby model has its own defaults.
-const FELINE_BINDS: &[(&str, [f32; 3])] = &[
+const FELINE_BINDS: CubeBinds = &[
     ("body", NATIVE_BODY_BIND_ROTATION),
     ("tail1", NATIVE_BODY_BIND_ROTATION),
     ("tail2", NATIVE_BODY_BIND_ROTATION),
 ];
 // Sample path, geometry, source digest and the cube binds its older shipped definition retains.
-const REPAIRS: &[(&str, &str, [u8; 32], &[(&str, [f32; 3])])] = &[
+const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
     (
         POLAR_BEAR_PATH,
         POLAR_BEAR_GEOMETRY,
