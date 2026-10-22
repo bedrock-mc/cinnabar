@@ -16,6 +16,7 @@ use semantic_input::Action;
 pub(crate) mod crosshair;
 mod hover;
 pub(crate) mod ordered;
+pub(crate) mod server_swings;
 use crosshair::resolve_crosshair;
 
 use crate::interaction_override::ModInteraction;

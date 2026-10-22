@@ -546,8 +546,10 @@ pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, Actor
 }
 
 /// Why the local arm swung, as carried by an outbound swing animation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SwingSource {
+    None,
     Build,
     Mine,
     Interact,
@@ -556,13 +558,26 @@ pub enum SwingSource {
     UseItem,
     ThrowItem,
     DropItem,
+    Event,
 }
 
 impl SwingSource {
+    /// Resolves a received source, using the absent-source value for unknown names.
+    pub fn from_wire_name(name: Option<&str>) -> Self {
+        name.and_then(|name| {
+            <Self as serde::Deserialize>::deserialize(serde::de::value::StrDeserializer::<
+                serde::de::value::Error,
+            >::new(name))
+            .ok()
+        })
+        .unwrap_or(Self::None)
+    }
+
     // The vanilla client sends the lowercase name; servers that match it exactly drop the
     // connection on any other casing.
     const fn wire_name(self) -> &'static str {
         match self {
+            Self::None => "none",
             Self::Build => "build",
             Self::Mine => "mine",
             Self::Interact => "interact",
@@ -570,6 +585,7 @@ impl SwingSource {
             Self::UseItem => "useitem",
             Self::ThrowItem => "throwitem",
             Self::DropItem => "dropitem",
+            Self::Event => "event",
         }
     }
 }

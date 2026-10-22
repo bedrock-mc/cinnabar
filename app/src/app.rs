@@ -182,6 +182,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
+            crate::melee::server_swings::echo
+                .after(reconcile_world_stream_before_physics)
+                .before(ClientFrameSet::SemanticFinalize),
+        )
+        .add_systems(
+            Update,
             crate::hotbar::flush_hotbar_selection
                 .in_set(client_state::ClientInteractionSet::HotbarSend)
                 .after(ClientFrameSet::SemanticFinalize)
