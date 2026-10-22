@@ -4,10 +4,10 @@ use protocol::{ItemRegistryEntry, NetworkItemStack, RecipeHandle, RecipeIngredie
 
 use super::PlayerInventoryLedger;
 use super::cells::Cell;
+use super::registry::entry_capacity;
 
 /// One ingredient's `(cell, amount, stack id)` sources.
 pub(super) type IngredientSources = Vec<(Cell, u16, i32)>;
-use super::registry::entry_capacity;
 
 /// One stack-compatible variant, with its source cells in their original order.
 struct Variant<'a> {

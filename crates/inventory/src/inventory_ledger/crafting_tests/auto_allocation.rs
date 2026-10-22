@@ -82,7 +82,7 @@ fn auto_craft_reassigns_the_only_exact_item_from_an_earlier_tag() {
 }
 
 #[test]
-fn auto_craft_splits_quantities_across_slots_and_reuses_one_stack_for_two_demands() {
+fn auto_craft_splits_one_variant_across_slots_and_reserves_the_exact_variant() {
     let recipe = recipe(vec![
         IngredientFixture {
             count: 3,
