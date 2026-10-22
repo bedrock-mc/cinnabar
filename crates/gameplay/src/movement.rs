@@ -946,6 +946,8 @@ pub fn reset_start_game_prediction(
 mod tests;
 
 #[cfg(test)]
+mod anchor_probe_context_tests;
+#[cfg(test)]
 mod anchor_probe_tests;
 #[cfg(test)]
 mod correction_tests;

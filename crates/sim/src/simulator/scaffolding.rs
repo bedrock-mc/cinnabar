@@ -260,17 +260,50 @@ fn rests_on_support(
     Ok(!air && !water)
 }
 
+/// The contextual collision a player's next move resolves against when its
+/// `player` box starts where it is now: the same scaffolding and powder-snow
+/// rules as the tick's own move. The descent action reads the retained climber
+/// contact, or a fresh measurement of `player` when none is retained, and
+/// powder snow reads the retained fall distance, which a descent clears.
+/// Vanilla's closest-space push reads the mover's contextual shapes the same
+/// way, so a body inside scaffolding or sinking powder snow overlaps nothing.
+pub fn mover_collision_boxes_with_provenance(
+    world: &(impl CollisionWorld + ?Sized),
+    state: &PlayerState,
+    input: &MovementInput,
+    player: Aabb,
+    query: Aabb,
+) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+    let mut identity = crate::WorldCollisionIdentity::new(world.registry_identity(), [])?;
+    let contact = match state.climber {
+        Some(contact) => contact,
+        None => {
+            let mut sampled = SampledEnvironment::unsampled(identity);
+            let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled)?;
+            identity = sampled.identity;
+            contact
+        }
+    };
+    let descending = contact.descends(input);
+    let fall_distance = if descending { 0.0 } else { state.fall_distance };
+    let mut colliders = ScaffoldingView::new(world, player, descending)
+        .with_powder_snow(fall_distance, input.can_stand_on_snow)
+        .collision_boxes_with_provenance(query)?;
+    colliders.identity = identity.merge(&colliders.identity)?;
+    Ok(colliders)
+}
+
 /// A mover's contextual collision: scaffolding is solid only under the feet
 /// of a player not descending through it, and powder snow collides as
 /// [`super::powder_snow::collision_shape`] decides.
-pub(super) struct ScaffoldingView<'a, W> {
+pub(super) struct ScaffoldingView<'a, W: ?Sized> {
     inner: &'a W,
     player: Aabb,
     descending: bool,
     powder_snow: super::powder_snow::PowderSnowStance,
 }
 
-impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
+impl<'a, W: CollisionWorld + ?Sized> ScaffoldingView<'a, W> {
     /// Retains the pre-move box used by the native contextual collision query.
     /// Powder snow stays passable until [`Self::with_powder_snow`] supplies
     /// the mover's fall distance and snow-standing capability.
@@ -300,7 +333,7 @@ impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
     }
 }
 
-impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
+impl<W: CollisionWorld + ?Sized> CollisionWorld for ScaffoldingView<'_, W> {
     fn registry_identity(&self) -> crate::CollisionRegistryIdentity {
         self.inner.registry_identity()
     }

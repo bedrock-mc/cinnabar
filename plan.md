@@ -236,6 +236,12 @@ Server sneak updates preserve local hold/toggle intent, and the next completed i
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
+The anchor probe after teleports and replayed corrections reads the mover's contextual
+collision, so scaffolding and powder snow the player's own move passes through never push
+the anchor. Its instantaneous, bounded push-out from real solids remains a provisional
+recovery policy: vanilla instead nudges horizontal velocity toward free space by at most
+0.1 block per tick for actors with the push-towards-closest-space flag, which is not
+modelled.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and

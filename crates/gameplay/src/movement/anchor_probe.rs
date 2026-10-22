@@ -2,11 +2,17 @@
 //!
 //! Hard movement anchors (and Replay corrections) can be installed without a
 //! collision check. Before the first tick that allows travel in a freshly anchored
-//! epoch this module probes the anchor against the same collision
-//! [`sim::PaletteWorld`] the frame already builds and, when a bounded
+//! epoch this module probes the anchor against the contextual collision the
+//! player's own move would resolve against
+//! ([`sim::mover_collision_boxes_with_provenance`]) and, when a bounded
 //! minimal-translation walk exists, moves the anchor out of the overlap. A
 //! positional push-out is applied to the anchor's position only; it never
 //! becomes reported movement or velocity.
+//!
+//! Vanilla has no instantaneous push-out; its closest-space push nudges
+//! horizontal velocity against the same contextual shapes. Scaffolding the
+//! body is inside, scaffolding a descent sinks through, and powder snow the
+//! player sinks into therefore never count as an overlap here.
 //!
 //! When no bounded push-out exists (a sealed pocket, or an embedment deeper
 //! than the displacement budget) the tick simply proceeds. The simulator's
@@ -101,20 +107,19 @@ fn evidence_enabled_from_env() -> bool {
 /// of a partially moved anchor.
 fn probe_anchor(
     world: &(impl CollisionWorld + ?Sized),
+    mover: AnchorMover<'_>,
     feet: Vec3,
     height: f64,
 ) -> Result<AnchorResolution, sim::WorldQueryError> {
     world.ensure_movement_origin(feet)?;
     // The query grows by the full displacement budget so every collider the
-    // probe could ever reach is visible in one bounded query through the
-    // same PaletteWorld the frame already builds. The provenance surface
-    // shares one emission core with `collision_boxes`, so the ordered box
-    // sequence fed to depenetration — and therefore every probe decision —
-    // is identical to the established box-only path (pinned by the sim
-    // crate's dual-surface regression).
-    let query =
-        Aabb::player_with_height_at(feet, height).grown(ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS);
-    let instances = world.collision_boxes_with_provenance(query)?;
+    // probe could ever reach is visible in one bounded query. The shapes are
+    // the mover's contextual collision at the anchored box, so scaffolding and
+    // powder snow only count where the player's own move would collide.
+    let player = Aabb::player_with_height_at(feet, height);
+    let query = player.grown(ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS);
+    let instances =
+        sim::mover_collision_boxes_with_provenance(world, mover.state, mover.input, player, query)?;
     let boxes = instances
         .value
         .iter()
@@ -134,6 +139,14 @@ fn probe_anchor(
             },
         },
     )
+}
+
+/// The mover facts contextual collision reads at an anchor: the retained
+/// player state (climber contact and fall distance) and this tick's input.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct AnchorMover<'a> {
+    pub state: &'a sim::PlayerState,
+    pub input: &'a sim::MovementInput,
 }
 
 /// Per-controller spawn-anchor probe state. One epoch per fresh anchor.
@@ -179,6 +192,7 @@ impl AnchorProbeState {
         modes: ModeTracker,
         intent: ModeIntent,
         observed: &mut ModeObservation,
+        state: &sim::PlayerState,
         input: sim::MovementInput,
     ) {
         if input.immobile || input.skip_travel || !self.pending() {
@@ -193,8 +207,12 @@ impl AnchorProbeState {
         if !sim::pose_fits(world, observed.feet, modes.mode(), modes.sneaking()).unwrap_or(true) {
             let _ = preview.select(intent, *observed, world);
         }
+        let mover = AnchorMover {
+            state,
+            input: &input,
+        };
         if let BeforeTick::Adjust(feet) =
-            self.before_tick(world, observed.feet, preview.contact_height())
+            self.before_tick(world, mover, observed.feet, preview.contact_height())
         {
             observed.feet = feet;
         }
@@ -208,17 +226,19 @@ impl AnchorProbeState {
     /// no inputless horizontal motion from an embedded start — after optionally
     /// rendering one diagnostic marker.
     /// `height` is the pose selected at the new anchor, so a fitting crouch or
-    /// crawl is not pushed out as if the player were still standing.
+    /// crawl is not pushed out as if the player were still standing; `mover`
+    /// supplies the facts the player's contextual collision reads.
     pub(super) fn before_tick(
         &mut self,
         world: &(impl CollisionWorld + ?Sized),
+        mover: AnchorMover<'_>,
         feet: Vec3,
         height: f64,
     ) -> BeforeTick {
         if !self.pending {
             return BeforeTick::Proceed;
         }
-        match probe_anchor(world, feet, height) {
+        match probe_anchor(world, mover, feet, height) {
             Err(_) => {
                 // Unloaded chunks and unknown runtime IDs keep today's
                 // existing transient-blocked behavior; retry the probe once

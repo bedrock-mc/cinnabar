@@ -627,6 +627,7 @@ impl LocalPhysicsController {
                 self.modes,
                 context.mode_intent,
                 &mut observed,
+                state,
                 input,
             );
             state.position = observed.feet;

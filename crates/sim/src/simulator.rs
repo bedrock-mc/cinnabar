@@ -14,7 +14,7 @@ mod powder_snow;
 mod riptide;
 pub use riptide::RiptideLaunch;
 mod scaffolding;
-pub use scaffolding::descends_through_block;
+pub use scaffolding::{descends_through_block, mover_collision_boxes_with_provenance};
 mod spectator;
 mod state;
 mod travel;

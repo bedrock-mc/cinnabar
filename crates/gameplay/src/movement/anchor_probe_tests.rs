@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::anchor_probe::{ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS, AnchorProbeState, BeforeTick};
+use super::anchor_probe::{
+    ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS, AnchorMover, AnchorProbeState, BeforeTick,
+};
 use super::anchor_probe_evidence::{
     MARKER_BYTE_CAP, MARKER_PREFIX, MAX_SEALING_COLLIDERS, failure_marker_lines,
 };
@@ -28,6 +30,22 @@ use sim::{
     Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3, WorldQueryError,
 };
 
+/// Probes a standing anchor at `feet` for an idle player with no retained
+/// climber contact or fall distance.
+fn idle_probe(
+    probe: &mut AnchorProbeState,
+    world: &(impl CollisionWorld + ?Sized),
+    feet: Vec3,
+) -> BeforeTick {
+    let state = sim::PlayerState::new(feet);
+    let input = MovementInput::default();
+    let mover = AnchorMover {
+        state: &state,
+        input: &input,
+    };
+    probe.before_tick(world, mover, feet, sim::PLAYER_HEIGHT)
+}
+
 #[test]
 fn absent_anchor_defers_depenetration_until_terrain_arrives() {
     let mut registry = sim::CollisionRegistry::new();
@@ -40,10 +58,7 @@ fn absent_anchor_defers_depenetration_until_terrain_arrives() {
     let mut probe = AnchorProbeState::new();
     probe.note_hard_anchor();
     let absent = sim::PaletteWorld::for_movement(&store, &registry, 0);
-    assert_eq!(
-        probe.before_tick(&absent, feet, sim::PLAYER_HEIGHT),
-        BeforeTick::Proceed
-    );
+    assert_eq!(idle_probe(&mut probe, &absent, feet), BeforeTick::Proceed);
     store
         .mark_chunk_loaded(world::ChunkKey::new(0, 1, 0))
         .unwrap();
@@ -55,7 +70,7 @@ fn absent_anchor_defers_depenetration_until_terrain_arrives() {
         )
         .unwrap();
     let arrived = sim::PaletteWorld::for_movement(&store, &registry, 0);
-    let BeforeTick::Adjust(cleared) = probe.before_tick(&arrived, feet, sim::PLAYER_HEIGHT) else {
+    let BeforeTick::Adjust(cleared) = idle_probe(&mut probe, &arrived, feet) else {
         panic!("the deferred anchor must be cleared against newly arrived terrain");
     };
     assert!(sim::pose_fits(&arrived, cleared, sim::MovementMode::Walking, false).unwrap());
@@ -690,7 +705,7 @@ fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
     state.note_hard_anchor();
     state.testing_set_evidence_enabled(true);
     assert_eq!(
-        state.before_tick(&UnitShaft, SHAFT_FEET, sim::PLAYER_HEIGHT),
+        idle_probe(&mut state, &UnitShaft, SHAFT_FEET),
         BeforeTick::Proceed
     );
 
@@ -1042,9 +1057,9 @@ fn evidence_instrumentation_never_changes_probe_decisions() {
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();
         vec![
-            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // failed probe: proceeds
-            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // already resolved: proceeds
-            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT),
+            idle_probe(&mut state, world, SHAFT_FEET), // failed probe: proceeds
+            idle_probe(&mut state, world, SHAFT_FEET), // already resolved: proceeds
+            idle_probe(&mut state, world, SHAFT_FEET),
         ]
     }
 
