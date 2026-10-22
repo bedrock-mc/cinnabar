@@ -27,6 +27,7 @@ pub(in crate::compiler) mod end_portal_frame;
 pub(in crate::compiler) mod end_rod;
 pub(in crate::compiler) mod entity_drawn;
 pub(in crate::compiler) mod exact;
+pub(in crate::compiler) mod facing_cube;
 pub(in crate::compiler) mod fallback;
 pub(in crate::compiler) mod farmland;
 pub(in crate::compiler) mod fences;

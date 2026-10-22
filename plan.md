@@ -93,6 +93,10 @@ and resource qualification; they do not imply these systems need to be written.
   directional replacement-pack artwork and native-server toggle/picking input.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
+  faces (and the loom's top/bottom flips) from their facing; other mapped-face cubes such as
+  carved pumpkins, observers, dispensers and droppers, and the stonecutter's east/west saw
+  axis, still need checking against their native tessellation, plus native-server captures.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact

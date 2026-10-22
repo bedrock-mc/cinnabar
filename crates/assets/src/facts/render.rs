@@ -43,6 +43,12 @@ pub enum BlockRenderKind {
     Stem,
     TripwireHook,
     Barrel,
+    /// Unlit furnace-family cube whose front follows its cardinal direction.
+    Furnace,
+    /// Lit furnace-family cube; its pack front comes from the east face.
+    LitFurnace,
+    /// Horizontal face-directional cube that turns every face toward its direction.
+    FacingCube,
     CommandBlock,
     Composter,
     Cauldron,
@@ -227,11 +233,14 @@ impl BlockRenderKind {
             R::Portal => (true, false, false, true),
             R::BubbleColumn
             | R::Barrel
+            | R::FacingCube
             | R::Composter
             | R::Cauldron
             | R::LiteralCube
             | R::Invisible => (false, false, false, true),
             R::Ordinary
+            | R::Furnace
+            | R::LitFurnace
             | R::StandingSign
             | R::WallSign
             | R::HangingSign

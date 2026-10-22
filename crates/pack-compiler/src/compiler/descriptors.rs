@@ -19,6 +19,11 @@ pub(super) fn descriptor_for(
     if visuals::barrel::is_record(record) {
         return visuals::barrel::descriptor(pack, record, face);
     }
+    // Facing cubes select the pack face drawn on this side; malformed states keep the authored face.
+    let face = visuals::facing_cube::is_record(record)
+        .then(|| visuals::facing_cube::source_face(record, face))
+        .flatten()
+        .map_or(face, |(source, _)| source);
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
     let (path, state_variant) = if is_model_visual(record) {
