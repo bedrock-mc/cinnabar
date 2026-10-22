@@ -56,9 +56,11 @@ impl SettingsOptions {
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
         settings.video.render_distance_chunks = self.value(SettingId::RenderDistance) as u8;
+        settings.video.chunk_occlusion_culling = self.value(SettingId::ChunkOcclusionCulling) != 0;
         settings.video.view_bobbing =
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
+        settings.video.show_custom_item_models = self.value(SettingId::ShowCustomItemModels) != 0;
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;
         settings.video.outline_selection = self.value(SettingId::ClassicBoxSelection) != 0;
@@ -79,6 +81,17 @@ impl SettingsOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_culling_defaults_on_and_survives_save_and_reset() {
+        let mut options = SettingsOptions::default();
+        assert!(options.user_settings().video.chunk_occlusion_culling);
+        assert!(options.set(SettingId::ChunkOcclusionCulling.index(), 0));
+        let mut restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        assert!(!restored.user_settings().video.chunk_occlusion_culling);
+        restored.reset_group(super::super::SettingsGroup::Video);
+        assert!(restored.user_settings().video.chunk_occlusion_culling);
+    }
 
     /// Touch sensitivity survives a save and changes only the touch look multiplier.
     #[test]

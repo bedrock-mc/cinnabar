@@ -121,6 +121,7 @@ struct VisualCompiler {
     end_rod_templates: BTreeMap<(u32, usize), u32>,
     lightning_rod_templates: BTreeMap<(u32, usize), u32>,
     flowerbed_templates: BTreeMap<[u32; 4], u32>,
+    leaf_litter_templates: BTreeMap<[u32; 3], u32>,
     slab_templates: BTreeMap<[u32; 7], u32>,
     stair_templates: BTreeMap<[u32; 7], u32>,
     vine_templates: BTreeMap<[u32; 2], u32>,
@@ -186,6 +187,7 @@ impl VisualCompiler {
         }
     }
 
+    /// Returns the first dedicated rule result, leaving unmatched records for fallback handling.
     fn compile_dedicated(
         &mut self,
         record: &RegistryRecord,
@@ -465,6 +467,15 @@ impl VisualCompiler {
             CompileRuleResult::NoMatch => {}
             outcome => return Ok(outcome),
         }
+        ordered_rule!(super::leaf_litter::compile_rule(
+            record,
+            inputs,
+            &mut self.leaf_litter_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         match super::literal::compile_rule(record, inputs) {
             CompileRuleResult::NoMatch => {}
             outcome => return Ok(outcome),
