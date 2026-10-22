@@ -344,6 +344,33 @@ fn a_manually_downloaded_appimage_is_executable() {
     assert_eq!(mode & 0o755, 0o755);
 }
 
+#[test]
+fn a_repair_download_authenticates_the_offer_when_the_running_copy_is_already_at_that_build() {
+    let root = tempfile::tempdir().unwrap();
+    let (stage, keys) = manual_stage(root.path(), "2.0.0", b"selected update", Channel::Beta);
+    let mut offer = ready(false);
+    offer.stage = stage;
+    offer.target = Some(root.path().join("installed"));
+    let current = update_manifest::build::Build {
+        version: "2.0.0".into(),
+        number: 2,
+    };
+    let check = handoff::manual_check(&offer, "macos-arm64", &current);
+    let package = handoff::snapshot_package(&offer.stage, "update.dmg", &keys, check, || {
+        OffsetDateTime::UNIX_EPOCH
+    })
+    .unwrap();
+    assert_eq!(std::fs::read(package.path).unwrap(), b"selected update");
+    offer.target = None;
+    let check = handoff::manual_check(&offer, "macos-arm64", &current);
+    assert!(
+        handoff::snapshot_package(&offer.stage, "update.dmg", &keys, check, || {
+            OffsetDateTime::UNIX_EPOCH
+        })
+        .is_err()
+    );
+}
+
 /// Publishes a signed fixture through the real stage writer without network or installer processes.
 fn manual_stage(
     root: &std::path::Path,

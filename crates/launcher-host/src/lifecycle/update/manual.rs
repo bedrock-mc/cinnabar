@@ -15,6 +15,7 @@ use update_manifest::{TrustedKeys, channel::Channel, select::Check};
 /// Holds the running download against cache pruning until the client exits.
 pub(super) struct Running {
     image: PathBuf,
+    target: PathBuf,
     _reader: File,
 }
 
@@ -22,12 +23,12 @@ impl Running {
     /// Recognizes only an AppImage handed off by this installation's own updater.
     pub(super) fn detect(layout: &InstallLayout) -> Option<Self> {
         let image = PathBuf::from(std::env::var_os(update_installer::startup::APPIMAGE)?);
-        installed_appdir(&layout.user_data_root).ok()?;
-        Self::open(&layout.update_dir(), &image)
+        let target = installed_appdir(&layout.user_data_root).ok()?;
+        Self::open(&layout.update_dir(), &image, target)
     }
 
     /// Validates the cache location before acquiring the retained package's reader lease.
-    fn open(update_root: &Path, image: &Path) -> Option<Self> {
+    fn open(update_root: &Path, image: &Path, target: PathBuf) -> Option<Self> {
         let root = fs::canonicalize(update_root).ok()?;
         let image = fs::canonicalize(image).ok()?;
         let directory = image.parent()?;
@@ -37,8 +38,14 @@ impl Running {
         let reader = helper::hold_snapshot(directory).ok()?;
         Some(Self {
             image,
+            target,
             _reader: reader,
         })
+    }
+
+    /// Keeps the known destination even if its pointer or installed executable becomes unreadable.
+    pub(super) fn destination(&self, user_data: &Path) -> PathBuf {
+        installed_appdir(user_data).unwrap_or_else(|_| self.target.clone())
     }
 
     /// Reauthenticates the downloaded image and stages it for the older installed AppDir.
@@ -51,7 +58,7 @@ impl Running {
         writer: &update_installer::lease::Lease,
         now: OffsetDateTime,
     ) -> Result<Option<Ready>> {
-        let target = installed_appdir(user_data)?;
+        let target = self.destination(user_data);
         let installed = target::installed_build(&target)?;
         let mut envelope = Vec::new();
         File::open(

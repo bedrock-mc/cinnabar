@@ -85,7 +85,7 @@ impl Fixture {
 
     /// Imports the package with the worker's verification path and a deterministic clock.
     fn offer(&self) -> Result<Option<Ready>> {
-        let running = Running::open(&self.update, &self.image).unwrap();
+        let running = Running::open(&self.update, &self.image, self.installed.clone()).unwrap();
         let writer = update_installer::lease::Lease::acquire(&self.update).unwrap();
         running.offer(
             &self.data,
@@ -148,8 +148,9 @@ fn detection_ignores_other_downloads_and_protects_the_running_package_from_pruni
     let fixture = Fixture::new();
     let unrelated = fixture.data.join("download.AppImage");
     fs::copy(&fixture.image, &unrelated).unwrap();
-    assert!(Running::open(&fixture.update, &unrelated).is_none());
-    let running = Running::open(&fixture.update, &fixture.image).unwrap();
+    assert!(Running::open(&fixture.update, &unrelated, fixture.installed.clone()).is_none());
+    let running =
+        Running::open(&fixture.update, &fixture.image, fixture.installed.clone()).unwrap();
     let future =
         std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(u32::MAX as u64);
     helper::prune(&fixture.update, future);
@@ -192,7 +193,8 @@ fn a_manual_copy_takes_over_promptly_after_the_installed_client_closes() {
 #[test]
 fn optional_recovery_ignores_other_channels_and_expiry() {
     let fixture = Fixture::new();
-    let running = Running::open(&fixture.update, &fixture.image).unwrap();
+    let running =
+        Running::open(&fixture.update, &fixture.image, fixture.installed.clone()).unwrap();
     let writer = update_installer::lease::Lease::acquire(&fixture.update).unwrap();
     assert!(
         running
@@ -230,4 +232,23 @@ fn optional_recovery_ignores_other_channels_and_expiry() {
             )
             .is_some()
     );
+}
+
+#[test]
+fn a_failed_build_query_and_missing_pointer_preserve_the_installed_destination() {
+    let fixture = Fixture::new();
+    let running =
+        Running::open(&fixture.update, &fixture.image, fixture.installed.clone()).unwrap();
+    fs::write(
+        fixture.installed.join(target::APP_RUN),
+        "#!/bin/sh\nexit 17\n",
+    )
+    .unwrap();
+    let installation =
+        super::super::worker::inspect_installation(running.destination(&fixture.data));
+    assert_eq!(installation.target, fixture.installed);
+    assert!(installation.build.is_none());
+    let names = update_manifest::platforms::linux_install();
+    fs::remove_file(fixture.data.join(&names.app_dir).join(&names.current)).unwrap();
+    assert_eq!(running.destination(&fixture.data), fixture.installed);
 }
