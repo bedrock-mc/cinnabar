@@ -784,6 +784,22 @@ const STATES: &[State] = &[
         fixture: shader_pack::video_shortcut,
     },
     State {
+        name: "settings-video-vertical-unlimited",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            settings_screens::settings_video_vertical_distance(
+                render_api::terrain_distance::VERTICAL_DISTANCE_UNLIMITED as i32,
+            )
+        },
+    },
+    State {
+        name: "settings-video-vertical-limited",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_video_vertical_distance(4),
+    },
+    State {
         name: "settings-shaders",
         size: SIZE,
         gui_scale: GUI_SCALE,

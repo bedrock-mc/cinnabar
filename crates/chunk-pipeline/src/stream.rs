@@ -74,6 +74,7 @@ mod dirty;
 mod entity_occlusion;
 mod far_summaries;
 mod full_detail;
+mod vertical_detail;
 #[cfg(feature = "publication-test-support")]
 pub use far_summaries::FarSummaryFixture;
 pub use far_summaries::{FarColumnSummary, FarSummaryInbox};
@@ -470,6 +471,7 @@ pub struct WorldStream {
     local_player_chunk: Option<ChunkKey>,
     far_terrain: far_summaries::FarTerrainFeed,
     full_detail: full_detail::FullDetail,
+    vertical_detail: vertical_detail::VerticalDetail,
     near_drawn: near_drawn::NearDrawn,
     stats: WorldStreamStats,
 }

@@ -875,6 +875,7 @@ mod service;
 mod streaming_harness;
 mod sub_chunk_recovery;
 mod ui_epochs;
+mod vertical_detail;
 
 mod actor_block_sync;
 #[path = "tests/ordered_commits.rs"]

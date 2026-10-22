@@ -137,6 +137,18 @@ impl ColumnSubChunkSet {
             .map(|(column, _)| *column)
     }
 
+    /// Seeks the next section in column/height order without scanning earlier sections.
+    pub(super) fn next_key(&self, cursor: Option<SubChunkKey>) -> Option<SubChunkKey> {
+        if let Some(cursor) = cursor
+            && let Some(keys) = self.columns.get(&cursor.chunk())
+            && let Some(key) = keys.get(keys.partition_point(|key| key.y <= cursor.y))
+        {
+            return Some(*key);
+        }
+        let column = self.next_column(cursor.map(SubChunkKey::chunk))?;
+        self.columns.get(&column)?.first().copied()
+    }
+
     /// Captures column membership age without copying a resident view.
     pub(super) fn column_generation(&self) -> u64 {
         self.column_generation

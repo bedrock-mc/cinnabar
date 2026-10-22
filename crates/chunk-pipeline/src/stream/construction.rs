@@ -169,6 +169,7 @@ impl WorldStream {
             local_player_chunk: None,
             far_terrain: far_summaries::FarTerrainFeed::default(),
             full_detail: full_detail::FullDetail::default(),
+            vertical_detail: vertical_detail::VerticalDetail::default(),
             near_drawn: near_drawn::NearDrawn::default(),
             stats: WorldStreamStats::default(),
         }

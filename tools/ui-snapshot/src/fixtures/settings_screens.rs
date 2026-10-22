@@ -7,6 +7,15 @@ pub(super) fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
 }
 
+/// Focuses the vertical terrain slider at its persisted value in the Video section.
+pub(super) fn settings_video_vertical_distance(chunks: i32) -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    let id = SettingId::VerticalRenderDistance;
+    Arc::make_mut(&mut view.settings_options).set(id.index(), chunks);
+    view.focused_action = Some(MenuAction::SettingsOption(id.index() as u16, chunks));
+    Fixture::Menu(Box::new(view))
+}
+
 /// Scrolls the General section to toggle `id` through the client's focus scrolling; a toggle's
 /// action carries the value it switches to.
 pub(super) fn settings_general_toggle(id: SettingId) -> Fixture {

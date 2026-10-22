@@ -151,6 +151,9 @@ fn display_value(
         SettingId::RenderDistance => {
             translate("options.renderDistanceFormat").replace("%s", &value.to_string())
         }
+        SettingId::VerticalRenderDistance => {
+            launcher::menu::settings_options::vertical_distance_label(value, translate)
+        }
         _ => format!("{value}%"),
     }
 }

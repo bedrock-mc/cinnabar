@@ -461,6 +461,8 @@ impl Content<'_, '_> {
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
         let description = if id == SettingId::GraphicsApi {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
+        } else if id == SettingId::VerticalRenderDistance {
+            "Limits terrain above and below you. Lower values can hide tall builds and deep terrain.".to_owned()
         } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
         } else if id == SettingId::ViewBobbing {
@@ -518,6 +520,11 @@ impl Content<'_, '_> {
                     SettingId::RenderDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
+                    SettingId::VerticalRenderDistance => {
+                        launcher::menu::settings_options::vertical_distance_label(value, &|key| {
+                            self.word(key)
+                        })
+                    }
                     SettingId::MaxFramerate => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)

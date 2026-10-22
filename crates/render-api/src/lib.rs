@@ -15,6 +15,7 @@ pub use pose_generation::PoseGeneration;
 mod skin;
 pub mod sprite_mask;
 pub mod sub_chunk_requests;
+pub mod terrain_distance;
 mod ui_backdrop;
 mod ui_coverage_paint;
 pub mod ui_repeat;

@@ -81,6 +81,7 @@ impl WorldStream {
         self.apply_due_chunk_retention();
         if !self.retention_due && !self.service_yield_requested() {
             self.reevaluate_full_detail();
+            self.reevaluate_vertical_detail(camera_position);
         }
         if self.retention_due || self.service_yield_requested() {
             return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);

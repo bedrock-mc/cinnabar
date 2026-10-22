@@ -43,6 +43,7 @@ impl WorldStream {
             // Only a slice that made none sleeps until a worker result can change that.
             if !self.retention_due
                 && !self.has_pending_full_detail()
+                && !self.has_pending_vertical_detail()
                 && report == WorldStreamPoll::default()
                 && self.decode_rx.is_empty()
                 && self.lighting.rx.is_empty()

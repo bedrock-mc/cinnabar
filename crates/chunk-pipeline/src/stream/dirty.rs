@@ -318,9 +318,19 @@ impl WorldStream {
         {
             return 0;
         }
+        if !self.vertical_detail.includes(key.y)
+            && self.terrain_removal_kind(key) != render_api::TerrainRemovalKind::Empty
+        {
+            return if self.vertical_detail.suppressed.insert(key) {
+                self.mark_dirty_exact_ungated(key, now, urgent)
+            } else {
+                0
+            };
+        }
+        self.vertical_detail.suppressed.remove(&key);
         self.mark_dirty_exact_ungated(key, now, urgent)
     }
-    /// Marks `key` for a mesh or removal whether or not its column is full detail.
+    /// Marks `key` for a mesh or removal regardless of terrain detail limits.
     pub(super) fn mark_dirty_exact_ungated(
         &mut self,
         key: SubChunkKey,

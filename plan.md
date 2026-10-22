@@ -152,6 +152,9 @@ and resource qualification; they do not imply these systems need to be written.
 
 ### Lighting, atmosphere and publication
 
+- Optional vertical terrain distance limits section meshing and GPU residency while
+  retaining world data and lighting. Unlimited remains the default. Frame-time,
+  tall-build and vertical-travel visual qualification remain incomplete.
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
 - [ ] Classify and remove moving bands/static under camera motion using coherent

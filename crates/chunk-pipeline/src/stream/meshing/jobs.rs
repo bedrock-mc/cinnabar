@@ -38,8 +38,12 @@ impl WorldStream {
         let terrain = self.authority.terrain();
         let classifier = self.classifier;
         let detail = &self.full_detail;
-        let needs_geometry =
-            |key| requires_geometry(detail, resident, known_air, terrain, classifier, key);
+        let vertical = &self.vertical_detail;
+        let needs_geometry = |key| {
+            requires_geometry(
+                detail, vertical, resident, known_air, terrain, classifier, key,
+            )
+        };
         let mut woken = Vec::new();
         let probe_near = self
             .mesh_jobs
@@ -367,6 +371,7 @@ impl WorldStream {
                     .push(candidate);
             } else if requires_geometry(
                 &self.full_detail,
+                &self.vertical_detail,
                 &self.resident,
                 &self.known_air,
                 self.authority.terrain(),
@@ -555,6 +560,7 @@ impl WorldStream {
     pub(in crate::stream) fn mesh_requires_geometry(&self, key: SubChunkKey) -> bool {
         requires_geometry(
             &self.full_detail,
+            &self.vertical_detail,
             &self.resident,
             &self.known_air,
             self.authority.terrain(),
@@ -836,7 +842,7 @@ impl WorldStream {
         if !self
             .revisions
             .is_current(completion.key, completion.revision)
-            || !self.wants_mesh(completion.key.chunk())
+            || !self.wants_section_mesh(completion.key)
             || !source_is_current
             || !biome_sources_are_current
             || completion.tint_identity != self.biome_tint_identity()
@@ -903,6 +909,7 @@ impl WorldStream {
 /// empty mesh without a worker.
 fn requires_geometry(
     full_detail: &super::super::full_detail::FullDetail,
+    vertical: &super::super::vertical_detail::VerticalDetail,
     resident: &ColumnSubChunkSet,
     known_air: &ColumnSubChunkSet,
     terrain: &ChunkStore,
@@ -910,6 +917,7 @@ fn requires_geometry(
     key: SubChunkKey,
 ) -> bool {
     full_detail.wants_mesh(key.chunk(), resident)
+        && vertical.includes(key.y)
         && resident.contains(&key)
         && !known_air.contains(&key)
         && terrain

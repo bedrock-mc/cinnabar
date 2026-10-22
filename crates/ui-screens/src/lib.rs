@@ -62,6 +62,7 @@ pub mod start_feed;
 pub mod text;
 pub mod toast_screen;
 pub mod trading;
+pub mod vertical_distance_setting;
 pub mod view_bobbing_setting;
 pub mod vrr_setting;
 pub mod vsync_setting;
