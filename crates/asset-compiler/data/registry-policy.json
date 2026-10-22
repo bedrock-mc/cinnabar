@@ -5787,7 +5787,8 @@
       "id": "offset-boat",
       "status": "provisional",
       "members": [
-        "minecraft:boat"
+        "minecraft:boat",
+        "minecraft:chest_boat"
       ],
       "facts": {
         "network_y_offset": 0.375
@@ -6670,6 +6671,8 @@
       "EndPortalFrame": "minecraft:end_portal_frame"
     },
     "VanillaEntity": {
+      "Boat": "minecraft:boat",
+      "ChestBoat": "minecraft:chest_boat",
       "Player": "minecraft:player"
     }
   },

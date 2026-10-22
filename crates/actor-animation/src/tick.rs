@@ -177,6 +177,10 @@ pub(super) fn advance_motion(
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
     }
+    // Boats are not mobs: they face their own rotation without body-turn lag.
+    if super::boat::is_boat(actor) {
+        motion.body_yaw = actor.yaw();
+    }
     let baby_scale = if query::actor_flag(actor, ActorFlag::Baby.wire_value()) {
         BABY_MOVE_SPEED_SCALE
     } else {

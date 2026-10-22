@@ -32,12 +32,16 @@ impl VanillaBlock {
 /// Exact VanillaEntity requests validated against the pinned registry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VanillaEntity {
+    Boat,
+    ChestBoat,
     Player,
 }
 impl VanillaEntity {
     /// Resolves this native asset request without a runtime name table.
     pub const fn identifier(self) -> &'static str {
         match self {
+            Self::Boat => "minecraft:boat",
+            Self::ChestBoat => "minecraft:chest_boat",
             Self::Player => "minecraft:player",
         }
     }
