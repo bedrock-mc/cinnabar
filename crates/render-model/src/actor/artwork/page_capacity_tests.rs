@@ -194,3 +194,80 @@ fn a_single_layer_equipment_page_shares_its_source_allocation() {
     assert_eq!(page.layers, 1);
     assert_eq!(page.pixels(), raster.rgba8.as_ref());
 }
+
+// A pack with a texture size per page past the old 32-page cap places every texture.
+#[test]
+fn pack_art_of_many_sizes_gets_a_page_per_size() {
+    let textures: Vec<_> = (1..=40u16)
+        .map(|side| assets::ActorTexture {
+            source: u32::from(side),
+            width: side,
+            height: 1,
+            pixel_sha256: [0; 32],
+            rgba8: vec![9; usize::from(side) * 4].into(),
+        })
+        .collect();
+    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    assert_eq!(pages.pages().len(), 40);
+}
+
+// Same-size equipment rasters past one page's layer limit spill onto further pages.
+#[test]
+fn equipment_rasters_past_one_page_spill_onto_more_pages() {
+    let raster = EquipmentRaster {
+        width: 1,
+        height: 1,
+        rgba8: vec![9; 4].into(),
+    };
+    let rasters = vec![raster; MAX_ACTOR_PAGE_LAYERS + 3];
+    let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
+    assert_eq!(pages.pages().len(), 2);
+    assert!(locations.iter().all(Option::is_some));
+}
+
+// Past the byte budget a page is downscaled to fit rather than dropped.
+#[test]
+fn a_page_past_the_byte_budget_is_downscaled_not_dropped() {
+    let page = ActorTexturePage {
+        width: 16,
+        height: 16,
+        layers: 1,
+        rgba8: vec![9; 16 * 16 * 4].into(),
+        color_mask: false,
+        multitexture: false,
+    };
+    let mut pages = Vec::new();
+    let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 16 * 16;
+    assert_eq!(push_page(&mut pages, &mut gpu_bytes, page), Some(1));
+    assert_eq!(pages[0].dimensions(), (8, 8));
+    assert_eq!(gpu_bytes, MAX_ACTOR_GPU_PIXEL_BYTES);
+}
+
+// Same-size pack textures over the page byte cap become several bounded GPU allocations.
+#[test]
+fn large_same_size_textures_split_into_pages_within_the_byte_cap() {
+    let (width, height) = (4000u16, 1280u16);
+    let layer = usize::from(width) * usize::from(height) * 4;
+    let textures: Vec<_> = (0..3u8)
+        .map(|value| {
+            let rgba8: Arc<[u8]> = vec![value; layer].into();
+            assets::ActorTexture {
+                source: u32::from(value),
+                width,
+                height,
+                pixel_sha256: Sha256::digest(&rgba8).into(),
+                rgba8,
+            }
+        })
+        .collect();
+    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    assert_eq!(pages.pages().len(), 3);
+    assert!(
+        pages
+            .pages()
+            .iter()
+            .all(|page| page.rgba8.len() <= MAX_ACTOR_PAGE_BYTES)
+    );
+    assert_eq!(page_layers(128, 128), MAX_ACTOR_PAGE_LAYERS);
+    assert_eq!(page_layers(u16::MAX, u16::MAX), 1);
+}

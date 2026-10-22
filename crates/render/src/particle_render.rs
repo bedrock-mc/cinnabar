@@ -59,6 +59,13 @@ const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
 const MIN_CAPACITY: usize = 256;
 const MERGE_RETAINED_CAPACITY_FACTOR: usize = 4;
 
+#[path = "particle_render/atlas.rs"]
+mod atlas;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "particle_render/atlas_fault_tests.rs"]
+mod atlas_fault_tests;
+
 #[cfg(all(test, target_os = "macos"))]
 #[path = "particle_render/upload_tests.rs"]
 mod upload_tests;
@@ -122,6 +129,7 @@ pub(crate) struct ParticleGpu {
     add_range: Range<u32>,
     bind_group: Option<BindGroup>,
     bound: (Option<BufferId>, Option<BufferId>, u64),
+    atlas: atlas::AtlasUpload,
 }
 
 #[cfg(feature = "shaderpacks")]
@@ -157,6 +165,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         add_range: 0..0,
         bind_group: None,
         bound: (None, None, 0),
+        atlas: atlas::AtlasUpload::default(),
     });
 }
 
@@ -165,57 +174,7 @@ pub(crate) fn prepare_particle_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
 ) {
-    if let Some(base) = &frame.base
-        && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
-        && assets::texture::policy::TexturePolicy::for_device(
-            uploads.device.limits().max_texture_dimension_2d,
-        )
-        .page_bytes(frame.atlas_side, frame.atlas_side)
-            == Some(base.len())
-    {
-        let texture = uploads.device.create_texture(&TextureDescriptor {
-            label: Some("particle atlas"),
-            size: Extent3d {
-                width: frame.atlas_side,
-                height: frame.atlas_side,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            // Shader packs read the stored gamma bytes through an `Rgba8Unorm` view.
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
-        });
-        write_rect(
-            &uploads.queue,
-            &texture,
-            [0, 0],
-            [frame.atlas_side, frame.atlas_side],
-            base,
-        );
-        gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
-        gpu.texture = Some(texture);
-        gpu.base = Some(Arc::clone(base));
-        gpu.uploaded_seq = 0;
-        gpu.bind_group = None;
-    }
-    if let Some(texture) = &gpu.texture
-        && frame.patch_seq != gpu.uploaded_seq
-    {
-        for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
-            write_rect(
-                &uploads.queue,
-                texture,
-                [patch.x, patch.y],
-                [patch.width, patch.height],
-                &patch.rgba8,
-            );
-        }
-        let seq = frame.patch_seq;
-        gpu.uploaded_seq = seq;
-    }
+    atlas::prepare(&frame, &uploads.device, &uploads.queue, &mut gpu);
 
     let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
     gpu.opaque_range = 0..opaque as u32;
@@ -258,40 +217,6 @@ pub(crate) fn prepare_particle_resources(
             ),
         ]);
     }
-}
-
-fn write_rect(
-    queue: &RenderQueue,
-    texture: &Texture,
-    origin: [u32; 2],
-    size: [u32; 2],
-    rgba: &[u8],
-) {
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!("particles.texture_write", bytes = rgba.len()).entered();
-    queue.profiled_write_texture(
-        TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: Origin3d {
-                x: origin[0],
-                y: origin[1],
-                z: 0,
-            },
-            aspect: Default::default(),
-        },
-        rgba,
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(size[0] * 4),
-            rows_per_image: Some(size[1]),
-        },
-        Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-    );
 }
 
 struct ParticleSpecializer;

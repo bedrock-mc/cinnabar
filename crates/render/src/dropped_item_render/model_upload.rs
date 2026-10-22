@@ -1,6 +1,14 @@
-//! Dropped-item admission and raster preparation before GPU allocation.
+//! Dropped-item admission, raster preparation and their recoverable GPU upload.
 
-use super::{ItemMeshRange, mesh_storage::MeshStorage};
+use super::{ItemGpu, ItemMeshRange, mesh_storage::MeshStorage};
+use crate::gpu_allocation;
+use bevy::render::{
+    render_resource::{
+        BufferUsages, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+        TextureViewDescriptor, TextureViewDimension,
+    },
+    renderer::{RenderDevice, RenderQueue},
+};
 use render_model::{
     DroppedItemModel, ItemMeshVertex, MAX_ITEM_LAYERS, MIN_ITEM_ATLAS_SIDE,
     dropped_item::{
@@ -8,6 +16,7 @@ use render_model::{
         native_dropped_sprite_mesh,
     },
 };
+use render_scene::DroppedItemScene;
 
 /// Appends a valid square-or-smaller RGBA tile as a new atlas layer.
 fn push_layer(atlas: &mut Vec<u8>, side: usize, width: usize, height: usize, rgba8: &[u8]) {
@@ -219,4 +228,107 @@ impl PreparedModels {
             ranges: entries.into_iter().map(|(range, _)| range).collect(),
         }
     }
+}
+
+/// Uploads current models before cached extras while keeping model handles unchanged.
+/// The superseded atlas is released first because its layers no longer match the new ranges.
+pub(super) fn rebuild_models(
+    scene: &DroppedItemScene,
+    current: &[bool],
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    gpu: &mut ItemGpu,
+) {
+    let policy = assets::texture::policy::TexturePolicy::for_device(
+        device.limits().max_texture_dimension_2d,
+    );
+    if policy
+        .page_bytes(MIN_ITEM_ATLAS_SIDE, MIN_ITEM_ATLAS_SIDE)
+        .is_none()
+    {
+        return;
+    }
+    let PreparedModels {
+        side,
+        atlas,
+        vertices,
+        ranges,
+    } = PreparedModels::new(
+        &scene.models,
+        current,
+        policy,
+        device.limits().max_texture_array_layers,
+        device.limits().max_buffer_size,
+    );
+    let layer_bytes = side as usize * side as usize * 4;
+    let layers = atlas.len() / layer_bytes;
+    let released = gpu._atlas.take().is_some();
+    gpu.mesh_buffer = None;
+    gpu.atlas_view = None;
+    gpu.bind_group = None;
+    gpu.ranges.clear();
+    gpu.models_revision = scene.models_revision;
+    gpu.prioritized_models = current.to_vec();
+    let uploaded = upload(device, queue, side, layers as u32, &atlas, &vertices);
+    gpu.upload.record(uploaded.is_some(), released, queue);
+    let Some((texture, view, mesh)) = uploaded else {
+        return;
+    };
+    gpu.mesh_buffer = mesh;
+    gpu.ranges = ranges;
+    gpu.atlas_view = Some(view);
+    gpu._atlas = Some(texture);
+}
+
+/// Allocates the mesh, layer array and view; any out-of-memory failure returns nothing.
+fn upload(
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    side: u32,
+    layers: u32,
+    atlas: &[u8],
+    vertices: &MeshStorage,
+) -> Option<(
+    bevy::render::render_resource::Texture,
+    bevy::render::render_resource::TextureView,
+    Option<bevy::render::render_resource::Buffer>,
+)> {
+    let mesh = if vertices.is_empty() {
+        None
+    } else {
+        Some(gpu_allocation::buffer_with_data(
+            device,
+            queue,
+            "dropped item model meshes",
+            bytemuck::cast_slice::<ItemMeshVertex, u8>(vertices),
+            BufferUsages::VERTEX,
+        )?)
+    };
+    let texture = gpu_allocation::texture_with_data(
+        device,
+        queue,
+        &TextureDescriptor {
+            label: Some("dropped item texture layers"),
+            size: Extent3d {
+                width: side,
+                height: side,
+                depth_or_array_layers: layers,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        atlas,
+    )?;
+    let view = gpu_allocation::checked(device, "dropped item texture layer array", 0, || {
+        texture.create_view(&TextureViewDescriptor {
+            label: Some("dropped item texture layer array"),
+            dimension: Some(TextureViewDimension::D2Array),
+            ..Default::default()
+        })
+    })?;
+    Some((texture, view, mesh))
 }

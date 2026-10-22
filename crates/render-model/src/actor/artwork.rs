@@ -34,6 +34,14 @@ pub type ActorArtworkPageId = u16;
 pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
 /// Layers per generic entity page, within every backend's array-layer limit.
 const MAX_ACTOR_PAGE_LAYERS: usize = 256;
+/// One page is one GPU allocation; large rasters split so a failed or replaced page stays small.
+const MAX_ACTOR_PAGE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Layers per page for rasters of one size; a raster larger than the cap gets its own page.
+fn page_layers(width: u16, height: u16) -> usize {
+    let layer = usize::from(width) * usize::from(height) * 4;
+    (MAX_ACTOR_PAGE_BYTES / layer.max(1)).clamp(1, MAX_ACTOR_PAGE_LAYERS)
+}
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
 // startup art takes about 20 MiB. It covers full pack and equipment art; a page past it is
 // downscaled to fit, never dropped.
@@ -257,7 +265,13 @@ impl ActorArtworkPages {
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = player_page_bytes();
         for ((width, height, color_mask, multitexture), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
+            // Three-sampler layers must share a page, so those keep the layer limit alone.
+            let layers = if multitexture {
+                MAX_ACTOR_PAGE_LAYERS
+            } else {
+                page_layers(width, height)
+            };
+            for indices in indices.chunks(layers) {
                 let pixels = multitexture::page_pixels(catalog, indices, width, height);
                 let page = ActorTexturePage {
                     width,
@@ -415,7 +429,7 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height, color_mask), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
+            for indices in indices.chunks(page_layers(width, height)) {
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
                 hasher.update((indices.len() as u32).to_le_bytes());
@@ -487,7 +501,7 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
+            for indices in indices.chunks(page_layers(width, height)) {
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
                 hasher.update((indices.len() as u32).to_le_bytes());
@@ -798,54 +812,6 @@ mod tests {
         assert_eq!(locations[1].unwrap().layer(), 1);
         assert_eq!(locations[0].unwrap().page(), locations[1].unwrap().page());
         assert_eq!(pages.identity(), equipment.identity());
-    }
-
-    // A pack with a texture size per page past the old 32-page cap places every texture.
-    #[test]
-    fn pack_art_of_many_sizes_gets_a_page_per_size() {
-        let textures: Vec<_> = (1..=40u16)
-            .map(|side| assets::ActorTexture {
-                source: u32::from(side),
-                width: side,
-                height: 1,
-                pixel_sha256: [0; 32],
-                rgba8: vec![9; usize::from(side) * 4].into(),
-            })
-            .collect();
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
-        assert_eq!(pages.pages().len(), 40);
-    }
-
-    // Same-size equipment rasters past one page's layer limit spill onto further pages.
-    #[test]
-    fn equipment_rasters_past_one_page_spill_onto_more_pages() {
-        let raster = EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8: vec![9; 4].into(),
-        };
-        let rasters = vec![raster; MAX_ACTOR_PAGE_LAYERS + 3];
-        let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
-        assert_eq!(pages.pages().len(), 2);
-        assert!(locations.iter().all(Option::is_some));
-    }
-
-    // Past the byte budget a page is downscaled to fit rather than dropped.
-    #[test]
-    fn a_page_past_the_byte_budget_is_downscaled_not_dropped() {
-        let page = ActorTexturePage {
-            width: 16,
-            height: 16,
-            layers: 1,
-            rgba8: vec![9; 16 * 16 * 4].into(),
-            color_mask: false,
-            multitexture: false,
-        };
-        let mut pages = Vec::new();
-        let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 16 * 16;
-        assert_eq!(push_page(&mut pages, &mut gpu_bytes, page), Some(1));
-        assert_eq!(pages[0].dimensions(), (8, 8));
-        assert_eq!(gpu_bytes, MAX_ACTOR_GPU_PIXEL_BYTES);
     }
 
     #[test]
