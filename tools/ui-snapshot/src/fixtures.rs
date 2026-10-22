@@ -539,6 +539,12 @@ const STATES: &[State] = &[
         fixture: out_of_game::disconnect_device_clock,
     },
     State {
+        name: "disconnect-local-world-offline",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_local_world_offline,
+    },
+    State {
         name: "connect-failed",
         size: SIZE,
         gui_scale: GUI_SCALE,
