@@ -170,7 +170,9 @@ fn a_live_server_spin_clear_cancels_the_local_spin() {
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
 }
 
-/// A stamped spin start enters the state after its stamp and replays from there.
+/// A stamped spin start enters the live state at once and replays from its
+/// stamp. Replay copies the spin flag back but not its counter, which vanilla
+/// keeps in a separate component, so the live spin keeps its own lifetime.
 #[test]
 fn a_retained_server_spin_start_replays_from_its_stamp() {
     let (mut physics, mut ticker) = airborne();
@@ -180,7 +182,7 @@ fn a_retained_server_spin_start_replays_from_its_stamp() {
     let start = flags(|flags| flags.spinning = Some(true));
     assert_eq!(physics.apply_server_movement_flags(101, start), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(2));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
     assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
 }
@@ -236,14 +238,15 @@ fn retained_server_writes_survive_an_earlier_rewind() {
     });
     assert_eq!(physics.apply_server_movement_flags(102, start), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    // Replay keeps the live spin counter, which the write started at zero.
     let expected = physics.state().cloned();
-    assert_eq!(expected.as_ref().unwrap().spin_attack_ticks, Some(2));
+    assert_eq!(expected.as_ref().unwrap().spin_attack_ticks, Some(0));
     physics.queue_server_motion([0.0; 3], 101);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.mode(), sim::MovementMode::Gliding);
     assert_eq!(
         physics.state().unwrap().spin_attack_ticks,
-        Some(2),
+        Some(0),
         "the spin written before tick 103 replays again"
     );
     assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);

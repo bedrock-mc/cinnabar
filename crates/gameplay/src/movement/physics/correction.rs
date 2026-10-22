@@ -223,6 +223,11 @@ impl LocalPhysicsController {
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
+        // Replay copies the spin flag back but not its counter.
+        let live_spin = self
+            .state
+            .as_ref()
+            .and_then(|state| state.spin_attack_ticks);
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let mut using_carry = None;
@@ -411,7 +416,12 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         // Vanilla copies every client-owned flag of the replayed word back to
-        // the live actor, so the replayed pose, spin and item use stand.
+        // the live actor, so the replayed pose, spin and item use stand. The
+        // spin counter lives in its own component, which copy-back leaves
+        // live; a spin the live state lacked counts from zero.
+        if let Some(state) = self.state.as_mut() {
+            state.spin_attack_ticks = state.spin_attack_ticks.map(|_| live_spin.unwrap_or(0));
+        }
         self.modes = modes;
         if let Some(using) = replayed_using {
             self.adopt_replayed_using_item(using);
