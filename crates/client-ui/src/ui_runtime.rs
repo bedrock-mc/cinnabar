@@ -18,6 +18,7 @@ pub use error::UiRuntimeError;
 pub mod forms;
 pub mod gameplay_authority;
 pub mod gameplay_hud;
+pub mod grindstone;
 pub mod hud_adapter;
 pub mod interaction;
 pub mod inventory_actions;
@@ -216,6 +217,7 @@ pub struct UiRuntime {
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
     anvil_cache: anvil::cache::PreviewCache,
+    grindstone_cache: grindstone::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -320,6 +322,7 @@ impl UiRuntime {
             food_catalog: None,
             stack_facts: Default::default(),
             anvil_cache: Default::default(),
+            grindstone_cache: Default::default(),
             item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
@@ -649,6 +652,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        self.grindstone_cache = Default::default();
         #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;

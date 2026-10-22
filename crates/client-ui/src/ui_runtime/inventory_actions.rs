@@ -20,6 +20,9 @@ use ui_screens::recipe_book::BookEntry;
 
 type Outcome = Result<i32, InventoryGestureError>;
 
+/// The cartography table's map input slot.
+const CARTOGRAPHY_INPUT_SLOT: u8 = 12;
+
 /// The held stack and target stack a click starts from.
 struct PlaceSnapshot {
     target: InventoryTarget,
@@ -574,12 +577,18 @@ impl UiRuntime {
     }
 
     /// Takes a result: the grid's recipe on the personal and crafting-table
-    /// screens, the derived or previewed output on the others.
+    /// screens, the derived or previewed output on the others. `all` spreads it
+    /// over the inventory, as a shift-click does.
     fn output_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         all: bool,
     ) -> Outcome {
+        let sink = if all {
+            CraftSink::Inventory
+        } else {
+            CraftSink::Cursor
+        };
         match player_runtime.inventory.ledger().window_kind() {
             None | Some(WindowKind::Workbench) => {
                 if all {
@@ -589,16 +598,16 @@ impl UiRuntime {
                 }
             }
             Some(WindowKind::Anvil) => {
-                let multi_recipe_id = self
-                    .screen_catalog(player_runtime)
-                    .and_then(|catalog| catalog.repair_multi_recipe_id())
-                    .unwrap_or(0);
-                let (rename, output, material_used) = if self
+                let (rename, output, material_used) = if let Some(created) = self
                     .inventory_ledger(player_runtime)
                     .created_output_stack()
-                    .is_some()
+                    .cloned()
                 {
-                    (self.anvil_rename(player_runtime), None, 0)
+                    (
+                        self.anvil_take_name(player_runtime, created.network_id, created.metadata),
+                        None,
+                        0,
+                    )
                 } else {
                     let preview = self
                         .anvil_preview(player_runtime)
@@ -606,32 +615,41 @@ impl UiRuntime {
                     if !self.anvil_affordable(player_runtime, &preview) {
                         return Err(InventoryGestureError::InvalidRequest);
                     }
-                    // Clearing a custom name sends empty text, so the server clears it too.
-                    let rename = preview
-                        .outcome
-                        .custom_name
-                        .clone()
-                        .map(|name| std::sync::Arc::from(name.unwrap_or_default()));
                     (
-                        rename,
+                        preview.take_name.clone(),
                         Some(preview.stack.clone()),
                         preview.outcome.material_used,
                     )
                 };
                 self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output(&ScreenCraft::Anvil {
-                        rename,
-                        multi_recipe_id,
-                        output,
-                        material_used,
-                    })
+                    .begin_screen_output_into(
+                        &ScreenCraft::Anvil {
+                            rename,
+                            recipe_network_id: 0,
+                            output,
+                            material_used,
+                        },
+                        sink,
+                    )
             }
-            Some(WindowKind::Grindstone) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_screen_output(&ScreenCraft::Grindstone {
-                    recipe_network_id: 0,
-                    repair_cost: 0,
-                }),
+            Some(WindowKind::Grindstone) => {
+                // A server-previewed result is taken as stated, even without a prediction.
+                let preview = self.grindstone_preview(player_runtime);
+                let server_output = self
+                    .inventory_ledger(player_runtime)
+                    .created_output_stack()
+                    .is_some();
+                if preview.is_none() && !server_output {
+                    return Err(InventoryGestureError::EmptyGesture);
+                }
+                let craft = ScreenCraft::Grindstone {
+                    recipe_network_id: preview.as_ref().map_or(0, |p| p.source_stack_id),
+                    repair_cost: preview.as_ref().map_or(0, |p| p.repair_cost),
+                    output: preview.filter(|_| !server_output).map(|p| p.stack),
+                };
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_screen_output_into(&craft, sink)
+            }
             Some(WindowKind::Loom) => {
                 let pattern = self
                     .screen_state()
@@ -639,22 +657,39 @@ impl UiRuntime {
                     .clone()
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output(&ScreenCraft::Loom { pattern })
+                    .begin_screen_output_into(&ScreenCraft::Loom { pattern }, sink)
             }
-            Some(WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography) => {
+            Some(
+                kind @ (WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography),
+            ) => {
                 let (recipe_network_id, output) = self
                     .active_screen_recipe(player_runtime)
                     .and_then(|recipe| Some((recipe.id, recipe.output?)))
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output(&ScreenCraft::Predicted {
+                let craft = if kind == WindowKind::Cartography {
+                    // Without a name box, restating the map's custom name keeps it.
+                    let name = self
+                        .inventory_ledger(player_runtime)
+                        .target_stack(InventoryTarget::Craft(CARTOGRAPHY_INPUT_SLOT))
+                        .and_then(|stack| protocol::item_custom_name(&stack.extra_data))
+                        .unwrap_or_else(|| std::sync::Arc::from(""));
+                    ScreenCraft::Cartography {
                         recipe_network_id,
                         output,
-                    })
+                        name,
+                    }
+                } else {
+                    ScreenCraft::Predicted {
+                        recipe_network_id,
+                        output,
+                    }
+                };
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_screen_output_into(&craft, sink)
             }
-            Some(WindowKind::Trade { .. }) => {
-                self.inventory_ledger_mut(player_runtime).begin_trade()
-            }
+            Some(WindowKind::Trade { .. }) => self
+                .inventory_ledger_mut(player_runtime)
+                .begin_trade_into(sink),
             Some(_) => Err(InventoryGestureError::InvalidRequest),
         }
     }
