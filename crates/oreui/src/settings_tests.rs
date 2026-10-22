@@ -864,7 +864,7 @@ fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
     use launcher::menu::settings_sections::{SETTINGS_TABS, SettingSection};
     let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
         .iter()
-        .map(|(name, _)| section_index(name))
+        .map(|(name, _)| settings::section_index(name))
         .collect();
     assert!(!expected.contains(&SettingSection::Party.definition().index));
     for (name, _) in SETTINGS_TABS {

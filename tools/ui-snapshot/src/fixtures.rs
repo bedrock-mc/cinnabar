@@ -991,4 +991,5 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(out_of_game::WORLD_FORM_STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
+        .chain(settings_screens::PAGE_STATES)
 }
