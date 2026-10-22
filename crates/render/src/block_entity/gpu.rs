@@ -190,6 +190,7 @@ pub(crate) struct BlockEntityGpu {
     atlas_size: [u32; 2],
     dynamic_revision: u64,
     atlas_upload: crate::gpu_allocation::UploadRetry,
+    atlas_epoch: crate::gpu_allocation::UploadEpoch,
     sampler: Sampler,
     view_buffer_id: Option<BufferId>,
     frame_revision: u64,
@@ -222,6 +223,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         atlas_size: [0; 2],
         dynamic_revision: u64::MAX,
         atlas_upload: crate::gpu_allocation::UploadRetry::default(),
+        atlas_epoch: crate::gpu_allocation::UploadEpoch::default(),
         sampler: render_device.create_sampler(&SamplerDescriptor {
             label: Some("block-entity nearest atlas sampler"),
             address_mode_u: AddressMode::ClampToEdge,
@@ -269,7 +271,9 @@ pub(crate) fn prepare_resources(
         .atlas
         .as_ref()
         .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
-    let replaced = gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size;
+    // A swallowed out-of-memory error may have dropped static or dynamic row writes.
+    let lost = gpu.atlas_epoch.lost();
+    let replaced = lost || gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size;
     let failed = gpu.atlas_upload.failed();
     if replaced || (failed && gpu.atlas_upload.take_ready()) || (!failed && gpu.texture.is_none()) {
         // Released first: a resized or replaced atlas never draws through the old texture.

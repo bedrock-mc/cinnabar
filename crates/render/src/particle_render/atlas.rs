@@ -1,7 +1,7 @@
 //! Particle atlas uploads that survive GPU memory exhaustion by releasing, retrying and reducing.
 
 use super::*;
-use crate::gpu_allocation::{self, UploadRetry};
+use crate::gpu_allocation::{self, UploadEpoch, UploadRetry};
 
 /// Smallest reduced atlas side; reduction also stops before a tile slot drops below one texel.
 const MIN_REDUCED_SIDE: u32 = particles::ATLAS_SIDE / 4;
@@ -14,6 +14,7 @@ pub(super) struct AtlasUpload {
     /// Side of the full-size base, which a retry may upload after newer frames arrive.
     side: u32,
     pub(super) retry: UploadRetry,
+    epoch: UploadEpoch,
 }
 
 /// Replaces the atlas when the frame publishes a new base, then uploads newer dynamic tiles.
@@ -23,6 +24,8 @@ pub(super) fn prepare(
     queue: &RenderQueue,
     gpu: &mut ParticleGpu,
 ) {
+    // A swallowed out-of-memory error may have dropped any unscoped base or tile write.
+    let lost = gpu.atlas.epoch.lost();
     if let Some(base) = &frame.base
         && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
         && assets::texture::policy::TexturePolicy::for_device(
@@ -42,6 +45,14 @@ pub(super) fn prepare(
             ..AtlasUpload::default()
         };
         // A full-size retry may fit once in-flight frames retire the released atlas.
+        install(gpu, device, queue, !released);
+        let uploaded = gpu.texture.is_some();
+        gpu.atlas.retry.record(uploaded, released.then_some(queue));
+    } else if lost && gpu.base.is_some() {
+        let released = gpu.texture.take().is_some();
+        gpu.texture_view = None;
+        gpu.bind_group = None;
+        gpu.uploaded_seq = 0;
         install(gpu, device, queue, !released);
         let uploaded = gpu.texture.is_some();
         gpu.atlas.retry.record(uploaded, released.then_some(queue));
@@ -128,7 +139,14 @@ fn upload(
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            // Tests read the atlas back to compare it with the CPU content.
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | if cfg!(test) {
+                    TextureUsages::COPY_SRC
+                } else {
+                    TextureUsages::empty()
+                },
             // Shader packs read the stored gamma bytes through an `Rgba8Unorm` view.
             view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
         },

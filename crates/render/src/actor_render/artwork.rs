@@ -101,6 +101,8 @@ pub(super) struct GpuArtwork {
     pub item_glint: GpuGlint,
     source_hasher: RandomState,
     rejected: bool,
+    /// A swallowed out-of-memory error re-uploads every page and glint.
+    epoch: gpu_allocation::UploadEpoch,
 }
 
 impl GpuArtwork {
@@ -139,6 +141,12 @@ impl GpuArtwork {
         device: &RenderDevice,
         queue: &RenderQueue,
     ) -> bool {
+        if self.epoch.lost() {
+            self.pages.clear();
+            self.identity = None;
+            self.glint = GpuGlint::default();
+            self.item_glint = GpuGlint::default();
+        }
         let identity = (pages.identity, pages.entity_identity);
         let changed = self.identity != Some(identity);
         if changed {

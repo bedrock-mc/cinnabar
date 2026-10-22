@@ -30,9 +30,52 @@ fn error_policy(
 ) -> RenderErrorPolicy {
     if error.ty == ErrorType::OutOfMemory {
         bevy::log::warn_once!("GPU memory exhausted; continuing without the failed allocation");
+        record_memory_loss();
         return RenderErrorPolicy::Ignore;
     }
     (RenderErrorHandler::default().0)(error, main_world, render_world)
+}
+
+/// Swallowed out-of-memory errors so far; any unscoped write may have been dropped since an
+/// owner last uploaded.
+#[cfg(not(test))]
+static MEMORY_LOSS_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+thread_local! { static MEMORY_LOSS_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+
+/// Advances the epoch; tests keep it per thread so parallel fixtures stay independent.
+pub(crate) fn record_memory_loss() {
+    #[cfg(not(test))]
+    MEMORY_LOSS_EPOCH.fetch_add(1, Ordering::AcqRel);
+    #[cfg(test)]
+    MEMORY_LOSS_EPOCH.with(|epoch| epoch.set(epoch.get() + 1));
+}
+
+/// The current memory-loss epoch.
+fn memory_loss_epoch() -> u64 {
+    #[cfg(not(test))]
+    return MEMORY_LOSS_EPOCH.load(Ordering::Acquire);
+    #[cfg(test)]
+    MEMORY_LOSS_EPOCH.with(std::cell::Cell::get)
+}
+
+/// The memory-loss epoch an owner last uploaded its full content at.
+pub(crate) struct UploadEpoch(u64);
+
+impl Default for UploadEpoch {
+    /// Starts at the current epoch: a new owner has lost nothing yet.
+    fn default() -> Self {
+        Self(memory_loss_epoch())
+    }
+}
+
+impl UploadEpoch {
+    /// Returns `true` once after a swallowed out-of-memory error, when the owner must invalidate
+    /// and re-upload everything it tracks as uploaded.
+    pub(crate) fn lost(&mut self) -> bool {
+        let epoch = memory_loss_epoch();
+        std::mem::replace(&mut self.0, epoch) != epoch
+    }
 }
 
 /// Returns no resource when allocation or staging ran out of memory on this thread.
@@ -274,6 +317,7 @@ mod tests {
         };
         let (mut main_world, mut render_world) = (World::new(), World::new());
         main_world.init_resource::<Messages<AppExit>>();
+        let mut owner = UploadEpoch::default();
         let policy = error_policy(
             &error(ErrorType::OutOfMemory),
             &mut main_world,
@@ -281,6 +325,10 @@ mod tests {
         );
         assert!(matches!(policy, RenderErrorPolicy::Ignore));
         assert!(main_world.resource::<Messages<AppExit>>().is_empty());
+        // The swallowed error may have dropped a write, so owners re-upload exactly once.
+        assert!(owner.lost());
+        assert!(!owner.lost());
+        assert!(!UploadEpoch::default().lost());
         let policy = error_policy(
             &error(ErrorType::Validation),
             &mut main_world,

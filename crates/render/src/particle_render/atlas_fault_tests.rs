@@ -124,3 +124,94 @@ fn a_failed_particle_atlas_creation_is_never_written_and_recovers_after_backoff(
         Some(side)
     );
 }
+
+/// Copies the uploaded atlas back to the CPU.
+fn read_atlas(world: &World) -> Vec<u8> {
+    let device = world.resource::<RenderDevice>();
+    let queue = world.resource::<RenderQueue>();
+    let texture = world.resource::<ParticleGpu>().texture.clone().unwrap();
+    let (width, height) = (texture.width(), texture.height());
+    let row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("particle atlas readback"),
+        size: u64::from(row * height),
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(height),
+            },
+        },
+        texture.size(),
+    );
+    queue.submit([encoder.finish()]);
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    device.poll(PollType::wait_indefinitely()).unwrap();
+    let mapped = buffer.slice(..).get_mapped_range();
+    mapped
+        .chunks(row as usize)
+        .flat_map(|line| &line[..(width * 4) as usize])
+        .copied()
+        .collect()
+}
+
+/// One dynamic tile of a single value at `x`, on the first dynamic row of a 256 atlas.
+fn tile(seq: u64, x: u32, value: u8) -> AtlasPatch {
+    let side = particles::TILE_SLOT;
+    AtlasPatch {
+        seq,
+        x,
+        y: 256 - side,
+        width: side,
+        height: side,
+        rgba8: vec![value; (side * side * 4) as usize].into(),
+    }
+}
+
+// A swallowed out-of-memory error during an incremental tile write re-uploads the whole atlas.
+#[test]
+fn a_swallowed_out_of_memory_tile_write_is_followed_by_a_full_reupload() {
+    let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let side = 256;
+    publish(world, side, 1);
+    let tiles = [tile(1, 0, 7), tile(2, particles::TILE_SLOT, 9)];
+    {
+        let mut frame = world.resource_mut::<ParticleGpuFrame>();
+        frame.patches = Arc::from(&tiles[..1]);
+        frame.patch_seq = 1;
+    }
+    world.run_system_once(prepare_particle_resources).unwrap();
+    {
+        let mut frame = world.resource_mut::<ParticleGpuFrame>();
+        frame.patches = Arc::from(&tiles[..]);
+        frame.patch_seq = 2;
+    }
+    // The second tile's write was acknowledged, but its staging ran out of memory.
+    world.resource_mut::<ParticleGpu>().uploaded_seq = 2;
+    crate::gpu_allocation::record_memory_loss();
+    world.run_system_once(prepare_particle_resources).unwrap();
+    assert_eq!(world.resource::<ParticleGpu>().uploaded_seq, 2);
+    let mut expected = vec![1; (side * side * 4) as usize];
+    for tile in &tiles {
+        for row in 0..tile.height {
+            let at = (((tile.y + row) * side + tile.x) * 4) as usize;
+            expected[at..at + (tile.width * 4) as usize].fill(tile.rgba8[0]);
+        }
+    }
+    assert!(
+        read_atlas(world) == expected,
+        "the atlas must match its CPU content"
+    );
+}
