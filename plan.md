@@ -451,6 +451,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
+  Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
+  rendering acceptance remains incomplete.
   Keep browser gesture activation and background work within the host's event-loop rules.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
