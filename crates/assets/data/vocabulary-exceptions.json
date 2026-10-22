@@ -3,24 +3,6 @@
   "entries": [
     {
       "reference": {
-        "file": "block-destroy-v2193.tsv",
-        "pointer": "/183/0",
-        "domain": "block",
-        "identifier": "minecraft:chalkboard"
-      },
-      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its destroy facts remain provisional."
-    },
-    {
-      "reference": {
-        "file": "facts-expansion-v2193.tsv",
-        "pointer": "/183/0",
-        "domain": "block",
-        "identifier": "minecraft:chalkboard"
-      },
-      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its expanded facts remain provisional."
-    },
-    {
-      "reference": {
         "file": "block-item-routes-v1001.json",
         "pointer": "/routes/11/identifier",
         "domain": "item",

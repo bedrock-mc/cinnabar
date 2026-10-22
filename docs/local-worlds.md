@@ -76,8 +76,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   runs at a time. Worlds move between backends only where formats allow; dragonfly-written `level.dat` files may
   not satisfy BDS and vice versa, so do not share one folder across backends.
 - **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`,
-  the multiplayer player limit, client view distance (5–32), independent simulation distance (4–12),
-  `transport=nethernet` and `enable-lan-visibility=false`. Seed and level type apply at creation only.
+  the multiplayer player limit, `view-distance` at the client's largest render distance (each
+  RequestChunkRadius picks the radius), independent simulation distance (4–12), `transport=nethernet`
+  and `enable-lan-visibility=false`. Seed and level type apply at creation only.
 - **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
   the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the
   generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.
@@ -105,6 +106,10 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. Player-data persistence needs a stable client identity.
+- **Offline:** native BDS gathers ICE candidates only from non-loopback interfaces and has no other
+  transport, so on a device with no network its SDP answer carries no candidate. The core fails such
+  a join at once with `cinnabar.disconnect.localWorldOffline` rather than waiting for a candidate.
+  Joining a BDS world offline remains unsupported.
 
 ## Core route
 

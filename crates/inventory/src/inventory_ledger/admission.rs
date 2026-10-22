@@ -415,6 +415,8 @@ impl PlayerInventoryLedger {
             data: std::collections::BTreeMap::new(),
             generation,
             identity: None,
+            block_container: None,
+            superseded_identity: None,
             resync_required: false,
             closing: false,
         });

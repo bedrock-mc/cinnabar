@@ -13,6 +13,7 @@ fn first_block_selection_reuses_a_prewarmed_pipeline() {
                 msaa,
                 hdr,
                 enhanced: false,
+                shader_pack: false,
                 output: None,
             };
             pipeline.prewarm(cache, view, &mut ids).unwrap();
@@ -44,6 +45,7 @@ fn block_entity_coverage_is_prewarmed_only_for_solid_cutouts() {
                     msaa,
                     hdr: false,
                     enhanced: false,
+                    shader_pack: false,
                     output: None,
                 },
                 &mut ids,

@@ -22,7 +22,6 @@ fn server_properties_configure_local_play() {
     spec.world.game_mode = GameMode::Creative;
     spec.world.difficulty = Difficulty::Hard;
     spec.world.seed = -5;
-    spec.view_distance = Some(64);
     let properties = server_properties(&spec, 5000, 1, false);
     for expected in [
         "server-name=MyWorld 1\n",
@@ -37,7 +36,6 @@ fn server_properties_configure_local_play() {
         "level-name=0123456789abcdef\n",
         "level-seed=-5\n",
         "level-type=FLAT\n",
-        "view-distance=32\n",
         "tick-distance=4\n",
         "transport=nethernet\n",
         "server-ip=127.0.0.1\n",
@@ -49,13 +47,8 @@ fn server_properties_configure_local_play() {
         );
     }
     spec.world.generator = Generator::Normal;
-    spec.view_distance = None;
     let defaults = server_properties(&spec, 1, 1, true);
-    for expected in [
-        "level-type=DEFAULT\n",
-        "view-distance=10\n",
-        "enable-lan-visibility=true\n",
-    ] {
+    for expected in ["level-type=DEFAULT\n", "enable-lan-visibility=true\n"] {
         assert!(
             defaults.contains(expected),
             "missing {expected:?}:\n{defaults}"
@@ -65,6 +58,28 @@ fn server_properties_configure_local_play() {
         !defaults.contains("server-portv6="),
         "NetherNet ignores the separate IPv6 port"
     );
+}
+
+/// BDS's view distance only caps RequestChunkRadius, so it must not hold the client below its
+/// render distance; the simulation distance follows the world option however far the client sees.
+#[test]
+fn the_view_distance_admits_every_client_render_distance() {
+    let dir = scratch();
+    let mut spec = spec(dir.path());
+    let max = render_api::MAX_VIEW_RADIUS_CHUNKS;
+    for (requested, view) in [(None, max), (Some(64), 64), (Some(2), 5)] {
+        spec.view_distance = requested.map(i32::unsigned_abs);
+        let properties = server_properties(&spec, 5000, 1, false);
+        for expected in [
+            format!("view-distance={view}\n"),
+            "tick-distance=4\n".to_owned(),
+        ] {
+            assert!(
+                properties.contains(&expected),
+                "missing {expected:?}:\n{properties}"
+            );
+        }
+    }
 }
 
 /// Shared worlds keep their player limit and size the UDP window to it.
