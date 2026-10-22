@@ -46,7 +46,8 @@ domain!(PackTexture {
     GrassSide,
     MyceliumSide,
     ResinClump,
-    PowderSnow
+    PowderSnow,
+    StrawBed
 });
 domain!(PackBlock {
     Beacon,
@@ -62,7 +63,8 @@ domain!(PackBlock {
     Dirt,
     CobblestoneWall,
     Air,
-    Stone
+    Stone,
+    StrawBed
 });
 domain!(TextureSelector {
     Door,

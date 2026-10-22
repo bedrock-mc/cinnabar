@@ -84,7 +84,7 @@ func (h *friendHosting) run(ctx context.Context) {
 		case <-retry:
 			retry = nil
 		case <-dropped:
-			h.log.Warn("friends: signaling dropped; hosting again")
+			h.log.Warn("friends: hosting stopped; hosting again")
 			h.stop()
 		}
 	}
