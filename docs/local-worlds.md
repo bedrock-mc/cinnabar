@@ -32,6 +32,10 @@ the host updates the owned fields in `level.dat` and preserves other tags. Game 
 bonus chest, sleep settings,
 respawn radius and daylight settings use level data. Server properties apply cheats, simulation
 distance and default player permissions to both native and container servers.
+Like a vanilla world owner, the signed-in host is an operator through the install's
+`permissions.json`, keyed by XUID; friends and other joiners get the default permission. A start
+made while the account's profile loads waits for its XUID. A signed-out host has no XUID, so it
+keeps the default too.
 Turning multiplayer off limits the server to its host and withdraws friend hosting.
 LAN visibility is not offered: both runtimes bind and advertise loopback only, so discovery stays off.
 A new world's first start lets BDS create it from server.properties and stops it once ready, so its

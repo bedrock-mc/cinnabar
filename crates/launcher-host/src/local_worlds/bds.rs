@@ -92,14 +92,16 @@ impl Runner for BdsRunner {
         link_world(&link, &world_dir)?;
         let properties = server_properties(spec, port, max_players, self.lan_visible);
         if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
+            .map_err(|error| failed(format!("write server.properties: {error}")))
+            .and_then(|()| write_host_permissions(install, spec))
         {
             unlink_world(&link);
-            return Err(failed(format!("write server.properties: {error}")));
+            return Err(error);
         }
         let run = |label: &str| {
             let mut command = Command::new(binary.as_os_str());
             command
-                .current_dir(&install)
+                .current_dir(install)
                 .env("LD_LIBRARY_PATH", ".")
                 .envs(self.env.iter().map(|(key, value)| (key, value)));
             launch(
@@ -283,6 +285,25 @@ pub(crate) fn server_properties(
         let _ = writeln!(properties, "{key}={value}");
     }
     properties
+}
+
+/// BDS's operator list in the install, keyed by XUID.
+pub(crate) const PERMISSIONS_FILE: &str = "permissions.json";
+
+/// Makes the host an operator as a vanilla world owner is. BDS reads XUIDs only from
+/// service-signed logins, so friends and other joiners keep the world's default permission.
+/// Rewriting the list each start drops an earlier account's grant from the shared install.
+pub(crate) fn write_host_permissions(install: &Path, spec: &StartSpec) -> Result<(), WorldError> {
+    let operators: Vec<_> = spec
+        .host_xuid
+        .iter()
+        .map(|xuid| serde_json::json!({ "permission": "operator", "xuid": xuid }))
+        .collect();
+    write_private(
+        &install.join(PERMISSIONS_FILE),
+        serde_json::Value::from(operators).to_string().as_bytes(),
+    )
+    .map_err(|error| failed(format!("write {PERMISSIONS_FILE}: {error}")))
 }
 
 /// Limits a single-player world to its host while keeping multiplayer's configured capacity.
