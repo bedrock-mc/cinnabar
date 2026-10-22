@@ -389,6 +389,13 @@ fn actor_consumers(event: &ActorEvent, context: LaneContext) -> Consumers {
     let local_runtime = |runtime_id: u64| runtime_id == context.local_runtime_id;
     match event {
         ActorEvent::Move(_) | ActorEvent::Identifiers(_) => C::ACTORS,
+        ActorEvent::Spawn(spawn)
+        | ActorEvent::PlayerSpawn { spawn, .. }
+        | ActorEvent::PaintingSpawn { spawn, .. }
+            if local_runtime(spawn.runtime_id) =>
+        {
+            C::ACTORS.with(C::CONTROLS).with(C::UI)
+        }
         ActorEvent::Metadata(update) if local_runtime(update.runtime_id) => {
             C::ACTORS.with(C::CONTROLS).with(C::UI)
         }

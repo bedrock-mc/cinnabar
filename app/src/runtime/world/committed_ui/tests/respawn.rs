@@ -334,3 +334,155 @@ fn repeated_health_entries_reopen_both_respawn_consumers_after_readiness() {
             .send_respawn_request(|| true)
     );
 }
+
+/// Creates a local health-bearing actor spawn with an optional embedded mount link.
+fn health_spawn(current: f32, mount: Option<i64>, player_packet: bool) -> WorldEvent {
+    let spawn = protocol::ActorSpawnEvent {
+        dimension: 0,
+        unique_id: 1,
+        runtime_id: 42,
+        kind: protocol::ActorKind::Player {
+            uuid: [1; 16],
+            username: "Player".into(),
+        },
+        position: [0.0, 70.0, 0.0],
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        properties: Arc::from([]),
+        attributes: Arc::from([protocol::ActorAttribute {
+            name: protocol_ids::Attribute::Health.wire_name().into(),
+            min: 0.0,
+            max: 20.0,
+            current,
+            default: None,
+            modifiers: Default::default(),
+        }]),
+        links: mount
+            .into_iter()
+            .map(|ridden_unique_id| protocol::ActorLinkEvent {
+                dimension: 0,
+                ridden_unique_id,
+                rider_unique_id: 1,
+                link_type: protocol::ActorLinkType::Rider,
+                immediate: false,
+                rider_initiated: false,
+            })
+            .collect(),
+    };
+    WorldEvent::Actor(if player_packet {
+        protocol::ActorEvent::PlayerSpawn {
+            spawn,
+            game_mode: protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Survival),
+        }
+    } else {
+        protocol::ActorEvent::Spawn(spawn)
+    })
+}
+
+#[test]
+fn spawn_health_and_mount_commit_once_and_rearm_death_after_recovery() {
+    for player_packet in [false, true] {
+        let (mut app, _) = fixture_app();
+        submit(&mut app, 1, health_spawn(0.0, Some(90), player_packet));
+        app.update();
+        assert!(app.world().resource::<FatalError>().0.is_none());
+        assert!(app.world().resource::<ClientWorld>().respawn.input_held());
+        assert_eq!(
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .local_player_alive(),
+            Some(false)
+        );
+        assert!(app.world().resource::<MenuRuntime>().is_visible());
+        assert_eq!(
+            app.world()
+                .resource::<PlayerRuntime>()
+                .facts
+                .mount_unique_id(),
+            Some(90)
+        );
+        ready(&mut app, 2);
+        app.update();
+        submit(&mut app, 3, health_spawn(7.0, None, player_packet));
+        app.update();
+        assert!(app.world().resource::<FatalError>().0.is_none());
+        assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
+        assert_eq!(
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .local_player_alive(),
+            Some(true)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<PlayerRuntime>()
+                .facts
+                .mount_unique_id(),
+            None
+        );
+        submit(&mut app, 4, health_spawn(0.0, Some(91), player_packet));
+        app.update();
+        assert!(app.world().resource::<FatalError>().0.is_none());
+        assert!(app.world().resource::<ClientWorld>().respawn.input_held());
+        assert!(app.world().resource::<MenuRuntime>().is_visible());
+        assert_eq!(
+            app.world()
+                .resource::<PlayerRuntime>()
+                .facts
+                .mount_unique_id(),
+            Some(91)
+        );
+    }
+}
+
+#[test]
+fn spawn_alive_with_retained_positive_health_rearms_a_later_status_death() {
+    let (mut app, _) = fixture_app();
+    submit(&mut app, 1, health_spawn(20.0, None, false));
+    submit(
+        &mut app,
+        2,
+        WorldEvent::Actor(protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 42,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        })),
+    );
+    app.update();
+    ready(&mut app, 3);
+    app.update();
+    submit(
+        &mut app,
+        4,
+        WorldEvent::Actor(protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 42,
+            kind: protocol::ActorStatusKind::SpawnAlive,
+            data: 0,
+        })),
+    );
+    app.update();
+    assert!(app.world().resource::<FatalError>().0.is_none());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .local_player_alive(),
+        Some(true)
+    );
+    submit(
+        &mut app,
+        5,
+        WorldEvent::Actor(protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 42,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        })),
+    );
+    app.update();
+    assert!(app.world().resource::<ClientWorld>().respawn.input_held());
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+}

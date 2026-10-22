@@ -241,6 +241,12 @@ pub enum CommittedUiEvent {
         server_tick: u64,
         attributes: Arc<[ActorAttribute]>,
     },
+    /// Spawn health and the resulting mount share one UI FIFO position.
+    LocalSpawn {
+        sequence: u64,
+        health: Arc<[ActorAttribute]>,
+        ridden_unique_id: Option<i64>,
+    },
     /// Local-player SetEntityData entries (air supply, freezing strength, ...).
     LocalMetadata {
         sequence: u64,

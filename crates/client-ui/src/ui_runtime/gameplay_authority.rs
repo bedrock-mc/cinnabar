@@ -309,6 +309,18 @@ impl UiRuntime {
         Ok(())
     }
 
+    /// Applies accepted spawn health and its resulting mount at one FIFO position.
+    pub fn apply_local_spawn(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        envelope: SequencedLocalAttributes,
+        ridden_unique_id: Option<i64>,
+    ) -> Result<(), UiRuntimeError> {
+        self.apply_local_attributes(player_runtime, envelope)?;
+        self.publish_mount(player_runtime, ridden_unique_id);
+        Ok(())
+    }
+
     /// Applies a committed local-player SetEntityData batch (air supply,
     /// freezing strength). Odd values are counted and skipped inside the
     /// gameplay-HUD state; they never fail the session.
@@ -410,10 +422,19 @@ impl UiRuntime {
         ridden_unique_id: Option<i64>,
     ) -> Result<(), UiRuntimeError> {
         self.guard_local_apply(session_id, fifo_sequence)?;
-        player_runtime.facts.set_mount(ridden_unique_id);
-        self.gameplay_hud.set_mount(ridden_unique_id);
+        self.publish_mount(player_runtime, ridden_unique_id);
         self.last_fifo_sequence = Some(fifo_sequence);
         Ok(())
+    }
+
+    /// Publishes accepted mount facts and their HUD target together.
+    fn publish_mount(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        ridden_unique_id: Option<i64>,
+    ) {
+        player_runtime.facts.set_mount(ridden_unique_id);
+        self.gameplay_hud.set_mount(ridden_unique_id);
     }
 
     fn guard_local_apply(&self, session_id: u64, fifo_sequence: u64) -> Result<(), UiRuntimeError> {

@@ -17,6 +17,30 @@ impl WorldAuthority {
         }
     }
 
+    /// Publishes spawn health and its mount together, returning whether a health batch exists.
+    pub(super) fn publish_spawn_health(
+        &mut self,
+        sequence: u64,
+        attributes: &[protocol::ActorAttribute],
+    ) -> bool {
+        let health: Arc<[_]> = attributes
+            .iter()
+            .filter(|attribute| {
+                attribute.name.as_ref() == protocol_ids::Attribute::Health.wire_name()
+            })
+            .cloned()
+            .collect();
+        if health.is_empty() {
+            return false;
+        }
+        self.push_committed_ui(CommittedUiEvent::LocalSpawn {
+            sequence,
+            health,
+            ridden_unique_id: self.actors.ridden_unique_id(self.local_player_unique_id),
+        });
+        true
+    }
+
     /// Retires an unknown initial death before its delayed health snapshot arrives.
     pub fn commit_local_respawn_ready(&mut self, sequence: u64) {
         self.local_player_dead.get_or_insert(true);
