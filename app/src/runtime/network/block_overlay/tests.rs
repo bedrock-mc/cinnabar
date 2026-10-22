@@ -167,6 +167,7 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),

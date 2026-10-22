@@ -2,7 +2,7 @@
 
 macro_rules! audio_categories {
     ($($category:ident $(=> $name:literal)?;)+) => {
-        /// A shared sound bucket; text-to-speech has no mixer backend yet.
+        /// A shared sound bucket.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum AudioCategory { $($category,)+ }
 
@@ -30,7 +30,6 @@ audio_categories! {
     Records => "record";
     Weather => "weather";
     Ui => "ui";
-    TextToSpeech;
 }
 
 impl AudioCategory {

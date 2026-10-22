@@ -492,6 +492,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "example:plain".into(),
                 tags: Default::default(),
                 state_count: 1,
@@ -507,6 +508,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "example:powered".into(),
                 tags: Default::default(),
                 state_count: 2,
@@ -640,6 +642,7 @@ fn plain_identity_block(name: &str) -> CustomBlock {
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: false,
+        sound: None,
         name: name.into(),
         tags: Default::default(),
         state_count: 1,
@@ -756,6 +759,7 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
         let custom = CustomBlocks {
             blocks: Arc::from([CustomBlock {
                 name: "example:highlighted".into(),
+                sound: None,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,

@@ -419,9 +419,6 @@ mod tests {
         let mut runtime = identified_runtime(&mut player_runtime);
         let equipment_stack = present_stack();
         let game_mode = player_runtime.facts.player_game_mode();
-        player_runtime
-            .inventory
-            .queue_local_hotbar_selection(2, game_mode);
         runtime.retain_local_selected_equipment(
             &mut player_runtime,
             1,
@@ -434,6 +431,9 @@ mod tests {
                 handedness: Some(protocol::ActorHandedness::Right),
             },
         );
+        player_runtime
+            .inventory
+            .queue_local_hotbar_selection(2, game_mode);
         let snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(snapshot.slot, 2);
         assert_eq!(

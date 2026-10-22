@@ -184,7 +184,7 @@ pub fn definitions() -> Value {
         },
         {
             "name": "record_stop",
-            "description": "Stop recording and wait for the encode (and audio mux) to finish; returns the path and frame count.",
+            "description": "Stop recording and wait for the encode (and audio mux) to finish; returns the path, frame count, and dropped_frames/filled_frames: real-time slots the lagging encoder had no room for, which repeat the previous frame.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {

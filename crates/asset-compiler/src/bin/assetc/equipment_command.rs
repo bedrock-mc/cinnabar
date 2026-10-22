@@ -120,7 +120,12 @@ pub(super) fn compile_equipment_assets_command(
             .count(),
         armor: bindings
             .iter()
-            .filter(|binding| matches!(binding.category, EquipmentCategory::Armor { .. }))
+            .filter(|binding| {
+                matches!(
+                    binding.category,
+                    EquipmentCategory::Armor { .. } | EquipmentCategory::ArmorAndHeld { .. }
+                )
+            })
             .count(),
         shield: bindings
             .iter()

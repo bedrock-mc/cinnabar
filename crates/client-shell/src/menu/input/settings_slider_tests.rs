@@ -166,7 +166,7 @@ fn accessibility_fixture() -> (App, Entity, SettingId, i32, ui::UiRect) {
                 .index,
         ));
     build(&mut app);
-    let option = SettingId::EnableUiTextToSpeech;
+    let option = SettingId::CameraShake;
     let value = app
         .world()
         .resource::<MenuRuntime>()
@@ -956,7 +956,7 @@ fn native_picker_space_commits_the_focused_choice() {
 fn native_release_action_preserves_live_toggle_and_fullscreen_callbacks() {
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.id == SettingId::KeyboardMouseAutojump)
+        .position(|option| option.id == SettingId::AlwaysSprint)
         .unwrap() as u16;
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
@@ -992,11 +992,14 @@ fn native_release_action_rejects_other_controls_and_other_choice_buttons() {
             .position(|option| option.name == name)
             .unwrap() as u16
     };
-    let toggle = MenuAction::SettingsOption(option("keyboard_mouse_autojump"), 1);
+    let toggle = MenuAction::SettingsOption(option("always_sprint"), 1);
     assert_eq!(
         native_release_action(
             toggle,
-            Some(MenuAction::SettingsOption(option("controller_autojump"), 0))
+            Some(MenuAction::SettingsOption(
+                option("controller_invert_y_axis"),
+                0
+            ))
         ),
         None
     );

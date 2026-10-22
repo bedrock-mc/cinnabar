@@ -178,6 +178,9 @@ impl EquipmentRuntime {
     ) -> EquipmentCategory {
         match (category, self.wearable_slot(identifier)) {
             (EquipmentCategory::Elytra | EquipmentCategory::Shield, _) | (_, None) => category,
+            (EquipmentCategory::ArmorAndHeld { .. }, Some(slot)) => {
+                EquipmentCategory::ArmorAndHeld { slot }
+            }
             (_, Some(slot)) => EquipmentCategory::Armor { slot },
         }
     }

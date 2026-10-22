@@ -62,7 +62,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest tutorial, firstperson, spline, inline, aim and clear fixtures")
-	flags.BoolVar(&s.totemTest, "totem-test", false, "enable /totemtest offhand, main, remote, empty and idle fixtures")
+	flags.BoolVar(&s.totemTest, "totem-test", false, "enable /totemtest offhand, main, remote, empty, idle and staleecho fixtures")
 	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
 	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry|swing|strafe and /actorburst clear")

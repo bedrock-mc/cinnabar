@@ -232,7 +232,7 @@ fn authored(
     use render_model::equipment::{BoneChannels, attach};
     let channels = |off_hand: bool| -> Option<BoneChannels> {
         match binding.category {
-            EquipmentCategory::Held => {
+            EquipmentCategory::Held | EquipmentCategory::ArmorAndHeld { .. } => {
                 let transform = binding.third_person.literal()?;
                 Some(BoneChannels {
                     translation: transform.translation.map(ItemDisplayScalar::get),
@@ -318,7 +318,7 @@ pub(super) struct SelectedModel {
     pub item: ItemVisualKey,
     definition: Box<str>,
     entities: Arc<RuntimeEntityAssets>,
-    artwork: Arc<RuntimeEquipmentCatalog>,
+    pub(super) artwork: Arc<RuntimeEquipmentCatalog>,
     /// Missing geometry is cached; unavailable artwork retains prepared geometry for retry.
     pub model: Option<PreviewHeldModel>,
     /// Whether the current atlas admits this model's artwork.
