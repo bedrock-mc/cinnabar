@@ -9,10 +9,11 @@
 //! positional push-out is applied to the anchor's position only; it never
 //! becomes reported movement or velocity.
 //!
-//! Vanilla has no instantaneous push-out; its closest-space push nudges
-//! horizontal velocity against the same contextual shapes. Scaffolding the
-//! body is inside, scaffolding a descent sinks through, and powder snow the
-//! player sinks into therefore never count as an overlap here.
+//! Vanilla runs no separate push-out after a teleport or correction; its
+//! closest-space push nudges horizontal velocity, and its move resolves overlap,
+//! against the same contextual shapes. Scaffolding the body is inside,
+//! scaffolding a descent sinks through, and powder snow the player sinks into
+//! therefore never count as an overlap here.
 //!
 //! When no bounded push-out exists (a sealed pocket, or an embedment deeper
 //! than the displacement budget) the tick simply proceeds. The simulator's

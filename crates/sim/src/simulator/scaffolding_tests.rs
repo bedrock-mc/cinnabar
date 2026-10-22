@@ -425,3 +425,78 @@ fn mover_shapes_follow_the_move_scaffolding_rules() {
     };
     assert!(!mover_shapes(&world, on_top, &descending).contains(&top));
 }
+
+/// Powder snow at `(0, 1, 0)` on a stone floor cell.
+fn snow_on_stone() -> (ChunkStore, CollisionRegistry) {
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    register(&mut registry, 1, [Aabb::new(Vec3::ZERO, Vec3::ONE)], false);
+    let snow = BlockPhysicsFlags::from_bits(
+        BlockPhysicsFlags::POWDER_SNOW.bits() | BlockPhysicsFlags::PASSABLE.bits(),
+    )
+    .unwrap();
+    registry
+        .register_physics(
+            2,
+            [],
+            crate::DEFAULT_SURFACE_FRICTION,
+            0.9,
+            1.5,
+            0.0,
+            snow,
+            SurfaceResponse::None,
+        )
+        .unwrap();
+    let mut store = ChunkStore::new();
+    store.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
+    for (y, runtime_id) in [(0, 1), (1, 2)] {
+        store
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(0, y, 0, 0, runtime_id),
+                0,
+            )
+            .unwrap();
+    }
+    (store, registry)
+}
+
+#[test]
+fn mover_shapes_follow_the_move_powder_snow_rules() {
+    let (store, registry) = snow_on_stone();
+    let world = PaletteWorld::for_movement(&store, &registry, 0);
+    let on_top = Vec3::new(0.5, 2.0, 0.5);
+    let player = Aabb::player_at(on_top);
+    let shapes = |state: &PlayerState, input: &MovementInput| {
+        mover_collision_boxes_with_provenance(&world, state, input, player, player.grown(1.0))
+            .unwrap()
+            .value
+            .into_iter()
+            .map(|collider| collider.aabb)
+            .collect::<Vec<_>>()
+    };
+    let full = Aabb::new(Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, 2.0, 1.0));
+    let lowered = Aabb::new(
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(1.0, f64::from(1.9_f32), 1.0),
+    );
+    let standing = MovementInput {
+        can_stand_on_snow: true,
+        ..MovementInput::default()
+    };
+    let rested = PlayerState::new(on_top);
+    let mut fallen = PlayerState::new(on_top);
+    fallen.fall_distance = 3.0;
+
+    // Without the capability or a long fall the snow is passable.
+    assert!(!shapes(&rested, &MovementInput::default()).contains(&full));
+    // A wearer stands on the full block until a descent sinks through it.
+    assert!(shapes(&rested, &standing).contains(&full));
+    let descending = MovementInput {
+        sneaking: true,
+        ..standing
+    };
+    assert!(!shapes(&rested, &descending).contains(&full));
+    // A long retained fall meets the lowered fall-into shape.
+    assert!(shapes(&fallen, &MovementInput::default()).contains(&lowered));
+}

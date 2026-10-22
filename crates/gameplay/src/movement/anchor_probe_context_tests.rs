@@ -113,16 +113,24 @@ fn sneaking() -> MovementInput {
     }
 }
 
-/// Hard-anchors a fresh controller at `feet` and runs its first tick.
+/// Hard-anchors a fresh controller at `feet` and runs its first tick, with the
+/// snow-standing capability the frame context supplies.
 fn first_tick_after_teleport(
     world: &PaletteWorld<'_>,
     feet: [f64; 3],
-    on_ground: bool,
     input: MovementInput,
+    can_stand_on_snow: bool,
 ) -> super::PhysicsMovementSample {
     let mut physics = LocalPhysicsController::default();
-    physics.reanchor_network_position(network(feet), 0, on_ground);
-    let frame = physics.advance(Duration::from_millis(50), input, world);
+    physics.reanchor_network_position(network(feet), 0, false);
+    let context = super::PhysicsSampleContext {
+        mode_intent: super::ModeIntent {
+            can_stand_on_snow,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let frame = physics.advance_with_context(Duration::from_millis(50), input, context, world);
     assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
     frame.samples.into_iter().next().expect("one sample")
 }
@@ -145,7 +153,7 @@ fn a_teleport_inside_scaffolding_is_not_pushed_out() {
     let (store, registry) = (store(SCAFFOLDING), registry());
     let world = PaletteWorld::for_movement(&store, &registry, 0);
     let feet = column_feet(BOTTOM_FEET);
-    let sample = first_tick_after_teleport(&world, feet, false, MovementInput::default());
+    let sample = first_tick_after_teleport(&world, feet, MovementInput::default(), false);
     assert_not_pushed(&sample, feet);
 }
 
@@ -157,7 +165,7 @@ fn a_teleport_mid_column_is_not_pushed_out_while_idle_or_descending() {
     let world = PaletteWorld::for_movement(&store, &registry, 0);
     let feet = column_feet(4.1);
     for input in [MovementInput::default(), sneaking()] {
-        let sample = first_tick_after_teleport(&world, feet, false, input);
+        let sample = first_tick_after_teleport(&world, feet, input, false);
         assert_not_pushed(&sample, feet);
     }
 }
@@ -168,7 +176,7 @@ fn a_teleport_inside_a_solid_column_is_still_pushed_clear() {
     let (store, registry) = (store(STONE), registry());
     let world = PaletteWorld::for_movement(&store, &registry, 0);
     let feet = column_feet(BOTTOM_FEET);
-    let sample = first_tick_after_teleport(&world, feet, false, MovementInput::default());
+    let sample = first_tick_after_teleport(&world, feet, MovementInput::default(), false);
     let column = Aabb::new(
         Vec3::new(f64::from(COLUMN[0]), 1.0, f64::from(COLUMN[1])),
         Vec3::new(
@@ -225,7 +233,8 @@ fn a_correction_inside_scaffolding_is_not_pushed_out() {
 }
 
 /// Powder snow the player sinks into is passable to the probe, with or without
-/// the snow-standing capability.
+/// the snow-standing capability. Ordinary collision never gave powder snow a
+/// shape, so this guards the contextual shapes rather than reproducing the bug.
 #[test]
 fn a_teleport_into_powder_snow_is_not_pushed_out() {
     let (store, registry) = (store(SCAFFOLDING), registry());
@@ -236,11 +245,8 @@ fn a_teleport_into_powder_snow_is_not_pushed_out() {
         f64::from(SNOW[2]) + 0.5,
     ];
     for can_stand_on_snow in [false, true] {
-        let input = MovementInput {
-            can_stand_on_snow,
-            ..MovementInput::default()
-        };
-        let sample = first_tick_after_teleport(&world, feet, false, input);
+        let sample =
+            first_tick_after_teleport(&world, feet, MovementInput::default(), can_stand_on_snow);
         assert_not_pushed(&sample, feet);
     }
 }
