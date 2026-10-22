@@ -124,6 +124,7 @@ impl WorldAuthority {
             WorldEvent::Actor(mut event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 if let ActorEvent::Move(movement) = &mut event {
+                    self.commit_local_actor_move(sequence, *movement);
                     self.resolve_actor_teleport(movement);
                 }
                 let player_list_changed =

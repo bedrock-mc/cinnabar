@@ -86,16 +86,23 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+- [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
+  use pack geometry in all four directions; sleeping and picking remain unqualified.
   Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
   bottom offset rounds to the model grid; matched world and replacement-pack
   captures, carried-item presentation and finer coordinate precision remain open.
 - [ ] Qualify compact templates for slabs/stairs, thin attached faces, paired doors,
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
-  until exact face-coverage behavior is verified separately.
+  until exact face-coverage behavior is verified separately. Inventory fences draw the
+  native two-post shape; bamboo fence slats and wall inventory shapes are unverified, and
+  world fence rails still omit the outer end faces native tessellation draws.
 - [ ] Close paired-door presentation and interaction acceptance, including lower/upper
   state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
+  Hand-use prediction resolves either clicked half against its matching partner
+  and changes the lower half's open state; matched server and artwork acceptance
+  remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
@@ -140,6 +147,9 @@ and resource qualification; they do not imply these systems need to be written.
   NBT variant and strict-final witness without deferrals.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
+  Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
+  accepting server actor displacement alone does not complete this behavior.
+  Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
@@ -252,11 +262,20 @@ output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live
 performance qualification remains open.
 
+Body-slot equipment retains its replicated identity and selects authored attachable
+geometry, artwork and owner-root placement. Startup harness definitions are completed
+from tagged items and present pack resources. Resource-only session overrides reuse
+those definitions while preserving authored item conditions. Expression roots retain
+the worn slot through owner placement; worn equipment counts exclude hands.
+Multi-pass body equipment and matched native visual qualification remain incomplete.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Player deaths hide after their brief sequence while retaining the actor; later
+  server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
@@ -372,6 +391,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
+  explicit server fuel declarations keep priority. Named station responses retain
+  accepted stacks at their window indices. Broader custom-fuel and matched server
+  acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
@@ -382,6 +405,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server settings retain drafts across tabs and submit their final values when
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.
+  NPC dialogue actions expose command/URL labels and pointer hit targets through
+  their JSON-UI collection. Actor portraits, matched acceptance for larger action
+  lists and touch/console behavior remain incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
@@ -405,8 +431,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 The inherited interaction acceptance scope also includes full item identity and use phases,
 replacement/deferred releases, mounted inventory, sign filtering/length/structured text,
 native emote admission/cancellation/timing, overlapping dimension/respawn loading screens,
-and server-authored chat hover/input behavior. Keep native input state independent of
-custom emote playback and presentation-only changes.
+and server-authored chat hover/input behavior. Respawn readiness retires the death route
+and pending retries independently of a later health refresh, in UI packet order; a later
+authoritative life-to-death transition opens a fresh route. Regression coverage does not
+close live server, loading-screen or other-device acceptance. Keep native input state
+independent of custom emote playback and presentation-only changes.
+
+Chat message Send controls resolve command text from an overlapping sibling editor.
+Missing, disabled or ambiguous message editors cannot submit the main chat draft.
+Live acceptance of name clicks, inventory opening, typing and history together remains open.
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
@@ -455,6 +488,9 @@ imported entry. Declared sizes, identity, digests and framing remain validated. 
 selections preserve service errors and wait for the account core result. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
 preparation and broader sparse-startup coverage.
+Server handoff keeps the advertised UUID and version for stack selection when a valid
+archive's manifest names another identity; local imports and library selections still match
+exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
@@ -488,9 +524,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
+  Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
+  rendering acceptance remains incomplete.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.
-  Launcher text fields request platform IME input, and the People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry and full device IME acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
+  Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
+  Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.

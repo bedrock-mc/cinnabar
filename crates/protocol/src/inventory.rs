@@ -86,10 +86,11 @@ pub use recipes::{
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
-    MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
-    item_stack_request_batch, item_stack_request_packet, item_stack_request_packet_filtered,
-    open_inventory_packet, repeated_container_open_warning_packet,
+    MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, MAX_STACK_REQUEST_AMOUNT,
+    PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction, StackRequestContainer,
+    StackRequestSlot, container_close_packet, item_stack_request_batch, item_stack_request_packet,
+    item_stack_request_packet_filtered, open_inventory_packet,
+    repeated_container_open_warning_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;

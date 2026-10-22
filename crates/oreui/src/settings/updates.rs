@@ -1,4 +1,4 @@
-//! App update preferences and worker status have their own settings tab.
+//! App and mod update preferences share a settings tab with app worker status.
 
 use super::{Content, services};
 use launcher::menu::{
@@ -8,14 +8,24 @@ use launcher::menu::{
 };
 use ui_engine::engine::screen::PaintError;
 
-/// Presents the installed version, channel policy and one explicit fresh-check action.
+/// Groups app update controls and independently available mod update preferences.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    let view = content.view;
     content.heading("Updates", "")?;
+    app(content)?;
+    content.heading("Mods", "")?;
+    for option in SettingPanel::ModUpdates.options() {
+        content.option(option.id)?;
+    }
+    Ok(())
+}
+
+/// Presents app preferences and worker actions only when this window owns the updater.
+fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    let view = content.view;
     if !view.updates.active {
         return content.label(
             &installed_version(),
-            "Update controls are unavailable in this window.",
+            "App update controls are unavailable in this window.",
         );
     }
     for option in SettingPanel::Updates.options() {

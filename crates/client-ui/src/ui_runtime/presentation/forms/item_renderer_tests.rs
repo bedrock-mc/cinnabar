@@ -185,6 +185,7 @@ fn shop_item_back_and_close_send_distinct_responses_and_preserve_inventory() {
                 &mut runtime,
                 &frame,
                 EngineInput {
+                    touch: false,
                     cursor: Some(cursor),
                     keys: &[],
                     pointer: PointerButtons {

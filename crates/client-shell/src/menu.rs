@@ -99,12 +99,15 @@ pub struct MenuRuntime {
     hovered: Option<MenuAction>,
     pressed: Option<MenuAction>,
     pointer_down: bool,
+    touch_available: bool,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
     /// Bumped by every field edit and caret move, restarting the caret blink.
     caret_revision: u64,
+    /// Explicit editor activations request the keyboard again after platform dismissal.
+    field_activation: u64,
     /// Screens opened on the way here; back returns to the one below.
     history: json_ui::ScreenNav<MenuScreen>,
     navigation_focus: navigation::NavigationFocus,
@@ -174,6 +177,7 @@ pub struct MenuRuntime {
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
+    death_lifecycle: Option<(u64, u64)>,
     death_loading: bool,
     death_presentation: launcher::menu::death::DeathPresentation,
     death_retry_remaining: Option<std::time::Duration>,
@@ -339,18 +343,6 @@ impl MenuRuntime {
     /// A local world the player chose to open, for the local-worlds module.
     pub fn take_local_world_request(&mut self) -> Option<usize> {
         self.local_world_requested.take()
-    }
-
-    pub fn open_pause(&mut self) {
-        if self.visible || self.is_connecting() {
-            return;
-        }
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Pause);
-        self.screen = MenuScreen::Pause;
-        self.focused = 0;
-        self.message = None;
-        self.visible = true;
     }
 
     /// The queued join, once the saved account's check has settled (bounded) and any

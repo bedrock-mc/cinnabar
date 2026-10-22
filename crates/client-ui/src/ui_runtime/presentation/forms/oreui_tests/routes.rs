@@ -438,6 +438,33 @@ fn add_server_footer_stays_visible_and_keyboard_reveals_the_port() {
     }
 }
 
+/// The same focused field is revealed again when the keyboard changes the usable height.
+#[test]
+fn add_server_port_remains_visible_when_keyboard_shrinks_the_existing_viewport() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::AddServer;
+    view.field = Some(MenuField::Port);
+    view.focused_action = Some(MenuAction::AddPort);
+    for size in [
+        [1280.0, 720.0],
+        [1280.0, 280.0],
+        [1280.0, 720.0],
+        [1280.0, 280.0],
+    ] {
+        let hits = append(&mut presentation, &view, size);
+        let port = hits
+            .iter()
+            .find(|(action, _)| *action == MenuAction::AddPort)
+            .unwrap()
+            .1;
+        assert!(
+            port.min().y() >= 0.0 && port.max().y() <= size[1],
+            "port clipped at {size:?}: {port:?}"
+        );
+    }
+}
+
 #[test]
 fn pause_offers_the_wardrobe_and_keeps_every_action_on_screen() {
     for size in [[1280.0, 720.0], [640.0, 320.0], [320.0, 560.0]] {
