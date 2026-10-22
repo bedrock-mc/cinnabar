@@ -301,6 +301,13 @@ mounts retract toward the bare torso and expand to clear equipped chest geometry
 Vertical follow and damping restrain jump and landing motion, and local cloth keeps
 advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
+Ground-following pets have per-wearer movement, collision-shape grounding, one-block
+hops with checked flight paths and landings, heading-aware animated body clearance,
+obstacle steering and distance-driven gait playback.
+Idle clips settle into a sit
+and optional tricks. Missing terrain freezes the follower; ordinary blockage never
+teleports it. Owner teleports reset only onto checked ground. Broader terrain acceptance, swimming,
+flight, animation-triggered effects and performance qualification remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
 and excluded from pointer and keyboard wear selection; production rollout
@@ -400,6 +407,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Server items whose `minecraft:shooter` draws start a held use that release ends;
+  shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
   explicit server fuel declarations keep priority. Named station responses retain
   accepted stacks at their window indices. Broader custom-fuel and matched server
@@ -536,6 +545,7 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+Desktop startup feedback runs independently while resources and graphics initialize. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. Activity responsiveness during native initialization and broader device acceptance remain pending.
 
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
@@ -554,9 +564,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete.
+  Android restores immersive system bars on resume, window focus and keyboard dismissal,
+  while preserving keyboard control. Device-window regression coverage does not close
+  physical-phone navigation, cutout or gameplay acceptance.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
+  Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared

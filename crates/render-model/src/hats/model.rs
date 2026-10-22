@@ -158,6 +158,24 @@ pub(super) fn build(
             .map(|asset| asset.sha256.as_str()),
         (&texture, &item.assets.texture.sha256),
     )?;
+    let companion = match definition.companion.take() {
+        Some(controller) => {
+            if item.slot != "pet"
+                || definition.cloth.is_some()
+                || definition.tip_flex.is_some()
+                || definition.wind.is_some()
+                || definition.playback.is_some()
+            {
+                return None;
+            }
+            Some(super::companion::Rig::build(
+                controller,
+                std::mem::take(&mut definition.animations),
+                &names,
+            )?)
+        }
+        None => None,
+    };
     let playback =
         cosmetics_animation::Playback::build(&mut definition, &names, &mut original, &mut parents)?;
     while flex.len() < parents.len() {
@@ -186,6 +204,7 @@ pub(super) fn build(
     rest_rotations.resize(parents.len(), Quat::IDENTITY);
     let mut rig = HatRig {
         playback,
+        companion,
         geometry: original,
         parents,
         flex,
@@ -206,6 +225,10 @@ pub(super) fn build(
         wind: definition.wind,
     };
     rig.rest_vertices = rig.preview_vertices(rig.preview_motion(0.0)).into();
+    let clearance = super::companion::clearance::build(&rig);
+    if let Some(companion) = &mut rig.companion {
+        companion.clearance = clearance;
+    }
     Some(rig)
 }
 
