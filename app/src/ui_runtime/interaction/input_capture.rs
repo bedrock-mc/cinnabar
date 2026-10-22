@@ -2,8 +2,8 @@
 use bevy::{
     input::{ButtonState, mouse::AccumulatedMouseMotion},
     math::Vec2,
-    prelude::{ButtonInput, KeyCode, MouseButton},
-    window::{CursorGrabMode, CursorOptions, WindowEvent},
+    prelude::{ButtonInput, Entity, KeyCode, MouseButton},
+    window::{CursorGrabMode, CursorOptions, Ime, WindowEvent},
 };
 use client_ui::ui_runtime::UiRuntime;
 
@@ -74,6 +74,26 @@ pub(crate) fn ordered_pointer_presses<'a>(
         }
     }
     presses
+}
+
+/// Committed platform text for the window, each with the number of keyboard events before it.
+pub(crate) fn ordered_ime_commits<'a>(
+    events: impl IntoIterator<Item = &'a WindowEvent>,
+    window: Entity,
+) -> Vec<(usize, &'a str)> {
+    let mut keys = 0;
+    let mut commits = Vec::new();
+    for event in events {
+        match event {
+            WindowEvent::KeyboardInput(_) => keys += 1,
+            WindowEvent::Ime(Ime::Commit {
+                window: target,
+                value,
+            }) if *target == window => commits.push((keys, value.as_str())),
+            _ => {}
+        }
+    }
+    commits
 }
 
 #[cfg(test)]

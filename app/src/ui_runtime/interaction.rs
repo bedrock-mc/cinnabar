@@ -47,8 +47,8 @@ use client_ui::ui_runtime::interaction::{
     is_chat_edit_shortcut, paste_chat_shortcut,
 };
 use input_capture::{
-    ordered_pointer_presses, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
-    suppress_gameplay_input_for_inventory,
+    ordered_ime_commits, ordered_pointer_presses, restore_gameplay_input_after_chat,
+    suppress_gameplay_input_for_chat, suppress_gameplay_input_for_inventory,
 };
 
 /// Dispatches inventory hotbar shortcuts bound to one physical press.
@@ -269,7 +269,7 @@ pub(crate) fn drive_chat_keyboard_input(
     gamepads: Query<&Gamepad>,
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    window: Single<(bevy::prelude::Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
@@ -290,16 +290,20 @@ pub(crate) fn drive_chat_keyboard_input(
         Option<ResMut<crate::semantic_controls::SemanticInputRuntime>>,
     ),
 ) {
-    // Only the window event stream keeps keyboard and pointer events in arrival order.
-    let mut pointer_presses = window_events
+    // Only the window event stream keeps keyboard, pointer and IME events in arrival order.
+    let window_events: Vec<&WindowEvent> = window_events
         .as_deref()
-        .map(|events| ordered_pointer_presses(window_cursor.read(events)))
+        .map(|events| window_cursor.read(events).collect())
         .unwrap_or_default();
+    let mut pointer_presses = ordered_pointer_presses(window_events.iter().copied());
     // Earlier screen owners consume Back in button state before this stream is routed.
     pointer_presses.retain(|(_, button)| {
         *button != MouseButton::Back || mouse_buttons.just_pressed(MouseButton::Back)
     });
-    let (window, mut cursor) = window.into_inner();
+    let (window_entity, window, mut cursor) = window.into_inner();
+    let mut ime_commits = ordered_ime_commits(window_events.iter().copied(), window_entity)
+        .into_iter()
+        .peekable();
     let authority = world
         .as_deref()
         .and_then(|world| world.stream.as_ref())
@@ -445,7 +449,11 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
-    if mouse_bindings && mouse_buttons.just_pressed(MouseButton::Back) {
+    // Platform Back is routed below at its place among this frame's keys.
+    let platform_back = keyboard_events
+        .iter()
+        .any(|input| crate::ui_runtime::platform_back::is_platform_back(input));
+    if mouse_bindings && !platform_back && mouse_buttons.just_pressed(MouseButton::Back) {
         let inventory_cancelled = inventory::cancel_from_mouse_back(
             &mut player_runtime,
             &mut runtime,
@@ -492,6 +500,18 @@ pub(crate) fn drive_chat_keyboard_input(
     // Presses a screen consumed, and presses whose edge later owners still need.
     let (mut consumed, mut kept) = (Vec::new(), Vec::new());
     for (arrival, input) in keyboard_events.iter().enumerate() {
+        // Text committed before this key edits the draft the key then sees. Commits before the
+        // frame's first key already reached the draft with the chat's pointer input.
+        while let Some((keys, value)) = ime_commits.next_if(|(keys, _)| *keys <= arrival) {
+            if keys == 0 {
+                continue;
+            }
+            chat::commit_ime_text(
+                &mut runtime,
+                presentation.as_deref().map(|view| &view.0),
+                value,
+            );
+        }
         // Presses that arrived before this key meet the screen the earlier inputs left.
         router.observe(runtime.inventory_open());
         while let Some(button) = router.next_before_key(arrival) {
@@ -549,6 +569,28 @@ pub(crate) fn drive_chat_keyboard_input(
             input.state == ButtonState::Pressed,
         );
         if input.state != ButtonState::Pressed {
+            continue;
+        }
+        if crate::ui_runtime::platform_back::is_platform_back(input) {
+            // Back cancels like a mouse Back press; a held key never cancels twice.
+            if !input.repeat {
+                let inventory_cancelled = inventory::cancel_from_mouse_back(
+                    &mut player_runtime,
+                    &mut runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                );
+                if inventory_cancelled
+                    || chat::cancel_from_mouse_back(
+                        &mut runtime,
+                        presentation.as_deref_mut().map(|view| &mut view.0),
+                    )
+                {
+                    dismissed |= !runtime.ui_focused(&player_runtime);
+                    inventory_ownership_changed |= inventory_cancelled;
+                    consumed_gameplay = true;
+                    mouse_buttons.clear_just_pressed(MouseButton::Back);
+                }
+            }
             continue;
         }
         if let Some(presentation) = presentation.as_deref_mut()
@@ -789,6 +831,15 @@ pub(crate) fn drive_chat_keyboard_input(
             }
         }
         dismissed |= !runtime.chat_focused();
+    }
+    for (keys, value) in ime_commits {
+        if keys > 0 {
+            chat::commit_ime_text(
+                &mut runtime,
+                presentation.as_deref().map(|view| &view.0),
+                value,
+            );
+        }
     }
     if routes_presses {
         // The frame's last key changed the screen for every press after it.

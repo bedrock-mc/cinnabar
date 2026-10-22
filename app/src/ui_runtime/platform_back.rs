@@ -8,14 +8,20 @@ use bevy::{
     prelude::{ButtonInput, MessageReader, MouseButton, ResMut},
 };
 
-/// Presses mouse Back while the platform Back key is down, so chat, inventories, forms and
-/// menus share one cancel route. Runs after input collection; key repeats press nothing.
+/// Whether a key event is the platform Back key, which Android also sends for its Back gesture.
+pub(crate) fn is_platform_back(input: &KeyboardInput) -> bool {
+    input.logical_key == Key::BrowserBack
+}
+
+/// Presses mouse Back while the platform Back key is down, so forms, menus and other screens
+/// share one cancel route. Runs after input collection; key repeats press nothing. Chat and
+/// inventories route the key itself at its place among the frame's keys.
 pub(crate) fn press_mouse_back_for_platform_back(
     mut keyboard: MessageReader<KeyboardInput>,
     mut buttons: ResMut<ButtonInput<MouseButton>>,
 ) {
     for input in keyboard.read() {
-        if input.logical_key != Key::BrowserBack {
+        if !is_platform_back(input) {
             continue;
         }
         match input.state {

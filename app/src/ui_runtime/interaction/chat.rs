@@ -27,7 +27,23 @@ pub(super) fn cancel_from_mouse_back(
     true
 }
 
-/// Routes chat pointer actions while a settings modal owns its underlying controls.
+/// Inserts committed platform composition into the chat draft unless no chat is focused or one
+/// of its popups owns input.
+pub(super) fn commit_ime_text(
+    runtime: &mut UiRuntime,
+    presentation: Option<&UiPresentationRuntime>,
+    value: &str,
+) {
+    let popup = presentation.is_some_and(|presentation| {
+        presentation.chat_link_confirmation_open() || presentation.chat_settings_open()
+    });
+    if runtime.chat_focused() && !popup {
+        let _ = runtime.insert_chat_text(value);
+    }
+}
+
+/// Routes chat pointer actions while a settings modal owns its underlying controls. Text the
+/// platform committed before the frame's first key reaches the draft before any press.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
@@ -45,8 +61,22 @@ pub(crate) fn drive_chat_ui_actions(
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     mut keyboard: Option<ResMut<client_shell::platform_text::KeyboardRequests>>,
+    (window_events, mut window_cursor): (
+        Option<Res<Messages<WindowEvent>>>,
+        Local<MessageCursor<WindowEvent>>,
+    ),
 ) {
     let (window_entity, window) = *window;
+    let leading_commits: Vec<String> = window_events
+        .as_deref()
+        .map(|events| {
+            super::ordered_ime_commits(window_cursor.read(events), window_entity)
+                .into_iter()
+                .take_while(|(keys, _)| *keys == 0)
+                .map(|(_, value)| value.to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         gesture.cancel();
         return;
@@ -90,6 +120,9 @@ pub(crate) fn drive_chat_ui_actions(
     }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     coordinates.publish(&player_runtime, &runtime, &mut presentation);
+    for value in &leading_commits {
+        commit_ime_text(&mut runtime, Some(&presentation), value);
+    }
     presentation.set_chat_pointer(pointer);
     if let Some(wheel) = wheel.as_deref()
         && wheel.delta.y != 0.0

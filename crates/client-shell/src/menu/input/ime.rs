@@ -17,7 +17,7 @@ pub enum TextOwner {
     Chat,
 }
 
-/// Requests the platform keyboard for menu fields and chat and delivers committed composition once.
+/// Requests the platform keyboard for menu fields and chat, and delivers menu composition once.
 #[allow(
     clippy::too_many_arguments,
     reason = "Window text ownership follows menu, screen and platform input authority."
@@ -26,7 +26,7 @@ pub fn drive_window_ime(
     mut menu: ResMut<MenuRuntime>,
     mut windows: Query<(bevy::prelude::Entity, &mut Window), With<PrimaryWindow>>,
     presentation: Option<Res<UiPresentationResource>>,
-    mut runtime: Option<ResMut<UiRuntimeResource>>,
+    runtime: Option<Res<UiRuntimeResource>>,
     focus: Option<Res<client_state::CursorFocus>>,
     consent: Option<Res<client_state::ConsentInput>>,
     messages: Option<Res<Messages<Ime>>>,
@@ -90,22 +90,14 @@ pub fn drive_window_ime(
     }
     *activation = menu.field_activation;
     *owned = owner;
+    // Chat reads its commits in order with its keys and presses (`drive_chat_keyboard_input`).
     if let Some(messages) = messages.as_deref() {
         for event in cursor.read(messages) {
-            let Ime::Commit { window, value } = event else {
-                continue;
-            };
-            if *window != entity {
-                continue;
-            }
-            match owner {
-                Some(TextOwner::Menu) => menu.edit_text(value),
-                Some(TextOwner::Chat) => {
-                    if let Some(runtime) = runtime.as_deref_mut() {
-                        let _ = runtime.insert_chat_text(value);
-                    }
-                }
-                None => {}
+            if owner == Some(TextOwner::Menu)
+                && let Ime::Commit { window, value } = event
+                && *window == entity
+            {
+                menu.edit_text(value);
             }
         }
     }
@@ -240,13 +232,11 @@ mod tests {
         assert!(!app.world().get::<Window>(window).unwrap().ime_enabled);
     }
 
-    /// Opening chat in game requests the keyboard, commits Unicode into the draft, and closing
-    /// chat releases platform text input.
+    /// Opening chat in game requests the keyboard, and closing chat releases platform text input.
     #[test]
     fn gameplay_chat_owns_platform_keyboard_while_focused() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_message::<Ime>()
             .init_resource::<crate::platform_text::KeyboardRequests>()
             .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
             .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
@@ -273,18 +263,6 @@ mod tests {
             app.world()
                 .resource::<crate::platform_text::KeyboardRequests>()
                 .requested(window)
-        );
-        app.world_mut().write_message(Ime::Commit {
-            window,
-            value: "hi 日本".into(),
-        });
-        app.update();
-        assert_eq!(
-            app.world()
-                .resource::<UiRuntimeResource>()
-                .chat_editor()
-                .as_str(),
-            "hi 日本"
         );
         app.world_mut()
             .resource_mut::<UiRuntimeResource>()
