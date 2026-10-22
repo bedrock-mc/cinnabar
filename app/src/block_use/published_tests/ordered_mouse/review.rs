@@ -214,11 +214,14 @@ fn refused_controller_selection(app: &mut App) {
 }
 
 #[test]
-fn ordered_mouse_review_idle_desktop_flushes_an_older_controller_selection() {
+fn ordered_mouse_review_idle_desktop_announces_an_older_controller_selection_on_the_next_tick() {
     let (mut app, mut captured) = app_fixture(2);
     fill(&app, 2);
     refused_controller_selection(&mut app);
     captured.drain();
+    frame(&mut app);
+    assert!(captured.drain().is_empty());
+    attack_progress_tests::ticks(app.world_mut(), 102, 102);
     frame(&mut app);
     let slots: Vec<_> = captured
         .drain()
@@ -237,7 +240,7 @@ fn ordered_mouse_review_idle_desktop_flushes_an_older_controller_selection() {
 }
 
 #[test]
-fn ordered_mouse_review_new_selection_waits_for_the_older_controller_selection() {
+fn ordered_mouse_review_new_selection_supersedes_the_older_controller_selection() {
     let (mut app, mut captured) = app_fixture(4);
     fill(&app, 4);
     refused_controller_selection(&mut app);
@@ -254,7 +257,7 @@ fn ordered_mouse_review_new_selection_waits_for_the_older_controller_selection()
         .filter_map(equipment)
         .map(|e| e.selected_slot)
         .collect();
-    assert_eq!(slots, [1, 2]);
+    assert_eq!(slots, [2]);
     let attacks: Vec<_> = sent
         .iter()
         .filter_map(observe_transaction)
@@ -292,7 +295,7 @@ fn ordered_mouse_review_forced_server_selection_cancels_a_refused_desktop_select
 }
 
 #[test]
-fn ordered_mouse_review_authoritative_cell_write_cancels_a_refused_selection_packet() {
+fn ordered_mouse_review_authoritative_cell_write_preserves_the_local_selection() {
     let (mut app, mut captured) = app_fixture(2);
     fill(&app, 2);
     next_slot(app.world_mut());
@@ -322,7 +325,7 @@ fn ordered_mouse_review_authoritative_cell_write_cancels_a_refused_selection_pac
         app.world()
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(0)
+        Some(1)
     );
 }
 

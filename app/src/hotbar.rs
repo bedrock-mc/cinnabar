@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn matching_equipment_bootstrap_sends_while_ledger_slot_is_unknown() {
+    fn matching_equipment_bootstrap_needs_no_duplicate_announcement() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
         let mut runtime = identified_runtime(&mut player_runtime);
@@ -454,10 +454,9 @@ mod tests {
             Ok(())
         });
 
-        let expected = select_hotbar_slot_packet(42, 2, &equipment_stack).unwrap();
-        assert_eq!(
-            protocol::encode(&sent.unwrap()).unwrap(),
-            protocol::encode(&expected).unwrap()
+        assert!(
+            sent.is_none(),
+            "the server already announced this same equipment"
         );
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);

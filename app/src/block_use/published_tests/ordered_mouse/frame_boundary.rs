@@ -112,6 +112,7 @@ fn ordered_frame_boundary_delivered_mining_allows_the_next_frames_selection() {
         Some(1),
         "delivered mining cannot consume the new frame's input"
     );
+    attack_progress_tests::ticks(app.world_mut(), 104, 104);
     after_physics(&mut app);
     assert_eq!(
         captured
