@@ -1,10 +1,14 @@
 //! Exact recipe allocation shared by availability, grid placement and auto-craft requests.
 
+use std::collections::HashSet;
+
 use protocol::{ItemRegistryEntry, NetworkItemStack, RecipeHandle, RecipeIngredientView};
 
 use super::PlayerInventoryLedger;
 use super::cells::Cell;
 use super::registry::entry_capacity;
+
+const _: () = assert!(protocol::MAX_RECIPE_INGREDIENTS <= u16::BITS as usize);
 
 /// One ingredient's `(cell, amount, stack id)` sources.
 pub(super) type IngredientSources = Vec<(Cell, u16, i32)>;
@@ -138,20 +142,7 @@ impl RecipeAllocation<'_> {
 
     /// Searches complete assignments before allowing the requested number of empty cells.
     fn assign(&self, crafts: u8, in_grid: bool, missing: usize) -> Option<Vec<Option<usize>>> {
-        let mut search = Search {
-            allocation: self,
-            demands: self
-                .counts
-                .iter()
-                .map(|count| count * u16::from(crafts))
-                .collect(),
-            in_grid,
-            remaining: self.variants.iter().map(|variant| variant.total).collect(),
-            assigned: vec![None; self.counts.len()],
-            order: (0..self.counts.len()).collect(),
-            #[cfg(test)]
-            work_budget: None,
-        };
+        let mut search = Search::new(self, crafts, in_grid);
         search.assign(0, missing).then_some(search.assigned)
     }
 
@@ -189,7 +180,8 @@ impl RecipeAllocation<'_> {
 struct Search<'a> {
     allocation: &'a RecipeAllocation<'a>,
     demands: Vec<u16>,
-    in_grid: bool,
+    compatible: Vec<u16>,
+    visited: HashSet<SearchState>,
     remaining: Vec<u32>,
     assigned: Vec<Option<usize>>,
     order: Vec<usize>,
@@ -197,11 +189,79 @@ struct Search<'a> {
     work_budget: Option<usize>,
 }
 
-impl Search<'_> {
+/// A canonical capacity multiset for the remaining cells and allowed omissions.
+#[derive(Hash, Eq, PartialEq)]
+struct SearchState {
+    cells: u16,
+    missing: usize,
+    capacities: Vec<(u16, u32)>,
+}
+
+impl<'a> Search<'a> {
+    /// Retains each variant's eligible cells, including physical stack limits when placing.
+    fn new(allocation: &'a RecipeAllocation<'a>, crafts: u8, in_grid: bool) -> Self {
+        let demands: Vec<_> = allocation
+            .counts
+            .iter()
+            .map(|count| count * u16::from(crafts))
+            .collect();
+        let compatible = allocation
+            .variants
+            .iter()
+            .enumerate()
+            .map(|(variant, input)| {
+                allocation
+                    .accepts
+                    .iter()
+                    .enumerate()
+                    .filter(|(cell, accepts)| {
+                        demands[*cell] > 0
+                            && accepts.contains(&variant)
+                            && (!in_grid || input.capacity >= demands[*cell])
+                    })
+                    .fold(0, |mask, (cell, _)| mask | (1 << cell))
+            })
+            .collect();
+        Self {
+            allocation,
+            demands,
+            compatible,
+            visited: HashSet::new(),
+            remaining: allocation
+                .variants
+                .iter()
+                .map(|variant| variant.total)
+                .collect(),
+            assigned: vec![None; allocation.counts.len()],
+            order: (0..allocation.counts.len()).collect(),
+            #[cfg(test)]
+            work_budget: None,
+        }
+    }
+
+    /// Canonicalizes interchangeable variants only across cells that still need assignment.
+    fn state(&self, first: usize, missing: usize) -> SearchState {
+        let cells = self.order[first..]
+            .iter()
+            .fold(0, |mask, cell| mask | (1 << cell));
+        let mut capacities: Vec<_> = self
+            .compatible
+            .iter()
+            .zip(&self.remaining)
+            .filter_map(|(mask, count)| (mask & cells != 0).then_some((mask & cells, *count)))
+            .collect();
+        capacities.sort_unstable();
+        SearchState {
+            cells,
+            missing,
+            capacities,
+        }
+    }
+
     /// Checks a cell's whole demand against one variant's remaining supply and grid capacity.
     fn fits(&self, cell: usize, variant: usize) -> bool {
         self.remaining[variant] >= u32::from(self.demands[cell])
-            && (!self.in_grid || self.allocation.variants[variant].capacity >= self.demands[cell])
+            && self.compatible[variant] & (1 << cell) != 0
     }
 
     /// Rejects missing individual supply and insufficient total capacity before branching.
@@ -218,6 +278,33 @@ impl Search<'_> {
             .count();
         if impossible > missing {
             return false;
+        }
+        for &cell in cells {
+            let demand = u32::from(self.demands[cell]);
+            if demand == 0 {
+                continue;
+            }
+            // Every counted cell consumes at least this demand from a subset of these variants.
+            let shared = cells
+                .iter()
+                .filter(|other| {
+                    u32::from(self.demands[**other]) >= demand
+                        && self
+                            .compatible
+                            .iter()
+                            .all(|mask| mask & (1 << **other) == 0 || mask & (1 << cell) != 0)
+                })
+                .count();
+            let available: u32 = self
+                .compatible
+                .iter()
+                .zip(&self.remaining)
+                .filter(|(mask, _)| **mask & (1 << cell) != 0)
+                .map(|(_, count)| count / demand)
+                .sum();
+            if available < shared.saturating_sub(missing) as u32 {
+                return false;
+            }
         }
         let mut demands: Vec<_> = cells.iter().map(|cell| self.demands[*cell]).collect();
         demands.sort_unstable_by(|a, b| b.cmp(a));
@@ -251,6 +338,11 @@ impl Search<'_> {
         if !self.remaining_capacity_fits(first, missing) {
             return false;
         }
+        let state = self.state(first, missing);
+        let cells = state.cells;
+        if !self.visited.insert(state) {
+            return false;
+        }
         let next = (first..self.order.len())
             .min_by_key(|index| {
                 let cell = self.order[*index];
@@ -269,10 +361,16 @@ impl Search<'_> {
             self.order.swap(first, next);
             return complete;
         }
+        let mut choices = Vec::new();
         for &variant in &allocation.accepts[cell] {
             if !self.fits(cell, variant) {
                 continue;
             }
+            let choice = (self.compatible[variant] & cells, self.remaining[variant]);
+            if choices.contains(&choice) {
+                continue;
+            }
+            choices.push(choice);
             self.remaining[variant] -= u32::from(demand);
             self.assigned[cell] = Some(variant);
             if self.assign(first + 1, missing) {
