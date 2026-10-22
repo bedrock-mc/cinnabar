@@ -325,6 +325,34 @@ fn hi_z_never_culls_a_visible_sub_chunk_and_culls_hidden_ones() {
     culler.encode(&mut encoder, &input, CullPhase::Late, Some(&pyramid));
     gpu.queue.submit([encoder.finish()]);
     let kept = culler.history();
+    let decisions = read_buffer(
+        &gpu,
+        &culler.storage.record_draws,
+        u64::from(culler.slots) * 4,
+    );
+    let decisions = bytemuck::cast_slice::<u8, u32>(&decisions);
+    let candidates = decisions
+        .iter()
+        .enumerate()
+        .filter(|(_, decision)| **decision & model::DECISION_CANDIDATE != 0)
+        .map(|(slot, _)| slot)
+        .collect::<BTreeSet<_>>();
+    let hidden = decisions
+        .iter()
+        .enumerate()
+        .filter(|(_, decision)| **decision & model::DECISION_HIDDEN != 0)
+        .map(|(slot, _)| slot)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(hidden, candidates.difference(&kept).copied().collect());
+    assert!(
+        !hidden.is_empty(),
+        "feedback must record occlusion, not just frustum rejection"
+    );
+    assert_eq!(
+        culler.run(&input, CullPhase::Late, Some(&pyramid)),
+        Args::default(),
+        "feedback-only decisions must not emit duplicate draws"
+    );
     let in_frustum = (0..records.len())
         .filter(|&slot| bevy_visible(&camera.frustum, records[slot].origin))
         .collect::<BTreeSet<_>>();

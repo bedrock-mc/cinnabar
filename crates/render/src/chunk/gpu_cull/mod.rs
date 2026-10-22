@@ -12,6 +12,7 @@ pub(super) mod app_tests;
 pub(in crate::chunk) mod direct;
 #[cfg(test)]
 mod direct_tests;
+mod feedback;
 pub(in crate::chunk) mod kernels;
 pub(in crate::chunk) mod model;
 mod node;
@@ -156,8 +157,13 @@ pub(in crate::chunk) fn install(app: &mut App) {
     };
     render_app
         .insert_resource(GpuCull::new(&device, submission))
+        .init_resource::<feedback::GpuCullFeedback>()
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, extract_hidden_chunks)
+        .add_systems(
+            Render,
+            feedback::submit_feedback.in_set(crate::device_poll::FrameSubmissions),
+        )
         .add_systems(
             Render,
             prepare_gpu_cull

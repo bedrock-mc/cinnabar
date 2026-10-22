@@ -8,6 +8,7 @@ pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     culling: Option<Res<'w, render_scene::ChunkOcclusionCulling>>,
     support: Option<Res<'w, GpuCullSupport>>,
     frame: Option<ResMut<'w, GpuCullFrame>>,
+    feedback: Option<ResMut<'w, feedback::GpuCullFeedback>>,
     direct_support: Option<Res<'w, DirectOcclusionSupport>>,
     direct: Option<ResMut<'w, DirectOcclusionFrame>>,
     direct_state: Option<Res<'w, DirectOcclusion>>,
@@ -37,13 +38,21 @@ impl GpuCullQueue<'_, '_> {
         let supported = self.support.as_deref().is_some_and(|support| support.0);
         if probing || !supported || !self.enabled() || draw_mode != ChunkDrawMode::MultiDrawIndirect
         {
+            if let Some(feedback) = self.feedback.as_deref_mut() {
+                feedback.select(None);
+            }
             return None;
         }
-        select_gpu_cull_view(candidates, |entity| {
+        let view = select_gpu_cull_view(candidates, |entity| {
             self.views
                 .get(entity)
                 .is_ok_and(|(frustum, layers)| gpu_cull_view_eligible(frustum, layers))
-        })
+        });
+        let admitted = self
+            .feedback
+            .as_deref_mut()
+            .is_none_or(|feedback| feedback.select(view));
+        view.filter(|_| admitted)
     }
 
     pub(in crate::chunk) fn set_view(&mut self, view: GpuCullView) {

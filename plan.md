@@ -154,7 +154,9 @@ and resource qualification; they do not imply these systems need to be written.
 
 - Chunk occlusion culling remains enabled by default and can be disabled in Video
   settings for comparison. It uses visibility proofs rather than a vertical distance
-  cutoff. Matched-output frame-time and movement qualification remain incomplete.
+  cutoff. The indirect renderer samples rejection counts asynchronously and skips GPU
+  occlusion when it rejects too little terrain, with periodic fresh-depth probes.
+  Matched-output frame-time and movement qualification remain incomplete.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.

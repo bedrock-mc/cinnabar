@@ -16,6 +16,11 @@ pub const MAX_SOLID_RUNS: u32 = 3;
 pub const ARGS_WORDS: u32 = 5;
 pub const STREAM_COUNT: usize = 4;
 pub const PHASE_COUNT: usize = 2;
+/// Low bits of a record decision describe its four draw streams.
+pub const DECISION_DRAWS: u32 = (1 << 5) - 1;
+/// Feedback distinguishes a frustum-visible candidate from an occluded one.
+pub const DECISION_CANDIDATE: u32 = 1 << 5;
+pub const DECISION_HIDDEN: u32 = 1 << 6;
 /// Hi-Z boxes grow by this many blocks so rasterised depth never lands outside them.
 pub const HIZ_PADDING: f32 = 1.0 / 16.0;
 /// Relative and absolute slack that keeps the GPU frustum test a superset of the CPU one.

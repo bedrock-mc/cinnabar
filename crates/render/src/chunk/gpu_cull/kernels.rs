@@ -6,8 +6,9 @@ use std::{borrow::Cow, num::NonZeroU64};
 use wgpu::util::DeviceExt;
 
 use super::model::{
-    CULL_WORKGROUP, CullPhase, CullViewUniform, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK,
-    HIZ_PADDING, PHASE_COUNT, STREAM_COUNT, args_words, draw_offset_bytes, group_count,
+    CULL_WORKGROUP, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_DRAWS,
+    DECISION_HIDDEN, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HIZ_PADDING, PHASE_COUNT,
+    STREAM_COUNT, args_words, draw_offset_bytes, group_count,
 };
 
 const RECORD_BYTES: u64 = std::mem::size_of::<super::model::CullRecord>() as u64;
@@ -19,6 +20,9 @@ pub fn cull_shader_source() -> String {
     let float = |value: f32| format!("{value:?}f");
     include_str!("cull.wgsl")
         .replace("CULL_WORKGROUP", &format!("{CULL_WORKGROUP}u"))
+        .replace("CULL_DECISION_DRAWS", &format!("{DECISION_DRAWS}u"))
+        .replace("CULL_DECISION_CANDIDATE", &format!("{DECISION_CANDIDATE}u"))
+        .replace("CULL_DECISION_HIDDEN", &format!("{DECISION_HIDDEN}u"))
         .replace("CULL_SIDE", &format!("{}i", world::SUB_CHUNK_SIDE))
         .replace("CULL_HIZ_PADDING", &float(HIZ_PADDING))
         .replace("CULL_RELATIVE_SLACK", &float(FRUSTUM_RELATIVE_SLACK))
@@ -81,7 +85,11 @@ impl CullStorage {
                 slots * 4,
                 U::STORAGE | U::COPY_DST | copy_out,
             ),
-            record_draws: buffer("terrain cull record draws", slots * 4, U::STORAGE),
+            record_draws: buffer(
+                "terrain cull record draws",
+                slots * 4,
+                U::STORAGE | U::COPY_SRC,
+            ),
             group_sums: buffer(
                 "terrain cull group sums",
                 u64::from(group_count(capacity).max(1)) * 16,
