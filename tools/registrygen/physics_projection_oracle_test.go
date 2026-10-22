@@ -16,7 +16,7 @@ import (
 // The physics seed combines shared state facts with client movement rules.
 
 const (
-	v2193PhysicsReservedCount = 654 - v2193EducationStateCount
+	v2193PhysicsReservedCount = 638 - v2193EducationStateCount
 )
 
 // writeV2193PhysicsProjection binds shared physics facts to the selected block carrier.

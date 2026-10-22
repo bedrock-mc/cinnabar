@@ -226,7 +226,7 @@ impl EquipmentRuntime {
             }
         }
         let held_block_entities =
-            held_block_entities::build(skull_atlas.as_ref(), skull_location, &mut artwork);
+            held_block_entities::build(skull_atlas.as_ref(), &assets, skull_location, &mut artwork);
         pending.extend(held_block_entities.geometries.iter().cloned());
         let mut geometries = catalog
             .iter()

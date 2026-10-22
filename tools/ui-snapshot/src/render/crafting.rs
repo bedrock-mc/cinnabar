@@ -79,9 +79,10 @@ pub fn paint(
     lang: &RuntimeLangCatalog,
     icons: &[IconRef; session::ITEMS.len()],
     selected: bool,
+    block_identity: i32,
     frame: &mut PaintFrame<'_>,
 ) -> Result<(), Error> {
-    let mut player = session::player()?;
+    let mut player = session::player(block_identity)?;
     let mut screen = ContainerScreen::default();
     let first = draw(
         engine,
@@ -170,7 +171,7 @@ pub fn paint_cursor(
     icons: &[IconRef; session::ITEMS.len()],
     frame: &mut PaintFrame<'_>,
 ) -> Result<(), Error> {
-    let mut player = session::player()?;
+    let mut player = session::player(0)?;
     player
         .inventory
         .ledger_mut()

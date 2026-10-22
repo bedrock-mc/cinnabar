@@ -156,8 +156,9 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
     }
 }
 
+/// New worlds offer only BDS; Dragonfly stays hidden even when Docker is missing.
 #[test]
-fn advanced_world_form_exposes_backend_and_generator_separately() {
+fn advanced_world_form_offers_only_bds_beside_the_generator() {
     use bridge::Backend;
     use launcher::local_worlds::world::UnavailableReason;
     let mut view = MenuView::new(true, "Fixture".into());
@@ -171,8 +172,11 @@ fn advanced_world_form_exposes_backend_and_generator_separately() {
         for action in [A::Backend(Backend::Bds), A::Flat(false), A::Flat(true)] {
             assert!(hits.iter().any(|(found, _)| *found == local(action)));
         }
-        let dragonfly = local(A::Backend(Backend::Dragonfly));
-        assert!(!hits.iter().any(|(found, _)| *found == dragonfly));
+        assert!(
+            !hits
+                .iter()
+                .any(|(found, _)| *found == local(A::Backend(Backend::Dragonfly)))
+        );
         let text: String = nodes
             .iter()
             .filter_map(|node| match node.visual() {

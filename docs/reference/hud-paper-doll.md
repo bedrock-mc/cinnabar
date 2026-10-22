@@ -96,8 +96,8 @@ Inbox lists News, Realms, Invites and Feedback, uses received dates for Recent/H
 shows title, source, date, unread marker and a separate Delete button. Opening a
 message displays a scrollable detail view and reports its read action. Deletion
 requires confirmation. Optimistic read/delete identities survive stale refreshes.
-The header action exposes mark-all-read and delete-read actions. Standalone
-category sprites can be loaded from the existing optional local OreUI bundle.
+The header action exposes mark-all-read and delete-read actions. Category sprites
+ship with the OreUI artwork carrier.
 
 ## Evidence and remaining acceptance
 

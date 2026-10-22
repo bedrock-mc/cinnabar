@@ -1,7 +1,10 @@
 //! Optional local dimension backdrops retain their original resolution.
 
-use super::{OreUiImages, OreUiPage, OreUiSprite, decode};
-use std::{path::Path, sync::Arc};
+use super::{MAX_IMAGE_SIDE, OreUiImages, OreUiPage, OreUiSprite, read_bounded};
+use image::{ImageReader, Limits};
+use std::{io::Cursor, path::Path, sync::Arc};
+
+const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// A dimension's loading backdrop and the block item its destination card shows.
 pub struct DimensionArt {
@@ -83,6 +86,25 @@ fn append(images: &mut OreUiImages, directory: &Path) {
     }
 }
 
+/// The shader applies alpha, so uploaded pixels retain straight source RGB.
+fn decode(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
+    let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader
+        .decode()
+        .map_err(|error| format!("{}: {error}", path.display()))?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    Ok((width, height, image.into_raw()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,7 +142,6 @@ mod tests {
             sprites: Default::default(),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         };
         let color = [72, 143, 199, 255];
         let source = image::RgbaImage::from_pixel(1672, 941, image::Rgba(color));

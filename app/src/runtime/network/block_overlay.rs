@@ -368,8 +368,16 @@ impl Builder<'_> {
             return *visual;
         }
         let checkpoint = self.texture_checkpoint();
+        // Quarter turns keep a full cube; positive scale and translation move its faces. A
+        // reflecting or zero scale would turn model faces inside out, so it stays a cube.
+        let cube_transform = components.transformation.is_none_or(|transform| {
+            (transform.scale == [1.0; 3] && transform.translation == [0.0; 3])
+                || transform.scale.iter().any(|&axis| axis <= 0.0)
+        });
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK | FULL_BLOCK_V1) if components.random_offset.is_none() => {
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1)
+                if components.random_offset.is_none() && cube_transform =>
+            {
                 self.cube(components)
             }
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
@@ -938,9 +946,17 @@ fn quantize(
         .position(|&component| component != 0)
         .unwrap_or(0);
     let boundary = if normal[axis] < 0 { 0 } else { 256 };
-    let on_boundary = positions
-        .iter()
-        .all(|corner| i32::from(corner[axis]) == boundary);
+    // Only a quad lying wholly within the neighbour's face can be hidden by that neighbour.
+    let on_boundary = positions.iter().all(|corner| {
+        (0..3).all(|other| {
+            let value = i32::from(corner[other]);
+            if other == axis {
+                value == boundary
+            } else {
+                (0..=256).contains(&value)
+            }
+        })
+    });
     let face_flag = MODEL_FACE_FLAGS[face];
     // Displaced surfaces can be exposed beside an undisplaced neighbour.
     let mut flags = face_flag

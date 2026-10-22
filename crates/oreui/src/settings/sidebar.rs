@@ -40,6 +40,7 @@ enum Glyph {
     Shelves,
     Puzzle,
     Chat,
+    Discord,
     Download,
 }
 
@@ -68,6 +69,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             Some("options.social"),
         ),
         Chat => (None, [74, 144, 226], Glyph::Chat, None),
+        Discord => (None, [88, 101, 242], Glyph::Discord, None),
         General => (
             Some(SETTINGS_ICONS[5]),
             [152, 100, 50],
@@ -369,6 +371,16 @@ fn icon(canvas: &mut Canvas<'_>, tab: &Tab, at: [f32; 2]) -> Result<(), PaintErr
             block(3.0, 4.0, 10.0, 5.0, [230, 230, 230, 255])?;
             block(4.0, 10.0, 4.0, 2.0, theme::BORDER)?;
             block(4.0, 10.0, 2.0, 1.0, [230, 230, 230, 255])?;
+        }
+        Glyph::Discord => {
+            block(3.0, 4.0, 10.0, 9.0, TEXT)?;
+            block(2.0, 6.0, 2.0, 5.0, TEXT)?;
+            block(4.0, 3.0, 2.0, 2.0, TEXT)?;
+            block(10.0, 3.0, 2.0, 2.0, TEXT)?;
+            block(5.0, 7.0, 2.0, 2.0, tab.fill)?;
+            block(9.0, 7.0, 2.0, 2.0, tab.fill)?;
+            block(4.0, 13.0, 2.0, 1.0, TEXT)?;
+            block(10.0, 13.0, 2.0, 1.0, TEXT)?;
         }
         Glyph::Download => {
             block(7.0, 2.0, 2.0, 7.0, TEXT)?;

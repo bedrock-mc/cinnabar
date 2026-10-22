@@ -207,7 +207,7 @@ async fn check_handed_off_packs(cached: bool) {
         assert_eq!(request["client_data"]["ClientRandomId"].as_i64(), Some(-7));
         core.send(handoff_frame(
             serde_json::json!({
-                "identity": identity("Fixture"), "client_cache": false, "packs_required": true,
+                "identity": {"display_name": "Account Player", "xuid": "2535", "uuid": "00000000-0000-4000-8000-000000000001"}, "client_cache": false, "packs_required": true,
                 "packs": [
                     {"uuid": "00112233-4455-6677-8899-aabbccddeeff", "version": "1.0.0", "sub_pack": "high", "content_key": "key-a", "size": 5, "cache": reference},
                     {"uuid": "11223344-5566-7788-99aa-bbccddeeff00", "version": "2.0.0", "sub_pack": "", "content_key": "", "size": 3},
@@ -251,6 +251,8 @@ async fn check_handed_off_packs(cached: bool) {
     );
     let (joined, mut core) = tokio::join!(join, core);
     let (mut session, (handoff, game_data)) = joined.expect("join");
+    assert_eq!(session.identity().display_name, "Account Player");
+    assert_eq!(session.identity().xuid, "2535");
     assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
     assert!(
         !session.blob_cache_enabled(),
