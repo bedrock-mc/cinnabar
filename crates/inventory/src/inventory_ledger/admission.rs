@@ -416,6 +416,7 @@ impl PlayerInventoryLedger {
             generation,
             identity: None,
             block_container: None,
+            superseded_identity: None,
             resync_required: false,
             closing: false,
         });

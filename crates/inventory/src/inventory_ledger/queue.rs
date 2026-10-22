@@ -331,9 +331,11 @@ impl PlayerInventoryLedger {
         let current = self.storage.as_ref();
         request.storage_generation.is_none_or(|generation| {
             current.is_some_and(|storage| storage.generation == generation)
-        }) && request
-            .storage_identity
-            .is_none_or(|expected| current.and_then(|storage| storage.identity) == Some(expected))
+        }) && request.storage_identity.is_none_or(|expected| {
+            current.is_some_and(|storage| {
+                storage.identity == Some(expected) || storage.superseded_identity == Some(expected)
+            })
+        })
     }
 
     pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {

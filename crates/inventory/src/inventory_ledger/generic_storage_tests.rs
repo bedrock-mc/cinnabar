@@ -371,6 +371,47 @@ fn barrel_and_shulker_box_requests_use_their_block_container_names() {
     }
 }
 
+/// A block entity that arrives after a request was sent renames only later requests;
+/// the queued one still settles or rolls back under the address it was sent with.
+#[test]
+fn late_block_entity_keeps_queued_storage_requests_answerable() {
+    for accepted in [true, false] {
+        let mut ledger = ready(27, 0);
+        let request = ledger.begin_storage_click(2).unwrap();
+        ledger.mark_transport_enqueued(10);
+        ledger.name_storage_block([1, 2, 3], Some("Barrel"));
+        if accepted {
+            ledger.apply(&accepted_take_from(
+                request,
+                protocol::CONTAINER_NAME_LEVEL_ENTITY,
+            ));
+            assert!(ledger.storage_stack(2).is_none());
+            assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 91);
+        } else {
+            ledger.apply(&response(request, StackResponseStatus::Rejected));
+            assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
+            assert!(ledger.cursor_stack().is_none());
+        }
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert!(!ledger.resync_required());
+        ledger
+            .begin_storage_click(if accepted { 5 } else { 2 })
+            .unwrap();
+        let storage_slot = match ledger.newest_action() {
+            Some(StackRequestAction::Place { destination, .. }) => destination,
+            Some(StackRequestAction::Take { source, .. }) => source,
+            other => panic!("the next click moves a storage stack: {other:?}"),
+        };
+        assert_eq!(
+            storage_slot.container,
+            StackRequestContainer::OpenWindow {
+                name: protocol_ids::ContainerName::Barrel.wire_value(),
+                dynamic_id: None,
+            }
+        );
+    }
+}
+
 #[test]
 fn matching_response_full_identity_commits_without_a_window_field() {
     let mut ledger = ready(27, 300);

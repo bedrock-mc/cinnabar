@@ -30,8 +30,14 @@ impl PlayerInventoryLedger {
             return;
         }
         storage.block_container = name;
-        if storage.identity.is_some() {
-            self.bind_storage_request_identity();
+        let Some(previous) = storage.identity else {
+            return;
+        };
+        self.bind_storage_request_identity();
+        // Requests already queued keep answering under the address they were sent with.
+        let storage = self.storage.as_mut().expect("storage observed above");
+        if storage.identity != Some(previous) {
+            storage.superseded_identity = Some(previous);
         }
     }
 
