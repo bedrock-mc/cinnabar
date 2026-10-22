@@ -166,6 +166,11 @@ pub fn prepare_actor_render_frame(
         .step
         .expect("actor preparation precedes final rendering");
     let artwork = state.session_artwork.as_ref().unwrap_or(&params.artwork);
+    if let Some(equipment) = params.equipment.as_deref_mut() {
+        equipment.set_show_custom_item_models(
+            params.presentation.settings.feel().show_custom_item_models,
+        );
+    }
     let view = state.captured_view;
     let pose_view = bodies::PoseView {
         partial_tick: step.partial_tick,

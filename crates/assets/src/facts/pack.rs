@@ -78,11 +78,12 @@ domain!(TextureSelector {
     Torchflower
 });
 
-/// Identifies the built-in furnace pair and whether its front uses lit artwork.
+/// Identifies a furnace-family cube (furnace, blast furnace, smoker) and whether its front
+/// uses lit artwork, from the registry policy's render routes.
 pub fn furnace_lit(identifier: &str) -> Option<bool> {
-    match identifier {
-        "minecraft:furnace" => Some(false),
-        "minecraft:lit_furnace" => Some(true),
+    match super::block_render_fact(identifier).kind {
+        super::BlockRenderKind::Furnace => Some(false),
+        super::BlockRenderKind::LitFurnace => Some(true),
         _ => None,
     }
 }

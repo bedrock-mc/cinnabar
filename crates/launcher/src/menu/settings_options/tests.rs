@@ -847,6 +847,36 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
     }
 }
 
+/// Held-item models are enabled for new installs and the preference survives reloads and reset.
+#[test]
+fn custom_item_models_default_on_and_persist_both_states() {
+    let mut settings = SettingsOptions::default();
+    let id = SettingId::ShowCustomItemModels;
+    assert_eq!(
+        settings.value(id),
+        i32::from(ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS)
+    );
+    assert_eq!(
+        settings.user_settings().video.show_custom_item_models,
+        ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS
+    );
+    for enabled in [0, 1] {
+        settings.set(id.index(), enabled);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.value(id), enabled);
+        assert_eq!(
+            loaded.user_settings().video.show_custom_item_models,
+            enabled != 0
+        );
+    }
+    settings.set(id.index(), 0);
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(
+        settings.user_settings().video.show_custom_item_models,
+        ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS
+    );
+}
+
 /// Far terrain stays off whatever an older build saved for it.
 #[test]
 fn saved_far_terrain_settings_do_not_enable_it() {

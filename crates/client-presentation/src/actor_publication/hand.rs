@@ -261,53 +261,117 @@ pub(super) fn vanilla_hand_source(
         bare.then(|| render_model::legacy_combat::legacy_first_person_arm(hand.swing, hand.equip));
     let items = std::array::from_fn(|index| {
         let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
+        let mut icon_fallback = false;
         let modern = item_animation.and_then(|mut render_input| {
             render_input.frame_alpha = alpha;
             let render_input =
                 attachable_hand_input(equipment_input, owner_equipment, render_input, index == 1);
             let actor = stream.authority().actor(runtime_id)?;
-            if index == 0
-                && let Some((selected, selected_input)) = main_selection
-            {
+            let (selected, selected_input) = if index == 0 {
+                if let Some((selected, selected_input)) = main_selection {
+                    (selected, selected_input)
+                } else {
+                    let selected = equipment.select_held_item(item, actor, &rig, render_input);
+                    icon_fallback = selected.uses_icon_fallback();
+                    if icon_fallback {
+                        return equipment.first_person_item_icon_with_use(
+                            &presentation.submission,
+                            item,
+                            hand,
+                            profile,
+                            render_input,
+                        );
+                    }
+                    return equipment.first_person_selected_attachable(
+                        &presentation.submission,
+                        item,
+                        &selected,
+                        actor,
+                        &rig,
+                        render_input,
+                        None,
+                    );
+                }
+            } else {
+                let selected = equipment.select_held_item(item, actor, &rig, render_input);
+                icon_fallback = selected.uses_icon_fallback();
+                if icon_fallback {
+                    return equipment.first_person_offhand_icon(&presentation.submission, item);
+                }
                 return equipment.first_person_selected_attachable(
                     &presentation.submission,
                     item,
-                    selected,
+                    &selected,
                     actor,
                     &rig,
-                    selected_input,
+                    render_input,
                     None,
                 );
-            }
-            equipment.first_person_attachable(
+            };
+            icon_fallback = selected.uses_icon_fallback();
+            equipment.first_person_selected_attachable(
                 &presentation.submission,
                 item,
+                selected,
                 actor,
                 &rig,
-                render_input,
+                selected_input,
                 None,
             )
         });
         let layer = modern.or_else(|| {
             if index == 0 {
-                equipment.first_person_item_with_use(
-                    &presentation.submission,
-                    item,
-                    hand,
-                    profile,
-                    item_animation
-                        .map(|input| {
-                            attachable_hand_input(equipment_input, owner_equipment, input, false)
-                        })
-                        .map(|input| actor_animation::AttachableAnimationInput {
-                            held_item_scale: rig.held_item_scale,
-                            ..input
-                        })
-                        .unwrap_or(actor_animation::AttachableAnimationInput {
-                            held_item_scale: rig.held_item_scale,
-                            ..Default::default()
-                        }),
-                )
+                if icon_fallback {
+                    equipment.first_person_item_icon_with_use(
+                        &presentation.submission,
+                        item,
+                        hand,
+                        profile,
+                        item_animation
+                            .map(|input| {
+                                attachable_hand_input(
+                                    equipment_input,
+                                    owner_equipment,
+                                    input,
+                                    false,
+                                )
+                            })
+                            .map(|input| actor_animation::AttachableAnimationInput {
+                                held_item_scale: rig.held_item_scale,
+                                ..input
+                            })
+                            .unwrap_or(actor_animation::AttachableAnimationInput {
+                                held_item_scale: rig.held_item_scale,
+                                ..Default::default()
+                            }),
+                    )
+                } else {
+                    equipment.first_person_item_with_use(
+                        &presentation.submission,
+                        item,
+                        hand,
+                        profile,
+                        item_animation
+                            .map(|input| {
+                                attachable_hand_input(
+                                    equipment_input,
+                                    owner_equipment,
+                                    input,
+                                    false,
+                                )
+                            })
+                            .map(|input| actor_animation::AttachableAnimationInput {
+                                held_item_scale: rig.held_item_scale,
+                                ..input
+                            })
+                            .unwrap_or(actor_animation::AttachableAnimationInput {
+                                held_item_scale: rig.held_item_scale,
+                                ..Default::default()
+                            }),
+                    )
+                }
+            } else if icon_fallback {
+                equipment.first_person_offhand_icon(&presentation.submission, item)
             } else {
                 equipment.first_person_offhand(&presentation.submission, item)
             }
