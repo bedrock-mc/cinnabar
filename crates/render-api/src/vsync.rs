@@ -29,7 +29,7 @@ impl VsyncMode {
         }
     }
 
-    /// Whether presentation waits for the display's vertical blank.
+    /// Whether the player requested synchronized presentation.
     #[must_use]
     pub const fn enabled(self) -> bool {
         matches!(self, Self::On)

@@ -56,8 +56,9 @@ mod platform {
         // SAFETY: all-zero bytes are valid for this integer-only output record.
         let mut status: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
         // SAFETY: status is a writable record of the size expected by Windows.
-        unsafe { GetSystemPowerStatus(&raw mut status) != 0 }
-        &&status.ACLineStatus == 0 && status.BatteryFlag & 128 == 0
+        (unsafe { GetSystemPowerStatus(&raw mut status) != 0 })
+            && status.ACLineStatus == 0
+            && status.BatteryFlag & 128 == 0
     }
 }
 
@@ -82,11 +83,11 @@ mod platform {
             if read("scope").trim() == "Device" {
                 continue;
             }
-            if read("online").trim() == "1" {
+            if read("type").trim() == "Battery" {
+                discharging |= read("status").trim() == "Discharging";
+            } else if read("online").trim() == "1" {
                 return false;
             }
-            discharging |=
-                read("type").trim() == "Battery" && read("status").trim() == "Discharging";
         }
         discharging
     }
@@ -121,7 +122,11 @@ mod platform {
             supply(
                 root.path(),
                 "laptop",
-                &[("type", "Battery"), ("status", "Discharging")],
+                &[
+                    ("type", "Battery"),
+                    ("status", "Discharging"),
+                    ("online", "1"),
+                ],
             );
             assert!(from_sysfs(root.path()));
             supply(
