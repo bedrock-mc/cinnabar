@@ -71,6 +71,8 @@ pub mod touch {
     /// The movement stick; the contact delta is its normalized deflection, positive Y forward.
     pub const JOYSTICK: u16 = 33;
     pub const INVENTORY: u16 = 34;
+    pub const CHAT: u16 = 35;
+    pub const EMOTE: u16 = 36;
 }
 
 mod touch_controls;

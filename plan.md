@@ -163,6 +163,13 @@ and resource qualification; they do not imply these systems need to be written.
 
 ### Lighting, atmosphere and publication
 
+- Chunk occlusion culling remains enabled by default and can be disabled in Video
+  settings for comparison. It hides only sections proved invisible. The indirect
+  renderer samples rejection counts asynchronously and skips GPU
+  occlusion when it rejects too little terrain. Periodic probes warm GPU visibility
+  before sampling and retain the CPU command caches between paths.
+  Matched-output frame-time and movement qualification remain incomplete.
+
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
 - [ ] Classify and remove moving bands/static under camera motion using coherent
@@ -544,6 +551,7 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+Desktop startup feedback runs independently while resources and graphics initialize. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. Activity responsiveness during native initialization and broader device acceptance remain pending.
 
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
@@ -566,8 +574,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
+  Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared

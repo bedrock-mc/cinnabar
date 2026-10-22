@@ -383,6 +383,8 @@ settings! {
         [(SettingPanel::AccessibilityGameplay, 8)], [SettingsGroup::Accessibility], None, None;
     RenderDistance => "render_distance", slider("options.renderDistance", ui::MIN_RENDER_DISTANCE_CHUNKS as i32, render_api::MAX_VIEW_RADIUS_CHUNKS, ui::MIN_RENDER_DISTANCE_CHUNKS as i32),
         [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
+    ChunkOcclusionCulling => "chunk_occlusion_culling", toggle("Chunk Occlusion Culling", render_api::DEFAULT_CHUNK_OCCLUSION_CULLING),
+        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
     MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
         [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;
     Msaa => "msaa", slider("options.msaa", ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32, ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32, ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32),
