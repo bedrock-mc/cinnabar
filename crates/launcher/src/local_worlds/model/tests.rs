@@ -394,7 +394,10 @@ const REDETECT: Effect = Effect::SetPrefs {
 /// Submits the create form against a stale verdict and answers the fresh probe with `reason`.
 fn submit_against(menu: &mut WorldsMenu, reason: UnavailableReason) {
     assert_eq!(menu.update(Input::SubmitCreate), vec![REDETECT]);
-    assert!(menu.busy());
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
     assert!(
         menu.apply(Event::Prefs(Prefs::default(), with_reason(reason)))
             .is_empty()
@@ -442,7 +445,10 @@ fn a_stale_docker_verdict_is_probed_again_before_the_modal() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     menu.update(Input::BeginCreate);
     assert_eq!(menu.update(Input::SubmitCreate), vec![REDETECT]);
-    assert_eq!((menu.screen(), menu.prompt()), (Screen::Create, None));
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
     let effects = menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
     assert!(
         matches!(effects.as_slice(), [Effect::Create(_)]),
@@ -451,16 +457,31 @@ fn a_stale_docker_verdict_is_probed_again_before_the_modal() {
     assert_eq!(menu.prompt(), None);
 }
 
+/// The probe runs behind a modal whose Cancel ends the action, so a late verdict never resumes it.
 #[test]
-fn backing_out_during_the_docker_probe_cancels_the_action() {
+fn cancelling_the_docker_probe_drops_the_action() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     menu.update(Input::BeginCreate);
     menu.update(Input::SubmitCreate);
-    menu.update(Input::Back);
+    assert!(menu.update(Input::Prompt(PromptButton::Retry)).is_empty());
+    menu.update(Input::Prompt(PromptButton::Cancel));
+    assert_eq!(menu.screen(), Screen::Create);
+    let idle = status(WorldState::Idle, "");
     assert!(
-        menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")))
+        menu.apply(Event::Prefs(Prefs::default(), idle.clone()))
             .is_empty()
     );
+    assert_eq!(menu.screen(), Screen::Create);
+
+    let mut bds = world("id0", "a");
+    bds.backend = Backend::Bds;
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.apply(Event::Listed(vec![bds]));
+    assert_eq!(menu.update(Input::Play), vec![REDETECT]);
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(menu.prompt(), prompt(PromptKind::Checking, PromptFor::Play));
+    menu.update(Input::Back);
+    assert!(menu.apply(Event::Prefs(Prefs::default(), idle)).is_empty());
     assert_eq!(menu.screen(), Screen::List);
 }
 
@@ -492,12 +513,18 @@ fn retry_redetects_and_continues_once_docker_is_up() {
         menu.update(Input::Prompt(PromptButton::Retry)),
         vec![REDETECT]
     );
-    assert!(menu.busy());
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
     menu.apply(Event::Prefs(
         Prefs::default(),
         with_reason(UnavailableReason::DockerNotRunning),
     ));
-    assert_eq!((menu.screen(), menu.busy()), (Screen::BackendPrompt, false));
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerNotRunning, PromptFor::CreateBds)
+    );
     menu.update(Input::Prompt(PromptButton::Retry));
     menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
     assert_eq!(menu.screen(), Screen::Create);

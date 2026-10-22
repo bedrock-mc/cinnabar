@@ -5,6 +5,8 @@ pub const DOCKER_URL: &str = "https://www.docker.com/products/docker-desktop/";
 /// Why BDS cannot run in Docker on macOS.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PromptKind {
+    /// Probing Docker again before asking the player to act.
+    Checking,
     DockerMissing,
     DockerNotRunning,
 }
@@ -37,6 +39,7 @@ pub struct Prompt {
 impl Prompt {
     pub fn title(self) -> &'static str {
         match self.kind {
+            PromptKind::Checking => "Checking for Docker",
             PromptKind::DockerMissing => "Docker is needed",
             PromptKind::DockerNotRunning => "Docker is not running",
         }
@@ -48,6 +51,7 @@ impl Prompt {
             PromptFor::CreateBds => "Worlds run",
         };
         let remedy = match self.kind {
+            PromptKind::Checking => return "Looking for a running Docker app.".to_owned(),
             PromptKind::DockerMissing => {
                 "Install a free Docker app such as Docker Desktop, OrbStack or Colima, start it, \
                  then choose Retry."
@@ -67,6 +71,7 @@ impl Prompt {
     pub fn buttons(self) -> &'static [PromptButton] {
         use PromptButton::*;
         match self.kind {
+            PromptKind::Checking => &[Cancel],
             PromptKind::DockerMissing => &[GetDocker, Retry, Cancel],
             PromptKind::DockerNotRunning => &[Retry, Cancel],
         }

@@ -502,6 +502,48 @@ mod tests {
     }
 
     /// Create-screen presses reach the module, and typed text lands in its form before submit.
+    /// Back during a saved world's Docker probe must reach the module, or a late verdict joins it.
+    #[test]
+    fn back_during_the_docker_probe_reaches_the_module() {
+        use launcher::local_worlds::world::{Prefs, UnavailableReason, World, WorldStatus};
+        use launcher::local_worlds::{Event, Input, WorldsMenu};
+
+        let mut worlds = WorldsMenu::default();
+        worlds.apply(Event::Listed(vec![World {
+            id: "saved".into(),
+            name: "Saved".into(),
+            game_mode: Default::default(),
+            generator: Default::default(),
+            difficulty: Default::default(),
+            backend: bridge::Backend::Bds,
+            seed: 1,
+            created_unix: 0,
+            last_played_unix: 0,
+            size_bytes: 0,
+        }]));
+        worlds.apply(Event::Prefs(
+            Prefs::default(),
+            WorldStatus {
+                state: bridge::WorldState::Idle,
+                world_id: None,
+                backend: None,
+                paused: false,
+                pause_supported: true,
+                error: None,
+                setup: None,
+                backend_unavailable_reason: Some(UnavailableReason::DockerMissing),
+                max_players: None,
+            },
+        ));
+        assert!(!worlds.update(Input::Play).is_empty());
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.local_ui.view = worlds.view();
+        menu.local_ui.actions.clear();
+        menu.go_back();
+        assert_eq!(menu.local_ui.actions, vec![LocalWorldAction::Back]);
+    }
+
     #[test]
     fn create_screen_presses_and_text_reach_the_module() {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
