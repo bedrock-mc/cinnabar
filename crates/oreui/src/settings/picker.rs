@@ -39,6 +39,12 @@ pub(super) fn draw(
         return Ok(());
     };
     let word = |key: &str| {
+        let is_fr = view.settings_options.language().is_some_and(|l| l.starts_with("fr"));
+        if is_fr {
+            if let Some(fr) = sections::french_text(key) {
+                return fr.to_owned();
+            }
+        }
         translate(key).map_or_else(
             || sections::fallback(key).to_owned(),
             |text| text.to_string(),

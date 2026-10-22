@@ -306,6 +306,12 @@ impl Content<'_, '_> {
         if key.is_empty() {
             return String::new();
         }
+        let is_fr = self.view.settings_options.language().is_some_and(|l| l.starts_with("fr"));
+        if is_fr {
+            if let Some(fr) = sections::french_text(key) {
+                return fr.to_owned();
+            }
+        }
         (self.translate)(key).map_or_else(
             || sections::fallback(key).to_owned(),
             |text| text.to_string(),

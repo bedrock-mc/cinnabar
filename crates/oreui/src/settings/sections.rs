@@ -614,6 +614,190 @@ fn discord(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     reset(content, SettingsGroup::Discord, "discord.settings.reset")
 }
 
+pub(super) fn french_text(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "options.on" | "On" | "gui.yes" | "True" | "true" => "Oui",
+        "options.off" | "Off" | "gui.no" | "False" | "false" => "Non",
+        "Automatic" => "Automatique",
+        "Low" => "Faible",
+        "Medium" => "Moyen",
+        "High" => "├ëlev├⌐",
+        "Reset" => "R├⌐initialiser",
+        "Open" => "Ouvrir",
+        "View" => "Afficher",
+        "Clear data" => "Effacer les donn├⌐es",
+        "Sign In" => "Se connecter",
+        "Sign Out" => "Se d├⌐connecter",
+        "Unassigned" => "Non attribu├⌐",
+
+        "options.cinnabar.advanced" => "Avanc├⌐",
+        "options.renderClouds" => "Afficher les nuages",
+        "options.renderClouds.description" => "Affiche les nuages dans le ciel.",
+        "options.showExactServerPing" => "Afficher le ping exact du serveur",
+        "options.showExactServerPing.description" => "Affiche la latence du serveur en millisecondes au lieu de Faible, Moyen ou ├ëlev├⌐.",
+        "options.oreuiDarkMode" => "Mode sombre",
+        "options.oreuiDarkMode.description" => "Utiliser des surfaces sombres pour les menus, param├¿tres et bo├«tes de dialogue.",
+        "options.framerateLimit.description" => "Choisissez une limite d'IPS ou Illimit├⌐. La VSync ou le taux de rafra├«chissement variable peuvent toujours limiter la fr├⌐quence.",
+        "options.framerateLimit.max" => "Illimit├⌐",
+        "options.fullscreen" => "Plein ├⌐cran",
+        "options.fullscreen.description" => "Activer ou d├⌐sactiver l'affichage plein ├⌐cran",
+        "options.guiScale.optionName.name" => "Taille de l'interface",
+        "options.guiScale.optionName.description" => "Ajustez la taille du HUD et des ├⌐l├⌐ments de l'interface pour faciliter leur utilisation.",
+        "options.guiScale.disabled" => "La mise ├á l'├⌐chelle de l'interface n'est pas prise en charge sur cet ├⌐cran.",
+        "options.guiAccessibilityScaling.name" => "Nouvelle interface tr├¿s grande",
+        "options.guiAccessibilityScaling.description" => "Augmenter la taille de l'interface pour plus de clart├⌐ et une lecture facile",
+        
+        "options.cinnabar.worldsFolder" => "Dossier des mondes",
+        "options.cinnabar.worldsFolder.description" => "Emplacement o├╣ vos mondes sont enregistr├⌐s",
+        "options.cinnabar.resourcePacksFolder" => "Dossier des packs de ressources",
+        "options.cinnabar.resourcePacksFolder.description" => "Emplacement o├╣ vos packs de ressources import├⌐s sont stock├⌐s",
+        "options.cinnabar.shaderPacksFolder" => "Dossier des shaders",
+        "options.cinnabar.shaderPacksFolder.description" => "Ajoutez des shaders Java ici ou glissez-d├⌐posez-les sur cette fen├¬tre",
+        "options.cinnabar.openFolder.buttonLabel" => "Ouvrir le dossier",
+        "options.cinnabar.shaderOptions" => "Param├¿tres du shader",
+        "options.cinnabar.shaderOptions.description" => "Options propres au pack s├⌐lectionn├⌐. Les appliquer recharge le pack.",
+        "options.cinnabar.shaderOptions.buttonLabel" => "Options du shaderΓÇª",
+
+        "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Visuel F5 immersif",
+        "options.f5SelfVisuals.description" => "Affiche le joueur complet en vue F5 (armure, cosm├⌐tiques, cape et pseudo tels que les autres joueurs vous voient).",
+        "options.estheticTab" | "options.estheticTab.name" => "Tab esth├⌐tique (Style Lunar)",
+        "options.estheticTab.description" => "Affiche le menu Tab avec l'en-t├¬te du serveur, fond moderne translucide et indicateurs de ping esth├⌐tiques.",
+
+        "menu.settings" | "hbui.Settings.title" => "Param├¿tres",
+        "menu.video.tab.title" | "options.video" => "Vid├⌐o",
+        "menu.video.tab.description" => "Ajuster les graphismes et la qualit├⌐ visuelle",
+        "menu.video.group.general" => "G├⌐n├⌐ral",
+        "menu.video.group.general.description" => "Param├¿tres vid├⌐o courants",
+        "menu.video.group.performance" => "Graphismes, performances et disposition",
+        "menu.video.group.performance.description" => "Contr├┤lez l'apparence et la fluidit├⌐ de Minecraft",
+        "menu.video.group.customization" => "Personnalisation de l'affichage",
+        "menu.video.group.customization.description" => "Construisez, streamez ou prenez des captures sans distractions",
+        "menu.video.group.accessibility" => "Accessibilit├⌐ : Vid├⌐o",
+        "menu.video.group.accessibility.description" => "Commandes pour rendre Minecraft plus agr├⌐able ├á jouer",
+        "menu.video.mode" => "Mode graphique",
+        "options.graphicsModeOptions.fancy" => "Graphismes d├⌐taill├⌐s",
+        "options.graphicsModeOptions.simple" => "Graphismes simples",
+
+        "menu.accessibility.tab.title" | "options.accessibility" => "Accessibilit├⌐",
+        "menu.accessibility.tab.description" => "Minecraft est pour tout le monde, y compris vous",
+        "menu.accessibility.tab.tts.title" => "Synth├¿se vocale",
+        "menu.accessibility.tab.tts.description" => "Ajustez la lecture vocale des textes ├á l'├⌐cran",
+        "menu.accessibility.tab.gameplay.title" => "Jouabilit├⌐",
+        "menu.accessibility.tab.gameplay.description" => "Modifier les options d'accessibilit├⌐ pour les mouvements de cam├⌐ra et le visuel",
+        "menu.accessibility.tab.ui.title" => "Interface utilisateur",
+        "menu.accessibility.tab.ui.description" => "Adapter l'interface du jeu ├á votre style de jeu",
+
+        "menu.keyboardAndMouse.tab.title" | "options.keyboardAndMouse" => "Clavier et souris",
+        "menu.keyboardAndMouse.tab.description" => "Ajuster les options d'entr├⌐e et l'attribution des touches",
+        "menu.keyboardAndMouse.tab.mappings.title" => "Attribution des touches",
+        "menu.keyboardAndMouse.tab.mappings.description" => "R├⌐attribuez toutes les touches clavier & souris pour jouer ├á votre fa├ºon",
+        "menu.keyboardAndMouse.tab.macros.title" => "Macros",
+        "menu.keyboardAndMouse.tab.macros.description" => "Ex├⌐cutez une commande avec la touche assign├⌐e et le modificateur de macro s├⌐lectionn├⌐.",
+        "options.commandMacro.placeholder" => "Commande ├á ex├⌐cuter",
+
+        "menu.controller.tab.title" | "options.controller" => "Manette",
+        "menu.controller.tab.description" => "Options d'entr├⌐e, sensibilit├⌐ et configuration des boutons de la manette",
+        "menu.controller.tab.mappings.title" => "Configuration des touches",
+        "menu.controller.tab.mappings.description" => "R├⌐attribuez les touches de la manette pour jouer ├á votre fa├ºon",
+
+        "menu.general.tab.title" | "options.general" => "G├⌐n├⌐ral",
+        "menu.general.tab.description" => "Divers param├¿tres, du r├⌐seau aux cr├⌐dits du jeu",
+        "menu.general.tab.pause.title" => "Pause",
+        "menu.general.tab.pause.description" => "Faire une pause lors d'une partie en solo",
+        "menu.general.tab.network.title" => "Param├¿tres r├⌐seau",
+        "menu.general.tab.network.description" => "Ajuster l'exp├⌐rience en ligne au niveau technique et social",
+        "menu.general.tab.miscellaneous.title" => "Divers",
+        "menu.general.tab.miscellaneous.description" => "R├⌐glages suppl├⌐mentaires",
+        "menu.general.tab.tutorial.title" => "Tutoriel",
+        "menu.general.tab.tutorial.description" => "Aide pour apprendre ├á jouer",
+
+        "menu.audio.tab.title" | "options.audio" => "Audio",
+        "menu.audio.tab.description" => "R├⌐gler le volume pour la musique et les effets sonores",
+
+        "menu.account.tab.title" | "options.account" => "Compte",
+        "menu.account.tab.description" => "Acc├⌐der aux informations de votre compte",
+        "menu.account.gamertag.title" => "Gamertag",
+        "menu.account.changeGamertag.title" => "Changer de Gamertag",
+        "menu.account.manageAccount.title" => "G├⌐rer le compte",
+        "menu.account.privacyAndSafety.title" => "Confidentialit├⌐ et s├⌐curit├⌐ en ligne",
+        "menu.account.realmMembershipInvites.title" => "G├⌐rer les invitations Realms",
+        "menu.account.signOutOfMicrosoft.title" => "Se d├⌐connecter de votre compte Microsoft",
+        "menu.account.signIn.title" => "Se connecter gratuitement",
+        "menu.account.changeGamertag.buttonLabel"
+        | "menu.account.manageAccount.buttonLabel"
+        | "menu.account.privacyAndSafety.buttonLabel" => "Ouvrir",
+        "menu.account.realmMembershipInvites.buttonLabel" => "G├⌐rer",
+        "menu.account.signOutOfMicrosoft.buttonLabel" => "D├⌐connexion",
+        "menu.account.signIn.buttonLabel" => "Connexion",
+        "menu.account.clearSignInData.buttonLabel" => "Effacer",
+
+        "menu.language.tab.title" | "options.language" => "Langue",
+        "menu.language.tab.description" => "S├⌐lectionnez votre langue pr├⌐f├⌐r├⌐e pour Minecraft",
+
+        "menu.storage.tab.title" | "options.storage" => "Stockage",
+        "menu.storage.tab.description" => "G├⌐rer les mondes, packs de ressources, packs de comportement et donn├⌐es en cache",
+        "hbui.Settings.storage.worlds.title" => "Mondes",
+        "hbui.Settings.storage.worldTemplates.title" => "Mod├¿les de monde",
+        "hbui.Settings.storage.resourcePacks.title" => "Packs de ressources",
+        "hbui.Settings.storage.behaviorPacks.title" => "Packs de comportement",
+        "storageManager.contentType.skinPacks" => "Packs de skins",
+        "hbui.Settings.storage.cachedData.title" => "Donn├⌐es en cache",
+        "hbui.Settings.storage.emptyList.title" => "Aucun %1$s trouv├⌐",
+        "hbui.Settings.storage.listHeader.delete" => "Supprimer",
+
+        "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => "Ressources globales",
+        "resourcePack.selected.title.packs" => "Actifs",
+        "resourcePack.available.title.packs" => "Mes packs",
+        "resourcePack.message.noneFound.packs" => "Aucun pack disponible sur cet appareil.",
+        "resourcePack.selected.remove" => "D├⌐sactiver",
+        "resourcePack.available.add" => "Activer",
+
+        "options.helpCenter" => "Centre d'aide",
+        "options.helpCenter.description" => "Obtenez des r├⌐ponses ├á toutes vos questions d'assistance",
+        "options.attribution" => "Attribution",
+        "options.attribution.description" => "Partenaires technologiques et syst├¿mes",
+        "options.licensed_content" => "Contenu sous licence",
+        "options.licensed_content.description" => "Tout le contenu sous licence disponible dans Minecraft",
+        "options.font_license" => "Licence de police",
+        "options.font_license.description" => "Licence pour les polices tierces",
+        "options.helpCenter.buttonLabel"
+        | "options.attribution.buttonLabel"
+        | "options.licensed_content.buttonLabel" => "Ouvrir",
+        "options.font_license.buttonLabel" => "Afficher",
+
+        "options.keyboardAndMouse.resetMappings" => "R├⌐initialiser les touches par d├⌐faut",
+        "options.keyboardAndMouse.resetMappings.description" => "Restaurer toutes les touches clavier & souris ├á leurs valeurs d'origine",
+        "options.controller.resetMappings" => "R├⌐initialiser les touches de la manette",
+        "options.controller.resetMappings.description" => "Restaurer toutes les touches de la manette ├á leurs valeurs d'origine",
+        "options.accessibility.resetSettings"
+        | "options.video.resetSettings"
+        | "options.sound.resetSettings" => "R├⌐tablir par d├⌐faut",
+        "options.accessibility.resetSettings.description" => "R├⌐tablir tous les param├¿tres d'accessibilit├⌐ ├á leurs valeurs d'origine",
+        "options.video.resetSettings.description" => "R├⌐tablir tous les param├¿tres vid├⌐o ├á leurs valeurs d'origine",
+        "options.sound.resetSettings.description" => "R├⌐tablir toutes les options sonores ├á leurs valeurs d'origine",
+        "options.keyboardAndMouse.resetMappings.buttonLabel"
+        | "options.controller.resetMappings.buttonLabel"
+        | "options.accessibility.resetSettings.buttonLabel"
+        | "options.video.resetSettings.buttonLabel"
+        | "options.sound.resetSettings.buttonLabel"
+        | "options.key.reset.buttonLabel" => "R├⌐initialiser",
+
+        "options.dev_clearAllCache" => "Effacer tout le cache",
+        "options.dev_clearDownloadeCache.name" => "Effacer le cache de t├⌐l├⌐chargement",
+        "options.dev_deleteLocalScreenshots" => "Supprimer les captures d'├⌐cran locales",
+
+        "menu.touch.tab.title" | "options.touch" => "Tactile",
+        "menu.touch.tab.description" => "Options d'entr├⌐e, sensibilit├⌐ et configuration des boutons tactiles",
+        "menu.party.tab.title" | "options.party" => "Groupe",
+        "options.partyInviteReceivedFilter" => "Recevoir des invitations de",
+        "options.partyPrivacy" => "Confidentialit├⌐ par d├⌐faut",
+        "options.partyInviteSendPrivileges" => "Qui peut inviter dans votre groupe",
+
+        _ => return None,
+    })
+}
+
+
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",

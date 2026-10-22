@@ -181,6 +181,11 @@ pub(super) fn draw(
     let labels: Vec<_> = tabs
         .iter()
         .map(|Tab { title: key, .. }| {
+            if view.settings_options.language().is_some_and(|l| l.starts_with("fr")) {
+                if let Some(fr) = sections::french_text(key) {
+                    return fr.to_owned();
+                }
+            }
             translate(key).map_or_else(
                 || sections::fallback(key).to_owned(),
                 |text| text.to_string(),
@@ -208,10 +213,16 @@ pub(super) fn draw(
     for (index, (tab, label)) in tabs.iter().zip(&labels).enumerate() {
         let selector = tab.section;
         if let Some(group) = tab.group {
-            let text = translate(group).map_or_else(
-                || sections::fallback(group).to_owned(),
-                |text| text.to_string(),
-            );
+            let text = if view.settings_options.language().is_some_and(|l| l.starts_with("fr"))
+                && let Some(fr) = sections::french_text(group)
+            {
+                fr.to_owned()
+            } else {
+                translate(group).map_or_else(
+                    || sections::fallback(group).to_owned(),
+                    |text| text.to_string(),
+                )
+            };
             y = group_label(canvas, &text, [viewport[0], right], y)?;
         }
         let action = MenuAction::SettingsSection(section_index(selector));

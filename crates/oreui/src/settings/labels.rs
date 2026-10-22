@@ -46,11 +46,17 @@ impl Content<'_, '_> {
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
         } else if description.is_empty() {
-            let fallback = super::sections::fallback(&description_key);
-            if fallback == description_key {
-                String::new()
+            if self.view.settings_options.language().is_some_and(|l| l.starts_with("fr"))
+                && let Some(fr) = super::sections::french_text(&description_key)
+            {
+                fr.to_owned()
             } else {
-                fallback.to_owned()
+                let fallback = super::sections::fallback(&description_key);
+                if fallback == description_key {
+                    String::new()
+                } else {
+                    fallback.to_owned()
+                }
             }
         } else {
             description
