@@ -273,7 +273,9 @@ Vertical follow and damping restrain jump and landing motion, and local cloth ke
 advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
-on disconnect or revocation; production rollout qualification remains open.
+on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
+and excluded from pointer and keyboard wear selection; production rollout
+qualification remains open.
 
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
@@ -403,8 +405,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 The inherited interaction acceptance scope also includes full item identity and use phases,
 replacement/deferred releases, mounted inventory, sign filtering/length/structured text,
 native emote admission/cancellation/timing, overlapping dimension/respawn loading screens,
-and server-authored chat hover/input behavior. Keep native input state independent of
-custom emote playback and presentation-only changes.
+and server-authored chat hover/input behavior. Respawn readiness retires the death route
+and pending retries independently of a later health refresh, in UI packet order; a later
+authoritative life-to-death transition opens a fresh route. Regression coverage does not
+close live server, loading-screen or other-device acceptance. Keep native input state
+independent of custom emote playback and presentation-only changes.
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
@@ -453,6 +458,9 @@ imported entry. Declared sizes, identity, digests and framing remain validated. 
 selections preserve service errors and wait for the account core result. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
 preparation and broader sparse-startup coverage.
+Server handoff keeps the advertised UUID and version for stack selection when a valid
+archive's manifest names another identity; local imports and library selections still match
+exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
@@ -487,6 +495,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Keep browser gesture activation and background work within the host's event-loop rules.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
+  Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.
+  Launcher text fields request platform IME input, and the People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry and full device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
