@@ -65,6 +65,11 @@ impl CommittedGameplayState<'_> {
         world: &impl CollisionWorld,
         mut observe: impl FnMut(ControlObservation),
     ) -> ControlDisposition {
+        if let CommittedControlEvent::LocalActorMove { movement, .. } = control
+            && movement.dimension != self.dimension
+        {
+            return ControlDisposition::Handled;
+        }
         if let CommittedControlEvent::LocalHurt {
             source_direction, ..
         } = control
@@ -308,6 +313,15 @@ impl CommittedGameplayState<'_> {
                         correction.on_ground,
                     );
                 }
+                SpatialReset::Correction
+            }
+            CommittedControlEvent::LocalActorMove {
+                movement: correction,
+                resolved,
+                ..
+            } => {
+                self.physics
+                    .apply_server_actor_position(resolved.position, correction.on_ground);
                 SpatialReset::Correction
             }
             CommittedControlEvent::ChangeDimension { resolved, .. } => {

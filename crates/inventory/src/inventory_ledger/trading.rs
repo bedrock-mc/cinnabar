@@ -381,7 +381,7 @@ impl PlayerInventoryLedger {
             && self.trade_consumption(trade).is_some()
     }
 
-    /// Allocates one recipe's payment, allowing a single ingredient in either input cell.
+    /// Allocates one recipe's payment, allowing either ingredient in either input cell.
     fn trade_consumption(&self, trade: &ResolvedTrade) -> Option<[u16; 2]> {
         let WindowKind::Trade { modern } = self.window_kind()? else {
             return None;
@@ -395,11 +395,15 @@ impl PlayerInventoryLedger {
         let first = trade.inputs[0].as_ref()?;
         if trade.offer.inputs[1].is_some() {
             let second = trade.inputs[1].as_ref()?;
-            return (trade_item_matches(held[0]?, first)
-                && held[0]?.count >= first.count
-                && trade_item_matches(held[1]?, second)
-                && held[1]?.count >= second.count)
-                .then_some([first.count, second.count]);
+            let pays = |stack: &NetworkItemStack, wanted: &NetworkItemStack| {
+                trade_item_matches(stack, wanted) && stack.count >= wanted.count
+            };
+            // Either cell may hold either ingredient.
+            if pays(held[0]?, first) && pays(held[1]?, second) {
+                return Some([first.count, second.count]);
+            }
+            return (pays(held[0]?, second) && pays(held[1]?, first))
+                .then_some([second.count, first.count]);
         }
         if let [Some(a), Some(b)] = held
             && !Self::same_item(a, b)

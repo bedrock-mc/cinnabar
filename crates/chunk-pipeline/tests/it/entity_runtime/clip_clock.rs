@@ -64,6 +64,7 @@ fn move_to(stream: &mut WorldStream, sequence: u64, x: f32, teleported: bool) {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: Some(sequence),
                 interpolation: Default::default(),

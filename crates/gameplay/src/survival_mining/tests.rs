@@ -13,11 +13,13 @@ use super::{
 use crate::movement::{MovementSource, MovementTicker, flush_player_auth_inputs};
 
 mod attack_admission;
+mod creative_destroy;
 mod custom_mining;
 mod painting_attacks;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
     DestroyTarget {
+        local_runtime_id: 8,
         position,
         face: 1,
         runtime_id: 9,
@@ -389,8 +391,10 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
 fn only_zero_hardness_breaks_on_the_start_tick() {
     let torch = target([2, 2, 2], "minecraft:torch", None);
     let mut machine = DestroyMachine::default();
+    let completed = held(&mut machine, &torch, Server);
+    assert!(completed.creative_destroy.is_none());
     assert_eq!(
-        kinds(&held(&mut machine, &torch, Server)),
+        kinds(&completed),
         [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
     );
     let next = target([2, 1, 2], "minecraft:torch", None);

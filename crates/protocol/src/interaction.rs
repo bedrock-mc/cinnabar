@@ -600,6 +600,22 @@ pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> 
     })
 }
 
+/// Requests that the server destroy the targeted block as a creative player action.
+#[must_use]
+pub fn creative_destroy_block_packet(
+    local_runtime_id: u64,
+    block_position: [i32; 3],
+    face: u8,
+) -> crate::Packet {
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::Creativedestroyblock,
+        block_position: block_pos(block_position),
+        result_pos: block_pos([0; 3]),
+        face: wire::ZigZag32(i32::from(face)),
+    })
+}
+
 /// Builds the PlayerAction that asks the server to wake the local player.
 #[must_use]
 pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {

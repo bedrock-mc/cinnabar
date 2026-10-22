@@ -15,10 +15,37 @@ use super::*;
 
 mod action_scopes;
 mod auto_allocation;
+mod book_output;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
+mod extra_results;
 mod item_data;
 mod output_identity;
+
+/// The inventory stacks the newest request placed from its created output, in action order.
+fn placed_outputs(ledger: &PlayerInventoryLedger) -> Vec<(u8, NetworkItemStack)> {
+    ledger
+        .newest_request()
+        .unwrap()
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Place {
+                source,
+                destination,
+                ..
+            } if source.container == StackRequestContainer::CreatedOutput
+                && destination.container == StackRequestContainer::CombinedInventory =>
+            {
+                let slot = destination.slot;
+                ledger
+                    .target_stack(InventoryTarget::Player(slot))
+                    .map(|stack| (slot, stack.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
 
 const LOG: i32 = 6;
 const PLANKS: i32 = 7;
@@ -814,7 +841,7 @@ fn rebased_crafting_preserves_same_request_output_references() {
             .unwrap();
         assert!(ledger.mark_transport_enqueued(20));
         let craft = if automatic {
-            ledger.begin_auto_craft(&recipe)
+            ledger.begin_auto_craft(&recipe, false)
         } else {
             ledger.begin_craft(&recipe, 1)
         }
@@ -826,20 +853,41 @@ fn rebased_crafting_preserves_same_request_output_references() {
         assert!(actions.iter().any(|action| matches!(action,
             StackActionObservation::Consume { source, .. } if source.stack_network_id == 91
         )));
-        assert!(
-            matches!(actions.last(), Some(StackActionObservation::Take { source, .. })
-            if source.stack_network_id == craft)
-        );
         assert_eq!(ledger.target_stack(target).unwrap().count, 1);
-        assert_eq!(ledger.cursor_stack().unwrap().network_id, PLANKS);
-        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
-        assert!(ledger.mark_transport_enqueued(21));
-        respond(
-            &mut ledger,
-            craft,
-            &[(container, slot, 1, 92), (CONTAINER_NAME_CURSOR, 0, 1, 93)],
-        );
-        assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 93);
+        if automatic {
+            let placed = placed_outputs(&ledger);
+            assert_eq!(placed.len(), 1);
+            let (output_slot, output) = &placed[0];
+            assert_eq!((output.network_id, output.count), (PLANKS, 1));
+            assert!(ledger.cursor_stack().is_none());
+            assert!(ledger.mark_transport_enqueued(21));
+            respond(
+                &mut ledger,
+                craft,
+                &[(container, slot, 1, 92), (container, *output_slot, 1, 93)],
+            );
+            assert_eq!(
+                ledger
+                    .target_stack(InventoryTarget::Player(*output_slot))
+                    .unwrap()
+                    .stack_network_id,
+                93
+            );
+        } else {
+            assert!(
+                matches!(actions.last(), Some(StackActionObservation::Take { source, .. })
+                if source.stack_network_id == craft)
+            );
+            assert_eq!(ledger.cursor_stack().unwrap().network_id, PLANKS);
+            assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+            assert!(ledger.mark_transport_enqueued(21));
+            respond(
+                &mut ledger,
+                craft,
+                &[(container, slot, 1, 92), (CONTAINER_NAME_CURSOR, 0, 1, 93)],
+            );
+            assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 93);
+        }
         assert!(!ledger.resync_required());
     }
 }
