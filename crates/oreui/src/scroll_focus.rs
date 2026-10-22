@@ -19,9 +19,11 @@ pub(super) fn reveal(
     };
     // Controls outside the scroll view whose columns they share, such as the Shader Pack
     // Settings footer: revealing one would scroll that view to its end.
-    let fixed = *action == MenuAction::AddBack
-        || (view.screen == launcher::menu::MenuScreen::AddServer
-            && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
+    let fixed = matches!(
+        *action,
+        MenuAction::AddBack | MenuAction::SearchSettings | MenuAction::ClearSettingsSearch
+    ) || (view.screen == launcher::menu::MenuScreen::AddServer
+        && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
         || (*action == MenuAction::SettingsScalePicker && view.settings.scale_picker)
         || matches!(action, MenuAction::SettingsDropdown(index) if view.settings.dropdown == Some(*index))
         || matches!(

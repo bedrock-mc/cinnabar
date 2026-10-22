@@ -65,7 +65,7 @@ mod tests {
             ),
             (
                 SettingsGroup::Accessibility,
-                SettingId::ChatBackgroundOpacity,
+                SettingId::HudTextBackgroundOpacity,
                 SettingId::FieldOfView,
             ),
             (

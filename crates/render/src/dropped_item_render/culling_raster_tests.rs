@@ -263,7 +263,7 @@ fn item_culling_preserves_pixels_from_faces_edges_and_corners() {
         pixel[3] = 255;
     }
     let models = [
-        (DroppedItemModel::Sprite(sprite.clone()), false),
+        (DroppedItemModel::Sprite(sprite.clone()), true),
         (DroppedItemModel::Sprite(opaque_sprite), true),
         (DroppedItemModel::NativeSprite(sprite), true),
         (DroppedItemModel::Cube(cube), true),
