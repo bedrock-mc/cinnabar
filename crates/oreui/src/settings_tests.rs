@@ -507,7 +507,7 @@ fn settings_choice_rows_select_their_own_values() {
         ("video_forced_index", "third_person"),
         ("accessibility_forced_index", "toast_notification_duration"),
         ("accessibility_forced_index", "chat_message_duration"),
-        ("creator_forced_index", "content_log_gui_level"),
+        ("keyboard_and_mouse_forced_index", "macro_modifier"),
     ] {
         let mut view = settings_view(section);
         let index = option_index(name);
@@ -591,7 +591,7 @@ fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
             "controller_sensitivity",
         ),
         ("sound_forced_index", "main_volume"),
-        ("accessibility_forced_index", "texttospeech_volume"),
+        ("accessibility_forced_index", "hud_text_background_opacity"),
     ] {
         let mut view = settings_view(section);
         view.settings.advanced_graphics = section == "video_forced_index";
@@ -854,5 +854,31 @@ fn server_settings_tab_is_available_only_over_a_session() {
         view.over_world = over_world;
         let frame = paint(&view, [1280.0, 1600.0], HashMap::new());
         assert_eq!(frame.hits.iter().any(|(hit, _)| *hit == action), over_world);
+    }
+}
+
+/// Party offered only inert Xbox party rows and is gone from the sidebar. Every remaining page
+/// still paints and lists every remaining tab, so navigation between them is unchanged.
+#[test]
+fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
+    use launcher::menu::settings_sections::{SETTINGS_TABS, SettingSection};
+    let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
+        .iter()
+        .map(|(name, _)| section_index(name))
+        .collect();
+    assert!(!expected.contains(&SettingSection::Party.definition().index));
+    for (name, _) in SETTINGS_TABS {
+        let mut view = settings_view(name);
+        view.over_world = true;
+        let frame = paint(&view, [1280.0, 4000.0], HashMap::new());
+        let tabs: std::collections::BTreeSet<_> = frame
+            .hits
+            .iter()
+            .filter_map(|(action, _)| match action {
+                MenuAction::SettingsSection(index) => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tabs, expected, "from {name}");
     }
 }

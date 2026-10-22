@@ -815,7 +815,7 @@ const STATES: &[State] = &[
         name: "settings-general",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_screens::settings_general_toggle(SettingId::EcomodeToggle),
+        fixture: || settings_screens::settings_general_toggle(SettingId::FilterProfanity),
     },
     State {
         name: "settings-updates",
