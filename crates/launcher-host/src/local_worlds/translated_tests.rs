@@ -20,6 +20,7 @@ fn library_fixture() -> (TranslationPin, Vec<u8>) {
         guest_bytes: library.len() as u64,
         guest_library,
         native_runtime: NativeRuntime {
+            sha256: "native runtime fixture".to_owned(),
             libraries: vec![
                 NativeLibrary {
                     packaged: "loader".to_owned(),
@@ -49,11 +50,11 @@ fn pinned_guest_library_is_verified_without_an_archive() {
 fn translated_server_uses_only_a_nonempty_exported_platform_trust_bundle() {
     let dir = scratch();
     let (pin, library) = library_fixture();
-    let translation = Translation {
-        helper: dir.path().join("translator"),
-        cache: dir.path().join("runtime"),
+    let translation = Translation::new(
+        dir.path().join("translator"),
+        dir.path().join("runtime"),
         pin,
-    };
+    );
     let guest = translation.cache.join(&translation.pin.revision);
     fs::create_dir_all(&guest).unwrap();
     fs::write(guest.join(&translation.pin.guest_library), library).unwrap();
@@ -70,7 +71,8 @@ fn translated_server_uses_only_a_nonempty_exported_platform_trust_bundle() {
         }
         let command = translation
             .command(&dir.path().join("server"), &provisioner, &Cancel::never())
-            .unwrap();
+            .unwrap()
+            .0;
         let exported = command
             .get_envs()
             .find(|(key, _)| *key == "SSL_CERT_FILE")
@@ -91,11 +93,7 @@ fn a_missing_guest_downloads_once_and_then_works_from_cache() {
     let (mut pin, library) = library_fixture();
     let service = FakeMojang::start("unused", library.clone());
     pin.guest_base_url = format!("{}/bin-linux/", service.base);
-    let translation = Translation {
-        helper: dir.path().join("unused"),
-        cache: dir.path().into(),
-        pin,
-    };
+    let translation = Translation::new(dir.path().join("unused"), dir.path().into(), pin);
     let provisioner = service.provisioner(dir.path());
     for _ in 0..2 {
         translation
@@ -117,11 +115,7 @@ fn wrong_download_lengths_preserve_the_previous_library_and_legacy_archive() {
         let (mut pin, _) = library_fixture();
         let service = FakeMojang::start("unused", bytes);
         pin.guest_base_url = format!("{}/bin-linux/", service.base);
-        let translation = Translation {
-            helper: dir.path().join("unused"),
-            cache: dir.path().into(),
-            pin,
-        };
+        let translation = Translation::new(dir.path().join("unused"), dir.path().into(), pin);
         fs::write(dir.path().join("libguest.so"), b"previous").unwrap();
         fs::write(dir.path().join(LEGACY_SOURCE_ARCHIVE), b"legacy").unwrap();
         assert!(
@@ -210,6 +204,7 @@ fn android_detection_requires_the_bundled_helper_and_does_not_change_desktop_hos
 #[test]
 fn a_translated_world_uses_cached_guest_code_and_saves_on_stop() {
     use crate::local_worlds::test_support::{FAKE_BDS, installed_provisioner, spec, write_script};
+    use crate::local_worlds::unpack::INSTALL_MANIFEST;
     use std::{os::unix::fs::PermissionsExt, sync::Arc};
 
     let dir = scratch();
@@ -224,6 +219,11 @@ fn a_translated_world_uses_cached_guest_code_and_saves_on_stop() {
     provisioner.set_runtime(RuntimeInfo::translated());
     let server = provisioner.installed().unwrap().0;
     fs::set_permissions(&server, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(
+        install_dir(&server).unwrap().join(INSTALL_MANIFEST),
+        br#"{"zip_sha256":"archive fixture"}"#,
+    )
+    .unwrap();
     let helper = dir.path().join("translator");
     write_script(
         &helper,
@@ -231,6 +231,8 @@ fn a_translated_world_uses_cached_guest_code_and_saves_on_stop() {
 printf '%s' "$1" > "$0.guest"
 printf '%s' "$BOX64_LD_LIBRARY_PATH" > "$0.paths"
 printf '%s' "$BOX64_DYNAREC_STRONGMEM" > "$0.memory"
+printf '%s\n' "${BOX64_DYNACACHE-unset} ${BOX64_NORCFILES-unset} ${BOX64_DYNACACHE_FOLDER+folder}" >> "$0.cache"
+trap '[ "$BOX64_DYNACACHE" != 1 ] || printf code > "$BOX64_DYNACACHE_FOLDER/bedrock_server-1-2.box64"' EXIT
 . "$1"
 "#,
     );
@@ -243,19 +245,34 @@ printf '%s' "$BOX64_DYNAREC_STRONGMEM" > "$0.memory"
     let service = FakeMojang::start("unused", library.clone());
     pin.guest_base_url = format!("{}/bin-linux/", service.base);
     let cache = dir.path().join("runtime");
+    let code_root = cache.join(CODE_CACHE_DIR);
     let guest_dir = cache.join(&pin.revision);
     fs::create_dir_all(&guest_dir).unwrap();
     fs::write(guest_dir.join(&pin.guest_library), &library).unwrap();
     fs::write(guest_dir.join(LEGACY_SOURCE_ARCHIVE), b"legacy archive").unwrap();
+    let cache_launches = || {
+        fs::read_to_string(helper.with_extension("cache"))
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
     let mut runner = BdsRunner::new(Arc::new(provisioner), String::new());
-    runner.translation = Some(Translation {
-        helper: helper.clone(),
-        cache,
-        pin,
-    });
+    runner.translation = Some(Translation::new(helper.clone(), cache, pin));
     runner.start_timeout = Some(test_time::DEFAULT_TIMEOUT);
     let world = spec(&dir.path().join("world"));
     let instance = runner.start(&world, &Cancel::never()).unwrap();
+    // The new world's create run writes the code cache at its stop, and the final run only reads it.
+    assert_eq!(cache_launches(), ["1 1 folder", "2 1 folder"]);
+    let generations: Vec<_> = fs::read_dir(&code_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(generations.len(), 1);
+    assert_eq!(
+        fs::read(generations[0].join("bedrock_server-1-2.box64")).unwrap(),
+        b"code"
+    );
     assert_eq!(
         fs::read_to_string(loader.with_extension("args"))
             .unwrap()
@@ -314,6 +331,54 @@ printf '%s' "$BOX64_DYNAREC_STRONGMEM" > "$0.memory"
     );
     assert_eq!(service.hits.load(std::sync::atomic::Ordering::SeqCst), 1);
     reopened.stop(test_time::DEFAULT_TIMEOUT).unwrap();
+    assert_eq!(cache_launches(), ["1 1 folder", "2 1 folder", "2 1 folder"]);
+    assert_eq!(
+        fs::read(generations[0].join("bedrock_server-1-2.box64")).unwrap(),
+        b"code"
+    );
+}
+
+#[test]
+fn the_code_cache_identity_follows_the_server_install_translator_bytes_and_pins() {
+    use crate::local_worlds::unpack::INSTALL_MANIFEST;
+
+    let dir = scratch();
+    let (pin, _) = library_fixture();
+    let install = dir.path().join("install");
+    fs::create_dir_all(&install).unwrap();
+    let helper = dir.path().join("helper");
+    fs::write(&helper, b"translator").unwrap();
+    let generation = |pin: &TranslationPin| {
+        Translation::new(helper.clone(), dir.path().join("runtime"), pin.clone())
+            .code_cache(&install)
+            .map(|cache| cache.generation())
+    };
+    let record = |digest: &str| {
+        let manifest = serde_json::json!({ "zip_sha256": digest }).to_string();
+        fs::write(install.join(INSTALL_MANIFEST), manifest).unwrap();
+    };
+    assert_eq!(generation(&pin), None, "an install without a manifest");
+    record("first");
+    let first = generation(&pin).unwrap();
+    assert!(first.starts_with(dir.path().join("runtime").join(CODE_CACHE_DIR)));
+    assert_eq!(generation(&pin).unwrap(), first);
+    let mut changed = vec![];
+    record("second");
+    changed.push(generation(&pin));
+    record("first");
+    let mut native = pin.clone();
+    native.native_runtime.sha256 = "other native runtime".to_owned();
+    changed.push(generation(&native));
+    let mut guest = pin.clone();
+    guest.guest_sha256 = "other guest".to_owned();
+    changed.push(generation(&guest));
+    fs::write(&helper, b"patched translator").unwrap();
+    changed.push(generation(&pin));
+    for other in &changed {
+        assert_ne!(other.as_ref().unwrap(), &first);
+    }
+    fs::remove_file(&helper).unwrap();
+    assert_eq!(generation(&pin), None, "an unreadable translator");
 }
 
 #[cfg(unix)]
@@ -342,11 +407,7 @@ fn runtime_setup_failure_removes_the_world_link_and_preserves_its_data() {
     )
     .unwrap();
     let mut runner = BdsRunner::new(Arc::new(provisioner), String::new());
-    runner.translation = Some(Translation {
-        helper: dir.path().join("unused"),
-        cache,
-        pin,
-    });
+    runner.translation = Some(Translation::new(dir.path().join("unused"), cache, pin));
     let world = spec(&dir.path().join("world"));
     assert!(runner.start(&world, &Cancel::never()).is_err());
     assert_eq!(

@@ -618,10 +618,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   performance and 4/16 KB compatibility acceptance remain incomplete.
   Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
   Setup refreshes a private export of Android's default accepted certificate authorities and supplies it
-  to the translated server's TLS stack. Runtime consumption passes in the emulator sandbox; startup improvement needs acceptance;
+  to the translated server's TLS stack. An emulator check confirms the server reads the bundle;
+  its effect on service authentication and startup time needs acceptance;
   the ten-second startup and join target is unverified.
   The guest library is downloaded directly and hash-checked, with valid cached copies reused;
   the source archive is needed only by the build toolchain.
+  Translated code is cached after a clean shutdown for the matching server and packaged runtime.
+  Later starts load it without rewriting it at each stop; the first start still needs translation.
+  Cache writes are skipped before allocation if they would exceed the 512 MiB cache budget or
+  leave less than 512 MiB free. Physical-phone timing, shutdown, storage
+  and executable-cache acceptance remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
   The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,

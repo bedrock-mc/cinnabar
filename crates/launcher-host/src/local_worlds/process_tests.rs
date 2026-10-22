@@ -53,6 +53,7 @@ done
             true,
             ready_line,
             "console fixture".into(),
+            None,
         )
         .expect("spawn");
         await_ready(spawned, test_time::DEFAULT_TIMEOUT, &Cancel::never()).expect("ready")
@@ -259,4 +260,105 @@ fn a_discarded_standby_server_exits() {
     test_time::eventually("the standby to exit", || {
         matches!(exited.try_recv(), Err(TryRecvError::Disconnected))
     });
+}
+
+#[cfg(unix)]
+type RecordedEndings = Arc<Mutex<Vec<Ending>>>;
+
+/// Launches `binary` with a hook that records how it ended.
+#[cfg(unix)]
+fn launch_recorded(
+    binary: &Path,
+    timeout: Duration,
+    cancel: &Cancel,
+) -> (Result<Arc<Process>, WorldError>, RecordedEndings) {
+    let endings = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&endings);
+    let launched = launch(
+        Command::new(binary),
+        Launch {
+            address: String::new(),
+            timeout,
+            can_pause: false,
+            ready: ready_line,
+            label: "hook fixture".into(),
+            on_exit: Some(Box::new(move |ending| lock(&recorded).push(ending))),
+        },
+        cancel,
+    );
+    (launched, endings)
+}
+
+/// Each launch reports its ending once, before its exit is observable or its failed launch returns.
+#[cfg(unix)]
+#[test]
+fn every_launch_reports_how_it_ended_before_its_exit() {
+    let dir = scratch();
+    let script = |name: &str, body: &[u8]| {
+        let path = dir.path().join(name);
+        write_script(&path, body);
+        path
+    };
+    let server = script("server", FAKE_SERVER);
+    let (launched, endings) =
+        launch_recorded(&server, test_time::DEFAULT_TIMEOUT, &Cancel::never());
+    let process = launched.expect("ready");
+    assert!(lock(&endings).is_empty());
+    process.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    assert_eq!(*lock(&endings), [Ending::Clean]);
+
+    let crash_on_stop = script(
+        "crash-on-stop",
+        b"#!/bin/sh\necho ready\nwhile IFS= read -r line; do\n  [ \"$line\" = stop ] && exit 134\ndone\n",
+    );
+    let (launched, endings) =
+        launch_recorded(&crash_on_stop, test_time::DEFAULT_TIMEOUT, &Cancel::never());
+    let process = launched.expect("ready");
+    let _ = process.stop(test_time::DEFAULT_TIMEOUT);
+    assert_eq!(*lock(&endings), [Ending::Failed]);
+
+    let crash = script("crash", b"#!/bin/sh\nexit 3\n");
+    let (launched, endings) = launch_recorded(&crash, test_time::DEFAULT_TIMEOUT, &Cancel::never());
+    assert!(launched.is_err());
+    assert_eq!(*lock(&endings), [Ending::Failed]);
+
+    let silent = script(
+        "silent",
+        b"#!/bin/sh\nwhile IFS= read -r line; do :; done\n",
+    );
+    let (launched, endings) = launch_recorded(&silent, Duration::ZERO, &Cancel::never());
+    assert!(launched.is_err(), "a start timeout");
+    assert_eq!(*lock(&endings), [Ending::Failed]);
+
+    let (handle, cancel) = crate::local_worlds::cancel_pair();
+    drop(handle);
+    let (launched, endings) = launch_recorded(&silent, test_time::DEFAULT_TIMEOUT, &cancel);
+    assert!(matches!(launched, Err(WorldError::Cancelled)));
+    assert_eq!(*lock(&endings), [Ending::Cancelled]);
+
+    let (launched, endings) = launch_recorded(
+        &dir.path().join("missing"),
+        test_time::DEFAULT_TIMEOUT,
+        &Cancel::never(),
+    );
+    assert!(launched.is_err());
+    assert_eq!(*lock(&endings), [Ending::Unstarted]);
+}
+
+/// A cancelled start that ended any way other than its kill, such as a crash, is a failure.
+#[cfg(unix)]
+#[test]
+fn a_cancellation_does_not_hide_a_crash() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let killed = ExitStatus::from_raw(libc::SIGKILL);
+    let aborted = ExitStatus::from_raw(libc::SIGABRT);
+    let exited = ExitStatus::from_raw(134 << 8);
+    assert_eq!(ending(Some(killed), true), Ending::Cancelled);
+    assert_eq!(ending(Some(killed), false), Ending::Failed);
+    for crash in [aborted, exited] {
+        assert_eq!(ending(Some(crash), true), Ending::Failed);
+    }
+    assert_eq!(ending(None, true), Ending::Failed);
+    assert_eq!(ending(Some(ExitStatus::from_raw(0)), true), Ending::Clean);
 }

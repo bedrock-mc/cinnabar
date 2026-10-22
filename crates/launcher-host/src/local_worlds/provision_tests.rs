@@ -2,6 +2,7 @@ use std::sync::atomic::Ordering;
 
 use super::*;
 use crate::local_worlds::test_support::{FakeMojang, VERSION, build_zip, scratch};
+use crate::local_worlds::unpack::INSTALL_MANIFEST;
 
 const MAC: Platform = Platform {
     os: "darwin",
@@ -32,7 +33,7 @@ fn translated_servers_download_and_record_the_linux_platform() {
     provisioner.accept_eula().unwrap();
     let server = provisioner.ensure(&Cancel::never()).unwrap();
     let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(server.parent().unwrap().join("manifest.json")).unwrap())
+        serde_json::from_slice(&fs::read(server.parent().unwrap().join(INSTALL_MANIFEST)).unwrap())
             .unwrap();
     assert_eq!(manifest["platform"], "linux/amd64");
     assert!(manifest["url"].as_str().unwrap().contains("/bin-linux/"));
@@ -79,7 +80,7 @@ fn ensure_requires_the_eula_then_downloads_and_records_provenance() {
         install.file_name().and_then(|name| name.to_str()),
         Some("1.26.52.3")
     );
-    let manifest = fs::read_to_string(install.join("manifest.json")).expect("manifest");
+    let manifest = fs::read_to_string(install.join(INSTALL_MANIFEST)).expect("manifest");
     assert!(manifest.contains("\"zip_sha256\": \""), "{manifest}");
     assert!(
         manifest.contains("/bin-linux/bedrock-server-1.26.52.3.zip"),

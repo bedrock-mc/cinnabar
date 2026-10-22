@@ -1,4 +1,5 @@
-# Add Android's application-safe interface enumeration and name resolution to the Linux translator.
+# Add Android's application-safe interface enumeration and name resolution, and the code cache's
+# write budget, to the Linux translator.
 enable_language(CXX)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../runtime.json")
 function(cinnabar_android_network)
@@ -41,3 +42,9 @@ function(cinnabar_android_network)
     set_target_properties(box64 PROPERTIES LINKER_LANGUAGE C)
 endfunction()
 cmake_language(DEFER CALL cinnabar_android_network)
+function(cinnabar_cache_budget)
+    # Plain C for the patched cache writer; it needs no C++ runtime.
+    target_sources(mainobj PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cache_budget.c")
+    target_include_directories(mainobj PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
+endfunction()
+cmake_language(DEFER CALL cinnabar_cache_budget)

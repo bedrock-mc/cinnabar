@@ -188,6 +188,61 @@ if name == pin["helper_library"]:
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("routed loopback adapter ok", result.stdout)
 
+    def test_code_cache_writes_stay_within_the_folder_limit_and_free_space(self):
+        """Run the translator's cache write budget against real files in a temporary folder."""
+        if sys.platform != "linux":
+            self.skipTest("missing fixture: Linux host for the translator cache budget")
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("missing fixture: C compiler for the translator cache budget")
+        box64 = ROOT / "packaging/android/box64"
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "cache-budget"
+            folder = Path(temporary) / "cache"
+            folder.mkdir()
+            result = subprocess.run([
+                compiler, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-I", str(box64),
+                str(box64 / "cache_budget.c"), str(ROOT / "packaging/tests/android_cache_budget.c"),
+                "-o", str(executable),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(executable), str(folder)], capture_output=True, text=True,
+                                    timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("cache budget ok", result.stdout)
+
+    def test_translator_patch_checks_the_cache_budget_before_creating_a_file(self):
+        """Patch known translator signatures once, and stop on a changed source."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "box64_patch", ROOT / "packaging/android/box64/patch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        writer = ('#include "dynablock.h"\n#include "env_private.h"\n\nvoid SerializeMmaplist(void)\n{\n'
+                  + module.TEMPORARY + "    char tmpname[64];\n    write_file(tmpname);\n"
+                  + module.LIMIT + module.PUBLISH + "\n    }\n}\n")
+        wrappers = "GOW(getifaddrs, iFp)\nGOW(freeifaddrs, vFp)\nGO(getaddrinfo, iFpppp)\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "src/tools/dynacache.c"
+            header = root / "src/wrapped/wrappedlibc_private.h"
+            source.parent.mkdir(parents=True)
+            header.parent.mkdir(parents=True)
+            source.write_text(writer)
+            header.write_text(wrappers)
+            module.patch(root)
+            patched = source.read_text()
+            self.assertEqual(patched.count('#include "cache_budget.h"'), 1)
+            self.assertEqual(patched.count("dynacache_limit = box64env.dynacache_limit;"), 1)
+            self.assertLess(patched.index("cinnabar_cache_admits("), patched.index("char tmpname["))
+            self.assertLess(patched.index("char tmpname["), patched.index("if(rename("))
+            module.patch(root)
+            self.assertEqual(source.read_text(), patched)
+            source.write_text(writer.replace("char tmpname[", "char name["))
+            with self.assertRaises(AssertionError):
+                module.patch(root)
+
     def test_android_dns_proxy_protocol(self):
         """Serve the real resolver adapter a scripted Android resolver on a temporary socket.
 

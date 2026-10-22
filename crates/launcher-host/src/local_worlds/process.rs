@@ -170,6 +170,7 @@ impl Runner for ProcessRunner {
                     true,
                     ready_line,
                     format!("local-server {}", world.id),
+                    None,
                 )?
             }
         };
@@ -198,6 +199,7 @@ impl Runner for ProcessRunner {
             true,
             ready_line,
             "local-server standby".to_owned(),
+            None,
         ) {
             Ok(spawned) => *standby = Some(spawned),
             Err(error) => tracing::warn!("prepare a standby local server: {error}"),
@@ -217,6 +219,24 @@ impl Runner for ProcessRunner {
     }
 }
 
+/// How a launched child ended, as its [`ExitHook`] learns it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Ending {
+    /// It exited successfully.
+    Clean,
+    /// Its start was cancelled before it was ready, and the kill that followed ended it.
+    Cancelled,
+    /// It could not be started.
+    Unstarted,
+    /// Anything else: an unsuccessful exit or crash, also during a stop, a start timeout, or a kill
+    /// after a stop or exit sweep ran out of time.
+    Failed,
+}
+
+/// Runs once with how a launched child ended: after it has been reaped and before its exit is
+/// reported, or before the launch returns when it could not be started.
+pub(crate) type ExitHook = Box<dyn FnOnce(Ending) + Send>;
+
 /// A child that announces readiness on stdout and reads the `stop` line protocol on stdin.
 pub(crate) struct Launch {
     pub address: String,
@@ -226,6 +246,8 @@ pub(crate) struct Launch {
     pub ready: fn(&str) -> bool,
     /// Prefixes the server's log lines.
     pub label: String,
+    /// Learns how the child ended. It must not wait for anything that waits for this child's exit.
+    pub on_exit: Option<ExitHook>,
 }
 
 /// A launched server process.
@@ -242,6 +264,8 @@ pub(crate) struct Process {
     exited: Receiver<()>,
     status: Arc<Mutex<Option<ExitStatus>>>,
     stop_requested: AtomicBool,
+    /// Set before a cancelled start kills the child, so its ending reads as cancelled.
+    start_cancelled: Arc<AtomicBool>,
 }
 
 /// One pending console response; registration always precedes writing the command.
@@ -278,6 +302,7 @@ pub(crate) fn launch(
         spec.can_pause,
         spec.ready,
         spec.label,
+        spec.on_exit,
     )?;
     await_ready(spawned, spec.timeout, cancel)
 }
@@ -288,25 +313,35 @@ struct Spawn {
     ready: Receiver<()>,
 }
 
-/// Starts `command` as a tracked child whose output is logged under `label`.
+/// Starts `command` as a tracked child whose output is logged under `label`; `on_exit` runs once
+/// on every path, as [`ExitHook`] describes.
 fn spawn(
     mut command: Command,
     address: Option<String>,
     can_pause: bool,
     is_ready: fn(&str) -> bool,
     label: String,
+    on_exit: Option<ExitHook>,
 ) -> Result<Spawn, WorldError> {
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let started = Instant::now();
-    let child = children::spawn_saving(&mut command, SAVE_BUDGET)
-        .map_err(|error| failed(format!("start local server: {error}")))?;
+    let child = match children::spawn_saving(&mut command, SAVE_BUDGET) {
+        Ok(child) => child,
+        Err(error) => {
+            if let Some(hook) = on_exit {
+                hook(Ending::Unstarted);
+            }
+            return Err(failed(format!("start local server: {error}")));
+        }
+    };
     tracing::info!(label, pid = child.id(), "local server spawned");
     let (stdin, stdout, stderr) = (child.take_stdin(), child.take_stdout(), child.take_stderr());
     let child = Arc::new(child);
     let status = Arc::new(Mutex::new(None));
+    let start_cancelled = Arc::new(AtomicBool::new(false));
     let (ready_sender, ready) = crossbeam_channel::bounded(1);
     let (exit_sender, exited) = crossbeam_channel::bounded::<()>(0);
     let output_ack = Arc::new(OutputAck::default());
@@ -334,6 +369,7 @@ fn spawn(
     }
     {
         let (child, status) = (Arc::clone(&child), Arc::clone(&status));
+        let start_cancelled = Arc::clone(&start_cancelled);
         thread::spawn(move || {
             for reader in readers {
                 let _ = reader.join();
@@ -348,6 +384,11 @@ fn spawn(
                     Err(_) => break,
                 }
             }
+            if let Some(hook) = on_exit {
+                let exit = *lock(&status);
+                hook(ending(exit, start_cancelled.load(Ordering::SeqCst)));
+            }
+            // Disconnects only after the hook, or while unwinding from a panicking one.
             drop(exit_sender);
         });
     }
@@ -361,8 +402,33 @@ fn spawn(
         exited,
         status,
         stop_requested: AtomicBool::new(false),
+        start_cancelled,
     });
     Ok(Spawn { process, ready })
+}
+
+/// Classifies a reaped child's `exit`; `cancelled` is set when a cancelled start killed it. A
+/// cancelled child that ended any other way, such as a crash, is a failure.
+fn ending(exit: Option<ExitStatus>, cancelled: bool) -> Ending {
+    match exit {
+        Some(exit) if exit.success() => Ending::Clean,
+        Some(exit) if cancelled && killed(exit) => Ending::Cancelled,
+        _ => Ending::Failed,
+    }
+}
+
+/// Whether `exit` is the result of this process's kill.
+#[cfg(unix)]
+fn killed(exit: ExitStatus) -> bool {
+    use std::os::unix::process::ExitStatusExt;
+    exit.signal() == Some(libc::SIGKILL)
+}
+
+/// Whether `exit` is the result of this process's kill; Windows reports a killed child only as
+/// an unsuccessful exit.
+#[cfg(not(unix))]
+fn killed(exit: ExitStatus) -> bool {
+    !exit.success()
 }
 
 /// Waits for `spawned`'s ready line, killing it on exit, timeout or cancellation.
@@ -391,7 +457,10 @@ fn await_ready(
             recv(exit) -> _ => {
                 break failed(format!("local server exited during startup: {}", process.exit_text()));
             }
-            recv(cancelled) -> _ => break WorldError::Cancelled,
+            recv(cancelled) -> _ => {
+                process.start_cancelled.store(true, Ordering::SeqCst);
+                break WorldError::Cancelled;
+            }
             recv(crossbeam_channel::at(deadline)) -> _ => {
                 break failed("local server did not become ready in time");
             }

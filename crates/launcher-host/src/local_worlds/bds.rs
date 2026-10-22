@@ -21,7 +21,7 @@ use super::{
     docker::DOCKER,
     junction::create_world_link,
     ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, lan_address, loopback},
-    process::{HostGrant, Instance, Launch, Process, Runner, StartSpec, launch},
+    process::{ExitHook, HostGrant, Instance, Launch, Process, Runner, StartSpec, launch},
     provision::{Provisioner, RuntimeKind, install_dir},
     store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
@@ -107,9 +107,13 @@ impl Runner for BdsRunner {
             return Err(error);
         }
         let run = |label: &str| {
-            let mut command = match &self.translation {
-                Some(translation) => translation.command(&binary, &self.provisioner, cancel)?,
-                None => Command::new(binary.as_os_str()),
+            let (mut command, code_cache) = match &self.translation {
+                Some(translation) => {
+                    let (command, used) =
+                        translation.command(&binary, &self.provisioner, cancel)?;
+                    (command, Some(used))
+                }
+                None => (Command::new(binary.as_os_str()), None),
             };
             command
                 .current_dir(install)
@@ -123,6 +127,10 @@ impl Runner for BdsRunner {
                     can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
+                    // Records the ending before the exit is reported, so a stopped create run's
+                    // generation is settled before the final run chooses its mode.
+                    on_exit: code_cache
+                        .map(|used| Box::new(move |ending| used.finish(ending)) as ExitHook),
                 },
                 cancel,
             )

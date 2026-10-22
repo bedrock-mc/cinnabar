@@ -364,7 +364,7 @@ impl Provisioner {
                 continue;
             }
             let dir = entry.path();
-            if fs::metadata(dir.join("manifest.json")).is_err() {
+            if fs::metadata(dir.join(super::unpack::INSTALL_MANIFEST)).is_err() {
                 continue;
             }
             let binary = dir.join(self.binary_name());

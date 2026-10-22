@@ -22,6 +22,7 @@ use super::{
     Cancel, lock,
     process::{HostGrant, Instance, Runner, StartSpec},
     provision::{Platform, Provisioner},
+    unpack::INSTALL_MANIFEST,
     world::WorldError,
 };
 
@@ -269,7 +270,7 @@ pub(crate) fn installed_provisioner(root: &Path, platform: Platform, binary: &[u
     provisioner.platform = platform;
     let dir = provisioner.root.join(VERSION);
     std::fs::create_dir_all(&dir).expect("install folder");
-    std::fs::write(dir.join("manifest.json"), b"{}").expect("manifest");
+    std::fs::write(dir.join(INSTALL_MANIFEST), b"{}").expect("manifest");
     write_script(&dir.join("bedrock_server"), binary);
     provisioner.accept_eula().expect("accept EULA");
     provisioner

@@ -1,8 +1,8 @@
 //! APK-bundled translation for the Linux dedicated server and its cached guest library.
 
 use std::{
-    fs,
-    io::Write,
+    fs, io,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
     sync::OnceLock,
@@ -13,15 +13,20 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    Cancel, create_private_dir,
+    Cancel,
+    code_cache::{self, CodeCache},
+    create_private_dir,
     download::bounded,
     provision::{Platform, Provisioner, RuntimeInfo},
+    unpack::install_digest,
     world::{WorldError, failed},
 };
 
 const LEGACY_SOURCE_ARCHIVE: &str = "source.zip";
 /// Adds write, SIMD and regular barriers for the server's x86 memory ordering.
 const STRONG_MEMORY: &str = "3";
+/// The translator's reusable code cache, beside the versioned guest-library folders.
+const CODE_CACHE_DIR: &str = "code-cache";
 
 /// The certificate bundle shared by Android bootstrap and the translated server command.
 pub(super) fn trust_path(runtime_dir: &Path) -> PathBuf {
@@ -50,6 +55,8 @@ pub(super) struct TranslationPin {
 /// Native Linux libraries installed as executable APK libraries alongside the translator.
 #[derive(Clone, Deserialize)]
 struct NativeRuntime {
+    /// Identifies the pinned native runtime package the libraries come from.
+    sha256: String,
     libraries: Vec<NativeLibrary>,
 }
 
@@ -91,14 +98,27 @@ impl TranslationPin {
     }
 }
 
-/// One translator helper plus its private, versioned guest-library cache.
+/// One translator helper plus its private, versioned guest-library and translated-code caches.
 pub(crate) struct Translation {
     helper: PathBuf,
     cache: PathBuf,
     pin: TranslationPin,
+    /// The helper's digest, hashed once per process; `None` when it could not be read.
+    helper_digest: OnceLock<Option<String>>,
 }
 
 impl Translation {
+    /// A translation through `helper`, keeping its caches under `cache`; the helper is hashed on
+    /// first use.
+    fn new(helper: PathBuf, cache: PathBuf, pin: TranslationPin) -> Self {
+        Self {
+            helper,
+            cache,
+            pin,
+            helper_digest: OnceLock::new(),
+        }
+    }
+
     /// Detects a bundled Android helper without invoking any desktop runtime.
     pub(super) fn detect(platform: Platform, core: &Path, cache: PathBuf) -> Option<Self> {
         if platform.os != "android" || platform.arch != "arm64" {
@@ -112,11 +132,7 @@ impl Translation {
                 .libraries
                 .iter()
                 .all(|library| helper.with_file_name(&library.packaged).is_file()))
-        .then(|| Self {
-            helper,
-            cache,
-            pin: android_runtime().bds_translation.clone(),
-        })
+        .then(|| Self::new(helper, cache, android_runtime().bds_translation.clone()))
     }
 
     /// A complete packaged runtime makes BDS available as the default backend.
@@ -125,12 +141,13 @@ impl Translation {
     }
 
     /// Configures translation without changing the server's stdin, output or working directory.
+    /// The returned cache use must be finished with the launched server's ending.
     pub(super) fn command(
         &self,
         server: &Path,
         provisioner: &Provisioner,
         cancel: &Cancel,
-    ) -> Result<Command, WorldError> {
+    ) -> Result<(Command, code_cache::Use), WorldError> {
         let pin = &self.pin;
         let directory = self.cache.join(&pin.revision);
         create_private_dir(&directory).map_err(|error| failed(error.to_string()))?;
@@ -169,13 +186,55 @@ impl Translation {
             .env_remove("LD_PRELOAD")
             .env_remove("LD_AUDIT")
             .env("BOX64_LD_LIBRARY_PATH", libraries)
-            .env("BOX64_DYNAREC_STRONGMEM", STRONG_MEMORY);
+            .env("BOX64_DYNAREC_STRONGMEM", STRONG_MEMORY)
+            // Settings come only from this command, never from a host or home rc file.
+            .env("BOX64_NORCFILES", "1");
         command.env_remove("SSL_CERT_FILE");
         let trust = trust_path(&self.cache);
         if fs::metadata(&trust).is_ok_and(|metadata| metadata.is_file() && metadata.len() != 0) {
             command.env("SSL_CERT_FILE", trust);
         }
-        Ok(command)
+        let used = self
+            .code_cache(install)
+            .map_or_else(CodeCache::off, |cache| {
+                cache.prepare(code_cache::available_bytes)
+            });
+        used.apply(&mut command);
+        Ok((command, used))
+    }
+
+    /// The code cache for this exact server install and packaged runtime; `None` when either
+    /// identity is unknown. The install's recorded archive digest identifies the server: the
+    /// translator itself checks each cached file against the mapped binary's path and length, and
+    /// each block against its guest code.
+    fn code_cache(&self, install: &Path) -> Option<CodeCache> {
+        let server = install_digest(install)?;
+        let helper = self.helper_digest()?;
+        let pin = &self.pin;
+        Some(CodeCache::new(
+            self.cache.join(CODE_CACHE_DIR),
+            &[
+                &server,
+                helper,
+                &pin.native_runtime.sha256,
+                &pin.guest_sha256,
+                STRONG_MEMORY,
+                code_cache::UNCOMPRESSED,
+            ],
+        ))
+    }
+
+    /// The packaged helper's digest, so any change to its bytes starts a new cache generation.
+    fn helper_digest(&self) -> Option<&str> {
+        self.helper_digest
+            .get_or_init(|| {
+                file_sha256(&self.helper)
+                    .inspect_err(|error| {
+                        tracing::warn!("hash translator for its code cache: {error}");
+                    })
+                    .ok()
+            })
+            .as_deref()
     }
 
     /// Reuses a verified guest library, downloading only its pinned bytes when missing or damaged.
@@ -211,6 +270,21 @@ impl Translation {
         let _ = fs::remove_file(directory.join(LEGACY_SOURCE_ARCHIVE));
         provisioner.set_op(None, None, 0, 0);
         Ok(())
+    }
+}
+
+/// The SHA-256 of the file at `path` as lowercase hex, read in fixed-size chunks.
+fn file_sha256(path: &Path) -> io::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut buffer = vec![0; 64 << 10];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => return Ok(format!("{:x}", hash.finalize())),
+            Ok(read) => hash.update(&buffer[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
     }
 }
 

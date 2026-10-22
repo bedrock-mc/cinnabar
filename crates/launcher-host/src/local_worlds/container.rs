@@ -270,6 +270,7 @@ impl BdsRunner {
                     can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
+                    on_exit: None,
                 },
                 cancel,
             );

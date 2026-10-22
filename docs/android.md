@@ -84,7 +84,12 @@ Starting a BDS world after accepting its EULA acquires the official
 Linux server and pinned guest runtime on first use. No server binaries or game assets ship in
 the APK. The guest runtime downloads only the required library, checks its size and SHA-256,
 and reuses verified cached copies. An older source-archive cache is removed after the library
-is verified. Dragonfly remains available as an alternative. Login, offline play, lifecycle and
+is verified. A clean first shutdown also saves reusable translated code for the matching server
+and packaged runtime; later starts load it without rewriting it at every stop. The first start
+still needs translation. Cache writes are skipped before allocation if they would exceed the
+512 MiB cache budget or leave less than 512 MiB free. Phone startup,
+shutdown, storage and executable-cache acceptance remain incomplete.
+Dragonfly remains available as an alternative. Login, offline play, lifecycle and
 performance acceptance remain incomplete across supported Android versions, CPU vendors and
 4/16 KB page devices.
 The Android runtime supplies a route over the existing loopback interface so an installed world
