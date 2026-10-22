@@ -148,12 +148,28 @@ fn capture_tooltip(
     let hovered = super::hovered_stack(player_runtime, runtime);
     if let Some((stack, name)) = hovered {
         let identifier = items.identifier(&stack);
-        window_text.tooltip = presentation::inventory_tooltip::tooltip_lines(
-            runtime,
-            &stack,
-            identifier.as_deref(),
-            name.as_deref(),
-        );
+        let group_heading = name.is_some()
+            && matches!(
+                runtime.screen_state().hover,
+                Some(ui_screens::container_actions::InventoryCellHit::RecipeBook(
+                    _
+                ))
+            );
+        window_text.tooltip = if group_heading {
+            presentation::inventory_tooltip::tooltip_lines_plain_name(
+                runtime,
+                &stack,
+                identifier.as_deref(),
+                name.as_deref(),
+            )
+        } else {
+            presentation::inventory_tooltip::tooltip_lines(
+                runtime,
+                &stack,
+                identifier.as_deref(),
+                name.as_deref(),
+            )
+        };
         if presentation
             .mod_ui()
             .mod_hunger_overlay()
