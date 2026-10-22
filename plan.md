@@ -660,8 +660,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   loading it without rewriting it at each stop.
   Android asset setup downloads the server and prepares reusable startup code in an isolated
   temporary world before reporting Ready. The first saved-world open uses that prepared code;
-  the same server and runtime reuse it across worlds, and updates invalidate it. Setup failures
-  and cancellation never report readiness. Cache writes are skipped before creating a file if
+  the same server and runtime reuse it across worlds, and updates invalidate it. Missing game
+  assets and cancellation still block client startup. Local-world preparation failures are logged
+  and allow the client to start for remote play or Dragonfly; BDS opens can run uncached without
+  another scratch preparation. Cache writes are skipped before creating a file if
   they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
   and executable-cache acceptance remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.

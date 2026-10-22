@@ -22,6 +22,8 @@ enum Completion {
     Cancelled,
     CancelAfterSuccess,
     Failed,
+    /// Local-world stage only: fails after the user cancelled, as an interrupted server start may.
+    FailAfterCancel,
 }
 
 struct Fixture {
@@ -64,7 +66,8 @@ impl Preparer for Fixture {
             Completion::Success => {}
             Completion::Cancelled => return Err(runner::Cancelled.into()),
             Completion::CancelAfterSuccess => cancel.store(true, Ordering::Relaxed),
-            Completion::Failed => return Err(anyhow!("asset preparation failed")),
+            Completion::Failed => return Err(anyhow::anyhow!("asset preparation failed")),
+            Completion::FailAfterCancel => unreachable!("asset stages report cancellation"),
         }
         self.pending.assets = false;
         Ok(())
@@ -86,6 +89,10 @@ impl Preparer for Fixture {
             Completion::Cancelled => return Err(WorldError::Cancelled),
             Completion::CancelAfterSuccess => cancel.store(true, Ordering::Relaxed),
             Completion::Failed => {
+                return Err(WorldError::Failed("local preparation detail".into()));
+            }
+            Completion::FailAfterCancel => {
+                cancel.store(true, Ordering::Relaxed);
                 return Err(WorldError::Failed("local preparation detail".into()));
             }
         }
@@ -284,7 +291,11 @@ fn asset_cancellation_never_prepares_local_worlds_or_reports_ready() {
 
 #[test]
 fn local_world_cancellation_quits_without_ready() {
-    for completion in [Completion::Cancelled, Completion::CancelAfterSuccess] {
+    for completion in [
+        Completion::Cancelled,
+        Completion::CancelAfterSuccess,
+        Completion::FailAfterCancel,
+    ] {
         let data = Dir::new("headless-worlds-cancel");
         let layout = layout(&data);
         let mut fixture = Fixture::new(false, true);
@@ -342,19 +353,45 @@ fn asset_failure_blocks_local_worlds_and_readiness() {
 }
 
 #[test]
-fn local_world_failure_retries_setup_without_rebuilding_current_assets() {
+fn local_world_failure_still_lets_the_game_start() {
+    let data = Dir::new("headless-worlds-fail-start");
+    let layout = layout(&data);
+    let mut fixture = Fixture::new(false, true);
+    fixture.local_worlds = Completion::Failed;
+    assert_eq!(
+        attempt(&layout, &mut fixture, &AtomicBool::new(false), true).unwrap(),
+        Outcome::Prepared
+    );
+    let events = fixture.events.borrow();
+    let worlds = events
+        .iter()
+        .position(|event| *event == Event::LocalWorlds)
+        .unwrap();
+    let unavailable = events
+        .iter()
+        .position(|event| *event == Event::Progress(LOCAL_WORLDS_UNAVAILABLE.into()))
+        .unwrap();
+    let ready = events.iter().position(is_ready).unwrap();
+    assert!(worlds < unavailable && unavailable < ready);
+    assert_eq!(events.iter().filter(|event| is_ready(event)).count(), 1);
+    assert_eq!(last_phase(&layout), "done");
+    let log = fs::read_to_string(prepare::log_path(&layout)).unwrap();
+    assert!(log.contains("local preparation detail"));
+}
+
+#[test]
+fn local_world_failure_retries_on_the_next_setup_without_rebuilding_current_assets() {
     let data = Dir::new("headless-worlds-retry");
     let layout = layout(&data);
     let mut fixture = Fixture::new(true, true);
     fixture.local_worlds = Completion::Failed;
-    let error = attempt(&layout, &mut fixture, &AtomicBool::new(false), true).unwrap_err();
-    assert_eq!(format!("{error:#}"), LOCAL_WORLDS_FAILED);
-    assert_eq!(last_phase(&layout), "failed");
-    assert!(!fixture.events.borrow().iter().any(is_ready));
+    assert_eq!(
+        attempt(&layout, &mut fixture, &AtomicBool::new(false), true).unwrap(),
+        Outcome::Prepared
+    );
+    assert_eq!(last_phase(&layout), "done");
     assert!(!fixture.pending.assets && fixture.pending.local_worlds);
     assert!(consent_recorded(&layout));
-    let log = fs::read_to_string(prepare::log_path(&layout)).unwrap();
-    assert!(log.contains("local preparation detail"));
 
     fixture.local_worlds = Completion::Success;
     assert_eq!(
@@ -384,7 +421,7 @@ fn local_world_failure_retries_setup_without_rebuilding_current_assets() {
             .count(),
         1
     );
-    assert_eq!(events.iter().filter(|event| is_ready(event)).count(), 1);
+    assert_eq!(events.iter().filter(|event| is_ready(event)).count(), 2);
 }
 
 #[cfg(not(target_os = "android"))]

@@ -1,9 +1,9 @@
 //! First-run preparation of the game resources, which installers never ship.
 //!
 //! Runs before the game window: consent, a download of the pinned public pack, then one
-//! `assetc prepare`. Android also prepares local worlds before starting the game. A setup window
-//! in a child process shows desktop setup; without one, native dialogs do. Progress is mirrored
-//! to `logs/first-run-status.json`.
+//! `assetc prepare`. Android also tries to prepare local worlds before starting the game. A setup
+//! window in a child process shows desktop setup; without one, native dialogs do. Progress is
+//! mirrored to `logs/first-run-status.json`.
 
 mod download;
 mod fs_retry;
@@ -46,7 +46,7 @@ pub enum Outcome {
 }
 
 /// Prepares a packaged install's resources when they are missing or stale; a no-op for development
-/// checkouts. Android's setup activity also prepares local worlds before starting the game.
+/// checkouts. Android's setup activity also tries to prepare local worlds before starting the game.
 pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
@@ -68,9 +68,10 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     }
 }
 
-/// Includes local-world preparation on Android; an unreadable kit is reported during setup.
+/// Whether the game must wait for setup. Only carriers gate it: local worlds are optional, so an
+/// unprepared server never blocks remote play. An unreadable kit is reported during setup.
 fn needs_preparation(layout: &InstallLayout) -> bool {
-    headless::Pending::for_install(layout).any()
+    headless::assets_needed(layout)
 }
 
 /// An earlier set exists, so this run updates rather than sets up.

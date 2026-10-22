@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use launcher::install_layout::InstallLayout;
 use launcher_host::local_worlds::WorldError;
 
@@ -17,7 +17,8 @@ use crate::{
 };
 
 const LOCAL_WORLDS_LABEL: &str = "Preparing local worlds";
-const LOCAL_WORLDS_FAILED: &str = "Could not prepare local worlds. Please retry setup.";
+const LOCAL_WORLDS_UNAVAILABLE: &str = "The local BDS server could not be prepared. Continuing \
+     without it; setup tries again on the next launch.";
 
 /// Independent setup requirements, so server preparation never forces a carrier rebuild.
 #[derive(Clone, Copy, Default)]
@@ -29,12 +30,9 @@ pub(super) struct Pending {
 impl Pending {
     /// Checks the install's carriers and, on Android, its local-world runtime.
     pub(super) fn for_install(layout: &InstallLayout) -> Self {
-        if !layout.is_installed() {
-            return Self::default();
-        }
         Self {
-            assets: !prepare::selection(layout).is_ok_and(|selection| selection.is_current()),
-            local_worlds: local_worlds_needed(layout),
+            assets: assets_needed(layout),
+            local_worlds: layout.is_installed() && local_worlds_needed(layout),
         }
     }
 
@@ -42,6 +40,13 @@ impl Pending {
     pub(super) fn any(self) -> bool {
         self.assets || self.local_worlds
     }
+}
+
+/// Whether a packaged install lacks current carriers, the only setup stage the game requires.
+/// Local worlds are optional, so remote servers stay playable when their preparation fails.
+pub(super) fn assets_needed(layout: &InstallLayout) -> bool {
+    layout.is_installed()
+        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
 }
 
 /// Desktop setup never downloads a server, even when the host can run local worlds.
@@ -115,8 +120,9 @@ impl Preparer for Installed {
 
 /// Prepares without a window or dialogs, as Android's setup activity does. `consent` asks with a
 /// title and body only when none is recorded, and `progress` receives each status line. Android
-/// prepares local worlds after assets; only completion of both allows the game to start.
-/// Setting `cancel` quits setup without reporting readiness.
+/// prepares local worlds after assets and before reporting readiness. Asset failures fail setup;
+/// a BDS preparation failure is logged and reported, and setup still finishes so the game can
+/// join remote servers and other local worlds. Setting `cancel` quits setup without reporting readiness.
 pub fn prepare_headless(
     layout: &InstallLayout,
     cancel: &AtomicBool,
@@ -168,18 +174,19 @@ fn prepare_with(
             report(Status::new(Phase::Running, 1, 1, LOCAL_WORLDS_LABEL));
             ensure_active(cancel)?;
             let mut previous = LOCAL_WORLDS_LABEL.to_owned();
-            match preparer.local_worlds(layout, cancel, &mut |line| {
+            let prepared = preparer.local_worlds(layout, cancel, &mut |line| {
                 if line != previous {
                     report(Status::new(Phase::Running, 1, 1, line));
                     previous = line.to_owned();
                 }
-            }) {
+            });
+            match prepared {
                 Ok(()) => {}
                 Err(WorldError::Cancelled) => return Err(runner::Cancelled.into()),
                 Err(error) => {
                     ensure_active(cancel)?;
                     log_local_worlds_failure(layout, &error);
-                    return Err(anyhow!(LOCAL_WORLDS_FAILED));
+                    report(Status::new(Phase::Running, 1, 1, LOCAL_WORLDS_UNAVAILABLE));
                 }
             }
         }
@@ -206,7 +213,7 @@ fn ensure_active(cancel: &AtomicBool) -> Result<()> {
     Ok(())
 }
 
-/// Keeps detailed server failures in the setup log while the activity receives a setup message.
+/// Keeps detailed server failures in the setup log while the activity receives a short message.
 fn log_local_worlds_failure(layout: &InstallLayout, error: &WorldError) {
     if fs::create_dir_all(layout.log_dir()).is_err() {
         return;

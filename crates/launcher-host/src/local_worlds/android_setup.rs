@@ -57,7 +57,7 @@ pub fn prepare_android_server(
     run_setup(&provisioner, cancelled, &mut progress)
 }
 
-/// Configures the exact same preparation and readiness check for setup and normal world starts.
+/// Registers setup preparation and its readiness check; normal world starts only ensure installation.
 pub(super) fn configure_preparation(provisioner: &Provisioner, translation: &Arc<Translation>) {
     let preparing = Arc::clone(translation);
     let checking = Arc::clone(translation);
@@ -96,7 +96,7 @@ fn run_setup(
     thread::scope(|scope| {
         let (result, received) = crossbeam_channel::bounded(1);
         let worker = scope.spawn(move || {
-            let _ = result.send(provisioner.ensure(&cancel));
+            let _ = result.send(provisioner.ensure_prepared(&cancel));
         });
         let mut handle = Some(handle);
         loop {

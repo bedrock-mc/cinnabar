@@ -87,8 +87,10 @@ Android asset setup acquires the official Linux server and pinned guest runtime 
 Minecraft EULA acceptance. It prepares reusable startup code before starting the client, using
 an isolated temporary world and the installed server binary. Saved worlds are never opened by
 setup. The first saved-world open and later starts load the prepared code without rewriting it
-at every stop. A changed server or packaged runtime needs preparation again. No server binaries
-or game assets ship in the APK. The guest runtime downloads only the required library, checks
+at every stop. A changed server or packaged runtime needs preparation again. Preparation failures
+are recorded in the setup log and leave remote play and Dragonfly available. BDS world opens
+continue without cached code when it is unavailable; they never run another scratch preparation.
+No server binaries or game assets ship in the APK. The guest runtime downloads only the required library, checks
 its size and SHA-256, and reuses verified cached copies. An older source-archive cache is removed
 after the library is verified. Cache writes are skipped before creating a file if they would
 exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone startup,

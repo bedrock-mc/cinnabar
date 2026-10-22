@@ -239,11 +239,13 @@ fn setup_produces_startup_code_once_from_scratch_and_the_first_world_only_loads_
     );
 
     let mut runner = BdsRunner::new(Arc::clone(&fixture.provisioner), String::new());
-    runner.translation = Some(Arc::new(Translation::new(
+    let translation = Arc::new(Translation::new(
         fixture.helper.clone(),
         fixture.runtime.clone(),
         fixture.pin.clone(),
-    )));
+    ));
+    crate::local_worlds::android_setup::configure_preparation(&fixture.provisioner, &translation);
+    runner.translation = Some(translation);
     runner.start_timeout = Some(test_time::DEFAULT_TIMEOUT);
     let world = spec(&fixture.dir.path().join("world"));
     let instance = runner.start(&world, &Cancel::never()).unwrap();
@@ -384,4 +386,73 @@ fn an_install_without_a_recorded_build_cannot_be_prepared() {
         Err(WorldError::Failed(_))
     ));
     assert!(fixture.modes().is_empty());
+}
+
+/// A world runner sharing the fixture's translator, runtime folder and install.
+fn world_runner(fixture: &Fixture) -> BdsRunner {
+    let mut runner = BdsRunner::new(Arc::clone(&fixture.provisioner), String::new());
+    let translation = Arc::new(Translation::new(
+        fixture.helper.clone(),
+        fixture.runtime.clone(),
+        fixture.pin.clone(),
+    ));
+    crate::local_worlds::android_setup::configure_preparation(&fixture.provisioner, &translation);
+    runner.translation = Some(translation);
+    runner.start_timeout = Some(test_time::DEFAULT_TIMEOUT);
+    runner
+}
+
+#[test]
+fn a_world_start_runs_with_the_cache_off_after_a_failed_run_disabled_it() {
+    let fixture = Fixture::new();
+    fixture.prepare(&Cancel::never()).unwrap();
+    let runner = world_runner(&fixture);
+    let world = spec(&fixture.dir.path().join("world"));
+    // A world server that loaded the prepared code and then failed turns this build's code off.
+    fixture.touch("fail");
+    assert!(runner.start(&world, &Cancel::never()).is_err());
+    fs::remove_file(fixture.control.join("fail")).unwrap();
+    assert_eq!(fixture.modes(), ["1", "2"]);
+    assert!(!fixture.prepared());
+    assert!(
+        matches!(
+            fixture.prepare(&Cancel::never()),
+            Err(WorldError::Failed(_))
+        ),
+        "setup reports the disabled code"
+    );
+
+    // World starts never run setup: the world's own runs use the cache as it chooses.
+    let instance = runner.start(&world, &Cancel::never()).unwrap();
+    instance.stop(test_time::DEFAULT_TIMEOUT).unwrap();
+    assert_eq!(fixture.modes(), ["1", "2", "0", "0"]);
+}
+
+#[test]
+fn a_world_start_runs_with_the_cache_off_once_setup_attempts_are_used() {
+    let fixture = Fixture::new();
+    fixture.touch("fail");
+    for _ in 0..PRODUCER_ATTEMPTS {
+        assert!(fixture.prepare(&Cancel::never()).is_err());
+    }
+    fs::remove_file(fixture.control.join("fail")).unwrap();
+    assert_eq!(fixture.modes().len(), PRODUCER_ATTEMPTS as usize);
+    let runner = world_runner(&fixture);
+    let world = spec(&fixture.dir.path().join("world"));
+    let instance = runner.start(&world, &Cancel::never()).unwrap();
+    instance.stop(test_time::DEFAULT_TIMEOUT).unwrap();
+    let modes = fixture.modes();
+    assert_eq!(modes[PRODUCER_ATTEMPTS as usize..], ["0", "0"]);
+}
+
+#[test]
+fn a_world_start_before_setup_produces_with_its_own_create_run() {
+    let fixture = Fixture::new();
+    let runner = world_runner(&fixture);
+    let instance = runner
+        .start(&spec(&fixture.dir.path().join("world")), &Cancel::never())
+        .unwrap();
+    instance.stop(test_time::DEFAULT_TIMEOUT).unwrap();
+    assert_eq!(fixture.modes(), ["1", "2"], "no separate setup run");
+    assert!(fixture.prepared());
 }

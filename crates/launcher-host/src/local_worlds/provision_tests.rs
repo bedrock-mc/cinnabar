@@ -225,3 +225,39 @@ fn background_detection_reports_checking_then_its_result() {
         )
     );
 }
+
+/// Preparation belongs to setup, not the world's own launch. Even a configured preparation
+/// failure must not turn an installed server into a missing or unstartable one.
+#[test]
+fn optional_preparation_failure_does_not_block_normal_world_installation() {
+    let dir = scratch();
+    let mojang = FakeMojang::start(VERSION, build_zip(&[("bedrock_server", b"server")]));
+    let provisioner = mojang.provisioner(dir.path());
+    provisioner.set_runtime(RuntimeInfo::translated());
+    provisioner.accept_eula().unwrap();
+    let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let preparing = Arc::clone(&attempts);
+    provisioner.set_preparer(
+        Arc::new(move |_, _, _| {
+            preparing.fetch_add(1, Ordering::SeqCst);
+            Err(failed("fixture code cache unavailable"))
+        }),
+        Arc::new(|_| false),
+    );
+    let binary = provisioner.ensure(&Cancel::never()).unwrap();
+    assert_eq!(attempts.load(Ordering::SeqCst), 0);
+    assert_eq!(provisioner.status().0.state, SetupState::Ready);
+    assert!(provisioner.ensure_prepared(&Cancel::never()).is_err());
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(provisioner.status().0.state, SetupState::Failed);
+    assert_eq!(provisioner.ensure(&Cancel::never()).unwrap(), binary);
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(provisioner.status().0.state, SetupState::Ready);
+    assert!(provisioner.status().0.error.is_none());
+    let (handle, cancel) = crate::local_worlds::cancel_pair();
+    drop(handle);
+    assert!(matches!(
+        provisioner.ensure(&cancel),
+        Err(WorldError::Cancelled)
+    ));
+}

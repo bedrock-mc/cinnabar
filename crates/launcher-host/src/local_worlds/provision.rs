@@ -431,9 +431,10 @@ impl Provisioner {
             setup.state = SetupState::CheckingRuntime;
         } else if let Some((binary, version)) = self.installed() {
             setup.version = Some(version);
-            if self.prepared(&binary) {
-                setup.state = SetupState::Ready;
-            } else if let Some(error) = last_error {
+            setup.state = SetupState::Ready;
+            if !self.prepared(&binary)
+                && let Some(error) = last_error
+            {
                 setup.state = SetupState::Failed;
                 setup.error = Some(error);
             }
@@ -482,6 +483,18 @@ impl Provisioner {
     /// The server binary, downloading and unpacking it first if needed. Container and translated
     /// runtimes acquire the Linux build independently of the host platform.
     pub(crate) fn ensure(&self, cancel: &Cancel) -> Result<PathBuf, WorldError> {
+        self.ensure_for(cancel, false)
+    }
+
+    /// Installs the server and prepares startup code during Android setup. Normal world starts
+    /// only require the install: unavailable optional code must never prevent them from running.
+    pub(crate) fn ensure_prepared(&self, cancel: &Cancel) -> Result<PathBuf, WorldError> {
+        self.ensure_for(cancel, true)
+    }
+
+    /// Serializes installation and optional setup preparation without adding a scratch launch to
+    /// a normal world open.
+    fn ensure_for(&self, cancel: &Cancel, prepare: bool) -> Result<PathBuf, WorldError> {
         let _ensuring = lock(&self.ensure_lock);
         if !matches!(
             self.runtime_info().kind,
@@ -497,7 +510,7 @@ impl Provisioner {
         }
         lock(&self.state).last_error = None;
         if let Some((binary, version)) = self.installed() {
-            return self.finish_setup(binary, &version, cancel);
+            return self.finish_setup(binary, &version, cancel, prepare);
         }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -517,7 +530,7 @@ impl Provisioner {
             .unpack(&archive, &version, &link, &digest, size)
             .map_err(|error| self.fail(error))?;
         self.prune_old_installs(&version);
-        self.finish_setup(binary, &version, cancel)
+        self.finish_setup(binary, &version, cancel, prepare)
     }
 
     /// Keeps setup pending until the installed server's runtime preparation has finished. The
@@ -527,8 +540,11 @@ impl Provisioner {
         binary: PathBuf,
         version: &str,
         cancel: &Cancel,
+        preparing: bool,
     ) -> Result<PathBuf, WorldError> {
-        let prepare = lock(&self.hooks).prepare.clone();
+        let prepare = preparing
+            .then(|| lock(&self.hooks).prepare.clone())
+            .flatten();
         if let Some(prepare) = prepare {
             self.set_op(Some(SetupState::Unpacking), Some(version), 0, 0);
             if let Err(error) = prepare(&binary, self, cancel) {
