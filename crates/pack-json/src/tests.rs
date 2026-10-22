@@ -1,6 +1,6 @@
 use super::{
-    MAX_PARSED_BYTES, PARSED_BYTES_PER_VALUE, decode_text, fits_parse_budget, normalize_jsonc,
-    parse_jsonc, prepare_jsonc,
+    MAX_PARSED_BYTES, PARSED_BYTES_PER_OBJECT, PARSED_BYTES_PER_VALUE, decode_text,
+    fits_parse_budget, normalize_jsonc, parse_jsonc, prepare_jsonc,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -201,10 +201,38 @@ fn a_document_whose_tree_could_exhaust_memory_is_refused_before_parsing() {
     assert!(error.to_string().contains("too large"), "{error}");
 }
 
+// Small objects each allocate a whole map node, far more than their text suggests.
 #[test]
-fn the_parse_budget_counts_values_outside_strings() {
+fn many_small_objects_are_refused_by_their_map_cost() {
+    let objects = MAX_PARSED_BYTES / PARSED_BYTES_PER_OBJECT;
+    let mut dense = Vec::with_capacity(7 * objects + 2);
+    dense.push(b'[');
+    for _ in 0..objects {
+        dense.extend_from_slice(br#"{"":0},"#);
+    }
+    dense.extend_from_slice(b"0]");
+    let error = parse_jsonc::<Value>(&dense).unwrap_err();
+    assert!(error.to_string().contains("too large"), "{error}");
+}
+
+#[test]
+fn the_parse_budget_counts_values_outside_strings_and_comments() {
     let budget = 64 + 5 * PARSED_BYTES_PER_VALUE;
     assert!(fits_parse_budget(br#"[0,1,2,3]"#, budget));
     assert!(!fits_parse_budget(br#"[0,1,2,3,4,5,6,7,8]"#, budget));
     assert!(fits_parse_budget(br#"["0,1,2,3,4,5,6,\",7,8"]"#, budget));
+    assert!(fits_parse_budget(
+        b"/* , , , , , , */ [0,1,2,3] // , , , , ,",
+        budget
+    ));
+    // A quote inside a comment opens no string, so the commas after it still count.
+    assert!(!fits_parse_budget(
+        br#"/* " */ [0,1,2,3,4,5,6,7,8]"#,
+        budget + 16
+    ));
+    assert!(fits_parse_budget(
+        br#"// "
+["0,1,2,3,4,5,6,7,8"]"#,
+        budget
+    ));
 }

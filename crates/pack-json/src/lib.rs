@@ -36,14 +36,27 @@ pub fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
 /// rather than aborting the process on allocation failure.
 const MAX_PARSED_BYTES: usize = 1 << 30;
 
-/// Worst-case parsed cost of one value: its tree node plus a map key or container slot.
+/// Worst-case parsed cost of one value: its tree node plus spare `Vec` capacity after doubling.
 const PARSED_BYTES_PER_VALUE: usize = 2 * size_of::<serde_json::Value>();
 
-/// Whether a document's value tree, bounded by the separators and openers outside its strings,
-/// fits `budget` bytes.
+/// One map entry's key and value, as a `BTreeMap` node stores them.
+const MAP_ENTRY_BYTES: usize = size_of::<String>() + size_of::<serde_json::Value>();
+
+/// Worst-case extra cost of one object key: entries in nodes that are only half full.
+const PARSED_BYTES_PER_KEY: usize = 2 * MAP_ENTRY_BYTES;
+
+/// Worst-case cost of one object: a `BTreeMap` leaf sized for 11 entries plus its header.
+const PARSED_BYTES_PER_OBJECT: usize = 11 * MAP_ENTRY_BYTES + 64;
+
+/// Whether a document's value tree fits `budget` bytes, bounded by the separators and openers
+/// outside its strings and comments.
 fn fits_parse_budget(bytes: &[u8], budget: usize) -> bool {
-    let (mut values, mut in_string, mut escaped) = (1usize, false, false);
-    for &byte in bytes {
+    let (mut values, mut keys, mut objects) = (1usize, 0usize, 0usize);
+    let (mut in_string, mut escaped) = (false, false);
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        index += 1;
         if in_string {
             if escaped {
                 escaped = false;
@@ -52,16 +65,44 @@ fn fits_parse_budget(bytes: &[u8], budget: usize) -> bool {
             } else if byte == b'"' {
                 in_string = false;
             }
-        } else if byte == b'"' {
-            in_string = true;
-        } else if matches!(byte, b',' | b':' | b'[' | b'{') {
-            values += 1;
+            continue;
+        }
+        match (byte, bytes.get(index)) {
+            (b'"', _) => in_string = true,
+            (b'/', Some(b'/')) => {
+                while index < bytes.len() && !matches!(bytes[index], b'\n' | b'\r') {
+                    index += 1;
+                }
+            }
+            (b'/', Some(b'*')) => {
+                index += 1;
+                while index < bytes.len() && bytes.get(index..index + 2) != Some(b"*/") {
+                    index += 1;
+                }
+                index += 2;
+            }
+            (b',' | b'[', _) => values += 1,
+            (b':', _) => {
+                values += 1;
+                keys += 1;
+            }
+            (b'{', _) => {
+                values += 1;
+                objects += 1;
+            }
+            _ => {}
         }
     }
-    values
-        .checked_mul(PARSED_BYTES_PER_VALUE)
-        .and_then(|tree| tree.checked_add(bytes.len()))
-        .is_some_and(|parsed| parsed <= budget)
+    [
+        (values, PARSED_BYTES_PER_VALUE),
+        (keys, PARSED_BYTES_PER_KEY),
+        (objects, PARSED_BYTES_PER_OBJECT),
+    ]
+    .into_iter()
+    .try_fold(bytes.len(), |total, (count, cost)| {
+        total.checked_add(count.checked_mul(cost)?)
+    })
+    .is_some_and(|parsed| parsed <= budget)
 }
 
 /// Parses one complete pack document, accepting comments, a BOM and trailing
