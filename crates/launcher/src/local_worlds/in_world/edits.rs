@@ -9,12 +9,13 @@ use crate::local_worlds::{
 use bridge::GameMode;
 use std::collections::BTreeMap;
 
-/// A setting's confirmed value and the revisions still waiting for a save response.
+/// A setting's confirmed value, pending saves and latest unresolved save failure.
 #[derive(Debug)]
 struct Setting<T> {
     confirmed: T,
     confirmed_revision: u64,
     pending: BTreeMap<u64, T>,
+    failure: Option<(u64, String)>,
 }
 
 impl<T: Copy> Setting<T> {
@@ -24,17 +25,29 @@ impl<T: Copy> Setting<T> {
             confirmed,
             confirmed_revision: 0,
             pending: BTreeMap::new(),
+            failure: None,
         }
     }
 
     /// Acknowledges only this revision and returns the latest outstanding or confirmed value.
-    fn finish(&mut self, revision: u64, saved: Option<T>) -> T {
-        if self.pending.remove(&revision).is_some()
-            && revision > self.confirmed_revision
-            && let Some(saved) = saved
-        {
-            self.confirmed = saved;
-            self.confirmed_revision = revision;
+    fn finish(&mut self, revision: u64, result: Result<T, &str>) -> T {
+        if self.pending.remove(&revision).is_some() && revision > self.confirmed_revision {
+            match result {
+                Ok(saved) => {
+                    self.confirmed = saved;
+                    self.confirmed_revision = revision;
+                    self.failure.take_if(|(failed, _)| *failed <= revision);
+                }
+                Err(error)
+                    if self
+                        .failure
+                        .as_ref()
+                        .is_none_or(|(failed, _)| *failed < revision) =>
+                {
+                    self.failure = Some((revision, error.to_owned()));
+                }
+                Err(_) => {}
+            }
         }
         self.pending
             .last_key_value()
@@ -49,7 +62,27 @@ struct Changes {
     game_mode: Option<Setting<GameMode>>,
     difficulty: Option<Setting<super::Difficulty>>,
     options: BTreeMap<WorldOption, Setting<i32>>,
-    error: Option<String>,
+}
+
+impl Changes {
+    /// Returns the newest unresolved failure across this world's edited settings.
+    fn error(&self) -> Option<&str> {
+        self.game_mode
+            .iter()
+            .filter_map(|setting| setting.failure.as_ref())
+            .chain(
+                self.difficulty
+                    .iter()
+                    .filter_map(|setting| setting.failure.as_ref()),
+            )
+            .chain(
+                self.options
+                    .values()
+                    .filter_map(|setting| setting.failure.as_ref()),
+            )
+            .max_by_key(|(revision, _)| *revision)
+            .map(|(_, error)| error.as_str())
+    }
 }
 
 /// Save revisions stay unique across visits so a late reply cannot acknowledge a new edit.
@@ -77,7 +110,6 @@ impl Edits {
         self.revision += 1;
         let revision = self.revision;
         let changes = self.worlds.entry(id.to_owned()).or_default();
-        changes.error = None;
         if let Some(value) = update.game_mode {
             changes
                 .game_mode
@@ -126,24 +158,21 @@ impl Edits {
         let Some(world) = worlds.iter_mut().find(|world| world.id == id) else {
             return;
         };
-        let saved = result.as_ref().ok().copied();
+        let result = result.as_deref().map_err(String::as_str);
         if let Some(setting) = &mut changes.game_mode {
-            world.game_mode = setting.finish(revision, saved.map(|world| world.game_mode));
+            world.game_mode = setting.finish(revision, result.map(|world| world.game_mode));
         }
         if let Some(setting) = &mut changes.difficulty {
-            world.difficulty = setting.finish(revision, saved.map(|world| world.difficulty));
+            world.difficulty = setting.finish(revision, result.map(|world| world.difficulty));
         }
         let mut options = OptionChanges::default();
         for (&id, setting) in &mut changes.options {
             options.insert(
                 id,
-                setting.finish(revision, saved.map(|world| world.options.get(id))),
+                setting.finish(revision, result.map(|world| world.options.get(id))),
             );
         }
         world.options.apply_changes(&options);
-        if let Err(error) = result {
-            changes.error = Some(error);
-        }
     }
 
     /// Builds the Game section with any failure from this world's latest edits.
@@ -152,7 +181,8 @@ impl Edits {
         view.error = self
             .worlds
             .get(&world.id)
-            .and_then(|changes| changes.error.clone());
+            .and_then(Changes::error)
+            .map(str::to_owned);
         Some(view)
     }
 }

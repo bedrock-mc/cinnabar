@@ -2,6 +2,7 @@ use super::*;
 use crate::local_worlds::model::Effect;
 use crate::local_worlds::options::{OptionChanges, WorldOption as O, WorldOptions};
 
+/// A saved world with default settings for edit reconciliation.
 fn world(backend: Backend) -> World {
     World {
         id: "0123456789abcdef".to_owned(),
@@ -188,6 +189,127 @@ fn saved_reply(effect: Effect, saved: &mut World) -> crate::local_worlds::model:
     }
 }
 
+/// Returns the worker's failed reply for a queued save.
+fn failed_reply(effect: Effect, error: &str) -> crate::local_worlds::model::Event {
+    let Effect::Apply { id, revision, .. } = effect else {
+        panic!("a save-and-apply effect")
+    };
+    crate::local_worlds::model::Event::ApplyFailed {
+        id,
+        revision,
+        error: error.into(),
+    }
+}
+
+/// A newer successful value clears an older failure, regardless of reply order or setting type.
+#[test]
+fn successful_edits_clear_superseded_failures() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    for (first, second) in [
+        (
+            Action::Option(O::RespawnRadius, 2),
+            Action::Option(O::RespawnRadius, 24),
+        ),
+        (
+            Action::Difficulty(Difficulty::Hard),
+            Action::Difficulty(Difficulty::Easy),
+        ),
+        (
+            Action::GameMode(GameMode::Creative),
+            Action::GameMode(GameMode::Survival),
+        ),
+    ] {
+        for failure_first in [true, false] {
+            let mut menu = WorldsMenu::default();
+            let mut saved = world(Backend::Bds);
+            // Keep the game-mode edits independent of implicit cheat changes.
+            saved.options.restore_cheats(true);
+            let id = saved.id.clone();
+            menu.apply(Event::Listed(vec![saved.clone()]));
+            let first = menu
+                .update(Input::InWorld(id.clone(), first))
+                .pop()
+                .unwrap();
+            let second = menu
+                .update(Input::InWorld(id.clone(), second))
+                .pop()
+                .unwrap();
+            let failure = failed_reply(first, "Couldn't save the change");
+            let success = saved_reply(second, &mut saved);
+            if failure_first {
+                menu.apply(failure);
+                assert!(menu.in_world_view(&id).unwrap().error.is_some());
+                menu.apply(success);
+            } else {
+                menu.apply(success);
+                menu.apply(failure);
+            }
+            let view = menu.in_world_view(&id).unwrap();
+            assert_eq!(view.world, saved);
+            assert_eq!(view.error, None);
+            assert!(menu.update(Input::InWorld(id, second)).is_empty());
+        }
+    }
+}
+
+/// Recovering one failed setting keeps the other setting's failure visible until it saves too.
+#[test]
+fn successful_edits_preserve_unrelated_failures() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    let mut menu = WorldsMenu::default();
+    let mut saved = world(Backend::Bds);
+    let id = saved.id.clone();
+    menu.apply(Event::Listed(vec![saved.clone()]));
+    let radius = Action::Option(O::RespawnRadius, 24);
+    let difficulty = Action::Difficulty(Difficulty::Hard);
+    let first = menu
+        .update(Input::InWorld(id.clone(), radius))
+        .pop()
+        .unwrap();
+    let second = menu
+        .update(Input::InWorld(id.clone(), difficulty))
+        .pop()
+        .unwrap();
+    menu.apply(failed_reply(first, "radius save failed"));
+    menu.apply(failed_reply(second, "difficulty save failed"));
+    assert_eq!(
+        menu.in_world_view(&id).unwrap().error.as_deref(),
+        Some("difficulty save failed")
+    );
+    for (action, remaining) in [(difficulty, Some("radius save failed")), (radius, None)] {
+        let retry = menu
+            .update(Input::InWorld(id.clone(), action))
+            .pop()
+            .unwrap();
+        assert!(
+            menu.in_world_view(&id).unwrap().error.is_some(),
+            "a retry has not saved yet"
+        );
+        menu.apply(saved_reply(retry, &mut saved));
+        assert_eq!(menu.in_world_view(&id).unwrap().error.as_deref(), remaining);
+    }
+}
+
+/// An already acknowledged or previous-visit reply cannot introduce a new save error.
+#[test]
+fn untracked_failures_do_not_show_errors() {
+    let mut worlds = vec![world(Backend::Bds)];
+    let id = worlds[0].id.clone();
+    let mut edits = Edits::default();
+    let action = Action::Option(O::RespawnRadius, 24);
+    edits.change(&mut worlds, &id, action).unwrap();
+    let saved = worlds[0].clone();
+    edits.finish(&mut worlds, &id, 1, Ok(&saved));
+    edits.finish(&mut worlds, &id, 1, Err("duplicate failure".into()));
+    assert_eq!(edits.view(&worlds[0]).unwrap().error, None);
+    edits.reset();
+    edits
+        .change(&mut worlds, &id, Action::Option(O::RespawnRadius, 25))
+        .unwrap();
+    edits.finish(&mut worlds, &id, 1, Err("previous visit's failure".into()));
+    assert_eq!(edits.view(&worlds[0]).unwrap().error, None);
+}
+
 /// A failed save restores its confirmed fields while preserving unrelated pending edits.
 #[test]
 fn failed_edits_roll_back_to_the_last_successful_save() {
@@ -234,6 +356,7 @@ fn failed_edits_roll_back_to_the_last_successful_save() {
     assert_eq!(menu.screen(), Screen::List);
     menu.apply(saved_reply(pvp, &mut saved));
     assert_eq!(menu.worlds()[0].difficulty, Difficulty::Hard);
+    assert!(menu.in_world_view(&id).unwrap().error.is_some());
     let retry = menu
         .update(Input::InWorld(
             id.clone(),

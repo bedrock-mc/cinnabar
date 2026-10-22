@@ -586,7 +586,8 @@ Create and edit forms persist BDS advanced, multiplayer and cheat options throug
 catalog and generated server properties and level data. Settings' in-game Game section saves
 changes and sends supported live changes through the BDS console. Metadata save failures restore
 confirmed values and show a retry message in Game; failed console writes show a next-start notice.
-Save replies retain newer pending selections, and live edits remain pending until a successful
+Save replies retain newer pending selections. A successful save clears superseded errors for its
+settings, while unrelated save failures remain visible. Live edits remain pending until a successful
 server exit. Pack and experiment configuration,
 hardcore, flat presets, Education Edition, operator status for a signed-out host, the in-game
 Personal Game Mode and Multiplayer section, and live acceptance of every option on supported
