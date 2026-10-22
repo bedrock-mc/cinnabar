@@ -64,14 +64,11 @@ impl ItemUseRuntime {
             return false;
         }
         // Vanilla's start ignores an empty stack, so the flag stays set and
-        // every movement tick retries it; an unverified stack waits.
-        if frame
-            .selection
-            .as_ref()
-            .is_none_or(|selection| selection.item.is_empty())
-        {
+        // every movement tick retries it; an unverified stack waits. The
+        // displayed stack counts, so a predicted-empty slot also waits.
+        let Some(selection) = self.displayed_selection(frame) else {
             return false;
-        }
+        };
         self.server_using = None;
         let air_use = self.crossbows.air_use(frame);
         // Vanilla starts any other item with its use duration, which is zero
@@ -83,9 +80,6 @@ impl ItemUseRuntime {
                 ..
             }) => (max_ticks, slowdown),
             _ => (0, assets::item_use::DEFAULT_USE_MOVEMENT_MODIFIER),
-        };
-        let Some(selection) = self.displayed_selection(frame) else {
-            return false;
         };
         self.active = Some(ActiveUse {
             selection,

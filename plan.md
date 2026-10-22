@@ -234,8 +234,8 @@ use completes on the next tick, and whether vanilla slows that tick is unverifie
 hand keeps the flag set), a clear bit stops the use
 without a release transaction, and a spectator game-mode change stops it in packet order.
 Each tick refreshes the in-use stack, count included; release validation compares the whole
-stack as vanilla's does (two comparator fields, one at stack offset 0x70 and the charged-item
-state, are not yet mapped to the retained item data). Replayed ticks keep the slowdown their
+stack as vanilla's does (two further stack properties that vanilla's comparison covers,
+including the charged-item state, are not yet mapped to the retained item data). Replayed ticks keep the slowdown their
 live tick recorded. Still incomplete: pose flags as independent bits (vanilla's glide,
 swim and crawl triggers each keep their own bit and report actions only from their own
 requests, while the locomotion mode keeps one pose); the Riptide spin's entity-hit end, which

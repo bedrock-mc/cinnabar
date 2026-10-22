@@ -524,3 +524,26 @@ fn release_validation_accepts_vanilla_equivalent_stacks() {
         );
     }
 }
+
+/// A server start waits while the displayed stack is a predicted-empty slot,
+/// as vanilla's start ignores the empty stack it holds and retries each
+/// movement tick, then starts once the server's stack replaces the prediction.
+#[test]
+fn a_server_start_waits_on_a_predicted_empty_slot() {
+    let mut runtime = ItemUseRuntime::default();
+    let snowballs = |tick, held, count| UseFrame {
+        selection: Some(stack(5, SNOWBALL, count)),
+        air_use: classify("minecraft:snowball", false, 0, None),
+        ..frame(tick, held)
+    };
+    runtime.observe_press(true);
+    assert!(runtime.step(&snowballs(10, true, 1)).used);
+    runtime.step(&snowballs(11, false, 1));
+    assert!(runtime.predicted.as_ref().unwrap().stack.is_empty());
+    runtime.adopt_server_using_item(true);
+    assert!(!runtime.resolve_server_using_item(&snowballs(12, false, 1)));
+    assert!(!runtime.is_using());
+    assert!(runtime.has_server_using_item());
+    assert!(runtime.resolve_server_using_item(&snowballs(13, false, 2)));
+    assert!(runtime.is_using());
+}
