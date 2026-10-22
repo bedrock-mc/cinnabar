@@ -10,6 +10,7 @@ use {
     simulation_clock::TICKS_PER_SECOND,
 };
 
+mod actor_move;
 mod aim_pose;
 mod controller_frame;
 mod correction;
@@ -273,6 +274,7 @@ pub struct LocalPhysicsController {
     motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
+    actor_position_pending: Option<actor_move::ActorPositionUpdate>,
     deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
@@ -320,6 +322,7 @@ impl Default for LocalPhysicsController {
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
             motion_anchor: None,
             server_motions: VecDeque::new(),
+            actor_position_pending: None,
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
@@ -381,6 +384,7 @@ impl LocalPhysicsController {
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
@@ -446,6 +450,7 @@ impl LocalPhysicsController {
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();
@@ -740,6 +745,7 @@ impl LocalPhysicsController {
                         grounded_before_tick,
                         jump_repeated,
                         ride_delta,
+                        actor_position: self.actor_position_pending.take(),
                         input,
                         modes: self.modes,
                         environment: result.environment,

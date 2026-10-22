@@ -1,8 +1,8 @@
-//! Mixed equipment changes bind installed attachables; texture-only changes keep startup bindings.
+//! Changed binding dependencies load installed definitions; texture-only changes keep startup bindings.
 
 use super::*;
 
-/// Collects authored bindings and the installed bindings needed by mixed equipment changes.
+/// Collects authored bindings and installed definitions whose binding dependencies change.
 pub(super) fn collect(
     view: &LayeredPackView,
     vanilla_pack_dir: Option<&Path>,
@@ -16,16 +16,7 @@ pub(super) fn collect(
         .filter(|path| path.ends_with(".json"))
         .filter_map(|path| Some((Box::<str>::from(path), canonical_json(&view.read(path)?)?)))
         .collect::<Vec<_>>();
-    // Track the directory even when empty so adding a texture invalidates compilation.
-    let texture_stems = view
-        .list("textures/")
-        .into_iter()
-        .filter_map(|path| {
-            path.strip_suffix(".png")
-                .or_else(|| path.strip_suffix(".tga"))
-        })
-        .collect::<BTreeSet<_>>();
-    let Some(root) = vanilla_pack_dir.filter(|_| !texture_stems.is_empty()) else {
+    let Some(root) = vanilla_pack_dir.filter(|_| !overrides.is_empty()) else {
         return files;
     };
     let authored_paths = files
@@ -38,8 +29,6 @@ pub(super) fn collect(
         .flat_map(|value| bound_items(&value))
         .collect::<BTreeSet<_>>();
     let mut installed = Vec::new();
-    let mut changed_items = BTreeSet::new();
-    let mut textured_items = BTreeSet::new();
     let mut directories = vec![root.join("attachables")];
     while let Some(directory) = directories.pop() {
         let Ok(entries) = std::fs::read_dir(directory) else {
@@ -61,9 +50,6 @@ pub(super) fn collect(
                 continue;
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
-            if authored_paths.contains(relative.as_str()) {
-                continue;
-            }
             let Ok(file) = std::fs::File::open(&path) else {
                 continue;
             };
@@ -79,27 +65,42 @@ pub(super) fn collect(
             let Some(value) = parse_pack_json(&bytes) else {
                 continue;
             };
-            let items = bound_items(&value);
-            if items.iter().any(|item| authored_items.contains(item)) {
-                continue;
-            }
-            let mut referenced = BTreeSet::new();
-            collect_texture_strings(&value, &mut referenced);
-            if referenced
-                .iter()
-                .any(|stem| texture_stems.contains(stem.as_str()))
-            {
-                textured_items.extend(items.iter().cloned());
-            }
-            if !binding_inputs_unchanged(&value, &authored_items, overrides, vanilla, inputs) {
-                changed_items.extend(items.iter().cloned());
-            }
-            installed.push((relative, items, value));
+            installed.push((relative, value));
         }
     }
+    let authored = files
+        .iter()
+        .filter_map(|(_, bytes)| parse_pack_json(bytes))
+        .collect::<Vec<_>>();
+    if let Ok(missing) = pack_entity_compiler::missing_harness_bindings(
+        |path| root.join(path).is_file(),
+        installed
+            .iter()
+            .map(|(_, value)| value)
+            .chain(authored.iter()),
+    ) {
+        installed.extend(
+            missing
+                .into_iter()
+                .map(|(path, value)| (path.into_string(), value)),
+        );
+    }
+    let mut candidates = Vec::new();
+    let mut changed_items = BTreeSet::new();
+    for (path, value) in installed {
+        let items = bound_items(&value);
+        if authored_paths.contains(path.as_str())
+            || items.iter().any(|item| authored_items.contains(item))
+        {
+            continue;
+        }
+        if !binding_inputs_unchanged(&value, &authored_items, overrides, vanilla, inputs) {
+            changed_items.extend(items.iter().cloned());
+        }
+        candidates.push((path, items, value));
+    }
     // Each item's variants share the decision, preserving the compiler's player preference.
-    changed_items.retain(|item| textured_items.contains(item));
-    for (path, items, value) in installed {
+    for (path, items, value) in candidates {
         if items.iter().any(|item| changed_items.contains(item))
             && let Ok(bytes) = serde_json::to_vec(&value)
         {

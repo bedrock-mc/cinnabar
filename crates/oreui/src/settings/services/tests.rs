@@ -161,3 +161,26 @@ fn checked_language_radio_has_the_primary_diamond_face() {
         _ => false,
     }));
 }
+
+/// Touch availability selects editable controls while desktop-only hosts retain their hint.
+#[test]
+fn touch_settings_offer_the_live_sensitivity_on_touch_devices() {
+    let mut view = MenuView::new(true, "Player".into());
+    for available in [false, true] {
+        view.touch_available = available;
+        let (labels, actions) = panel(&view, touch);
+        let sensitivity =
+            launcher::menu::settings_options::SettingId::TouchSensitivity.index() as u16;
+        assert_eq!(
+            actions.iter().any(|action| matches!(action,
+            MenuAction::SettingsOption(index, _) if *index == sensitivity)),
+            available
+        );
+        assert_eq!(
+            labels
+                .iter()
+                .any(|label| label == "Use a touch device to customize controls"),
+            !available
+        );
+    }
+}

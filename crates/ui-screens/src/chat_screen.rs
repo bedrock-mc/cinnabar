@@ -50,6 +50,7 @@ pub enum ChatHit {
     LinkOpen,
     LinkCancel,
     Send,
+    SubmitCommand(usize),
     CopyCoordinates,
     Paste,
     CoordinateDropdown,
@@ -71,6 +72,7 @@ struct LinkGeneration {
 /// The chat screen's cached layout and last frame's input geometry.
 #[derive(Default)]
 pub struct ChatScreen {
+    submissions: Vec<String>,
     links: Vec<String>,
     extension_events: Vec<String>,
     pending_link: Option<String>,
@@ -184,6 +186,7 @@ impl ChatScreen {
             )
         })?;
         self.hits.clear();
+        self.submissions.clear();
         self.hover_hits.clear();
         self.edit_box = None;
         let Some(drawn) = drawn else {
@@ -260,9 +263,23 @@ impl ChatScreen {
                 .map(ChatHit::SettingsAction)
                 .or_else(|| crate::chat_coordinates::action(region))
                 .or_else(|| chat_hit(region));
-            let Some(hit) = hit else {
+            let Some(mut hit) = hit else {
                 continue;
             };
+            if hit == ChatHit::Send {
+                match crate::chat_submission::linked_command(
+                    region,
+                    &drawn.hits,
+                    region.key.contains(MESSAGES_VIEW),
+                ) {
+                    crate::chat_submission::Submission::Draft => {}
+                    crate::chat_submission::Submission::Ignore => continue,
+                    crate::chat_submission::Submission::Command(command) => {
+                        hit = ChatHit::SubmitCommand(self.submissions.len());
+                        self.submissions.push(command.to_owned());
+                    }
+                }
+            }
             if self.settings.open
                 && !matches!(hit, ChatHit::SettingsClose | ChatHit::SettingsAction(_))
             {
@@ -284,6 +301,7 @@ impl ChatScreen {
         let Some(url) = self.pending_link.as_ref() else {
             return Ok(());
         };
+        self.submissions.clear();
         self.hits.clear();
         self.hover_hits.clear();
         let model = json_ui::FormModel::Modal(json_ui::ModalForm {
@@ -328,6 +346,11 @@ impl ChatScreen {
         self.links.get(index).map(String::as_str)
     }
 
+    /// Returns only command text attached to a live Send hit in the last frame.
+    pub fn submission(&self, index: usize) -> Option<&str> {
+        self.submissions.get(index).map(String::as_str)
+    }
+
     /// Forget the open chat's scroll and hover once the screen closes.
     pub fn close(&mut self) {
         self.open = false;
@@ -335,6 +358,7 @@ impl ChatScreen {
         self.hits.clear();
         self.hover_hits.clear();
         self.links.clear();
+        self.submissions.clear();
         self.pending_link = None;
         self.link_hits.clear();
         self.link_generation = None;

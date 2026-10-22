@@ -506,9 +506,9 @@ settings! {
     UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
         [(SettingPanel::Updates, 0)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
-        [(SettingPanel::GeneralNetwork, 4)], [], None, None;
+        [(SettingPanel::ModUpdates, 0)], [], None, None;
     ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),
-        [(SettingPanel::GeneralNetwork, 5)], [], None, None;
+        [(SettingPanel::ModUpdates, 1)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),
@@ -605,4 +605,7 @@ settings! {
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 0)], [], None, None;
+
 }

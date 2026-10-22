@@ -632,7 +632,21 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Friends => {
+                let query = self.friend_query.as_str().to_lowercase();
+                let mut actions = vec![
+                    MenuAction::SearchFriends,
+                    MenuAction::Navigate(MenuScreen::Home),
+                ];
+                actions.extend(
+                    self.friends
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, friend)| friend.gamertag.to_lowercase().contains(&query))
+                        .map(|(index, _)| MenuAction::PlayFriend(index)),
+                );
+                actions
+            }
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }

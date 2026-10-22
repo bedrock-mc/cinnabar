@@ -7,6 +7,8 @@ mod death;
 mod modifiers;
 use modifiers::MenuModifiers;
 pub(super) mod fields;
+mod ime;
+pub use ime::drive_menu_ime;
 mod preview;
 mod remapping;
 mod scroll;
@@ -95,6 +97,7 @@ impl MenuRuntime {
 
     fn editor(&self, field: MenuField) -> &ChatEditor {
         match field {
+            MenuField::FriendQuery => &self.friend_query,
             MenuField::RealmCode => &self.realm_membership.code,
             MenuField::Name => &self.name,
             MenuField::Address => &self.address,
@@ -108,6 +111,7 @@ impl MenuRuntime {
 
     fn editor_mut(&mut self, field: MenuField) -> &mut ChatEditor {
         match field {
+            MenuField::FriendQuery => &mut self.friend_query,
             MenuField::RealmCode => &mut self.realm_membership.code,
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
@@ -693,6 +697,7 @@ pub fn drive_menu_input(
         caret_press = pointer.zip(action.text_field());
     }
     if touches.any_just_pressed() {
+        menu.touch_available = true;
         menu.input_mode = MenuInputMode::Touch;
     }
     for touch in touches.iter_just_pressed() {

@@ -109,6 +109,7 @@ pub struct FrozenMiningTarget {
 /// One tick's committed block actions, item interaction and mining request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueuedMiningInteraction {
+    pub creative_destroy: Option<crate::survival_mining::CreativeDestroyBlock>,
     pub interactions: PlayerAuthInputInteractions,
     pub mining_request: Option<protocol::MineBlockRequest>,
 }

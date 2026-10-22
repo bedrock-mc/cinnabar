@@ -343,16 +343,9 @@ impl PlayerInventoryLedger {
                 .map(Cell::Inventory)
                 .collect()
         };
+        // Every other cell returns into the combined inventory in slot order, hotbar first.
         let Cell::Inventory(slot) = source else {
-            if source == Cell::Offhand
-                || (matches!(source, Cell::Storage(_))
-                    && self.quick_move_window() == Some(WindowKind::Storage))
-            {
-                return player(0..protocol::PLAYER_INVENTORY_SLOTS);
-            }
-            let mut cells = player(protocol::HOTBAR_SLOT_COUNT..protocol::PLAYER_INVENTORY_SLOTS);
-            cells.extend(player(0..protocol::HOTBAR_SLOT_COUNT));
-            return cells;
+            return player(0..protocol::PLAYER_INVENTORY_SLOTS);
         };
         let mut cells = match self.quick_move_window() {
             Some(kind) => self.window_destinations(kind, stack.network_id, stack.metadata),

@@ -5,7 +5,7 @@
   "dragonfly_module": "github.com/df-mc/dragonfly",
   "dragonfly_version": "v0.11.5",
   "dragonfly_module_sum": "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=",
-  "breg_sha256": "7b0094383e5b18fbd14186dbaf95b03d5bd21ce3b30443ed0bce150d88cd842f",
+  "breg_sha256": "87f97e5a8d7c5fb0593df269bcfb4487dd010c26343a508a82091301f6d03795",
   "routes": [
     {
       "identifier": "minecraft:acacia_door",
@@ -10106,6 +10106,26 @@
         }
       },
       "block_visual": 20077
+    },
+    {
+      "identifier": "minecraft:straw_bed",
+      "metadata": 0,
+      "block_name": "minecraft:straw_bed",
+      "block_state": {
+        "head_piece_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "minecraft:cardinal_direction": {
+          "type": "string",
+          "value": "north"
+        },
+        "occupied_bit": {
+          "type": "byte",
+          "value": 0
+        }
+      },
+      "block_visual": 17005
     },
     {
       "identifier": "minecraft:string",
