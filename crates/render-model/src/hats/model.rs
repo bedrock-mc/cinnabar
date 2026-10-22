@@ -158,6 +158,22 @@ pub(super) fn build(
             .map(|asset| asset.sha256.as_str()),
         (&texture, &item.assets.texture.sha256),
     )?;
+    if emitters
+        .iter()
+        .any(|e| e.trigger != super::emitters::CosmeticTrigger::Continuous)
+        && (item.slot != "aura"
+            || emitters
+                .iter()
+                .any(|e| e.trigger == super::emitters::CosmeticTrigger::Continuous)
+            || definition.companion.is_some()
+            || definition.cloth.is_some()
+            || definition.wind.is_some()
+            || definition.tip_flex.is_some()
+            || !definition.animations.is_empty()
+            || definition.playback.is_some())
+    {
+        return None;
+    }
     let companion = match definition.companion.take() {
         Some(controller) => {
             if item.slot != "pet"

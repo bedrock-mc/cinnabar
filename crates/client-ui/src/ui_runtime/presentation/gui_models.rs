@@ -712,6 +712,9 @@ impl UiPresentationRuntime {
             cape,
         );
         for &hat in &self.menu_preview_model.cosmetics {
+            if render_model::hats::rig(hat).is_ground_effect() {
+                continue;
+            }
             let Some(icon) = self.menu_artwork_icon(&hat.texture_key()) else {
                 continue;
             };
