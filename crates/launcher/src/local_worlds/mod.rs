@@ -2,6 +2,7 @@
 
 pub mod form;
 pub mod model;
+pub mod options;
 pub mod progress;
 pub mod prompt;
 pub mod world;

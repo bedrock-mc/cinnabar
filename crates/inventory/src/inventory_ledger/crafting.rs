@@ -11,8 +11,11 @@ use sha2::{Digest, Sha256};
 use super::cells::{Cell, FIRST_CRAFT_SLOT, Held};
 use super::gesture::Submission;
 use super::overlay::DeltaGroup;
-use super::registry::{entry_capacity, plain_stack, recipe_input_valid};
+use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PlayerInventoryLedger, WORKBENCH_WINDOW_TYPE, helpers};
+
+mod placement;
+pub(super) use placement::{OutputPlanner, action_amounts};
 
 /// Which crafting grid the open screen offers.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -62,9 +65,6 @@ pub enum CraftSink {
     /// Every player cell that can take the stack, like a shift-click.
     Inventory,
 }
-
-/// `(cell, amount, occupied destination stack id and count)`.
-type OutputPlacement = (Cell, u16, Option<(i32, u16)>);
 
 /// One presented grid cell resolved through the session item registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -356,16 +356,19 @@ impl PlayerInventoryLedger {
             },
         ];
         let mut groups = Vec::new();
-        for (cell, amount, id) in consumed {
-            actions.push(StackRequestAction::Consume {
-                amount,
-                source: helpers::request_slot(cell, id, None)?,
-            });
-            groups.push(DeltaGroup::Shrink {
-                source: cell,
-                amount: u16::from(amount),
-                source_id: id,
-            });
+        for (cell, total, id) in consumed {
+            for amount in action_amounts(u16::from(total)) {
+                actions.push(StackRequestAction::Consume {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: helpers::request_slot(cell, id, None)?,
+                });
+                groups.push(DeltaGroup::Shrink {
+                    source: cell,
+                    amount,
+                    source_id: id,
+                });
+            }
         }
         let output_slot = helpers::request_slot(Cell::CreatedOutput, request_id, None)?;
         groups.push(DeltaGroup::Set {
@@ -380,6 +383,10 @@ impl PlayerInventoryLedger {
         });
         let mut registry_bound_merge = false;
         match destination {
+            // A single cell takes the whole output in one action.
+            Some(_) if u16::from(total) > placement::action_amount_limit(u16::MAX) => {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
             Some(cell) => {
                 let into = self.view().get(cell);
                 if let Some(into) = into {
@@ -422,19 +429,30 @@ impl PlayerInventoryLedger {
                 });
             }
             None => {
-                let plan = self
-                    .spread_plan(&created, capacity)
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                let plan = OutputPlanner::default().plan(
+                    self,
+                    &created,
+                    capacity,
+                    &self.player_cells(),
+                    false,
+                );
+                let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
+                if placed != created.count {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
                 for (cell, amount, into) in plan {
                     registry_bound_merge |= into.is_some();
+                    let Cell::Inventory(slot) = cell else {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    };
+                    // Results auto-placed into the inventory use its combined name.
                     actions.push(StackRequestAction::Place {
                         amount: u8::try_from(amount)
                             .map_err(|_| InventoryGestureError::InvalidRequest)?,
                         source: output_slot,
-                        destination: helpers::request_slot(
-                            cell,
+                        destination: helpers::combined_request_slot(
+                            slot,
                             into.map_or(0, |(id, _)| id),
-                            None,
                         )?,
                     });
                     groups.push(DeltaGroup::Transfer {
@@ -448,6 +466,10 @@ impl PlayerInventoryLedger {
                 }
             }
         }
+        // An unencodable request never enters the queue; a craft-all scope shrinks instead.
+        if actions.len() > protocol::MAX_STACK_REQUEST_ACTIONS {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         Ok(Submission {
             actions,
             groups,
@@ -456,62 +478,6 @@ impl PlayerInventoryLedger {
             requires_distinct_stack_ids: true,
             registry_bound_merge,
         })
-    }
-
-    /// Splits `created` over player cells: compatible partial stacks first,
-    /// then empty cells, both in hotbar-first player slot order.
-    /// Each entry is `(cell, amount, occupied destination
-    /// stack id and count)`; `None` when the inventory cannot hold it all.
-    fn spread_plan(
-        &self,
-        created: &NetworkItemStack,
-        capacity: u8,
-    ) -> Option<Vec<OutputPlacement>> {
-        let capacity = u16::from(capacity);
-        let mut remaining = created.count;
-        let mut plan = Vec::new();
-        let cells: Vec<Cell> = (0..protocol::PLAYER_INVENTORY_SLOTS)
-            .filter(|slot| {
-                self.known[usize::from(*slot)] && self.confirmed.contains(Cell::Inventory(*slot))
-            })
-            .map(Cell::Inventory)
-            .collect();
-        for cell in &cells {
-            let Some(into) = self.view().get(*cell) else {
-                continue;
-            };
-            if remaining == 0 {
-                break;
-            }
-            let same = into.stack.network_id == created.network_id
-                && into.stack.metadata == created.metadata
-                && into.stack.block_runtime_id == created.block_runtime_id
-                && plain_stack(&into.stack)
-                && plain_stack(created);
-            if !same || self.awaiting_identity(into) {
-                continue;
-            }
-            let amount = remaining.min(capacity.saturating_sub(into.stack.count));
-            if amount > 0 {
-                remaining -= amount;
-                plan.push((
-                    *cell,
-                    amount,
-                    Some((into.stack.stack_network_id, into.stack.count)),
-                ));
-            }
-        }
-        for cell in &cells {
-            if remaining == 0 {
-                break;
-            }
-            if self.view().get(*cell).is_none() {
-                let amount = remaining.min(capacity);
-                remaining -= amount;
-                plan.push((*cell, amount, None));
-            }
-        }
-        (remaining == 0).then_some(plan)
     }
 
     /// The server's current creative catalog.

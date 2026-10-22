@@ -181,6 +181,7 @@ pub use actor::{
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub use actor::{GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use block_entity::BeaconModel;
+pub use block_entity::ChalkboardModel;
 pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;

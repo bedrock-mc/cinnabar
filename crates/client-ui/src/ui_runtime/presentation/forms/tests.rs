@@ -824,6 +824,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
     runtime.screen = launcher::menu::MenuScreen::Play;
     let flat = World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "Plains".to_owned(),
         game_mode: GameMode::Creative,
@@ -833,6 +834,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         seed: 1,
         created_unix: 1,
         last_played_unix: 1,
+        options_unavailable: false,
         size_bytes: 0,
     };
     let base = |menu: &WorldsMenu| {
@@ -897,6 +899,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         has(&dialog, &PromptButton::GetDocker.label()),
         "no-Docker dialog: {dialog:?}"
     );
+    assert!(!has(&dialog, &PromptButton::UseDragonfly.label()));
 }
 
 #[test]
