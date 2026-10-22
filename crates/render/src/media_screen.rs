@@ -212,6 +212,7 @@ fn prepare_media_screens(
                 .as_ref()
                 .is_none_or(|texture| texture.size() != size)
             {
+                // The old size cannot hold this frame; releasing it first lowers the peak.
                 state.texture = None;
                 state.uploaded = false;
                 let generation = state.texture_generation + 1;
@@ -224,13 +225,18 @@ fn prepare_media_screens(
                 if state.texture.is_some() {
                     state.texture_generation = generation;
                 } else {
-                    // Denied by the shared budget: retry this frame once others free memory.
+                    // Denied by the shared budget or out of memory: retry once memory frees.
                     state.serial = None;
                 }
             }
             if let Some(texture) = &state.texture {
-                state.uploaded |=
-                    texture.upload(&uploads.queue, size, state.texture_generation, &frame.rgba);
+                state.uploaded |= texture.upload(
+                    &uploads.device,
+                    &uploads.queue,
+                    size,
+                    state.texture_generation,
+                    &frame.rgba,
+                );
             }
         }
         if screen.frame.is_none() {
@@ -705,6 +711,34 @@ mod tests {
                 .is_some(),
             "a paused frame keeps its serial, so the retry cannot wait for a new one"
         );
+    }
+
+    /// Out of memory for a texture or a frame's staging skips that frame instead of quitting.
+    #[test]
+    fn out_of_memory_skips_the_frame_and_retries() {
+        let mut app = budget_app();
+        let with = |serial| MediaScreen {
+            frame: Some(frame(serial, 2)),
+            ..screen(7, 0.0)
+        };
+        {
+            let _failure =
+                crate::gpu_allocation::inject(|label, _| label == "Cinnabar server media");
+            prepared(&mut app, vec![with(1)]);
+        }
+        let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
+        assert!(state.texture.is_none() && !state.uploaded);
+
+        {
+            let _failure =
+                crate::gpu_allocation::inject(|label, _| label == "Cinnabar server media frame");
+            prepared(&mut app, vec![with(1)]);
+        }
+        let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
+        assert!(state.texture.is_some() && !state.uploaded);
+
+        prepared(&mut app, vec![with(2)]);
+        assert!(app.world().resource::<MediaScreenGpu>().screens[&7].uploaded);
     }
 
     #[test]

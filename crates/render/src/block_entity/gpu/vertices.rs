@@ -38,8 +38,8 @@ impl VertexList {
         upload: &FrameUploads<'_>,
         label: &'static str,
     ) {
-        self.count = u32::try_from(vertices.len()).unwrap_or(0);
         if vertices.is_empty() {
+            self.count = 0;
             render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
             return;
         }
@@ -47,19 +47,28 @@ impl VertexList {
         let reallocated = self.buffer.is_none() || self.capacity_vertices < needed;
         if reallocated {
             let capacity = needed.next_power_of_two().max(MIN_BUFFER_VERTICES);
-            self.buffer = Some(upload.device.create_buffer(&BufferDescriptor {
-                label: Some(label),
-                size: capacity * VERTEX_BYTES,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
+            let Some(buffer) = crate::gpu_allocation::buffer(
+                &upload.device,
+                &BufferDescriptor {
+                    label: Some(label),
+                    size: capacity * VERTEX_BYTES,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                },
+            ) else {
+                // Out of memory keeps drawing the previous list; the next call reallocates.
+                return;
+            };
+            self.buffer = Some(buffer);
             self.capacity_vertices = capacity;
             self.bind_group = None;
             self.dirty.clear();
             self.dirty.push(0..vertices.len());
         } else if !changed_ranges(previous, vertices, &mut self.dirty) {
+            self.count = u32::try_from(vertices.len()).unwrap_or(0);
             return;
         }
+        self.count = u32::try_from(vertices.len()).unwrap_or(0);
         render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
         if let Some(buffer) = &self.buffer {
             let mut writes = [(&**buffer, 0, &[][..]); MAX_UPLOAD_RANGES];
@@ -224,6 +233,33 @@ mod tests {
         assert_eq!(after.staged_writes - before.staged_writes, 2);
         assert_eq!(after.batches - before.batches, 1);
         assert_eq!(after.fallback_writes, 0);
+    }
+
+    /// Out of memory keeps drawing the previous list and reallocates on the next upload.
+    #[test]
+    fn failed_growth_keeps_the_previous_list() {
+        use crate::upload_staging::BufferUploadStaging;
+        use bevy::ecs::system::SystemState;
+        let (device, queue) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let mut world = World::new();
+        world.insert_resource(BufferUploadStaging::new(&device));
+        world.insert_resource(device);
+        world.insert_resource(RenderQueue::new(queue));
+        let mut state = SystemState::<FrameUploads>::new(&mut world);
+        let upload = state.get(&world).unwrap();
+        let mut list = VertexList::new();
+        let small = vec![BlockEntityVertex::default(); 4];
+        list.upload(&[], &small, &upload, "growth fixture");
+        let large = vec![BlockEntityVertex::default(); MIN_BUFFER_VERTICES as usize + 1];
+        {
+            let _failure = crate::gpu_allocation::inject(|label, _| label == "growth fixture");
+            list.upload(&small, &large, &upload, "growth fixture");
+        }
+        assert_eq!(list.count, 4);
+        assert_eq!(list.capacity_vertices, MIN_BUFFER_VERTICES);
+        list.upload(&large, &large, &upload, "growth fixture");
+        assert_eq!(list.count as usize, large.len());
     }
 
     #[test]

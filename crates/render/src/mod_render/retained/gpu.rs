@@ -64,14 +64,29 @@ pub(super) struct CameraFrame {
     pub animation: [f32; 4],
 }
 
-/// Allocates a nonempty storage buffer, bounded by the contract's admitted array lengths.
-fn buffer(device: &RenderDevice, bytes: usize) -> Buffer {
-    device.create_buffer(&BufferDescriptor {
-        label: Some("mod retained drawing"),
-        size: bytes.max(16) as u64,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
+const LABEL: &str = "mod retained drawing";
+
+/// Allocates a nonempty storage buffer, or `None` when the device is out of memory.
+fn buffer(device: &RenderDevice, bytes: usize) -> Option<Buffer> {
+    crate::gpu_allocation::buffer(
+        device,
+        &BufferDescriptor {
+            label: Some(LABEL),
+            size: bytes.max(16) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        },
+    )
+}
+
+/// Keeps only the instances a buffer of `capacity` instances holds, splitting the last batch.
+fn truncate_to(instances: &mut Vec<GpuInstance>, batches: &mut Vec<Batch>, capacity: usize) {
+    instances.truncate(capacity);
+    let end = capacity as u32;
+    batches.retain_mut(|batch| {
+        batch.instances.end = batch.instances.end.min(end);
+        batch.instances.start < batch.instances.end
+    });
 }
 
 /// Uploads only newly admitted geometry, then updates small per-view instance tables.
@@ -140,13 +155,21 @@ pub(super) fn queue(
                 continue;
             };
             let vertices = mesh::build(geometry);
-            let storage = buffer(
-                &device,
-                vertices.len().max(1) * std::mem::size_of::<GpuVertex>(),
-            );
-            if !vertices.is_empty() {
-                queue.profiled_write_buffer(&storage, 0, bytemuck::cast_slice(&vertices));
-            }
+            // Out of memory leaves the geometry undrawn and retries it next frame.
+            let storage = if vertices.is_empty() {
+                buffer(&device, std::mem::size_of::<GpuVertex>())
+            } else {
+                crate::gpu_allocation::buffer_with_data(
+                    &device,
+                    &queue,
+                    LABEL,
+                    bytemuck::cast_slice(&vertices),
+                    BufferUsages::STORAGE,
+                )
+            };
+            let Some(storage) = storage else {
+                continue;
+            };
             gpu.meshes.insert(
                 handle,
                 Mesh {
@@ -204,7 +227,12 @@ pub(super) fn queue(
             }
         }
         let prepared = gpu.views.entry(entity).or_insert_with(|| ViewGpu {
-            buffer: buffer(&device, std::mem::size_of::<GpuInstance>()),
+            buffer: device.create_buffer(&BufferDescriptor {
+                label: Some(LABEL),
+                size: std::mem::size_of::<GpuInstance>().max(16) as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
             uploaded: Vec::new(),
             batches: Vec::new(),
             bindings: BTreeMap::new(),
@@ -240,8 +268,14 @@ pub(super) fn queue(
         }
         let bytes = instances.len() * std::mem::size_of::<GpuInstance>();
         if bytes as u64 > prepared.buffer.size() {
-            prepared.buffer = buffer(&device, bytes.next_power_of_two());
-            prepared.bindings.clear();
+            if let Some(grown) = buffer(&device, bytes.next_power_of_two()) {
+                prepared.buffer = grown;
+                prepared.bindings.clear();
+            } else {
+                // Out of memory draws the instances the current buffer holds.
+                let capacity = prepared.buffer.size() as usize / std::mem::size_of::<GpuInstance>();
+                truncate_to(&mut instances, &mut batches, capacity);
+            }
         }
         if instances != prepared.uploaded {
             if !instances.is_empty() {

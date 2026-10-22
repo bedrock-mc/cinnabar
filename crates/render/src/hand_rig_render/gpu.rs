@@ -271,48 +271,61 @@ pub(super) fn upload_pose(
         return;
     }
     // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
-    let mut recreated = false;
-    for (slot, label, bytes) in [
+    let streams = [
         (
-            &mut gpu.instances,
             "first-person rig instance",
             bytemuck::cast_slice::<_, u8>(&frame.rig.instances),
         ),
         (
-            &mut gpu.previous_bones,
             "first-person rig previous bones",
             bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones),
         ),
         (
-            &mut gpu.current_bones,
             "first-person rig current bones",
             bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
         ),
-    ] {
+    ];
+    let slots = [&gpu.instances, &gpu.previous_bones, &gpu.current_bones];
+    // Resized streams are all allocated before any write, so out of memory keeps the last
+    // consistent pose and retries next frame.
+    let mut replacements: [Option<Buffer>; 3] = [None, None, None];
+    for ((slot, (label, bytes)), replacement) in slots.iter().zip(streams).zip(&mut replacements) {
+        if slot
+            .as_ref()
+            .is_some_and(|buffer| buffer.size() == bytes.len() as u64)
+        {
+            continue;
+        }
+        let Some(buffer) = crate::gpu_allocation::buffer_with_data(
+            &uploads.device,
+            &uploads.queue,
+            label,
+            bytes,
+            BufferUsages::STORAGE,
+        ) else {
+            return;
+        };
+        *replacement = Some(buffer);
+    }
+    let recreated = replacements.iter().any(Option::is_some);
+    let slots = [
+        &mut gpu.instances,
+        &mut gpu.previous_bones,
+        &mut gpu.current_bones,
+    ];
+    for ((slot, (_label, bytes)), replacement) in slots.into_iter().zip(streams).zip(replacements) {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "hand.pose_upload",
-            label,
+            label = _label,
             revision = frame.revision,
             bytes = bytes.len()
         )
         .entered();
-        match slot {
-            Some(buffer) if buffer.size() == bytes.len() as u64 => {
-                uploads.write(buffer, 0, bytes);
-            }
-            _ => {
-                *slot = Some(
-                    uploads
-                        .device
-                        .create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some(label),
-                            contents: bytes,
-                            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                        }),
-                );
-                recreated = true;
-            }
+        match (replacement, slot.as_ref()) {
+            (Some(buffer), _) => *slot = Some(buffer),
+            (None, Some(buffer)) => uploads.write(buffer, 0, bytes),
+            (None, None) => unreachable!("a missing stream is always replaced"),
         }
     }
     gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;

@@ -10,6 +10,9 @@ use bevy::render::{
     renderer::{RenderDevice, RenderQueue},
 };
 
+const TEXTURE_LABEL: &str = "Cinnabar server media";
+const FRAME_LABEL: &str = "Cinnabar server media frame";
+
 pub struct MediaTexture {
     texture: Texture,
     view: TextureView,
@@ -38,20 +41,22 @@ impl MediaTexture {
         {
             return None;
         }
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("Cinnabar server media"),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let texture = crate::gpu_allocation::checked(device, TEXTURE_LABEL, bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some(TEXTURE_LABEL),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8UnormSrgb,
+                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        })?;
         let view = texture.create_view(&TextureViewDescriptor::default());
         Some(Self {
             texture,
@@ -61,9 +66,11 @@ impl MediaTexture {
         })
     }
 
-    /// Updates existing storage; stale frames and midstream size changes are rejected.
+    /// Updates existing storage; stale frames, midstream size changes and frames the device
+    /// had no staging memory for are rejected.
     pub fn upload(
         &self,
+        device: &RenderDevice,
         queue: &RenderQueue,
         size: [u32; 2],
         generation: u64,
@@ -76,26 +83,28 @@ impl MediaTexture {
             return false;
         }
         let [width, height] = size;
-        queue.profiled_write_texture(
-            TexelCopyTextureInfo {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: Default::default(),
-            },
-            rgba,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
-            },
-            Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        true
+        crate::gpu_allocation::checked(device, FRAME_LABEL, self.allocated_bytes(), || {
+            queue.profiled_write_texture(
+                TexelCopyTextureInfo {
+                    texture: &self.texture,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    aspect: Default::default(),
+                },
+                rgba,
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(width * 4),
+                    rows_per_image: Some(height),
+                },
+                Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            )
+        })
+        .is_some()
     }
 
     /// Every authorized surface samples this view; it does not create another decoder.
