@@ -221,9 +221,53 @@ fn source_with_equipment(
     use_ticks: u32,
     swing: Option<actor_animation::LocalSwingProgress>,
     timing: Option<actor_animation::AttachableAnimationInput<'static>>,
-    (mut equipment, artwork): (EquipmentRuntime, render_model::ActorArtworkPages),
+    equipment: (EquipmentRuntime, render_model::ActorArtworkPages),
+) -> (HandSource, Vec<render_model::ActorRigGeometry>) {
+    source_with_equipment_and_map(
+        identifier,
+        with_artwork,
+        use_ticks,
+        swing,
+        timing,
+        equipment,
+        None,
+    )
+}
+
+/// Supplies optional map identity and received pixels while retaining missing-image controls.
+fn source_with_equipment_and_map(
+    identifier: Option<&str>,
+    with_artwork: bool,
+    use_ticks: u32,
+    swing: Option<actor_animation::LocalSwingProgress>,
+    timing: Option<actor_animation::AttachableAnimationInput<'static>>,
+    (mut equipment, mut artwork): (EquipmentRuntime, render_model::ActorArtworkPages),
+    map_data: Option<(i64, Option<&[u32]>)>,
 ) -> (HandSource, Vec<render_model::ActorRigGeometry>) {
     let mut stream = super::tests::head_stream();
+    if identifier == Some(FILLED_MAP) {
+        let assets = super::tests::head_assets();
+        let catalog = super::tests::map_paper_catalog(assets.source_manifest_sha256());
+        let (next, locations) =
+            artwork.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+        artwork = next;
+        equipment.set_pack_layer(Some((assets, Some(catalog), locations)));
+    }
+    if let Some((map_id, Some(pixels))) = map_data {
+        stream
+            .submit(
+                stream.committed_sequence() + 1,
+                protocol::WorldEvent::MapData(protocol::MapDataEvent {
+                    map_id,
+                    start_x: 0,
+                    start_y: 0,
+                    width: pixels.len() as u32,
+                    height: 1,
+                    pixels: pixels.into(),
+                }),
+            )
+            .unwrap();
+    }
     let mut feed = super::tests::uploaded_skin_feed(false);
     let protocol::PlayerSkin::Standard(skin) = &mut feed.skin else {
         unreachable!()
@@ -265,7 +309,7 @@ fn source_with_equipment(
     let input = ActorEquipmentInput {
         main: identifier.map(|identifier| WornItem {
             variant: Default::default(),
-            map_id: None,
+            map_id: map_data.map(|(id, _)| id),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -577,14 +621,52 @@ fn empty_hand_and_maps_keep_their_intentional_textured_arms() {
     assert!(empty.body_camera.is_some());
     assert!(empty.items.iter().all(Option::is_none));
     assert_resolved_textures(&empty);
-    let map = source_for(Some(FILLED_MAP), true);
-    assert!(
-        map.body.is_some(),
-        "Java's map is the held-item arm exception"
-    );
-    assert!(map.items[0].is_some());
-    assert!(map.items[1].is_none());
-    assert_resolved_textures(&map);
+    let pixels = [0xff33_2211];
+    for data in [
+        None,
+        Some((266, None)),
+        Some((266, Some(pixels.as_slice()))),
+    ] {
+        let map = source_with_equipment_and_map(
+            Some(FILLED_MAP),
+            true,
+            0,
+            None,
+            None,
+            equipment_fixture(),
+            data,
+        )
+        .0;
+        assert!(
+            map.body.is_some(),
+            "Java's map is the held-item arm exception"
+        );
+        assert_eq!(
+            map.presentation.skin_rgba8.as_ref().unwrap().len(),
+            render_model::STANDARD_SKIN_BYTES
+        );
+        assert!(
+            map.all_submissions().any(|draw| {
+                draw.texture_layer & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0
+            }),
+            "missing identity or pixels must still keep the paper"
+        );
+        let received = data.is_some_and(|(_, pixels)| pixels.is_some());
+        assert_eq!(map.items[0].is_some(), received);
+        assert!(map.items[1].is_none());
+        if let Some((_, atlas)) = &map.items[0] {
+            assert_eq!(atlas.width, protocol::MAP_IMAGE_SIDE as u16);
+            assert_eq!(atlas.height, protocol::MAP_IMAGE_SIDE as u16);
+            assert_eq!(atlas.layers, 1);
+            assert_eq!(&atlas.rgba8[..4], &pixels[0].to_le_bytes());
+            assert_eq!(
+                atlas.rgba8.len(),
+                usize::from(atlas.width) * usize::from(atlas.height) * 4
+            );
+        } else {
+            assert_resolved_textures(&map);
+        }
+    }
 }
 
 /// Every item samples a present atlas layer; every visible arm has standard skin pixels.
