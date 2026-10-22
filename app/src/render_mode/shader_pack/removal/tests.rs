@@ -181,6 +181,48 @@ fn removing_a_relative_cli_selection_switches_off_the_deleted_pack() {
 
 #[cfg(unix)]
 #[test]
+fn removing_a_library_link_preserves_its_external_cli_target() {
+    let root = tempfile::tempdir().unwrap();
+    let external = root.path().join("external/Dusk");
+    std::fs::create_dir_all(external.join("shaders")).unwrap();
+    let mut app = fixture(root.path(), Some("Dusk"));
+    let library = root.path().join("shaderpacks/Dusk");
+    std::fs::remove_dir_all(&library).unwrap();
+    std::os::unix::fs::symlink(&external, &library).unwrap();
+    assert!(!selected_entry(&external, &library));
+    assert!(selected_entry(&library.join("shaders"), &library));
+    app.world_mut()
+        .resource_mut::<RenderModeConfig>()
+        .cli_shader_pack = Some(external.clone());
+    app.update();
+    remove(&mut app, 0);
+    test_time::eventually("the shader library link removal", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    assert!(std::fs::symlink_metadata(&library).is_err());
+    assert!(external.join("shaders").is_dir());
+    assert_eq!(
+        app.world().resource::<RenderModeConfig>().cli_shader_pack,
+        Some(external)
+    );
+    assert_eq!(
+        app.world()
+            .resource::<RuntimeSettings>()
+            .user_settings_update()
+            .1
+            .video
+            .render_mode,
+        ui::RenderMode::ShaderPack
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn selected_path_identity_resolves_links() {
     let root = tempfile::tempdir().unwrap();
     let library = root.path().join("Dusk");

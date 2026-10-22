@@ -81,11 +81,33 @@ fn start_removal(
 /// Resolves whether the selected root is the library entry or one of its nested roots.
 /// Run this before deletion on the worker, since path resolution reads the filesystem.
 fn selected_entry(selected: &Path, library: &Path) -> bool {
-    selected == library
-        || match (selected.canonicalize(), library.canonicalize()) {
-            (Ok(selected), Ok(library)) => selected.starts_with(library),
-            _ => false,
-        }
+    if selected == library
+        || entry_location(library).is_some_and(|library| {
+            selected
+                .ancestors()
+                .filter_map(entry_location)
+                .any(|selected| selected == library)
+        })
+    {
+        return true;
+    }
+    if std::fs::symlink_metadata(library).is_ok_and(|entry| entry.file_type().is_symlink()) {
+        return false;
+    }
+    match (selected.canonicalize(), library.canonicalize()) {
+        (Ok(selected), Ok(library)) => selected.starts_with(library),
+        _ => false,
+    }
+}
+
+/// Resolves an entry's parent without following the entry's own link to its target.
+fn entry_location(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    Some(parent.canonicalize().ok()?.join(name))
 }
 
 /// Applies the deletion outcome without overriding a newer selection, then re-lists packs.
