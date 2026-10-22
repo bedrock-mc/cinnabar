@@ -184,6 +184,16 @@ impl WorldOptions {
 }
 
 impl WorldOption {
+    /// Whether changing this toggle resets `other` ([`WorldOptions::set`]) or decides whether
+    /// it can be edited ([`WorldOptions::editable`]).
+    pub fn gates(self, other: WorldOption) -> bool {
+        match self {
+            WorldOption::ActivateCheats => other.definition().cheats,
+            WorldOption::SleepSkipNight => other == WorldOption::SleepPercentage,
+            _ => false,
+        }
+    }
+
     /// Checks the shared bounds before a value reaches a form or server.
     pub fn accepts(self, value: i32) -> bool {
         match self.definition().control {
@@ -225,6 +235,10 @@ impl OptionChanges {
     /// Returns an explicitly edited value.
     pub fn get(&self, id: WorldOption) -> Option<i32> {
         self.0.get(&id).copied()
+    }
+    /// Drops edits identical to `applied`, keeping any made since it was captured.
+    pub fn acknowledge(&mut self, applied: &Self) {
+        self.0.retain(|id, value| applied.0.get(id) != Some(value));
     }
 }
 

@@ -537,9 +537,10 @@ impl WorldsMenu {
                 };
                 let before = options.clone();
                 options.set(id, value);
-                // Options a toggle reset show their new value instead of earlier typing.
-                self.option_text
-                    .retain(|&other, _| other == id || options.get(other) == before.get(other));
+                // Options a toggle gates or resets show their value instead of earlier typing.
+                self.option_text.retain(|&other, _| {
+                    other == id || (!id.gates(other) && options.get(other) == before.get(other))
+                });
                 Vec::new()
             }
             Input::SetOptionText(id, text)

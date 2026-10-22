@@ -413,12 +413,28 @@ impl Store {
         Ok(world)
     }
 
-    /// Records that a world was just played.
-    pub(crate) fn touch(&self, id: &str) -> Result<(), WorldError> {
+    /// A world to start, with the pending edits its start applies.
+    pub(crate) fn snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(World, launcher::local_worlds::options::OptionChanges), WorldError> {
+        let _state = self.lock();
+        Ok((self.read(id)?, self.saved(id)?.pending_options))
+    }
+
+    /// Records that a world was just played and that its start applied `applied`; edits saved
+    /// since that snapshot stay pending.
+    pub(crate) fn touch(
+        &self,
+        id: &str,
+        applied: &launcher::local_worlds::options::OptionChanges,
+    ) -> Result<(), WorldError> {
         let state = self.lock();
         let mut world = self.read(id)?;
         world.last_played_unix = state.now();
-        self.write(&world, &Default::default())
+        let mut pending = self.saved(id)?.pending_options;
+        pending.acknowledge(applied);
+        self.write(&world, &pending)
     }
 
     /// Removes a world and all of its saved data.

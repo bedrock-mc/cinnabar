@@ -127,7 +127,7 @@ fn update_touch_and_delete() {
         "a rejected update changed the world"
     );
     store.pin_clock(5000);
-    store.touch(&world.id).expect("touch");
+    store.touch(&world.id, &Default::default()).expect("touch");
     assert_eq!(store.get(&world.id).expect("get").last_played_unix, 5000);
     store.delete(&world.id).expect("delete");
     assert!(matches!(store.get(&world.id), Err(WorldError::NotFound)));
@@ -214,7 +214,7 @@ fn list_reports_world_size() {
         worlds.len() == 1 && worlds[0].size_bytes >= 4096,
         "{worlds:?}"
     );
-    store.touch(&world.id).expect("touch");
+    store.touch(&world.id, &Default::default()).expect("touch");
     let raw =
         fs::read_to_string(store.dir(&world.id).expect("dir").join(META_FILE)).expect("metadata");
     assert!(!raw.contains("size_bytes"), "{raw}");
@@ -436,7 +436,7 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
     let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
     super::super::level_dat::configure(&original, &level).unwrap();
-    store.touch(&original.id).unwrap();
+    store.touch(&original.id, &Default::default()).unwrap();
     let mut played = original.clone();
     played.options.set(O::RandomTickSpeed, 42);
     super::super::level_dat::configure(&played, &level).unwrap();
@@ -463,10 +463,10 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
             },
         )
         .unwrap();
-    let pending = store.get(&original.id).unwrap();
+    let (pending, applied) = store.snapshot(&original.id).unwrap();
     assert_eq!(pending.options.get(O::RandomTickSpeed), 7);
     super::super::level_dat::configure(&pending, &level).unwrap();
-    store.touch(&original.id).unwrap();
+    store.touch(&original.id, &applied).unwrap();
     assert_eq!(
         store
             .get(&original.id)
@@ -490,7 +490,7 @@ fn world_options_inactive_preferences_survive_configuration_and_reload() {
     let level = store.dir(&world.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
     super::super::level_dat::configure(&world, &level).unwrap();
-    store.touch(&world.id).unwrap();
+    store.touch(&world.id, &Default::default()).unwrap();
     let loaded = store.get(&world.id).unwrap();
     assert_eq!(loaded.options.get(O::SleepPercentage), 35);
     assert!(!loaded.options.enabled(O::SleepSkipNight));
@@ -515,7 +515,7 @@ fn world_options_menu_deltas_preserve_rules_changed_after_the_cached_list() {
     let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
     super::super::level_dat::configure(&original, &level).unwrap();
-    store.touch(&original.id).unwrap();
+    store.touch(&original.id, &Default::default()).unwrap();
     let mut menu = WorldsMenu::default();
     menu.apply(Event::Listed(vec![original.clone()]));
     let mut played = original.clone();
@@ -561,4 +561,45 @@ fn oversized_level_data_marks_options_unavailable_and_stays_untouched() {
     assert!(opened.options.enabled(O::ShowCoordinates));
     super::super::level_dat::configure(&opened, &level).unwrap();
     assert!(fs::read(&path).unwrap() == oversized);
+}
+
+/// An edit saved while a world starts outlives that start's touch and applies on the next read.
+#[test]
+fn world_options_edits_saved_during_a_start_stay_pending() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let dir = scratch();
+    let store = store(&dir);
+    let mut new = new_world("Racing");
+    new.backend = Some(Backend::Bds);
+    let original = store.create(&new).unwrap();
+    let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
+    fs::create_dir_all(&level).unwrap();
+    super::super::level_dat::configure(&original, &level).unwrap();
+    let edit = |value: i32| {
+        let baseline = store.get(&original.id).unwrap().options;
+        let mut edited = baseline.clone();
+        edited.set(O::RandomTickSpeed, value);
+        store
+            .update(
+                &original.id,
+                &WorldUpdate {
+                    options: Some(edited.changes_from(&baseline)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    };
+    edit(7);
+    let (starting, applied) = store.snapshot(&original.id).unwrap();
+    super::super::level_dat::configure(&starting, &level).unwrap();
+    edit(9);
+    store.touch(&original.id, &applied).unwrap();
+    assert_eq!(
+        store
+            .get(&original.id)
+            .unwrap()
+            .options
+            .get(O::RandomTickSpeed),
+        9
+    );
 }

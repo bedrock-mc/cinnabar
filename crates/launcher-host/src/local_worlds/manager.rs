@@ -425,19 +425,24 @@ impl Manager {
             }
         }
         let mut fresh_world = None;
+        let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
             Err(WorldError::Cancelled)
         } else {
-            self.inner.store.get(&spec.world.id).and_then(|world| {
-                let fresh = StartSpec {
-                    world,
-                    dir: spec.dir.clone(),
-                    view_distance: spec.view_distance,
-                };
-                let started = self.inner.runners.start(&fresh, cancel);
-                fresh_world = Some(fresh.world);
-                started
-            })
+            self.inner
+                .store
+                .snapshot(&spec.world.id)
+                .and_then(|(world, pending)| {
+                    applied = pending;
+                    let fresh = StartSpec {
+                        world,
+                        dir: spec.dir.clone(),
+                        view_distance: spec.view_distance,
+                    };
+                    let started = self.inner.runners.start(&fresh, cancel);
+                    fresh_world = Some(fresh.world);
+                    started
+                })
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
@@ -465,7 +470,7 @@ impl Manager {
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
         drop(life);
-        if let Err(error) = self.inner.store.touch(&spec.world.id) {
+        if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
         }
         if paused {

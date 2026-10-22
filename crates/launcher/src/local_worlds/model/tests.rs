@@ -949,3 +949,18 @@ fn world_options_reset_by_a_toggle_drop_their_typed_text() {
     assert_eq!(menu.screen(), Screen::List);
     assert_eq!(menu.worlds()[0].options.get(O::RandomTickSpeed), 1);
 }
+
+/// Turning cheats off drops invalid typing in the fields it gates, even at their default value.
+#[test]
+fn world_options_toggles_drop_invalid_text_in_gated_fields() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOption(O::ActivateCheats, 1));
+    menu.update(Input::SetOptionText(O::RandomTickSpeed, "5000".to_owned()));
+    assert_eq!(menu.edit_form().unwrap().options.get(O::RandomTickSpeed), 1);
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    assert_eq!(menu.view().numeric_text(O::RandomTickSpeed), "1");
+    assert!(menu.update(Input::Back).is_empty());
+    assert!(menu.form_error().is_none());
+    assert_eq!(menu.screen(), Screen::List);
+}
