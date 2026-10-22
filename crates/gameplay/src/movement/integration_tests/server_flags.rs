@@ -704,10 +704,11 @@ fn replay_hands_the_final_item_use_to_the_owner() {
     assert_eq!(physics.take_server_using_item(), Some(false));
 }
 
-/// Replay merges back only the flag bits it changes, so a live spin a
-/// current-stamped write started survives a replay whose ticks never spin.
+/// Replay copies its whole flag word back, as vanilla's fixed copy-back mask
+/// does, so a live spin a current-stamped write started for the next frame
+/// gives way to a replay whose ticks never spin.
 #[test]
-fn replay_keeps_a_live_flag_it_never_changed() {
+fn replay_overwrites_a_live_flag_written_after_its_last_tick() {
     let (mut physics, mut ticker) = airborne();
     for _ in 0..4 {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
@@ -716,7 +717,7 @@ fn replay_keeps_a_live_flag_it_never_changed() {
     assert_eq!(physics.apply_server_movement_flags(104, spin), None);
     physics.queue_server_motion([0.0; 3], 101);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
 
 /// A current-stamped item-use write compares with a local release made
@@ -791,4 +792,49 @@ fn replay_keeps_a_spin_that_expired_within_it() {
     physics.queue_server_motion([0.0; 3], 101);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A retained glide start that the replayed tick ends at once (no elytra)
+/// counts as a replayed change, so the live glide the write began ends too.
+#[test]
+fn replay_ends_a_glide_its_correction_started_and_ended() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let glide = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(102, glide), None);
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_ne!(physics.mode(), sim::MovementMode::Gliding);
+}
+
+/// A local item-use start or end supersedes a server item-use write still
+/// waiting for the item-use owner, as vanilla's start and stop write the
+/// actual flag the next tick reads.
+#[test]
+fn a_local_item_use_write_supersedes_a_pending_server_write() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let using = flags(|flags| flags.using_item = Some(false));
+    physics.apply_server_movement_flags(0, using);
+    physics.write_local_using_item(true);
+    assert_eq!(physics.take_server_using_item(), None);
+}
+
+/// Replay copies its item-use bit back even when no correction wrote it, so
+/// a live set queued for a later frame gives way to the replayed clear.
+#[test]
+fn replay_copies_back_an_item_use_bit_no_correction_wrote() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let using = flags(|flags| flags.using_item = Some(true));
+    physics.apply_server_movement_flags(104, using);
+    assert_eq!(physics.take_server_using_item(), Some(true));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.take_server_using_item(), Some(false));
 }

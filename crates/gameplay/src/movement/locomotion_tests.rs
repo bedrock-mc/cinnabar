@@ -1099,9 +1099,9 @@ fn a_stamped_crawl_clear_lets_the_tunnel_restart_the_crawl() {
         .expect("the tick after the stamp stays queued");
     assert!(has(after.flags, PlayerInputFlags::START_CRAWLING));
     assert!(!has(after.flags, PlayerInputFlags::STOP_CRAWLING));
-    // The replay ends crawling as the original ticks did, so the live clear
-    // stands until the next tick's crawl rules restart the crawl.
-    assert_ne!(physics.mode(), MovementMode::Crawling);
+    // The replay ended the crawl and the tunnel restarted it, so the live
+    // state takes the replayed crawl, which the next tick continues.
+    assert_eq!(physics.mode(), MovementMode::Crawling);
     let next = step(
         &mut physics,
         MovementInput::default(),

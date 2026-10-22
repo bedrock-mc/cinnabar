@@ -6,8 +6,9 @@
 //! bits that differ from that frame's capture, applied to the live state at
 //! once and again whenever replay passes the frame. Replay keeps the capture of
 //! the frame it starts from and refreshes every later capture from the replayed
-//! state before re-applying that frame's corrections; afterwards the live
-//! state takes the bits the replay changed and keeps the others. A write
+//! state before re-applying that frame's corrections; the replayed word then
+//! replaces the live one, as vanilla copies every client-owned flag back. A
+//! write
 //! stamped at the current tick is queued for the next frame's capture, one
 //! stamped at a future tick joins the current frame's corrections, and an
 //! unstamped write only changes the live word. Pose rules then continue or end
@@ -50,11 +51,6 @@ impl FlagWord {
 
     pub(super) fn using_item(self) -> bool {
         self.has(USING_ITEM)
-    }
-
-    /// The pose and spin bits that differ between this word and `other`.
-    pub(super) fn pose_and_spin_changes(self, other: Self) -> u8 {
-        (self.0 ^ other.0) & !USING_ITEM
     }
 }
 
@@ -162,31 +158,6 @@ pub(super) fn impose(word: FlagWord, modes: &mut ModeTracker, state: &mut Player
     set_spin(state, word.has(SPINNING));
 }
 
-/// Merges a replay's pose and spin back into the live state it rebuilt. Like
-/// vanilla's change mask, a bit the replay changed between its tick
-/// snapshots (`observed`) keeps the replayed value (`replayed`), as does a
-/// bit whose replayed value differs from the one the last tick originally
-/// ended with (`ended`), which covers local inputs replay dropped. The others
-/// return to the live word from before the replay (`live`, whose spin counter
-/// was `live_spin`), so writes between ticks that the replay never touched
-/// survive it.
-pub(super) fn merge_replayed(
-    replayed: FlagWord,
-    ended: FlagWord,
-    observed: u8,
-    live: FlagWord,
-    live_spin: Option<u8>,
-    modes: &mut ModeTracker,
-    state: &mut PlayerState,
-) {
-    let changed = observed | replayed.pose_and_spin_changes(ended);
-    let merged = FlagWord((replayed.0 & changed) | (live.0 & !changed));
-    apply_pose(merged, 0b111, modes);
-    if changed & SPINNING == 0 && state.spin_attack_ticks.is_some() != live.has(SPINNING) {
-        state.spin_attack_ticks = live_spin;
-    }
-}
-
 /// Server flag state outside the retained frames.
 #[derive(Debug, Clone, Default)]
 pub(super) struct ServerFlagAuthority {
@@ -287,9 +258,11 @@ impl LocalPhysicsController {
 
     /// Records a local item-use start (`true`) or end (`false`) in the live
     /// word, as vanilla's start and stop write the flag. Later server writes
-    /// compare with it.
+    /// compare with it, and it supersedes a server write the item-use owner
+    /// has not taken yet.
     pub fn write_local_using_item(&mut self, using: bool) {
         self.server_flags.live_using_item = using;
+        self.server_flags.pending_using_item = None;
     }
 
     /// Writes the item-use bit to the live word and hands it to the item-use
@@ -384,10 +357,11 @@ impl LocalPhysicsController {
         true
     }
 
-    /// Hands the item-use bit replay left in the flag word to the item-use
-    /// owner, which reconciles with it on the next movement tick.
-    pub(super) fn adopt_replayed_using_item(&mut self, using: Option<bool>) {
-        if let Some(using) = using {
+    /// Copies the item-use bit replay left in the flag word to the live word
+    /// and, when that changes it, hands it to the item-use owner, which
+    /// reconciles with it on the next movement tick.
+    pub(super) fn adopt_replayed_using_item(&mut self, using: bool) {
+        if using != self.server_flags.live_using_item {
             self.write_server_using_item(using);
         }
     }

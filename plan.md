@@ -226,8 +226,8 @@ and replay. Server glide/swim/crawl and Riptide spin flags start or end the loca
 without start/stop actions. Each retained frame captures the flag word it starts with; a
 stamped write becomes a correction of the following frame where it differs from that
 capture without scheduling a replay itself (a future stamp joins the current frame), and
-replay keeps the starting frame's capture, refreshes later ones and keeps live bits it
-did not change. The word also retains server item-use writes,
+replay keeps the starting frame's capture, refreshes later ones and copies the replayed
+word back to the live state. The word also retains server item-use writes,
 but they do not yet start or stop the local item use, which vanilla reconciles with the
 word on movement ticks (reporting `StartUsingItem` for a start). Still incomplete: that
 item-use adoption, writes setting several pose flags (the locomotion
