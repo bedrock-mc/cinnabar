@@ -139,14 +139,18 @@ const MAX_POSES_PER_BINDING: usize = 16;
 const MAX_ITEM_TIMINGS: usize = 2048;
 const MAX_BONES_PER_POSE: usize = 32;
 
-/// Where the attachment renders, which selects the biped bone it binds to.
+/// Equipment mount used to select a worn model or a held-item fallback.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum EquipmentCategory {
     Held,
-    Armor { slot: ArmorSlot },
+    Armor {
+        slot: ArmorSlot,
+    },
     Shield,
     Elytra,
+    /// A model worn in the separately replicated body slot.
+    Body,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
