@@ -442,3 +442,47 @@ fn form_admission_follows_the_drawn_storage_variant() {
         );
     }
 }
+
+/// A form admitted over a non-menu container mid-drag ends the drag: the container never saw the
+/// release, so hovering another cell after the form closes must not keep distributing.
+#[test]
+fn a_form_over_a_container_ends_the_drag_in_flight() {
+    use crate::ui_runtime::inventory_drag::{PointerAction, PointerFrame};
+    use ui_screens::container_actions::InventoryCellHit;
+    let frame = |hit, primary_pressed| PointerFrame {
+        primary_pressed,
+        primary_released: false,
+        secondary_pressed: false,
+        secondary_released: false,
+        shift: false,
+        holding: true,
+        hit: Some(hit),
+        now_millis: 0,
+    };
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let table = HashMap::from([(
+        "crafting.inventory_screen",
+        settings(json!({ "is_showing_menu": false })),
+    )]);
+    let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+    runtime.toggle_inventory(&mut player_runtime, None);
+    let pointer = &mut runtime.screen_state_mut().pointer;
+    assert_eq!(
+        pointer.step(frame(InventoryCellHit::Player(9), true)),
+        [PointerAction::Click(InventoryCellHit::Player(9))]
+    );
+    assert!(form_admitted(&mut runtime, &mut player_runtime));
+    // The release lands while the form owns input, then the form closes.
+    let identity = runtime.server_forms().active().unwrap().identity;
+    runtime
+        .respond_to_server_form(identity, crate::ui_runtime::LocalFormAction::Dismiss)
+        .unwrap();
+    assert!(
+        runtime
+            .screen_state_mut()
+            .pointer
+            .step(frame(InventoryCellHit::Player(10), false))
+            .is_empty(),
+        "no distribution resumes without a held button"
+    );
+}
