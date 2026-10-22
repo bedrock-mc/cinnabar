@@ -273,15 +273,19 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         .iter()
         .map(|chip| chip.width(canvas))
         .collect::<Result<Vec<_>, _>>()?;
-    // A chip wider than the name column runs under the radio instead of past the card.
-    let chips_left = if widths.iter().any(|chip_width| *chip_width > width) {
-        left + pad
-    } else {
-        text_left
-    };
+    // A chip wider than the name column runs under the radio instead of past the card. The
+    // radio then sits on the title's first line and the chips start below its rotated corners.
+    let under_radio = widths.iter().any(|chip_width| *chip_width > width);
+    let chips_left = if under_radio { left + pad } else { text_left };
     let chips_width = (text_right - chips_left).max(1.0);
+    let radio_middle = canvas.r(BODY.line) * 0.5;
+    let chip_top = if under_radio {
+        (title_height + caption_height).max(radio_middle + canvas.r(super::super::radio::REACH))
+    } else {
+        title_height + caption_height
+    };
     let mut chips = Vec::with_capacity(entry.chips.len());
-    let (mut x, mut row, mut row_height) = (0.0, canvas.r(0.4), 0.0_f32);
+    let (mut x, mut row, mut row_height) = (0.0, chip_top + canvas.r(0.4), 0.0_f32);
     for chip in entry.chips {
         let [chip_width, chip_height] = chip.size(canvas, chips_width)?;
         if x > 0.0 && x + chip_width > chips_width {
@@ -291,12 +295,11 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         x += chip_width + chip_gap;
         row_height = row_height.max(chip_height);
     }
-    let chip_height = if chips.is_empty() {
-        0.0
+    let stack = if chips.is_empty() {
+        title_height + caption_height
     } else {
         row + row_height
     };
-    let stack = title_height + caption_height + chip_height;
     let header = (stack + 2.0 * pad).max(tile + 2.0 * pad).max(canvas.r(4.8));
 
     // Controls sit under the name when they fit there, else span the card and wrap.
@@ -382,9 +385,17 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         widgets::row(canvas, view, card, false, entry.select)?;
     }
     let middle = top + header * 0.5;
+    let text_top = top + (header - stack) * 0.5;
     super::super::radio::draw(
         canvas,
-        [left + canvas.r(2.4), middle],
+        [
+            left + canvas.r(2.4),
+            if under_radio {
+                text_top + radio_middle
+            } else {
+                middle
+            },
+        ],
         entry.selected,
         state,
         entry.select.is_some() || entry.selected,
@@ -405,15 +416,27 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
             if entry.selected { TEXT } else { TEXT_DIMMER },
         )?;
     }
-    let mut y = top + (header - stack) * 0.5;
-    canvas.text(entry.title, [text_left, y], width, BODY, TEXT, false)?;
-    y += title_height;
+    canvas.text(entry.title, [text_left, text_top], width, BODY, TEXT, false)?;
     if let Some(caption) = entry.caption {
-        canvas.text(caption, [text_left, y], width, CAPTION, TEXT_DIMMER, false)?;
-        y += caption_height;
+        canvas.text(
+            caption,
+            [text_left, text_top + title_height],
+            width,
+            CAPTION,
+            TEXT_DIMMER,
+            false,
+        )?;
     }
     for (chip, [x0, y0, x1, y1]) in chips {
-        chip.draw(canvas, [chips_left + x0, y + y0, chips_left + x1, y + y1])?;
+        chip.draw(
+            canvas,
+            [
+                chips_left + x0,
+                text_top + y0,
+                chips_left + x1,
+                text_top + y1,
+            ],
+        )?;
     }
     if let Some(remove) = corner {
         widgets::icon_button(

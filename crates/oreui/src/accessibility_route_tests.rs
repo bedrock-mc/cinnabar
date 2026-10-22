@@ -324,33 +324,106 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
                     "{size:?} xl={enabled}: {chip} glyph at {left}..{right} leaves {panel:?}"
                 );
             }
+            let radios = radio_rects(&painted.nodes);
+            assert!(
+                !radios.is_empty(),
+                "{size:?} xl={enabled}: radios are drawn"
+            );
+            for chip_rect in chip_rects(&painted.nodes, chip) {
+                for radio in &radios {
+                    assert!(
+                        !overlaps(chip_rect, *radio),
+                        "{size:?} xl={enabled}: {chip} at {chip_rect:?} covers a radio at {radio:?}"
+                    );
+                }
+            }
         }
     }
 }
 
-/// The window-x extent of every glyph in text nodes reading `label`.
-fn chip_ink(nodes: &[UiNode], label: &str) -> Vec<[f32; 2]> {
-    let origin = |mut parent: Option<ui::UiNodeId>| {
-        let mut x = 0.0;
-        while let Some(node) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
-            x += node.bounds().min().x();
-            parent = node.parent();
-        }
-        x
-    };
+/// `node`'s bounds in window coordinates, through its clipping parents.
+fn window_rect(nodes: &[UiNode], node: &UiNode) -> [f32; 4] {
+    let (mut x, mut y, mut parent) = (0.0, 0.0, node.parent());
+    while let Some(clip) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+        x += clip.bounds().min().x();
+        y += clip.bounds().min().y();
+        parent = clip.parent();
+    }
+    let bounds = node.bounds();
+    [
+        x + bounds.min().x(),
+        y + bounds.min().y(),
+        x + bounds.max().x(),
+        y + bounds.max().y(),
+    ]
+}
+
+/// Whether `node` is text reading `label`, ignoring wrapping.
+fn reads(node: &UiNode, label: &str) -> bool {
+    matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout
+        .glyphs()
+        .iter()
+        .zip(layout.glyph_source_indices())
+        .filter(|(glyph, source)| source.is_some() && !glyph.codepoint.is_whitespace())
+        .map(|(glyph, _)| glyph.codepoint)
+        .eq(label.chars().filter(|codepoint| !codepoint.is_whitespace())))
+}
+
+fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// Each chip's face: the smallest solid fill holding a `label` text node.
+fn chip_rects(nodes: &[UiNode], label: &str) -> Vec<[f32; 4]> {
     nodes
         .iter()
+        .filter(|node| reads(node, label))
+        .filter_map(|text| {
+            let text = window_rect(nodes, text);
+            nodes
+                .iter()
+                .filter(|node| matches!(node.visual(), ui::UiVisual::Solid { .. }))
+                .map(|node| window_rect(nodes, node))
+                .filter(|face| {
+                    face[0] <= text[0] + 0.5
+                        && face[1] <= text[1] + 0.5
+                        && face[2] >= text[2] - 0.5
+                        && face[3] >= text[3] - 0.5
+                })
+                .min_by(|a, b| {
+                    ((a[2] - a[0]) * (a[3] - a[1])).total_cmp(&((b[2] - b[0]) * (b[3] - b[1])))
+                })
+        })
+        .collect()
+}
+
+/// The axis-aligned extent of every turned square, which only radios draw here.
+fn radio_rects(nodes: &[UiNode]) -> Vec<[f32; 4]> {
+    nodes
+        .iter()
+        .filter(|node| matches!(node.visual(), ui::UiVisual::RotatedSprite { .. }))
+        .map(|node| {
+            let [x0, y0, x1, y1] = window_rect(nodes, node);
+            let reach = ((x1 - x0) + (y1 - y0)) * 0.5 * std::f32::consts::FRAC_1_SQRT_2;
+            let centre = [(x0 + x1) * 0.5, (y0 + y1) * 0.5];
+            [
+                centre[0] - reach,
+                centre[1] - reach,
+                centre[0] + reach,
+                centre[1] + reach,
+            ]
+        })
+        .collect()
+}
+
+/// The window-x extent of every glyph in text nodes reading `label`.
+fn chip_ink(nodes: &[UiNode], label: &str) -> Vec<[f32; 2]> {
+    nodes
+        .iter()
+        .filter(|node| reads(node, label))
         .filter_map(|node| match node.visual() {
-            ui::UiVisual::Text { layout, .. }
-                if layout
-                    .glyphs()
-                    .iter()
-                    .zip(layout.glyph_source_indices())
-                    .filter(|(glyph, source)| source.is_some() && !glyph.codepoint.is_whitespace())
-                    .map(|(glyph, _)| glyph.codepoint)
-                    .eq(label.chars().filter(|codepoint| !codepoint.is_whitespace())) =>
-            {
-                let x = origin(node.parent()) + node.bounds().min().x();
+            ui::UiVisual::Text { layout, .. } => {
+                let x = window_rect(nodes, node)[0];
                 Some(layout.glyphs().iter().map(move |glyph| {
                     [
                         x + glyph.bounds_64[0] as f32 / 64.0,
