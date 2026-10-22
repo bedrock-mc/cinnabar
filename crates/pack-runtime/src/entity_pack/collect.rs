@@ -562,4 +562,6 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
 mod attachables;
 
 #[cfg(test)]
+mod harness_tests;
+#[cfg(test)]
 mod tests;

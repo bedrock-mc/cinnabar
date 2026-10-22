@@ -25,6 +25,7 @@
         </activity>
         <activity
             android:name=".CinnabarActivity"
+            android:windowSoftInputMode="adjustNothing"
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"

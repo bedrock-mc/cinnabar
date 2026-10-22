@@ -126,6 +126,7 @@ impl ActorStore {
             local_view_bobbing: true,
             local_flying: false,
             local_hands: [None, None],
+            local_equipment_count: 0,
             local_held_network_ids: [0; 2],
             local_main_metadata: 0,
             local_held_variants: Default::default(),
@@ -209,6 +210,8 @@ impl ActorStore {
         self.local_view_bobbing = feed.view_bobbing;
         self.local_flying = feed.flying;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
+        self.local_view_dirty |= self.local_equipment_count != feed.equipment_count;
+        self.local_equipment_count = feed.equipment_count;
         self.local_held_network_ids = feed.held_network_ids;
         self.local_main_metadata = feed.main_hand_metadata;
         self.local_held_variants = feed.held_variants;

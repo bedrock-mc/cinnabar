@@ -134,6 +134,10 @@ pub struct ScrollMetrics {
     pub track: Option<[f64; 4]>,
     /// The drawn scrollbar box rect `[x, y, w, h]`, when it is shown.
     pub thumb: Option<[f64; 4]>,
+    /// The named thumb control's layout identity for pointer hit routing.
+    pub thumb_key: Option<String>,
+    /// The named track control's layout identity for pointer hit routing.
+    pub track_key: Option<String>,
     /// Pixels scrolled per wheel notch (`scroll_speed`).
     pub speed: f64,
     /// A horizontally draggable box scrolls along x.

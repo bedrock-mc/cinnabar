@@ -35,6 +35,8 @@ pub(crate) struct StartSpec {
     pub dir: PathBuf,
     /// The largest radius a player may be granted, in chunks; `None` allows the client's maximum.
     pub view_distance: Option<u32>,
+    /// No start has applied the world's options yet, so creation-only ones still apply.
+    pub options_unapplied: bool,
 }
 
 /// One running local server.

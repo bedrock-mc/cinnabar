@@ -91,6 +91,10 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
         armor: armor_slots(stream.authority().actor_armor(runtime_id)),
+        body: stream
+            .authority()
+            .actor_armor(runtime_id)
+            .and_then(|armor| worn_item(&armor.body.item, armor.body.dye_rgb, Default::default())),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -142,6 +146,7 @@ pub fn local_input(
             &armor.boots,
         ]
         .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
+        body: None,
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -294,5 +299,93 @@ mod tests {
                 .unwrap()
                 .has_glint()
         );
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+    use protocol::{
+        ActorEvent, ActorKind, ActorSpawnEvent, ArmorEquipmentEvent, NetworkItemStack, WorldEvent,
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn replicated_body_slot_survives_input_and_removal_without_populating_other_slots() {
+        let mut stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:red_harness")
+            .unwrap()
+            .clone();
+        assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry.clone()])
+        }));
+        stream
+            .submit(
+                1,
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                    runtime_id: 2,
+                    kind: ActorKind::Entity {
+                        identifier: "minecraft:happy_ghast".into(),
+                    },
+                    position: [0.0; 3],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    held_item: Default::default(),
+                    metadata: Arc::from([]),
+                    attributes: Arc::from([]),
+                    properties: Arc::from([]),
+                    links: Arc::from([]),
+                })),
+            )
+            .unwrap();
+        assert!(remote_input(&stream, 2).body.is_none());
+        for (sequence, equipped) in [(2, true), (3, false)] {
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::ArmorEquipment(Box::new(ArmorEquipmentEvent {
+                        actor_runtime_id: 2,
+                        helmet: Default::default(),
+                        chestplate: Default::default(),
+                        leggings: Default::default(),
+                        boots: Default::default(),
+                        body: if equipped {
+                            NetworkItemStack {
+                                network_id: entry.network_id,
+                                count: 1,
+                                ..Default::default()
+                            }
+                        } else {
+                            Default::default()
+                        },
+                    })),
+                )
+                .unwrap();
+            let input = remote_input(&stream, 2);
+            assert_eq!(
+                input.body.as_ref().map(|item| item.identifier.as_ref()),
+                equipped.then_some(entry.identifier.as_ref())
+            );
+            assert!(
+                input.main.is_none()
+                    && input.off.is_none()
+                    && input.armor.iter().all(Option::is_none)
+            );
+        }
     }
 }

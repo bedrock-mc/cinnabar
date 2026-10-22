@@ -189,6 +189,21 @@ pub(crate) fn prepare_ui_runtime(
             return;
         }
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bottom =
+            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
+        let safe = platform_safe_area_insets();
+        presentation.set_safe_area(
+            SafeArea::new(
+                safe.left(),
+                safe.top(),
+                safe.right(),
+                safe.bottom().max(bottom),
+            )
+            .unwrap_or(safe),
+        );
+    }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(

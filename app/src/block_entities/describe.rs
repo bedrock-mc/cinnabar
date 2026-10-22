@@ -303,6 +303,8 @@ pub(super) fn describe(
             head: state.int(BlockProperty::HeadPieceBit.name()) == Some(1),
             direction: u8::try_from(state.int("direction")?.rem_euclid(4)).ok()?,
         }))),
+        BlockEntityRenderer::Chalkboard => super::chalkboard::model(state, nbt, position)
+            .map(|model| Template::Static(BlockEntityKind::Chalkboard(model))),
         BlockEntityRenderer::Banner => banner(backing, state, nbt),
         BlockEntityRenderer::Sign => sign(backing, state, nbt),
         BlockEntityRenderer::EnchantTable => Some(Template::EnchantTable),
