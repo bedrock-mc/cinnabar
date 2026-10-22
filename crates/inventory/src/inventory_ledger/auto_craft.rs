@@ -10,6 +10,7 @@ use protocol::{
 use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, Held};
+use super::crafting::{OutputPlanner, action_amounts};
 use super::gesture::Submission;
 use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
@@ -157,11 +158,9 @@ impl PlayerInventoryLedger {
         Some(sources)
     }
 
-    /// How many times the inventory can craft `recipe` at once, capped at one output stack
-    /// that one action can move.
+    /// How many times the inventory can craft `recipe` at once, capped at one output stack.
     fn max_auto_crafts(&self, recipe: &RecipeHandle, capacity: u8) -> u8 {
-        let per_stack =
-            super::crafting::output_stack_limit(capacity) / recipe.output().count.max(1);
+        let per_stack = capacity / recipe.output().count.max(1);
         let (mut low, mut high) = (0u8, per_stack);
         while low < high {
             let middle = low + (high - low).div_ceil(2);
@@ -269,7 +268,7 @@ impl PlayerInventoryLedger {
             let cell = Cell::Inventory(slot);
             // Crafting accepts ingredients only from the combined inventory name, and each
             // consume carries at most one action's amount.
-            for amount in super::crafting::action_amounts(total) {
+            for amount in action_amounts(total) {
                 actions.push(StackRequestAction::Consume {
                     amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
@@ -284,10 +283,20 @@ impl PlayerInventoryLedger {
             consumed.push(cell);
         }
         // Never into a cell this request empties: a queued earlier request may still rename it.
-        let plan = self.spread_plan_partial(&created, capacity, &consumed);
+        let plan = OutputPlanner::new(consumed).plan(
+            self,
+            &created,
+            capacity,
+            &self.player_cells(),
+            false,
+        );
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
-        if remainder != 0 && self.view().get(Cell::Cursor).is_some() {
+        // A remainder goes to an empty cursor in one action.
+        if remainder != 0
+            && (self.view().get(Cell::Cursor).is_some()
+                || remainder > u16::from(protocol::MAX_STACK_REQUEST_AMOUNT))
+        {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let output_slot = request_slot(Cell::CreatedOutput, request_id, None)?;
