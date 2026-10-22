@@ -72,8 +72,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
-  Furnace face slots follow cardinal direction and lit state; native visual comparison
-  and runtime replacement-pack acceptance remain open.
+  Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
+  native visual comparison and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting

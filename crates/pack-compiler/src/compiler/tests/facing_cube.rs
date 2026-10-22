@@ -1,4 +1,5 @@
 use super::*;
+use assets::facts::{BlockProperty, StateValue};
 use assets::{BlockFace, CompiledBiomeAssets, NetworkIdMode, RuntimeAssets};
 
 const ARTWORK: [&str; 8] = [
@@ -28,7 +29,7 @@ fn material_tag(compiled: &assets::CompiledAssets, material: u32) -> u8 {
 
 /// Compiles every registered furnace and loom state with the pack's single-facing face layout.
 fn compile_facing_cubes(
-    loom_state: Option<&str>,
+    loom_state: Option<(&str, Box<[(BlockProperty, StateValue)]>)>,
 ) -> (
     assets::CompiledAssets,
     Vec<RegistryRecord>,
@@ -55,16 +56,22 @@ fn compile_facing_cubes(
         .filter(|record| {
             matches!(
                 record.name.as_ref(),
-                "minecraft:air" | "minecraft:furnace" | "minecraft:lit_furnace" | "minecraft:loom"
+                "minecraft:air"
+                    | "minecraft:blast_furnace"
+                    | "minecraft:lit_blast_furnace"
+                    | "minecraft:smoker"
+                    | "minecraft:lit_smoker"
+                    | "minecraft:loom"
             )
         })
         .collect::<Vec<_>>();
-    if let Some(state) = loom_state {
+    if let Some((state, properties)) = loom_state {
         for record in records
             .iter_mut()
             .filter(|r| r.name.as_ref() == "minecraft:loom")
         {
             record.canonical_state = state.into();
+            record.properties = properties.clone();
         }
     }
     let span = records
@@ -76,8 +83,10 @@ fn compile_facing_cubes(
     write(
         directory.path().join("blocks.json"),
         r#"{
-        "furnace":{"textures":{"down":"furnace_top","east":"furnace_side","north":"furnace_side","south":"furnace_front_off","up":"furnace_top","west":"furnace_side"}},
-        "lit_furnace":{"textures":{"down":"furnace_top","east":"furnace_front_on","north":"furnace_side","south":"furnace_side","up":"furnace_top","west":"furnace_side"}},
+        "blast_furnace":{"textures":{"down":"furnace_top","east":"furnace_side","north":"furnace_side","south":"furnace_front_off","up":"furnace_top","west":"furnace_side"}},
+        "lit_blast_furnace":{"textures":{"down":"furnace_top","east":"furnace_front_on","north":"furnace_side","south":"furnace_side","up":"furnace_top","west":"furnace_side"}},
+        "smoker":{"textures":{"down":"furnace_top","east":"furnace_side","north":"furnace_side","south":"furnace_front_off","up":"furnace_top","west":"furnace_side"}},
+        "lit_smoker":{"textures":{"down":"furnace_top","east":"furnace_front_on","north":"furnace_side","south":"furnace_side","up":"furnace_top","west":"furnace_side"}},
         "loom":{"textures":{"down":"loom_bottom","east":"loom_side","north":"loom_front","south":"loom_side","up":"loom_top","west":"loom_side"}}
     }"#,
     );
@@ -142,12 +151,15 @@ fn facing(record: &RegistryRecord) -> BlockFace {
 }
 
 #[test]
-fn furnace_front_faces_its_cardinal_direction_in_both_lit_states() {
+fn blast_furnace_and_smoker_fronts_face_their_cardinal_direction_in_both_lit_states() {
     let (compiled, records, _) = compile_facing_cubes(None);
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
     let mut fronts = std::collections::BTreeSet::new();
-    for record in records.iter().filter(|r| r.name.contains("furnace")) {
-        let lit = record.name.as_ref() == "minecraft:lit_furnace";
+    for record in records
+        .iter()
+        .filter(|r| r.name.contains("furnace") || r.name.contains("smoker"))
+    {
+        let lit = record.name.starts_with("minecraft:lit_");
         let facing = facing(record);
         let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
         for face in BlockFace::ALL {
@@ -165,9 +177,13 @@ fn furnace_front_faces_its_cardinal_direction_in_both_lit_states() {
                 record.canonical_state
             );
         }
-        fronts.insert((lit, facing as u8));
+        fronts.insert((record.name.clone(), facing as u8));
     }
-    assert_eq!(fronts.len(), 8, "both lit states in all four directions");
+    assert_eq!(
+        fronts.len(),
+        16,
+        "both blocks in both lit states face all four directions"
+    );
 }
 
 /// Up and down UVs at the face's four corners, keyed by centred world X and Z.
@@ -259,12 +275,19 @@ fn loom_front_and_top_artwork_turn_with_its_direction() {
 
 #[test]
 fn malformed_loom_directions_stay_diagnostic() {
-    for state in [
-        r#"{"direction":{"type":"int","value":4}}"#,
-        r#"{"direction":{"type":"byte","value":1}}"#,
-        r#"{}"#,
+    for (state, properties) in [
+        (
+            r#"{"direction":{"type":"int","value":4}}"#,
+            vec![(BlockProperty::Direction, StateValue::Int(4))],
+        ),
+        (
+            r#"{"direction":{"type":"string","value":"north"}}"#,
+            vec![(BlockProperty::Direction, StateValue::String("north".into()))],
+        ),
+        (r#"{}"#, Vec::new()),
     ] {
-        let (compiled, records, _) = compile_facing_cubes(Some(state));
+        let (compiled, records, _) =
+            compile_facing_cubes(Some((state, properties.into_boxed_slice())));
         let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
         let record = records
             .iter()
