@@ -470,7 +470,13 @@ mod tests {
             .find(|vertex| vertex.position[..2] == [0.0, 10.0])
             .unwrap();
         assert_eq!(front_left.uv, [16.0 / 64.0, 0.0]);
-        for (face, normal) in builder.solid.chunks_exact(6).zip([Vec3::NEG_Z, Vec3::Z]) {
+        for (face, normal) in builder
+            .solid
+            .as_chunks::<6>()
+            .0
+            .iter()
+            .zip([Vec3::NEG_Z, Vec3::Z])
+        {
             assert!(face.iter().all(|vertex| vertex.normal == normal.to_array()));
         }
     }

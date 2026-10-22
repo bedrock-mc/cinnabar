@@ -242,7 +242,7 @@ mod tests {
         point: Vec3,
         normal: Vec3,
     ) -> [u8; 4] {
-        for triangle in mesh.solid.chunks_exact(3) {
+        for triangle in mesh.solid.as_chunks::<3>().0 {
             if !Vec3::from_array(triangle[0].normal).abs_diff_eq(normal, 1e-5) {
                 continue;
             }
