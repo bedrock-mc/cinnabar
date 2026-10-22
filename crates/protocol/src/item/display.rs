@@ -138,7 +138,7 @@ pub fn item_id_aux(stack: &super::NetworkItemStack, humanoid_armour: bool) -> i3
     let aux = if humanoid_armour {
         super::item_extra_damage_value(&stack.extra_data).unwrap_or(0)
     } else {
-        i32::from(stack.metadata as u16)
+        i32::from(stack.metadata as u16 as i16)
     };
     ((u32::from(stack.network_id as u16) << 16) as i32 | aux) | enchanted
 }
@@ -292,6 +292,24 @@ mod tests {
             item_id_aux(&super::super::NetworkItemStack::empty(), false),
             -1
         );
+    }
+
+    #[test]
+    fn id_aux_sign_extends_metadata_with_bit_15_set() {
+        let mut stack = super::super::NetworkItemStack {
+            network_id: 448,
+            metadata: 0x8000,
+            count: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            item_id_aux(&stack, false),
+            (448 << 16) | i32::from(i16::MIN)
+        );
+        stack.metadata = 0xffff;
+        assert_eq!(item_id_aux(&stack, false), -1);
+        stack.metadata = 0x7fff;
+        assert_eq!(item_id_aux(&stack, false), (448 << 16) | 0x7fff);
     }
 
     #[test]
