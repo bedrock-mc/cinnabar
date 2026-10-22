@@ -34,10 +34,12 @@ mod native_held_items;
 mod pack;
 mod painting;
 mod policy_sources;
+mod sample_harnesses;
 mod sanitize;
 mod vanilla_refs;
 mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
+pub use sample_harnesses::missing_harness_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub(crate) use pack::compile_entity_pack_unless;
@@ -268,6 +270,13 @@ fn compile_with_behavior(
         &mut symbols,
         &mut geometries,
         None,
+    )?;
+    total_source_bytes += sample_harnesses::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
     )?;
     total_source_bytes = total_source_bytes
         .checked_add(native_binding_bytes)

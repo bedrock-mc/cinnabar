@@ -93,14 +93,13 @@ impl ControlModes {
         self.stop_sprinting = false;
     }
 
-    /// Adopts server-authored sprint/sneak states; the next local transition still wins.
+    /// Adopts server actor states while preserving the user's sneak toggle intent.
     pub fn adopt_server_flags(&mut self, sprinting: Option<bool>, sneaking: Option<bool>) {
         if let Some(sprinting) = sprinting {
             self.sprinting = sprinting;
             self.sprint_toggled = sprinting;
         }
         if let Some(sneaking) = sneaking {
-            self.sneak_toggled = sneaking;
             self.sneaking = sneaking;
         }
     }

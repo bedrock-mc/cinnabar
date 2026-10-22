@@ -129,6 +129,11 @@ fn respawn_commits_as_a_local_position_authority_change() {
     stream.submit(1, WorldEvent::Respawn(respawn)).unwrap();
 
     assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalRespawnReady { sequence: 1 }]
+    );
+
+    assert_eq!(
         stream.take_committed_controls(),
         vec![super::CommittedControlEvent::Respawn {
             sequence: 1,
@@ -177,6 +182,7 @@ fn respawn_search_and_unknown_phases_keep_live_position_authority() {
         assert_eq!(*observed, respawn);
         assert_eq!(resolved.position, position);
         assert_eq!(resolved.surface_anchor, None);
+        assert!(stream.take_committed_ui().is_empty());
     }
 }
 
@@ -820,6 +826,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: Default::default(),

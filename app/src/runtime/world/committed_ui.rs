@@ -269,6 +269,9 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 local_millis,
             ),
+            CommittedUiEvent::LocalRespawnReady { sequence } => {
+                ui_runtime.apply_respawn_ready(clock.session_generation(), sequence, local_millis)
+            }
         };
         if let Err(error) = result {
             player_runtime.facts.clear_local_abilities();

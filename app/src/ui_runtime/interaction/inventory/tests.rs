@@ -13,10 +13,105 @@ use ui_screens::container_actions::ReaderButton;
 
 const SIZE: [u32; 2] = [800, 600];
 
+mod ordered;
+mod scrollbar;
+
+#[test]
+fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {
+    use bevy::input::mouse::MouseButtonInput;
+    let (mut app, window) = ordered::personal_app(2);
+    for button in [MouseButton::Left, MouseButton::Back] {
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(button);
+        app.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                button,
+                state: ButtonState::Pressed,
+                window,
+            }));
+    }
+    app.update();
+    assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+    let player = app.world().resource::<client_state::PlayerRuntime>();
+    // The pickup survives closing, followed by the usual cursor return request.
+    assert_eq!(player.inventory.ledger().pending_request_count(), 2);
+    assert!(player.inventory.ledger().cursor_stack().is_none());
+}
+
+#[test]
+fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
+    use super::super::{drive_chat_keyboard_input, drive_inventory_ui_actions};
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    for ordered in [false, true] {
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut runtime = client_ui::test_support::inventory_session(&mut player);
+        runtime.toggle_inventory(&mut player, None);
+        let presentation = presentation(&player, &runtime);
+        let mut app = App::new();
+        app.add_message::<KeyboardInput>()
+            .add_message::<WindowEvent>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .insert_resource(player)
+            .insert_resource(UiRuntimeResource(runtime))
+            .insert_resource(UiPresentationResource(presentation))
+            .add_systems(
+                Update,
+                (drive_chat_keyboard_input, drive_inventory_ui_actions).chain(),
+            );
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: true,
+                    ..Default::default()
+                },
+                CursorOptions::default(),
+                PrimaryWindow,
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        if ordered {
+            app.world_mut()
+                .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                    button: MouseButton::Back,
+                    state: ButtonState::Pressed,
+                    window,
+                }));
+        }
+        app.update();
+        assert!(
+            !app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "ordered={ordered}"
+        );
+        assert!(
+            !app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .just_pressed(MouseButton::Back)
+        );
+        app.update();
+        assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+    }
+}
+
 /// Draws original inventory and book fixtures with a close control on each screen.
 fn presentation(
     player: &client_state::PlayerRuntime,
     runtime: &UiRuntime,
+) -> UiPresentationRuntime {
+    presentation_with_controls(player, runtime, &[])
+}
+
+/// Extends the original screen fixture with controls used by pointer-routing tests.
+fn presentation_with_controls(
+    player: &client_state::PlayerRuntime,
+    runtime: &UiRuntime,
+    extra: &[serde_json::Value],
 ) -> UiPresentationRuntime {
     let files = [
         ("ui/_global_variables.json".to_owned(), b"{}".to_vec()),
@@ -33,7 +128,7 @@ fn presentation(
             ("crafting", "inventory_screen", "button.menu_exit"),
         ]
         .map(|(namespace, root, action)| {
-            let source = serde_json::json!({
+            let mut source = serde_json::json!({
                 "namespace": namespace,
                 (root): {
                     "type": "screen", "size": [160, 100],
@@ -46,6 +141,10 @@ fn presentation(
                     }}]
                 }
             });
+            source[root]["controls"]
+                .as_array_mut()
+                .unwrap()
+                .extend_from_slice(extra);
             (
                 format!("ui/{namespace}.json"),
                 serde_json::to_vec(&source).unwrap(),

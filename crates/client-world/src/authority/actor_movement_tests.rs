@@ -69,6 +69,7 @@ fn movement(x: Option<f32>, forced: bool) -> ActorMoveEvent {
         head_yaw: None,
         on_ground: None,
         teleported: forced,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: Default::default(),

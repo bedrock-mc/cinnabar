@@ -9,7 +9,7 @@ use protocol::{CraftResult, RecipeOutput, StackRequestAction, WindowKind};
 use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, Held};
-use super::crafting::CraftSink;
+use super::crafting::{CraftSink, OutputPlanner};
 use super::gesture::Submission;
 use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
@@ -497,9 +497,17 @@ impl PlayerInventoryLedger {
             });
         } else {
             let capacity = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
-            let plan = self
-                .spread_plan(&preview.stack, capacity, !materialized)
-                .ok_or(InventoryGestureError::InvalidRequest)?;
+            // A result whose item data is not yet known may not join an existing stack.
+            let cells: Vec<Cell> = self
+                .player_cells()
+                .into_iter()
+                .filter(|cell| materialized || self.view().get(*cell).is_none())
+                .collect();
+            let plan = OutputPlanner::default().plan(self, &preview.stack, capacity, &cells, false);
+            let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
+            if placed != preview.stack.count {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
             for (cell, amount, into) in plan {
                 registry_bound_merge |= into.is_some();
                 actions.push(StackRequestAction::Place {

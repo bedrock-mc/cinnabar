@@ -38,7 +38,7 @@ fn server_properties_configure_local_play() {
         "level-seed=-5\n",
         "level-type=FLAT\n",
         "view-distance=32\n",
-        "tick-distance=12\n",
+        "tick-distance=4\n",
         "transport=nethernet\n",
         "server-ip=127.0.0.1\n",
         "enable-lan-visibility=false\n",
@@ -107,6 +107,12 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
     let world_dir = dir.path().join("world");
     let spec = spec(&world_dir);
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    let level = fs::read(world_dir.join(LEVEL_DIR).join("level.dat")).expect("level data");
+    let has = |tag: &[u8]| level.windows(tag.len()).any(|window| window == tag);
+    assert!(
+        has(b"Created") && has(b"showcoordinates"),
+        "BDS creates the world before owned fields are patched"
+    );
     let properties = fs::read_to_string(install.join("server.properties")).expect("properties");
     assert!(properties.contains("online-mode=false"), "{properties}");
     let link = install.join("worlds").join(&spec.world.id);
@@ -130,6 +136,23 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
     );
 }
 
+/// A first start that saves no world fails clearly instead of writing level data itself.
+#[cfg(unix)]
+#[test]
+fn a_new_world_bds_did_not_save_fails_without_writing_level_data() {
+    let dir = scratch();
+    let server = b"#!/bin/sh\nprintf '[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*) exit 0 ;; esac\ndone\n";
+    let provisioner = installed_provisioner(dir.path(), LINUX, server);
+    let runner = BdsRunner::new(Arc::new(provisioner), String::new());
+    let world_dir = dir.path().join("world");
+    let error = runner
+        .start(&spec(&world_dir), &Cancel::never())
+        .err()
+        .expect("no world was saved");
+    assert!(error.to_string().contains("no level data"), "{error}");
+    assert!(!world_dir.join(LEVEL_DIR).join("level.dat").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn a_failed_start_removes_the_world_link() {
@@ -144,4 +167,64 @@ fn a_failed_start_removes_the_world_link() {
         fs::symlink_metadata(link).is_err(),
         "the link outlived the failed start"
     );
+}
+
+#[test]
+fn world_options_properties_match_native_and_container_configuration() {
+    use crate::local_worlds::container::{ContainerArgs, container_args};
+    use launcher::local_worlds::options::{Control, Storage};
+    let dir = scratch();
+    let mut spec = spec(dir.path());
+    for &id in O::ALL {
+        let definition = id.definition();
+        let Storage::Property(key, _) = definition.storage else {
+            continue;
+        };
+        let value = match definition.control {
+            Control::Toggle => 1 - definition.default,
+            Control::Choice(choices) => {
+                choices
+                    .iter()
+                    .find(|choice| choice.value != definition.default)
+                    .unwrap()
+                    .value
+            }
+            Control::Number { max, .. } => max,
+        };
+        spec.world.options.set(id, value);
+        let text = match definition.control {
+            Control::Toggle => (value != 0).to_string(),
+            Control::Number { .. } => value.to_string(),
+            Control::Choice(choices) => choices
+                .iter()
+                .find(|choice| choice.value == value)
+                .unwrap()
+                .wire
+                .to_owned(),
+        };
+        let native = server_properties(&spec, 5000, 8, false);
+        assert!(
+            native.lines().any(|line| line == format!("{key}={text}")),
+            "{id:?}: {native}"
+        );
+        let container = container_args(&ContainerArgs {
+            spec: &spec,
+            image: "fixture",
+            version: VERSION,
+            install: dir.path(),
+            host_port: 5000,
+            max_players: 8,
+            lan_visible: false,
+            lan_host_port: 0,
+        });
+        let environment = format!("{}={text}", key.replace('-', "_").to_ascii_uppercase());
+        assert!(
+            container.iter().any(|value| value == &environment),
+            "{id:?}"
+        );
+    }
+    spec.world.options.set(O::Multiplayer, 0);
+    assert_eq!(world_player_limit(&spec, 8), 1);
+    spec.world.options.set(O::Multiplayer, 1);
+    assert_eq!(world_player_limit(&spec, 8), 8);
 }
