@@ -223,6 +223,7 @@ impl LocalPhysicsController {
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
+        let server_flags = &self.server_flags;
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -243,6 +244,7 @@ impl LocalPhysicsController {
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
+                    server_flags.apply_before(&mut modes, state);
                     let frame = controller_frames
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)

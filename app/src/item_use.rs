@@ -78,6 +78,48 @@ pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
         .expect("item maintenance resources");
 }
 
+/// Applies a server `UsingItem` write to the next tick before physics simulates
+/// it, as vanilla's movement-tick start-or-stop system does. A write that
+/// cannot resolve yet waits for the pass after movement.
+pub(crate) fn adopt_server_item_use(
+    player_runtime: Res<client_state::PlayerRuntime>,
+    mut context: ItemUseContext,
+    mut runtime: ResMut<ItemUseRuntime>,
+    mut movement: ResMut<MovementTicker>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+) {
+    let Some(using) = context
+        .physics
+        .as_deref_mut()
+        .and_then(|physics| physics.take_server_using_item())
+    else {
+        return;
+    };
+    runtime.adopt_server_using_item(using);
+    let policy = frame::FramePolicy {
+        held: true,
+        before_flush: false,
+        delay_fix_enabled: false,
+        aim_rotation: None,
+        release_facing: Default::default(),
+    };
+    // Presses wait for their own pass; this one resolves only the server write.
+    let mut pending = gameplay::item_use::PendingUseInput::new(false);
+    runtime.with_pending_input(&mut pending, |runtime| {
+        if let Some(proposal) = frame::observe(
+            &player_runtime,
+            &context,
+            runtime,
+            &movement,
+            &mut view,
+            policy,
+        ) && runtime.resolve_server_using_item(&proposal.frame)
+        {
+            movement.mark_started_using_item(proposal.frame.tick);
+        }
+    });
+}
+
 /// Runs after block use so a press that interacted with a block starts no item use.
 fn maintain_item_use(
     player_runtime: ResMut<client_state::PlayerRuntime>,
@@ -133,6 +175,7 @@ fn produce_use(
         runtime.cancel_for_respawn();
         return;
     }
+    // Writes that arrived after physics ran resolve against the next tick here.
     if let Some(using) = context
         .physics
         .as_deref_mut()
@@ -171,6 +214,7 @@ fn produce_use(
     } else {
         true
     };
+    runtime.observe_gameplay_focus(focused && !context.focus.ui_focused);
     let held = admitted
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),

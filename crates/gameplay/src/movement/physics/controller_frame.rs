@@ -114,6 +114,7 @@ impl ControllerFrame {
             liquid_contact_height: input.liquid_contact_height,
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
+            spinning: state.spin_attack_ticks.is_some(),
         };
         anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
         state.position = observed.feet;

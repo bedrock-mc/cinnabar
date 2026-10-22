@@ -99,6 +99,7 @@ fn observed() -> ModeObservation {
         liquid_contact_height: None,
         jump_edge: false,
         jump_down: false,
+        spinning: false,
     }
 }
 

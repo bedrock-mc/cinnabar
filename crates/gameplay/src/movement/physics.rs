@@ -281,8 +281,8 @@ pub struct LocalPhysicsController {
     server_control_flags: Option<ServerControlFlags>,
     /// Accepted server posture newer than the latest completed sample.
     live_posture: ServerControlFlags,
-    /// Server `UsingItem` value the item-use owner has yet to adopt.
-    server_using_item: Option<bool>,
+    /// Retained server flag writes and the pending item-use value.
+    server_flags: server_flags::ServerFlagAuthority,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
@@ -328,7 +328,7 @@ impl Default for LocalPhysicsController {
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             live_posture: Default::default(),
-            server_using_item: None,
+            server_flags: Default::default(),
             riptide_pending: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
@@ -389,7 +389,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
-        self.server_using_item = None;
+        self.server_flags = Default::default();
         self.riptide_pending = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -452,6 +452,7 @@ impl LocalPhysicsController {
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.server_flags.clear_overlays();
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();
@@ -620,6 +621,7 @@ impl LocalPhysicsController {
                 liquid_contact_height: input.liquid_contact_height,
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
+                spinning: state.spin_attack_ticks.is_some(),
             };
             self.anchor_state.prepare_tick(
                 world,

@@ -103,6 +103,8 @@ pub(super) struct ModeObservation {
     pub jump_edge: bool,
     /// Jump state sent as `JumpDown` this tick, which the flight double-tap reads.
     pub jump_down: bool,
+    /// A Riptide spin was active before this tick.
+    pub spinning: bool,
 }
 
 impl ModeObservation {
@@ -323,6 +325,9 @@ impl ModeTracker {
             (MovementMode::Gliding, false)
         } else if swimming {
             (MovementMode::Swimming, false)
+        } else if observed.spinning {
+            // Vanilla's sneak trigger stops crawling during a spin and forces no sneak.
+            (MovementMode::Walking, false)
         } else if intent.no_clip || pose_fits(world, observed.feet, MovementMode::Walking, false)? {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
@@ -335,6 +340,9 @@ impl ModeTracker {
                 MovementMode::Crawling
             };
             (low_mode, false)
+        } else if self.mode == MovementMode::Crawling {
+            // With no pose fitting, vanilla's sneak trigger leaves the crawl flag as it is.
+            (MovementMode::Crawling, false)
         } else {
             (MovementMode::Walking, false)
         };

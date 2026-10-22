@@ -89,3 +89,17 @@ fn a_server_start_needs_a_verified_held_use() {
     assert!(!runtime.is_using());
     assert!(!runtime.has_work(false));
 }
+
+/// Focus leaving gameplay releases a server-started use, as vanilla's focus
+/// and chat handlers do for any use.
+#[test]
+fn losing_focus_releases_a_server_started_use() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_gameplay_focus(true);
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    assert!(!runtime.is_releasing(false));
+    runtime.observe_gameplay_focus(false);
+    assert!(runtime.is_releasing(false));
+    assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
+}

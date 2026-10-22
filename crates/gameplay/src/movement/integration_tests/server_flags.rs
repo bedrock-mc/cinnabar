@@ -228,3 +228,104 @@ fn server_item_use_follows_the_local_use_at_its_stamp() {
         );
     }
 }
+
+/// Stamped spin and glide writes stay in their frame when a later replay
+/// starts from an earlier tick.
+#[test]
+fn retained_server_writes_survive_an_earlier_rewind() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let start = flags(|flags| {
+        flags.gliding = Some(true);
+        flags.spinning = Some(true);
+    });
+    assert_eq!(physics.apply_server_movement_flags(102, start), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    let expected = physics.state().cloned();
+    assert_eq!(expected.as_ref().unwrap().spin_attack_ticks, Some(2));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert_eq!(
+        physics.state().unwrap().spin_attack_ticks,
+        Some(2),
+        "the spin written before tick 103 replays again"
+    );
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+}
+
+/// A later write with the same stamp replaces an earlier one, so a clear
+/// withdraws a server-started glide, spin and item use.
+#[test]
+fn a_later_write_with_the_same_stamp_withdraws_a_server_start() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let set = |value| {
+        flags(|flags| {
+            flags.gliding = Some(value);
+            flags.spinning = Some(value);
+            flags.using_item = Some(value);
+        })
+    };
+    assert_eq!(
+        physics.apply_server_movement_flags(101, set(true)),
+        Some(101)
+    );
+    assert_eq!(
+        physics.apply_server_movement_flags(101, set(false)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Walking);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    assert_eq!(physics.take_server_using_item(), Some(false));
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// Respawn discards a server item-use write the old life left pending.
+#[test]
+fn respawn_discards_a_pending_server_item_use() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let using = flags(|flags| flags.using_item = Some(true));
+    physics.apply_server_movement_flags(0, using);
+    ticker.discard_respawn_actions(&mut physics);
+    assert_eq!(physics.take_server_using_item(), None);
+}
+
+/// A clear and a set before the next tick keep the spin's counter, as
+/// vanilla's counter outlives its flag until a tick processes the clear.
+#[test]
+fn a_clear_and_set_before_a_tick_keep_the_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}
+
+/// A stamped spin cancel also applies to the live state at once, so it holds
+/// even when no replay follows.
+#[test]
+fn a_stamped_spin_cancel_applies_live() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let clear = flags(|flags| flags.spinning = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}

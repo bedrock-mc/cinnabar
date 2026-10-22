@@ -13,6 +13,27 @@ impl ItemUseRuntime {
         self.server_using = Some(using);
     }
 
+    /// Resolves a pending server `UsingItem` value against `frame`'s tick
+    /// before that tick simulates; returns whether a use started.
+    pub fn resolve_server_using_item(&mut self, frame: &UseFrame) -> bool {
+        let mut outcome = UseOutcome::default();
+        self.apply_server_using_item(frame, &mut outcome);
+        outcome.started
+    }
+
+    /// Notes whether gameplay has input focus. Vanilla's focus and chat
+    /// handlers release an item in use when focus leaves gameplay, whoever
+    /// started the use, so losing focus lets button-up release it.
+    pub fn observe_gameplay_focus(&mut self, focused: bool) {
+        if self.gameplay_focused
+            && !focused
+            && let Some(active) = self.active.as_mut()
+        {
+            active.button_owned = true;
+        }
+        self.gameplay_focused = focused;
+    }
+
     /// Applies a pending server `UsingItem` value to this frame's tick. A start
     /// waits while the selected stack is unverified and covers held uses only.
     pub(super) fn apply_server_using_item(&mut self, frame: &UseFrame, outcome: &mut UseOutcome) {

@@ -1,7 +1,7 @@
 //! Tick-stamped authoritative edits (motion, attributes, flags) entering the
 //! rewind timeline.
 
-use super::server_flags::pose_flags;
+use super::server_flags::PoseWrite;
 use super::*;
 
 /// Placement of a tick-stamped authoritative update on the prediction timeline.
@@ -345,29 +345,7 @@ impl LocalPhysicsController {
             present.sneaking = reached.then_some(sneaking);
         }
         changed |= self.retain_server_spin(tick, flags.spinning);
-        if self.retain_server_pose_start(tick, anchor.mode, flags) {
-            changed = true;
-        } else {
-            for (flag, mode) in pose_flags(flags) {
-                if flag != Some(false) || anchor.mode != mode {
-                    continue;
-                }
-                let (edited, reached) = rewrite_run(
-                    self.history.retained_inputs_after_mut(tick),
-                    |input| input.mode == mode,
-                    |input| input.mode = sim::MovementMode::Walking,
-                );
-                changed |= edited;
-                if edited {
-                    self.mark_server_change_after(tick, |input| {
-                        input.server_mode = Some(sim::MovementMode::Walking);
-                    });
-                }
-                if reached {
-                    self.modes.end(mode);
-                }
-            }
-        }
+        changed |= self.retain_server_pose(tick, anchor.mode, PoseWrite::from_flags(&flags));
         self.adopt_live_flags(client_world::MovementFlagUpdate {
             gliding: None,
             swimming: None,
@@ -383,7 +361,7 @@ impl LocalPhysicsController {
     }
 
     fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
-        self.adopt_live_pose(flags);
+        self.adopt_live_pose(PoseWrite::from_flags(&flags));
         if !pose_flag_controls_sneak(self.modes.mode()) {
             flags.sneaking = None;
         }

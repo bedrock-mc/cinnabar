@@ -1038,3 +1038,69 @@ fn movement_motion_sequence_counts_only_admitted_impulses() {
     physics.queue_server_motion([0.1, 0.2, 0.3], 0);
     assert_eq!(physics.knockback_sequence(), 2);
 }
+
+/// Vanilla's sneak trigger leaves the crawl flag when no pose fits and stops
+/// crawling, without a forced sneak, during a Riptide spin.
+#[test]
+fn crawl_holds_without_a_fitting_pose_and_ends_during_a_spin() {
+    let mut physics = settled_controller();
+    let feet = physics.state().unwrap().position;
+    let tunnel = LowCeiling(feet.y + 1.0);
+    let idle = MovementInput::default();
+    let crawl = step(&mut physics, idle, ModeIntent::default(), &tunnel);
+    assert_eq!(crawl.processed.mode, MovementMode::Crawling);
+    let closed = LowCeiling(feet.y + 0.4);
+    let held = step(&mut physics, idle, ModeIntent::default(), &closed);
+    assert_eq!(held.processed.mode, MovementMode::Crawling);
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    assert_eq!(physics.apply_server_movement_flags(0, spin), None);
+    let spinning = step(&mut physics, idle, ModeIntent::default(), &tunnel);
+    assert_eq!(spinning.processed.mode, MovementMode::Walking);
+    assert!(!spinning.sneaking);
+}
+
+/// A stamped crawl clear in a tunnel lets the crawl rules restart it, with
+/// their start action, instead of forcing a standing pose.
+#[test]
+fn a_stamped_crawl_clear_lets_the_tunnel_restart_the_crawl() {
+    let mut physics = settled_controller();
+    let feet = physics.state().unwrap().position;
+    let tunnel = LowCeiling(feet.y + 1.0);
+    let samples: Vec<_> = (0..3)
+        .map(|_| {
+            step(
+                &mut physics,
+                MovementInput::default(),
+                ModeIntent::default(),
+                &tunnel,
+            )
+        })
+        .collect();
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, samples[0].tick - 1, samples[0].position);
+    ticker.set_source(MovementSource::Physics);
+    for sample in samples.clone() {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let clear = client_world::MovementFlagUpdate {
+        crawling: Some(false),
+        ..Default::default()
+    };
+    let stamp = samples[0].tick;
+    assert_eq!(
+        physics.apply_server_movement_flags(stamp, clear),
+        Some(stamp)
+    );
+    super::reconcile_timeline_rewind(&mut ticker, &mut physics, stamp, &tunnel).unwrap();
+    assert_eq!(physics.mode(), MovementMode::Crawling);
+    let pending = ticker.pending_snapshots();
+    let after = pending
+        .iter()
+        .find(|snapshot| snapshot.tick == stamp + 1)
+        .expect("the tick after the stamp stays queued");
+    assert!(has(after.flags, PlayerInputFlags::START_CRAWLING));
+    assert!(!has(after.flags, PlayerInputFlags::STOP_CRAWLING));
+}

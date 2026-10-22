@@ -160,6 +160,8 @@ pub struct ItemUseRuntime {
     riptide_release: Option<RiptideRelease>,
     /// Server `UsingItem` value awaiting the next resolved tick.
     server_using: Option<bool>,
+    /// Gameplay had input focus on the last observed frame.
+    gameplay_focused: bool,
 }
 
 impl ItemUseRuntime {
