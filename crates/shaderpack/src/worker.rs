@@ -22,6 +22,8 @@ const MEMORY_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 /// Maximum serialized request and output sizes, checked before deserialization.
 const REQUEST_BYTES: usize = 1024 * 1024;
 const OUTPUT_BYTES: usize = 128 * 1024 * 1024;
+/// CBOR adds enum, tuple and collection containers around each accepted expression node.
+const RESULT_NESTING: usize = 4 * crate::expr::MAX_TREE_DEPTH as usize + 32;
 
 /// Inputs read only after the child has installed its resource limits.
 #[derive(Serialize, Deserialize)]
@@ -157,11 +159,25 @@ impl Running {
             self.output.rewind().map_err(|error| error.to_string())?;
             let bytes =
                 read_limited(&mut self.output, OUTPUT_BYTES).map_err(|error| error.to_string())?;
-            let result: Result<Response, String> = ciborium::from_reader(bytes.as_slice())
-                .map_err(|error| format!("invalid shader compiler result: {error}"))?;
-            result
+            decode_output(bytes)
         })())
     }
+}
+
+/// Decodes accepted expression trees on a bounded stack, away from small host UI/load stacks.
+fn decode_output(bytes: Vec<u8>) -> Result<Response, String> {
+    std::thread::Builder::new()
+        .name("shader compiler result".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || {
+            let result: Result<Response, String> =
+                ciborium::de::from_reader_with_recursion_limit(bytes.as_slice(), RESULT_NESTING)
+                    .map_err(|error| format!("invalid shader compiler result: {error}"))?;
+            result
+        })
+        .map_err(|error| format!("cannot start shader result decoder: {error}"))?
+        .join()
+        .map_err(|_| "shader result decoder stopped".to_owned())?
 }
 
 impl Drop for Running {
