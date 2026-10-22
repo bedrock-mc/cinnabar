@@ -241,6 +241,60 @@ fn an_immobile_tick_still_reports_block_climber_contact() {
     }
 }
 
+/// Scaffolding everywhere, behind a movement origin that is not available yet.
+struct UnavailableOrigin;
+
+impl CollisionWorld for UnavailableOrigin {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Rejects the origin as an absent terrain column would.
+    fn ensure_movement_origin(&self, _feet: Vec3) -> Result<(), WorldQueryError> {
+        Err(WorldQueryError::CoordinateOutOfRange)
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        ClimbWorld {
+            flags: BlockPhysicsFlags::SCAFFOLDING,
+        }
+        .block_physics(block)
+    }
+}
+
+/// An immobile spectator, or an immobile tick without an available movement
+/// origin, measures no climber contact.
+#[test]
+fn an_immobile_tick_measures_no_contact_for_a_spectator_or_an_unavailable_origin() {
+    let column = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [0, 1, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let frozen = MovementInput {
+        immobile: true,
+        sneaking: true,
+        ..MovementInput::default()
+    };
+    assert_unmeasured(
+        MovementInput {
+            spectator: true,
+            ..frozen
+        },
+        &column,
+    );
+    assert_unmeasured(frozen, &UnavailableOrigin);
+}
+
+/// Runs one tick in place and checks that it measured no climber contact.
+fn assert_unmeasured(input: MovementInput, world: &impl CollisionWorld) {
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    let tick = Simulator::default().tick(&mut state, input, world).unwrap();
+    let environment = tick.environment;
+    assert!(environment.climber_unsampled, "{input:?}");
+    assert!(!environment.in_scaffolding && !environment.descending_through_block);
+    assert!(tick.world_identity.chunks.is_empty());
+}
+
 /// A tick with suppressed travel still starts the descent, without moving.
 #[test]
 fn skipped_travel_still_starts_the_scaffold_descent() {
@@ -368,7 +422,8 @@ fn standing_on_supported_scaffolding_reports_the_layer_below_without_sneaking() 
     assert_eq!(tick.position.y, 1.0);
 }
 
-/// Sneaking over supported scaffolding reports the descent it performs.
+/// Sneaking over supported scaffolding reports the descent it starts and the
+/// contact the block climber measures after the move.
 #[test]
 fn sneaking_over_supported_scaffolding_reports_the_descent() {
     let world = ScaffoldWorld {
@@ -380,9 +435,71 @@ fn sneaking_over_supported_scaffolding_reports_the_descent() {
         .tick(&mut state, sneaking(), &world)
         .unwrap();
     let environment = tick.environment;
-    assert!(environment.in_scaffolding && environment.in_ascending_block);
-    assert!(environment.over_scaffolding && environment.over_descending_block);
+    assert_eq!(tick.position.y as f32, 0.85_f32);
     assert!(environment.descending_through_block);
+    // The feet now sit in the lowest scaffold, over its solid support.
+    assert!(environment.in_scaffolding && environment.in_ascending_block);
+    assert!(!environment.over_scaffolding && !environment.over_descending_block);
+}
+
+/// The block climber measures contact after the move, so climbing out of a
+/// scaffold reports the scaffold below the new feet.
+#[test]
+fn climbing_out_of_scaffolding_reports_the_contact_after_the_move() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 1, 0]],
+        solids: vec![[0, 0, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.95, 0.5));
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(tick.position.y > 2.0, "{}", tick.position.y);
+    let environment = tick.environment;
+    assert!(!environment.in_scaffolding && !environment.in_ascending_block);
+    assert!(environment.over_scaffolding && environment.over_descending_block);
+}
+
+/// The descent action reads the contact retained from the previous tick, so a
+/// support removed in between still starts the descent once while the block
+/// climber already reports the unsupported scaffold.
+#[test]
+fn the_descent_reads_the_previous_tick_contact() {
+    let supported = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let unsupported = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0]],
+        solids: Vec::new(),
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    state.on_ground = true;
+    let standing = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &supported)
+        .unwrap();
+    assert!(standing.environment.over_descending_block);
+    assert_eq!(state.position.y, 1.0);
+    let frozen = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                immobile: true,
+                ..sneaking()
+            },
+            &unsupported,
+        )
+        .unwrap();
+    assert!(frozen.environment.descending_through_block);
+    assert!(frozen.environment.over_scaffolding);
+    assert!(!frozen.environment.over_descending_block);
 }
 
 fn powder_snow() -> ClimbWorld {
@@ -481,8 +598,9 @@ fn sneaking_over_powder_snow_descends_for_a_snow_standing_wearer() {
             &SnowBelow,
         )
         .unwrap();
-    assert!(tick.environment.over_descending_block);
     assert!(tick.environment.descending_through_block);
-    assert!(!tick.environment.in_ascending_block);
     assert_eq!(tick.movement.y as f32, -0.15_f32);
+    // After the move the feet are inside the snow, still over more of it.
+    assert!(tick.environment.in_ascending_block);
+    assert!(tick.environment.over_descending_block);
 }

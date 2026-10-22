@@ -36,6 +36,7 @@ pub(super) fn tick(
         flight::apply_drag(&mut next.velocity, &input, controls.move_vector, 1.0);
     }
     next.collision_shape = None;
+    next.climber = None;
     next.on_ground = false;
     next.collisions = AxisCollisions::default();
     next.jump_delay = 0;

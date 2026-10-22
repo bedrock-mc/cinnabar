@@ -28,21 +28,30 @@ pub(in crate::movement) struct ClimberFlags {
 }
 
 impl ClimberFlags {
-    /// Climber flags after one completed tick. A tick that measured contact
-    /// publishes its own. A stationary tick over unreadable terrain keeps
-    /// `previous`, the prior tick's flags; a spectator tick measures nothing,
-    /// so the server's flags stand.
+    /// Climber flags after one completed tick. Spectator flags stay the
+    /// server's. A tick that measured contact publishes its own; one over
+    /// unavailable terrain keeps the contact of `previous`, the prior tick's
+    /// flags, with this tick's descent.
     pub(in crate::movement) fn after_tick(
         input: &sim::MovementInput,
         environment: &sim::MovementEnvironment,
         previous: Option<Self>,
     ) -> Option<Self> {
-        if !environment.climber_unsampled {
-            Some(Self::from(environment))
-        } else if input.spectator {
+        if input.spectator {
             None
+        } else if environment.climber_unsampled {
+            // Unmeasured contact stays as before, but the descent action still
+            // reads this tick's request; in place, it reads the kept contact.
+            previous.map(|previous| Self {
+                descending_through_block: if input.immobile {
+                    sim::descends_through_block(input, previous.over_descending_block)
+                } else {
+                    environment.descending_through_block
+                },
+                ..previous
+            })
         } else {
-            previous
+            Some(Self::from(environment))
         }
     }
 }

@@ -601,7 +601,9 @@ enum Freeze {
         sneaking: bool,
     },
     /// Immobile ticks over unreadable terrain, outlasting the retained history.
-    Unreadable,
+    Unreadable {
+        sneaking: bool,
+    },
 }
 
 /// A sync reports the local block-climber flags even when server metadata lacks
@@ -619,7 +621,8 @@ fn correction_sync_reports_local_block_climber_flags() {
         (Freeze::None, true),
         (Freeze::InPlace { sneaking: true }, true),
         (Freeze::InPlace { sneaking: false }, false),
-        (Freeze::Unreadable, true),
+        (Freeze::Unreadable { sneaking: true }, true),
+        (Freeze::Unreadable { sneaking: false }, false),
     ] {
         let flags = climber_sync_flags(freeze);
         for flag in contact {
@@ -665,10 +668,12 @@ fn climber_flags_follow_measured_ticks_only() {
         ClimberFlags::after_tick(&immobile, &unmeasured, previous),
         previous
     );
-    assert_eq!(
-        ClimberFlags::after_tick(&spectator, &unmeasured, previous),
-        None
-    );
+    for environment in [&measured, &unmeasured] {
+        assert_eq!(
+            ClimberFlags::after_tick(&spectator, environment, previous),
+            None
+        );
+    }
 }
 
 /// Sends a due sync after a sneaking tick in scaffolding and the given freeze.
@@ -691,9 +696,9 @@ fn climber_sync_flags(freeze: Freeze) -> [u64; 3] {
         Freeze::InPlace { sneaking } => {
             physics.advance(tick, frozen(sneaking), &ScaffoldColumn);
         }
-        Freeze::Unreadable => {
+        Freeze::Unreadable { sneaking } => {
             for _ in 0..=crate::movement::physics::LOCAL_PHYSICS_HISTORY_CAPACITY {
-                physics.advance(tick, frozen(true), &Unreadable);
+                physics.advance(tick, frozen(sneaking), &Unreadable);
             }
         }
     }

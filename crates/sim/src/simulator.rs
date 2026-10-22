@@ -12,6 +12,7 @@ mod numeric_tests;
 mod riptide;
 pub use riptide::RiptideLaunch;
 mod scaffolding;
+pub use scaffolding::descends_through_block;
 mod spectator;
 mod state;
 mod travel;
@@ -155,7 +156,9 @@ impl Simulator {
         world: &impl CollisionWorld,
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
-        let output = self.advance(state, input, world)?;
+        let start = state.retained_climber();
+        let mut output = self.advance(state, input, world)?;
+        scaffolding::finish_tick(world, state, &input, start, &mut output.tick_result);
         riptide::finish(state);
         state.previous_rotation = Some(rotation);
         Ok(output)
@@ -171,18 +174,10 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
-            let mut output =
-                immobile::tick(state, input.mode, controls, world.registry_identity())?;
+            // The descent action and block climber still run in place; see
+            // `scaffolding::finish_tick`.
+            let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
             riptide::launch(state, input, false);
-            // The block climber and descent request still run in place.
-            let result = &mut output.tick_result;
-            scaffolding::sample_stationary(
-                world,
-                Aabb::player_with_height_at(state.position, state.hitbox_height(input)),
-                &input,
-                &mut result.environment,
-                &mut result.world_identity,
-            );
             return Ok(output);
         }
         let mut next = state.clone();
@@ -269,16 +264,21 @@ impl Simulator {
                 .flags
                 .contains(crate::BlockPhysicsFlags::POWDER_SNOW);
         sampled.movement.on_climbable |= snow_climb;
-        let scaffold = scaffolding::sample_climber(
-            world,
-            Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
-            input.can_stand_on_snow,
-            &mut sampled,
-        )?;
+        // The descent action, climb jump and gravity read the contact the block
+        // climber measured after the previous move; without one, measure here.
+        let scaffold = match next.retained_climber() {
+            Some(contact) => contact,
+            None => scaffolding::sample_climber(
+                world,
+                Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
+                input.can_stand_on_snow,
+                &mut sampled,
+            )?,
+        };
         // Sneaking over a climbable block descends through it at a fixed speed,
         // even on a tick whose travel is suppressed.
         sampled.descend_through = scaffold.descends(&input);
-        scaffold.publish(&mut sampled.movement, sampled.descend_through);
+        sampled.movement.descending_through_block = sampled.descend_through;
         if sampled.descend_through {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }

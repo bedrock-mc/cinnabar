@@ -3,16 +3,22 @@ use crate::{
     ProvenancedCollider, WorldQueryError,
 };
 
-use super::{MovementEnvironment, MovementInput, MovementMode, environment::SampledEnvironment};
+use serde::{Deserialize, Serialize};
+
+use super::{
+    MovementEnvironment, MovementInput, MovementMode, PlayerState, TickResult,
+    environment::SampledEnvironment,
+};
 
 /// How far below a scaffolding top the feet may sit and still stand on it.
 const TOP_TOLERANCE: f32 = 1.0e-6;
 /// Vertical speed of both the held-jump ascent and the descent through a climbable block.
 pub(super) const CLIMB_SPEED: f64 = 0.15_f32 as f64;
 
-/// Block-climber flags of the body footprint, rewritten every tick from the
-/// layer at the feet and the layer below it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Block-climber flags of the body footprint, measured after every tick's
+/// move from the layer at the feet and the layer below it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ClimberContact {
     /// Scaffolding at the feet layer (`InScaffolding`).
     pub inside: bool,
@@ -26,41 +32,77 @@ pub(super) struct ClimberContact {
 }
 
 impl ClimberContact {
-    /// Whether the descent action sinks through the climbable block below:
-    /// the descent request over one, except while riding.
+    /// Whether the descent action sinks through this contact's descending block.
     pub(super) fn descends(self, input: &MovementInput) -> bool {
-        input.mode != MovementMode::Riding && input.sneaking && self.over_descending
+        descends_through_block(input, self.over_descending)
     }
 
-    /// Publishes the climber flags and this tick's descent.
-    pub(super) fn publish(self, environment: &mut MovementEnvironment, descending: bool) {
+    /// Publishes the four contact flags as measured.
+    fn publish(self, environment: &mut MovementEnvironment) {
         environment.in_scaffolding = self.inside;
         environment.over_scaffolding = self.over;
         environment.in_ascending_block = self.ascending;
         environment.over_descending_block = self.over_descending;
-        environment.descending_through_block = descending;
         environment.climber_unsampled = false;
     }
 }
 
-/// Runs the block climber and descent request for a tick that does not move.
-/// The flags feed only reporting, so unreadable terrain marks them unsampled
-/// instead of failing the tick; successful reads merge into `identity`.
-pub(super) fn sample_stationary(
+/// Vanilla's descent action: the descent request over a climbable block
+/// (`OverDescendingBlock`) sinks through it, except while riding.
+#[must_use]
+pub fn descends_through_block(input: &MovementInput, over_descending_block: bool) -> bool {
+    input.mode != MovementMode::Riding && input.sneaking && over_descending_block
+}
+
+/// Runs the block climber after the tick's move, as vanilla does, and retains
+/// its contact for the next tick's descent action, climb jump and gravity.
+/// `start` is the contact the tick began with; an immobile tick's descent
+/// action reads it. The flags feed only reporting and the next tick, so a
+/// spectator, an unavailable movement origin or unreadable terrain marks
+/// them unsampled instead of failing the tick.
+pub(super) fn finish_tick(
     world: &(impl CollisionWorld + ?Sized),
+    state: &mut PlayerState,
+    input: &MovementInput,
+    start: Option<ClimberContact>,
+    result: &mut TickResult,
+) {
+    result.environment.climber_unsampled = true;
+    if input.spectator {
+        state.climber = None;
+        return;
+    }
+    let measured = measure(
+        world,
+        state.position,
+        Aabb::player_with_height_at(state.position, state.hitbox_height(*input)),
+        input,
+        &mut result.world_identity,
+    );
+    if input.immobile {
+        result.environment.descending_through_block = start
+            .or(measured)
+            .is_some_and(|contact| contact.descends(input));
+    }
+    if let Some(contact) = measured {
+        contact.publish(&mut result.environment);
+        state.retain_climber(contact);
+    }
+}
+
+/// Measures climber contact at `feet`, merging the reads into `identity`.
+fn measure(
+    world: &(impl CollisionWorld + ?Sized),
+    feet: crate::Vec3,
     player: Aabb,
     input: &MovementInput,
-    environment: &mut MovementEnvironment,
     identity: &mut crate::WorldCollisionIdentity,
-) {
+) -> Option<ClimberContact> {
+    world.ensure_movement_origin(feet).ok()?;
     let mut sampled = SampledEnvironment::unsampled(identity.clone());
-    match sample_climber(world, player, input.can_stand_on_snow, &mut sampled) {
-        Ok(contact) => {
-            contact.publish(environment, contact.descends(input));
-            *identity = sampled.identity;
-        }
-        Err(_) => environment.climber_unsampled = true,
-    }
+    let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled).ok()?;
+    *identity = sampled.identity;
+    Some(contact)
 }
 
 /// Scaffolding and climbable-block facts of one footprint layer.

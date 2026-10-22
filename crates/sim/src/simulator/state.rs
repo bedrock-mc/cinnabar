@@ -40,6 +40,18 @@ pub struct PlayerState {
     /// Resolved faces survive center rounding and deterministic replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) collision_shape: Option<CollisionShape>,
+    /// Block-climber contact measured after the previous tick's move, which
+    /// this tick's descent action, climb jump and gravity read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) climber: Option<RetainedClimber>,
+}
+
+/// Climber contact and the rounded feet it was measured at.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RetainedClimber {
+    contact: super::scaffolding::ClimberContact,
+    position: Vec3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -84,6 +96,7 @@ impl PlayerState {
             },
             previous_rotation: None,
             collision_shape: None,
+            climber: None,
         }
     }
 
@@ -91,6 +104,22 @@ impl PlayerState {
     pub fn set_position(&mut self, position: Vec3) {
         self.position = position;
         self.collision_shape = None;
+        self.climber = None;
+    }
+
+    /// Climber contact retained from the previous tick, unless the feet moved since.
+    pub(super) fn retained_climber(&self) -> Option<super::scaffolding::ClimberContact> {
+        self.climber
+            .filter(|retained| retained.position == self.position.rounded())
+            .map(|retained| retained.contact)
+    }
+
+    /// Retains climber contact measured at the current feet.
+    pub(super) fn retain_climber(&mut self, contact: super::scaffolding::ClimberContact) {
+        self.climber = Some(RetainedClimber {
+            contact,
+            position: self.position.rounded(),
+        });
     }
 
     /// Returns retained contact faces, rebuilding after a position correction.
@@ -223,6 +252,12 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
             });
         }
         crate::world::validate_collision_query(shape.bounds)?;
+    }
+    if state
+        .climber
+        .is_some_and(|retained| !retained.position.is_finite())
+    {
+        return Err(SimulationError::NonFiniteState { field: "climber" });
     }
     if !state.swim_amount.is_finite() || !(0.0..=1.0).contains(&state.swim_amount) {
         return Err(SimulationError::InvalidSwimAmount);
