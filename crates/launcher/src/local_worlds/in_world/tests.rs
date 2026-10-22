@@ -230,12 +230,12 @@ fn successful_edits_clear_superseded_failures() {
                 .update(Input::InWorld(id.clone(), first))
                 .pop()
                 .unwrap();
-            let second = menu
+            let second_save = menu
                 .update(Input::InWorld(id.clone(), second))
                 .pop()
                 .unwrap();
             let failure = failed_reply(first, "Couldn't save the change");
-            let success = saved_reply(second, &mut saved);
+            let success = saved_reply(second_save, &mut saved);
             if failure_first {
                 menu.apply(failure);
                 assert!(menu.in_world_view(&id).unwrap().error.is_some());
