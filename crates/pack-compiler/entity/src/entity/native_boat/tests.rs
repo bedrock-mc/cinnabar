@@ -54,9 +54,16 @@ fn compile(files: Vec<(Box<str>, Vec<u8>)>) -> crate::ActorPackCompilation {
 
 /// Rig binding of the boat client entity, if one compiled.
 fn boat_rig(runtime: &assets::RuntimeEntityAssets) -> Option<&assets::EntityRigBinding> {
+    rig_of(runtime, assets::facts::VanillaEntity::Boat.identifier())
+}
+
+/// Rig binding of `identifier`'s client entity, if one compiled.
+fn rig_of<'a>(
+    runtime: &'a assets::RuntimeEntityAssets,
+    identifier: &str,
+) -> Option<&'a assets::EntityRigBinding> {
     let symbol = runtime.symbols().iter().position(|symbol| {
-        symbol.kind == EntityAssetKind::Entity
-            && symbol.identifier.as_ref() == assets::facts::VanillaEntity::Boat.identifier()
+        symbol.kind == EntityAssetKind::Entity && symbol.identifier.as_ref() == identifier
     })?;
     runtime
         .rig_bindings()
@@ -76,7 +83,10 @@ fn controllerless_boats_get_a_rig_with_hull_and_raft_models() {
     let names: Vec<_> = (rig.first_geometry..rig.first_geometry + u32::from(rig.geometry_count))
         .map(|index| geometry(index).identifier.to_string())
         .collect();
-    assert!(names.contains(&"geometry.boat".to_string()), "{names:?}");
+    assert!(
+        names.contains(&"geometry.cinnabar.boat".to_string()),
+        "{names:?}"
+    );
     assert!(
         names.contains(&"geometry.cinnabar.raft".to_string()),
         "{names:?}"
@@ -232,5 +242,29 @@ fn variant_textures_match_the_pinned_boat_catalog() {
                 .filter(|key| *key != "default")
                 .collect();
         assert_eq!(keys, WOODS.into_iter().collect());
+    }
+}
+
+/// Two entities naming the same absent geometry each get their own synthesized models.
+#[test]
+fn boat_and_chest_boat_sharing_an_absent_geometry_both_compile() {
+    let mut files = boat_pack(vanilla_shaped_boat());
+    files.push((
+        "entity/chest_boat.entity.json".into(),
+        serde_json::to_vec(&boat_entity(
+            assets::facts::VanillaEntity::ChestBoat.identifier(),
+        ))
+        .unwrap(),
+    ));
+    let runtime = assets::RuntimeEntityAssets::from_compiled(compile(files).entities).unwrap();
+    for entity in [
+        assets::facts::VanillaEntity::Boat,
+        assets::facts::VanillaEntity::ChestBoat,
+    ] {
+        assert!(
+            rig_of(&runtime, entity.identifier()).is_some(),
+            "{} has no rig",
+            entity.identifier()
+        );
     }
 }

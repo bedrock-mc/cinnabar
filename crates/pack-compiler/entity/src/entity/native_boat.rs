@@ -281,54 +281,43 @@ pub(super) fn complete_bindings(
             .iter()
             .find(|record| record.identifier.as_ref() == identifier)
             .map_or(0.0, |record| record.fact.network_y_offset * 16.0);
+        let stem = identifier.trim_start_matches("minecraft:");
         let authored_geometry = geometries.keys().any(|(name, _)| **name == *default);
-        let raft = if authored_geometry {
-            default.clone()
+        // Synthesized models are named per entity, so two entities sharing an absent default
+        // name never produce two geometries with one identifier.
+        let (hull_name, raft_name) = if authored_geometry {
+            (default.clone(), default)
         } else {
-            let raft = format!(
+            let hull_name = format!("geometry.cinnabar.{stem}");
+            let raft_name = format!(
                 "geometry.cinnabar.{}raft",
                 if chest_boat { "chest_" } else { "" }
             );
             let (hull, size) = model(chest_boat, false);
             let (deck, _) = model(chest_boat, true);
             documents.push(encode_document(
-                unused_source_path(
-                    format!(
-                        "models/entity/_cinnabar/{}.json",
-                        identifier.trim_start_matches("minecraft:")
-                    ),
-                    payloads,
-                ),
+                unused_source_path(format!("models/entity/_cinnabar/{stem}.json"), payloads),
                 json!({
                     "format_version": "1.12.0",
                     "minecraft:geometry": [
-                        geometry(&default, &hull, size, height),
-                        geometry(&raft, &deck, size, height),
+                        geometry(&hull_name, &hull, size, height),
+                        geometry(&raft_name, &deck, size, height),
                     ],
                 }),
             )?);
-            raft
+            (hull_name, raft_name)
         };
         description.insert(
             "geometry".into(),
-            json!({ "default": default, "raft": raft }),
+            json!({ "default": hull_name, "raft": raft_name }),
         );
         description
             .entry("materials")
             .or_insert_with(|| json!({ "default": "entity" }));
-        let controller = format!(
-            "{CONTROLLER}.{}",
-            identifier.trim_start_matches("minecraft:")
-        );
+        let controller = format!("{CONTROLLER}.{stem}");
         description.insert("render_controllers".into(), json!([controller]));
         documents.push(encode_document(
-            unused_source_path(
-                format!(
-                    "entity/_cinnabar/{}.json",
-                    identifier.trim_start_matches("minecraft:")
-                ),
-                payloads,
-            ),
+            unused_source_path(format!("entity/_cinnabar/{stem}.json"), payloads),
             value,
         )?);
         replaced.push((key, controller, woods));
