@@ -389,47 +389,13 @@ fn test_token() -> ViewmodelToken {
     }
 }
 
-/// Neutral-hand depth shares the retry policy and keeps failed frames unpublished.
+/// Neutral-hand depth backs off and retries changed requests without retaining stale targets.
 #[test]
 fn neutral_depth_allocation_failure_backs_off_then_recovers() {
-    use bevy::{
-        ecs::schedule::Schedule,
-        prelude::{GlobalTransform, Mat4},
-        render::view::RetainedViewEntity,
-    };
     let mut world = empty_hand_world();
-    let token = test_token();
-    let skin = render_model::ViewmodelSkin::new(
-        vec![255; render_model::viewmodel::VIEWMODEL_TEXTURE_BYTES].into(),
-        token.skin,
-    )
-    .unwrap();
-    let geometry = render_model::ViewmodelGeometry {
-        vertices: std::sync::Arc::from([]),
-        identity: token.geometry,
-        allowed_rigs: std::sync::Arc::from([]),
-        cube_origin: false,
-    };
-    let gate = world.resource::<ViewmodelCompletionGate>().clone();
-    let mut scene = ViewmodelScene::default();
-    assert!(scene.publish(token, &skin, &geometry, &gate));
-    scene.frame.as_mut().unwrap().fallback = Some((1, 0, 0));
-    world.insert_resource(scene);
-    world.spawn((
-        MainEntity::from(token.owner),
-        crate::render_test_support::camera(false),
-        Msaa::Off,
-        ExtractedView {
-            retained_view_entity: RetainedViewEntity::new(token.owner.into(), None, 0),
-            clip_from_view: Mat4::IDENTITY,
-            world_from_view: GlobalTransform::default(),
-            clip_from_world: None,
-            target_format: render_scene::SCENE_COLOR_FORMAT,
-            viewport: UVec4::new(0, 0, token.viewport[0], token.viewport[1]),
-            color_grading: default(),
-            invert_culling: false,
-        },
-    ));
+    let device = world.resource::<RenderDevice>().clone();
+    let mut gpu = world.remove_resource::<HandGpu>().unwrap();
+    let mut token = test_token();
     let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     let failure = crate::gpu_allocation::inject({
         let attempts = attempts.clone();
@@ -441,21 +407,25 @@ fn neutral_depth_allocation_failure_backs_off_then_recovers() {
             true
         }
     });
-    let mut schedule = Schedule::default();
-    schedule.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
-    schedule.add_systems(prepare);
     for _ in 0..3 {
-        schedule.run(&mut world);
-        let gpu = world.resource::<HandGpu>();
-        assert!(gpu.depth.is_none() && gpu.token.is_none());
-        assert!(!gate.completed(token));
+        assert!(!ensure_depth(&mut gpu, &device, token));
+        assert!(gpu.depth.is_none());
     }
     assert_eq!(attempts.get(), 1);
     drop(failure);
-    schedule.run(&mut world);
-    let gpu = world.resource::<HandGpu>();
-    assert!(gpu.depth.is_some());
-    assert_eq!(gpu.token, Some(token));
+    assert!(ensure_depth(&mut gpu, &device, token));
+    let depth = gpu.depth.as_ref().unwrap().view.id();
+    assert!(ensure_depth(&mut gpu, &device, token));
+    assert_eq!(gpu.depth.as_ref().unwrap().view.id(), depth);
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        token.viewport[0] *= 2;
+        assert!(!ensure_depth(&mut gpu, &device, token));
+        assert!(gpu.depth.is_none());
+    }
+    token.viewport[1] *= 2;
+    assert!(ensure_depth(&mut gpu, &device, token));
+    assert_eq!(gpu.depth.as_ref().unwrap().size, token.viewport);
 }
 
 #[test]
