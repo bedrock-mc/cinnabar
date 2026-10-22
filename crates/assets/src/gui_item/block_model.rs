@@ -1,11 +1,12 @@
 //! Shared quads and texels for block thumbnails and native GUI meshes.
-//! Fences draw Bedrock's dedicated inventory shape; other connected shapes still draw
-//! their world template.
+//! Fences and walls use carried shapes; vanilla gates turn into the carried item axis.
 
 use crate::{
     BlockFace, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_DISABLE_AO,
     MATERIAL_FLAG_DISABLE_FACE_DIMMING, MATERIAL_FLAG_ISOTROPIC, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, Material, ModelQuad, ModelTemplate, TextureArray, VisualKind,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_WALL, Material, ModelQuad, ModelTemplate,
+    TextureArray, VisualKind,
 };
 
 use super::CUBE_FACES;
@@ -65,9 +66,14 @@ pub fn block_item_quads(
                 != 0
             {
                 out.extend(inventory_fence_quads(faces[BlockFace::South as usize]));
+            } else if first.flags & MODEL_TEMPLATE_FLAG_WALL != 0 {
+                out.extend(carried_wall_quads(faces));
             } else {
                 let parts = crate::model_template_parts(templates, template)
                     .ok_or(GuiBlockReject::Geometry)?;
+                let gate = first.flags
+                    & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z)
+                    != 0;
                 for part in parts {
                     let start = part.quad_start as usize;
                     let part_quads = quads
@@ -75,9 +81,10 @@ pub fn block_item_quads(
                         .ok_or(GuiBlockReject::Geometry)?;
                     out.extend(part_quads.iter().map(|quad| {
                         GuiBlockQuad {
-                            corners: quad
-                                .positions
-                                .map(|point| point.map(|component| f32::from(component) / 256.0)),
+                            corners: quad.positions.map(|[x, y, z]| {
+                                let point = if gate { [256 - z, y, x] } else { [x, y, z] };
+                                point.map(|component| f32::from(component) / 256.0)
+                            }),
                             uvs: quad
                                 .uvs
                                 .map(|uv| uv.map(|component| f32::from(component) / 4096.0)),
@@ -141,6 +148,122 @@ fn inventory_fence_quads(material: u32) -> impl Iterator<Item = GuiBlockQuad> {
                 }
             })
         })
+}
+
+/// Two end pillars and a lower span, matching the authored `geometry.wall_render` item.
+fn carried_wall_quads(materials: [u32; 6]) -> Vec<GuiBlockQuad> {
+    let post_uvs = [
+        [0, 0, 8, 16],
+        [0, 0, 8, 16],
+        [8, 8, 0, 0],
+        [8, 8, 0, 0],
+        [0, 0, 8, 16],
+        [0, 0, 8, 16],
+    ];
+    let elements = [
+        ([64, 0, 192], [192, 256, 320], post_uvs),
+        ([64, 0, -64], [192, 256, 64], post_uvs),
+        (
+            [80, 0, 16],
+            [176, 208, 240],
+            [
+                [0, 0, 4, 13],
+                [0, 0, 4, 13],
+                [6, 4, 0, 0],
+                [6, 4, 0, 0],
+                [0, 0, 6, 13],
+                [0, 0, 6, 13],
+            ],
+        ),
+    ];
+    let mut out = Vec::with_capacity(elements.len() * 6);
+    for (min, max, uvs) in elements {
+        for (face, (corners, uv)) in carried_cuboid_faces(min, max)
+            .into_iter()
+            .zip(uvs)
+            .enumerate()
+        {
+            out.push(GuiBlockQuad {
+                // The item's root turns the wall across X, independently of world connections.
+                corners: corners.map(|[x, y, z]| [z, y, 1.0 - x]),
+                uvs: carried_face_uvs(face, uv),
+                material: materials[match BlockFace::ALL[face] {
+                    BlockFace::West => BlockFace::South,
+                    BlockFace::East => BlockFace::North,
+                    BlockFace::North => BlockFace::West,
+                    BlockFace::South => BlockFace::East,
+                    vertical => vertical,
+                } as usize],
+            });
+        }
+    }
+    out
+}
+
+/// Outward-facing cuboid corners from fixed-point block coordinates.
+fn carried_cuboid_faces(
+    [min_x, min_y, min_z]: [i16; 3],
+    [max_x, max_y, max_z]: [i16; 3],
+) -> [[[f32; 3]; 4]; 6] {
+    let convert = |[x, y, z]: [i16; 3]| {
+        [
+            f32::from(x) / 256.0,
+            f32::from(y) / 256.0,
+            f32::from(z) / 256.0,
+        ]
+    };
+    [
+        [
+            [min_x, min_y, min_z],
+            [min_x, min_y, max_z],
+            [min_x, max_y, max_z],
+            [min_x, max_y, min_z],
+        ],
+        [
+            [max_x, min_y, min_z],
+            [max_x, max_y, min_z],
+            [max_x, max_y, max_z],
+            [max_x, min_y, max_z],
+        ],
+        [
+            [min_x, min_y, min_z],
+            [max_x, min_y, min_z],
+            [max_x, min_y, max_z],
+            [min_x, min_y, max_z],
+        ],
+        [
+            [min_x, max_y, min_z],
+            [min_x, max_y, max_z],
+            [max_x, max_y, max_z],
+            [max_x, max_y, min_z],
+        ],
+        [
+            [min_x, min_y, min_z],
+            [min_x, max_y, min_z],
+            [max_x, max_y, min_z],
+            [max_x, min_y, min_z],
+        ],
+        [
+            [min_x, min_y, max_z],
+            [max_x, min_y, max_z],
+            [max_x, max_y, max_z],
+            [min_x, max_y, max_z],
+        ],
+    ]
+    .map(|face| face.map(convert))
+}
+
+/// Maps a pixel UV rectangle to the corresponding outward-facing cuboid corners.
+fn carried_face_uvs(face: usize, [u0, v0, u1, v1]: [u16; 4]) -> [[f32; 2]; 4] {
+    let [u0, v0, u1, v1] = [u0, v0, u1, v1].map(|value| f32::from(value) / 16.0);
+    match face {
+        0 => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
+        1 => [[u1, v1], [u1, v0], [u0, v0], [u0, v1]],
+        2 => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
+        3 => [[u0, v0], [u0, v1], [u1, v1], [u1, v0]],
+        4 => [[u1, v1], [u1, v0], [u0, v0], [u0, v1]],
+        _ => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
+    }
 }
 
 /// Reads a material's first-mip tile, side and alpha mode from its texture page.
@@ -230,6 +353,128 @@ pub fn face_brightness(corners: [[f32; 3]; 4]) -> f32 {
 mod tests {
     use super::*;
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
+
+    #[test]
+    fn walls_use_two_carried_posts_with_a_lower_connecting_span() {
+        let world_post =
+            carried_cuboid_faces([64, 0, 64], [192, 256, 192]).map(|corners| ModelQuad {
+                positions: corners.map(|point| point.map(|value| (value * 256.0) as i16)),
+                uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+                material: 7,
+                flags: 0,
+            });
+        let quads = block_item_quads(
+            VisualKind::Model,
+            [7; 6],
+            Some(0),
+            &[ModelTemplate {
+                quad_start: 0,
+                quad_count: world_post.len() as u32,
+                flags: crate::MODEL_TEMPLATE_FLAG_WALL,
+            }],
+            &world_post,
+        )
+        .unwrap();
+        let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
+        for quad in &quads {
+            assert_eq!(quad.material, 7);
+            assert!(quad.uvs.iter().flatten().all(|uv| (0.0..=1.0).contains(uv)));
+            for point in quad.corners {
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+            }
+        }
+        assert_eq!(bounds, [[-0.25, 0.0, 0.25], [1.25, 1.0, 0.75]]);
+        let top_faces = quads
+            .iter()
+            .filter(|quad| quad.corners.iter().all(|point| point[1] == 1.0))
+            .collect::<Vec<_>>();
+        assert_eq!(top_faces.len(), 2);
+        assert!(
+            top_faces
+                .iter()
+                .any(|quad| quad.corners.iter().all(|p| p[0] <= 0.25))
+        );
+        assert!(
+            top_faces
+                .iter()
+                .any(|quad| quad.corners.iter().all(|p| p[0] >= 0.75))
+        );
+        assert!(quads.iter().any(|quad| {
+            quad.corners.iter().all(|p| p[1] == 13.0 / 16.0)
+                && quad.corners.iter().any(|p| p[0] < 0.5)
+                && quad.corners.iter().any(|p| p[0] > 0.5)
+        }));
+    }
+
+    #[test]
+    fn vanilla_gates_use_the_custom_carried_inventory_axis() {
+        let quad = ModelQuad {
+            positions: [[0, 0, 64], [256, 0, 64], [256, 256, 192], [0, 256, 192]],
+            uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+            material: 7,
+            flags: 0,
+        };
+        let quads = block_item_quads(
+            VisualKind::Model,
+            [7; 6],
+            Some(0),
+            &[
+                ModelTemplate {
+                    quad_start: 0,
+                    quad_count: 1,
+                    flags: crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+                        | crate::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+                },
+                ModelTemplate {
+                    quad_start: 0,
+                    quad_count: 1,
+                    flags: 0,
+                },
+            ],
+            &[quad],
+        )
+        .unwrap();
+        let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
+        for point in quads.iter().flat_map(|quad| quad.corners) {
+            for axis in 0..3 {
+                bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                bounds[1][axis] = bounds[1][axis].max(point[axis]);
+            }
+        }
+        assert_eq!(bounds, [[0.25, 0.0, 0.0], [0.75, 1.0, 1.0]]);
+    }
+
+    #[test]
+    fn carried_walls_preserve_directional_materials() {
+        let materials = BlockFace::ALL.map(|face| face as u32 + 1);
+        for quad in carried_wall_quads(materials) {
+            let [a, b, c, _] = quad.corners;
+            let u = std::array::from_fn::<_, 3, _>(|i| b[i] - a[i]);
+            let v = std::array::from_fn::<_, 3, _>(|i| c[i] - a[i]);
+            let normal = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            let face = if normal[0] < 0.0 {
+                BlockFace::West
+            } else if normal[0] > 0.0 {
+                BlockFace::East
+            } else if normal[1] < 0.0 {
+                BlockFace::Down
+            } else if normal[1] > 0.0 {
+                BlockFace::Up
+            } else if normal[2] < 0.0 {
+                BlockFace::North
+            } else {
+                BlockFace::South
+            };
+            assert_eq!(quad.material, materials[face as usize]);
+        }
+    }
 
     #[test]
     fn cube_gui_surfaces_face_the_inventory_camera() {

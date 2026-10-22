@@ -55,7 +55,7 @@ use bevy::{
     math::UVec2,
     prelude::{App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
     render::{
-        Render, RenderApp, RenderStartup, RenderSystems,
+        Render, RenderApp, RenderSystems,
         render_resource::{Buffer, PipelineCache, Sampler, TextureView},
         renderer::{PendingCommandBuffers, RenderDevice, RenderQueue},
     },
@@ -125,10 +125,13 @@ impl Plugin for ShaderpackAtlasPlugin {
         );
         app.sub_app_mut(RenderApp)
             .init_resource::<AtlasBuild>()
-            .add_systems(RenderStartup, blend::init_blend_pipelines)
             .add_systems(
                 Render,
-                (prepare_shaderpack_atlas, update_shaderpack_animations)
+                (
+                    blend::init_blend_pipelines,
+                    prepare_shaderpack_atlas,
+                    update_shaderpack_animations,
+                )
                     .chain()
                     .run_if(atlas_requested)
                     .in_set(RenderSystems::PrepareResources),

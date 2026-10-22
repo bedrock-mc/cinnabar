@@ -22,6 +22,7 @@ pub fn capture_hud_frame(
 ) -> (Option<IconRef>, Option<IconRef>) {
     presentation.capture_local_player_identity(stream, runtime.session_id());
     runtime.sync_anvil_name(player_runtime);
+    observe_storage_block(runtime, player_runtime, stream);
     // Inventory capture precedes lectern opening and screen selection. Selected-item
     // and sleep observations run after item capture, immediately before publication.
     let armor = observations::armor(
@@ -240,4 +241,28 @@ pub fn hovered_stack(
         };
         stack.map(|stack| (stack.clone(), name))
     })
+}
+
+/// Retains the block entity id under the open window, allocating only when it changes.
+fn observe_storage_block(
+    runtime: &mut UiRuntime,
+    player_runtime: &player_state::PlayerState,
+    stream: Option<&chunk_pipeline::WorldStream>,
+) {
+    let position = runtime.inventory_ledger(player_runtime).window_position();
+    let block = position
+        .zip(stream)
+        .and_then(|(position, stream)| stream.block_entity_compound(position));
+    let (Some(position), Some(id)) = (position, block.as_deref().and_then(|nbt| nbt.string("id")))
+    else {
+        runtime.storage_block = None;
+        return;
+    };
+    if runtime
+        .storage_block
+        .as_ref()
+        .is_none_or(|(retained, old)| *retained != position || **old != *id)
+    {
+        runtime.storage_block = Some((position, std::sync::Arc::from(id)));
+    }
 }

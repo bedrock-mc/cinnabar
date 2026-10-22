@@ -15,6 +15,7 @@ fn a_gliding_rocket_air_use_admits_hand_feedback_atomically() {
     });
     assert_eq!(swings.take_started(), None);
     assert!(runtime.take_inventory_change().is_none());
+    assert!(!runtime.take_rocket_boost());
     let mut packets = Vec::new();
     step_and_send(&mut runtime, &mut swings, &rocket, 7, 6, |sent| {
         packets = sent;
@@ -26,6 +27,9 @@ fn a_gliding_rocket_air_use_admits_hand_feedback_atomically() {
     assert_eq!(use_kind(&packets[1]), "use");
     assert!(!runtime.is_using());
     assert!(runtime.take_inventory_change().is_none());
+    // The boost is predicted locally, not left to a server movement effect.
+    assert!(runtime.take_rocket_boost());
+    assert!(!runtime.take_rocket_boost());
 }
 
 /// Air use outside a glide still reaches the server without predicting a launch.
@@ -47,4 +51,5 @@ fn a_grounded_rocket_air_use_does_not_predict_hand_feedback() {
     assert_eq!(packets.len(), 1);
     assert_eq!(use_kind(&packets[0]), "use");
     assert!(runtime.take_inventory_change().is_none());
+    assert!(!runtime.take_rocket_boost());
 }
