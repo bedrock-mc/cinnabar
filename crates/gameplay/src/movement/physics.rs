@@ -722,7 +722,8 @@ impl LocalPhysicsController {
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
-                    server_flags::note_spin_end(&mut self.server_flags, entry_flags, state);
+                    let spun = entry_flags.spinning() || input.riptide.is_some();
+                    server_flags::note_spin_end(&mut self.server_flags, spun, state);
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }

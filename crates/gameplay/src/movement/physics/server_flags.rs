@@ -156,16 +156,32 @@ fn write_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker) {
 
 /// The word's spin on replayed state; a new spin counts its lifetime from
 /// zero, as vanilla's post-spin counter restarts after a clear flag.
-fn set_spin(state: &mut PlayerState, spinning: bool) {
+fn set_spin(state: &mut PlayerState, spinning: bool, dormant: u8) {
     if state.spin_attack_ticks.is_some() != spinning {
-        state.spin_attack_ticks = spinning.then_some(0);
+        state.spin_attack_ticks = spinning.then_some(dormant);
     }
 }
 
-/// Imposes a frame's effective word on replayed pose and spin.
-pub(super) fn impose(word: FlagWord, modes: &mut ModeTracker, state: &mut PlayerState) {
+/// Imposes a frame's effective word on replayed pose and spin; a spin the word
+/// starts resumes from the `dormant` counter the previous tick left.
+pub(super) fn impose(
+    word: FlagWord,
+    modes: &mut ModeTracker,
+    state: &mut PlayerState,
+    dormant: u8,
+) {
     apply_pose(word, 0b111, modes, state);
-    set_spin(state, word.has(SPINNING));
+    set_spin(state, word.has(SPINNING), dormant);
+}
+
+/// The inactive spin counter a tick leaves in `state` when a spin was active
+/// during it (`spun`). Vanilla's post-spin step zeroes the counter on a side
+/// collision and then counts the stopping tick, so it is one until the next
+/// tick processes the clear flag; every other inactive counter is zero.
+pub(super) fn dormant_spin(spun: bool, state: &PlayerState) -> u8 {
+    u8::from(
+        spun && state.spin_attack_ticks.is_none() && (state.collisions.x || state.collisions.z),
+    )
 }
 
 /// Server flag state outside the retained frames.
@@ -214,20 +230,15 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
     }
 }
 
-/// Records the counter of a spin the tick that started from `entry` just
-/// ended by a side collision. Vanilla's post-spin step zeroes the counter and
-/// then counts the stopping tick, so it stays at one until the next tick
+/// Records the counter of a spin that `spun` during the tick, whether it
+/// started from the tick's entry word or the tick launched it, and that the
+/// tick ended by a side collision. Vanilla's post-spin step zeroes the counter
+/// and then counts the stopping tick, so it stays at one until the next tick
 /// processes the clear flag; a server set before then resumes from it.
-pub(super) fn note_spin_end(
-    authority: &mut ServerFlagAuthority,
-    entry: FlagWord,
-    state: &PlayerState,
-) {
-    if entry.spinning()
-        && state.spin_attack_ticks.is_none()
-        && (state.collisions.x || state.collisions.z)
-    {
-        authority.save_cleared_spin(state.tick, 1);
+pub(super) fn note_spin_end(authority: &mut ServerFlagAuthority, spun: bool, state: &PlayerState) {
+    let dormant = dormant_spin(spun, state);
+    if dormant > 0 {
+        authority.save_cleared_spin(state.tick, dormant);
     }
 }
 

@@ -718,3 +718,96 @@ fn a_set_after_a_collision_stop_resumes_the_counted_stop() {
     physics.apply_server_movement_flags(0, write(true));
     assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
 }
+
+/// A Riptide launch that hits a side wall on its own tick also keeps the
+/// counted stop, though the tick started without a spin.
+#[test]
+fn a_launch_into_a_wall_keeps_the_counted_stop() {
+    let origin = [0.5, 2.620_01, -2.5];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let wall = VersionedWall(1);
+    let advance = |physics: &mut LocalPhysicsController| {
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &wall,
+        )
+    };
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    assert!(physics.request_riptide(3, [0.0; 2]));
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    let state = physics.state().unwrap();
+    assert!(state.collisions.z);
+    assert_eq!(state.spin_attack_ticks, None);
+    let spin = flags(|flags| flags.spinning = Some(true));
+    physics.apply_server_movement_flags(0, spin);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
+}
+
+/// The floor fixture far below and a wall reaching high above it, so an
+/// airborne player can strike the wall without landing.
+struct TallWall;
+
+impl CollisionWorld for TallWall {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        VersionedFloor(1).registry_identity()
+    }
+
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let mut boxes = VersionedFloor(1).collision_boxes(query)?;
+        let wall = Aabb::new(Vec3::new(-64.0, 1.0, -2.0), Vec3::new(64.0, 200.0, -1.5));
+        if wall.intersects(query) {
+            boxes.value.push(wall);
+        }
+        Ok(boxes)
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        VersionedFloor(1).block_physics(block)
+    }
+}
+
+/// Replay restores a spin a correction sets right after a side-collision
+/// stop with the counted stop, as vanilla's snapshots keep the inactive
+/// counter, so the replayed spin expires on the tick the live one did.
+#[test]
+fn replay_resumes_a_spin_set_after_a_collision_stop_from_its_counted_stop() {
+    let origin = [0.5, 101.620_01, -1.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let step = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        let frame = physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &TallWall,
+        );
+        let sample = frame
+            .samples
+            .into_iter()
+            .next()
+            .expect("one completed tick");
+        ticker.enqueue_completed_physics(sample).unwrap();
+    };
+    step(&mut physics, &mut ticker);
+    let spin = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, spin(true));
+    physics.queue_server_motion([0.0, 0.0, -0.6], 0);
+    step(&mut physics, &mut ticker);
+    assert!(physics.state().unwrap().collisions.z);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    let stopped = physics.state().unwrap().tick;
+    physics.apply_server_movement_flags(stopped, spin(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
+    while physics.state().unwrap().spin_attack_ticks.is_some() {
+        step(&mut physics, &mut ticker);
+    }
+    physics.queue_server_motion([0.0; 3], stopped);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, stopped, &TallWall).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}

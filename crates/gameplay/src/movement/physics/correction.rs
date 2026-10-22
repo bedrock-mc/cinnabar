@@ -231,6 +231,13 @@ impl LocalPhysicsController {
                 .or_else(|| self.server_flags.cleared_spin_on(state.tick))
         });
         let live_swim_amount = self.state.as_ref().map(|state| state.swim_amount);
+        // Whether a spin was active during the previous replayed tick, which
+        // decides the inactive counter a spin set on the next frame resumes.
+        let mut spun = anchor_controller
+            .flag_correction
+            .apply(anchor_controller.entry_flags)
+            .spinning()
+            || anchor_controller.input.riptide.is_some();
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let (replay, replayed_ticks) = self
@@ -266,19 +273,22 @@ impl LocalPhysicsController {
                         );
                     }
                     let word = frame.flag_correction.apply(frame.entry_flags);
-                    server_flags::impose(word, &mut modes, state);
+                    let dormant = server_flags::dormant_spin(spun, state);
+                    server_flags::impose(word, &mut modes, state, dormant);
                     baselines.push((frame.tick, modes.mode(), state.spin_attack_ticks.is_some()));
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
-                    frame.prepare(
+                    let prepared = frame.prepare(
                         &mut modes,
                         &mut anchor_state,
                         environment,
                         state,
                         input,
                         world,
-                    )
+                    );
+                    spun = word.spinning() || input.riptide.is_some();
+                    prepared
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
