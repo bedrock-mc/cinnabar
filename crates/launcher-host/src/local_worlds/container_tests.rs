@@ -116,6 +116,33 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     );
 }
 
+/// The image serves the mounted install's operator list, which names only the host.
+#[cfg(unix)]
+#[test]
+fn the_container_runner_makes_only_the_host_an_operator() {
+    let dir = scratch();
+    let (runner, log) = container_runner(dir.path(), IMAGE, false);
+    let mut spec = spec(&dir.path().join("world"));
+    spec.host_xuid = Some("2535400000000001".to_owned());
+    let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    let install = runner.provisioner.root.join(VERSION);
+    let file = fs::read(install.join(super::super::bds::PERMISSIONS_FILE)).expect("permissions");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&file).expect("permissions JSON"),
+        serde_json::json!([{ "permission": "operator", "xuid": "2535400000000001" }])
+    );
+    let calls = docker_log(&log);
+    assert!(
+        calls.contains(&format!("-v {}:/data ", install.display())),
+        "{calls}"
+    );
+    assert!(
+        !calls.contains("-e OPS="),
+        "the image would replace the list: {calls}"
+    );
+}
+
 /// A crashed run's container still holds its ports, so it goes before ports are reserved.
 #[cfg(unix)]
 #[test]
