@@ -609,6 +609,8 @@ mod tests {
             created_unix: 0,
             last_played_unix: 0,
             size_bytes: 0,
+            options: Default::default(),
+            options_unavailable: false,
         }]));
         worlds.apply(Event::Prefs(
             Prefs::default(),

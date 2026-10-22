@@ -795,6 +795,17 @@ fn template_create_action_opens_the_create_form() {
     assert_eq!(menu.screen(), Screen::Create);
 }
 
+#[test]
+fn new_world_backend_defaults_to_bds_and_requires_docker() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.screen(), Screen::Create);
+    assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    menu.update(Input::SubmitCreate);
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+}
+
 /// An import holds the list behind its modal until the worker reports, then lists the world first.
 #[test]
 fn an_import_lists_the_new_world_first_and_selects_it() {
