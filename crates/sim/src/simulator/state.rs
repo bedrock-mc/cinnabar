@@ -162,8 +162,8 @@ pub struct MovementEnvironment {
     /// This tick's descent through a climbable block (`DescendThroughBlock`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub descending_through_block: bool,
-    /// The tick measured no block-climber contact (spectator, or a stationary
-    /// tick over unreadable terrain), so the climber flags above are unknown.
+    /// No block-climber contact is known: a spectator tick, or unreadable
+    /// terrain with no contact retained from earlier ticks.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub climber_unsampled: bool,
     pub horizontal_speed_factor: f64,

@@ -699,6 +699,43 @@ fn a_snapped_correction_keeps_the_climber_contact() {
     assert!(!climber.over_descending_block);
 }
 
+/// After a snap clears the retained frames, an unreadable freeze still reports
+/// the contact the simulator kept, with the current descent request.
+#[test]
+fn a_snapped_freeze_over_unreadable_terrain_reports_the_kept_contact() {
+    let mut physics = due_physics();
+    let tick = std::time::Duration::from_millis(50);
+    physics.advance(tick, sim::MovementInput::default(), &ScaffoldColumn);
+    let anchor_tick = physics.state().unwrap().tick;
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: [0.5, 10.0 + protocol::PLAYER_NETWORK_OFFSET, 0.5],
+                tick: anchor_tick,
+                on_ground: true,
+                velocity: None,
+            },
+            crate::movement::PhysicsCorrectionMode::Snap,
+            None,
+            &Unreadable,
+        )
+        .unwrap();
+    let frozen = sim::MovementInput {
+        immobile: true,
+        sneaking: true,
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        if physics.prediction_sync_pose().is_some() {
+            break;
+        }
+        physics.advance(tick, frozen, &Unreadable);
+    }
+    let climber = physics.prediction_sync_pose().unwrap().climber.unwrap();
+    assert!(climber.in_scaffolding && climber.over_descending_block);
+    assert!(climber.descending_through_block);
+}
+
 /// Measured ticks publish their own climber flags; unmeasured stationary ticks
 /// keep the previous ones and spectator ticks leave the server's.
 #[test]

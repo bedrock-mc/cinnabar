@@ -262,6 +262,44 @@ impl CollisionWorld for UnavailableOrigin {
     }
 }
 
+/// Unreadable terrain after contact was measured keeps publishing that
+/// contact, with this tick's descent request.
+#[test]
+fn unreadable_terrain_publishes_the_retained_contact() {
+    let column = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [0, 1, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                immobile: true,
+                ..MovementInput::default()
+            },
+            &column,
+        )
+        .unwrap();
+    for sneak in [true, false] {
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    immobile: true,
+                    sneaking: sneak,
+                    ..MovementInput::default()
+                },
+                &UnavailableOrigin,
+            )
+            .unwrap();
+        let environment = tick.environment;
+        assert!(!environment.climber_unsampled);
+        assert!(environment.in_scaffolding && environment.over_descending_block);
+        assert_eq!(environment.descending_through_block, sneak);
+    }
+}
+
 /// An immobile spectator, or an immobile tick without an available movement
 /// origin, measures no climber contact.
 #[test]

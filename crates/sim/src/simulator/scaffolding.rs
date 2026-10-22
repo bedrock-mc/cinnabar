@@ -57,9 +57,10 @@ pub fn descends_through_block(input: &MovementInput, over_descending_block: bool
 /// Runs the block climber after the tick's move, as vanilla does, and retains
 /// its contact for the next tick's descent action, climb jump and gravity.
 /// `start` is the contact the tick began with; an immobile tick's descent
-/// action reads it. The flags feed only reporting and the next tick, so a
-/// spectator, an unavailable movement origin or unreadable terrain marks
-/// them unsampled instead of failing the tick.
+/// action reads it. The flags feed only reporting and the next tick, so an
+/// unavailable movement origin or unreadable terrain publishes the retained
+/// contact, which vanilla's flags would still hold, instead of failing the
+/// tick. A spectator, or such a tick without retained contact, is unsampled.
 pub(super) fn finish_tick(
     world: &(impl CollisionWorld + ?Sized),
     state: &mut PlayerState,
@@ -87,8 +88,10 @@ pub(super) fn finish_tick(
             .is_some_and(|contact| contact.descends(input));
     }
     if let Some(contact) = measured {
-        contact.publish(&mut result.environment);
         state.climber = Some(contact);
+    }
+    if let Some(contact) = state.climber {
+        contact.publish(&mut result.environment);
     }
 }
 
