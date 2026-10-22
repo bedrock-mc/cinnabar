@@ -1,17 +1,11 @@
 //! Boats and rafts, which vanilla draws with a native model rather than a render controller.
 use super::painting::{encode_document, unused_source_path};
 use super::*;
+use assets::facts::entity::{BOAT_RAFT_VARIANT as RAFT_VARIANT, BOAT_WOOD_TEXTURES as WOODS};
 use serde_json::json;
 
 /// Prefix of the generated controllers; each boat entity gets its own.
 const CONTROLLER: &str = "controller.render.cinnabar";
-/// Texture keys in actor-variant order; `query.variant` indexes this list.
-const WOODS: [&str; 11] = [
-    "oak", "spruce", "birch", "jungle", "acacia", "darkoak", "mangrove", "bamboo", "cherry",
-    "paleoak", "poplar",
-];
-/// The bamboo variant draws the raft model.
-const RAFT_VARIANT: usize = 7;
 
 /// One textured box, in model-part pixels relative to its part.
 struct Cuboid {
