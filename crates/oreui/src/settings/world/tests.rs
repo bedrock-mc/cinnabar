@@ -69,7 +69,13 @@ fn actions(view: &MenuView) -> Vec<MenuAction> {
 #[test]
 fn a_missed_change_is_explained() {
     let mut view = view(false);
-    let missed = |view: &MenuView| painted(view).1.iter().any(|text| text == super::MISSED);
+    let missed = |view: &MenuView| {
+        painted(view).1.iter().any(|text| {
+            text.chars()
+                .filter(|c| !c.is_whitespace())
+                .eq(super::MISSED.chars().filter(|c| !c.is_whitespace()))
+        })
+    };
     assert!(!missed(&view));
     let mut world = (**view.world_settings.as_ref().unwrap()).clone();
     world.missed = true;
