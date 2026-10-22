@@ -759,3 +759,78 @@ fn unchecked_dropdown_options_leave_toggle_answers_unchanged() {
         ]
     );
 }
+
+#[test]
+fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
+    for (offset, delta) in [(150.0, -40.0), (0.0, 40.0)] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = pack_harness::action_form(&mut player, "Scrollable", &["Action"]);
+        let metrics = json_ui::ScrollMetrics {
+            offset,
+            content: 500.0,
+            viewport: 100.0,
+            gesture: true,
+            touch_mode: true,
+            ..Default::default()
+        };
+        let frame = EngineFrame {
+            hits: [].into(),
+            report: json_ui::LayoutReport {
+                scrolls: [("list".into(), metrics.clone())].into(),
+                ..Default::default()
+            },
+            cancel_target: None,
+            origin: [0.0, 0.0],
+            scale: 1.0,
+            panel: None,
+            edit_texts: Vec::new(),
+            top: Vec::new(),
+        };
+        let point = [50.0, 50.0 + delta];
+        let engine = runtime.server_forms_mut().engine_mut();
+        engine.view.scroll.insert("list".into(), offset);
+        engine.view.begin_scroll_touch("list", &metrics);
+        engine
+            .view
+            .scroll_touch_moved("list", &metrics, [0.0, delta]);
+        engine.view.step_scrolls(&frame.report, 1.0 / 60.0);
+        engine.scroll_touch = Some(("list".into(), point));
+        engine.view.pressed = Some("action".into());
+        drive(
+            &mut runtime,
+            &frame,
+            EngineInput {
+                touch: true,
+                cursor: Some(UiPoint::new(point[0] as f32, point[1] as f32).unwrap()),
+                keys: &[],
+                pointer: PointerButtons {
+                    released: true,
+                    ..Default::default()
+                },
+                pointer_edges: vec![false],
+                wheel: Vec::new(),
+                typed: Vec::new(),
+                now: 0.0,
+                animator: None,
+            },
+        );
+        assert!(runtime.server_forms().active().is_some());
+        let engine = runtime.server_forms_mut().engine_mut();
+        let motion = engine.view.scroll_state["list"].motion.as_ref().unwrap();
+        assert!(!motion.touching);
+        assert!(engine.scroll_clock.is_some());
+        assert!(engine.scroll_touch.is_none() && engine.view.pressed.is_none());
+        let released_offset = engine.view.scroll_offset("list");
+        if offset == 0.0 {
+            assert!(
+                released_offset < 0.0,
+                "overscroll must remain spring-driven"
+            );
+        }
+        engine.view.step_scrolls(&frame.report, 1.0 / 60.0);
+        assert_ne!(engine.view.scroll_offset("list"), released_offset);
+        engine.cancel_pointer_input();
+        assert!(engine.view.scroll_state["list"].motion.is_none());
+        assert!(engine.scroll_clock.is_none());
+    }
+}

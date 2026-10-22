@@ -159,7 +159,7 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
                 runtime
                     .server_forms_mut()
                     .engine_mut()
-                    .cancel_pointer_input();
+                    .clear_pointer_activation();
                 continue;
             }
             let pressed = runtime

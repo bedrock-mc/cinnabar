@@ -47,6 +47,16 @@ fn touch_release_over_a_different_toggle_cannot_change_it() {
         ]));
         for (down, point) in [(true, start), (false, [55.0, 5.0])] {
             let regions = screen.regions();
+            screen.dispatcher.pointer(
+                &regions,
+                &mut screen.view,
+                PointerInput {
+                    point: Some(point),
+                    held: down,
+                    mode: InputMode::Touch,
+                    now: 0.0,
+                },
+            );
             let output = screen.dispatcher.button(
                 &regions,
                 &mut screen.view,
