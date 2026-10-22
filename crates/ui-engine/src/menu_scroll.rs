@@ -240,6 +240,12 @@ impl<F: PartialEq> MenuScrolls<F> {
         }
     }
 
+    /// Resets a list's stored offset and wheel motion, even between paints with no areas.
+    pub fn scroll_to_start(&mut self, key: &str) {
+        self.set(key, 0.0);
+        self.offsets.insert(key.to_owned(), 0.0);
+    }
+
     /// Direct edge scrolling during a captured drag follows the pointer without wheel easing.
     pub fn scroll_by(&mut self, key: &str, pixels: f32) {
         if let Some(area) = self.areas.iter().find(|area| area.key == key) {
@@ -378,6 +384,26 @@ mod tests {
 
     pub(super) fn point(x: f32, y: f32) -> UiPoint {
         UiPoint::new(x, y).unwrap()
+    }
+
+    #[test]
+    fn returning_to_start_cancels_wheel_motion_with_or_without_painted_areas() {
+        for cleared in [false, true] {
+            let mut scrolls = MenuScrolls::<u8>::default();
+            scrolls.set_areas(vec![area()]);
+            assert!(scrolls.wheel(point(15.0, 25.0), -2.0, false));
+            assert_eq!(scrolls.offsets().get("list"), Some(&20.0));
+            scrolls.configure_motion(true, 0.0);
+            assert!(scrolls.wheel(point(15.0, 25.0), -1.0, false));
+            assert!(scrolls.active());
+            if cleared {
+                scrolls.clear_areas();
+            }
+            scrolls.scroll_to_start("list");
+            scrolls.configure_motion(true, 1.0);
+            assert_eq!(scrolls.offsets().get("list"), Some(&0.0));
+            assert!(!scrolls.active());
+        }
     }
 
     /// A focused field follows a shrinking viewport once, while later manual scrolling wins.

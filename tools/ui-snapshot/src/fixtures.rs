@@ -382,42 +382,6 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || chat::server_content(true),
     },
-    State {
-        name: "home-update-compact",
-        size: [480, 640],
-        gui_scale: 3,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-signed-in-update",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::signed_in,
-    },
-    State {
-        name: "home-update-ready",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-update-required",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, true),
-    },
-    State {
-        name: "home-update-download",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(false, false),
-    },
-    State {
-        name: "home-update-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: || updates::home(true, false),
-    },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics",
@@ -573,6 +537,12 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: out_of_game::disconnect_device_clock,
+    },
+    State {
+        name: "disconnect-local-world-offline",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_local_world_offline,
     },
     State {
         name: "connect-failed",
@@ -800,6 +770,24 @@ const STATES: &[State] = &[
         fixture: shader_pack::pack_picker,
     },
     State {
+        name: "settings-shaders-remove",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::removal_dialog,
+    },
+    State {
+        name: "settings-shaders-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library,
+    },
+    State {
+        name: "settings-shaders-narrow-library",
+        size: [800, 720],
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::long_library,
+    },
+    State {
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -984,7 +972,12 @@ pub fn settings(section: &str) -> MenuView {
     view
 }
 
-/// Enumerates every fixture, including the independently owned Social settings states.
+/// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(social_settings::STATES)
+    STATES
+        .iter()
+        .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(updates::STATES)
+        .chain(social_settings::STATES)
+        .chain(settings_screens::SEARCH_STATES)
 }

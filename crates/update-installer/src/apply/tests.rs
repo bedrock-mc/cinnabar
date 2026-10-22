@@ -2,6 +2,55 @@ use super::*;
 use crate::fixtures::*;
 use crate::recovery::{cleanup_confirmed_backup, confirm_start, confirmation, remove};
 
+#[cfg(target_os = "linux")]
+#[test]
+fn a_signed_appdir_update_rolls_back_failed_startup_then_relaunches_the_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let platform = update_manifest::platform_key("linux", std::env::consts::ARCH).unwrap();
+    let (directory, keys) = staged_payload(root.path(), &platform, &linux_payload());
+    let target = root.path().join("installed build");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("retained"), "old").unwrap();
+    let request = || Request {
+        stage_dir: &directory,
+        target: &target,
+        keys: &keys,
+        check: check(&platform),
+        now: now(),
+    };
+    assert!(
+        after_exit(
+            request(),
+            crate::lease::Lease::acquire(root.path()).unwrap(),
+            |installed| {
+                assert!(installed.is_dir());
+                let backup = target::backup(installed).unwrap();
+                assert_eq!(fs::read(backup.join("retained")).unwrap(), b"old");
+                assert_eq!(target::installed_build(installed)?.version, "2.0.0");
+                anyhow::bail!("failed startup")
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(target.join("retained")).unwrap(), b"old");
+    after_exit(
+        request(),
+        crate::lease::Lease::acquire(root.path()).unwrap(),
+        |installed| {
+            assert!(crate::lease::Lease::try_acquire(root.path()).is_err());
+            assert_eq!(target::installed_build(installed)?.number, 2);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(!target.join("retained").exists());
+    assert!(!target::backup(&target).unwrap().exists());
+    assert_eq!(
+        target::resolve("linux", &target::linux_executable(&target), None).unwrap(),
+        target
+    );
+}
+
 #[test]
 fn an_equal_or_newer_installed_build_is_relaunched_without_swapping() {
     let platform =
