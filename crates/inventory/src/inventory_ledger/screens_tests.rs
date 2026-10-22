@@ -1040,13 +1040,13 @@ fn shift_taken_loom_results_only_fill_empty_cells() {
     assert_eq!(ledger.displayed_stack(0).unwrap().count, 3);
 }
 
-/// An enchanted `stack(id, 1)` worn to `damage`, which the grindstone admits.
-fn worn(stack_network_id: i32, damage: i32) -> NetworkItemStack {
+/// A `stack(id, 1)` worn to `damage` and enchanted to `level`, which the grindstone admits.
+fn worn(stack_network_id: i32, damage: i32, level: i16) -> NetworkItemStack {
     let extra = protocol::edit_item_extra(
         &[],
         &protocol::ItemNbtEdit {
             damage: Some(damage),
-            enchantments: Some(vec![(9, 1)]),
+            enchantments: Some(vec![(9, level)]),
             ..Default::default()
         },
     )
@@ -1062,14 +1062,15 @@ fn worn(stack_network_id: i32, damage: i32) -> NetworkItemStack {
 /// result, when the acknowledgement corrects that input's damage.
 #[test]
 fn unsent_takes_are_dropped_when_their_inputs_are_corrected() {
-    let mut ledger = ledger_with(&[(0, worn(61, 900))]);
+    // Different enchantment levels keep the placed copy from stacking onto the first.
+    let mut ledger = ledger_with(&[(0, worn(61, 900, 2))]);
     open(&mut ledger, 7, protocol::WINDOW_TYPE_GRINDSTONE);
     let top = protocol::ui_slot_container_name(16).unwrap();
-    ledger.apply(&slot_update(named(124, top), 16, worn(50, 900)));
+    ledger.apply(&slot_update(named(124, top), 16, worn(50, 900, 1)));
     let placement = ledger.begin_quick_move(InventoryTarget::Player(0)).unwrap();
     assert!(ledger.mark_transport_enqueued(1));
     assert!(ledger.target_stack(InventoryTarget::Craft(17)).is_some());
-    let mut stale = worn(0, 161);
+    let mut stale = worn(0, 161, 0);
     stale.count = 1;
     ledger
         .begin_screen_output(&ScreenCraft::Grindstone {
@@ -1111,7 +1112,7 @@ fn unsent_takes_are_dropped_when_their_inputs_are_corrected() {
     assert!(ledger.cursor_stack().is_none());
     assert_eq!(
         ledger.target_stack(InventoryTarget::Craft(16)),
-        Some(&worn(50, 900))
+        Some(&worn(50, 900, 1))
     );
     let corrected = ledger.target_stack(InventoryTarget::Craft(17)).unwrap();
     assert_eq!(
