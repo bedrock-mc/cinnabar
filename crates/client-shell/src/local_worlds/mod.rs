@@ -14,7 +14,7 @@ mod settings_storage_flow_tests;
 use std::{collections::HashMap, io, path::PathBuf, sync::Arc};
 
 use launcher::install_layout::InstallLayout;
-use launcher_host::local_worlds::Manager;
+use launcher_host::local_worlds::{Host, Manager};
 
 use bevy::{
     prelude::{App, MessageReader, Plugin, Res, ResMut, Resource, Update},
@@ -44,6 +44,8 @@ pub struct LocalWorlds {
     paused: bool,
     /// Saved worlds' menu thumbnails by id, read as the list arrives.
     thumbnails: HashMap<String, WorldThumbnail>,
+    /// The signed-in account, kept for a manager attached later.
+    host: Host,
 }
 
 impl Default for LocalWorlds {
@@ -58,6 +60,7 @@ impl Default for LocalWorlds {
             pause_on_unfocus: true,
             paused: false,
             thumbnails: HashMap::new(),
+            host: Host::SignedOut,
         }
     }
 }
@@ -78,6 +81,7 @@ impl LocalWorlds {
             None => {
                 let manager = launcher_host::local_worlds::open(layout)
                     .map_err(|error| io::Error::other(error.to_string()))?;
+                manager.set_host(self.host.clone());
                 self.manager = Some(manager.clone());
                 manager
             }
@@ -104,6 +108,17 @@ impl LocalWorlds {
         if let Some(manager) = &self.manager {
             manager.close();
         }
+    }
+
+    /// Names the account that later world starts make their operator.
+    pub fn set_host(&mut self, host: Host) {
+        if self.host == host {
+            return;
+        }
+        if let Some(manager) = &self.manager {
+            manager.set_host(host.clone());
+        }
+        self.host = host;
     }
 
     pub fn menu(&self) -> &WorldsMenu {
