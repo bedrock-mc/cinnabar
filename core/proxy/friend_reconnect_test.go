@@ -97,13 +97,21 @@ func startFriendHostFixture(t *testing.T, failCloses int) *friendHostFixture {
 	settings.SetIncludeLoopbackCandidate(true)
 	settings.SetIPFilter(func(ip net.IP) bool { return ip.IsLoopback() && ip.To4() != nil })
 	f.api = webrtc.NewAPI(webrtc.WithSettingEngine(settings))
-	f.host = newFriendHost("host", log, func(context.Context) (*friendEndpoint, error) {
+	f.host = newFriendHost("host", log, func(ctx context.Context) (*friendEndpoint, error) {
 		f.mu.Lock()
 		if f.reopening != nil && len(f.opened) > 0 {
 			reopening, resume := f.reopening, f.resume
 			f.mu.Unlock()
-			reopening <- struct{}{}
-			<-resume
+			select {
+			case reopening <- struct{}{}:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			select {
+			case <-resume:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 			f.mu.Lock()
 		}
 		signaling := f.hub.peer(fmt.Sprintf("host-%d", len(f.opened)))
@@ -175,6 +183,19 @@ func (f *friendHostFixture) loseSignaling(t *testing.T) {
 func (f *friendHostFixture) replaced(lost *friendEndpoint) bool {
 	current := f.host.current()
 	return current != nil && current != lost
+}
+
+// awaitReopening waits until the host is paused opening a replacement endpoint.
+func (f *friendHostFixture) awaitReopening(t *testing.T) {
+	t.Helper()
+	testwait.Eventually(t, 10*time.Second, "replacement open", func() bool {
+		select {
+		case <-f.reopening:
+			return true
+		default:
+			return false
+		}
+	})
 }
 
 // dropSignaling ends the host's newest signaling connection.
@@ -287,7 +308,7 @@ func TestFriendHostCountsDeparturesDuringReconnect(t *testing.T) {
 	lost := f.host.current()
 
 	f.dropSignaling()
-	<-f.reopening
+	f.awaitReopening(t)
 	_ = leaving.Close()
 	testwait.Eventually(t, 10*time.Second, "departure counted", func() bool { return f.players() == 0 })
 	close(f.resume)
@@ -308,7 +329,7 @@ func TestFriendHostRefusesInvitesWhileReconnecting(t *testing.T) {
 	lost := f.directories[0]
 	f.mu.Unlock()
 	f.dropSignaling()
-	<-f.reopening
+	f.awaitReopening(t)
 	if err := f.host.Invite(t.Context(), "friend"); !errors.Is(err, ErrFriendHostReconnecting) {
 		t.Fatalf("invite while reconnecting = %v, want ErrFriendHostReconnecting", err)
 	}
