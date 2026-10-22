@@ -305,7 +305,7 @@ fn publish_frame_inputs(
         let main_hand = player_runtime.selected_stack();
         next.held_item_id = held_item_id(stream, &ids, main_hand);
         next.held_block_light = held_block_light(stream, main_hand);
-        let off_hand = ui.gameplay_hud().offhand_stack();
+        let off_hand = ui.local_offhand_stack(&player_runtime);
         next.held_item_id2 = held_item_id(stream, &ids, off_hand);
         next.held_block_light2 = held_block_light(stream, off_hand);
     }

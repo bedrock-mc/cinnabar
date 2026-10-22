@@ -65,15 +65,15 @@
       {
         "joystick": {
           "type": "button",
-          "anchor_from": "bottom_left",
-          "anchor_to": "bottom_left",
+          "anchor_from": "center",
+          "anchor_to": "center",
           "offset": [
-            24,
-            -46
+            "-35%",
+            "5%"
           ],
           "size": [
-            64,
-            64
+            "100%y",
+            "33.33333333333333%"
           ],
           "layer": 10,
           "button_mappings": [
@@ -100,8 +100,8 @@
                 "type": "draggable",
                 "draggable": "both",
                 "size": [
-                  32,
-                  32
+                  "50%",
+                  "50%"
                 ],
                 "anchor_from": "center",
                 "anchor_to": "center",
@@ -125,15 +125,15 @@
       },
       {
         "sprint@cinnabar_touch.button": {
-          "anchor_from": "bottom_left",
-          "anchor_to": "bottom_left",
+          "anchor_from": "center",
+          "anchor_to": "center",
           "offset": [
-            92,
-            -46
+            "32.5%",
+            "0%"
           ],
           "size": [
-            28,
-            28
+            "100%y",
+            "13.75%"
           ],
           "$control": "cinnabar.touch.sprint",
           "$texture": "textures/ui/sprint",
@@ -143,15 +143,15 @@
       },
       {
         "jump@cinnabar_touch.button": {
-          "anchor_from": "bottom_right",
-          "anchor_to": "bottom_right",
+          "anchor_from": "center",
+          "anchor_to": "center",
           "offset": [
-            -20,
-            -44
+            "42.5%",
+            "-10%"
           ],
           "size": [
-            32,
-            32
+            "100%y",
+            "13.75%"
           ],
           "$control": "cinnabar.touch.jump",
           "$texture": "textures/ui/jump",
@@ -161,15 +161,15 @@
       },
       {
         "sneak@cinnabar_touch.button": {
-          "anchor_from": "bottom_right",
-          "anchor_to": "bottom_right",
+          "anchor_from": "center",
+          "anchor_to": "center",
           "offset": [
-            -58,
-            -44
+            "42.5%",
+            "10%"
           ],
           "size": [
-            32,
-            32
+            "100%y",
+            "13.75%"
           ],
           "$control": "cinnabar.touch.sneak",
           "$texture": "textures/ui/sneak",
@@ -179,15 +179,15 @@
       },
       {
         "attack@cinnabar_touch.button": {
-          "anchor_from": "bottom_right",
-          "anchor_to": "bottom_right",
+          "anchor_from": "center",
+          "anchor_to": "center",
           "offset": [
-            -20,
-            -82
+            "32.5%",
+            "20%"
           ],
           "size": [
-            32,
-            32
+            "100%y",
+            "13.75%"
           ],
           "$control": "cinnabar.touch.attack",
           "$texture": "textures/ui/attack",
@@ -197,15 +197,15 @@
       },
       {
         "use@cinnabar_touch.button": {
-          "anchor_from": "bottom_right",
-          "anchor_to": "bottom_right",
+          "anchor_from": "center",
+          "anchor_to": "center",
           "offset": [
-            -58,
-            -82
+            "42.5%",
+            "30%"
           ],
           "size": [
-            32,
-            32
+            "100%y",
+            "13.75%"
           ],
           "$control": "cinnabar.touch.use",
           "$texture": "textures/ui/interact",

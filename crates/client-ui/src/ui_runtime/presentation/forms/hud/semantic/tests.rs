@@ -437,12 +437,11 @@ fn offhand_preview_and_mod_visibility_remain_live() {
         slots: vec![stack(2)].into(),
         storage_item: protocol::NetworkItemStack::empty(),
     });
-    let mut ledger = inventory::PlayerInventoryLedger::default();
-    ledger.apply(&event);
     fixture
         .runtime
-        .gameplay_hud
-        .apply_inventory(&event, &ledger);
+        .enqueue_inventory_event(&mut fixture.player, 1, 1, event)
+        .unwrap();
+    fixture.runtime.drain_pending_inventory(&mut fixture.player);
     fixture.frame.offhand_icon = Some(IconRef {
         page: 5,
         uv: [0, 0, 16, 16],
@@ -498,6 +497,47 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     fixture.hide_effects = true;
     assert!(fixture.check(&mut cache).status);
     assert!(!cache.model.effects_visible);
+}
+
+/// Vanilla ignores the local player's own offhand MobEquipment. An echo carrying an empty or
+/// older stack must not blank or replace the offhand frame while the inventory holds the item.
+#[test]
+fn stale_local_offhand_echo_keeps_the_inventory_offhand() {
+    let mut fixture = Fixture::default();
+    let mut cache = SemanticHud::default();
+    let event = protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+        slots: vec![stack(1)].into(),
+        storage_item: protocol::NetworkItemStack::empty(),
+    });
+    fixture
+        .runtime
+        .enqueue_inventory_event(&mut fixture.player, 1, 1, event)
+        .unwrap();
+    fixture.runtime.drain_pending_inventory(&mut fixture.player);
+    fixture.frame.offhand_icon = Some(IconRef {
+        page: 5,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    });
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.offhand.as_ref().map(|slot| slot.count), Some(1));
+    for (sequence, echoed) in [(2, protocol::NetworkItemStack::empty()), (3, stack(3))] {
+        fixture.runtime.retain_local_selected_equipment(
+            &mut fixture.player,
+            sequence,
+            protocol::EquipmentEvent {
+                actor_runtime_id: 1,
+                stack: echoed,
+                inventory_slot: 0,
+                selected_slot: 0,
+                window_id: protocol::OFFHAND_WINDOW_ID as u8,
+                handedness: Some(protocol::ActorHandedness::Left),
+            },
+        );
+        fixture.check(&mut cache);
+        assert_eq!(cache.model.offhand.as_ref().map(|slot| slot.count), Some(1));
+    }
 }
 
 #[test]

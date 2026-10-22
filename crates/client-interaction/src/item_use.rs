@@ -87,7 +87,7 @@ impl ItemUseRuntime {
             .unwrap_or_default();
         let animation_frame = if use_facts.animation == assets::item_use::ItemUseAnimation::Crossbow
         {
-            let firework = ui.gameplay_hud().offhand_stack().is_some_and(|stack| {
+            let firework = ui.local_offhand_stack(player_runtime).is_some_and(|stack| {
                 stream
                     .authority()
                     .item_use_profile(stack.network_id)

@@ -45,6 +45,12 @@ pub(in crate::compiler) fn compile_rule(
         return Ok(CompileRuleResult::NoMatch);
     }
     let mut visual = diagnostic_visual(record);
+    // Particle routing still needs the pack's face materials when terrain draws no geometry.
+    visual.faces = assets::BlockFace::ALL.map(|face| {
+        inputs
+            .material(record, face)
+            .unwrap_or(assets::DIAGNOSTIC_MATERIAL)
+    });
     visual.flags.remove(
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
     );

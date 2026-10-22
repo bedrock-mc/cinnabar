@@ -164,8 +164,9 @@ impl ServerSoundPack {
             })
             .collect();
         let routing = view.merged_json_object("sounds.json", None);
-        let tables = (!routing.is_empty())
-            .then(|| SoundEventTables::from_json(&Value::Object(routing), &Value::Null))
+        let blocks = view.merged_json_object("blocks.json", None);
+        let tables = (!routing.is_empty() || !blocks.is_empty())
+            .then(|| SoundEventTables::from_json(&Value::Object(routing), &Value::Object(blocks)))
             .filter(|tables| !tables.is_empty());
         let files: HashSet<Box<str>> = view
             .list("")

@@ -1371,6 +1371,11 @@ baselines = [
 ]
 
 [[identifier_literal_exceptions]]
+path = "crates/assets/src/sound_events.rs"
+literal = "stone"
+reason = "Fallback audio material key in sounds.json, independent of the block identifier vocabulary."
+
+[[identifier_literal_exceptions]]
 path = "crates/mod-host/src/hud/samples.rs"
 literal = "minecraft:arrow"
 reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."

@@ -272,8 +272,8 @@ fn settings_header_focus_preserves_a_manually_scrolled_narrow_sidebar() {
 #[test]
 fn settings_picker_close_focus_preserves_the_scrolled_choice_list() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    let mut view = settings_view("creator_forced_index");
-    let index = option_index("content_log_gui_level");
+    let mut view = settings_view("video_forced_index");
+    let index = option_index("motion_blur");
     let option = &SETTINGS_OPTIONS[index];
     view.settings.dropdown = Some(index as u16);
     view.focused_action = Some(MenuAction::SettingsOption(index as u16, option.max));

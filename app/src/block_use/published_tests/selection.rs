@@ -106,14 +106,10 @@ fn nametag_pick_reuses_eye_ray_reach_occlusion_and_mount_exclusion() {
             let stream = client.stream.as_mut().unwrap();
             let sequence = stream.committed_sequence() + 1;
             stream.submit(sequence, empty_column(0, -1)).unwrap();
-            test_time::eventually_within(
-                Duration::from_secs(5),
-                "creative pick ray terrain",
-                || {
-                    stream.poll([4.5, 2.5, 13.5], 0);
-                    stream.committed_sequence() >= sequence
-                },
-            );
+            test_time::eventually("creative pick ray terrain", || {
+                stream.poll([4.5, 2.5, 13.5], 0);
+                stream.committed_sequence() >= sequence
+            });
             stream.predict_block([4, 2, 6], 0, stream.air_block_id());
             if mount {
                 stream

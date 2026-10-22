@@ -7,6 +7,8 @@ pub use view_bobbing::ViewBobbing;
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
+/// Server-pack held models are enabled until the player chooses item icons.
+pub const DEFAULT_SHOW_CUSTOM_ITEM_MODELS: bool = true;
 /// Default and slider bounds for the field-of-view option, in degrees.
 pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
@@ -204,6 +206,8 @@ pub struct VideoSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
     pub java_animations: bool,
+    /// Draws server-pack custom held-item models instead of their ordinary item icons.
+    pub show_custom_item_models: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
     /// When to draw cached terrain past the render distance.
@@ -237,6 +241,7 @@ impl Default for VideoSettings {
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
             java_animations: false,
+            show_custom_item_models: DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
             // Far terrain has no setting while it is disabled.
             far_terrain: render_api::far_terrain::FarTerrainMode::Off,
