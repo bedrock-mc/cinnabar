@@ -52,7 +52,7 @@ fn start_removal(
         return;
     };
     let directory = dirs.packs.clone();
-    let library_path = dirs.pack_path(&name);
+    let library_path = directory.join(&name);
     let selected_path = super::selected_pack(&config, &settings.user_settings_update().1.video)
         .map(|pack| pack.path);
     let (send, receive) = mpsc::channel();
@@ -60,11 +60,8 @@ fn start_removal(
     let spawned = std::thread::Builder::new()
         .name("shader pack removal".into())
         .spawn(move || {
-            let selected_path = selected_path.filter(|selected| {
-                library_path
-                    .as_deref()
-                    .is_some_and(|library| same_pack(selected, library))
-            });
+            let selected_path =
+                selected_path.filter(|selected| selected_entry(selected, &library_path));
             let result =
                 shaderpack::remove_pack(&directory, &name).map_err(|error| error.to_string());
             let removed = result.is_ok()
@@ -81,11 +78,12 @@ fn start_removal(
     }
 }
 
-/// Compares paths before deletion, resolving relative paths and links on the worker.
-fn same_pack(selected: &Path, library: &Path) -> bool {
+/// Resolves whether the selected root is the library entry or one of its nested roots.
+/// Run this before deletion on the worker, since path resolution reads the filesystem.
+fn selected_entry(selected: &Path, library: &Path) -> bool {
     selected == library
         || match (selected.canonicalize(), library.canonicalize()) {
-            (Ok(selected), Ok(library)) => selected == library,
+            (Ok(selected), Ok(library)) => selected.starts_with(library),
             _ => false,
         }
 }
@@ -116,10 +114,12 @@ fn finish_removal(
         },
     };
     let mut graphics = GraphicsSettings::of(&settings.user_settings_update().1.video);
-    let active = outcome.selected_path.as_ref().is_some_and(|removed| {
-        super::selected_pack(&config, &settings.user_settings_update().1.video)
-            .is_some_and(|pack| pack.path == *removed)
-    });
+    let active = graphics.mode == ui::RenderMode::ShaderPack
+        && if let Some(selected) = config.cli_shader_pack.as_ref() {
+            outcome.selected_path.as_ref() == Some(selected)
+        } else {
+            graphics.shader_pack.as_deref() == Some(name.as_str())
+        };
     let remembered = graphics.shader_pack.as_deref() == Some(name.as_str());
     if outcome.removed && (active || remembered) {
         if remembered {

@@ -187,7 +187,9 @@ fn selected_path_identity_resolves_links() {
     let alias = root.path().join("alias");
     std::fs::create_dir(&library).unwrap();
     std::os::unix::fs::symlink(&library, &alias).unwrap();
-    assert!(same_pack(&alias, &library));
+    assert!(selected_entry(&alias, &library));
+    std::fs::create_dir(library.join("shaders")).unwrap();
+    assert!(selected_entry(&alias.join("shaders"), &library));
 }
 
 #[test]
@@ -220,6 +222,31 @@ fn completing_a_removal_preserves_a_newer_pack_selection() {
         .video;
     assert_eq!(video.render_mode, ui::RenderMode::ShaderPack);
     assert_eq!(video.shader_pack.as_deref(), Some("Lumen"));
+}
+
+#[test]
+fn completion_disables_a_library_selection_after_its_nested_path_disappears() {
+    let root = tempfile::tempdir().unwrap();
+    let mut app = fixture(root.path(), Some("Dusk"));
+    let (send, receive) = mpsc::channel();
+    app.world_mut().resource_mut::<RemovalWorker>().0 = Some(("Dusk".into(), Mutex::new(receive)));
+    assert!(
+        send.send(RemovalOutcome {
+            result: Ok(()),
+            selected_path: Some(root.path().join("shaderpacks/Dusk/Nested")),
+            removed: true,
+        })
+        .is_ok()
+    );
+    app.update();
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::Vanilla);
+    assert!(video.shader_pack.is_none());
 }
 
 #[test]
