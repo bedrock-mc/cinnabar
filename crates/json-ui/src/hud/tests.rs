@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::{BossBar, HudModel, HudSlot, HudTitle, hud_data_source};
+use super::{BossBar, ChatText, HudModel, HudSlot, HudTitle, Timed, hud_data_source};
 use crate::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 
 #[test]
@@ -273,4 +273,24 @@ fn legacy_game_mode_bindings_keep_pack_hotbars_and_status_rows_visible() {
             assert_eq!(child.properties.get("visible"), Some(&json!(shown)));
         }
     }
+}
+
+#[test]
+fn closed_chat_lines_use_the_chosen_font_size_and_line_spacing() {
+    let chat_text = ChatText {
+        font_scale: 1.5,
+        line_spacing: 0.201,
+    };
+    let data = hud_data_source(&HudModel {
+        chat_visible: true,
+        chat: vec![Timed {
+            text: "Hello".into(),
+            born: 0.0,
+        }],
+        chat_text,
+        ..Default::default()
+    });
+    let vars = &data.factories["chat_item_factory"][0].vars;
+    assert_eq!(vars["chat_font_scale_factor"], json!(chat_text.font_scale));
+    assert_eq!(vars["chat_line_spacing"], json!(chat_text.line_spacing));
 }

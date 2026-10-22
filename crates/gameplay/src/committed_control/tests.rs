@@ -287,10 +287,9 @@ impl CollisionWorld for Unloaded {
     }
 }
 
-/// A delayed boost whose replay fails keeps its whole span for live ticks.
+/// A delayed boost whose replay fails stays in the boost timeline for later replays.
 #[test]
-fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
-    use crate::movement::MovementEffectSource;
+fn a_failed_boost_replay_keeps_the_boost_for_later_replays() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
     for _ in 0..4 {
         let frame = physics.advance(
@@ -323,11 +322,16 @@ fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
         |_| {},
     );
     assert_eq!(disposition, ControlDisposition::Handled);
-    for _ in 0..2 {
-        assert!(effects.snapshot().glide_boost);
-        effects.commit_successful_tick();
-    }
-    assert!(!effects.snapshot().glide_boost);
+    let glide = crate::movement::MovementBoost::Glide;
+    let boosted: Vec<u64> = (100..110)
+        .filter(|tick| physics.boosted(glide, *tick))
+        .collect();
+    assert_eq!(boosted, [103, 104]);
+    assert_eq!(
+        physics.record_server_boost(glide, 102, crate::movement::BoostSpan::Ticks(2)),
+        Some(102),
+        "the unreplayed ticks still differ from the timeline"
+    );
 }
 
 /// Open air that counts collision queries, so tests can tell how often history replays.

@@ -46,6 +46,9 @@ pub enum Input {
     /// Game mode of the create or edit form, whichever is up.
     SetGameMode(GameMode),
     SetDifficulty(Difficulty),
+    SetOption(super::options::WorldOption, i32),
+    /// Raw text of a numeric option; a valid value also applies at once.
+    SetOptionText(super::options::WorldOption, String),
     SetFlat(bool),
     SetBackend(Backend),
     SubmitCreate,
@@ -122,12 +125,32 @@ pub enum Event {
 
 pub const EULA_URL: &str = "https://www.minecraft.net/eula";
 
-/// The create and edit screens' side-menu tabs this build implements.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Tab {
-    #[default]
-    General,
-    Advanced,
+macro_rules! world_tabs {
+    ($first:ident: $first_label:literal, $first_supported:literal; $($tab:ident: $label:literal, $supported:literal;)*) => {
+        /// Categories shown in the create and edit sidebar.
+        #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+        pub enum Tab { #[default] $first, $($tab,)* }
+        impl Tab {
+            pub const ALL: &'static [Self] = &[Self::$first, $(Self::$tab,)*];
+            /// The sidebar label for this tab.
+            pub const fn label(self) -> &'static str {
+                match self { Self::$first => $first_label, $(Self::$tab => $label,)* }
+            }
+            /// Whether this tab has configurable settings.
+            pub const fn supported(self) -> bool {
+                match self { Self::$first => $first_supported, $(Self::$tab => $supported,)* }
+            }
+        }
+    };
+}
+world_tabs! {
+    General: "General", true;
+    Advanced: "Advanced", true;
+    Multiplayer: "Multiplayer", true;
+    Cheats: "Cheats", true;
+    ResourcePacks: "Resource packs", false;
+    BehaviourPacks: "Behaviour packs", false;
+    Experiments: "Experiments", false;
 }
 
 /// What the create, edit and modal screens present, mirrored into the menu view each frame.
@@ -140,6 +163,7 @@ pub struct WorldsView {
     /// The saved world behind the edit form (its size and last-saved date).
     pub edited: Option<World>,
     pub form_error: Option<&'static str>,
+    pub option_text: std::collections::BTreeMap<super::options::WorldOption, String>,
     pub error: Option<String>,
     pub prompt: Option<Prompt>,
     pub progress: Option<Progress>,
@@ -147,6 +171,33 @@ pub struct WorldsView {
     /// Whether the selected BDS backend can run on this machine.
     pub bds_can_run: bool,
     pub bds_unavailable: Option<UnavailableReason>,
+}
+
+impl WorldsView {
+    /// A numeric option's text as typed, or its current value before any typing.
+    pub fn numeric_text(&self, id: super::options::WorldOption) -> String {
+        if let Some(text) = self.option_text.get(&id) {
+            return text.clone();
+        }
+        self.edit
+            .as_ref()
+            .filter(|_| self.screen == Screen::Edit)
+            .map_or(&self.create.options, |edit| &edit.options)
+            .get(id)
+            .to_string()
+    }
+
+    /// Whether the active form uses the BDS backend that supports world options, with level
+    /// data small enough to read and write them.
+    pub fn options_available(&self) -> bool {
+        if self.edit.is_some() {
+            self.edited
+                .as_ref()
+                .is_some_and(|world| world.backend == Backend::Bds && !world.options_unavailable)
+        } else {
+            self.create.backend == Backend::Bds
+        }
+    }
 }
 
 /// What a Docker modal or EULA gate resumes once cleared.
@@ -168,6 +219,8 @@ pub struct WorldsMenu {
     edit: Option<EditForm>,
     play_after_update: bool,
     form_error: Option<&'static str>,
+    /// Numeric fields' text as typed, kept until a new form opens.
+    option_text: std::collections::BTreeMap<super::options::WorldOption, String>,
     opening: Option<String>,
     opening_status: Option<WorldStatus>,
     ready: Option<String>,
@@ -178,6 +231,8 @@ pub struct WorldsMenu {
     setup: Option<Setup>,
     unavailable: Option<UnavailableReason>,
     pending: Option<Pending>,
+    /// A Docker probe is in flight behind the modal, which offers only Cancel meanwhile.
+    checking: bool,
     eula_for: Option<String>,
 }
 
@@ -210,6 +265,7 @@ impl WorldsMenu {
                 .and_then(|edit| self.worlds.iter().find(|w| w.id == edit.id))
                 .cloned(),
             form_error: self.form_error,
+            option_text: self.option_text.clone(),
             error: self.error.clone(),
             prompt: self.prompt(),
             progress: self.progress(),
@@ -288,8 +344,11 @@ impl WorldsMenu {
         })
     }
 
-    /// Why the BDS backend cannot run on this machine.
+    /// Why the modal is up: a probe in flight, or why the BDS backend cannot run here.
     fn prompt_kind(&self) -> Option<PromptKind> {
+        if self.checking {
+            return Some(PromptKind::Checking);
+        }
         match self.unavailable? {
             UnavailableReason::DockerMissing => Some(PromptKind::DockerMissing),
             UnavailableReason::DockerNotRunning => Some(PromptKind::DockerNotRunning),
@@ -316,11 +375,20 @@ impl WorldsMenu {
                 .then_some(PromptFor::Play),
         };
         if blocking.is_some() && self.prompt_kind().is_some() {
+            // The verdict may predate installing or starting Docker, so probe again before asking.
             self.pending = Some(pending);
             self.screen = Screen::BackendPrompt;
-            return Vec::new();
+            return self.redetect();
         }
         self.proceed(pending)
+    }
+
+    fn redetect(&mut self) -> Vec<Effect> {
+        self.checking = true;
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true,
+        }]
     }
 
     fn proceed(&mut self, pending: Pending) -> Vec<Effect> {
@@ -328,6 +396,7 @@ impl WorldsMenu {
         match pending {
             Pending::Create => {
                 self.create = CreateForm::default();
+                self.option_text.clear();
                 self.tab = Tab::General;
                 self.form_error = None;
                 self.screen = Screen::Create;
@@ -366,7 +435,10 @@ impl WorldsMenu {
     }
 
     fn prompt_button(&mut self, button: PromptButton) -> Vec<Effect> {
-        if self.screen != Screen::BackendPrompt {
+        if !self
+            .prompt()
+            .is_some_and(|prompt| prompt.buttons().contains(&button))
+        {
             return Vec::new();
         }
         match button {
@@ -378,13 +450,7 @@ impl WorldsMenu {
                 _ => self.proceed(Pending::Create),
             },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
-            PromptButton::Retry => {
-                self.busy = true;
-                vec![Effect::SetPrefs {
-                    dismiss_docker_prompt: false,
-                    redetect: true,
-                }]
-            }
+            PromptButton::Retry => self.redetect(),
             PromptButton::Cancel => self.back(),
         }
     }
@@ -432,14 +498,29 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::SelectTab(tab) => {
-                self.tab = tab;
+                if tab == Tab::General || self.view().options_available() {
+                    self.tab = tab;
+                }
                 Vec::new()
             }
             Input::SetGameMode(mode) => {
                 match (&mut self.edit, self.screen) {
-                    (Some(edit), Screen::Edit) => edit.game_mode = mode,
+                    (Some(edit), Screen::Edit) => {
+                        edit.game_mode = mode;
+                        if mode == GameMode::Creative {
+                            edit.options
+                                .set(super::options::WorldOption::ActivateCheats, 1);
+                        }
+                    }
                     // New worlds offer Survival and Creative; Adventure is for edits and templates.
-                    _ if mode != GameMode::Adventure => self.create.game_mode = mode,
+                    _ if mode != GameMode::Adventure => {
+                        self.create.game_mode = mode;
+                        if mode == GameMode::Creative {
+                            self.create
+                                .options
+                                .set(super::options::WorldOption::ActivateCheats, 1);
+                        }
+                    }
                     _ => {}
                 }
                 Vec::new()
@@ -450,6 +531,39 @@ impl WorldsMenu {
                     _ => self.create.difficulty = difficulty,
                 }
                 Vec::new()
+            }
+            Input::SetOption(id, value)
+                if matches!(self.screen, Screen::Create | Screen::Edit)
+                    && self.view().options_available() =>
+            {
+                self.form_error = None;
+                let options = match (&mut self.edit, self.screen) {
+                    (Some(edit), Screen::Edit) if edit.options.editable(id, true) => {
+                        &mut edit.options
+                    }
+                    (_, Screen::Create) if self.create.options.editable(id, false) => {
+                        &mut self.create.options
+                    }
+                    _ => return Vec::new(),
+                };
+                let before = options.clone();
+                options.set(id, value);
+                // Options a toggle gates or resets show their value instead of earlier typing.
+                self.option_text.retain(|&other, _| {
+                    other == id || (!id.gates(other) && options.get(other) == before.get(other))
+                });
+                Vec::new()
+            }
+            Input::SetOptionText(id, text)
+                if matches!(self.screen, Screen::Create | Screen::Edit)
+                    && self.view().options_available() =>
+            {
+                let value = text.parse::<i32>().ok().filter(|value| id.accepts(*value));
+                self.option_text.insert(id, text);
+                match value {
+                    Some(value) => self.update(Input::SetOption(id, value)),
+                    None => Vec::new(),
+                }
             }
             Input::SetFlat(flat) => {
                 self.create.generator = if flat {
@@ -464,11 +578,15 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::SubmitCreate if self.screen == Screen::Create => {
+                if self.refuse_option_text() {
+                    return Vec::new();
+                }
                 self.gate(Pending::SubmitCreate)
             }
             Input::BeginEdit(index) if self.screen == Screen::List => {
                 if let Some(world) = self.worlds.get(index) {
                     self.edit = Some(EditForm::of(world));
+                    self.option_text.clear();
                     self.selected = Some(index);
                     self.tab = Tab::General;
                     self.form_error = None;
@@ -530,6 +648,9 @@ impl WorldsMenu {
 
     /// Validates and saves edits, leaving the form open until the write succeeds.
     fn submit_edit(&mut self) -> Vec<Effect> {
+        if self.refuse_option_text() {
+            return Vec::new();
+        }
         let Some(edit) = &self.edit else {
             return Vec::new();
         };
@@ -558,6 +679,22 @@ impl WorldsMenu {
         }]
     }
 
+    /// Flags typed numbers that the active form's enabled options do not accept.
+    fn refuse_option_text(&mut self) -> bool {
+        let (options, editing) = match (&self.edit, self.screen) {
+            (Some(edit), Screen::Edit) => (&edit.options, true),
+            _ => (&self.create.options, false),
+        };
+        let invalid = self.option_text.iter().any(|(&id, text)| {
+            options.editable(id, editing)
+                && !text.parse::<i32>().is_ok_and(|value| id.accepts(value))
+        });
+        if invalid {
+            self.form_error = Some("Enter a valid number within the displayed range");
+        }
+        invalid
+    }
+
     /// Opens the world whose settings were just saved, when the edit screen's Play asked for it.
     fn play_edited(&mut self) -> Vec<Effect> {
         if std::mem::take(&mut self.play_after_update) {
@@ -568,6 +705,7 @@ impl WorldsMenu {
     }
 
     fn back(&mut self) -> Vec<Effect> {
+        self.checking = false;
         match self.screen {
             Screen::Edit => {
                 self.play_after_update = false;
@@ -673,6 +811,7 @@ impl WorldsMenu {
                 self.apply_status(status)
             }
             Event::Prefs(_, status) => {
+                self.checking = false;
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
                 // The Docker probe outlives startup; keep reading until it reports a verdict.
@@ -780,6 +919,10 @@ fn edit_changes(edit: &EditForm, saved: &World, name: String) -> WorldUpdate {
         name: (name != saved.name).then_some(name),
         game_mode: (edit.game_mode != saved.game_mode).then_some(edit.game_mode),
         difficulty: (edit.difficulty != saved.difficulty).then_some(edit.difficulty),
+        options: {
+            let changes = edit.options.changes_from(&edit.original_options);
+            (!changes.is_empty()).then_some(changes)
+        },
     }
 }
 

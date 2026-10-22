@@ -283,6 +283,7 @@ pub struct LocalPhysicsController {
     live_posture: ServerControlFlags,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
+    boosts: super::boosts::BoostTimeline,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -328,6 +329,7 @@ impl Default for LocalPhysicsController {
             server_control_flags: None,
             live_posture: Default::default(),
             riptide_pending: None,
+            boosts: Default::default(),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
@@ -389,6 +391,7 @@ impl LocalPhysicsController {
         self.server_control_flags = None;
         self.live_posture = Default::default();
         self.riptide_pending = None;
+        self.boosts.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
@@ -589,6 +592,7 @@ impl LocalPhysicsController {
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || self.jump_pulse_pending || jump_repeated;
             input.effects = effects.snapshot();
+            self.boosts.apply(state.tick + 1, &mut input.effects);
             input.sprinting = sprint_request;
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(

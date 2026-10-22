@@ -12,6 +12,7 @@ pub(super) fn drive(
     held: bool,
     press: bool,
     touches: &Touches,
+    owner: Option<u64>,
     touch_capture: &mut Option<u64>,
 ) -> bool {
     let touch_point = |position: bevy::prelude::Vec2| UiPoint::new(position.x, position.y).ok();
@@ -30,7 +31,10 @@ pub(super) fn drive(
             .and_then(|touch| touch_point(touch.position()));
         return presentation.menu_player_preview_pointer(Some(screen), point, false, false);
     }
-    for touch in touches.iter_just_pressed() {
+    for touch in touches
+        .iter_just_pressed()
+        .filter(|touch| owner == Some(touch.id()))
+    {
         if presentation.menu_player_preview_pointer(
             Some(screen),
             touch_point(touch.position()),

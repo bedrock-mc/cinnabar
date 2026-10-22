@@ -25,11 +25,19 @@ pub fn drive_menu_ime(
     messages: Option<Res<Messages<Ime>>>,
     mut cursor: Local<MessageCursor<Ime>>,
     mut owned: Local<bool>,
+    mut activation: Local<u64>,
+    mut requests: Option<ResMut<crate::platform_text::KeyboardRequests>>,
 ) {
     let Ok((entity, mut window)) = windows.single_mut() else {
         return;
     };
-    let enabled = menu.is_visible()
+    let mod_owned = presentation.as_ref().is_some_and(|presentation| {
+        presentation.mod_ui().mod_panel_open()
+            || presentation.mod_ui().mod_view_shown()
+            || presentation.mod_ui().experience_modal_shown()
+    });
+    let enabled = !mod_owned
+        && menu.is_visible()
         && !menu.is_connecting()
         && menu.field.is_some()
         && window.focused
@@ -38,7 +46,10 @@ pub fn drive_menu_ime(
         && !runtime.as_ref().is_some_and(|runtime| {
             runtime.server_forms().owns_input() || runtime.credits().owns_input()
         });
-    if enabled || *owned {
+    let mod_editor = presentation.as_ref().is_some_and(|presentation| {
+        presentation.mod_ui().mod_panel_field_focused() || presentation.mod_ui().mod_text_focused()
+    });
+    if !mod_editor && (enabled || *owned) {
         if window.ime_enabled != enabled {
             window.ime_enabled = enabled;
         }
@@ -55,6 +66,13 @@ pub fn drive_menu_ime(
             }
         }
     }
+    if enabled
+        && (!*owned || *activation != menu.field_activation)
+        && let Some(requests) = requests.as_deref_mut()
+    {
+        requests.show(entity);
+    }
+    *activation = menu.field_activation;
     *owned = enabled;
     if let Some(messages) = messages.as_deref() {
         for event in cursor.read(messages) {
@@ -73,6 +91,50 @@ mod tests {
     use super::*;
     use bevy::prelude::*;
     use launcher::menu::{MenuAction, MenuField, MenuScreen};
+
+    /// Back dismisses the OS keyboard without changing focus; a new field or retap requests it.
+    #[test]
+    fn server_name_back_address_and_retap_request_platform_keyboard() {
+        let mut app = App::new();
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::Navigate(MenuScreen::AddServer));
+        menu.focus_field(MenuField::Name);
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<crate::platform_text::KeyboardRequests>()
+            .insert_resource(menu)
+            .add_systems(Update, drive_menu_ime);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: true,
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        for field in [MenuField::Name, MenuField::Address, MenuField::Address] {
+            app.world_mut()
+                .resource_mut::<MenuRuntime>()
+                .focus_field(field);
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<crate::platform_text::KeyboardRequests>()
+                    .requested(window)
+            );
+            // The platform hides its keyboard while Window.ime_enabled remains true.
+            app.world_mut()
+                .insert_resource(crate::platform_text::KeyboardRequests::default());
+            app.update();
+            assert!(
+                !app.world()
+                    .resource::<crate::platform_text::KeyboardRequests>()
+                    .requested(window)
+            );
+            assert!(app.world().get::<Window>(window).unwrap().ime_enabled);
+        }
+    }
 
     /// Menu focus requests a keyboard, commits Unicode, and releases it with the scene or window.
     #[test]

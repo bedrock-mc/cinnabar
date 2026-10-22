@@ -28,6 +28,11 @@ pub(super) enum Icon {
     Check,
     Filter,
     Lock,
+    Trash,
+    Sun,
+    Off,
+    Reload,
+    Info,
 }
 
 impl Icon {
@@ -41,13 +46,75 @@ impl Icon {
             Self::Pencil => ACTION_ICONS[4],
             Self::Check => ACTION_ICONS[5],
             Self::Filter => ACTION_ICONS[6],
-            Self::Lock => return None,
+            Self::Lock | Self::Trash | Self::Sun | Self::Off | Self::Reload | Self::Info => {
+                return None;
+            }
         })
     }
 
     /// Our pixel art: one row per string, `#` for a lit texel.
     fn pixels(self) -> &'static [&'static str] {
         match self {
+            Self::Sun => &[
+                ".....##.....",
+                ".....##.....",
+                ".##......##.",
+                ".##.####.##.",
+                "...######...",
+                "##.######.##",
+                "##.######.##",
+                "...######...",
+                ".##.####.##.",
+                ".##......##.",
+                ".....##.....",
+                ".....##.....",
+            ],
+            Self::Off => &[
+                "....####....",
+                "..##....##..",
+                ".#.......##.",
+                ".#......#.#.",
+                "#......#...#",
+                "#.....#....#",
+                "#....#.....#",
+                "#...#......#",
+                ".#.#......#.",
+                ".##.......#.",
+                "..##....##..",
+                "....####....",
+            ],
+            Self::Reload => &[
+                "....####....",
+                "..##....##.#",
+                ".#........##",
+                ".#.......###",
+                "#...........",
+                "#...........",
+                "#...........",
+                "#..........#",
+                ".#........#.",
+                ".#........#.",
+                "..##....##..",
+                "....####....",
+            ],
+            Self::Info => &[
+                ".##.", ".##.", "....", "###.", ".##.", ".##.", ".##.", ".##.", "####",
+            ],
+            Self::Trash => &[
+                ".........",
+                "..#####..",
+                "..#...#..",
+                "#########",
+                ".........",
+                ".#.....#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.....#.",
+                ".#######.",
+            ],
             Self::Lock => &[
                 "....####....",
                 "...######...",
@@ -187,6 +254,25 @@ pub(super) fn draw(
     Ok(())
 }
 
+/// Draws `icon` centred in `bounds`, snapped to whole pixels.
+pub(super) fn draw_centred(
+    canvas: &mut Canvas<'_>,
+    icon: Icon,
+    bounds: Bounds,
+    color: Rgba,
+) -> Result<(), PaintError> {
+    let [width, height] = icon.texels().map(|texels| canvas.r(texels as f32 * EDGE));
+    draw(
+        canvas,
+        icon,
+        [
+            ((bounds[0] + bounds[2] - width) * 0.5).round(),
+            ((bounds[1] + bounds[3] - height) * 0.5).round(),
+        ],
+        color,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +287,11 @@ mod tests {
             Icon::Check,
             Icon::Filter,
             Icon::Lock,
+            Icon::Trash,
+            Icon::Sun,
+            Icon::Off,
+            Icon::Reload,
+            Icon::Info,
         ] {
             let width = icon.pixels()[0].len();
             assert!(

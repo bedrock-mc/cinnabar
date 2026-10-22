@@ -110,7 +110,7 @@ fn android_detection_requires_the_bundled_helper_and_does_not_change_desktop_hos
 #[cfg(unix)]
 #[test]
 fn a_translated_world_uses_cached_guest_code_and_saves_on_stop() {
-    use crate::local_worlds::test_support::{installed_provisioner, spec, write_script};
+    use crate::local_worlds::test_support::{FAKE_BDS, installed_provisioner, spec, write_script};
     use std::{os::unix::fs::PermissionsExt, sync::Arc};
 
     let dir = scratch();
@@ -118,10 +118,10 @@ fn a_translated_world_uses_cached_guest_code_and_saves_on_stop() {
         os: "android",
         arch: "arm64",
     };
-    let provisioner = installed_provisioner(
-        dir.path(), platform,
-        b"#!/bin/sh\necho 'Server started.'\nwhile IFS= read -r line; do\n  [ \"$line\" != stop ] || { printf saved > saved; exit 0; }\ndone\n",
-    );
+    let server_script = String::from_utf8(FAKE_BDS.to_vec())
+        .unwrap()
+        .replace("    exit 0", "    printf saved > saved; exit 0");
+    let provisioner = installed_provisioner(dir.path(), platform, server_script.as_bytes());
     provisioner.set_runtime(RuntimeInfo::translated());
     let server = provisioner.installed().unwrap().0;
     fs::set_permissions(&server, fs::Permissions::from_mode(0o600)).unwrap();

@@ -109,6 +109,7 @@ impl MenuRuntime {
             dialog: initial.dialog,
             field: initial.field,
             caret_revision: 0,
+            field_activation: 0,
             history: {
                 let mut history = json_ui::ScreenNav::default();
                 history.reset(initial.screen);
@@ -122,6 +123,7 @@ impl MenuRuntime {
             port: field_editor(MenuField::Port),
             skin_name: field_editor(MenuField::SkinName),
             friend_query: field_editor(MenuField::FriendQuery),
+            settings_query: field_editor(MenuField::SettingsQuery),
             macro_commands: macro_editors(&settings_options),
             message,
             gui_scale_preference: gui_scale
@@ -143,6 +145,8 @@ impl MenuRuntime {
             shader_pack_request: None,
             shader_pack_status: Default::default(),
             shader_pack_reload: false,
+            shader_pack_removing: None,
+            shader_pack_remove_request: None,
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),

@@ -3,9 +3,6 @@
 use super::MenuScrolls;
 use ui::UiPoint;
 
-/// Window-logical movement required before a content press becomes a scroll gesture.
-const DRAG_DISTANCE: f32 = 10.0;
-
 pub(super) struct TouchScroll {
     key: String,
     start: UiPoint,
@@ -51,7 +48,7 @@ impl<F: PartialEq> MenuScrolls<F> {
                 self.drag(Some(point), true);
                 touch.thumb_drag = self.drag.take();
             } else {
-                touch.consumed |= (point.y() - touch.start.y()).abs() > DRAG_DISTANCE;
+                touch.consumed |= (point.y() - touch.start.y()).abs() > ui::TOUCH_DRAG_DISTANCE;
                 if touch.consumed {
                     self.scroll_by(&touch.key, point.y() - touch.last.y());
                 }

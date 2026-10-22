@@ -91,8 +91,8 @@ fn paint(vertex: &ActorRigVertex, layer: u32, color: u32, glint_scale: [f32; 2])
 }
 
 /// The ordinary dropped-item slab after the native default pixel-frame transform, before
-/// its 1.5 scale. Unlike a static placement, it has a floor origin, mirrored rear art and
-/// pixel depth `max(side)/16`.
+/// its 1.5 scale. Unlike a static placement, it has a floor origin and pixel depth
+/// `max(side)/16`.
 #[must_use]
 pub fn native_dropped_sprite_mesh(
     width: u32,
