@@ -616,42 +616,38 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
 - Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
   feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
-  are deferred until requested. Retired loads cancel between translation programs and GPU
-  batches; rapid selections share one load worker. The Shaders library lists Off and every
-  pack in one list ending in a drop zone; the selected pack's card shows its load state and
-  holds settings, reload and confirmed removal of imported copies and their saved settings.
-  Incomplete: matched shader-feature-off versus
-  batches; rapid selections share one load worker. The Shaders library uses full-width pack
-  rows with controls on the selected pack and confirmed removal of imported copies and their
-  saved settings. Incomplete: matched shader-feature-off versus
-  feature-on/no-pack startup, frame-time, memory and visual acceptance across supported
-  backends, including shared artwork texture views. These changes do not enable the feature
-  by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
-  menus, profiles and option files, evaluates custom uniforms and translates programs to
-  validated naga modules, with calls ordered after forward declarations and generated
+  are deferred until requested; a failed pack samples only the dimension its retry is keyed
+  on, the reload key acts only with a selected pack and never lists the pack folder, and pack
+  passes skip frames without a loaded pack. Retired loads cancel between translation programs
+  and GPU batches; rapid selections share one load worker. Atlas builds cancel between
+  source, pixel and upload stages, and one cancelled build retires before its replacement
+  starts. Leaving the pack releases the nametag overlay layer, and shared actor, item,
+  particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
+  draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
+  one list ending in a drop zone; the selected pack's card shows its load state and holds
+  settings, reload and confirmed removal of imported copies and their saved settings.
+  Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
+  memory and visual acceptance across supported backends. These changes do not enable the
+  feature by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris
+  option menus, profiles and option files, evaluates custom uniforms and translates programs
+  to validated naga modules, with calls ordered after forward declarations and generated
   helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
-  Bedrock→Java mappings. Settings offers pack import, a reload key, load status and a Shader
-  Pack Settings screen. Incomplete: in-game acceptance across packs and platforms (Metal is
-  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
-  ordering; drawing the solid hand's glint before deferred passes; pack replacements
-  for uncovered celestial layers (the pack sky stands), actor colour masks, multitexture
-  materials, dissolve pairs, beacon beams and additive rays (these retain native
-  composition over the pack); native layers behind pack-rendered glass or water, whose
-  final depth can hide those layers; autofocus on cutout
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
-  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
-  ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
-  of celestial layers, effects without depth writes and private-depth first-person scenes,
-  which keep the native scene copy; actor colour masks, multitexture materials, dissolve
-  pairs, beacon beams and additive rays, which keep native composition; autofocus on cutout
-  pixels, liquids and entities; complete Iris type checking and target-dependent return
-  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
-  curves and sunrise colours remain provisional.
+  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage
+  pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip ordering; drawing the
+  solid hand's glint before deferred passes; geometry-host composition of celestial layers,
+  effects without depth writes and private-depth first-person scenes, which keep the native
+  scene copy; actor colour masks, multitexture materials, dissolve pairs, beacon beams and
+  additive rays, which keep native composition; native layers behind pack-rendered glass or
+  water, whose final depth can hide those layers; autofocus on cutout pixels, liquids and
+  entities; complete Iris type checking and target-dependent return overloads; constant
+  folding for half-float packing and bit casts. Java sky and fog time curves and sunrise
+  colours remain provisional.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.

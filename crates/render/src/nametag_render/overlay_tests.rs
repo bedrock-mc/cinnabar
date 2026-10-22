@@ -321,3 +321,35 @@ fn ordinary_views_do_not_warm_shader_pack_label_variants() {
         .unwrap();
     assert_eq!(ids.len(), if cfg!(feature = "shaderpacks") { 8 } else { 4 });
 }
+
+/// Leaving the pack releases the full-screen label layer; returning prepares a fresh one.
+#[test]
+#[cfg(feature = "shaderpacks")]
+fn leaving_the_pack_releases_the_label_overlay() {
+    use bevy::render::sync_world::RenderEntity;
+    let Some((mut app, camera, _)) = fixture(false, Msaa::Off) else {
+        return;
+    };
+    let has_overlay = |app: &App| {
+        let target = *app.world().entity(camera).get::<RenderEntity>().unwrap();
+        app.sub_app(RenderApp)
+            .world()
+            .entity(target.id())
+            .contains::<overlay::Overlay>()
+    };
+    frame(&mut app);
+    frame(&mut app);
+    assert!(has_overlay(&app), "pack views prepare the overlay");
+    app.world_mut()
+        .entity_mut(camera)
+        .remove::<render_scene::shaderpack::ShaderPackRendering>();
+    frame(&mut app);
+    frame(&mut app);
+    assert!(!has_overlay(&app), "Vanilla views hold no overlay");
+    app.world_mut()
+        .entity_mut(camera)
+        .insert(render_scene::shaderpack::ShaderPackRendering);
+    frame(&mut app);
+    frame(&mut app);
+    assert!(has_overlay(&app), "returning to the pack prepares it again");
+}

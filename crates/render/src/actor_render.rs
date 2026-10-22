@@ -354,9 +354,13 @@ fn prepare_actor_resources(
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
+    gpu.artwork.set_raw_views(raw_views);
+    gpu.skins.set_raw_views(raw_views);
     if gpu.skins.failed(&frame.skins) {
         gpu.instance_count = 0;
         gate.clear();

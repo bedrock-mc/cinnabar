@@ -185,6 +185,8 @@ pub(crate) struct BlockEntityGpu {
     #[cfg(test)]
     portal_uploads: u64,
     texture: Option<Texture>,
+    /// The raw-view setting `texture` was created with.
+    texture_raw_views: crate::actor::gpu::ArtworkRawViews,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
     atlas_size: [u32; 2],
@@ -216,6 +218,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         #[cfg(test)]
         portal_uploads: 0,
         texture: None,
+        texture_raw_views: default(),
         view: None,
         atlas_identity: [0; 32],
         atlas_size: [0; 2],
@@ -242,7 +245,9 @@ pub(crate) fn prepare_resources(
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
 ) {
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
     let [red, green, blue] = atmosphere.fog_color();
     let portal_parameters = [
@@ -267,7 +272,10 @@ pub(crate) fn prepare_resources(
         .atlas
         .as_ref()
         .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
-    if gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size || gpu.texture.is_none()
+    if gpu.atlas_identity != atlas.identity
+        || gpu.atlas_size != atlas.size
+        || gpu.texture.is_none()
+        || gpu.texture_raw_views != raw_views
     {
         let texture = uploads.device.create_texture(&TextureDescriptor {
             label: Some("block-entity atlas"),
@@ -281,7 +289,7 @@ pub(crate) fn prepare_resources(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: raw_views.view_formats(),
         });
         write_rows(
             &uploads.queue,
@@ -293,6 +301,7 @@ pub(crate) fn prepare_resources(
         );
         gpu.view = Some(texture.create_view(&TextureViewDescriptor::default()));
         gpu.texture = Some(texture);
+        gpu.texture_raw_views = raw_views;
         gpu.atlas_identity = atlas.identity;
         gpu.atlas_size = atlas.size;
         gpu.dynamic_revision = u64::MAX;

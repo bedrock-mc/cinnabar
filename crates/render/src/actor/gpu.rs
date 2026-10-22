@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Res, Resource};
 
 use render_model::ActorArtworkPageId;
 
@@ -13,15 +13,56 @@ mod geometry;
 pub(crate) use geometry::SegmentedVertexBuffer;
 pub use geometry::storage_binding_bytes;
 
-/// The non-sRGB view sRGB actor, item and block-entity artwork also allows when shader packs
-/// are compiled in: packs read texels as the raw gamma bytes Java's textures hold. Without
-/// them the artwork keeps no extra view format.
-pub(crate) const ARTWORK_VIEW_FORMATS: &[bevy::render::render_resource::TextureFormat] =
-    if cfg!(feature = "shaderpacks") {
-        &[bevy::render::render_resource::TextureFormat::Rgba8Unorm]
-    } else {
-        &[]
-    };
+/// Whether sRGB actor, item, particle and block-entity artwork also allows the `Rgba8Unorm`
+/// view shader packs read Java's raw gamma bytes through. Set only while a camera draws a
+/// loaded pack, since the extra format changes the allocation on some backends; artwork
+/// owners recreate their textures when it changes.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ArtworkRawViews(pub(crate) bool);
+
+impl ArtworkRawViews {
+    /// The current setting; absent before any shader-pack renderer installs it.
+    pub(crate) fn current(raw: Option<Res<Self>>) -> Self {
+        raw.as_deref().copied().unwrap_or_default()
+    }
+
+    /// The view formats artwork textures are created with.
+    pub(crate) fn view_formats(self) -> &'static [bevy::render::render_resource::TextureFormat] {
+        if cfg!(feature = "shaderpacks") && self.0 {
+            &[bevy::render::render_resource::TextureFormat::Rgba8Unorm]
+        } else {
+            &[]
+        }
+    }
+}
+
+/// Whether `texture` allows the raw view packs read: creating one raises no validation error.
+#[cfg(all(test, feature = "shaderpacks"))]
+pub(crate) fn permits_raw_view(device: &wgpu::Device, texture: &wgpu::Texture) -> bool {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _view = texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        ..Default::default()
+    });
+    bevy::tasks::block_on(scope.pop()).is_none()
+}
+
+/// Follows the main world's pack cameras during extraction, before any artwork owner prepares.
+#[cfg(feature = "shaderpacks")]
+pub(crate) fn extract_artwork_raw_views(
+    cameras: bevy::render::Extract<
+        bevy::prelude::Query<
+            (),
+            bevy::prelude::With<render_scene::shaderpack::ShaderPackRendering>,
+        >,
+    >,
+    mut raw: bevy::prelude::ResMut<ArtworkRawViews>,
+) {
+    let wanted = ArtworkRawViews(!cameras.is_empty());
+    if *raw != wanted {
+        *raw = wanted;
+    }
+}
 
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {

@@ -508,3 +508,44 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
         }
     }
 }
+
+/// Hand artwork allows the pack's raw view only while a pack draws; switching recreates it.
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
+    use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    scene.set_item_atlases([
+        Some(HandItemAtlas {
+            width: 2,
+            height: 2,
+            layers: 1,
+            rgba8: vec![255; 16].into(),
+        }),
+        None,
+    ]);
+    for pack in [false, true, false] {
+        gpu.raw_views = ArtworkRawViews(pack);
+        let frame = scene.frame.as_ref().unwrap();
+        upload_skin(&mut gpu, &device, &queue, frame);
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        upload_glint(&mut gpu, &device, &queue, frame);
+        let textures = [
+            &gpu.skin.as_ref().unwrap()._texture,
+            &gpu.atlases[0].as_ref().unwrap()._texture,
+            &gpu.glint.as_ref().unwrap()._texture,
+        ];
+        for texture in textures {
+            assert_eq!(permits_raw_view(device.wgpu_device(), texture), pack);
+        }
+    }
+}
