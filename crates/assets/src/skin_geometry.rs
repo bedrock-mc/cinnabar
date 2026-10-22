@@ -410,12 +410,7 @@ fn cube_from(
         .iter()
         .filter(|value| value.get() + 2.0 * inflate.get() == 0.0)
         .count();
-    if size.iter().any(|value| value.get() < 0.0)
-        || zero_axes > 1
-        || size
-            .iter()
-            .any(|value| value.get() + 2.0 * inflate.get() < 0.0)
-    {
+    if size.iter().any(|value| value.get() < 0.0) || zero_axes > 1 {
         return None;
     }
     let zero = [EntityGeometryScalar::ZERO; 3];

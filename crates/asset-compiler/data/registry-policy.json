@@ -3851,6 +3851,14 @@
       "suffix": "hanging_sign"
     },
     {
+      "id": "render-leaf-litter",
+      "fact": "render:LeafLitter",
+      "status": "verified",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",

@@ -106,6 +106,7 @@ pub(super) fn draw_layer(
     }
     let ready = ready(draw, publication);
     let mut encoded = false;
+    let mut nonempty = false;
     let mut complete = ready.is_some();
     let mut start = 0;
     while start < batches.len() {
@@ -145,7 +146,9 @@ pub(super) fn draw_layer(
                     pipelines: [downsample, apply],
                     clear: !encoded && damage.is_none(),
                 };
-                encoded |= blur.composite(context, run, composite);
+                let (applied, content) = blur.composite(context, run, composite);
+                encoded |= applied;
+                nonempty |= content && drawn.nonempty;
             }
             continue;
         }
@@ -160,9 +163,14 @@ pub(super) fn draw_layer(
             damage,
         );
         encoded |= drawn.encoded;
+        nonempty |= drawn.nonempty;
         complete &= drawn.complete;
     }
-    LayerDrawn { encoded, complete }
+    LayerDrawn {
+        encoded,
+        nonempty,
+        complete,
+    }
 }
 
 /// The view's filter targets, the publication their bounds come from, and their compiled
@@ -211,17 +219,17 @@ impl Blur<'_> {
         context: &mut RenderContext,
         run: &[(usize, &UiRenderBatch, UiTextureLocation)],
         composite: &(usize, &UiRenderBatch, UiTextureLocation),
-    ) -> bool {
+    ) -> (bool, bool) {
         let stage = render_scene::RuntimeStage::GpuUiBackdrop;
         let profile = self.draw.world.get_resource::<profile::UiProfile>();
         let extent = self.targets.pyramid.scene;
         let sigma = super::backdrop_levels::batch_maximum(self.input, composite.1);
         let Some(bounds) = group_bounds(self.input, run, sigma, extent) else {
-            return false;
+            return (false, false);
         };
         let pyramid = &self.targets.pyramid;
         let Some((_, source, shapes)) = pyramid.sources.first() else {
-            return false;
+            return (false, false);
         };
         let levels = super::backdrop_levels::count(sigma, pyramid.levels.len());
         for (level, destination) in pyramid.levels.iter().take(levels).enumerate() {
@@ -283,7 +291,7 @@ impl Blur<'_> {
         });
         pass.set_render_pipeline(self.pipelines[1]);
         pass.set_bind_group(1, shapes, &[]);
-        draw_batches(
+        let nonempty = draw_batches(
             &mut pass,
             self.draw.gpu,
             self.draw.vertices,
@@ -295,7 +303,7 @@ impl Blur<'_> {
             Some(bounds),
             profile.map(|profile| (profile, stage)),
         );
-        true
+        (true, nonempty)
     }
 }
 

@@ -17,6 +17,7 @@ reads = [
     "assets/geyser-mappings-source.json",
     "assets/oreui-icons-source.json",
     "assets/vanilla-source.json",
+    "assets/touch-controls.json",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
     "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_items_1_26_50.tsv",

@@ -15,8 +15,8 @@ use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
 use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-        BlockEntitySubmission, ConduitModel, CrackShapeCache, SceneClock, SignFace, SignModel,
-        StaticItemPlacement, item_frame_item_transform, matrix_rows,
+        BlockEntitySubmission, ConduitModel, CrackShapeCache, FramedMap, SceneClock, SignFace,
+        SignModel, StaticItemPlacement, item_frame_item_transform, matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };
@@ -891,7 +891,10 @@ fn resolve(
             if hidden {
                 return None;
             }
-            model.map = map;
+            model.map = map.map(|image| FramedMap {
+                image,
+                rotation_degrees,
+            });
             if let (Some(item), None) = (item, map) {
                 held.push(held_placement(
                     item,

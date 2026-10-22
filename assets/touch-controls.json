@@ -214,39 +214,99 @@
         }
       },
       {
-        "menu@cinnabar_touch.button": {
-          "anchor_from": "top_right",
-          "anchor_to": "top_right",
-          "offset": [
-            -8,
-            8
-          ],
+        "utilities": {
+          "type": "stack_panel",
+          "orientation": "horizontal",
           "size": [
-            24,
-            24
+            58,
+            18
           ],
-          "$control": "cinnabar.touch.menu",
-          "$texture": "textures/ui/pause_icon",
-          "$held_texture": "textures/ui/pause_icon",
-          "$held_binding": "#touch_menu_pressed"
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "offset": [
+            0,
+            3
+          ],
+          "controls": [
+            {
+              "emote@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.emote",
+                "$uv": [
+                  236,
+                  46
+                ]
+              }
+            },
+            {
+              "gap_before_chat": {
+                "type": "panel",
+                "size": [
+                  2,
+                  18
+                ]
+              }
+            },
+            {
+              "chat@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.chat",
+                "$uv": [
+                  200,
+                  82
+                ]
+              }
+            },
+            {
+              "gap_before_pause": {
+                "type": "panel",
+                "size": [
+                  2,
+                  18
+                ]
+              }
+            },
+            {
+              "menu@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.menu",
+                "$uv": [
+                  200,
+                  64
+                ]
+              }
+            }
+          ]
         }
-      },
+      }
+    ]
+  },
+  "utility_button": {
+    "type": "button",
+    "size": [
+      18,
+      18
+    ],
+    "layer": 10,
+    "button_mappings": [
       {
-        "inventory@cinnabar_touch.button": {
-          "anchor_from": "top_right",
-          "anchor_to": "top_right",
-          "offset": [
-            -36,
-            8
+        "from_button_id": "button.menu_select",
+        "to_button_id": "$control",
+        "mapping_type": "pressed",
+        "scope": "view"
+      }
+    ],
+    "controls": [
+      {
+        "art": {
+          "type": "image",
+          "texture": "textures/gui/gui",
+          "uv": "$uv",
+          "uv_size": [
+            18,
+            18
           ],
           "size": [
-            24,
-            24
-          ],
-          "$control": "cinnabar.touch.inventory",
-          "$texture": "textures/ui/inventory_mobile",
-          "$held_texture": "textures/ui/inventory_mobile",
-          "$held_binding": "#touch_inventory_pressed"
+            "100%",
+            "100%"
+          ]
         }
       }
     ]

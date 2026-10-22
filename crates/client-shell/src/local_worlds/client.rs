@@ -24,6 +24,7 @@ const WORLD_FILES: Filter = Filter {
     name: "Minecraft worlds",
     extensions: &[WORLD_ARCHIVE_EXTENSION],
     unavailable_hint: "Drop a world file onto the Worlds tab to import it.",
+    max_bytes: None,
 };
 
 /// Work kept on the local-world worker, including thumbnail persistence.
