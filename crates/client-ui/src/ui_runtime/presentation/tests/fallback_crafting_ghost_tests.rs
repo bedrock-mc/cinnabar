@@ -363,7 +363,8 @@ fn assert_ghost_cells(workbench: bool, ordinary_result: bool) {
         "the missing ingredient icon is painted"
     );
     assert_ne!(
-        pixel([grid[0] + 8.0, grid[1] + 8.0]),
+        // The personal inventory's book toggle covers the middle of this slot.
+        pixel([grid[0] + 5.0, grid[1] + 8.0]),
         real_background,
         "the real input remains painted"
     );
