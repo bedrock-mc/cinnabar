@@ -68,13 +68,41 @@ fn publication_content_outside_a_resized_attachment_cannot_dismiss_loading() {
         let mut batch = batch();
         batch.blend_mode = blend;
         batch.scissor = UiScissor::new(40, 40, 8, 8);
-        assert!(content_commands(&batch, [64; 2], None, None).is_some());
-        assert!(content_commands(&batch, [32; 2], None, None).is_none());
+        assert!(content_commands(&batch, [64; 2], None, None, None).is_some());
+        assert!(content_commands(&batch, [32; 2], None, None, None).is_none());
         batch.scissor = UiScissor::new(24, 24, 16, 16);
-        let (scissor, _) = content_commands(&batch, [32; 2], None, None).unwrap();
+        let (scissor, _) = content_commands(&batch, [32; 2], None, None, None).unwrap();
         assert_eq!(scissor, UiScissor::new(24, 24, 8, 8));
-        assert!(content_commands(&batch, [32; 2], Some(&(0..3)), None).is_none());
+        assert!(content_commands(&batch, [32; 2], Some(&(0..3)), None, None).is_none());
         batch.index_count = 0;
-        assert!(content_commands(&batch, [32; 2], None, None).is_none());
+        assert!(content_commands(&batch, [32; 2], None, None, None).is_none());
+    }
+}
+
+#[test]
+fn camera_viewport_and_batch_coverage_must_intersect_before_counting_content() {
+    let viewport = Viewport {
+        physical_size: bevy::math::UVec2::splat(32),
+        ..Default::default()
+    };
+    for blend in [render_model::UI_BLEND_ALPHA, render_model::UI_BLEND_INVERT] {
+        let mut batch = batch();
+        batch.blend_mode = blend;
+        batch.scissor = UiScissor::new(40, 40, 8, 8);
+        assert!(content_commands(&batch, [64; 2], None, None, None).is_some());
+        assert!(content_commands(&batch, [64; 2], None, None, Some(&viewport)).is_none());
+        batch.scissor = UiScissor::new(24, 24, 16, 16);
+        let (scissor, _) = content_commands(&batch, [64; 2], None, None, Some(&viewport)).unwrap();
+        assert_eq!(scissor, UiScissor::new(24, 24, 8, 8));
+        assert!(
+            content_commands(
+                &batch,
+                [64; 2],
+                None,
+                Some(UiScissor::new(32, 32, 8, 8)),
+                Some(&viewport)
+            )
+            .is_none()
+        );
     }
 }

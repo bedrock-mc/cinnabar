@@ -232,7 +232,8 @@ pub(super) fn draw_batches<'w>(
     pass.set_vertex_buffer(0, vertices.slice(..));
     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
     for (_, batch, location) in batches {
-        let Some((scissor, ranges)) = content_commands(batch, extent, skip, damage) else {
+        let Some((scissor, ranges)) = content_commands(batch, extent, skip, damage, viewport)
+        else {
             continue;
         };
         let binding = gpu
@@ -260,9 +261,24 @@ fn content_commands(
     extent: [u32; 2],
     skip: Option<&Range<u32>>,
     damage: Option<UiScissor>,
+    viewport: Option<&Viewport>,
 ) -> Option<(UiScissor, [Option<Range<u32>>; 2])> {
     let scissor = clipped_scissor(batch.scissor, damage)
         .and_then(|rect| crate::render_bounds::scissor(rect, extent))?;
+    let scissor = if let Some(viewport) = viewport {
+        let viewport = crate::render_bounds::viewport(viewport, extent)?;
+        clipped_scissor(
+            scissor,
+            Some(UiScissor::new(
+                viewport.physical_position.x,
+                viewport.physical_position.y,
+                viewport.physical_size.x,
+                viewport.physical_size.y,
+            )),
+        )?
+    } else {
+        scissor
+    };
     let ranges = retained_batch_ranges(batch, skip);
     ranges
         .iter()
