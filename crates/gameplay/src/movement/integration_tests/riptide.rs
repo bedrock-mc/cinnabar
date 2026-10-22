@@ -303,3 +303,45 @@ fn riptide_release_slowdown_ends_inside_a_two_tick_frame() {
     assert_eq!(frame.samples[0].move_vector, using.move_vector);
     assert_eq!(frame.samples[1].move_vector, idle.move_vector);
 }
+
+/// A snap that cancels an unsent release also ends the spin its predicted
+/// launch started, since the release and its start action never reach the
+/// server; a snap otherwise keeps the spin.
+#[test]
+fn a_snap_ends_the_spin_of_a_cancelled_unsent_launch() {
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let advance = |physics: &mut LocalPhysicsController| {
+        physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &VersionedFloor(1),
+            )
+            .samples
+            .remove(0)
+    };
+    let facing = advance(&mut physics);
+    ticker.enqueue_completed_physics(facing).unwrap();
+    ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+    let launch = advance(&mut physics);
+    assert!(launch.processed.spin_started);
+    ticker.enqueue_completed_physics(launch).unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        origin,
+        102,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(!ticker.has_held_release());
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}

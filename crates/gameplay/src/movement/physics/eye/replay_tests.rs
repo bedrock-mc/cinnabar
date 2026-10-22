@@ -254,7 +254,7 @@ fn corrected_pair(
         physics.state().unwrap().spin_attack_ticks.is_some(),
         written
     );
-    // Vanilla's replay neither ticks nor copies back the camera eye offset.
+    // Vanilla's replay never ticks or copies back the live camera eye offset.
     assert_camera(&physics, &before);
     if let Some(retained) = retained {
         // The accepted network anchor rounds body coordinates through f32; pose offsets stay exact.
@@ -385,9 +385,9 @@ fn assert_eye_history(
     }
 }
 
-/// Replay leaves the live camera eye blend, as vanilla's replay neither ticks
-/// nor copies back its eye offset component; live ticks then ease it toward
-/// the replayed pose.
+/// Replay leaves the live camera eye blend, as vanilla ticks the eye offset
+/// only on its temporary replay entity and copy-back leaves the live one;
+/// live ticks then ease it toward the replayed pose.
 #[test]
 fn riptide_cancelled_release_replay_leaves_the_live_camera_eye() {
     for pose in [Pose::Standing, Pose::Sneaking, Pose::Swimming] {

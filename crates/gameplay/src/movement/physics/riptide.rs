@@ -3,6 +3,26 @@
 use super::*;
 
 impl LocalPhysicsController {
+    /// Whether a retained tick after `tick` launched a Riptide spin.
+    pub(in crate::movement) fn launched_riptide_after(&self, tick: u64) -> bool {
+        let Some(current) = self.state.as_ref().map(|state| state.tick) else {
+            return false;
+        };
+        (tick.saturating_add(1)..=current).any(|tick| {
+            self.history
+                .input_at(tick)
+                .is_some_and(|input| input.riptide.is_some())
+        })
+    }
+
+    /// Ends the spin of a predicted launch whose unsent release a snap
+    /// cancelled; neither the launch nor its start action reached the server.
+    pub(in crate::movement) fn end_cancelled_launch_spin(&mut self) {
+        if let Some(state) = self.state.as_mut() {
+            state.spin_attack_ticks = None;
+        }
+    }
+
     /// Retains release-time facing until a successful tick; unsupported requests are retired.
     pub fn request_riptide(&mut self, level: u8, rotation: [f32; 2]) -> bool {
         let tick = self.state.as_ref().map_or(0, |state| state.tick);
