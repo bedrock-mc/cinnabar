@@ -454,8 +454,8 @@ impl VerifiedNetworkItemStack {
         })
     }
 
-    /// The descriptor an item-use transaction writes, for its selected item and every action's
-    /// old and new item: full contents, never a stack network id.
+    /// The descriptor a client inventory transaction writes for each of its items: full contents,
+    /// never a stack network id.
     pub(crate) fn into_transaction_vendor_item(
         self,
     ) -> Result<ItemStackDescriptor, InventoryPacketError> {
