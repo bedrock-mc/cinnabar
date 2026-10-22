@@ -252,3 +252,34 @@ fn touch_editor_factory_layout_matches_fresh_geometry_after_scale_changing_resiz
         TouchLayout::default()
     );
 }
+
+/// A moved control and its undo/redo history survive a new proportional factory geometry.
+#[test]
+fn touch_editor_resize_reflows_defaults_without_losing_custom_history() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("jump").unwrap();
+    drag(&mut p, "jump", [-180., 70.], true);
+    paint(&mut p, &runtime, [1280, 720]);
+    let moved = p.touch_editor_bounds("jump").unwrap();
+    let position = [moved[0] / (1280. - moved[2]), moved[1] / (720. - moved[3])];
+    paint(&mut p, &runtime, [854, 480]);
+    let actual = p.touch_editor_bounds("jump").unwrap();
+    assert!((actual[2] - 480. * 0.1375).abs() < 0.1);
+    assert!((actual[0] / (854. - actual[2]) - position[0]).abs() < 0.001);
+    assert!((actual[1] / (480. - actual[3]) - position[1]).abs() < 0.001);
+    let modifiers = ui::mod_panel::FieldModifiers {
+        control: true,
+        ..Default::default()
+    };
+    p.touch_editor_key("KeyZ", modifiers);
+    paint(&mut p, &runtime, [854, 480]);
+    let reset = p.touch_editor_bounds("jump").unwrap();
+    assert!((reset[0] + reset[2] / 2. - 854. * 0.925).abs() < 0.1);
+    assert!((reset[1] + reset[3] / 2. - 480. * 0.4).abs() < 0.1);
+    p.touch_editor_key("KeyY", modifiers);
+    paint(&mut p, &runtime, [854, 480]);
+    assert_eq!(p.touch_editor_bounds("jump").unwrap(), actual);
+    assert!(original[0] > moved[0]);
+}

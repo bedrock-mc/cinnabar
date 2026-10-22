@@ -6,6 +6,7 @@ mod data;
 mod feedback;
 mod history;
 mod host;
+mod host_geometry;
 mod input;
 mod inspector;
 mod motion;

@@ -77,7 +77,10 @@ impl UiPresentationRuntime {
         content: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         // Measure factory geometry even on a desktop host without gameplay touch controls.
-        if self.screens.touch.editor.is_none() {
+        let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        if self.screens.touch.editor.is_none()
+            || self.screens.touch.base_viewport != Some((content, px, self.safe_area))
+        {
             let enabled = self.screens.touch.enabled;
             self.screens.touch.enabled = true;
             let rollback = (nodes.len(), *next);
@@ -90,7 +93,7 @@ impl UiPresentationRuntime {
                 return Ok(());
             };
             let anchors = factory::anchors();
-            let cards = base
+            let cards: Vec<_> = base
                 .hits
                 .iter()
                 .filter_map(|hit| {
@@ -137,14 +140,20 @@ impl UiPresentationRuntime {
                     })
                 })
                 .collect();
-            self.screens.touch.editor = Some(
-                mod_ui::HudEditor::new(&Hud {
-                    cards,
-                    resizable: false,
-                    ..Hud::default()
-                })
-                .expect("measured touch controls form a valid layout"),
-            );
+            if let Some(editor) = &mut self.screens.touch.editor {
+                editor
+                    .reflow_factory(&cards)
+                    .expect("measured touch controls retain their identities");
+            } else {
+                self.screens.touch.editor = Some(
+                    mod_ui::HudEditor::new(&Hud {
+                        cards,
+                        resizable: false,
+                        ..Hud::default()
+                    })
+                    .expect("measured touch controls form a valid layout"),
+                );
+            }
         }
         let translate = |key: &str| runtime.translation(key);
         let editor = self.screens.touch.editor.as_mut().expect("opened");
