@@ -45,8 +45,14 @@ impl ItemUseRuntime {
         };
         if !using {
             self.server_using = None;
-            // An observed release already ends the use with its transaction.
-            if !self.release_pending {
+            // A release observed already, or in this frame's input, ends the use
+            // with its transaction, as vanilla's input precedes its tick.
+            let releasing = self.release_pending
+                || self
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| active.button_owned && !self.button_held);
+            if !releasing {
                 self.active = None;
                 self.riptide_release = None;
             }

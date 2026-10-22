@@ -417,6 +417,7 @@ impl ItemUseRuntime {
                         .is_none_or(|selection| selection.item.block_runtime_id() == 0));
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
+        self.button_held = frame.held;
         if frame.held
             && let Some(active) = self.active.as_mut()
         {

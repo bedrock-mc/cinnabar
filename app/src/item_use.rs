@@ -128,6 +128,11 @@ pub(crate) fn adopt_server_item_use(
         return;
     };
     runtime.observe_item_use_allowed(item_use_allowed(&player_runtime));
+    // This frame's focus and button come first, as vanilla's input precedes
+    // its tick, so a release now still sends its transaction.
+    let button = use_button(&player_runtime, &context);
+    runtime.observe_gameplay_focus(button.gameplay_focused);
+    runtime.observe_use_button(button.held);
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     if !runtime.has_server_using_item() {
         return;
@@ -240,32 +245,20 @@ fn produce_use(
             .and_then(|timing| timing.swing_duration_ticks),
     );
 
-    let focused =
-        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let use_phase = context.input.phase(Action::Use);
-    let admitted = if context.input.snapshot().is_none() {
-        false
-    } else if !focused || context.focus.ui_focused {
-        use_phase
-            .pressed
-            .then(|| gameplay::movement::note_click_drop("use", "screen_open"));
-        false
-    } else if !item_use_allowed(&player_runtime) {
-        use_phase
-            .pressed
-            .then(|| gameplay::movement::note_click_drop("use", "spectator"));
-        false
-    } else {
-        true
-    };
+    let button = use_button(&player_runtime, &context);
+    let admitted = button.admitted;
+    if use_phase.pressed && context.input.snapshot().is_some() && !admitted {
+        let reason = if button.gameplay_focused {
+            "spectator"
+        } else {
+            "screen_open"
+        };
+        gameplay::movement::note_click_drop("use", reason);
+    }
     runtime.observe_item_use_allowed(item_use_allowed(&player_runtime));
-    runtime.observe_gameplay_focus(focused && !context.focus.ui_focused);
-    let held = admitted
-        && crate::ordered_interactions::held(
-            context.ordered.as_deref(),
-            &context.input,
-            Action::Use,
-        );
+    runtime.observe_gameplay_focus(button.gameplay_focused);
+    let held = button.held;
     runtime.observe_use_button(held);
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
@@ -342,6 +335,37 @@ fn produce_use(
         &frozen,
     );
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
+/// This frame's use-button facts.
+struct UseButton {
+    /// Gameplay has input focus: the window is focused and no menu or UI holds it.
+    gameplay_focused: bool,
+    /// Use input reaches item use: focused gameplay, a game mode allowing
+    /// item use, and an input snapshot.
+    admitted: bool,
+    /// The admitted use button is down.
+    held: bool,
+}
+
+/// Reads this frame's use-button facts from focus, game mode and input.
+fn use_button(player_runtime: &client_state::PlayerRuntime, context: &ItemUseContext) -> UseButton {
+    let focused =
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
+    let gameplay_focused = focused && !context.focus.ui_focused;
+    let admitted =
+        context.input.snapshot().is_some() && gameplay_focused && item_use_allowed(player_runtime);
+    let held = admitted
+        && crate::ordered_interactions::held(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Use,
+        );
+    UseButton {
+        gameplay_focused,
+        admitted,
+        held,
+    }
 }
 
 /// Whether the local player's game mode allows item use.

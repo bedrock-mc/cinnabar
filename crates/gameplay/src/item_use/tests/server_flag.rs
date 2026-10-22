@@ -365,3 +365,18 @@ fn respawn_forgets_the_held_use_button() {
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     assert!(!runtime.is_releasing(false));
 }
+
+/// A button release in the same frame as a pending server clear still sends
+/// its release transaction: vanilla handles the release at input time,
+/// before the movement tick reconciles the clear.
+#[test]
+fn a_release_in_the_frame_of_a_server_clear_sends_its_transaction() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
+    runtime.observe_use_button(false);
+    runtime.adopt_server_using_item(false);
+    assert!(!runtime.resolve_server_using_item(&frame(11, false)));
+    assert!(runtime.is_using());
+    assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
+}
