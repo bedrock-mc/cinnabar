@@ -330,6 +330,76 @@ fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
     assert!(!effects.snapshot().glide_boost);
 }
 
+/// A delayed server boost for one rocket keeps a newer rocket's predicted boost, in replay and live.
+#[test]
+fn a_delayed_rocket_boost_keeps_a_newer_rockets_prediction() {
+    use crate::movement::MovementEffectSource;
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let mut advance = |physics: &mut LocalPhysicsController,
+                       effects: &mut LocalMovementEffectTimeline| {
+        let frame = physics.advance_with_context_and_effects(
+            std::time::Duration::from_millis(50),
+            sim::MovementInput::default(),
+            crate::movement::PhysicsSampleContext::default(),
+            &OpenAir,
+            effects,
+        );
+        assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
+        for sample in frame.samples {
+            movement.enqueue_completed_physics(sample).unwrap();
+        }
+    };
+    // Rockets used on ticks 100 and 120; the first rocket's server boost
+    // (20 ticks, stamped 100) arrives on tick 125.
+    effects.predict_rocket_boost(100);
+    for _ in 0..20 {
+        advance(&mut physics, &mut effects);
+    }
+    effects.predict_rocket_boost(120);
+    for _ in 0..5 {
+        advance(&mut physics, &mut effects);
+    }
+    assert_eq!(physics.state().unwrap().tick, 125);
+    let disposition = CommittedGameplayState {
+        movement: &mut movement,
+        physics: &mut physics,
+        effects: &mut effects,
+        speed: &mut speed,
+        session_generation: 7,
+        dimension: 0,
+        dimension_transfer_active: false,
+    }
+    .apply(
+        CommittedControlEvent::LocalMovementBoost {
+            sequence: 9,
+            event: protocol::MovementEffectEvent {
+                actor_runtime_id: 42,
+                kind: protocol::MovementEffectKind::GlideBoost,
+                duration_ticks: 20,
+                tick: 100,
+            },
+        },
+        &OpenAir,
+        |_| {},
+    );
+    assert_eq!(disposition, ControlDisposition::Handled);
+    // History still boosts the second rocket's ticks: restating the server
+    // span alone would clear them.
+    let erase = physics.retime_movement_boost(
+        crate::movement::MovementBoost::Glide,
+        100,
+        crate::movement::BoostSpan::Ticks(20),
+        |_| false,
+    );
+    assert!(erase.rewind.is_some());
+    physics.revert_movement_boost(erase);
+    for _ in 0..15 {
+        assert!(effects.snapshot().glide_boost);
+        effects.commit_successful_tick();
+    }
+    assert!(!effects.snapshot().glide_boost);
+}
+
 /// Open air that counts collision queries, so tests can tell how often history replays.
 struct CountingAir(std::cell::Cell<usize>);
 

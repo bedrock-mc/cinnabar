@@ -151,12 +151,14 @@ impl LocalPhysicsController {
     ///
     /// Returns the tick to replay from when a retained input changed, and the
     /// span left for live ticks. Live stamps start with the next tick; stale
-    /// stamps clamp to the oldest retained frame, as motion does.
+    /// stamps clamp to the oldest retained frame, as motion does. Ticks that
+    /// `predicted` reports covered by a newer local use stay boosted.
     pub(crate) fn retime_movement_boost(
         &mut self,
         boost: crate::movement::MovementBoost,
         tick: u64,
         span: crate::movement::BoostSpan,
+        predicted: impl Fn(u64) -> bool,
     ) -> BoostRetime {
         let anchor = match self.timeline_slot(tick) {
             TimelineSlot::Live => None,
@@ -171,16 +173,17 @@ impl LocalPhysicsController {
                 previous: Vec::new(),
             };
         };
+        let boosted = |index: u64| span.covers(index) || predicted(anchor + index);
         let mut previous = Vec::new();
         for input in self.history.retained_inputs_after_mut(anchor) {
             let lane = boost.flag(&mut input.effects);
             previous.push(*lane);
-            *lane = span.covers(previous.len() as u64);
+            *lane = boosted(previous.len() as u64);
         }
         let changed = previous
             .iter()
             .enumerate()
-            .any(|(index, boosted)| *boosted != span.covers(index as u64 + 1));
+            .any(|(index, lane)| *lane != boosted(index as u64 + 1));
         BoostRetime {
             boost,
             rewind: changed.then_some(anchor),

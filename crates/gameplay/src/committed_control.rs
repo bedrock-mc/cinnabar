@@ -161,8 +161,16 @@ impl CommittedGameplayState<'_> {
             if let Some(boost) = movement::MovementBoost::from_kind(event.kind) {
                 let span = movement::BoostSpan::from_wire(event.duration_ticks);
                 let mut remaining = Some(span);
+                // The server restates the rocket uses up to its stamp; newer
+                // predicted uses keep boosting on top of it.
+                self.effects.supersede_rocket_predictions(boost, event.tick);
                 if self.movement.physics_is_authorized() {
-                    let retime = self.physics.retime_movement_boost(boost, event.tick, span);
+                    let effects = &*self.effects;
+                    let retime =
+                        self.physics
+                            .retime_movement_boost(boost, event.tick, span, |tick| {
+                                effects.predicted_rocket_covers(boost, tick)
+                            });
                     remaining = retime.remaining;
                     // A failed replay boosted no past tick: undo the history edit
                     // so only the live span carries the boost.

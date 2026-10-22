@@ -172,7 +172,7 @@ pub(crate) fn admit(
         &context.network,
     );
     if runtime.take_rocket_boost() {
-        context.effects.predict_rocket_boost();
+        context.effects.predict_rocket_boost(frozen.frame.tick);
     }
     if let Some(launch) = runtime.take_riptide_launch()
         && let Some(physics) = context.physics.as_deref_mut()
