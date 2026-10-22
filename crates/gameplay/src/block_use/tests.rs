@@ -547,9 +547,21 @@ fn held_block_uses_repeat_for_any_hand() {
     );
     assert_eq!(packets.len(), 2);
     assert_eq!(format!("{:?}", packets[0].kind()), "AnimatePacket");
-    let transaction = protocol::test_support::transactions::observe_transaction(&packets[1])
-        .and_then(|transaction| transaction.item_use().cloned())
-        .unwrap();
+    let decoded = protocol::decode_batch(protocol::encode(&packets[0]).unwrap()).unwrap();
+    let bedrock_protocol_1_26_51::packets::Packet::Animate(swing) = &*decoded[0].data else {
+        panic!("expected swing");
+    };
+    assert_eq!(swing.target_actor_runtime_id.0, 42);
+    assert_eq!(swing.data.0, 0.0);
+    assert_eq!(
+        swing.swing_source.as_ref().unwrap().to_string_lossy(),
+        "interact"
+    );
+    let envelope = protocol::test_support::transactions::observe_transaction(&packets[1]).unwrap();
+    assert_eq!(envelope.legacy_request_id, 0);
+    assert_eq!(envelope.legacy_set_slots, None);
+    assert!(envelope.actions.is_empty());
+    let transaction = envelope.item_use().unwrap();
     assert_eq!(
         transaction.action,
         protocol::test_support::transactions::ItemUseAction::ClickBlock
@@ -561,8 +573,12 @@ fn held_block_uses_repeat_for_any_hand() {
         ([2, 63, 0], 3, 2)
     );
     assert_eq!(transaction.item.network_id, 0);
+    assert_eq!(transaction.item.count, 0);
+    assert_eq!(transaction.item.stack_network_id, None);
+    assert_eq!(transaction.from_position, [2.5, 65.62, 0.5]);
     assert_eq!(transaction.target_block_id, 9);
     assert_eq!(transaction.click_position, [0.5, 1.0, 0.5]);
+    assert!(!transaction.cooldown_active);
 }
 
 /// Orientation caching applies to placement-direction states, not pillar axes.
