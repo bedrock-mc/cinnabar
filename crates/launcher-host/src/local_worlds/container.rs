@@ -499,6 +499,10 @@ impl Instance for ContainerInstance {
         self.lan_address.as_deref()
     }
 
+    fn exited_cleanly(&self) -> bool {
+        self.process.exited_cleanly()
+    }
+
     fn console(&self, command: &str) -> std::io::Result<()> {
         if command.contains(['\n', '\r']) {
             return Err(std::io::ErrorKind::InvalidInput.into());

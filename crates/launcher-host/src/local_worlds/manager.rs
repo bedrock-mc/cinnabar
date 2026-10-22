@@ -7,7 +7,7 @@ use std::{
 use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use launcher::local_worlds::{
-    in_world::{Timing, timing},
+    in_world::{Applied, Timing, timing},
     options::OptionChanges,
     world::{NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate},
 };
@@ -308,21 +308,28 @@ impl Manager {
     }
 
     /// Saves `update` to world `id` and sends the running server the commands that apply it at
-    /// once; settings the server reads only at startup apply on the next start.
-    pub fn apply(&self, id: &str, update: &WorldUpdate) -> Result<World, WorldError> {
+    /// once; settings the server reads only at startup, or that it failed to take, apply on the
+    /// next start.
+    pub fn apply(&self, id: &str, update: &WorldUpdate) -> Result<Applied, WorldError> {
         let world = self.inner.store.update(id, update)?;
         let (instance, generation) = {
             let mut life = lock(&self.inner.life);
             let running = life.state == WorldState::Running
                 && life.world.as_ref().is_some_and(|open| open.id == id);
             if !running {
-                return Ok(world);
+                return Ok(Applied {
+                    world,
+                    missed: false,
+                });
             }
             life.world = Some(world.clone());
             (life.instance.clone(), life.generation)
         };
         let Some(instance) = instance else {
-            return Ok(world);
+            return Ok(Applied {
+                world,
+                missed: false,
+            });
         };
         let commands = super::bds::live_commands(&world, update);
         let sent = commands
@@ -341,7 +348,10 @@ impl Manager {
                     .extend(&changes.filtered(|id| timing(id) == Timing::Live));
             }
         }
-        Ok(world)
+        Ok(Applied {
+            world,
+            missed: !sent,
+        })
     }
 
     /// Deletes a world that is not starting, running or stopping.
@@ -628,7 +638,7 @@ impl Manager {
         }
     }
 
-    /// Stops the server; true once it saved and exited in time.
+    /// Stops the server; true once it exited and completed cleanup in time.
     fn stop_instance(&self, instance: &dyn Instance) -> bool {
         let stopped = instance.stop(self.inner.stop_timeout);
         if let Err(error) = &stopped {
@@ -637,13 +647,15 @@ impl Manager {
         stopped.is_ok()
     }
 
-    /// Stops the server, then drops the pending edits it applied live and saved on the way out.
+    /// Stops the server, then drops the pending edits it applied live once its successful exit
+    /// shows it saved them; otherwise the next start applies them again.
     fn stop_and_acknowledge(
         &self,
         instance: &dyn Instance,
         saved: Option<(String, OptionChanges)>,
     ) {
         if self.stop_instance(instance)
+            && instance.exited_cleanly()
             && let Some((id, applied)) = saved.filter(|(_, applied)| !applied.is_empty())
             && let Err(error) = self.inner.store.acknowledge(&id, &applied)
         {

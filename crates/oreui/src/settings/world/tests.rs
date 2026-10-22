@@ -30,9 +30,9 @@ fn view(cheats: bool) -> MenuView {
     view
 }
 
-/// The actions the Game section's controls answer to.
-fn actions(view: &MenuView) -> Vec<MenuAction> {
-    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+/// The actions the Game section's controls answer to, and its text.
+fn painted(view: &MenuView) -> (Vec<MenuAction>, Vec<String>) {
+    let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
         let mut content = Content {
             canvas,
             view,
@@ -44,7 +44,37 @@ fn actions(view: &MenuView) -> Vec<MenuAction> {
         };
         sections::draw(&mut content, SettingSection::Game).unwrap();
     });
-    hits.into_iter().map(|(action, _)| action).collect()
+    let text = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect();
+    (hits.into_iter().map(|(action, _)| action).collect(), text)
+}
+
+/// The Game section's interactive controls.
+fn actions(view: &MenuView) -> Vec<MenuAction> {
+    painted(view).0
+}
+
+/// A change the running server missed is explained at the top of the section.
+#[test]
+fn a_missed_change_is_explained() {
+    let mut view = view(false);
+    let missed = |view: &MenuView| painted(view).1.iter().any(|text| text == super::MISSED);
+    assert!(!missed(&view));
+    let mut world = (**view.world_settings.as_ref().unwrap()).clone();
+    world.missed = true;
+    view.world_settings = Some(Arc::new(world));
+    assert!(missed(&view));
 }
 
 fn world(action: Action) -> MenuAction {

@@ -139,3 +139,33 @@ fn a_creative_default_activates_cheats() {
         Some(1)
     );
 }
+
+/// A change the running server missed stays reported until the world opens again.
+#[test]
+fn a_missed_live_change_is_reported_until_the_next_open() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    let mut menu = WorldsMenu::default();
+    let saved = world(Backend::Bds);
+    menu.apply(Event::Listed(vec![saved.clone()]));
+    menu.apply(Event::Applied(Applied {
+        world: saved.clone(),
+        missed: false,
+    }));
+    assert!(!menu.missed_live(&saved.id));
+    menu.apply(Event::Applied(Applied {
+        world: saved.clone(),
+        missed: true,
+    }));
+    assert!(menu.missed_live(&saved.id));
+    menu.apply(Event::Applied(Applied {
+        world: saved.clone(),
+        missed: false,
+    }));
+    assert!(
+        menu.missed_live(&saved.id),
+        "a later success does not undo the missed change"
+    );
+    menu.update(Input::Select(0));
+    menu.update(Input::Play);
+    assert!(!menu.missed_live(&saved.id));
+}

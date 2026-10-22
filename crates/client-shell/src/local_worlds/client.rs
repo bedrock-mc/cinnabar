@@ -46,9 +46,8 @@ fn read_thumbnails(
 ) -> Vec<(String, WorldThumbnail)> {
     let worlds = match event {
         Event::Listed(worlds) => worlds.as_slice(),
-        Event::Created(world) | Event::Updated(world) | Event::Applied(world) => {
-            std::slice::from_ref(world)
-        }
+        Event::Created(world) | Event::Updated(world) => std::slice::from_ref(world),
+        Event::Applied(applied) => std::slice::from_ref(&applied.world),
         Event::Imported { worlds, .. } => worlds.as_slice(),
         Event::Deleted(id) => {
             loaded.remove(id);

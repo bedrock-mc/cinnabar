@@ -118,7 +118,7 @@ pub enum Event {
     Deleted(String),
     Updated(World),
     /// The world as an [`Effect::Apply`] saved it.
-    Applied(World),
+    Applied(super::in_world::Applied),
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
     EulaRequired,
@@ -243,6 +243,8 @@ pub struct WorldsMenu {
     /// A Docker probe is in flight behind the modal, which offers only Cancel meanwhile.
     checking: bool,
     eula_for: Option<String>,
+    /// The open world whose running server missed an in-game change this session.
+    missed_live: Option<String>,
 }
 
 impl WorldsMenu {
@@ -306,6 +308,11 @@ impl WorldsMenu {
     /// Takes the id of a world that finished opening; the caller then joins the session endpoint.
     pub fn take_ready(&mut self) -> Option<String> {
         self.ready.take()
+    }
+
+    /// Whether world `id`'s running server missed an in-game change since it opened.
+    pub fn missed_live(&self, id: &str) -> bool {
+        self.missed_live.as_deref() == Some(id)
     }
 
     /// The open world's player limit, the host included, once its server reported one.
@@ -436,6 +443,7 @@ impl WorldsMenu {
     }
 
     fn begin_opening(&mut self, id: String) -> Vec<Effect> {
+        self.missed_live = None;
         self.opening = Some(id.clone());
         self.opening_status = None;
         self.ready = None;
@@ -821,8 +829,11 @@ impl WorldsMenu {
                 self.screen = Screen::List;
                 self.play_edited()
             }
-            Event::Applied(world) => {
-                super::in_world::applied(&mut self.worlds, world);
+            Event::Applied(applied) => {
+                if applied.missed {
+                    self.missed_live = Some(applied.world.id.clone());
+                }
+                super::in_world::applied(&mut self.worlds, applied.world);
                 Vec::new()
             }
             Event::Status(status) => {

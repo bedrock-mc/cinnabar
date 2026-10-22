@@ -263,8 +263,11 @@ impl MenuRuntime {
         }
         ui.in_world = id
             .and_then(|id| worlds.menu().worlds().iter().find(|world| world.id == id))
-            .and_then(View::of)
-            .map(std::sync::Arc::new);
+            .and_then(|world| {
+                let mut view = View::of(world)?;
+                view.missed = worlds.menu().missed_live(&world.id);
+                Some(std::sync::Arc::new(view))
+            });
         if ui.in_world.is_none() {
             ui.in_world_editing.clear();
         }

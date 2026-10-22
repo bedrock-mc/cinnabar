@@ -15,6 +15,9 @@ use ui_engine::engine::screen::PaintError;
 
 /// Shown under settings the server reads only when the world starts.
 const NEXT_START: &str = "Applies the next time the world starts.";
+/// Shown once the running server failed to take a change this session.
+const MISSED: &str =
+    "The running world didn't take a change. It applies the next time the world starts.";
 const FIELD_HEIGHT: f32 = 4.8;
 
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
@@ -24,7 +27,12 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     for &row in GAME_SECTION {
         let title = content.word(row.label()).trim().to_owned();
         match row {
-            Row::Heading(key) => content.heading(key, "")?,
+            Row::Heading(key) => {
+                content.heading(key, "")?;
+                if world.missed && row == GAME_SECTION[0] {
+                    value(content, MISSED, "")?;
+                }
+            }
             Row::Name => value(content, &title, &world.world.name)?,
             Row::GameMode => {
                 let current = world.world.game_mode;

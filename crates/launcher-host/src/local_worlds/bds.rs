@@ -207,6 +207,10 @@ impl Instance for BdsInstance {
         self.lan_address.as_deref()
     }
 
+    fn exited_cleanly(&self) -> bool {
+        self.process.exited_cleanly()
+    }
+
     fn console(&self, command: &str) -> io::Result<()> {
         self.process.send(command)
     }

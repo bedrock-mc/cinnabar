@@ -138,10 +138,20 @@ pub enum Action {
     OptionField(WorldOption),
 }
 
+/// A world as an in-game change saved it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Applied {
+    pub world: World,
+    /// The running server did not take the change, which then applies on the next start.
+    pub missed: bool,
+}
+
 /// The local world the player is in, as its in-game settings show it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
     pub world: World,
+    /// A change this session saved but the running server did not take.
+    pub missed: bool,
     /// Numeric options' text as typed while their box has focus.
     pub option_text: std::collections::BTreeMap<WorldOption, String>,
 }
@@ -151,6 +161,7 @@ impl View {
     pub fn of(world: &World) -> Option<Self> {
         (world.backend == Backend::Bds && !world.options_unavailable).then(|| Self {
             world: world.clone(),
+            missed: false,
             option_text: Default::default(),
         })
     }

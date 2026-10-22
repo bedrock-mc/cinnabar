@@ -141,6 +141,7 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         .expect("pausing is a harmless no-op");
     assert_eq!(instance.max_players(), Some(HOSTED_WORLD_MAX_PLAYERS));
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    assert!(instance.exited_cleanly());
     assert!(
         fs::symlink_metadata(link).is_err(),
         "the world link survived the stop"
@@ -149,6 +150,23 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         world_dir.join(LEVEL_DIR).is_dir(),
         "world data must survive the stop"
     );
+}
+
+/// A native server can finish stopping without a successful exit.
+#[cfg(unix)]
+#[test]
+fn a_failed_native_exit_is_not_clean() {
+    let dir = scratch();
+    let server = std::str::from_utf8(FAKE_BDS)
+        .unwrap()
+        .replace("exit 0", "exit 3");
+    let provisioner = installed_provisioner(dir.path(), LINUX, server.as_bytes());
+    let runner = BdsRunner::new(Arc::new(provisioner), String::new());
+    let instance = runner
+        .start(&spec(&dir.path().join("world")), &Cancel::never())
+        .expect("start");
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    assert!(!instance.exited_cleanly());
 }
 
 /// The host is the only operator, and a later start without one drops the earlier grant.

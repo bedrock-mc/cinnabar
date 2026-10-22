@@ -38,7 +38,22 @@ pub(super) const WORLD_STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || settings_world_game(true),
     },
+    State {
+        name: "settings-world-game-live-failed",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: settings_world_game_live_failed,
+    },
 ];
+
+/// A saved setting that could not be sent to the running world.
+fn settings_world_game_live_failed() -> Fixture {
+    let Fixture::Menu(mut view) = settings_world_game(false) else {
+        unreachable!("world settings are a menu fixture");
+    };
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).missed = true;
+    Fixture::Menu(view)
+}
 
 /// The Game section of an anonymous dedicated-server world.
 fn settings_world_game(cheats: bool) -> Fixture {

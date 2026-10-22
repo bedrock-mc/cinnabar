@@ -139,9 +139,11 @@ fn applied_settings_reach_the_running_server_and_persist() {
     let world = manager.inner.store.get(&world.id).expect("saved world");
     assert_eq!(world.difficulty, Difficulty::Hard);
     let cheats = update(&world, Action::Option(O::ActivateCheats, 1)).expect("cheats on");
-    let world = manager.apply(&world.id, &cheats).expect("apply");
+    let world = manager.apply(&world.id, &cheats).expect("apply").world;
     let keep = update(&world, Action::Option(O::KeepInventory, 1)).expect("a rule");
-    let saved = manager.apply(&world.id, &keep).expect("apply");
+    let applied = manager.apply(&world.id, &keep).expect("apply");
+    assert!(!applied.missed);
+    let saved = applied.world;
     assert!(saved.options.enabled(O::KeepInventory) && saved.options.enabled(O::ActivateCheats));
     assert_eq!(
         *lock(&instance.console),
@@ -161,6 +163,53 @@ fn applied_settings_reach_the_running_server_and_persist() {
     let (reopened, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
     assert!(pending.is_empty(), "{pending:?}");
     assert!(reopened.options.enabled(O::KeepInventory));
+}
+
+/// Applies a live PvP edit and checks its saved value before and after shutdown.
+fn pending_after_live_edit(
+    console_fails: bool,
+    unclean: bool,
+) -> launcher::local_worlds::options::OptionChanges {
+    use launcher::local_worlds::{
+        in_world::{Action, update},
+        options::WorldOption as O,
+    };
+    let runner = Arc::new(FakeRunner {
+        console_fails,
+        unclean,
+        ..FakeRunner::default()
+    });
+    let (fixture, world) = bds_world(&runner);
+    let manager = &fixture.manager;
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let world = manager.inner.store.get(&world.id).expect("saved world");
+    let pvp = update(&world, Action::Option(O::Pvp, 0)).expect("an update");
+    let applied = manager.apply(&world.id, &pvp).expect("saved");
+    assert_eq!(applied.missed, console_fails);
+    assert!(
+        !applied.world.options.enabled(O::Pvp),
+        "the change is saved either way"
+    );
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+    let (saved, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+    assert!(!saved.options.enabled(O::Pvp));
+    pending
+}
+
+/// A failed console write is reported separately from persistence, even after a clean stop.
+#[test]
+fn a_failed_live_change_is_reported_and_stays_pending() {
+    use launcher::local_worlds::options::WorldOption as O;
+    assert_eq!(pending_after_live_edit(true, false).get(O::Pvp), Some(0));
+}
+
+/// A successful stop call without a clean exit must not acknowledge live changes.
+#[test]
+fn live_changes_stay_pending_after_an_unclean_stop() {
+    use launcher::local_worlds::options::WorldOption as O;
+    assert_eq!(pending_after_live_edit(false, true).get(O::Pvp), Some(0));
 }
 
 /// Each start hosts the account signed in at that moment, and a malformed XUID grants nobody.

@@ -116,6 +116,25 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     );
 }
 
+/// Docker's run status distinguishes a saved shutdown from a crash or its stop-timeout kill.
+#[cfg(unix)]
+#[test]
+fn only_a_successful_container_exit_is_clean() {
+    for status in [0, 3, 137] {
+        let dir = scratch();
+        let (mut runner, _) = container_runner(dir.path(), IMAGE, false);
+        runner
+            .env
+            .push(("FAKE_DOCKER_EXIT".into(), status.to_string().into()));
+        let instance = runner
+            .start(&spec(&dir.path().join("world")), &Cancel::never())
+            .expect("start");
+        assert!(!instance.exited_cleanly(), "still running");
+        instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+        assert_eq!(instance.exited_cleanly(), status == 0, "exit {status}");
+    }
+}
+
 /// The image serves the mounted install's operator list, which names only the host.
 #[cfg(unix)]
 #[test]

@@ -66,6 +66,10 @@ pub(crate) trait Instance: Send + Sync {
     fn lan_address(&self) -> Option<&str> {
         None
     }
+    /// Whether the server has exited with success, so it saved its world on the way out.
+    fn exited_cleanly(&self) -> bool {
+        false
+    }
     /// Runs one server console command; unsupported unless the server takes commands.
     fn console(&self, _command: &str) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
@@ -426,6 +430,10 @@ impl Instance for Process {
 
     fn can_pause(&self) -> bool {
         self.can_pause
+    }
+
+    fn exited_cleanly(&self) -> bool {
+        self.has_exited() && lock(&self.status).is_some_and(|status| status.success())
     }
 }
 
