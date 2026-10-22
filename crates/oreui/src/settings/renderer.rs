@@ -61,6 +61,9 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 
 /// Draws Off and every pack as one pick-one list, ending in the drop zone that adds packs.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    use super::super::{theme, widgets::Variant};
+    use super::resources::{actions, caption, empty, note};
+
     if !render_model::SHADER_PACKS_ENABLED {
         return Ok(());
     }

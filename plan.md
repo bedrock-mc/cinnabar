@@ -616,6 +616,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   pack in one list ending in a drop zone; the selected pack's card shows its load state and
   holds settings, reload and confirmed removal of imported copies and their saved settings.
   Incomplete: matched shader-feature-off versus
+  batches; rapid selections share one load worker. The Shaders library uses full-width pack
+  rows with controls on the selected pack and confirmed removal of imported copies and their
+  saved settings. Incomplete: matched shader-feature-off versus
   feature-on/no-pack startup, frame-time, memory and visual acceptance across supported
   backends, including shared artwork texture views. These changes do not enable the feature
   by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
