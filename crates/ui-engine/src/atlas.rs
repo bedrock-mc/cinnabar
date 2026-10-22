@@ -287,6 +287,8 @@ pub struct ServerAtlas {
     pack: Option<PackTextures>,
     /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
+    /// Downloaded URLs held in `extra`, least recently used first.
+    remote_order: RefCell<VecDeque<String>>,
     local_reads: source_reads::SourceReads,
     /// Local vanilla sidecars inherit independently from the texture image.
     extra_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
@@ -676,14 +678,23 @@ impl ServerAtlas {
     /// remembered; a URL still loading is asked again next time.
     fn fallback(&self, key: &str) -> Option<Source> {
         if let Some(found) = self.extra.borrow().get(key) {
+            if found.is_some() && is_remote(key) {
+                let mut order = self.remote_order.borrow_mut();
+                order.retain(|used| used != key);
+                order.push_back(key.to_owned());
+            }
             return found.clone();
         }
         let (found, settled) = if is_remote(key) {
             match self.remote.as_ref()?.state(key) {
-                RemoteImage::Ready(bytes) => (
-                    source(bytes).filter(|source| source.bytes.len() <= self.remote_allowance()),
-                    true,
-                ),
+                RemoteImage::Ready(bytes) => {
+                    let found = source(bytes);
+                    if let Some(found) = &found {
+                        self.make_remote_room(found.bytes.len());
+                        self.remote_order.borrow_mut().push_back(key.to_owned());
+                    }
+                    (found, true)
+                }
                 RemoteImage::Failed => (None, true),
                 RemoteImage::Loading => (None, false),
             }
@@ -700,18 +711,25 @@ impl ServerAtlas {
         found
     }
 
-    /// Downloaded bytes the fallback cache may still keep. Every URL counts, with no small-image
-    /// exemption, because the server chooses them all.
-    fn remote_allowance(&self) -> usize {
-        let held: usize = self
-            .extra
-            .borrow()
+    /// Forgets the least recently used downloaded sources until `bytes` more fit one allowance.
+    /// Every URL counts, with no small-image exemption, because the server chooses them all; a
+    /// forgotten URL is fetched from the download cache again when next drawn.
+    fn make_remote_room(&self, bytes: usize) {
+        let mut extra = self.extra.borrow_mut();
+        let mut order = self.remote_order.borrow_mut();
+        order.retain(|key| matches!(extra.get(key), Some(Some(_))));
+        let mut held: usize = order
             .iter()
-            .filter(|(key, _)| is_remote(key))
-            .filter_map(|(_, source)| source.as_ref())
+            .filter_map(|key| extra.get(key)?.as_ref())
             .map(|source| source.bytes.len())
             .sum();
-        render_model::MAX_UI_NATIVE_SHEET_BYTES.saturating_sub(held)
+        while held + bytes > render_model::MAX_UI_NATIVE_SHEET_BYTES
+            && let Some(key) = order.pop_front()
+        {
+            if let Some(Some(source)) = extra.remove(&key) {
+                held -= source.bytes.len();
+            }
+        }
     }
 
     pub fn placement(&self, key: &str) -> Option<ServerTexture> {

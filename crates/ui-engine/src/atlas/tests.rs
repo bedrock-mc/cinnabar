@@ -462,26 +462,31 @@ impl RemoteSource for SameImage {
 }
 
 // Downloaded form images had no byte allowance, so a form of large URLs pinned each body (up to
-// 64 MiB) for 512 atlas entries.
+// 64 MiB) for 512 atlas entries. Past the allowance the oldest downloads are forgotten, never a
+// new image, and a forgotten one draws again from the download cache.
 #[test]
 fn downloaded_images_stay_within_one_byte_allowance() {
     let (_, encoded) = large_noise();
     let remote: Arc<dyn RemoteSource> = Arc::new(SameImage(Arc::from(encoded)));
     let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(remote));
-    let urls = (0..64).map(|index| format!("https://images.test/{index}.png"));
-    let found = urls
-        .filter(|url| atlas.fallback_size(url).is_some())
-        .count();
+    let urls: Vec<_> = (0..64)
+        .map(|index| format!("https://images.test/{index}.png"))
+        .collect();
+    assert!(urls.iter().all(|url| atlas.fallback_size(url).is_some()));
+    let retained = || -> usize {
+        atlas
+            .extra
+            .borrow()
+            .values()
+            .flatten()
+            .map(|source| source.bytes.len())
+            .sum()
+    };
+    assert!(retained() <= render_model::MAX_UI_NATIVE_SHEET_BYTES);
+    assert!(!atlas.extra.borrow().contains_key(&urls[0]));
     assert!(
-        found > 0,
-        "a downloaded image within the allowance is drawn"
+        atlas.fallback_size(&urls[0]).is_some(),
+        "a forgotten URL draws again"
     );
-    let retained: usize = atlas
-        .extra
-        .borrow()
-        .values()
-        .flatten()
-        .map(|source| source.bytes.len())
-        .sum();
-    assert!(retained <= render_model::MAX_UI_NATIVE_SHEET_BYTES);
+    assert!(retained() <= render_model::MAX_UI_NATIVE_SHEET_BYTES);
 }
