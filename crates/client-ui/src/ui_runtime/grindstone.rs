@@ -133,10 +133,11 @@ impl UiRuntime {
         let outcome = inventory::evaluate_grindstone(items[0].as_ref(), items[1].as_ref())?;
         let source = stacks[outcome.source]?;
         let mut stack = if outcome.plain_book {
-            let book = ledger
-                .negotiated_item_registry()?
-                .values()
-                .find(|entry| entry.identifier.as_ref() == "minecraft:book")?;
+            let book = ledger.negotiated_item_registry()?.values().find(|entry| {
+                let traits = facts.get(entry.network_id).traits;
+                traits.contains(assets::facts::ItemTraits::BOOK)
+                    && !traits.contains(assets::facts::ItemTraits::ENCHANTED_BOOK)
+            })?;
             NetworkItemStack {
                 network_id: book.network_id,
                 count: 1,
