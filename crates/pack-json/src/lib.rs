@@ -45,7 +45,7 @@ const MAP_ENTRY_BYTES: usize = size_of::<String>() + size_of::<serde_json::Value
 /// Worst-case extra cost of one object key: entries in nodes that are only half full.
 const PARSED_BYTES_PER_KEY: usize = 2 * MAP_ENTRY_BYTES;
 
-/// Worst-case cost of one object: a `BTreeMap` leaf sized for 11 entries plus its header.
+/// Worst-case cost of one non-empty object: a `BTreeMap` leaf sized for 11 entries plus its header.
 const PARSED_BYTES_PER_OBJECT: usize = 11 * MAP_ENTRY_BYTES + 64;
 
 /// Whether a document's value tree fits `budget` bytes, bounded by the separators and openers
@@ -93,10 +93,11 @@ fn fits_parse_budget(bytes: &[u8], budget: usize) -> bool {
             _ => {}
         }
     }
+    // An empty object allocates no map node, and every non-empty one has a key.
     [
         (values, PARSED_BYTES_PER_VALUE),
         (keys, PARSED_BYTES_PER_KEY),
-        (objects, PARSED_BYTES_PER_OBJECT),
+        (objects.min(keys), PARSED_BYTES_PER_OBJECT),
     ]
     .into_iter()
     .try_fold(bytes.len(), |total, (count, cost)| {
@@ -114,6 +115,17 @@ pub fn parse_jsonc<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::E
             "document is too large to parse",
         ));
     }
+    parse_unbudgeted(bytes)
+}
+
+/// Checks a pack document's syntax as [`parse_jsonc`] reads it. No value tree is built, so the
+/// tree budget does not apply.
+pub fn validate_jsonc(bytes: &[u8]) -> Result<(), serde_json::Error> {
+    parse_unbudgeted::<serde::de::IgnoredAny>(bytes).map(drop)
+}
+
+/// [`parse_jsonc`] without the tree budget.
+fn parse_unbudgeted<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
     // Byte-oriented deserializers can accept invalid UTF-8 without decode_text's conversion.
     if let Ok(text) = std::str::from_utf8(bytes)
         && let Ok(value) = serde_json::from_str(text)
