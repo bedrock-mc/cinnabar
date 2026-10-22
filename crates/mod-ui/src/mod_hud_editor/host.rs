@@ -26,9 +26,6 @@ impl HudEditor {
             close_requested: false,
             reset: false,
             history_buttons: true,
-            chrome_scale: 1.,
-            handle_page: 0,
-            toolbar_page: 0,
             grid: false,
             snap: false,
             bypass_snap: false,
@@ -80,22 +77,6 @@ impl HudEditor {
             .iter()
             .rev()
             .find(|hit| hit.pressed.as_deref() == Some(action))?;
-        Some([
-            frame.origin[0] + hit.rect.x as f32 * frame.scale,
-            frame.origin[1] + hit.rect.y as f32 * frame.scale,
-            hit.rect.w as f32 * frame.scale,
-            hit.rect.h as f32 * frame.scale,
-        ])
-    }
-    /// Visible named drag handle, independently of the smaller artwork's hit target.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn handle_bounds(&self, id: &str) -> Option<[f32; 4]> {
-        let index = self.draft.cards.iter().position(|card| card.id == id)?;
-        let frame = self.frame.as_ref()?;
-        let hit = frame
-            .hits
-            .iter()
-            .find(|hit| hit.name == format!("move_{index}"))?;
         Some([
             frame.origin[0] + hit.rect.x as f32 * frame.scale,
             frame.origin[1] + hit.rect.y as f32 * frame.scale,

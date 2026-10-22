@@ -62,61 +62,9 @@ impl HudEditor {
         }
         let style = self.draft.editor_style.unwrap_or_default();
         let hovered = self.hovered_card();
-        let host_layout = self.history_buttons.then(|| {
-            template::host::Layout::new(self.viewport, self.draft.cards.len(), self.chrome_scale)
-        });
-        if let Some(layout) = &host_layout {
-            self.handle_page = self.handle_page.min(layout.pages - 1);
-            self.toolbar_page = self.toolbar_page.min(layout.toolbar_pages - 1);
-            for index in 0..template::host::ACTIONS.len() {
-                data.set_global(
-                    format!("#hud_action_{index}_visible"),
-                    Scalar::Bool(
-                        layout.usable && index / layout.toolbar_page_size == self.toolbar_page,
-                    ),
-                );
-            }
-            for (name, enabled) in [
-                ("prev", self.toolbar_page > 0),
-                ("next", self.toolbar_page + 1 < layout.toolbar_pages),
-            ] {
-                data.set_global(format!("#hud_toolbar_{name}"), Scalar::Bool(enabled));
-                data.set_global(
-                    format!("#hud_toolbar_{name}_alpha"),
-                    Scalar::Num(if enabled { 1. } else { 0.35 }),
-                );
-            }
-            data.set_global(
-                "#hud_handles_title",
-                Scalar::Text(if layout.pages > 1 {
-                    format!("Touch controls ({}/{})", self.handle_page + 1, layout.pages)
-                } else {
-                    "Touch controls".into()
-                }),
-            );
-            for (name, enabled) in [
-                ("prev", self.handle_page > 0),
-                ("next", self.handle_page + 1 < layout.pages),
-            ] {
-                data.set_global(format!("#hud_page_{name}"), Scalar::Bool(enabled));
-                data.set_global(
-                    format!("#hud_page_{name}_alpha"),
-                    Scalar::Num(if enabled { 1. } else { 0.35 }),
-                );
-            }
-        }
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
             data.set_global(format!("#card_{index}_visible"), Scalar::Bool(visible));
-            data.set_global(
-                format!("#hud_handle_{index}_visible"),
-                Scalar::Bool(
-                    visible
-                        && host_layout.as_ref().is_some_and(|layout| {
-                            layout.usable && index / layout.page_size == self.handle_page
-                        }),
-                ),
-            );
             data.set_global(format!("#hud_card_{index}_visible"), Scalar::Bool(visible));
             data.set_global(
                 format!("#hud_card_{index}_name"),
@@ -195,21 +143,7 @@ impl HudEditor {
                 f64::from(size[1]),
             ]);
         }
-        let scale = if let Some(layout) = host_layout {
-            obstacles.extend([
-                [
-                    0.,
-                    0.,
-                    self.viewport[0],
-                    layout.palette[1] + layout.palette[3],
-                ],
-                layout.toolbar,
-            ]);
-            self.chrome_scale * TOUCH_MEASUREMENT_SCALE
-        } else {
-            1.
-        };
-        feedback::measurements(data, self.viewport, rect, &obstacles, scale);
+        feedback::measurements(data, self.viewport, rect, &obstacles);
     }
 
     /// Publishes inspector values from the same displayed rectangle used by pointer bounds.
@@ -293,11 +227,7 @@ impl HudEditor {
             .or(self.selected)
             .and_then(|index| self.draft.cards.get(index))
             .map(ui::mod_hud::Card::editor_name)
-            .unwrap_or(if self.history_buttons {
-                "Select a control"
-            } else {
-                "Select a widget"
-            })
+            .unwrap_or("Select a widget")
     }
 }
 
@@ -336,13 +266,8 @@ mod tests {
         assert_eq!(editor.editor_label(), "Select a widget");
         editor.selected = Some(0);
         assert_eq!(editor.editor_label(), "Frame rate");
-        let catalog = template::catalog(
-            &editor.draft,
-            [400., 250.],
-            editor.history_buttons,
-            editor.chrome_scale,
-        )
-        .unwrap();
+        let catalog =
+            template::catalog(&editor.draft, [400., 250.], editor.history_buttons).unwrap();
         let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
             .control
             .unwrap();

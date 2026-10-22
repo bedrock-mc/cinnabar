@@ -149,7 +149,6 @@ impl UiPresentationRuntime {
         let translate = |key: &str| runtime.translation(key);
         let editor = self.screens.touch.editor.as_mut().expect("opened");
         let rollback = nodes.len();
-        let first_id = *next;
         editor.paint(
             self.engine.as_deref(),
             &mut PaintFrame {
@@ -171,23 +170,8 @@ impl UiPresentationRuntime {
                 != 0,
         );
         let chrome = nodes.split_off(rollback);
-        let chrome_end = *next;
         self.append_touch_controls(runtime, nodes, next, metrics, content)?;
-        // Tree siblings draw in identity order; chrome must follow the actual artwork.
-        let offset = next.saturating_sub(first_id);
-        let remap = |id: ui::UiNodeId| {
-            if (first_id..chrome_end).contains(&id.get()) {
-                ui::UiNodeId::new(id.get().saturating_add(offset))
-            } else {
-                id
-            }
-        };
-        *next = next.saturating_add(chrome_end - first_id);
-        nodes.extend(chrome.into_iter().map(|node| {
-            let id = remap(node.id());
-            let parent = node.parent().map(remap);
-            node.renumbered(id, parent)
-        }));
+        nodes.extend(chrome);
         // Editor previews must never become gameplay activation regions.
         self.screens.touch.frame = None;
         Ok(())
@@ -220,11 +204,6 @@ impl UiPresentationRuntime {
     #[cfg(any(test, feature = "test-support"))]
     pub fn touch_editor_action_bounds(&self, action: &str) -> Option<[f32; 4]> {
         self.screens.touch.editor.as_ref()?.action_bounds(action)
-    }
-    /// Visible labeled drag handle in window-logical coordinates, including compact paging.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn touch_editor_handle_bounds(&self, name: &str) -> Option<[f32; 4]> {
-        self.screens.touch.editor.as_ref()?.handle_bounds(name)
     }
     /// Current editor action, used to defer toolbar taps until the owning finger releases.
     pub fn touch_editor_action_at(&self, at: [f32; 2]) -> Option<String> {

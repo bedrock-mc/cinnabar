@@ -1,6 +1,5 @@
 use super::*;
 use serde_json::{Value, json};
-pub(super) mod host;
 
 /// Names a control in the private JSON-UI catalog.
 fn named(name: &str, value: Value) -> Value {
@@ -30,7 +29,6 @@ pub(super) fn catalog(
     hud: &Hud,
     viewport: [f64; 2],
     history_buttons: bool,
-    chrome_scale: f64,
 ) -> Result<Catalog, String> {
     let style = hud.editor_style.unwrap_or_default();
     let color = |value: [f32; 4]| value.map(f64::from);
@@ -80,11 +78,6 @@ pub(super) fn catalog(
             "bindings":[{"binding_name":"#hud_dragging","binding_name_override":"#visible"}]
         }),
     ));
-    let measurement_scale = if history_buttons {
-        chrome_scale * TOUCH_MEASUREMENT_SCALE
-    } else {
-        1.
-    };
     for axis in 0..2 {
         let visible = json!({"binding_name":format!("#measurement_{axis}_visible"), "binding_name_override":"#visible"});
         let mut line = rect([1.; 2], [0.; 2], color(style.guide));
@@ -95,7 +88,7 @@ pub(super) fn catalog(
             {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
         controls.push(named(&format!("measurement_{axis}"), line));
         // The pill width follows its label; the label is centred in it at its natural height.
-        let widest = feedback::pill_size("00000").map(|size| size * measurement_scale);
+        let widest = feedback::pill_size("00000");
         let width = json!({"binding_name":format!("#measurement_{axis}_pill_width"),
             "binding_name_override":"#size_binding_x_absolute"});
         let mut text = label(
@@ -109,12 +102,12 @@ pub(super) fn catalog(
         text["max_size"] = json!(widest);
         text["anchor_from"] = json!("center");
         text["anchor_to"] = json!("center");
-        text["font_scale_factor"] = json!(MEASUREMENT_FONT_SCALE * measurement_scale);
+        text["font_scale_factor"] = json!(MEASUREMENT_FONT_SCALE);
         text["clip_children"] = json!(false);
         text["text_alignment"] = json!("center");
         text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
         let mut background = rect(widest, [0.; 2], color(style.measurement));
-        background["radius"] = json!(widest[1] * 0.5);
+        background["radius"] = json!(MEASUREMENT_PILL_HEIGHT * 0.5);
         background["bindings"] = json!([width.clone()]);
         controls.push(named(&format!("measurement_{axis}_pill"), json!({
             "type":"panel", "size":widest, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
@@ -227,12 +220,20 @@ pub(super) fn catalog(
     }
     if let Some(surface) = &hud.surface {
         controls.push(named(&format!("surface@{}", surface.screen), json!({})));
-    } else if history_buttons {
-        host::append(&mut controls, hud, viewport, chrome_scale);
     } else {
         let actions: &[(&str, &str)] = if hud.autosave {
             &[
                 ("close", "Done"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
+            ]
+        } else if history_buttons {
+            &[
+                ("save", "Save"),
+                ("cancel", "Cancel"),
+                ("undo", "Undo"),
+                ("redo", "Redo"),
                 ("reset", "Reset"),
                 ("grid", "#grid_label"),
                 ("snap", "#snap_label"),

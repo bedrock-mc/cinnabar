@@ -22,13 +22,8 @@ impl json_ui::TextureSource for Art {
 
 /// Builds actual scaled card hit regions and retains one action for a focused input test.
 fn frame(editor: &mut HudEditor, action: &str) -> [f32; 2] {
-    let catalog = template::catalog(
-        &editor.draft,
-        editor.viewport,
-        editor.history_buttons,
-        editor.chrome_scale,
-    )
-    .unwrap();
+    let catalog =
+        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap();
     let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
         .control
         .unwrap();
