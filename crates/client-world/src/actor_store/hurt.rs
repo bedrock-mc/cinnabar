@@ -212,11 +212,12 @@ impl ActorSnapshot {
         if self.entity_fact.native_class != NativeEntityClass::Boat {
             return;
         }
-        if let Some(ActorMetadataValue::Int(time)) =
-            self.metadata.get_mut(&ActorDataKey::Hurt.wire_value())
-            && *time > 0
-        {
-            *time -= 1;
+        match self.metadata.get_mut(&ActorDataKey::Hurt.wire_value()) {
+            Some(ActorMetadataValue::Byte(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Short(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Int(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Long(time)) if *time > 0 => *time -= 1,
+            _ => {}
         }
     }
 
@@ -445,28 +446,52 @@ mod tests {
         })
     }
 
-    /// A boat's streamed hurt time keeps counting down between server updates.
+    /// A boat's streamed hurt time keeps counting down between server updates, whatever
+    /// integer width the server streams it as.
     #[test]
     fn boat_hurt_time_counts_down_without_server_updates() {
-        let mut store = ActorStore::new(1, 0);
-        let protocol::ActorEvent::Spawn(mut boat) = spawn() else {
-            unreachable!();
-        };
-        boat.kind = protocol::ActorKind::Entity {
-            identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
-        };
-        boat.metadata = std::sync::Arc::from([protocol::ActorMetadata {
-            key: ActorDataKey::Hurt.wire_value(),
-            value: ActorMetadataValue::Int(3),
-        }]);
-        store.apply(1, 1, protocol::ActorEvent::Spawn(boat));
-        let hurt = |store: &ActorStore| {
-            store.get(7).unwrap().metadata[&ActorDataKey::Hurt.wire_value()].clone()
-        };
-        store.advance_interpolation_ticks(2);
-        assert_eq!(hurt(&store), ActorMetadataValue::Int(1));
-        store.advance_interpolation_ticks(3);
-        assert_eq!(hurt(&store), ActorMetadataValue::Int(0));
+        for (start, after_two, settled) in [
+            (
+                ActorMetadataValue::Byte(3),
+                ActorMetadataValue::Byte(1),
+                ActorMetadataValue::Byte(0),
+            ),
+            (
+                ActorMetadataValue::Short(3),
+                ActorMetadataValue::Short(1),
+                ActorMetadataValue::Short(0),
+            ),
+            (
+                ActorMetadataValue::Int(3),
+                ActorMetadataValue::Int(1),
+                ActorMetadataValue::Int(0),
+            ),
+            (
+                ActorMetadataValue::Long(3),
+                ActorMetadataValue::Long(1),
+                ActorMetadataValue::Long(0),
+            ),
+        ] {
+            let mut store = ActorStore::new(1, 0);
+            let protocol::ActorEvent::Spawn(mut boat) = spawn() else {
+                unreachable!();
+            };
+            boat.kind = protocol::ActorKind::Entity {
+                identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
+            };
+            boat.metadata = std::sync::Arc::from([protocol::ActorMetadata {
+                key: ActorDataKey::Hurt.wire_value(),
+                value: start,
+            }]);
+            store.apply(1, 1, protocol::ActorEvent::Spawn(boat));
+            let hurt = |store: &ActorStore| {
+                store.get(7).unwrap().metadata[&ActorDataKey::Hurt.wire_value()].clone()
+            };
+            store.advance_interpolation_ticks(2);
+            assert_eq!(hurt(&store), after_two);
+            store.advance_interpolation_ticks(3);
+            assert_eq!(hurt(&store), settled);
+        }
     }
 
     #[test]
