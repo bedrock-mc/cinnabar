@@ -279,10 +279,15 @@ impl Simulator {
                     Ok(contact) => contact,
                     // An unreadable support or lower-layer cell must not block
                     // travel; feet-layer scaffolding still admits the ascent.
-                    Err(_) => scaffolding::ClimberContact {
+                    // Identity conflicts still fail the tick.
+                    Err(
+                        crate::WorldQueryError::UnknownRuntimeId { .. }
+                        | crate::WorldQueryError::UnloadedChunk(_),
+                    ) => scaffolding::ClimberContact {
                         inside: scaffolding::sample_feet_scaffolding(world, player, &mut sampled)?,
                         ..Default::default()
                     },
+                    Err(error) => return Err(error.into()),
                 }
             }
         };

@@ -393,6 +393,56 @@ fn an_unreadable_support_does_not_block_the_scaffold_ascent() {
     assert_eq!(tick.movement.y as f32, 0.15_f32);
 }
 
+/// An identity conflict under the feet-layer scaffold still fails the tick
+/// rather than falling back to the cached scaffold.
+#[test]
+fn an_identity_conflict_under_the_scaffold_still_fails_the_tick() {
+    struct ConflictingSupport(ScaffoldWorld);
+    impl CollisionWorld for ConflictingSupport {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            self.0.collision_boxes(query)
+        }
+
+        fn collision_boxes_with_provenance(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+            self.0.collision_boxes_with_provenance(query)
+        }
+
+        /// The support cell reports a different collision registry.
+        fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            let mut sample = self.0.block_physics(block)?;
+            if block == [0, 0, 0] {
+                sample.identity.registry.preg_sha256 = [1; 32];
+            }
+            Ok(sample)
+        }
+    }
+    let world = ConflictingSupport(ScaffoldWorld {
+        scaffolds: vec![[0, 1, 0]],
+        solids: vec![[0, 0, 0]],
+    });
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.75, 0.5));
+    let result = Simulator::default().tick(
+        &mut state,
+        MovementInput {
+            jumping: true,
+            ..MovementInput::default()
+        },
+        &world,
+    );
+    assert_eq!(
+        result,
+        Err(sim::SimulationError::World(
+            WorldQueryError::RegistryIdentityMismatch
+        ))
+    );
+}
+
 /// A tick with suppressed travel still starts the descent, without moving.
 #[test]
 fn skipped_travel_still_starts_the_scaffold_descent() {
