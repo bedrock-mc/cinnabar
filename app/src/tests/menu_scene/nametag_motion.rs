@@ -126,6 +126,7 @@ fn remote_move(position: Vec3, teleported: bool) -> WorldEvent {
         head_yaw: None,
         on_ground: Some(true),
         teleported,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: protocol::ActorInterpolation {

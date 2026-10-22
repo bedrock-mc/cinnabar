@@ -1,6 +1,67 @@
 use super::*;
 
 #[test]
+fn actor_move_partial_target_keeps_a_newer_unmarked_update_across_a_deferred_correction() {
+    for (position, expected) in [
+        ([Some(10.0), Some(80.0), Some(20.0)], [10.0, 81.0, 20.0]),
+        ([None, Some(80.0), None], [2.0, 81.0, 3.0]),
+    ] {
+        let mut stream = block_entity_visual_stream();
+        stream.submit(1, worker_block_batch(0, 1)).unwrap();
+        assert_eq!(stream.stats().queued_decode_jobs, 1);
+        stream
+            .submit(
+                2,
+                WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+                    position: [2.0, 70.0, 3.0],
+                    delta: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    subject: MovementCorrectionSubject::Player,
+                    on_ground: true,
+                    tick: 100,
+                }),
+            )
+            .unwrap();
+        let mut movement = ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 1,
+            position,
+            position_origin: ActorPositionOrigin::NetworkOffset,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: false,
+            force_local_move: false,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        };
+        stream
+            .submit(3, WorldEvent::Actor(ActorEvent::Move(movement)))
+            .unwrap();
+        assert!(stream.order.is_finished(3));
+        assert!(stream.take_committed_controls().is_empty());
+        complete_pending_decode_jobs(&mut stream);
+        assert!(matches!(
+            stream.take_committed_controls().as_slice(),
+            [CommittedControlEvent::PlayerMovementCorrection { sequence: 2, .. }]
+        ));
+        movement.position = [None, Some(81.0), None];
+        movement.force_local_move = true;
+        stream
+            .submit(4, WorldEvent::Actor(ActorEvent::Move(movement)))
+            .unwrap();
+        assert!(matches!(
+            stream.take_committed_controls().as_slice(),
+            [CommittedControlEvent::LocalActorMove { resolved, .. }]
+                if resolved.position == expected
+        ));
+    }
+}
+
+#[test]
 fn newer_update_waits_for_older_decode_and_wins() {
     let key = SubChunkKey::new(0, 0, -4, 0);
     let decoded = DecodedLevelChunk::decode(

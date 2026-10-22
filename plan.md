@@ -142,6 +142,9 @@ and resource qualification; they do not imply these systems need to be written.
   NBT variant and strict-final witness without deferrals.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
+  Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
+  accepting server actor displacement alone does not complete this behavior.
+  Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
@@ -507,6 +510,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
+  Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
+  rendering acceptance remains incomplete.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
   Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.
