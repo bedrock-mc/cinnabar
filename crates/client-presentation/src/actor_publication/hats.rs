@@ -395,9 +395,7 @@ impl HatState {
         self.drawn
             .iter()
             .filter_map(|&(index, item)| {
-                if hats::rig(item).companion().is_none() {
-                    return None;
-                }
+                hats::rig(item).companion()?;
                 let identity = batch.submissions.get(index)?.input.identity;
                 Some((identity.runtime_id, identity.layer))
             })
