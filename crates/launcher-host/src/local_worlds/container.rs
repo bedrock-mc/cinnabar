@@ -19,7 +19,7 @@ use super::{
     Cancel,
     bds::{
         BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, create_world, level_type, option_properties,
-        sanitize_property, view_and_tick, world_player_limit,
+        sanitize_property, view_and_tick, world_player_limit, write_host_permissions,
     },
     create_private_dir,
     docker::{PROBE_TIMEOUT, docker_command, finishes, succeeds},
@@ -232,6 +232,8 @@ impl BdsRunner {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         link_versioned_binary(&binary, &version)?;
+        // The image rewrites this list only when given its own operator variables.
+        write_host_permissions(install, spec)?;
         create_private_dir(&spec.dir.join(LEVEL_DIR))
             .map_err(|error| failed(format!("create world folder: {error}")))?;
         let name = container_name(&spec.world.id);
