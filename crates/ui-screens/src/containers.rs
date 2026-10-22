@@ -590,6 +590,7 @@ pub fn engine_press_drops(frame: &EngineFrame, gui: [f32; 2]) -> bool {
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
 struct Cells<'a> {
     names: &'a std::collections::HashMap<(i32, u32), Arc<str>>,
+    facts: &'a inventory::SessionItemFacts,
     icons: &'a mut Vec<IconRef>,
 }
 
@@ -628,6 +629,12 @@ impl Cells<'_> {
             }),
         )
         .with("#hover_text", Scalar::Text(name))
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(
+                stack.map_or(-1, |stack| self.facts.id_aux(stack)),
+            )),
+        )
         .with("#is_selected_slot", Scalar::Bool(false))
         // The classic cell art; the controller always answers the background.
         .with("#container_item_background", Scalar::Int(0))
@@ -654,6 +661,7 @@ pub fn player_rows(
     let ledger = player_runtime.inventory.ledger();
     let mut cells = Cells {
         names: frame.item_names,
+        facts: ledger.item_facts(),
         icons,
     };
     let player_icon = |index: usize| frame.inventory_icons.get(index).copied().flatten();
@@ -708,6 +716,7 @@ pub fn screen_data(
     data.set_collection("hotbar_items", hotbar);
     let mut cells = Cells {
         names: frame.item_names,
+        facts: ledger.item_facts(),
         icons,
     };
     match layout {
