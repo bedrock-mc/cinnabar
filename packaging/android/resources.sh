@@ -16,6 +16,6 @@ link_apk_resources() {
     install -m 0644 "$output/icons/icon-$icon_size.png" "$resources/mipmap-xxxhdpi/ic_launcher.png"
     "$build_tools/aapt2" compile --dir "$resources" -o "$output/resources.zip"
     "$build_tools/aapt2" link -o "$output/unsigned.apk" -I "$android_jar" \
-        --manifest "$manifest" -A "$assets" -R "$output/resources.zip" \
+        --manifest "$manifest" -A "$assets" "$output/resources.zip" \
         --min-sdk-version "$min_sdk" --target-sdk-version "$(pin target_sdk)"
 }
