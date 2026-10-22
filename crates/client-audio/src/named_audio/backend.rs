@@ -22,6 +22,7 @@ use std::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(not(target_arch = "wasm32"))]
 mod priority;
 
 pub(super) const VOICE_LIMIT: usize = 16;
@@ -333,10 +334,7 @@ impl AudioDevice {
         let Some(output) = &self.output else {
             return false;
         };
-        if output
-            .play_raw(priority::CallbackSource::new(source))
-            .is_err()
-        {
+        if output.play_raw(source).is_err() {
             return false;
         }
         true
@@ -355,12 +353,7 @@ impl AudioDevice {
         let Some(output) = &self.output else {
             return false;
         };
-        if output
-            .play_raw(priority::CallbackSource::new(
-                source.convert_samples::<f32>(),
-            ))
-            .is_err()
-        {
+        if output.play_raw(source.convert_samples::<f32>()).is_err() {
             // The rejected owned source drops normally. No permit is manually freed.
             return false;
         }

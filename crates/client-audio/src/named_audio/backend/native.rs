@@ -146,7 +146,9 @@ pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, OutputStream
         same_device,
         |device, source| match OutputStream::try_from_device(device) {
             Ok((stream, handle)) => {
-                handle.play_raw(source).ok()?;
+                handle
+                    .play_raw(super::priority::CallbackSource::new(source))
+                    .ok()?;
                 Some(stream)
             }
             Err(error) => {
