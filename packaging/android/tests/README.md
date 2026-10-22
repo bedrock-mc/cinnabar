@@ -11,4 +11,6 @@ python3 packaging/android/tests/run-window-tests.py --sdk "$ANDROID_HOME" \
 
 This checks Android window behavior; it does not replace client gameplay or phone acceptance.
 It saves before/after and keyboard screenshots of the isolated fixture in `--out`.
+The runner temporarily suppresses the first-use immersive-mode tutorial and restores
+that preference afterward, so the tutorial cannot steal focus during keyboard checks.
 The fixture uses its own package, `app.cinnabar.windowtests`.

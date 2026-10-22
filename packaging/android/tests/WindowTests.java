@@ -45,6 +45,7 @@ public final class WindowTests extends Instrumentation {
             });
             await(() -> visible(WindowInsets.Type.ime()) && hasObstruction(WindowInsets.Type.ime()), "keyboard opens in immersive mode");
             runOnMainSync(() -> activity.immersive.restore());
+            await(() -> activity.animations.isEmpty(), "restoration animations finish");
             getUiAutomation().waitForIdle(1000, 5000);
             runOnMainSync(() -> {
                 if (!visible(WindowInsets.Type.ime()) || !hasObstruction(WindowInsets.Type.ime())) {
@@ -77,7 +78,8 @@ public final class WindowTests extends Instrumentation {
 
     /** Captures only this isolated window fixture after Android finishes its animations. */
     private void capture(String name) throws Exception {
-        getUiAutomation().waitForIdle(100, 3000);
+        await(() -> activity.animations.isEmpty(), "capture animations finish");
+        getUiAutomation().waitForIdle(1000, 5000);
         Bitmap image = getUiAutomation().takeScreenshot();
         if (image == null) throw new AssertionError("screen capture unavailable");
         try (FileOutputStream output = new FileOutputStream(new File(getTargetContext().getFilesDir(), name))) {

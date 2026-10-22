@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import xml.etree.ElementTree as ET
@@ -59,8 +60,18 @@ def main():
     apk = out / "window-tests.apk"
     run(str(tools / "apksigner"), "sign", "--ks", str(key), "--ks-pass", "pass:android", "--out", str(apk), str(out / "aligned.apk"))
     run(str(adb), "-s", args.serial, "install", "-r", str(apk))
-    result = run(str(adb), "-s", args.serial, "shell", "am", "instrument", "-w", f"{package}/.WindowTests",
-                 capture_output=True, text=True)
+    confirmation_key = "immersive_mode_confirmations"
+    previous = run(str(adb), "-s", args.serial, "shell", "settings", "get", "secure", confirmation_key,
+                   capture_output=True, text=True).stdout.strip()
+    try:
+        run(str(adb), "-s", args.serial, "shell", "settings", "put", "secure", confirmation_key, "confirmed")
+        result = run(str(adb), "-s", args.serial, "shell", "am", "instrument", "-w", f"{package}/.WindowTests",
+                     capture_output=True, text=True)
+    finally:
+        if previous == "null":
+            run(str(adb), "-s", args.serial, "shell", "settings", "delete", "secure", confirmation_key)
+        else:
+            run(str(adb), "-s", args.serial, "shell", "settings", "put", "secure", confirmation_key, shlex.quote(previous))
     print(result.stdout, end="")
     if not any(line.startswith("PASS: ") for line in result.stdout.splitlines()) or "FAIL:" in result.stdout:
         raise SystemExit("window tests failed")
