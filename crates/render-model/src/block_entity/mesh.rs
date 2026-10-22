@@ -156,7 +156,9 @@ impl MeshBuilder {
         tint: [f32; 4],
     ) {
         let [sx, sy, _] = spec.size;
-        let mut faces = BoxSpec::new(spec.origin, [sx, sy, 0.0], spec.uv).faces();
+        let mut faces = BoxSpec::new(spec.origin, [sx, sy, 0.0], spec.uv)
+            .mirrored(spec.mirror)
+            .faces();
         for (face, shift) in faces.iter_mut().zip([-gap / 2.0, gap / 2.0]) {
             for corner in &mut face.0 {
                 corner[2] += shift;
@@ -448,6 +450,29 @@ mod tests {
             .collect();
         assert!(depths[..6].iter().all(|z| (*z + 0.005).abs() < 1.0e-6));
         assert!(depths[6..].iter().all(|z| (*z - 0.005).abs() < 1.0e-6));
+    }
+
+    #[test]
+    fn mirrored_sheets_keep_their_artwork_and_outward_faces() {
+        let mut builder = MeshBuilder::new([64, 64]);
+        builder.actor_light = render_api::ACTOR_LIGHT_WORLD;
+        builder.sheet(
+            Layer::Solid,
+            &texture(),
+            Mat4::IDENTITY,
+            BoxSpec::new([0.0; 3], [6.0, 10.0, 0.0], [16.0, 0.0]).mirrored(true),
+            0.01,
+            WHITE,
+        );
+        assert_eq!(builder.solid.len(), 12);
+        let front_left = builder.solid[..6]
+            .iter()
+            .find(|vertex| vertex.position[..2] == [0.0, 10.0])
+            .unwrap();
+        assert_eq!(front_left.uv, [16.0 / 64.0, 0.0]);
+        for (face, normal) in builder.solid.chunks_exact(6).zip([Vec3::NEG_Z, Vec3::Z]) {
+            assert!(face.iter().all(|vertex| vertex.normal == normal.to_array()));
+        }
     }
 
     #[test]

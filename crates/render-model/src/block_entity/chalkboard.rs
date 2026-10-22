@@ -185,7 +185,7 @@ mod tests {
         }
     }
 
-    /// Packs solid original artwork for the model path without installed game resources.
+    /// Packs coordinate-coloured original artwork without installed game resources.
     fn atlas() -> BlockEntityAtlas {
         let mut placements: Vec<_> = ChalkboardSize::ALL
             .into_iter()
@@ -199,9 +199,12 @@ mod tests {
             })
             .collect();
         placements.sort_by(|left, right| left.name.cmp(&right.name));
-        let bytes =
-            encode_block_entity_catalog(b"{}", 128, 32, &vec![255; 128 * 32 * 4], &placements)
-                .unwrap();
+        let pixels: Vec<u8> = (0..32)
+            .flat_map(|y| {
+                (0..128).flat_map(move |x| [(x % 32) as u8, y as u8, (x / 32) as u8, 255])
+            })
+            .collect();
+        let bytes = encode_block_entity_catalog(b"{}", 128, 32, &pixels, &placements).unwrap();
         BlockEntityAtlas::from_assets(&RuntimeBlockEntityAssets::decode(&bytes).unwrap())
     }
 
@@ -213,6 +216,11 @@ mod tests {
             {"name":"leftFoot","parent":"leftLeg","cubes":[{"origin":[-4,0,1],"size":[2,1,2],"uv":[0,0]}]},
             {"name":"rightLeg","parent":"body","cubes":[{"origin":[4,0,0],"size":[1,4,1],"uv":[0,0]}]}
         ]);
+        catalog_from_bones(bones)
+    }
+
+    /// Compiles an original supplied bone tree through the normal runtime catalog path.
+    fn catalog_from_bones(bones: serde_json::Value) -> RuntimeEntityAssets {
         let mut source = serde_json::json!({"format_version":"1.8.0"});
         for size in ChalkboardSize::ALL {
             source[size.geometry()] =
@@ -225,6 +233,96 @@ mod tests {
         .unwrap()
         .unwrap();
         RuntimeEntityAssets::from_compiled(compiled.assets).unwrap()
+    }
+
+    /// Samples an emitted triangle at a world point, requiring its outward lighting normal.
+    fn sample_surface(
+        mesh: &MeshBuilder,
+        atlas: &BlockEntityAtlas,
+        point: Vec3,
+        normal: Vec3,
+    ) -> [u8; 4] {
+        for triangle in mesh.solid.chunks_exact(3) {
+            if !Vec3::from_array(triangle[0].normal).abs_diff_eq(normal, 1e-5) {
+                continue;
+            }
+            let [a, b, c] = std::array::from_fn(|index| Vec3::from_array(triangle[index].position));
+            if (point - a).dot(normal).abs() > 1e-5 {
+                continue;
+            }
+            let (ab, ac, ap) = (b - a, c - a, point - a);
+            let (bb, cc, bc) = (ab.dot(ab), ac.dot(ac), ab.dot(ac));
+            let divisor = bb * cc - bc * bc;
+            let u = (ap.dot(ab) * cc - ap.dot(ac) * bc) / divisor;
+            let v = (ap.dot(ac) * bb - ap.dot(ab) * bc) / divisor;
+            if u < -1e-5 || v < -1e-5 || u + v > 1.0 + 1e-5 {
+                continue;
+            }
+            let uv = glam::Vec2::from_array(triangle[0].uv) * (1.0 - u - v)
+                + glam::Vec2::from_array(triangle[1].uv) * u
+                + glam::Vec2::from_array(triangle[2].uv) * v;
+            let [width, height] = atlas.size();
+            let x = (uv.x * width as f32).floor() as usize;
+            let y = (uv.y * height as f32).floor() as usize;
+            let offset = (y * width as usize + x) * 4;
+            return atlas.static_rgba8()[offset..offset + 4].try_into().unwrap();
+        }
+        panic!("no outward triangle at {point:?} with normal {normal:?}");
+    }
+
+    #[test]
+    fn chalkboard_pack_mirroring_preserves_asymmetric_artwork_on_every_face() {
+        let atlas = atlas();
+        for (bone_mirror, cube_mirror, mirrored) in [
+            (false, None, false),
+            (false, Some(true), true),
+            (true, None, true),
+            (true, Some(false), false),
+        ] {
+            let mut cube = serde_json::json!({"origin":[2,7,1],"size":[3,5,2],"uv":[1,2]});
+            if let Some(mirror) = cube_mirror {
+                cube["mirror"] = mirror.into();
+            }
+            let assets = catalog_from_bones(serde_json::json!([
+                {"name":"body","mirror":bone_mirror,"cubes":[cube]}
+            ]));
+            let models = ChalkboardModels::from_assets(&assets);
+            for size in ChalkboardSize::ALL {
+                let model = ChalkboardModel {
+                    size,
+                    direction: 0,
+                    on_ground: true,
+                };
+                let matrix = model.matrix([0; 3]);
+                let mut mesh = MeshBuilder::new(atlas.size());
+                mesh.actor_light = render_api::ACTOR_LIGHT_WORLD;
+                emit(&mut mesh, &atlas, &models, [0; 3], &model);
+                assert_eq!(mesh.solid.len(), 36);
+                for (point, normal, ordinary, reflected) in [
+                    ([-4.5, 11.5, 1.0], [0.0, 0.0, -1.0], [5, 4], [3, 4]),
+                    ([-4.5, 11.5, 3.0], [0.0, 0.0, 1.0], [8, 4], [10, 4]),
+                    ([-2.0, 11.5, 1.5], [1.0, 0.0, 0.0], [2, 4], [6, 4]),
+                    ([-5.0, 11.5, 1.5], [-1.0, 0.0, 0.0], [6, 4], [2, 4]),
+                    ([-4.5, 12.0, 1.5], [0.0, 1.0, 0.0], [5, 3], [3, 3]),
+                    ([-4.5, 7.0, 1.5], [0.0, -1.0, 0.0], [8, 3], [6, 3]),
+                ] {
+                    let [u, v] = if mirrored { reflected } else { ordinary };
+                    let actual = sample_surface(
+                        &mesh,
+                        &atlas,
+                        matrix.transform_point3(Vec3::from_array(point)),
+                        matrix
+                            .transform_vector3(Vec3::from_array(normal))
+                            .normalize(),
+                    );
+                    assert_eq!(
+                        actual,
+                        [u, v, size.index() as u8, 255],
+                        "{size:?} bone={bone_mirror} cube={cube_mirror:?} point={point:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

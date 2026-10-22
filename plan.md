@@ -138,10 +138,10 @@ and resource qualification; they do not imply these systems need to be written.
   including chunk NBT, live updates, required variants and explicit GPU/no-draw evidence.
 - [ ] Close every registered block-entity renderer route, gallery builder, required
   NBT variant and strict-final witness without deferrals.
-  Chalkboard models use supplied runtime-pack geometry and world textures, with
-  base-owned size, rotation and ground supports. Default-pack resource coverage,
-  text rendering, editing, placement and interaction semantics, complete native
-  galleries and Windows resource correspondence remain incomplete.
+  Chalkboard models use supplied runtime-pack box-UV geometry and world textures,
+  with base-owned size, rotation and ground supports. Per-face UV overrides,
+  default-pack resource coverage, text rendering, editing, placement and interaction
+  semantics, complete native galleries and Windows resource correspondence remain incomplete.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
 - [ ] Close protocol/content integration findings and required upstream fixes through

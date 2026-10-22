@@ -14,6 +14,8 @@ pub struct BoxSpec {
     /// Box-UV origin in texels of the logical texture.
     pub uv: [f32; 2],
     pub inflate: f32,
+    /// Reflects the box's face artwork across its local X midplane.
+    pub mirror: bool,
 }
 
 impl BoxSpec {
@@ -24,6 +26,7 @@ impl BoxSpec {
             size,
             uv,
             inflate: 0.0,
+            mirror: false,
         }
     }
 
@@ -33,10 +36,30 @@ impl BoxSpec {
         self
     }
 
+    /// Retains the resolved cube or bone mirror setting with its box UVs.
+    #[must_use]
+    pub const fn mirrored(mut self, mirror: bool) -> Self {
+        self.mirror = mirror;
+        self
+    }
+
     /// The box's faces in [`box_faces`] order.
     #[must_use]
     pub fn faces(self) -> [ModelFace; 6] {
-        box_faces(self.origin, self.size, self.uv, self.inflate)
+        let mut faces = box_faces(self.origin, self.size, self.uv, self.inflate);
+        if self.mirror {
+            let twice_center = 2.0 * self.origin[0] + self.size[0];
+            for (corners, texels) in &mut faces {
+                for corner in corners.iter_mut() {
+                    corner[0] = twice_center - corner[0];
+                }
+                // Reverse vertices and V together to retain artwork and outward winding.
+                corners.reverse();
+                texels[1] += texels[3];
+                texels[3] = -texels[3];
+            }
+        }
+        faces
     }
 }
 
