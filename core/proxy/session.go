@@ -253,6 +253,7 @@ func (server *sessionServer) prepare(
 	if err != nil {
 		return plan, prepared, err
 	}
+	selected, packs = prependSavedPacks(selected, packs, server.logger)
 	stopWatch()
 	if err = context.Cause(ctx); err != nil {
 		return plan, prepared, err
@@ -396,6 +397,16 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 		if parsed, err := uuid.Parse(entry.uuid); err == nil {
 			id = resourcePackIdentity(parsed.String(), entry.version)
 			offer = byIdentity[id]
+			if offer.pack == nil {
+				// Fallback: match by UUID alone when exact identity mismatch occurs
+				for _, o := range byIdentity {
+					if o.info.UUID == parsed {
+						offer = o
+						id = resourcePackIdentity(o.info.UUID.String(), o.info.Version)
+						break
+					}
+				}
+			}
 		}
 		if offer.pack == nil || seen[id] || offer.info.SubPackName != entry.subPack {
 			if required {
