@@ -82,6 +82,7 @@ impl Twin {
         let (redrawn, builds) = (self.redrawn.redrawn_nodes, self.redrawn.tree_builds);
         let drawn = build(player_runtime, &mut self.redrawn, runtime, now);
         self.full.last_frame = None;
+        self.full.forget_hud_paints();
         let expected = build(player_runtime, &mut self.full, runtime, now);
         assert_eq!(drawn.vertices, expected.vertices, "frame at {now}");
         assert_eq!(drawn.indices, expected.indices, "frame at {now}");

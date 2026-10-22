@@ -552,3 +552,93 @@ fn review_offscreen_entrance_animation_survives_emission() {
     let animated = play(&mut Animator::new(), node(&nodes, "image"), 0.0, 0.75);
     assert!(animated.dest.x >= 0.0 && animated.dest.x < 20.0);
 }
+
+// A recorded paint replays only once its animations settle, and replays keep them alive.
+#[test]
+fn recorded_paints_replay_only_settled_animations() {
+    let nodes = draws(
+        r#""fade": { "anim_type": "alpha", "from": 0, "to": 1, "duration": 1 },
+        "image": { "type": "image", "texture": "textures/ui/test", "alpha": "@audit.fade" }"#,
+        "image",
+    );
+    let image = node(&nodes, "image");
+    let mut animator = Animator::new();
+    let paint = |animator: &mut Animator, now: f64| {
+        animator.record();
+        let drawn = image.animate(animator, now, None, None);
+        (drawn, animator.finish_record())
+    };
+    let (_, fading) = paint(&mut animator, 0.5);
+    assert!(fading.playing() && !animator.can_replay(&fading));
+    animator.end_frame();
+    let (settled_draw, settled) = paint(&mut animator, 1.5);
+    assert!(!settled.playing());
+    for frame in 0..120 {
+        animator.end_frame();
+        assert!(animator.can_replay(&settled));
+        animator.replay(&settled, 1.5 + f64::from(frame) / 60.0);
+    }
+    animator.end_frame();
+    let later = image.animate(&mut animator, 4.0, None, None);
+    assert_eq!(later, settled_draw, "replays never recreated the component");
+    animator.end_frame();
+    animator.end_frame();
+    assert!(
+        !animator.can_replay(&settled),
+        "a frame without the paint retires its component"
+    );
+}
+
+// A replayed wait keeps its clock current, so a later play event starts from that frame.
+#[test]
+fn replays_keep_waiting_animation_clocks_current() {
+    let nodes = draws(
+        r#""fade": { "anim_type": "alpha", "from": 1, "to": 0, "duration": 1,
+            "play_event": "button.start" },
+        "image": { "type": "image", "texture": "textures/ui/test", "anims": ["@audit.fade"] }"#,
+        "image",
+    );
+    let image = node(&nodes, "image");
+    let mut animator = Animator::new();
+    animator.record();
+    image.animate(&mut animator, 0.0, None, None);
+    let waiting = animator.finish_record();
+    for frame in 1..=600 {
+        animator.end_frame();
+        assert!(animator.can_replay(&waiting));
+        animator.replay(&waiting, f64::from(frame) / 60.0);
+    }
+    let fired = animator.events_fired();
+    animator.fire("button.start");
+    assert_ne!(animator.events_fired(), fired);
+    let drawn = image.animate(&mut animator, 10.5, None, None);
+    assert!(close(drawn.opacity, 0.5), "{}", drawn.opacity);
+}
+
+// Replays keep a destroyed control removed; a frame with neither brings it back.
+#[test]
+fn replays_keep_destroyed_controls_removed() {
+    let nodes = draws(
+        r#""delay": { "anim_type": "wait", "duration": 1, "destroy_at_end": "dialog" },
+        "dialog": { "type": "panel", "size": [50, 50], "controls": [
+            { "button": { "type": "image", "texture": "textures/ui/test", "size": [10, 10],
+                "anims": ["@audit.delay"] } } ] }"#,
+        "dialog",
+    );
+    let button = node(&nodes, "button");
+    let mut animator = Animator::new();
+    play(&mut animator, button, 0.0, 1.2);
+    animator.end_frame();
+    animator.record();
+    assert!(button.animate(&mut animator, 1.3, None, None).hidden);
+    let gone = animator.finish_record();
+    for frame in 0..3 {
+        animator.end_frame();
+        assert!(animator.can_replay(&gone));
+        animator.replay(&gone, 1.4 + f64::from(frame));
+    }
+    assert!(animator.is_destroyed(&button.key));
+    animator.end_frame();
+    animator.end_frame();
+    assert!(!animator.is_destroyed(&button.key) && !animator.can_replay(&gone));
+}

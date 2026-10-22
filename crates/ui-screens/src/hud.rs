@@ -12,7 +12,7 @@ use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef};
 use ui_engine::{
     cached_screen::CachedScreen,
     engine::{
-        FormEngine, PaintBounds, PaintObserver, ScreenArt,
+        FormEngine, PaintBounds, PaintObserver, RetainedPaint, ScreenArt,
         item_renderer::ItemRenderer,
         pack_catalog::CarrierRestore,
         screen::{CustomRenderer, PaintError, PaintFrame, ScreenRegistry},
@@ -136,6 +136,35 @@ pub struct HudScreens {
     hunger_animation: HungerAnimation,
     /// The HUD context, kept while the engine context and chat placement stay.
     context: crate::chat_position::PlacedContext,
+    /// The HUD screen's last paint, reused while nothing it drew from changes.
+    hud_paint: RetainedHud,
+    /// The crosshair overlay's last paint.
+    crosshair_paint: RetainedHud,
+}
+
+/// One HUD screen's retained paint and the HUD state it was painted from.
+#[derive(Default)]
+struct RetainedHud {
+    paint: RetainedPaint,
+    /// The native renderers' state, item icons and chat colour the retained paint drew.
+    drawn: Option<(HudPaint, Vec<IconRef>, Option<char>)>,
+    /// Hunger controls the paint advanced, advanced again whenever it is reused.
+    hunger: Vec<(String, Option<u64>)>,
+    /// Whether the screen's last paint reused the retained one.
+    reused: bool,
+}
+
+impl RetainedHud {
+    /// Whether a paint of `paint`, `icons` and `color` would draw what the retained one did.
+    /// Shaking hunger icons change with every paint, so they always paint.
+    fn unchanged(&self, paint: &HudPaint, icons: &[IconRef], color: Option<char>) -> bool {
+        self.drawn
+            .as_ref()
+            .is_some_and(|(drawn, drawn_icons, drawn_color)| {
+                drawn == paint && drawn_icons.as_slice() == icons && *drawn_color == color
+            })
+            && (!paint.hunger.saturation_empty || self.hunger.is_empty())
+    }
 }
 
 /// What one HUD paint reads.
@@ -144,6 +173,9 @@ pub struct HudInput<'a> {
     pub crosshair: bool,
     /// Observe actual native bottom-HUD painting while the host's layout editor is open.
     pub capture_keep_out: bool,
+    /// Whether the caller's renderers in the paint frame draw exactly as they did when this
+    /// screen was last painted, so an otherwise unchanged paint may be reused.
+    pub renderers_unchanged: bool,
     pub catalog: &'a Arc<Catalog>,
     /// The HUD context with the chat placement.
     pub context: &'a Context,
@@ -207,7 +239,8 @@ impl HudScreens {
     }
 
     /// Paints the HUD screen, or its crosshair overlay, returning its laid-out frame; `frame`'s
-    /// renderers draw ahead of the HUD's native and item renderers.
+    /// renderers draw ahead of the HUD's native and item renderers. A paint whose inputs all
+    /// match the screen's last one, with no animation or hunger shake running, reuses its output.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
@@ -217,6 +250,7 @@ impl HudScreens {
         let HudInput {
             crosshair,
             capture_keep_out,
+            renderers_unchanged,
             catalog,
             context,
             data,
@@ -231,8 +265,11 @@ impl HudScreens {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
         let hunger_animation = std::cell::RefCell::new(&mut self.hunger_animation);
-        let advance_hunger =
-            |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
+        let advanced = std::cell::RefCell::new(Vec::new());
+        let advance_hunger = |key: &str, instance| {
+            advanced.borrow_mut().push((key.to_owned(), instance));
+            hunger_animation.borrow_mut().advance(key, instance)
+        };
         let color = self.chat_color;
         let history = Reference::HudChatGridItem
             .as_str()
@@ -254,11 +291,13 @@ impl HudScreens {
             ..ScreenArt::default()
         };
         let mut items = ItemRenderer { icons, id_aux: &[] };
-        let screen = if crosshair {
-            &mut self.crosshair
+        let (screen, retained) = if crosshair {
+            (&mut self.crosshair, &mut self.crosshair_paint)
         } else {
-            &mut self.hud
+            (&mut self.hud, &mut self.hud_paint)
         };
+        let reuse = renderers_unchanged && retained.unchanged(paint, icons, color);
+        let paints = retained.paint.paints;
         let caller = std::mem::take(&mut frame.renderers);
         let drawn = {
             let mut hud_renderer = HudRenderer {
@@ -273,11 +312,29 @@ impl HudScreens {
             renderers.push(&mut hud_renderer);
             renderers.push(&mut items);
             let mut paint_frame = frame.with_renderers(&mut renderers);
-            engine.draw(art, &mut paint_frame, |env, root| {
-                screen.render(reference, catalog, context, data, (root, px, language), env)
-            })
+            engine.draw_retained(
+                &mut retained.paint,
+                reuse,
+                art,
+                &mut paint_frame,
+                |env, root| {
+                    screen.render(reference, catalog, context, data, (root, px, language), env)
+                },
+            )
         };
         frame.renderers = caller;
+        let hunger_animation = hunger_animation.into_inner();
+        retained.reused = retained.paint.paints == paints && matches!(drawn, Ok(Some(_)));
+        if retained.reused {
+            // The reused paint's hunger controls advance as painting them would have.
+            for (key, instance) in &retained.hunger {
+                hunger_animation.advance(key, *instance);
+            }
+        } else if retained.paint.paints != paints {
+            retained.drawn =
+                matches!(drawn, Ok(Some(_))).then(|| (paint.clone(), icons.to_vec(), color));
+            retained.hunger = advanced.into_inner();
+        }
         if !crosshair {
             self.editor_keep_out = drawn
                 .as_ref()
@@ -287,6 +344,32 @@ impl HudScreens {
                 .map(|b| [b[0], b[1], b[2] - b[0], b[3] - b[1]].map(|v| f64::from(v / px)));
         }
         drawn
+    }
+
+    /// Whether the HUD screen's, or the crosshair overlay's, last paint reused its previous
+    /// output instead of running its renderers.
+    pub fn reused(&self, crosshair: bool) -> bool {
+        if crosshair {
+            self.crosshair_paint.reused
+        } else {
+            self.hud_paint.reused
+        }
+    }
+
+    /// Paints each HUD screen ran rather than reused: `[hud, crosshair]`.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn paints(&self) -> [usize; 2] {
+        [
+            self.hud_paint.paint.paints,
+            self.crosshair_paint.paint.paints,
+        ]
+    }
+
+    /// Drops both screens' retained paints, so their next paints run in full.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn forget_paints(&mut self) {
+        self.hud_paint = RetainedHud::default();
+        self.crosshair_paint = RetainedHud::default();
     }
 
     /// This frame's fade clocks.

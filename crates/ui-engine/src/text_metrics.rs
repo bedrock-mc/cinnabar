@@ -10,7 +10,7 @@ use ui::{FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_S
 /// Per-frame text metrics shared by every HUD, chat, and scoreboard run so a
 /// single frame cannot mix scales or line pitches. Font atlas texels are two
 /// texels per GUI design pixel, while sprite geometry uses one GUI pixel.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TextMetrics {
     pub scale: UiScale,
     /// Physical pixels per GUI unit: the GUI scale, on whose pixel grid draws land.

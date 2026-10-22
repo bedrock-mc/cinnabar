@@ -87,6 +87,7 @@ impl ServerAtlas {
         {
             return;
         }
+        self.revision.bump();
         let metadata_changed = self
             .client_rasters
             .iter()

@@ -29,5 +29,6 @@ impl ServerAtlas {
         self.dirty = true;
         self.metadata_revision = self.metadata_revision.wrapping_add(1);
         self.metadata_dirty = true;
+        self.revision.bump();
     }
 }

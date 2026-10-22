@@ -348,6 +348,8 @@ pub(super) struct NativeSheets {
     cancelled: Arc<AtomicBool>,
     pages: Vec<UiTexturePage>,
     dirty: bool,
+    /// Changes whenever a sheet loads or fails, which changes how its texture draws.
+    revision: crate::revision::Revision,
 }
 
 impl Default for NativeSheets {
@@ -363,6 +365,7 @@ impl Default for NativeSheets {
             cancelled: Arc::new(AtomicBool::new(false)),
             pages: Vec::new(),
             dirty: false,
+            revision: Default::default(),
         }
     }
 }
@@ -440,6 +443,7 @@ impl NativeSheets {
                 .extend(sheet.tiles.iter().map(|tile| tile.page.clone()));
             self.loaded.push((key, sheet));
             self.dirty = true;
+            self.revision.bump();
         } else {
             self.fail(key);
         }
@@ -465,6 +469,12 @@ impl NativeSheets {
             "skipping unusable or over-budget original UI sheet"
         );
         self.failed.insert(key);
+        self.revision.bump();
+    }
+
+    /// The loaded and failed sheets' state, as [`super::ServerAtlas::revision`] reports it.
+    pub(super) fn revision(&self) -> crate::revision::Revision {
+        self.revision
     }
 
     /// A terminal failure permits the ordinary sprite lookup to reveal valid lower-layer pixels.

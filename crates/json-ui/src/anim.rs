@@ -18,7 +18,7 @@ pub use def::{AnimGraph, AnimKind, AnimNode};
 pub use ease::Easing;
 pub(crate) use layout::Inherited;
 pub use paint::{Animated, ControlAnims, NodeAnim};
-pub use runtime::{AnimEvent, Animator, FlipWrite, Written};
+pub use runtime::{AnimEvent, AnimationRecord, Animator, FlipWrite, Written};
 
 /// Property holding a control's resolved [`AnimGraph`].
 pub(crate) const GRAPH_KEY: &str = "anim_graph";

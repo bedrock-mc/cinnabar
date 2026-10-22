@@ -20,6 +20,7 @@ use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
 use render_model::UiTexturePage;
 
+use crate::revision::{AtlasRevision, Revision};
 use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
 
 pub(crate) mod fitted;
@@ -311,6 +312,8 @@ pub struct ServerAtlas {
     native: native_sheets::NativeSheets,
     outlines: outlines::Outlines,
     work: ImageWork,
+    /// Changes whenever what a sprite lookup or residency check reads changes.
+    revision: Revision,
 }
 
 /// Decode time a frame spends inline before spilling misses to workers or a later frame.
@@ -485,6 +488,7 @@ impl ServerAtlas {
     /// Enables the original-image slots owned by the main presentation catalog.
     pub fn with_native_sheets(mut self, enabled: bool) -> Self {
         self.native_enabled = enabled;
+        self.revision.bump();
         self
     }
 
@@ -566,6 +570,7 @@ impl ServerAtlas {
         if ready {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
+            self.revision.bump();
         }
         ready | self.native.collect() | self.outlines.collect()
     }
@@ -573,6 +578,15 @@ impl ServerAtlas {
     /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.
     pub fn metadata_revision(&self) -> u64 {
         self.metadata_revision
+    }
+
+    /// The current residency, readiness and source state that painted sprites resolve against.
+    pub(crate) fn revision(&self) -> AtlasRevision {
+        AtlasRevision {
+            atlas: self.revision,
+            native: self.native.revision(),
+            outlines: self.outlines.revision(),
+        }
     }
 
     /// Keeps readiness observed during painting visible to the next retained-frame poll.
@@ -788,6 +802,7 @@ impl ServerAtlas {
         {
             self.images = self.pages.iter().map(|page| page.image.clone()).collect();
             self.dirty = true;
+            self.revision.bump();
         }
     }
 
@@ -821,6 +836,7 @@ impl ServerAtlas {
         page.keys.push(key.to_owned());
         page.used = self.clock;
         let rect = [origin[0], origin[1], size[0], size[1]].map(|value| value as u16);
+        self.revision.bump();
         self.resident.insert(
             key.to_owned(),
             ServerTexture {
@@ -861,6 +877,7 @@ impl ServerAtlas {
                 self.resident.remove(&key);
             }
         }
+        self.revision.bump();
         page.pixels.fill(0);
         page.cursor = [0; 3];
         Some((index, page.allocate(size)?))

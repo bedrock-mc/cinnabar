@@ -89,6 +89,26 @@ pub struct Animator {
     destroyed: BTreeMap<String, bool>,
     /// Creation time of controls without their own clock, when fixed.
     origin: Option<f64>,
+    /// The paint being recorded between [`Animator::record`] and [`Animator::finish_record`].
+    recording: Option<AnimationRecord>,
+    /// Button events fired so far; any of them may restart a settled animation.
+    events_fired: u64,
+}
+
+/// What one paint did to an [`Animator`]: the components it sampled, the destroyed roots it
+/// kept removed, and whether a sampled animation was still running afterwards.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnimationRecord {
+    sampled: Vec<String>,
+    met: Vec<String>,
+    playing: bool,
+}
+
+impl AnimationRecord {
+    /// Whether a sampled animation still advances with time, so the paint changes every frame.
+    pub fn playing(&self) -> bool {
+        self.playing
+    }
 }
 
 fn under(key: &str, root: &str) -> bool {
@@ -144,7 +164,10 @@ impl Animator {
             if !Arc::ptr_eq(&component.anims, anims) {
                 component.anims = Arc::clone(anims);
             }
-            return component.sample(now, &mut self.events, &mut self.destroyed);
+            let written = component.sample(now, &mut self.events, &mut self.destroyed);
+            let playing = component.playing();
+            note_sample(&mut self.recording, &anims.key, playing);
+            return written;
         }
         let mut component = Component::new(Arc::clone(anims), born, now);
         for event in &self.fired {
@@ -160,7 +183,9 @@ impl Animator {
         component.render();
         component.tick(0.0, &mut self.events, &mut self.destroyed);
         let written = component.sample(now, &mut self.events, &mut self.destroyed);
+        let playing = component.playing();
         self.components.insert(anims.key.clone(), component);
+        note_sample(&mut self.recording, &anims.key, playing);
         written
     }
 
@@ -171,6 +196,7 @@ impl Animator {
             component.fire(id);
         }
         self.fired.push(id.to_owned());
+        self.events_fired = self.events_fired.wrapping_add(1);
     }
 
     /// End and destroy events since the last call, in order.
@@ -190,6 +216,11 @@ impl Animator {
             if under(key, root) {
                 *met = true;
                 hidden = true;
+                if let Some(record) = &mut self.recording
+                    && !record.playing
+                {
+                    record.met.push(root.clone());
+                }
             }
         }
         hidden
@@ -203,6 +234,71 @@ impl Animator {
         self.destroyed
             .retain(|_, met| std::mem::replace(met, false));
         self.fired.clear();
+    }
+
+    /// Starts recording what the following samples touch; [`Self::finish_record`] returns it.
+    pub fn record(&mut self) {
+        self.recording = Some(AnimationRecord::default());
+    }
+
+    /// Ends the recording [`Self::record`] started.
+    pub fn finish_record(&mut self) -> AnimationRecord {
+        let mut record = self.recording.take().unwrap_or_default();
+        record.sampled.sort_unstable();
+        record.sampled.dedup();
+        record.met.sort_unstable();
+        record.met.dedup();
+        record
+    }
+
+    /// Whether a paint recorded as `record` would draw exactly as it did: every component it
+    /// sampled still exists and is settled, and every root it found destroyed still is.
+    pub fn can_replay(&self, record: &AnimationRecord) -> bool {
+        !record.playing
+            && record.sampled.iter().all(|key| {
+                self.components
+                    .get(key)
+                    .is_some_and(|component| !component.playing())
+            })
+            && record
+                .met
+                .iter()
+                .all(|root| self.destroyed.contains_key(root))
+    }
+
+    /// Repeats a replayable paint's bookkeeping at `now` without painting: its components keep
+    /// their clocks current and survive [`Self::end_frame`], and its destroyed roots stay removed.
+    pub fn replay(&mut self, record: &AnimationRecord, now: f64) {
+        for key in &record.sampled {
+            if let Some(component) = self.components.get_mut(key) {
+                component.sample(now, &mut self.events, &mut self.destroyed);
+            }
+        }
+        for root in &record.met {
+            if let Some(met) = self.destroyed.get_mut(root) {
+                *met = true;
+            }
+        }
+    }
+
+    /// Counts fired button events; a change may have restarted a settled animation.
+    pub fn events_fired(&self) -> u64 {
+        self.events_fired
+    }
+}
+
+/// Adds a sample to the running recording, if any. A playing sample makes the paint
+/// unreplayable, so the recording stops collecting keys.
+fn note_sample(recording: &mut Option<AnimationRecord>, key: &str, playing: bool) {
+    let Some(record) = recording.as_mut().filter(|record| !record.playing) else {
+        return;
+    };
+    if playing {
+        record.playing = true;
+        record.sampled = Vec::new();
+        record.met = Vec::new();
+    } else {
+        record.sampled.push(key.to_owned());
     }
 }
 
@@ -249,6 +345,15 @@ impl Component {
             self.last = now;
         }
         self.written
+    }
+
+    /// Whether an active instance still advances with time.
+    fn playing(&self) -> bool {
+        !self.destroyed
+            && self
+                .active
+                .iter()
+                .any(|&index| self.instances[index].state == State::Playing)
     }
 
     /// Resources are ready at the first paint.
