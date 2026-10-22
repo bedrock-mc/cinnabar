@@ -19,7 +19,9 @@ impl ItemUseRuntime {
     /// `completed_tick`, which vanilla keeps until that tick.
     pub fn observe_use_button(&mut self, held: bool, completed_tick: u64) {
         if held {
-            if let Some(active) = self.active.as_mut() {
+            if let Some(active) = self.active.as_mut()
+                && active.has_run(completed_tick)
+            {
                 active.button_owned = true;
             }
         } else {
@@ -37,7 +39,7 @@ impl ItemUseRuntime {
         }
         let Some((_, cleared)) = self.cleared_use.take_if(|(tick, cleared)| {
             *tick > completed_tick
-                && cleared.started_tick < *tick
+                && cleared.has_run(tick.saturating_sub(1))
                 && (cleared.button_owned || !owned_only)
         }) else {
             return;
@@ -75,7 +77,9 @@ impl ItemUseRuntime {
     pub fn observe_gameplay_focus(&mut self, focused: bool, completed_tick: u64) {
         if self.gameplay_focused && !focused {
             self.restore_cleared_use(completed_tick, false);
-            if let Some(active) = self.active.as_mut() {
+            if let Some(active) = self.active.as_mut()
+                && active.has_run(completed_tick)
+            {
                 active.button_owned = true;
             }
         }

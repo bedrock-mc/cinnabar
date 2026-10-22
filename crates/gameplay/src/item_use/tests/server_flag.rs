@@ -99,7 +99,7 @@ fn losing_focus_releases_a_server_started_use() {
     runtime.adopt_server_using_item(true);
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
     assert!(!runtime.is_releasing(false));
-    runtime.observe_gameplay_focus(false, 0);
+    runtime.observe_gameplay_focus(false, 10);
     assert!(runtime.is_releasing(false));
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
 }
@@ -169,7 +169,12 @@ fn the_use_button_owns_a_server_start_outside_maintenance() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    runtime.observe_use_button(true, 0);
+    runtime.observe_use_button(true, 9);
+    assert!(
+        !runtime.is_releasing(false),
+        "an unrun server start is not a use yet"
+    );
+    runtime.observe_use_button(true, 10);
     assert!(runtime.is_releasing(false));
 }
 
@@ -278,4 +283,30 @@ fn button_up_releases_a_held_use_a_pending_clear_stopped() {
     runtime.observe_use_button(false, 11);
     assert!(runtime.is_releasing(false));
     assert_eq!(kinds(&runtime.step(&frame(12, false))), ["release"]);
+}
+
+/// A button use admitted for an upcoming tick exists at once, so button-up
+/// after a server clear for that tick still releases it.
+#[test]
+fn button_up_releases_an_admitted_use_a_clear_stopped_before_its_tick() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
+    runtime.adopt_server_using_item(false);
+    runtime.resolve_server_using_item(&frame(10, true));
+    runtime.observe_use_button(false, 9);
+    assert_eq!(kinds(&runtime.step(&frame(10, false))), ["release"]);
+}
+
+/// Focus loss before a server start's tick runs sends no release: vanilla has
+/// not started that use yet.
+#[test]
+fn losing_focus_before_a_server_start_runs_sends_no_release() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_gameplay_focus(true, 9);
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.observe_gameplay_focus(false, 9);
+    assert!(!runtime.is_releasing(false));
+    assert!(runtime.step(&frame(10, false)).packets.is_empty());
 }

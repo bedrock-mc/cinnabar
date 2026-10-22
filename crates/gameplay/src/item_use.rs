@@ -419,6 +419,7 @@ impl ItemUseRuntime {
         self.apply_server_using_item(frame, &mut outcome);
         if frame.held
             && let Some(active) = self.active.as_mut()
+            && active.has_run(frame.tick.saturating_sub(1))
         {
             active.button_owned = true;
         }
@@ -650,6 +651,12 @@ impl ItemUseRuntime {
 }
 
 impl ActiveUse {
+    /// Whether the use exists natively once `completed_tick` has run: a
+    /// button start exists at once, a server start only after its tick.
+    fn has_run(&self, completed_tick: u64) -> bool {
+        !self.server_started || self.started_tick <= completed_tick
+    }
+
     /// Unverified inventory preserves a use; a different selected slot or item cancels it.
     fn selection_changed(&self, selection: Option<&FrozenMiningSelection>) -> bool {
         selection.is_some_and(|selection| {

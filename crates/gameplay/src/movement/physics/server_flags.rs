@@ -96,19 +96,28 @@ struct FlagOverlay {
     using_item: Option<bool>,
     /// A stamped write here awaits a replay through this tick.
     pending: bool,
-    /// A live write landed here, so it belongs to this tick's own capture.
-    live: bool,
+    /// Live writes made before this tick ran, part of the tick's own capture.
+    captured: CapturedWrites,
 }
 
-/// What a later write stamped before an overlay's tick compares against.
+/// Live server writes captured with one tick.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CapturedWrites {
+    pose: PoseWrite,
+    spinning: Option<bool>,
+    using_item: Option<bool>,
+}
+
+/// What one stamped update compares against, fixed before it records any
+/// field: the live state while a correction of the frame awaits replay,
+/// otherwise the frame's capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WriteBase {
-    /// The live state, while a stamped write there awaits replay.
-    Live,
-    /// The frame's own state including live writes made before it ran.
-    Captured,
-    /// The local state entering the tick, without replayed corrections.
-    Local,
+pub(super) struct WriteBases {
+    pending: bool,
+    mode: sim::MovementMode,
+    spinning: bool,
+    using_item: Option<bool>,
+    captured: CapturedWrites,
 }
 
 /// Retained server flag writes and state awaiting adoption.
@@ -132,17 +141,6 @@ impl ServerFlagAuthority {
 
     fn overlay(&self, tick: u64) -> Option<&FlagOverlay> {
         self.overlays.iter().find(|overlay| overlay.tick == tick)
-    }
-
-    /// The base for a write stamped before `tick`, as vanilla compares a write
-    /// with the live actor while a correction of that frame is pending and
-    /// with the frame's capture once replay applied it.
-    fn base(&self, tick: u64) -> WriteBase {
-        match self.overlay(tick) {
-            Some(overlay) if overlay.pending => WriteBase::Live,
-            Some(overlay) if overlay.live => WriteBase::Captured,
-            _ => WriteBase::Local,
-        }
     }
 
     /// Marks stamped writes up to `tick` as applied by a completed replay.
@@ -183,7 +181,7 @@ impl ServerFlagAuthority {
                 spinning: None,
                 using_item: None,
                 pending: false,
-                live: false,
+                captured: CapturedWrites::default(),
             },
         );
         &mut self.overlays[index]
@@ -220,7 +218,7 @@ impl LocalPhysicsController {
         self.server_control_flags.get_or_insert_default().mode = Some(self.modes.mode());
         if let Some(overlay) = self.live_overlay() {
             overlay.pose = differing.over(overlay.pose);
-            overlay.live = true;
+            overlay.captured.pose = differing.over(overlay.captured.pose);
         }
     }
 
@@ -248,6 +246,33 @@ impl LocalPhysicsController {
         self.input_edges.replace_server_pose(mode, spinning);
     }
 
+    /// Fixes the bases one update stamped at retained `tick` compares against,
+    /// as vanilla compares a write with the live actor while a correction of
+    /// that frame is pending and with the frame's capture once replay applied it.
+    pub(super) fn write_bases(&self, tick: u64) -> WriteBases {
+        let overlay = tick
+            .checked_add(1)
+            .and_then(|after| self.server_flags.overlay(after));
+        WriteBases {
+            // A correction pending anywhere in history, as vanilla's history-wide mask.
+            pending: self
+                .server_flags
+                .overlays
+                .iter()
+                .any(|overlay| overlay.pending),
+            mode: self.modes.mode(),
+            spinning: self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.spin_attack_ticks.is_some()),
+            using_item: self
+                .server_flags
+                .pending_using_item
+                .or(overlay.and_then(|overlay| overlay.using_item)),
+            captured: overlay.map(|overlay| overlay.captured).unwrap_or_default(),
+        }
+    }
+
     /// Writes before the tick after retained `tick`, created on demand.
     fn retained_overlay(&mut self, tick: u64) -> Option<&mut FlagOverlay> {
         let after = tick.checked_add(1)?;
@@ -265,6 +290,7 @@ impl LocalPhysicsController {
         &mut self,
         tick: u64,
         anchor_mode: sim::MovementMode,
+        bases: WriteBases,
         write: PoseWrite,
     ) -> bool {
         let Some(after) = tick.checked_add(1) else {
@@ -275,10 +301,10 @@ impl LocalPhysicsController {
             .overlay(after)
             .map(|overlay| overlay.pose)
             .unwrap_or_default();
-        let entering = match self.server_flags.base(after) {
-            WriteBase::Live => self.modes.mode(),
-            WriteBase::Captured => earlier.resulting(anchor_mode),
-            WriteBase::Local => anchor_mode,
+        let entering = if bases.pending {
+            bases.mode
+        } else {
+            bases.captured.pose.resulting(anchor_mode)
         };
         let differing = write.differing_from(entering);
         if differing.resulting(entering) == entering {
@@ -333,7 +359,7 @@ impl LocalPhysicsController {
             self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
             if let Some(overlay) = self.live_overlay() {
                 overlay.spinning = Some(spinning);
-                overlay.live = true;
+                overlay.captured.spinning = Some(spinning);
             }
         }
     }
@@ -341,7 +367,12 @@ impl LocalPhysicsController {
     /// Retains a spin write stamped at retained `tick` when it differs from the
     /// spin entering the next tick, and applies it live; returns whether
     /// history changed.
-    pub(super) fn retain_server_spin(&mut self, tick: u64, spinning: Option<bool>) -> bool {
+    pub(super) fn retain_server_spin(
+        &mut self,
+        tick: u64,
+        bases: WriteBases,
+        spinning: Option<bool>,
+    ) -> bool {
         let Some(spinning) = spinning else {
             return false;
         };
@@ -349,20 +380,10 @@ impl LocalPhysicsController {
             .history
             .state_at(tick)
             .is_some_and(|state| state.spin_attack_ticks.is_some());
-        let Some(after) = tick.checked_add(1) else {
-            return false;
-        };
-        let written = self
-            .server_flags
-            .overlay(after)
-            .and_then(|overlay| overlay.spinning);
-        let base = match self.server_flags.base(after) {
-            WriteBase::Live => self
-                .state
-                .as_ref()
-                .is_some_and(|state| state.spin_attack_ticks.is_some()),
-            WriteBase::Captured => written.unwrap_or(local),
-            WriteBase::Local => local,
+        let base = if bases.pending {
+            bases.spinning
+        } else {
+            bases.captured.spinning.unwrap_or(local)
         };
         if spinning == base {
             return false;
@@ -397,40 +418,47 @@ impl LocalPhysicsController {
         }
     }
 
-    /// Records a server `UsingItem` write for the item-use owner. Live writes
-    /// always apply; a retained or stale stamp (`tick`) applies only when it
-    /// differs from the use entering the next tick, including earlier server
-    /// writes there.
-    pub(super) fn note_server_using_item(&mut self, tick: Option<u64>, using: Option<bool>) {
+    /// Records a `UsingItem` write stamped at retained `tick` for the item-use
+    /// owner when it differs from the use entering the next tick.
+    pub(super) fn retain_server_using_item(
+        &mut self,
+        tick: u64,
+        bases: WriteBases,
+        using: Option<bool>,
+    ) -> bool {
+        let Some(using) = using else {
+            return false;
+        };
+        let local = self
+            .controller_history
+            .iter()
+            .find(|frame| frame.tick == tick)
+            .map(|frame| frame.using_item);
+        let base = if bases.pending {
+            bases.using_item.or(local)
+        } else {
+            bases.captured.using_item.or(local)
+        };
+        if base == Some(using) {
+            return false;
+        }
+        if let Some(overlay) = self.retained_overlay(tick) {
+            overlay.using_item = Some(using);
+            overlay.pending = true;
+        }
+        self.server_flags.pending_using_item = Some(using);
+        // Vanilla rewinds for this flag too, which settles the correction.
+        true
+    }
+
+    /// Records a live `UsingItem` write for the item-use owner.
+    pub(super) fn note_server_using_item(&mut self, using: Option<bool>) {
         let Some(using) = using else {
             return;
         };
-        if let Some(tick) = tick {
-            let local = self
-                .controller_history
-                .iter()
-                .find(|frame| frame.tick == tick)
-                .map(|frame| frame.using_item);
-            let after = tick.saturating_add(1);
-            let written = self
-                .server_flags
-                .overlay(after)
-                .and_then(|overlay| overlay.using_item);
-            let base = match self.server_flags.base(after) {
-                WriteBase::Live => self.server_flags.pending_using_item.or(written).or(local),
-                WriteBase::Captured => written.or(local),
-                WriteBase::Local => local,
-            };
-            if base == Some(using) {
-                return;
-            }
-            if let Some(overlay) = self.retained_overlay(tick) {
-                overlay.using_item = Some(using);
-                overlay.pending = true;
-            }
-        } else if let Some(overlay) = self.live_overlay() {
+        if let Some(overlay) = self.live_overlay() {
             overlay.using_item = Some(using);
-            overlay.live = true;
+            overlay.captured.using_item = Some(using);
         }
         self.server_flags.pending_using_item = Some(using);
     }

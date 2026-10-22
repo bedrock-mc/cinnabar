@@ -289,15 +289,15 @@ impl LocalPhysicsController {
             TimelineSlot::Stale => self.history.oldest_tick(),
         };
         let Some(tick) = rewind else {
-            self.note_server_using_item(None, flags.using_item);
+            self.note_server_using_item(flags.using_item);
             self.adopt_live_spin(flags.spinning);
             self.adopt_live_flags(flags);
             return None;
         };
-        self.note_server_using_item(Some(tick), flags.using_item);
+        let bases = self.write_bases(tick);
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
-        let mut changed = false;
+        let mut changed = self.retain_server_using_item(tick, bases, flags.using_item);
         if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
             let (edited, _) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
@@ -344,8 +344,8 @@ impl LocalPhysicsController {
             changed |= edited;
             present.sneaking = reached.then_some(sneaking);
         }
-        changed |= self.retain_server_spin(tick, flags.spinning);
-        changed |= self.retain_server_pose(tick, anchor.mode, PoseWrite::from_flags(&flags));
+        changed |= self.retain_server_spin(tick, bases, flags.spinning);
+        changed |= self.retain_server_pose(tick, anchor.mode, bases, PoseWrite::from_flags(&flags));
         self.adopt_live_flags(client_world::MovementFlagUpdate {
             gliding: None,
             swimming: None,

@@ -483,3 +483,81 @@ fn a_withdrawn_stamped_spin_keeps_its_effective_clear() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// One stamped update fixes its comparison bases before recording any field,
+/// so an item-use change cannot make its pose compare with the live glide.
+#[test]
+fn one_update_compares_every_flag_with_the_same_base() {
+    let (mut physics, mut ticker) = airborne();
+    let jump = |jumping| MovementInput {
+        jumping,
+        ..MovementInput::default()
+    };
+    for jumping in [false, false, true] {
+        tick_with(&mut physics, &mut ticker, jump(jumping), elytra(true));
+    }
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let update = flags(|flags| {
+        flags.using_item = Some(true);
+        flags.gliding = Some(true);
+    });
+    assert_eq!(physics.apply_server_movement_flags(101, update), Some(101));
+}
+
+/// A live write captured with a frame stays that frame's base after a stamped
+/// correction replays, so a later echo of the live value changes nothing.
+#[test]
+fn a_captured_live_write_stays_the_base_after_a_correction() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(physics.apply_server_movement_flags(0, write(true)), None);
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(false)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.apply_server_movement_flags(101, write(true)), None);
+}
+
+/// An item-only stamped write replays like other flags, so once applied a
+/// later write equal to the frame's capture changes nothing.
+#[test]
+fn an_item_only_stamped_write_settles_through_replay() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let using = |value| flags(|flags| flags.using_item = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(101, using(true)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.take_server_using_item(), Some(true));
+    physics.apply_server_movement_flags(101, using(false));
+    assert_eq!(physics.take_server_using_item(), None);
+}
+
+/// While a stamped correction awaits replay anywhere in history, a write for
+/// another frame compares with the live state, as vanilla's history-wide mask.
+#[test]
+fn a_pending_correction_elsewhere_makes_writes_compare_live() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(true)),
+        Some(101)
+    );
+    assert_eq!(
+        physics.apply_server_movement_flags(102, write(false)),
+        Some(102)
+    );
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
