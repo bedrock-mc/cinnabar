@@ -290,3 +290,47 @@ fn positive_set_health_after_an_invalid_range_keeps_both_consumers_alive() {
     );
     assert!(!app.world().resource::<MenuRuntime>().is_visible());
 }
+
+#[test]
+fn repeated_health_entries_reopen_both_respawn_consumers_after_readiness() {
+    let (mut app, _) = fixture_app();
+    health(&mut app, 1, 0);
+    app.update();
+    ready(&mut app, 2);
+    app.update();
+    assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
+    let attributes = [20.0, 0.0, 20.0, 0.0].map(|current| protocol::ActorAttribute {
+        name: protocol_ids::Attribute::Health.wire_name().into(),
+        min: 0.0,
+        max: 20.0,
+        current,
+        default: None,
+        modifiers: Default::default(),
+    });
+    submit(
+        &mut app,
+        3,
+        WorldEvent::Actor(protocol::ActorEvent::Attributes(
+            protocol::ActorAttributesUpdateEvent {
+                runtime_id: 42,
+                dimension: 0,
+                tick: 0,
+                attributes: Arc::from(attributes),
+            },
+        )),
+    );
+    app.update();
+    assert!(app.world().resource::<ClientWorld>().respawn.input_held());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .local_player_alive(),
+        Some(false)
+    );
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .send_respawn_request(|| true)
+    );
+}

@@ -1,12 +1,20 @@
 use super::*;
 
 impl WorldAuthority {
-    /// Publishes each accepted local death once, preserving life state across actor replacement.
-    pub(super) fn publish_local_life(&mut self, sequence: u64, dead: bool) {
-        if dead && self.local_player_dead != Some(true) {
+    /// Applies life entries in wire order and emits at most one input hold per packet.
+    pub(super) fn publish_local_life(
+        &mut self,
+        sequence: u64,
+        entries: impl IntoIterator<Item = bool>,
+    ) {
+        let mut died = false;
+        for dead in entries {
+            died |= dead && self.local_player_dead != Some(true);
+            self.local_player_dead = Some(dead);
+        }
+        if died {
             self.push_committed_control(CommittedControlEvent::LocalDeath { sequence });
         }
-        self.local_player_dead = Some(dead);
     }
 
     /// Retires an unknown initial death before its delayed health snapshot arrives.

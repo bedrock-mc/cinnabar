@@ -692,9 +692,11 @@ fn admitted_lethal_attribute_burst_retains_both_controls_without_overflow() {
         .unwrap();
     let count = MAX_ADMITTED_WORLD_EVENTS - 1;
     for index in 0..count {
-        let current = if index % 2 == 0 { 0.0 } else { 20.0 };
         let attributes = [
-            (protocol_ids::Attribute::Health, current),
+            (protocol_ids::Attribute::Health, 20.0),
+            (protocol_ids::Attribute::Health, 0.0),
+            (protocol_ids::Attribute::Health, 20.0),
+            (protocol_ids::Attribute::Health, 0.0),
             (protocol_ids::Attribute::Movement, 0.1),
         ]
         .map(|(attribute, current)| ActorAttribute {
@@ -736,14 +738,11 @@ fn admitted_lethal_attribute_burst_retains_both_controls_without_overflow() {
             .iter()
             .filter(|event| matches!(event, CommittedControlEvent::LocalDeath { .. }))
             .count(),
-        count.div_ceil(2)
+        count
     );
     assert_eq!(stream.committed_sequence(), count as u64 + 1);
     stream
         .authority
         .restore_committed_controls(controls.into_iter());
-    assert_eq!(
-        stream.take_committed_controls().len(),
-        count + count.div_ceil(2)
-    );
+    assert_eq!(stream.take_committed_controls().len(), count * 2);
 }

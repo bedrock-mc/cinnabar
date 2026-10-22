@@ -127,30 +127,12 @@ impl WorldAuthority {
                     self.commit_local_actor_move(sequence, *movement);
                     self.resolve_actor_teleport(movement);
                 }
-                let local_death = match &event {
+                let local_health_attributes = match &event {
                     ActorEvent::Attributes(update)
                         if update.runtime_id == self.local_player_runtime_id
                             && update.dimension == self.current_dimension =>
                     {
-                        update
-                            .attributes
-                            .iter()
-                            .filter(|attribute| {
-                                attribute.name.as_ref() == Attribute::Health.wire_name()
-                            })
-                            .filter_map(|attribute| {
-                                crate::LocalPlayerStat::from_attribute(attribute)
-                                    .map(|_| attribute.current <= 0.0)
-                            })
-                            .next_back()
-                    }
-                    ActorEvent::Status(status)
-                        if status.runtime_id == self.local_player_runtime_id =>
-                    {
-                        match status.kind {
-                            protocol::ActorStatusKind::Death => Some(true),
-                            _ => None,
-                        }
+                        Some(Arc::clone(&update.attributes))
                     }
                     _ => None,
                 };
@@ -325,16 +307,27 @@ impl WorldAuthority {
                         }),
                     });
                 }
-                if let Some(dead) = local_death
-                    && matches!(
-                        result,
-                        crate::actor_store::ActorApplyResult::Updated
-                            | crate::actor_store::ActorApplyResult::MissingActor
-                            | crate::actor_store::ActorApplyResult::CapacityRejected
-                    )
-                {
-                    self.publish_local_life(sequence, dead);
-                    if local_death_status {
+                if matches!(
+                    result,
+                    crate::actor_store::ActorApplyResult::Updated
+                        | crate::actor_store::ActorApplyResult::MissingActor
+                        | crate::actor_store::ActorApplyResult::CapacityRejected
+                ) {
+                    if let Some(attributes) = local_health_attributes {
+                        self.publish_local_life(
+                            sequence,
+                            attributes
+                                .iter()
+                                .filter(|attribute| {
+                                    attribute.name.as_ref() == Attribute::Health.wire_name()
+                                })
+                                .filter_map(|attribute| {
+                                    crate::LocalPlayerStat::from_attribute(attribute)
+                                        .map(|_| attribute.current <= 0.0)
+                                }),
+                        );
+                    } else if local_death_status {
+                        self.publish_local_life(sequence, [true]);
                         self.push_committed_ui(CommittedUiEvent::Ui {
                             sequence,
                             event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 }),
@@ -425,7 +418,7 @@ impl WorldAuthority {
                         self.actors
                             .set_local_health(self.local_player_runtime_id, health);
                         if let Ok(health) = u16::try_from(health) {
-                            self.publish_local_life(sequence, health == 0);
+                            self.publish_local_life(sequence, [health == 0]);
                         }
                         if health <= 0 {
                             self.observe_totem_status(self.local_player_runtime_id, false);
