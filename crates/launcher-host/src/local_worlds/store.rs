@@ -352,6 +352,10 @@ impl Store {
             .map_err(|error| failed(format!("publish imported world: {error}")))?;
         drop(state);
         world.size_bytes = dir_size(&dir);
+        world.options_unavailable = matches!(
+            super::level_dat::read(&dir.join(LEVEL_DIR).join("level.dat")),
+            Ok(LevelData::Oversized)
+        );
         Ok(world)
     }
 

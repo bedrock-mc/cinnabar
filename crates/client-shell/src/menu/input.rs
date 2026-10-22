@@ -87,6 +87,9 @@ pub struct GuiScaleDrag {
 impl MenuRuntime {
     /// Focus `field` with its caret after the text, as a newly selected box.
     pub(super) fn focus_field(&mut self, field: MenuField) {
+        if let MenuField::WorldOption(id) = field {
+            self.local_ui.begin_option_edit(id);
+        }
         self.field = Some(field);
         self.edit_field(|editor| editor.move_end(false));
     }

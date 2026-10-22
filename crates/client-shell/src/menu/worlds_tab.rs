@@ -21,11 +21,6 @@ use {
 use launcher::menu::worlds_tab::LocalWorldAction;
 use launcher::menu::worlds_tab::world_card;
 
-/// Whether a numeric field's text is a value its option accepts.
-fn valid_option_text(id: launcher::local_worlds::options::WorldOption, text: &str) -> bool {
-    text.parse::<i32>().is_ok_and(|value| id.accepts(value))
-}
-
 /// The menu's side of the local-world screens: the mirrored view, queued presses and the
 /// name and seed fields' editors.
 #[derive(Debug)]
@@ -45,9 +40,22 @@ pub(super) struct LocalWorldsUi {
     max_players: Option<u32>,
     /// The worlds screen was showing last frame, so a server was already readied for it.
     prepared: bool,
+    /// Numeric options focused since the last sync, whose text still goes to the module after
+    /// focus leaves.
+    editing: std::collections::BTreeSet<launcher::local_worlds::options::WorldOption>,
 }
 
 impl LocalWorldsUi {
+    /// Starts editing a numeric option from the text the module keeps for it.
+    pub(super) fn begin_option_edit(&mut self, id: launcher::local_worlds::options::WorldOption) {
+        let text = self.view.numeric_text(id);
+        self.options
+            .get_mut(&id)
+            .expect("numeric world option")
+            .set_text(&text);
+        self.editing.insert(id);
+    }
+
     /// Local preparation progress covers standalone prompts and owns their input.
     pub(super) fn progress_open(&self) -> bool {
         self.view.progress.is_some()
@@ -81,6 +89,7 @@ impl Default for LocalWorldsUi {
             hosted: false,
             max_players: None,
             prepared: false,
+            editing: Default::default(),
         }
     }
 }
@@ -139,22 +148,6 @@ impl MenuRuntime {
         }
         self.local_ui.prepared = on_worlds;
         for action in std::mem::take(&mut self.local_ui.actions) {
-            // Back from the edit screen saves it too.
-            let submits = match action {
-                LocalWorldAction::Create | LocalWorldAction::PlayFromEdit => true,
-                LocalWorldAction::Back => worlds.menu().screen() == Screen::Edit,
-                _ => false,
-            };
-            if submits
-                && self
-                    .local_ui
-                    .options
-                    .iter()
-                    .any(|(&id, editor)| !valid_option_text(id, editor.as_str()))
-            {
-                worlds.input(Input::InvalidOption);
-                continue;
-            }
             if let Some(input) = action.input() {
                 worlds.input(input);
             }
@@ -197,19 +190,6 @@ impl MenuRuntime {
             view.progress = Some(Progress::connecting(name));
         }
         self.finish_storage_world(view.screen);
-        // Invalid text stays until corrected or the form resets, so submit and Back can refuse it.
-        let reset = view.screen != before;
-        for (&id, editor) in &mut self.local_ui.options {
-            let valid = valid_option_text(id, editor.as_str());
-            if reset || (valid && self.field != Some(MenuField::WorldOption(id))) {
-                let options = view
-                    .edit
-                    .as_ref()
-                    .filter(|_| view.screen == Screen::Edit)
-                    .map_or(&view.create.options, |edit| &edit.options);
-                editor.set_text(&options.get(id).to_string());
-            }
-        }
         self.local_ui.view = view;
         let active = self.local_world_joined && (in_session || self.is_connecting());
         if active != self.local_world_active {
@@ -251,12 +231,10 @@ impl MenuRuntime {
             }
             _ => {}
         }
-        view.option_text = self
-            .local_ui
-            .options
-            .iter()
-            .map(|(&id, editor)| (id, editor.as_str().to_owned()))
-            .collect();
+        for &id in &self.local_ui.editing {
+            view.option_text
+                .insert(id, self.local_ui.options[&id].as_str().to_owned());
+        }
         view
     }
 
@@ -274,23 +252,20 @@ impl MenuRuntime {
 
     fn push_local_text(&mut self, worlds: &mut LocalWorlds) {
         let ui = &self.local_ui;
-        let view = &ui.view;
-        if matches!(view.screen, Screen::Create | Screen::Edit) {
-            let options = view
-                .edit
-                .as_ref()
-                .filter(|_| view.screen == Screen::Edit)
-                .map_or(&view.create.options, |edit| &edit.options);
-            for (&id, editor) in &ui.options {
-                if let Ok(value) = editor.as_str().parse::<i32>()
-                    && value != options.get(id)
-                    && id.accepts(value)
-                    && options.editable(id, view.screen == Screen::Edit)
-                {
-                    worlds.input(Input::SetOption(id, value));
-                }
+        for &id in &ui.editing {
+            let text = ui.options[&id].as_str();
+            if matches!(ui.view.screen, Screen::Create | Screen::Edit)
+                && text != ui.view.numeric_text(id)
+            {
+                worlds.input(Input::SetOptionText(id, text.to_owned()));
             }
         }
+        let field = self.field;
+        self.local_ui
+            .editing
+            .retain(|&id| field == Some(MenuField::WorldOption(id)));
+        let ui = &self.local_ui;
+        let view = &ui.view;
         match view.screen {
             Screen::Create
                 if ui.name.as_str() != view.create.name
@@ -664,6 +639,11 @@ mod tests {
             worlds.menu().create_form().options.get(O::SleepPercentage),
             35
         );
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        assert_eq!(menu.local_ui.options[&O::SleepPercentage].as_str(), "35");
         menu.local_ui
             .options
             .get_mut(&O::SleepPercentage)
@@ -696,11 +676,11 @@ mod tests {
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Cheats)));
         assert_eq!(menu.field, None);
         menu.sync_local_worlds(&mut worlds, false);
-        assert_eq!(menu.local_ui.options[&O::SleepPercentage].as_str(), "355");
+        assert_eq!(worlds.menu().view().numeric_text(O::SleepPercentage), "355");
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::Create));
         menu.sync_local_worlds(&mut worlds, false);
         assert!(worlds.menu().form_error().is_some());
-        assert_eq!(menu.local_ui.options[&O::SleepPercentage].as_str(), "355");
+        assert!(!worlds.menu().busy());
     }
 
     /// Back saves an edit, so an invalid number must stop it before the last valid prefix saves.

@@ -376,3 +376,20 @@ fn a_cancelled_import_publishes_nothing_and_a_retry_makes_one_world() {
     assert_eq!(fixture.store.list().expect("list").len(), 1);
     assert_only_listed_worlds(&fixture);
 }
+
+/// The imported record reports oversized level data at once, before any relisting.
+#[test]
+fn an_import_with_oversized_level_data_reports_options_unavailable() {
+    let fixture = fixture();
+    let level = crate::local_worlds::test_support::padded_level_dat(
+        &level_dat(),
+        crate::local_worlds::level_dat::MAX_LEVEL_DAT_BYTES as usize,
+    );
+    let archive = fixture.archive("Huge.mcworld", &[("level.dat", &level)]);
+    let world = fixture.import(&archive).expect("import");
+    assert!(world.options_unavailable);
+    let level_dir = fixture.store.dir(&world.id).expect("dir").join(LEVEL_DIR);
+    assert!(fs::read(level_dir.join("level.dat")).expect("level") == level);
+    let small = fixture.archive("Small.mcworld", &[("level.dat", &level_dat())]);
+    assert!(!fixture.import(&small).expect("import").options_unavailable);
+}

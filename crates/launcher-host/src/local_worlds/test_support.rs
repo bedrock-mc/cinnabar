@@ -479,14 +479,21 @@ impl Runner for FakeRunner {
     }
 }
 
-/// Valid level data grown by an `extra`-byte array tag, for read-bound fixtures.
+/// Valid level data grown by an `extra`-byte array tag, for read-bound fixtures. The padding
+/// is pseudo-random so archives of it stay within import compression limits.
 pub(crate) fn padded_level_dat(level: &[u8], extra: usize) -> Vec<u8> {
     let mut body = level[8..level.len() - 1].to_vec();
     body.push(7);
     body.extend(7u16.to_le_bytes());
     body.extend(b"padding");
     body.extend((extra as i32).to_le_bytes());
-    body.resize(body.len() + extra, 0);
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    body.extend((0..extra).map(|_| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    }));
     body.push(0);
     let mut bytes = level[..4].to_vec();
     bytes.extend((body.len() as u32).to_le_bytes());

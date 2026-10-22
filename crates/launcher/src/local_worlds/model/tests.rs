@@ -890,3 +890,46 @@ fn world_options_are_unavailable_when_level_data_cannot_be_read() {
             .enabled(O::ShowCoordinates)
     );
 }
+
+fn bds_edit_menu() -> WorldsMenu {
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![World {
+        backend: Backend::Bds,
+        ..world("id0", "Saved")
+    }]));
+    menu.update(Input::BeginEdit(0));
+    menu
+}
+
+/// Typed text survives the delete modal, so a later Back cannot save the last valid prefix.
+#[test]
+fn world_options_invalid_text_survives_cancelling_delete() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::SleepPercentage, "35".to_owned()));
+    menu.update(Input::SetOptionText(O::SleepPercentage, "355".to_owned()));
+    menu.update(Input::RequestDelete);
+    assert_eq!(menu.screen(), Screen::ConfirmDelete);
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert_eq!(menu.view().numeric_text(O::SleepPercentage), "355");
+    assert!(menu.update(Input::Back).is_empty());
+    assert!(menu.update(Input::PlayFromEdit).is_empty());
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert!(menu.form_error().is_some());
+}
+
+/// A disabled field's text never blocks submitting; configuration writes its sentinel instead.
+#[test]
+fn world_options_disabled_fields_skip_text_validation() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::SleepPercentage, "355".to_owned()));
+    menu.update(Input::SetOption(O::SleepSkipNight, 0));
+    let effects = menu.update(Input::Back);
+    assert!(
+        matches!(effects.as_slice(), [Effect::Update { .. }]),
+        "{effects:?}"
+    );
+    assert!(menu.form_error().is_none());
+}
