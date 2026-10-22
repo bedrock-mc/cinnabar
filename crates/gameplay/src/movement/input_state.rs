@@ -16,10 +16,10 @@ pub struct TickInput {
     pub server_sprinting: Option<bool>,
     /// Server sneak state applied before this tick admits local sneak input.
     pub server_sneaking: Option<bool>,
-    /// Locomotion mode a server pose flag left before this tick, which vanilla
-    /// changes without a start or stop action.
+    /// Locomotion mode this tick started with, after server flag writes, which
+    /// vanilla makes without a start or stop action.
     pub server_mode: Option<sim::MovementMode>,
-    /// Riptide spin a server flag started or cancelled before this tick.
+    /// Riptide spin this tick started with, after server flag writes.
     pub server_spinning: Option<bool>,
 }
 
@@ -30,8 +30,6 @@ pub(super) struct PendingInputEdges {
     sneak: ActionPhase,
     server_sprinting: Option<bool>,
     server_sneaking: Option<bool>,
-    server_mode: Option<sim::MovementMode>,
-    server_spinning: Option<bool>,
 }
 
 impl PendingInputEdges {
@@ -45,7 +43,7 @@ impl PendingInputEdges {
         }
     }
 
-    /// Accumulates button edges and keeps the latest server stance, pose and spin.
+    /// Accumulates button edges and keeps the latest server sprint state.
     pub(super) fn observe(&mut self, input: TickInput) {
         self.jump.pressed |= input.jump.pressed;
         self.jump.released |= input.jump.released;
@@ -53,19 +51,6 @@ impl PendingInputEdges {
         self.sneak.released |= input.sneak.released;
         self.server_sprinting = input.server_sprinting.or(self.server_sprinting);
         self.server_sneaking = input.server_sneaking.or(self.server_sneaking);
-        self.server_mode = input.server_mode.or(self.server_mode);
-        self.server_spinning = input.server_spinning.or(self.server_spinning);
-    }
-
-    /// Replaces the retained server pose and spin baselines, as a replay that
-    /// rebuilt the live state does.
-    pub(super) fn replace_server_pose(
-        &mut self,
-        mode: Option<sim::MovementMode>,
-        spinning: Option<bool>,
-    ) {
-        self.server_mode = mode;
-        self.server_spinning = spinning;
     }
 
     /// Combines retained updates with the latest held requests for a simulation attempt.
@@ -76,8 +61,6 @@ impl PendingInputEdges {
         input.sneak.released = self.sneak.released;
         input.server_sprinting = self.server_sprinting;
         input.server_sneaking = self.server_sneaking;
-        input.server_mode = self.server_mode;
-        input.server_spinning = self.server_spinning;
         input
     }
 }

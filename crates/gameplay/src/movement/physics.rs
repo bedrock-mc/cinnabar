@@ -452,7 +452,7 @@ impl LocalPhysicsController {
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
-        self.server_flags.clear_overlays();
+        self.server_flags.reset_history();
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();
@@ -483,14 +483,6 @@ impl LocalPhysicsController {
     ) {
         self.reanchor_network_position(network_position, tick, on_ground);
         self.discard_next_elapsed = self.is_active();
-    }
-
-    /// Fixed ticks a frame of `elapsed` would complete, without advancing the clock.
-    pub fn ticks_due(&self, elapsed: Duration) -> u64 {
-        if self.state.is_none() || self.discard_next_elapsed {
-            return 0;
-        }
-        fixed_ticks::whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
     }
 
     /// Advances only when a finite, simulable server motion enters live prediction.
@@ -578,6 +570,13 @@ impl LocalPhysicsController {
                 .map(|request| request.launch);
             input.skip_travel = self.skip_travel_pending;
             let mut tick_input = self.input_edges.sample(context.input);
+            let (entry_flags, flag_correction) = server_flags::capture_tick(
+                &mut self.server_flags,
+                &mut self.modes,
+                state,
+                &mut tick_input,
+                (item_use_modifier.is_some(), !self.sample_history.is_empty()),
+            );
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -739,7 +738,8 @@ impl LocalPhysicsController {
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
                         server_sprinting: tick_input.server_sprinting,
-                        using_item: item_use_modifier.is_some(),
+                        entry_flags,
+                        flag_correction,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,

@@ -33,8 +33,6 @@ struct ActiveUse {
     /// The use button started or has held this use, so button-up releases it.
     /// A use a server flag started is released only after the button held it.
     button_owned: bool,
-    /// A server `UsingItem` set started this use rather than the button.
-    server_started: bool,
 }
 
 /// Stack and environment facts for a selected trident.
@@ -160,15 +158,10 @@ pub struct ItemUseRuntime {
     riptide_launch: Option<RiptideLaunch>,
     /// Selection, eligibility and facing captured together at the first release edge.
     riptide_release: Option<RiptideRelease>,
-    /// Server `UsingItem` value awaiting the next resolved tick.
+    /// Server `UsingItem` value awaiting a movement tick to reconcile with.
     server_using: Option<bool>,
     /// Gameplay had input focus on the last observed frame.
     gameplay_focused: bool,
-    /// A server-started use's tick whose start a later clear withdrew before it ran.
-    withdrawn_start: Option<u64>,
-    /// A use a server clear stopped, with the tick it applied to; a set before
-    /// that tick runs restores it, as vanilla's per-tick check never saw the clear.
-    cleared_use: Option<(u64, ActiveUse)>,
 }
 
 impl ItemUseRuntime {
@@ -199,21 +192,10 @@ impl ItemUseRuntime {
     pub fn retire_reselected_use(&mut self, slot: u8) {
         self.observe_selected_slot(Some(slot));
         if self
-            .cleared_use
-            .as_ref()
-            .is_some_and(|(_, cleared)| cleared.selection.slot != slot)
-        {
-            self.cleared_use = None;
-        }
-        if self
             .active
             .as_ref()
             .is_some_and(|active| active.selection.slot != slot)
         {
-            if let Some(active) = self.active.as_ref().filter(|active| active.server_started) {
-                // Only a start whose tick has not run is still queued to withdraw.
-                self.withdrawn_start = Some(active.started_tick);
-            }
             self.active = None;
             self.riptide_release = None;
             self.release_pending = false;
@@ -346,7 +328,6 @@ impl ItemUseRuntime {
         self.riptide_launch = None;
         self.riptide_release = None;
         self.server_using = None;
-        self.cleared_use = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -375,7 +356,7 @@ impl ItemUseRuntime {
 
     /// Whether this frame has anything to resolve against an unsent tick.
     pub const fn has_work(&self, held: bool) -> bool {
-        self.pending.latched_press || self.active.is_some() || held || self.server_using.is_some()
+        self.pending.latched_press || self.active.is_some() || held
     }
 
     /// Resolves after completed inputs drain, against the next tick and its preceding pose.
@@ -386,10 +367,7 @@ impl ItemUseRuntime {
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        let edge = self.pending.latched_press
-            || self.release_pending
-            || self.server_using.is_some()
-            || self.is_releasing(held);
+        let edge = self.pending.latched_press || self.release_pending || self.is_releasing(held);
         let ticked = self
             .last_frame_tick
             .is_some_and(|tick| movement.completed_tick() >= tick);
@@ -420,16 +398,14 @@ impl ItemUseRuntime {
                         .is_none_or(|selection| selection.item.block_runtime_id() == 0));
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
-        self.apply_server_using_item(frame, &mut outcome);
         if frame.held
             && let Some(active) = self.active.as_mut()
-            && active.has_run(frame.tick.saturating_sub(1))
         {
             active.button_owned = true;
         }
         let release_pending = std::mem::take(&mut self.release_pending);
         self.end_use(frame, &mut outcome, release_pending);
-        if self.active.is_none() && (pressed || frame.held) && !self.clear_awaits_tick(frame.tick) {
+        if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, &mut outcome);
         }
         if !frame.held {
@@ -564,7 +540,6 @@ impl ItemUseRuntime {
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
                     last_progress_tick: None,
                     button_owned: true,
-                    server_started: false,
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
@@ -655,12 +630,6 @@ impl ItemUseRuntime {
 }
 
 impl ActiveUse {
-    /// Whether the use exists natively once `completed_tick` has run: a
-    /// button start exists at once, a server start only after its tick.
-    fn has_run(&self, completed_tick: u64) -> bool {
-        !self.server_started || self.started_tick <= completed_tick
-    }
-
     /// Unverified inventory preserves a use; a different selected slot or item cancels it.
     fn selection_changed(&self, selection: Option<&FrozenMiningSelection>) -> bool {
         selection.is_some_and(|selection| {
@@ -732,9 +701,6 @@ pub fn admit_on_tick(
         send,
     ) {
         movement.mark_started_using_item(frame.tick);
-    }
-    if let Some(tick) = runtime.take_withdrawn_start() {
-        movement.withdraw_started_using_item(tick);
     }
 }
 

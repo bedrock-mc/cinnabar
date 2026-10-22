@@ -223,8 +223,7 @@ impl LocalPhysicsController {
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
-        let server_flags = &self.server_flags;
-        // Action baselines replay rebuilds from the mode each retained write leaves.
+        // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let (replay, replayed_ticks) = self
             .history
@@ -246,12 +245,22 @@ impl LocalPhysicsController {
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
-                    let baseline = server_flags.apply_before(&mut modes, state);
-                    baselines.push((state.tick + 1, baseline));
                     let frame = controller_frames
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)
                         .expect("controller and prediction histories retain the same ticks");
+                    // Vanilla keeps the capture of the frame replay starts from and
+                    // refreshes later ones before re-applying their corrections.
+                    if frame.tick != tick + 1 {
+                        frame.entry_flags = server_flags::FlagWord::capture(
+                            modes.mode(),
+                            state.spin_attack_ticks.is_some(),
+                            frame.entry_flags.using_item(),
+                        );
+                    }
+                    let word = frame.flag_correction.apply(frame.entry_flags);
+                    server_flags::impose(word, &mut modes, state);
+                    baselines.push((frame.tick, modes.mode(), state.spin_attack_ticks.is_some()));
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
@@ -319,9 +328,11 @@ impl LocalPhysicsController {
             else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
-            if let Some((_, baseline)) = baselines.iter().find(|(tick, _)| *tick == result.tick) {
-                retained.input.server_mode = baseline.mode;
-                retained.input.server_spinning = baseline.spinning;
+            if let Some((_, mode, spinning)) =
+                baselines.iter().find(|(tick, ..)| *tick == result.tick)
+            {
+                retained.input.server_mode = Some(*mode);
+                retained.input.server_spinning = Some(*spinning);
             }
             if self.history.world_at(result.tick).is_none()
                 && retained.world_identity != result.world_identity
@@ -393,7 +404,7 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         self.modes = modes;
-        self.reapply_live_server_flags(tick);
+        self.reapply_queued_server_flags();
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;
         self.last_environment = controller_frames

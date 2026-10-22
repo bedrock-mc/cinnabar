@@ -224,8 +224,10 @@ Server sneak updates preserve local hold/toggle intent, and the next completed i
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Server item-use, glide/swim/crawl and Riptide spin flags start or end the
 local state; pose and spin writes are not start/stop actions, while an item-use start
-reports `StartUsingItem`. Stamped writes apply only when they differ from the local value
-entering the next tick, apply live at once and stay in that frame for later replays. Still
+reports `StartUsingItem`. Each retained frame captures the flag word it starts with; a
+stamped write becomes a correction of the following frame where it differs from that
+capture, and replay keeps the starting frame's capture and refreshes later ones. Item use
+reconciles with the word only on movement ticks. Still
 incomplete: a server start for an item without a held use, item-use slowdown on ticks
 replayed after a stamped start or stop, writes setting several pose flags (the locomotion
 mode keeps one pose), the Riptide spin's entity-hit end, block-climber flags and

@@ -5,22 +5,13 @@ fn bread(tick: u64, held: bool) -> UseFrame {
     item_frame(tick, held, selection(2, MENU_ITEM), "minecraft:bread")
 }
 
-/// A server `UsingItem` set starts the selected held use with StartUsingItem and
-/// no transaction; without the button, button-up never releases it.
+/// A server `UsingItem` set starts the selected held use at its movement tick
+/// with no transaction; without the button, button-up never releases it.
 #[test]
 fn a_server_flag_starts_the_selected_use_without_a_transaction() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
-    assert!(runtime.has_work(false));
-    let mut swings = SwingTracker::default();
-    assert!(step_and_send(
-        &mut runtime,
-        &mut swings,
-        &frame(10, false),
-        7,
-        6,
-        |_| panic!("a server start sends nothing")
-    ));
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
     assert!(runtime.is_using());
     assert_eq!(runtime.movement_modifier(), Some(0.35));
     assert!(!runtime.is_releasing(false));
@@ -34,12 +25,10 @@ fn a_server_flag_starts_the_selected_use_without_a_transaction() {
 fn a_server_started_use_completes_without_a_release() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
-    assert!(runtime.step(&bread(10, false)).started);
-    let outcome = runtime.step(&bread(41, false));
-    assert!(outcome.packets.is_empty());
+    assert!(runtime.resolve_server_using_item(&bread(10, false)));
+    assert!(runtime.step(&bread(41, false)).packets.is_empty());
     assert!(runtime.is_using());
-    let outcome = runtime.step(&bread(42, false));
-    assert!(outcome.packets.is_empty());
+    assert!(runtime.step(&bread(42, false)).packets.is_empty());
     assert!(!runtime.is_using());
 }
 
@@ -48,24 +37,36 @@ fn a_server_started_use_completes_without_a_release() {
 fn the_button_releases_a_server_started_use_it_held() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
-    runtime.step(&frame(10, false));
+    runtime.resolve_server_using_item(&frame(10, false));
     assert!(runtime.step(&frame(11, true)).packets.is_empty());
     assert!(runtime.is_releasing(false));
     assert_eq!(kinds(&runtime.step(&frame(12, false))), ["release"]);
     assert!(!runtime.is_using());
 }
 
-/// A server `UsingItem` clear stops an accepted use without a release transaction.
+/// Holding the use button between ticks owns a server-started use, so
+/// button-up releases it even before held-use maintenance runs again.
+#[test]
+fn the_use_button_owns_a_server_start_outside_maintenance() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.observe_use_button(true);
+    assert!(runtime.is_releasing(false));
+}
+
+/// A server `UsingItem` clear stops an accepted use at its movement tick
+/// without a release transaction.
 #[test]
 fn a_server_clear_stops_the_use_without_a_release() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
     runtime.adopt_server_using_item(false);
-    let outcome = runtime.step(&frame(11, true));
-    assert!(outcome.packets.is_empty());
+    assert!(!runtime.resolve_server_using_item(&frame(11, false)));
     assert!(!runtime.is_using());
-    assert!(!runtime.has_work(false));
+    assert!(!runtime.has_server_using_item());
+    assert!(runtime.step(&frame(11, false)).packets.is_empty());
 }
 
 /// A server start waits for a verified selection and starts nothing for an
@@ -78,30 +79,16 @@ fn a_server_start_needs_a_verified_held_use() {
         selection: None,
         ..frame(10, false)
     };
-    assert!(!runtime.step(&unverified).started);
+    assert!(!runtime.resolve_server_using_item(&unverified));
     assert!(!runtime.is_using());
-    assert!(runtime.has_work(false));
+    assert!(runtime.has_server_using_item());
     let stick = UseFrame {
         air_use: None,
         ..frame(11, false)
     };
-    assert!(!runtime.step(&stick).started);
+    assert!(!runtime.resolve_server_using_item(&stick));
     assert!(!runtime.is_using());
-    assert!(!runtime.has_work(false));
-}
-
-/// Focus leaving gameplay releases a server-started use, as vanilla's focus
-/// and chat handlers do for any use.
-#[test]
-fn losing_focus_releases_a_server_started_use() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_gameplay_focus(true, 0);
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    assert!(!runtime.is_releasing(false));
-    runtime.observe_gameplay_focus(false, 10);
-    assert!(runtime.is_releasing(false));
-    assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
+    assert!(!runtime.has_server_using_item());
 }
 
 /// A server start resolved before physics keeps receiving held-use maintenance
@@ -119,14 +106,10 @@ fn a_pre_physics_server_start_keeps_its_maintenance() {
     flush(&mut movement);
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
-    let sample = runtime
-        .frame_sample(&movement, false, true)
-        .expect("a server write resolves between ticks");
-    assert!(runtime.resolve_server_using_item(&frame(sample.tick, false)));
+    let tick = movement.next_tick();
+    assert!(runtime.resolve_server_using_item(&frame(tick, false)));
     assert!(runtime.frame_sample(&movement, false, true).is_none());
-    movement
-        .enqueue_completed_physics(completed(sample.tick))
-        .unwrap();
+    movement.enqueue_completed_physics(completed(tick)).unwrap();
     flush(&mut movement);
     assert!(
         runtime.frame_sample(&movement, false, true).is_some(),
@@ -134,52 +117,22 @@ fn a_pre_physics_server_start_keeps_its_maintenance() {
     );
 }
 
-/// A server clear before the started use's tick runs withdraws its
-/// `StartUsingItem`, as vanilla only starts the use when that tick reads the flag.
+/// Focus leaving gameplay releases a server-started use, as vanilla's focus
+/// and chat handlers do for any use.
 #[test]
-fn a_clear_before_the_start_tick_withdraws_start_using_item() {
-    use crate::test_support::survival_mining::{completed, evidence, ticker_with_ticks};
-    let mut movement = ticker_with_ticks(1);
-    crate::movement::flush_player_auth_inputs(&mut movement, 8, Some(evidence()), |_, _| {
-        Ok::<_, ()>(())
-    })
-    .unwrap();
-    let tick = movement.next_tick();
+fn losing_focus_releases_a_server_started_use() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(tick, false)));
-    assert!(movement.mark_started_using_item(tick));
-    runtime.adopt_server_using_item(false);
-    assert!(!runtime.resolve_server_using_item(&frame(tick, false)));
-    assert_eq!(runtime.take_withdrawn_start(), Some(tick));
-    movement.withdraw_started_using_item(tick);
-    movement.enqueue_completed_physics(completed(tick)).unwrap();
-    let snapshot = movement.pending_snapshots().pop().unwrap();
-    assert_eq!(snapshot.tick, tick);
-    assert_eq!(
-        snapshot.flags.bits() & protocol::PlayerInputFlags::START_USING_ITEM.bits(),
-        0
-    );
-}
-
-/// Holding the use button during a server-started use lets button-up release
-/// it even before held-use maintenance resumes.
-#[test]
-fn the_use_button_owns_a_server_start_outside_maintenance() {
-    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_gameplay_focus(true);
     runtime.adopt_server_using_item(true);
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    runtime.observe_use_button(true, 9);
-    assert!(
-        !runtime.is_releasing(false),
-        "an unrun server start is not a use yet"
-    );
-    runtime.observe_use_button(true, 10);
+    assert!(!runtime.is_releasing(false));
+    runtime.observe_gameplay_focus(false);
     assert!(runtime.is_releasing(false));
+    assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
 }
 
-/// A server clear and set before a tick processes the clear keep the
-/// established use, with its start tick, instead of restarting it.
+/// A clear and a set before the next movement tick leave the established use
+/// as it was: only the value a tick reads matters.
 #[test]
 fn a_clear_and_set_before_a_tick_keep_the_use() {
     let mut runtime = ItemUseRuntime::default();
@@ -187,170 +140,35 @@ fn a_clear_and_set_before_a_tick_keep_the_use() {
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     runtime.step(&bread(11, false));
     runtime.adopt_server_using_item(false);
-    assert!(!runtime.resolve_server_using_item(&bread(12, false)));
-    assert!(!runtime.is_using());
     runtime.adopt_server_using_item(true);
     assert!(!runtime.resolve_server_using_item(&bread(12, false)));
     assert_eq!(runtime.active_timing(), Some((10, 32)));
-    assert_eq!(runtime.take_withdrawn_start(), None);
 }
 
-/// A clear before a server start's tick runs withdraws its `StartUsingItem`
-/// even when the use button has since held the use.
+/// A clear awaiting its movement tick leaves the use in place, so a button
+/// release in between still sends the release transaction.
 #[test]
-fn a_held_server_start_cleared_before_its_tick_is_withdrawn() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    runtime.observe_use_button(true, 0);
-    runtime.adopt_server_using_item(false);
-    assert!(!runtime.resolve_server_using_item(&frame(10, true)));
-    assert_eq!(runtime.take_withdrawn_start(), Some(10));
-}
-
-/// Focus leaving gameplay before a tick processed a server clear releases the
-/// use the clear stopped, as vanilla still holds it then.
-#[test]
-fn losing_focus_releases_a_use_a_pending_clear_stopped() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_gameplay_focus(true, 9);
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&bread(10, false)));
-    runtime.step(&bread(11, false));
-    runtime.adopt_server_using_item(false);
-    runtime.resolve_server_using_item(&bread(12, false));
-    assert!(!runtime.is_using());
-    runtime.observe_gameplay_focus(false, 11);
-    assert!(runtime.is_releasing(false));
-    assert_eq!(kinds(&runtime.step(&bread(12, false))), ["release"]);
-    runtime.adopt_server_using_item(true);
-    assert!(
-        runtime.resolve_server_using_item(&bread(12, false)),
-        "a released use cannot be restored, so the set starts a new one"
-    );
-}
-
-/// A selection change between a server clear and set discards the stopped
-/// use, so the set applies to the newly selected item.
-#[test]
-fn a_reselection_discards_a_use_a_server_clear_stopped() {
-    for reselect in [true, false] {
-        let mut runtime = ItemUseRuntime::default();
-        runtime.adopt_server_using_item(true);
-        assert!(runtime.resolve_server_using_item(&bread(10, false)));
-        runtime.adopt_server_using_item(false);
-        runtime.resolve_server_using_item(&bread(12, false));
-        if reselect {
-            runtime.retire_reselected_use(5);
-        }
-        let snowball = UseFrame {
-            selection: Some(selection(5, SNOWBALL)),
-            air_use: classify("minecraft:snowball", false, 0, None),
-            ..frame(12, false)
-        };
-        runtime.adopt_server_using_item(true);
-        assert!(!runtime.resolve_server_using_item(&snowball));
-        assert!(!runtime.is_using(), "reselected {reselect}");
-    }
-}
-
-/// Focus loss before a server start's tick ran does not release it after a
-/// clear: vanilla never started that use.
-#[test]
-fn losing_focus_does_not_release_an_unrun_server_start() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_gameplay_focus(true, 9);
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&bread(10, false)));
-    runtime.adopt_server_using_item(false);
-    runtime.resolve_server_using_item(&bread(10, false));
-    runtime.observe_gameplay_focus(false, 9);
-    assert!(!runtime.is_using());
-    assert!(runtime.step(&bread(10, false)).packets.is_empty());
-}
-
-/// Button-up before a tick processes a server clear still releases the held
-/// use the clear stopped, with its release transaction.
-#[test]
-fn button_up_releases_a_held_use_a_pending_clear_stopped() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_press(true);
-    assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
-    runtime.step(&frame(11, true));
-    runtime.adopt_server_using_item(false);
-    runtime.resolve_server_using_item(&frame(12, true));
-    assert!(!runtime.is_using());
-    runtime.observe_use_button(false, 11);
-    assert!(runtime.is_releasing(false));
-    assert_eq!(kinds(&runtime.step(&frame(12, false))), ["release"]);
-}
-
-/// A button use admitted for an upcoming tick exists at once, so button-up
-/// after a server clear for that tick still releases it.
-#[test]
-fn button_up_releases_an_admitted_use_a_clear_stopped_before_its_tick() {
+fn a_release_before_a_pending_clear_runs_sends_its_transaction() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
     runtime.adopt_server_using_item(false);
-    runtime.resolve_server_using_item(&frame(10, true));
-    runtime.observe_use_button(false, 9);
-    assert_eq!(kinds(&runtime.step(&frame(10, false))), ["release"]);
+    assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
 }
 
-/// Focus loss before a server start's tick runs sends no release: vanilla has
-/// not started that use yet.
+/// A server start still waiting for its movement tick follows the selection
+/// that tick sees, so an earlier reselection to an item without a held use
+/// starts nothing.
 #[test]
-fn losing_focus_before_a_server_start_runs_sends_no_release() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_gameplay_focus(true, 9);
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    runtime.observe_gameplay_focus(false, 9);
-    assert!(!runtime.is_releasing(false));
-    assert!(runtime.step(&frame(10, false)).packets.is_empty());
-}
-
-/// A press while a server clear awaits its tick starts no new use: vanilla
-/// still holds the established use then.
-#[test]
-fn a_press_before_a_pending_clear_runs_starts_nothing() {
+fn a_pending_server_start_follows_a_reselection() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    runtime.step(&frame(11, false));
-    runtime.adopt_server_using_item(false);
-    runtime.resolve_server_using_item(&frame(12, false));
-    runtime.observe_press(true);
-    let outcome = runtime.step(&frame(12, true));
-    assert!(outcome.packets.is_empty());
-    assert!(!runtime.is_using());
-}
-
-/// Pressing and releasing Use while a server clear awaits its tick releases
-/// the established use the clear stopped, as vanilla still holds it then.
-#[test]
-fn a_press_and_release_during_a_pending_clear_releases_the_use() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(10, false)));
-    runtime.step(&frame(11, false));
-    runtime.adopt_server_using_item(false);
-    runtime.resolve_server_using_item(&frame(12, false));
-    runtime.observe_use_button(true, 11);
-    runtime.observe_use_button(false, 11);
-    assert!(runtime.is_releasing(false));
-    assert_eq!(kinds(&runtime.step(&frame(12, false))), ["release"]);
-}
-
-/// A reselection before a server start's tick runs withdraws its queued
-/// `StartUsingItem`.
-#[test]
-fn a_reselection_withdraws_an_unrun_server_start() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
-    assert!(runtime.resolve_server_using_item(&frame(10, false)));
     runtime.retire_reselected_use(5);
+    let snowball = UseFrame {
+        selection: Some(selection(5, SNOWBALL)),
+        air_use: classify("minecraft:snowball", false, 0, None),
+        ..frame(12, false)
+    };
+    assert!(!runtime.resolve_server_using_item(&snowball));
     assert!(!runtime.is_using());
-    assert_eq!(runtime.take_withdrawn_start(), Some(10));
 }

@@ -23,7 +23,7 @@ impl MovementTicker {
         self.next_tick_flags = protocol::PlayerInputFlags::NONE;
         self.next_tick_rotation = None;
         physics.restore_riptide_request(None);
-        physics.discard_server_flag_baselines();
+        physics.discard_server_flag_writes();
     }
 
     /// Advance the global input clock through a stationary tick without a wire packet.

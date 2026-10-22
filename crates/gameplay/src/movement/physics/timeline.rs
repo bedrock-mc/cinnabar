@@ -1,7 +1,7 @@
 //! Tick-stamped authoritative edits (motion, attributes, flags) entering the
 //! rewind timeline.
 
-use super::server_flags::PoseWrite;
+use super::server_flags::FlagWrite;
 use super::*;
 
 /// Placement of a tick-stamped authoritative update on the prediction timeline.
@@ -254,29 +254,21 @@ pub(crate) struct BoostRetime {
     previous: Vec<bool>,
 }
 
-/// Server flag changes the next fixed tick adopts: the sprint and sneak latches,
-/// and the pose and spin it reports without start or stop actions.
+/// Sprint and sneak states the live control latches adopt from the server.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ServerControlFlags {
     pub sprinting: Option<bool>,
     pub sneaking: Option<bool>,
-    /// Locomotion mode a server pose flag left.
-    pub mode: Option<sim::MovementMode>,
-    /// Riptide spin a server flag started or cancelled.
-    pub spinning: Option<bool>,
 }
 
 impl LocalPhysicsController {
     /// Applies server movement flags stamped `tick` (`SetActorData`); returns
     /// the tick to replay from when retained history changed.
     ///
-    /// As vanilla's flag difference does, a retained tick changes only flags
-    /// whose server value differs from the local value at that tick, so a later
-    /// client transition still wins; stale ticks clamp to the oldest frame as
-    /// vanilla's frame correction does, and zero, current and future ticks
-    /// replace the live flags. Pose and spin flags start or end the local pose,
-    /// whose own rules then continue or end it; `UsingItem` waits for the
-    /// item-use owner.
+    /// A retained tick rewrites only the client's unchanged run after it, so a
+    /// later client transition still wins; stale ticks clamp to the oldest
+    /// frame as vanilla's frame correction does. Pose, spin and item-use flags
+    /// follow vanilla's flag corrections (see `server_flags`).
     pub fn apply_server_movement_flags(
         &mut self,
         tick: u64,
@@ -289,15 +281,13 @@ impl LocalPhysicsController {
             TimelineSlot::Stale => self.history.oldest_tick(),
         };
         let Some(tick) = rewind else {
-            self.note_server_using_item(flags.using_item);
-            self.adopt_live_spin(flags.spinning);
+            self.adopt_live_server_flags(tick, FlagWrite::from_flags(&flags));
             self.adopt_live_flags(flags);
             return None;
         };
-        let bases = self.write_bases(tick);
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
-        let mut changed = self.retain_server_using_item(tick, bases, flags.using_item);
+        let mut changed = self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
         if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
             let (edited, _) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
@@ -344,24 +334,16 @@ impl LocalPhysicsController {
             changed |= edited;
             present.sneaking = reached.then_some(sneaking);
         }
-        changed |= self.retain_server_spin(tick, bases, flags.spinning);
-        changed |= self.retain_server_pose(tick, anchor.mode, bases, PoseWrite::from_flags(&flags));
-        self.adopt_live_flags(client_world::MovementFlagUpdate {
-            gliding: None,
-            swimming: None,
-            crawling: None,
-            ..present
-        });
+        self.adopt_live_flags(present);
         changed.then_some(tick)
     }
 
-    /// Takes the server flag changes the next fixed tick adopts.
+    /// Takes the sprint/sneak states the control latches must adopt.
     pub fn take_server_control_flags(&mut self) -> Option<ServerControlFlags> {
         self.server_control_flags.take()
     }
 
     fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
-        self.adopt_live_pose(PoseWrite::from_flags(&flags));
         if !pose_flag_controls_sneak(self.modes.mode()) {
             flags.sneaking = None;
         }

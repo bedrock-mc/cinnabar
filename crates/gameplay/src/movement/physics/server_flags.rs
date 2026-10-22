@@ -1,88 +1,146 @@
-//! Server pose, Riptide spin and item-use flags adopted as vanilla's flag component does.
+//! Server pose, Riptide spin and item-use flags, modelled on vanilla's actor
+//! flag component and its frame corrections.
 //!
-//! Vanilla's local systems read the actor flag component, so a server write
-//! that sets a pose or spin flag starts it and the client's own rules then
-//! continue or end it. Such writes are not start or stop actions, so the next
-//! input reports edges relative to the state the server left. A write stamped
-//! at a retained tick changes only flags that differ from the local state
-//! entering the next tick; it applies to the live state at once and stays in
-//! that frame for every later replay through it.
+//! Every completed tick captures the flag word it started with. A server write
+//! stamped at a retained tick becomes a correction of the following frame: the
+//! bits that differ from that frame's capture, applied to the live state at
+//! once and again whenever replay passes the frame. Replay keeps the capture of
+//! the frame it starts from and refreshes every later capture from the replayed
+//! state before re-applying that frame's corrections. A write stamped at the
+//! current or a future tick is queued for the next frame's capture; an
+//! unstamped write only changes the live word. The local systems then read the
+//! word each tick: pose rules continue or end a pose, the spin runs its
+//! lifetime, and item use reconciles with the word before the tick simulates.
+//! Flag writes are not start or stop actions, so each input reports edges
+//! relative to the word its tick started with.
 
 use super::*;
 
-/// Pose modes in the order a start prefers when one write sets several.
+/// Pose modes in the order a start prefers when one word sets several.
 const POSES: [sim::MovementMode; 3] = [
     sim::MovementMode::Gliding,
     sim::MovementMode::Swimming,
     sim::MovementMode::Crawling,
 ];
+/// Flag word bits after the three pose bits, which follow [`POSES`].
+const SPINNING: u8 = 1 << 3;
+const USING_ITEM: u8 = 1 << 4;
 
-/// One write's glide, swim and crawl flags, in [`POSES`] order.
+/// The client-owned bits of the actor flag word: glide, swim and crawl poses,
+/// the Riptide spin (`DamageNearbyMobs`) and item use.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct PoseWrite([Option<bool>; 3]);
+pub(super) struct FlagWord(u8);
 
-impl PoseWrite {
-    pub(super) fn from_flags(flags: &client_world::MovementFlagUpdate) -> Self {
-        Self([flags.gliding, flags.swimming, flags.crawling])
+impl FlagWord {
+    /// The word the local state forms.
+    pub(super) fn capture(mode: sim::MovementMode, spinning: bool, using_item: bool) -> Self {
+        let pose = POSES
+            .iter()
+            .position(|pose| *pose == mode)
+            .map_or(0, |index| 1 << index);
+        Self(pose | if spinning { SPINNING } else { 0 } | if using_item { USING_ITEM } else { 0 })
     }
 
-    /// The bits of this write that differ from the local pose `mode`.
-    fn differing_from(self, mode: sim::MovementMode) -> Self {
-        Self(std::array::from_fn(|index| {
-            self.0[index].filter(|set| *set != (POSES[index] == mode))
-        }))
+    fn has(self, bit: u8) -> bool {
+        self.0 & bit != 0
     }
 
-    /// This write's bits over an earlier write's.
-    fn over(self, earlier: Self) -> Self {
-        Self(std::array::from_fn(|index| {
-            self.0[index].or(earlier.0[index])
-        }))
-    }
-
-    /// The locomotion mode after this write: a cleared pose ends, and a set
-    /// pose starts unless a pose that the write did not end continues.
-    /// Cinnabar keeps one pose, so a write setting several starts the first,
-    /// and flight, which vanilla keeps beside pose flags, stays.
-    fn resulting(self, mode: sim::MovementMode) -> sim::MovementMode {
-        if mode == sim::MovementMode::Flying {
-            return mode;
-        }
-        let ended = POSES
-            .into_iter()
-            .zip(self.0)
-            .any(|(pose, flag)| pose == mode && flag == Some(false));
-        let current = if ended {
-            sim::MovementMode::Walking
-        } else {
-            mode
-        };
-        if POSES.contains(&current) {
-            return current;
-        }
-        POSES
-            .into_iter()
-            .zip(self.0)
-            .find(|(_, flag)| *flag == Some(true))
-            .map_or(current, |(pose, _)| pose)
-    }
-
-    /// Ends or starts `modes`' pose as [`Self::resulting`] describes.
-    fn apply(self, modes: &mut ModeTracker) {
-        let current = modes.mode();
-        let next = self.resulting(current);
-        if next == current {
-            return;
-        }
-        if POSES.contains(&next) {
-            modes.start(next);
-        } else {
-            modes.end(current);
-        }
+    pub(super) fn using_item(self) -> bool {
+        self.has(USING_ITEM)
     }
 }
 
-/// Writes the spin flag during replay; a new spin counts its lifetime from
+/// The bits one server write carried, and their values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct FlagWrite {
+    present: u8,
+    value: u8,
+}
+
+impl FlagWrite {
+    pub(super) fn from_flags(flags: &client_world::MovementFlagUpdate) -> Self {
+        let mut write = Self::default();
+        for (bit, flag) in [
+            (1, flags.gliding),
+            (1 << 1, flags.swimming),
+            (1 << 2, flags.crawling),
+            (SPINNING, flags.spinning),
+            (USING_ITEM, flags.using_item),
+        ] {
+            if let Some(set) = flag {
+                write.present |= bit;
+                write.value |= if set { bit } else { 0 };
+            }
+        }
+        write
+    }
+}
+
+/// Bits a server write changes and their values. Vanilla applies these
+/// selected flags only where the write differs from the word it compares with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct FlagCorrection {
+    mask: u8,
+    value: u8,
+}
+
+impl FlagCorrection {
+    /// The bits of `write` that differ from `base`.
+    fn against(write: FlagWrite, base: FlagWord) -> Self {
+        let mask = write.present & (write.value ^ base.0);
+        Self {
+            mask,
+            value: write.value & mask,
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.mask == 0
+    }
+
+    /// This correction followed by `later`, whose bits win.
+    fn then(self, later: Self) -> Self {
+        Self {
+            mask: self.mask | later.mask,
+            value: (self.value & !later.mask) | later.value,
+        }
+    }
+
+    /// `word` with this correction applied.
+    pub(super) fn apply(self, word: FlagWord) -> FlagWord {
+        FlagWord((word.0 & !self.mask) | self.value)
+    }
+}
+
+/// Ends or starts `modes`' pose so it follows the pose bits of `word` that
+/// `mask` covers: a cleared pose ends, and a set pose starts unless a pose the
+/// word keeps continues. Cinnabar keeps one pose, so a word setting several
+/// starts the first, and flight, which vanilla keeps beside pose flags, stays.
+fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker) {
+    let current = modes.mode();
+    if current == sim::MovementMode::Flying {
+        return;
+    }
+    let bit = |index: usize| (mask & (1 << index) != 0).then(|| word.has(1 << index));
+    let ended = POSES
+        .iter()
+        .enumerate()
+        .any(|(index, pose)| *pose == current && bit(index) == Some(false));
+    if ended {
+        modes.end(current);
+    }
+    if POSES.contains(&modes.mode()) {
+        return;
+    }
+    if let Some(pose) = (0..POSES.len())
+        .find(|index| bit(*index) == Some(true))
+        .map(|index| POSES[index])
+    {
+        modes.start(pose);
+    }
+}
+
+/// The word's spin on replayed state; a new spin counts its lifetime from
 /// zero, as vanilla's post-spin counter restarts after a clear flag.
 fn set_spin(state: &mut PlayerState, spinning: bool) {
     if state.spin_attack_ticks.is_some() != spinning {
@@ -90,47 +148,20 @@ fn set_spin(state: &mut PlayerState, spinning: bool) {
     }
 }
 
-/// Server writes that differ from the local state entering one retained tick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FlagOverlay {
-    /// The tick the writes apply before: the one after their stamp.
-    tick: u64,
-    pose: PoseWrite,
-    spinning: Option<bool>,
-    using_item: Option<bool>,
-    /// Live writes made before this tick ran, part of the tick's own capture.
-    captured: CapturedWrites,
+/// Imposes a frame's effective word on replayed pose and spin.
+pub(super) fn impose(word: FlagWord, modes: &mut ModeTracker, state: &mut PlayerState) {
+    apply_pose(word, 0b111, modes);
+    set_spin(state, word.has(SPINNING));
 }
 
-/// Live server writes captured with one tick.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct CapturedWrites {
-    pose: PoseWrite,
-    spinning: Option<bool>,
-    using_item: Option<bool>,
-}
-
-/// What one stamped update compares against, fixed before it records any
-/// field: the following frame's capture, as vanilla's flag correction has no
-/// pending type that would compare with the live actor instead.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct WriteBases {
-    captured: CapturedWrites,
-}
-
-/// The pose and spin server writes changed before one tick, which that tick's
-/// start and stop actions compare against.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct ServerBaseline {
-    pub mode: Option<sim::MovementMode>,
-    pub spinning: Option<bool>,
-}
-
-/// Retained server flag writes and state awaiting adoption.
+/// Server flag state outside the retained frames.
 #[derive(Debug, Clone, Default)]
 pub(super) struct ServerFlagAuthority {
-    overlays: VecDeque<FlagOverlay>,
-    /// Server `UsingItem` value the item-use owner has yet to adopt.
+    /// A correction stamped at the current or a future tick, attached to the
+    /// frame of the given tick when that frame is captured.
+    queued: Option<(u64, FlagCorrection)>,
+    /// Item-use bit a server write left in the live word, for the item-use
+    /// owner to reconcile with on its next tick.
     pending_using_item: Option<bool>,
     /// A spin counter a live clear removed, with the tick it was cleared on.
     /// Vanilla's counter outlives its flag until a tick processes the clear.
@@ -138,360 +169,182 @@ pub(super) struct ServerFlagAuthority {
 }
 
 impl ServerFlagAuthority {
-    /// Drops retained writes and the cleared spin counter when their frames
-    /// and life are discarded.
-    pub(super) fn clear_overlays(&mut self) {
-        self.overlays.clear();
+    /// Drops writes that belong to discarded frames.
+    pub(super) fn reset_history(&mut self) {
+        self.queued = None;
         self.cleared_spin = None;
     }
+}
 
-    fn overlay(&self, tick: u64) -> Option<&FlagOverlay> {
-        self.overlays.iter().find(|overlay| overlay.tick == tick)
+/// Writes the live spin flag; a set restores a counter that a clear on the
+/// same tick removed.
+fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority, spinning: bool) {
+    if state.spin_attack_ticks.is_some() == spinning {
+        return;
     }
+    if spinning {
+        let restored = authority
+            .cleared_spin
+            .filter(|(tick, _)| *tick == state.tick)
+            .map_or(0, |(_, ticks)| ticks);
+        state.spin_attack_ticks = Some(restored);
+    } else {
+        authority.cleared_spin = state.spin_attack_ticks.map(|ticks| (state.tick, ticks));
+        state.spin_attack_ticks = None;
+    }
+}
 
-    /// Forgets the live writes captured with ticks a replay from `anchor`
-    /// through `last` rebuilt. Vanilla keeps the capture of the frame the
-    /// replay starts from (the one after `anchor`) and refreshes later ones.
-    fn refresh_captures(&mut self, anchor: u64, last: u64) {
-        let first = anchor.saturating_add(1);
-        for overlay in self
-            .overlays
-            .iter_mut()
-            .filter(|overlay| overlay.tick > first && overlay.tick <= last)
-        {
-            overlay.captured = CapturedWrites::default();
-        }
+/// Applies a correction to the live state whose word is `live`; vanilla
+/// writes the same bits into the live actor before deciding any replay.
+fn apply_live_correction(
+    correction: FlagCorrection,
+    live: FlagWord,
+    modes: &mut ModeTracker,
+    state: &mut PlayerState,
+    authority: &mut ServerFlagAuthority,
+) {
+    let word = correction.apply(live);
+    apply_pose(word, correction.mask, modes);
+    if correction.mask & SPINNING != 0 {
+        write_live_spin(state, authority, word.has(SPINNING));
     }
+    if correction.mask & USING_ITEM != 0 {
+        authority.pending_using_item = Some(word.using_item());
+    }
+}
 
-    /// Returns the writes before `tick`, pruning ones older than `oldest` and
-    /// bounding the count to the retained window.
-    fn overlay_mut(&mut self, tick: u64, oldest: u64, capacity: usize) -> &mut FlagOverlay {
-        self.overlays.retain(|overlay| overlay.tick > oldest);
-        if let Some(index) = self
-            .overlays
-            .iter()
-            .position(|overlay| overlay.tick == tick)
-        {
-            return &mut self.overlays[index];
+/// Captures the live word a fixed tick starts with, then attaches and applies
+/// a correction queued for it. With a preceding sample (`flags.1`), the pose
+/// and spin the tick starts from become its action baseline. `flags.0` is the
+/// tick's item use. Returns the capture and the attached correction.
+pub(super) fn capture_tick(
+    authority: &mut ServerFlagAuthority,
+    modes: &mut ModeTracker,
+    state: &mut PlayerState,
+    input: &mut super::super::TickInput,
+    (using_item, baseline): (bool, bool),
+) -> (FlagWord, FlagCorrection) {
+    let entry = FlagWord::capture(modes.mode(), state.spin_attack_ticks.is_some(), using_item);
+    let next = state.tick.checked_add(1);
+    let correction = match authority.queued.take() {
+        Some((tick, correction)) if Some(tick) == next => correction,
+        other => {
+            authority.queued = other.filter(|(tick, _)| Some(*tick) > next);
+            FlagCorrection::default()
         }
-        if self.overlays.len() >= capacity {
-            self.overlays.pop_front();
-        }
-        let index = self
-            .overlays
-            .iter()
-            .position(|overlay| overlay.tick > tick)
-            .unwrap_or(self.overlays.len());
-        self.overlays.insert(
-            index,
-            FlagOverlay {
-                tick,
-                pose: PoseWrite::default(),
-                spinning: None,
-                using_item: None,
-                captured: CapturedWrites::default(),
-            },
-        );
-        &mut self.overlays[index]
+    };
+    let live = FlagWord::capture(
+        modes.mode(),
+        state.spin_attack_ticks.is_some(),
+        authority.pending_using_item.unwrap_or(using_item),
+    );
+    apply_live_correction(correction, live, modes, state, authority);
+    if baseline {
+        input.server_mode = Some(modes.mode());
+        input.server_spinning = Some(state.spin_attack_ticks.is_some());
     }
-
-    /// Applies the retained writes for the tick after `state` before it is
-    /// selected and simulated; returns the pose and spin they changed, the
-    /// action baseline for that tick's input.
-    pub(super) fn apply_before(
-        &self,
-        modes: &mut ModeTracker,
-        state: &mut PlayerState,
-    ) -> ServerBaseline {
-        let (mode, spinning) = (modes.mode(), state.spin_attack_ticks.is_some());
-        if let Some(overlay) = state
-            .tick
-            .checked_add(1)
-            .and_then(|tick| self.overlay(tick))
-        {
-            overlay.pose.apply(modes);
-            if let Some(spinning) = overlay.spinning {
-                set_spin(state, spinning);
-            }
-        }
-        ServerBaseline {
-            mode: (modes.mode() != mode).then_some(modes.mode()),
-            spinning: (state.spin_attack_ticks.is_some() != spinning).then_some(!spinning),
-        }
-    }
+    (entry, correction)
 }
 
 impl LocalPhysicsController {
-    /// Ends and starts the live pose from a server write, records the pose it
-    /// leaves for the next tick's action edges, and retains it for the next
-    /// tick so a replay through that tick keeps it.
-    pub(super) fn adopt_live_pose(&mut self, write: PoseWrite) {
-        let before = self.modes.mode();
-        let differing = write.differing_from(before);
-        if differing.resulting(before) == before {
-            return;
-        }
-        differing.apply(&mut self.modes);
-        self.server_control_flags.get_or_insert_default().mode = Some(self.modes.mode());
-        if let Some(overlay) = self.live_overlay() {
-            overlay.pose = differing.over(overlay.pose);
-            overlay.captured.pose = differing.over(overlay.captured.pose);
-        }
-    }
-
-    /// Writes before the tick after the live state, created on demand.
-    fn live_overlay(&mut self) -> Option<&mut FlagOverlay> {
-        let tick = self.state.as_ref()?.tick;
-        self.retained_overlay(tick)
-    }
-
-    /// Re-applies server writes made after the last completed tick to the
-    /// state a replay rebuilt, and resets the action baseline to them.
-    pub(super) fn reapply_live_server_flags(&mut self, anchor: u64) {
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
-        self.server_flags.refresh_captures(anchor, state.tick);
-        let ServerBaseline { mode, spinning } =
-            self.server_flags.apply_before(&mut self.modes, state);
-        let pending = self.server_control_flags.get_or_insert_default();
-        pending.mode = mode;
-        pending.spinning = spinning;
-        // Baselines an earlier tickless frame already took are rebuilt too.
-        self.input_edges.replace_server_pose(mode, spinning);
-    }
-
-    /// Fixes the base one update stamped at retained `tick` compares against:
-    /// the following frame's capture, which includes live writes made before
-    /// that frame ran.
-    pub(super) fn write_bases(&self, tick: u64) -> WriteBases {
-        WriteBases {
-            captured: tick
-                .checked_add(1)
-                .and_then(|after| self.server_flags.overlay(after))
-                .map(|overlay| overlay.captured)
-                .unwrap_or_default(),
-        }
-    }
-
-    /// Writes before the tick after retained `tick`, created on demand.
-    fn retained_overlay(&mut self, tick: u64) -> Option<&mut FlagOverlay> {
-        let after = tick.checked_add(1)?;
-        let oldest = self.history.oldest_tick()?;
-        Some(
-            self.server_flags
-                .overlay_mut(after, oldest, self.history_capacity),
+    /// The live flag word, including server writes not yet reconciled.
+    fn live_flag_word(&self) -> FlagWord {
+        let using = self.server_flags.pending_using_item.unwrap_or_else(|| {
+            self.controller_history
+                .back()
+                .is_some_and(|frame| frame.entry_flags.using_item())
+        });
+        FlagWord::capture(
+            self.modes.mode(),
+            self.state
+                .as_ref()
+                .is_some_and(|state| state.spin_attack_ticks.is_some()),
+            using,
         )
     }
 
-    /// Retains the pose bits of a write stamped at retained `tick` that change
-    /// the pose entering the next tick, and applies them live; returns whether
-    /// history changed. Replay then applies the pose's own rules.
-    pub(super) fn retain_server_pose(
-        &mut self,
-        tick: u64,
-        anchor_mode: sim::MovementMode,
-        bases: WriteBases,
-        write: PoseWrite,
-    ) -> bool {
-        let Some(after) = tick.checked_add(1) else {
-            return false;
-        };
-        let earlier = self
-            .server_flags
-            .overlay(after)
-            .map(|overlay| overlay.pose)
-            .unwrap_or_default();
-        let entering = bases.captured.pose.resulting(anchor_mode);
-        let differing = write.differing_from(entering);
-        if differing.resulting(entering) == entering {
-            return false;
-        }
-        let combined = differing.over(earlier);
-        let Some(overlay) = self.retained_overlay(tick) else {
-            return false;
-        };
-        overlay.pose = combined;
-        let left = combined.resulting(anchor_mode);
-        self.mark_server_change_after(tick, |input| {
-            input.server_mode = (left != anchor_mode).then_some(left);
-        });
-        // Vanilla applies the correction to the live actor too; replay replaces it.
-        differing.apply(&mut self.modes);
-        self.server_control_flags.get_or_insert_default().mode = Some(self.modes.mode());
-        true
-    }
-
-    /// Writes the live spin flag; a set restores a counter that a clear on the
-    /// same tick removed. Returns whether the spin changed.
-    fn write_live_spin(&mut self, spinning: bool) -> bool {
-        let Some(state) = self.state.as_mut() else {
-            return false;
-        };
-        if state.spin_attack_ticks.is_some() == spinning {
-            return false;
-        }
-        if spinning {
-            let restored = self
-                .server_flags
-                .cleared_spin
-                .filter(|(tick, _)| *tick == state.tick)
-                .map_or(0, |(_, ticks)| ticks);
-            state.spin_attack_ticks = Some(restored);
-        } else {
-            self.server_flags.cleared_spin =
-                state.spin_attack_ticks.map(|ticks| (state.tick, ticks));
-            state.spin_attack_ticks = None;
-        }
-        true
-    }
-
-    /// Starts or cancels the live Riptide spin as a server `DamageNearbyMobs`
-    /// write does; the simulator's spin rules then end a started spin.
-    pub(super) fn adopt_live_spin(&mut self, spinning: Option<bool>) {
-        if let Some(spinning) = spinning
-            && self.write_live_spin(spinning)
-        {
-            self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
-            if let Some(overlay) = self.live_overlay() {
-                overlay.spinning = Some(spinning);
-                overlay.captured.spinning = Some(spinning);
-            }
+    /// Applies `correction` to the live state.
+    fn correct_live(&mut self, correction: FlagCorrection) {
+        let live = self.live_flag_word();
+        if let Some(state) = self.state.as_mut() {
+            apply_live_correction(
+                correction,
+                live,
+                &mut self.modes,
+                state,
+                &mut self.server_flags,
+            );
         }
     }
 
-    /// Retains a spin write stamped at retained `tick` when it differs from the
-    /// spin entering the next tick, and applies it live; returns whether
-    /// history changed.
-    pub(super) fn retain_server_spin(
-        &mut self,
-        tick: u64,
-        bases: WriteBases,
-        spinning: Option<bool>,
-    ) -> bool {
-        let Some(spinning) = spinning else {
-            return false;
-        };
-        let local = self
-            .history
-            .state_at(tick)
-            .is_some_and(|state| state.spin_attack_ticks.is_some());
-        let base = bases.captured.spinning.unwrap_or(local);
-        if spinning == base {
-            return false;
+    /// Applies a write stamped `tick` in the live slot: its difference from the
+    /// live word changes the live state, and a nonzero stamp also queues it
+    /// for the next frame's capture so replay keeps it.
+    pub(super) fn adopt_live_server_flags(&mut self, tick: u64, write: FlagWrite) {
+        let correction = FlagCorrection::against(write, self.live_flag_word());
+        if correction.is_empty() {
+            return;
         }
-        let Some(overlay) = self.retained_overlay(tick) else {
-            return false;
-        };
-        // The effective write stays even when it matches the capture, so a
-        // replay through this frame reapplies it whatever arrives there.
-        overlay.spinning = Some(spinning);
-        self.mark_server_change_after(tick, |input| input.server_spinning = Some(spinning));
-        if self.write_live_spin(spinning) {
-            self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
+        self.correct_live(correction);
+        if tick == 0 {
+            return;
         }
-        true
-    }
-
-    /// Marks the retained sample after `tick` with a server change its action
-    /// edges compare against.
-    fn mark_server_change_after(
-        &mut self,
-        tick: u64,
-        edit: impl FnOnce(&mut super::super::TickInput),
-    ) {
-        if let Some(sample) = self
-            .sample_history
-            .iter_mut()
-            .find(|sample| Some(sample.tick) == tick.checked_add(1))
-        {
-            edit(&mut sample.input);
-        }
-    }
-
-    /// Records a `UsingItem` write stamped at retained `tick` for the item-use
-    /// owner when it differs from the use entering the next tick.
-    pub(super) fn retain_server_using_item(
-        &mut self,
-        tick: u64,
-        bases: WriteBases,
-        using: Option<bool>,
-    ) -> bool {
-        let Some(using) = using else {
-            return false;
-        };
-        let local = self
-            .controller_history
-            .iter()
-            .find(|frame| frame.tick == tick)
-            .map(|frame| frame.using_item);
-        let base = bases.captured.using_item.or(local);
-        if base == Some(using) {
-            return false;
-        }
-        if let Some(overlay) = self.retained_overlay(tick) {
-            overlay.using_item = Some(using);
-        }
-        self.server_flags.pending_using_item = Some(using);
-        // Vanilla rewinds for this flag too, which settles the correction.
-        true
-    }
-
-    /// Records a live `UsingItem` write for the item-use owner.
-    pub(super) fn note_server_using_item(&mut self, using: Option<bool>) {
-        let Some(using) = using else {
+        let Some(next) = self
+            .state
+            .as_ref()
+            .and_then(|state| state.tick.checked_add(1))
+        else {
             return;
         };
-        if let Some(overlay) = self.live_overlay() {
-            overlay.using_item = Some(using);
-            overlay.captured.using_item = Some(using);
-        }
-        self.server_flags.pending_using_item = Some(using);
+        let queued = match self.server_flags.queued {
+            Some((queued_tick, earlier)) if queued_tick == next => earlier.then(correction),
+            _ => correction,
+        };
+        self.server_flags.queued = Some((next, queued));
     }
 
-    /// Retires server writes awaiting the next tick when respawn discards the
-    /// old life: their action baselines and the pending item-use value.
-    pub fn discard_server_flag_baselines(&mut self) {
-        if let Some(pending) = self.server_control_flags.as_mut() {
-            pending.mode = None;
-            pending.spinning = None;
+    /// Attaches a write stamped at retained `tick` to the following frame as
+    /// the difference from that frame's capture, and applies it live; returns
+    /// whether the frame changed and needs replay.
+    pub(super) fn retain_server_flags(&mut self, tick: u64, write: FlagWrite) -> bool {
+        let Some(frame) = self
+            .controller_history
+            .iter_mut()
+            .find(|frame| Some(frame.tick) == tick.checked_add(1))
+        else {
+            return false;
+        };
+        let correction = FlagCorrection::against(write, frame.entry_flags);
+        if correction.is_empty() {
+            return false;
         }
-        self.input_edges.replace_server_pose(None, None);
+        frame.flag_correction = frame.flag_correction.then(correction);
+        self.correct_live(correction);
+        true
+    }
+
+    /// Re-applies a queued correction to a live state that replay rebuilt.
+    pub(super) fn reapply_queued_server_flags(&mut self) {
+        let next = self
+            .state
+            .as_ref()
+            .and_then(|state| state.tick.checked_add(1));
+        if let Some((tick, correction)) = self.server_flags.queued
+            && Some(tick) == next
+        {
+            self.correct_live(correction);
+        }
+    }
+
+    /// Discards server writes waiting for the next tick when respawn or a
+    /// dimension change replaces the old life or world.
+    pub fn discard_server_flag_writes(&mut self) {
+        self.server_flags.queued = None;
         self.server_flags.pending_using_item = None;
     }
 
-    /// Takes the latest server `UsingItem` value the item-use owner must adopt.
+    /// Takes the item-use bit a server write left in the live word.
     pub fn take_server_using_item(&mut self) -> Option<bool> {
         self.server_flags.pending_using_item.take()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Replay rebuilds each tick's action baseline from the pose the retained
-    /// write actually leaves, not the pose it left when it arrived.
-    #[test]
-    fn a_retained_write_reports_only_the_pose_it_changes() {
-        let mut authority = ServerFlagAuthority::default();
-        authority.overlay_mut(103, 100, 8).pose = PoseWrite([Some(false), None, None]);
-        let mut state = PlayerState::new(Vec3::ZERO);
-        state.tick = 102;
-        let mut gliding = ModeTracker::default();
-        gliding.start(sim::MovementMode::Gliding);
-        assert_eq!(
-            authority.apply_before(&mut gliding, &mut state),
-            ServerBaseline {
-                mode: Some(sim::MovementMode::Walking),
-                spinning: None,
-            }
-        );
-        let mut crawling = ModeTracker::default();
-        crawling.start(sim::MovementMode::Crawling);
-        assert_eq!(
-            authority.apply_before(&mut crawling, &mut state),
-            ServerBaseline::default()
-        );
     }
 }

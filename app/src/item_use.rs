@@ -78,9 +78,9 @@ pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
         .expect("item maintenance resources");
 }
 
-/// Applies a server `UsingItem` write to the next tick before physics simulates
-/// it, as vanilla's movement-tick start-or-stop system does. A write that
-/// cannot resolve yet waits for the pass after movement.
+/// Reconciles item use with a server `UsingItem` write just before physics
+/// simulates a movement tick, as vanilla's movement-tick start-or-stop system
+/// does; frames without a tick leave the write pending.
 pub(crate) fn adopt_server_item_use(
     player_runtime: Res<client_state::PlayerRuntime>,
     mut context: ItemUseContext,
@@ -93,8 +93,8 @@ pub(crate) fn adopt_server_item_use(
     if context.client_world.respawn.input_held() {
         return;
     }
-    // A world change the ordered drain has yet to see would cancel the use; the
-    // pass after movement adopts the write once that drain has run.
+    // A world change the ordered drain has yet to see would cancel the use; a
+    // later tick reconciles the write once that drain has run.
     let dimension = context
         .client_world
         .stream
@@ -103,6 +103,12 @@ pub(crate) fn adopt_server_item_use(
     if context.ordered.as_deref().is_some_and(|ordered| {
         ordered.changes_world(movement.interaction_authority_identity().0, dimension)
     }) {
+        return;
+    }
+    let ticks = context.physics.as_deref().is_some_and(|physics| {
+        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+    });
+    if !ticks {
         return;
     }
     if let Some(using) = context
@@ -150,9 +156,6 @@ pub(crate) fn adopt_server_item_use(
         };
         if runtime.resolve_server_using_item(&proposal.frame) {
             movement.mark_started_using_item(proposal.frame.tick);
-        }
-        if let Some(tick) = runtime.take_withdrawn_start() {
-            movement.withdraw_started_using_item(tick);
         }
     });
 }
@@ -212,14 +215,6 @@ fn produce_use(
         runtime.cancel_for_respawn();
         return;
     }
-    // Writes that arrived after physics ran resolve against the next tick here.
-    if let Some(using) = context
-        .physics
-        .as_deref_mut()
-        .and_then(|physics| physics.take_server_using_item())
-    {
-        runtime.adopt_server_using_item(using);
-    }
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -251,17 +246,14 @@ fn produce_use(
     } else {
         true
     };
-    runtime.observe_gameplay_focus(
-        focused && !context.focus.ui_focused,
-        movement.completed_tick(),
-    );
+    runtime.observe_gameplay_focus(focused && !context.focus.ui_focused);
     let held = admitted
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,
             Action::Use,
         );
-    runtime.observe_use_button(held, movement.completed_tick());
+    runtime.observe_use_button(held);
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context

@@ -10,7 +10,6 @@ pub(crate) fn select(
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal: ResMut<FatalError>,
     mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
-    mut movement: ResMut<client_interaction::movement::MovementTicker>,
 ) {
     let current = player.selected_hotbar_slot().unwrap_or(0);
     let Some(target) = client_interaction::hotbar::slot_for_action(action, current) else {
@@ -35,9 +34,6 @@ pub(crate) fn select(
             player.inventory.set_local_selected_slot(target);
             player.inventory.clear_pending_hotbar_selection(target);
             item_use.retire_reselected_use(target);
-            if let Some(tick) = item_use.take_withdrawn_start() {
-                movement.withdraw_started_using_item(tick);
-            }
         }
         Err(PacketSendError::Full(_)) => {}
         Err(PacketSendError::Closed(_)) if network.closed_command_has_pending_control() => {}

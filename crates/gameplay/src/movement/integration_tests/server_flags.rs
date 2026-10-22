@@ -26,23 +26,13 @@ fn elytra(ready: bool) -> PhysicsSampleContext {
     }
 }
 
-/// Runs one tick with `input`, carrying adopted server flags into its input as
-/// the movement frame does, and queues the sample.
+/// Runs one tick with `input` and queues the sample.
 fn tick_with(
     physics: &mut LocalPhysicsController,
     ticker: &mut MovementTicker,
     input: MovementInput,
     context: PhysicsSampleContext,
 ) -> PhysicsMovementSample {
-    let server = physics.take_server_control_flags();
-    let context = PhysicsSampleContext {
-        input: super::super::TickInput {
-            server_mode: server.and_then(|flags| flags.mode),
-            server_spinning: server.and_then(|flags| flags.spinning),
-            ..context.input
-        },
-        ..context
-    };
     let frame = physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         input,
@@ -195,8 +185,8 @@ fn a_retained_server_spin_start_replays_from_its_stamp() {
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
 }
 
-/// Live `UsingItem` writes always reach the item-use owner; a stamped one only
-/// when it differs from the local use during its tick.
+/// A `UsingItem` write reaches the item-use owner when it differs from the
+/// live word (unstamped) or from the following frame's capture (stamped).
 #[test]
 fn server_item_use_follows_the_local_use_at_its_stamp() {
     let (mut physics, mut ticker) = airborne();
@@ -213,12 +203,14 @@ fn server_item_use_follows_the_local_use_at_its_stamp() {
         );
     }
     let using = |value| flags(|flags| flags.using_item = Some(value));
+    // Each stamp compares with the following frame's capture: 102 and 103 use.
     for (tick, value, adopted) in [
-        (101, false, None),
+        (101, true, None),
         (102, true, None),
-        (101, true, Some(true)),
+        (101, false, Some(false)),
         (102, false, Some(false)),
-        (0, true, Some(true)),
+        (0, true, None),
+        (0, false, Some(false)),
     ] {
         physics.apply_server_movement_flags(tick, using(value));
         assert_eq!(
@@ -388,28 +380,20 @@ fn a_glide_clear_and_set_before_a_tick_keep_the_glide_counter() {
     assert_eq!(sample.processed.mode, sim::MovementMode::Walking);
 }
 
-/// A replay that rebuilds the live spin also replaces the baseline a tickless
-/// frame already took, so a server clear after a set reports no stop action.
+/// A tickless frame between a server spin set and clear, and a replay after
+/// them, leave no stop action: each tick's baseline is the word it starts with.
 #[test]
-fn a_replay_rebuilds_baselines_a_tickless_frame_took() {
+fn a_tickless_frame_and_replay_report_no_server_spin_action() {
     let (mut physics, mut ticker) = airborne();
     for _ in 0..2 {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let write = |value| flags(|flags| flags.spinning = Some(value));
     physics.apply_server_movement_flags(0, write(true));
-    let server = physics.take_server_control_flags();
-    let tickless = PhysicsSampleContext {
-        input: super::super::TickInput {
-            server_spinning: server.and_then(|flags| flags.spinning),
-            ..Default::default()
-        },
-        ..PhysicsSampleContext::default()
-    };
     let frame = physics.advance_with_context(
         Duration::ZERO,
         MovementInput::default(),
-        tickless,
+        PhysicsSampleContext::default(),
         &VersionedFloor(1),
     );
     assert!(frame.samples.is_empty());

@@ -27,8 +27,11 @@ pub(super) struct ControllerFrame {
     pub requested_sprint: bool,
     pub sprint_down: bool,
     pub server_sprinting: Option<bool>,
-    /// An accepted item use ran during this tick (vanilla's `UsingItem` flag).
-    pub using_item: bool,
+    /// Client-owned actor flags this tick started with, before its corrections;
+    /// replay refreshes it for every frame after the one it starts from.
+    pub entry_flags: server_flags::FlagWord,
+    /// Retained server flag writes that apply before this tick.
+    pub flag_correction: server_flags::FlagCorrection,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,

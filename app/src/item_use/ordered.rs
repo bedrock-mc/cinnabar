@@ -31,7 +31,7 @@ pub(crate) fn press(
         .game_mode_capabilities()
         .is_none_or(|caps| caps.can_use_items);
     let held = allowed && input.edge.buttons.held(Action::Use);
-    runtime.observe_use_button(held, movement.completed_tick());
+    runtime.observe_use_button(held);
     let scope = context.client_world.stream.as_ref().map(|stream| {
         (
             stream.authority().actor_session_id(),
