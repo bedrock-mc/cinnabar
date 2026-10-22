@@ -271,11 +271,10 @@ pub use world::{
     PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
     SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent,
     SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
-    VANILLA_NAMESPACE, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition,
-    WorldClockState, WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent,
-    WorldPacketError, WorldSpawnEvent, WorldWireError, air_network_id, block_name_sort_key,
-    block_state_network_hash, into_world_event, request_sub_chunk_column, request_sub_chunks,
-    vanilla_dimension_range,
+    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
+    WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
+    WorldSpawnEvent, WorldWireError, air_network_id, block_name_sort_key, block_state_network_hash,
+    into_world_event, request_sub_chunk_column, request_sub_chunks, vanilla_dimension_range,
 };
 
 mod movement_transport;

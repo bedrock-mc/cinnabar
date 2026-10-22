@@ -211,8 +211,7 @@ impl WorldAuthority {
 
     /// What vanilla's adventure block-permission check sees in the hand for one edit of
     /// the block with store id `block`: an empty hand, or whether the held item's
-    /// CanPlaceOn or CanDestroy `list` names that block. Names without a namespace are
-    /// `minecraft:` blocks; a malformed list names nothing.
+    /// CanPlaceOn or CanDestroy `list` names that block. A malformed list names nothing.
     pub fn held_edit_item(
         &self,
         item: &protocol::VerifiedNetworkItemStack,
@@ -224,14 +223,9 @@ impl WorldAuthority {
             return HeldEditItem::EmptyHand;
         }
         let lists_block = protocol::item_block_list(item.extra_data(), list).is_some_and(|names| {
-            names.into_iter().any(|name| {
-                let ids = if name.contains(':') {
-                    self.block_ids_for_name(name)
-                } else {
-                    self.block_ids_for_name(&format!("{}:{name}", protocol::VANILLA_NAMESPACE))
-                };
-                ids.contains(&block)
-            })
+            names
+                .iter()
+                .any(|name| self.block_ids_for_name(name).contains(&block))
         });
         HeldEditItem::Item { lists_block }
     }

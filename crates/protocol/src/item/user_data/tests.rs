@@ -146,34 +146,48 @@ fn push_list(bytes: &mut Vec<u8>, names: &[&str]) {
 
 #[test]
 fn item_block_lists_read_after_the_compound_or_its_absence() {
+    let owned = |names: &[&str]| {
+        names
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>()
+    };
+    let list = |extra: &[u8], kind| {
+        item_block_list(extra, kind).map(|names| {
+            names
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>()
+        })
+    };
     let mut with_compound = vec![255, 255, 1, 10, 0, 0, 3, 1, 0, b'a'];
     with_compound.extend_from_slice(&7i32.to_le_bytes());
     with_compound.push(0);
     push_list(&mut with_compound, &["minecraft:dirt"]);
     push_list(&mut with_compound, &["stone", "minecraft:glass"]);
     assert_eq!(
-        item_block_list(&with_compound, ItemBlockList::CanPlaceOn),
-        Some(vec!["minecraft:dirt"])
+        list(&with_compound, ItemBlockList::CanPlaceOn),
+        Some(owned(&["minecraft:dirt"]))
     );
     assert_eq!(
-        item_block_list(&with_compound, ItemBlockList::CanDestroy),
-        Some(vec!["minecraft:glass", "stone"])
+        list(&with_compound, ItemBlockList::CanDestroy),
+        Some(owned(&["minecraft:glass", "minecraft:stone"]))
     );
 
     let mut bare = 0i16.to_le_bytes().to_vec();
     push_list(&mut bare, &[]);
     push_list(&mut bare, &["minecraft:sand"]);
     assert_eq!(
-        item_block_list(&bare, ItemBlockList::CanDestroy),
-        Some(vec!["minecraft:sand"])
+        list(&bare, ItemBlockList::CanDestroy),
+        Some(owned(&["minecraft:sand"]))
     );
     assert_eq!(
         item_block_list(&[], ItemBlockList::CanDestroy),
         Some(vec![])
     );
-    assert_eq!(item_block_list(&[1, 0], ItemBlockList::CanPlaceOn), None);
+    assert_eq!(list(&[1, 0], ItemBlockList::CanPlaceOn), None);
     assert_eq!(
-        item_block_list(&bare[..bare.len() - 1], ItemBlockList::CanDestroy),
+        list(&bare[..bare.len() - 1], ItemBlockList::CanDestroy),
         None
     );
 }

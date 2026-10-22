@@ -1,5 +1,6 @@
 //! Bounded comparison of retained item user data.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bedrock_protocol_1_26_51::wire::MAX_NBT_DEPTH;
@@ -25,12 +26,13 @@ pub enum ItemBlockList {
     CanDestroy,
 }
 
-/// The block names in one restriction list of an item's user data, as spelled on the wire.
+/// The block identifiers in one restriction list of an item's user data. A name without a
+/// namespace names a vanilla block, so it gains the `minecraft:` namespace.
 ///
 /// Empty user data has empty lists. Malformed data, a non-UTF-8 name, or a list larger than
 /// the remaining bytes returns `None`.
 #[must_use]
-pub fn item_block_list(extra: &[u8], list: ItemBlockList) -> Option<Vec<&str>> {
+pub fn item_block_list(extra: &[u8], list: ItemBlockList) -> Option<Vec<Cow<'_, str>>> {
     if extra.len() > crate::MAX_ITEM_NBT_BYTES {
         return None;
     }
@@ -59,7 +61,14 @@ pub fn item_block_list(extra: &[u8], list: ItemBlockList) -> Option<Vec<&str>> {
     };
     names
         .into_iter()
-        .map(|name| std::str::from_utf8(name).ok())
+        .map(|name| {
+            let name = std::str::from_utf8(name).ok()?;
+            Some(if name.contains(':') {
+                Cow::Borrowed(name)
+            } else {
+                Cow::Owned(format!("{}:{name}", crate::world::VANILLA_NAMESPACE))
+            })
+        })
         .collect()
 }
 
