@@ -223,6 +223,7 @@ pub(crate) fn advance(
         return false;
     };
     let bucket = stream
+        .authority()
         .item_identifier(observed.selection.item.network_id())
         .as_deref()
         .is_some_and(|identifier| identifier.ends_with("bucket"));
