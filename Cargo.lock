@@ -2631,6 +2631,7 @@ dependencies = [
  "test-alloc",
  "test-time",
  "thiserror 2.0.18",
+ "tracing",
  "ui",
  "ui-engine",
  "world",

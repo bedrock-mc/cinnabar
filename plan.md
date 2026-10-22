@@ -295,6 +295,13 @@ mounts retract toward the bare torso and expand to clear equipped chest geometry
 Vertical follow and damping restrain jump and landing motion, and local cloth keeps
 advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
+Ground-following pets have per-wearer movement, collision-shape grounding, one-block
+hops with checked flight paths and landings, heading-aware animated body clearance,
+obstacle steering and distance-driven gait playback.
+Idle clips settle into a sit
+and optional tricks. Missing terrain freezes the follower; ordinary blockage never
+teleports it. Owner teleports reset only onto checked ground. Broader terrain acceptance, swimming,
+flight, animation-triggered effects and performance qualification remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
 and excluded from pointer and keyboard wear selection; production rollout
