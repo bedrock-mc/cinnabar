@@ -98,6 +98,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close paired-door presentation and interaction acceptance, including lower/upper
   state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
+  Hand-use prediction resolves either clicked half against its matching partner
+  and changes the lower half's open state; matched server and artwork acceptance
+  remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
@@ -257,11 +260,20 @@ output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live
 performance qualification remains open.
 
+Body-slot equipment retains its replicated identity and selects authored attachable
+geometry, artwork and owner-root placement. Startup harness definitions are completed
+from tagged items and present pack resources. Resource-only session overrides reuse
+those definitions while preserving authored item conditions. Expression roots retain
+the worn slot through owner placement; worn equipment counts exclude hands.
+Multi-pass body equipment and matched native visual qualification remain incomplete.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Player deaths hide after their brief sequence while retaining the actor; later
+  server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,

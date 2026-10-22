@@ -38,6 +38,7 @@ struct EquipmentCounts {
     armor: usize,
     shield: usize,
     elytra: usize,
+    body: usize,
     catalog_geometry: usize,
     external_geometry: usize,
     literal_first_person: usize,
@@ -128,6 +129,10 @@ pub(super) fn compile_equipment_assets_command(
         elytra: bindings
             .iter()
             .filter(|binding| binding.category == EquipmentCategory::Elytra)
+            .count(),
+        body: bindings
+            .iter()
+            .filter(|binding| binding.category == EquipmentCategory::Body)
             .count(),
         catalog_geometry: bindings
             .iter()

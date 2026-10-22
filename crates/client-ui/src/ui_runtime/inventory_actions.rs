@@ -435,6 +435,10 @@ impl UiRuntime {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
         if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+            // A secondary click crafts once only with an empty cursor.
+            if player_runtime.inventory.ledger().cursor_stack().is_some() {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
             return self.activate_widget(player_runtime, widget);
         }
         let Some(target) = gesture_target(hit) else {
@@ -544,6 +548,9 @@ impl UiRuntime {
             }
             InventoryCellHit::RecipeBook(index) => {
                 self.recipe_book_click(player_runtime, index, true, None)
+            }
+            InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
+                self.book_widget_craft(player_runtime, index, true)
             }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
@@ -818,23 +825,34 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => {
-                let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
-                let recipe = self
-                    .book_recipes(player_runtime, skip, 1)
-                    .into_iter()
-                    .next()
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
-                player_runtime.inventory.begin_book_craft(&recipe.recipe)
-            }
+            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),
         }
     }
 
-    /// A click on a recipe book entry: a creative item as on the catalog grid,
-    /// else auto-crafting the recipe into the cursor.
+    /// Crafts the fallback book's `index` entry on the current page once, or a stack with `all`.
+    fn book_widget_craft(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        index: u8,
+        all: bool,
+    ) -> Outcome {
+        let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
+        let recipe = self
+            .book_recipes(player_runtime, skip, 1)
+            .into_iter()
+            .next()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        player_runtime
+            .inventory
+            .begin_book_craft(&recipe.recipe, all)
+    }
+
+    /// A click on a recipe book entry: a creative item as on the catalog grid, else
+    /// auto-crafting the recipe into the inventory; `into_inventory` (shift) crafts a stack
+    /// and `requested` marks a secondary click.
     fn recipe_book_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -878,7 +896,16 @@ impl UiRuntime {
                 }
                 Ok(0)
             }
-            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
+            // A secondary click crafts once only with an empty cursor.
+            Some(Clicked::Recipe(_))
+                if requested.is_some()
+                    && player_runtime.inventory.ledger().cursor_stack().is_some() =>
+            {
+                Err(InventoryGestureError::InvalidRequest)
+            }
+            Some(Clicked::Recipe(recipe)) => player_runtime
+                .inventory
+                .begin_book_craft(&recipe, into_inventory),
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),

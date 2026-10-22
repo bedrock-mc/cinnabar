@@ -103,15 +103,19 @@ pub fn verified_use_selection(
 #[cfg(test)]
 mod tests;
 
-/// Adapts the published world to gameplay's switch prediction.
+/// Resolves switch prediction through the caller's observed palette view.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
+    position: [i32; 3],
     clicked: u32,
-) -> Option<u32> {
+) -> Option<([i32; 3], u32)> {
     gameplay::block_use::predicted_toggle(
         collisions,
-        &crate::movement::world_view::GameplayWorldView(stream),
+        stream.network_id_mode(),
+        world,
+        position,
         clicked,
     )
 }

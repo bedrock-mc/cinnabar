@@ -18,7 +18,7 @@ macro_rules! panels {
 }
 
 panels! {
-AccessibilityTts,AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,GeneralMisc,GeneralAdvanced,CreatorCoordinates,CreatorContentLog,CreatorDebugger,CreatorDiagnostic,CreatorWatchdog,CreatorDevice,CreatorEditor,CreatorFiltering,Chat,Discord,DiscordDetails
+AccessibilityTts,AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,ModUpdates,GeneralMisc,GeneralAdvanced,CreatorCoordinates,CreatorContentLog,CreatorDebugger,CreatorDiagnostic,CreatorWatchdog,CreatorDevice,CreatorEditor,CreatorFiltering,Chat,Discord,DiscordDetails
 }
 
 /// Derives ordered rows once and rejects duplicate or missing row positions.
@@ -82,7 +82,7 @@ impl SettingPanel {
             | Self::GeneralNetwork
             | Self::GeneralMisc
             | Self::GeneralAdvanced => SettingSection::General,
-            Self::Updates => SettingSection::Updates,
+            Self::Updates | Self::ModUpdates => SettingSection::Updates,
             Self::CreatorCoordinates
             | Self::CreatorContentLog
             | Self::CreatorDebugger

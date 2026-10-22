@@ -38,6 +38,8 @@ Write short, clear documentation and comments. Give helpers documentation commen
 
 Keep reviews and landings parallel without a shared landing lock or reservation. Reserve build capacity before preparing an integration candidate. Verify the reviewed PR head combined with current `origin/dev`, and confirm `dev` still matches the tested base immediately before merging. If it changed, prepare and verify a new integration candidate. Reuse successful gate results only for identical integration trees, commands, toolchains and relevant inputs. Investigate failures before retrying; repeat checks only when relevant inputs change or a run was incomplete. Do not refresh an otherwise mergeable PR branch solely because it is behind `dev`; check its reviewed head combined with current `dev` in the integration candidate. A review is repeated when the PR head changes.
 
+Do not add Codex or Claude as commit co-authors, including `Co-authored-by` trailers in commits or squash-merge messages.
+
 PR titles become the changelog: use an imperative summary without a `type:` prefix or issue numbers. Apply exactly one label: `new`, `fix`, `performance`, or `internal`. Check the label assigned by `pr-label.yml`. Merge by squash with the final title and body; keep branch commits descriptive. Report pushed, committed, tested but uncommitted, and in-progress work accurately.
 
 ## Worktrees, captures, and payloads

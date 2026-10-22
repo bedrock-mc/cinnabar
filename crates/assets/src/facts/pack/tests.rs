@@ -195,6 +195,7 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
         "ender_dragon.skinning",
         "custom",
         "elytra",
+        "harness",
     ]);
     for name in names {
         let expected = match name {
@@ -210,7 +211,7 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
         assert_eq!(rules().raster(name), expected, "{name}");
         let mut state = EntityRenderMaterialState::default();
         let expected = match name {
-            "skeleton" | "entity_alphatest" | "sulfur_cube" => {
+            "skeleton" | "entity_alphatest" | "sulfur_cube" | "harness" => {
                 state.alpha_test = true;
                 state.cull = false;
                 Some(state)
