@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::UiRuntime;
+use super::{UiRuntime, UiRuntimeError};
 
 impl UiRuntime {
     /// The latest server-authored reason; packets may precede or follow zero health.
@@ -58,8 +58,38 @@ impl UiRuntime {
         }
     }
 
+    /// Whether readiness has acknowledged the current death, independently of health.
+    pub const fn local_player_respawn_ready(&self) -> bool {
+        self.local_player_respawn_ready
+    }
+
+    /// Distinguishes deaths even when recovery and a later death share one UI drain.
+    pub const fn local_player_death_generation(&self) -> u64 {
+        self.local_player_death_generation
+    }
+
+    /// Acknowledges the current death at its committed UI FIFO position.
+    pub fn apply_respawn_ready(
+        &mut self,
+        session_id: u64,
+        fifo_sequence: u64,
+        local_millis: u64,
+    ) -> Result<(), UiRuntimeError> {
+        self.validate_identity(session_id, fifo_sequence, local_millis, None)?;
+        self.local_player_respawn_ready = true;
+        self.last_fifo_sequence = Some(fifo_sequence);
+        self.last_local_millis = Some(local_millis);
+        Ok(())
+    }
+
     /// Recovery retires a reason once, preserving a new packet arriving before death.
     pub(super) fn publish_local_player_alive(&mut self, next: bool) {
+        if !next && self.last_known_local_player_alive != Some(false) {
+            self.local_player_death_generation = self.local_player_death_generation.wrapping_add(1);
+            if self.last_known_local_player_alive == Some(true) {
+                self.local_player_respawn_ready = false;
+            }
+        }
         if self.last_known_local_player_alive == Some(false) && next {
             self.death_reason = Arc::from("");
         }

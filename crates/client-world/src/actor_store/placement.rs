@@ -349,6 +349,7 @@ mod tests {
                 head_yaw: Some(90.0),
                 on_ground: None,
                 teleported: false,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: protocol::ActorInterpolation {

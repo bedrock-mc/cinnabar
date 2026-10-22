@@ -11,18 +11,32 @@ impl GuiScaleDrag {
         presentation: &mut UiPresentationRuntime,
         keyboard: &mut MessageReader<KeyboardInput>,
     ) -> bool {
-        let Some(alive) = runtime.and_then(|runtime| runtime.local_player_alive()) else {
+        let Some(runtime) = runtime else {
+            return false;
+        };
+        let lifecycle = (
+            runtime.session_id(),
+            runtime.local_player_death_generation(),
+        );
+        if menu.death_lifecycle != Some(lifecycle) {
+            menu.note_player_alive();
+            menu.death_lifecycle = Some(lifecycle);
+        }
+        if runtime.local_player_respawn_ready() {
+            menu.note_player_alive();
+            return false;
+        }
+        let Some(alive) = runtime.local_player_alive() else {
             return false;
         };
         if alive {
             menu.note_player_alive();
             return false;
         }
-        if !menu.open_death_with_rules(runtime.is_some_and(|runtime| runtime.immediate_respawn())) {
+        if !menu.open_death_with_rules(runtime.immediate_respawn()) {
             return false;
         }
-        menu.death_presentation.hardcore =
-            runtime.is_some_and(|runtime| runtime.gameplay_hud().hardcore());
+        menu.death_presentation.hardcore = runtime.gameplay_hud().hardcore();
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         presentation.drag_menu_scroll(None, false);
