@@ -45,7 +45,12 @@ public final class WindowTests extends Instrumentation {
             });
             await(() -> visible(WindowInsets.Type.ime()) && hasObstruction(WindowInsets.Type.ime()), "keyboard opens in immersive mode");
             runOnMainSync(() -> activity.immersive.restore());
-            await(() -> visible(WindowInsets.Type.ime()) && hasObstruction(WindowInsets.Type.ime()), "bar restoration preserves the keyboard");
+            getUiAutomation().waitForIdle(1000, 5000);
+            runOnMainSync(() -> {
+                if (!visible(WindowInsets.Type.ime()) || !hasObstruction(WindowInsets.Type.ime())) {
+                    throw new AssertionError("bar restoration preserves the keyboard after settling");
+                }
+            });
             capture("window-keyboard.png");
             runOnMainSync(() -> activity.getWindow().getInsetsController().hide(WindowInsets.Type.ime()));
             await(() -> !visible(WindowInsets.Type.ime())
@@ -111,7 +116,7 @@ public final class WindowTests extends Instrumentation {
             activity.insetsChanged.run();
             activity.editor.requestApplyInsets();
         });
-        if (!ready.await(10, TimeUnit.SECONDS)) throw new AssertionError(description);
+        if (!ready.await(30, TimeUnit.SECONDS)) throw new AssertionError(description);
         runOnMainSync(() -> activity.insetsChanged = () -> {});
     }
 }

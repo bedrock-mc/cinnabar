@@ -17,6 +17,7 @@ public final class WindowActivity extends Activity {
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         editor = new EditText(this);
         editor.setHint("Android window test");
+        editor.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         setContentView(editor);
         editor.getViewTreeObserver().addOnGlobalLayoutListener(() -> insetsChanged.run());
         editor.setOnApplyWindowInsetsListener((view, insets) -> {
