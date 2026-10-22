@@ -24,11 +24,11 @@ pub struct Controller {
     child: Spawned,
     input: Mutex<Option<ChildStdin>>,
     cancelled: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
 }
 
 impl Controller {
-    /// Starts feedback and waits briefly for its first submitted frame. An unavailable display
-    /// returns an error so callers can continue with their normal startup diagnostics.
+    /// Spawns feedback without waiting for its window or graphics device to initialize.
     pub fn start(size: [f32; 2]) -> Result<Self> {
         let child = children::spawn(
             Command::new(std::env::current_exe()?)
@@ -39,9 +39,15 @@ impl Controller {
                 .stderr(Stdio::inherit()),
         )
         .context("open startup screen")?;
+        Self::from_child(child)
+    }
+
+    /// Connects the feedback protocol to an already owned helper process.
+    fn from_child(child: Spawned) -> Result<Self> {
         let input = child.take_stdin();
         let output = child.take_stdout().context("startup screen output")?;
         let cancelled = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
         let (shown, first_frame) = mpsc::channel();
         std::thread::spawn(move || {
@@ -57,17 +63,22 @@ impl Controller {
                 }
             }
         });
-        let controller = Self {
+        let retired = finished.clone();
+        let cancellation = cancelled.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = first_frame.recv_timeout(Duration::from_secs(5))
+                && !retired.load(Ordering::Acquire)
+                && !cancellation.load(Ordering::Acquire)
+            {
+                tracing::warn!("startup screen did not draw: {error}");
+            }
+        });
+        Ok(Self {
             child,
             input: Mutex::new(input),
             cancelled,
-        };
-        if let Err(error) = first_frame.recv_timeout(Duration::from_secs(5))
-            && !controller.cancelled()
-        {
-            return Err(error).context("startup screen did not draw");
-        }
-        Ok(controller)
+            finished,
+        })
     }
 
     /// Reports a real startup phase; transport failure leaves the normal client lifecycle intact.
@@ -77,6 +88,7 @@ impl Controller {
 
     /// Releases feedback after the destination screen has completed rendering.
     pub fn ready(&self) {
+        self.finished.store(true, Ordering::Release);
         self.send(Message::Ready);
     }
 
@@ -98,6 +110,7 @@ impl Controller {
 impl Drop for Controller {
     /// EOF ends a responsive helper; killing and reaping also handles a stalled display driver.
     fn drop(&mut self) {
+        self.finished.store(true, Ordering::Release);
         self.input.get_mut().expect("startup input lock").take();
         self.child.stop(EXIT_GRACE);
     }
@@ -106,4 +119,35 @@ impl Drop for Controller {
 /// Runs the loading process, with no game carriers or client event loop required.
 pub fn run() -> Result<()> {
     window::run()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_can_send_progress_before_the_loading_window_draws() {
+        let directory = tempfile::tempdir().unwrap();
+        let handoff = directory.path().join("handoff.json");
+        // The helper cannot draw until startup has continued far enough to send progress.
+        let child = children::spawn(
+            Command::new("sh")
+                .args([
+                    "-c",
+                    "read -r progress; printf '\"shown\"\\n\"cancelled\"\\n'; read -r ready; printf '%s' \"$ready\" > \"$1\"",
+                    "startup-fixture",
+                ])
+                .arg(&handoff)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped()),
+        )
+        .unwrap();
+        let controller = Controller::from_child(child).unwrap();
+        controller.progress(Stage::PreparingInterface);
+        test_time::eventually("loading window cancellation", || controller.cancelled());
+        controller.ready();
+        controller.child.wait();
+        let message: Message = serde_json::from_slice(&std::fs::read(handoff).unwrap()).unwrap();
+        assert_eq!(message, Message::Ready);
+    }
 }
