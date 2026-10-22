@@ -18,13 +18,20 @@ use std::{
 
 /// Selects the loading-window process before ordinary client argument parsing.
 pub const FLAG: &str = "--startup-screen";
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Owns the loading process and closes it on every return or unwind from client startup.
 pub struct Controller {
-    child: Spawned,
-    input: Mutex<Option<ChildStdin>>,
+    child: Arc<Spawned>,
+    input: Arc<Mutex<Option<ChildStdin>>>,
     cancelled: Arc<AtomicBool>,
-    finished: Arc<AtomicBool>,
+    lifetime: mpsc::Sender<Notice>,
+}
+
+/// Wakes the process owner when the first frame arrives or feedback is no longer needed.
+enum Notice {
+    Shown,
+    Retire,
 }
 
 impl Controller {
@@ -39,22 +46,23 @@ impl Controller {
                 .stderr(Stdio::inherit()),
         )
         .context("open startup screen")?;
-        Self::from_child(child)
+        Self::from_child(child, FIRST_FRAME_TIMEOUT)
     }
 
     /// Connects the feedback protocol to an already owned helper process.
-    fn from_child(child: Spawned) -> Result<Self> {
-        let input = child.take_stdin();
+    fn from_child(child: Spawned, first_frame_timeout: Duration) -> Result<Self> {
+        let input = Arc::new(Mutex::new(child.take_stdin()));
         let output = child.take_stdout().context("startup screen output")?;
+        let child = Arc::new(child);
         let cancelled = Arc::new(AtomicBool::new(false));
-        let finished = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
-        let (shown, first_frame) = mpsc::channel();
+        let (lifetime, events) = mpsc::channel();
+        let notices = lifetime.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(output).lines().map_while(Result::ok) {
                 match serde_json::from_str::<Event>(&line) {
                     Ok(Event::Shown) => {
-                        let _ = shown.send(());
+                        let _ = notices.send(Notice::Shown);
                     }
                     Ok(Event::Cancelled) => {
                         flag.store(true, Ordering::Release);
@@ -63,21 +71,27 @@ impl Controller {
                 }
             }
         });
-        let retired = finished.clone();
+        let process = child.clone();
+        let transport = input.clone();
         let cancellation = cancelled.clone();
         std::thread::spawn(move || {
-            if let Err(error) = first_frame.recv_timeout(Duration::from_secs(5))
-                && !retired.load(Ordering::Acquire)
-                && !cancellation.load(Ordering::Acquire)
-            {
-                tracing::warn!("startup screen did not draw: {error}");
+            match events.recv_timeout(first_frame_timeout) {
+                Ok(Notice::Shown) => while matches!(events.recv(), Ok(Notice::Shown)) {},
+                Ok(Notice::Retire) => {}
+                Err(error) => {
+                    if !cancellation.load(Ordering::Acquire) {
+                        tracing::warn!("startup screen did not draw: {error}");
+                    }
+                }
             }
+            transport.lock().expect("startup input lock").take();
+            process.stop(EXIT_GRACE);
         });
         Ok(Self {
             child,
-            input: Mutex::new(input),
+            input,
             cancelled,
-            finished,
+            lifetime,
         })
     }
 
@@ -88,8 +102,8 @@ impl Controller {
 
     /// Releases feedback after the destination screen has completed rendering.
     pub fn ready(&self) {
-        self.finished.store(true, Ordering::Release);
         self.send(Message::Ready);
+        let _ = self.lifetime.send(Notice::Retire);
     }
 
     /// Whether the user closed the loading window before its destination was ready.
@@ -110,8 +124,8 @@ impl Controller {
 impl Drop for Controller {
     /// EOF ends a responsive helper; killing and reaping also handles a stalled display driver.
     fn drop(&mut self) {
-        self.finished.store(true, Ordering::Release);
-        self.input.get_mut().expect("startup input lock").take();
+        let _ = self.lifetime.send(Notice::Retire);
+        self.input.lock().expect("startup input lock").take();
         self.child.stop(EXIT_GRACE);
     }
 }
@@ -142,12 +156,43 @@ mod tests {
                 .stdout(Stdio::piped()),
         )
         .unwrap();
-        let controller = Controller::from_child(child).unwrap();
+        let controller = Controller::from_child(child, FIRST_FRAME_TIMEOUT).unwrap();
         controller.progress(Stage::PreparingInterface);
         test_time::eventually("loading window cancellation", || controller.cancelled());
         controller.ready();
         controller.child.wait();
         let message: Message = serde_json::from_slice(&std::fs::read(handoff).unwrap()).unwrap();
         assert_eq!(message, Message::Ready);
+    }
+
+    /// Starts a helper that ignores protocol input and graceful termination, like a stuck driver.
+    fn unresponsive_helper() -> Spawned {
+        children::spawn(
+            Command::new("sh")
+                .args(["-c", "trap '' TERM; while :; do :; done"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped()),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn unresponsive_helper_is_reaped_after_its_first_frame_deadline() {
+        let controller = Controller::from_child(unresponsive_helper(), Duration::ZERO).unwrap();
+        test_time::eventually("timed-out loading helper reaped", || {
+            controller.child.try_wait().unwrap().is_some()
+        });
+        assert!(!controller.cancelled());
+    }
+
+    #[test]
+    fn unresponsive_helper_is_reaped_when_content_is_ready_before_it_draws() {
+        let controller =
+            Controller::from_child(unresponsive_helper(), FIRST_FRAME_TIMEOUT).unwrap();
+        controller.ready();
+        test_time::eventually("retired loading helper reaped", || {
+            controller.child.try_wait().unwrap().is_some()
+        });
+        assert!(!controller.cancelled());
     }
 }
