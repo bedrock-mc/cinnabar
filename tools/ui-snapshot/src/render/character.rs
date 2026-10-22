@@ -1,4 +1,4 @@
-//! Static menu portraits from the shared player mesh and locally installed default skin.
+//! Static home portraits from the shared player mesh and locally installed default skin.
 
 use crate::carriers::{self, Error};
 use jsonui_editor::raster::Page;

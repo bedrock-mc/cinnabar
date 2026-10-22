@@ -8,7 +8,6 @@ mod hud_card_fit;
 mod hud_cards;
 mod hud_editor;
 mod local_identity;
-mod menu_layout;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
@@ -973,7 +972,6 @@ pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
         .chain(out_of_game::WORLD_FORM_STATES)
-        .chain(menu_layout::STATES)
         .chain(updates::STATES)
         .chain(shader_pack::STATES)
         .chain(social_settings::STATES)

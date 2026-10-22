@@ -365,7 +365,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
-  full menu visual and hardware frame-work acceptance remains open. Home actions use a centered uniform column, and Pause separates its action column from the character area. Complete menu topology, artwork and device acceptance remain open.
+  full menu visual and hardware frame-work acceptance remains open.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.

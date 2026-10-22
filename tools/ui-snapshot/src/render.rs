@@ -355,7 +355,9 @@ fn png_fixture(
             });
             cosmetic_icons(&mut artwork, &mut carriers.pages, seconds);
             mod_icons(&view, &mut artwork, &mut carriers.pages)?;
-            let mut character_page = None;
+            let character_page = (view.screen == launcher::menu::MenuScreen::Home)
+                .then(|| character::texture(dir, &mut carriers.pages))
+                .transpose()?;
             let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
             // Mount at zero, then sample settled motion without reading a clock or sleeping.
@@ -382,15 +384,7 @@ fn png_fixture(
                 paint
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
-                if let Some(preview) = &paint.character_preview {
-                    let page = match character_page {
-                        Some(page) => page,
-                        None => {
-                            let page = character::texture(dir, &mut carriers.pages)?;
-                            character_page = Some(page);
-                            page
-                        }
-                    };
+                if let (Some(preview), Some(page)) = (&paint.character_preview, character_page) {
                     character::paint(preview.control, page, &mut frame)?;
                 }
                 if view.dressing_room.editor.is_some() || view.dressing_room.cosmetic_filter_open {

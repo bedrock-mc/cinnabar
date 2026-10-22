@@ -40,14 +40,15 @@ fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
 }
 
 #[test]
-fn brand_sits_above_the_actions_and_footer_names_game_and_protocol() {
-    let (_, hits, nodes) = paint(HashMap::new(), |c| {
+fn brand_sits_above_translucent_panels_and_footer_names_game_and_protocol() {
+    let view = view();
+    let (_, _, nodes) = paint(HashMap::new(), |c| {
         c.title_artwork = Some(IconRef {
             page: 18,
             uv: [0, 0, 400, 80],
             glint: false,
         });
-        draw(c, &view(), [1280.0, 720.0], None, &|_| None).unwrap();
+        draw(c, &view, [1280.0, 720.0], None, &|_| None).unwrap();
     });
     let logo = nodes
         .iter()
@@ -61,12 +62,13 @@ fn brand_sits_above_the_actions_and_footer_names_game_and_protocol() {
             )
         })
         .unwrap();
-    let play = hits
-        .iter()
-        .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Play))
-        .unwrap()
-        .1;
-    assert!(logo.bounds().max().y() < play.min().y());
+    let panels = nodes.iter().filter(|node| node.parent().is_none()
+        && matches!(node.visual(), UiVisual::Solid { color, .. } if color[..3] == NEUTRAL80.fill[..3] && color[3] < 255))
+        .collect::<Vec<_>>();
+    assert!(!panels.is_empty());
+    for panel in panels {
+        assert!(logo.bounds().max().y() < panel.bounds().min().y());
+    }
     let text = nodes
         .iter()
         .filter_map(|node| match node.visual() {
@@ -86,6 +88,7 @@ fn brand_sits_above_the_actions_and_footer_names_game_and_protocol() {
         launcher::PRODUCT_NAME,
         launcher::PRODUCT_VERSION
     )));
+    assert!(text.contains(protocol::GAME_VERSION));
     assert!(text.contains(&format!(
         "Minecraft{}/Protocol{}",
         protocol::GAME_VERSION,
