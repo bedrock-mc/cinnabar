@@ -82,7 +82,8 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Dragonfly terrain:** only Flat is supported. Use BDS for natural terrain. Existing Dragonfly
   Normal saves remain on disk, but cannot be opened with the built-in server. Existing chunks
   are never silently extended with a different generator. Seeds are retained in world metadata
-  for BDS; Dragonfly's flat terrain does not use them.
+  for BDS; Dragonfly's flat terrain does not use them. Natural-terrain imports are rejected before
+  saving if the selected backend is Dragonfly; retry with BDS available.
 - **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.

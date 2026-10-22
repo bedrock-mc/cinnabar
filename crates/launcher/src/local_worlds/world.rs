@@ -13,6 +13,16 @@ pub enum Generator {
     Flat,
 }
 
+impl Generator {
+    /// Whether the backend can generate new terrain for this world type.
+    pub const fn supports_backend(self, backend: Backend) -> bool {
+        match backend {
+            Backend::Bds => true,
+            Backend::Dragonfly => matches!(self, Self::Flat),
+        }
+    }
+}
+
 /// Why natural terrain cannot run on the built-in local server.
 pub const NATURAL_TERRAIN_REQUIRES_BDS: &str =
     "Dragonfly supports only flat terrain; use BDS for natural terrain";

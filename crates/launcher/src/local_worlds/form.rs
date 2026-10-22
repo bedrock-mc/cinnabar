@@ -115,7 +115,7 @@ impl CreateForm {
         if self.seed_text.chars().count() > MAX_SEED_CHARS {
             return Err(FormError::SeedTooLong);
         }
-        if self.backend == Backend::Dragonfly && self.generator != Generator::Flat {
+        if !self.generator.supports_backend(self.backend) {
             return Err(FormError::NaturalTerrainRequiresBds);
         }
         Ok(NewWorld {

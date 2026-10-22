@@ -3,6 +3,8 @@ use super::*;
 use crate::local_worlds::test_support::write_script;
 use crate::local_worlds::test_support::{scratch, spec};
 #[cfg(unix)]
+use launcher::local_worlds::world::Generator;
+#[cfg(unix)]
 use std::path::Path;
 
 /// A Dragonfly stand-in: logs its arguments, prints `ready`, and stops on `stop` or stdin EOF.

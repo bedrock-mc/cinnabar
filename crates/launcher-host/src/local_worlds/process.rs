@@ -12,7 +12,7 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
-use launcher::local_worlds::world::{Generator, NATURAL_TERRAIN_REQUIRES_BDS, World};
+use launcher::local_worlds::world::{NATURAL_TERRAIN_REQUIRES_BDS, World};
 
 use crate::lifecycle::children::{self, Spawned};
 
@@ -128,7 +128,7 @@ fn ready_line(line: &str) -> bool {
 impl Runner for ProcessRunner {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
         let world = &spec.world;
-        if world.generator != Generator::Flat {
+        if !world.generator.supports_backend(bridge::Backend::Dragonfly) {
             return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
         }
         let address = loopback(free_loopback_port()?);

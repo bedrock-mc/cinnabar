@@ -822,14 +822,15 @@ fn a_create_during_detection_waits_for_the_result() {
         .expect("the create returned")
         .expect("create");
     assert_eq!(world.backend, Backend::Dragonfly);
-    let normal = fixture
-        .manager
-        .create(&NewWorld {
+    for backend in [None, Some(Backend::Dragonfly)] {
+        let normal = fixture.manager.create(&NewWorld {
             name: "normal".into(),
+            backend,
             ..NewWorld::default()
-        })
-        .expect("a Dragonfly world without Docker");
-    assert_eq!(normal.backend, Backend::Dragonfly);
+        });
+        assert!(matches!(normal, Err(WorldError::Invalid(_))), "{normal:?}");
+        assert_eq!(fixture.manager.list().expect("list").len(), 1);
+    }
 }
 
 /// A probe that outlasts the wait refuses the create instead of saving a guess.
