@@ -305,6 +305,42 @@ fn grid_only_changes_refresh_recipe_book_availability() {
 }
 
 #[test]
+fn block_identity_changes_refresh_recipe_book_availability() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    for block_runtime_id in [0, 1, 0] {
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(0),
+                storage_item: NetworkItemStack::empty(),
+                slots: [0, block_runtime_id]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(slot, block_runtime_id)| NetworkItemStack {
+                        network_id: planks,
+                        count: 2,
+                        stack_network_id: slot as i32 + 1,
+                        block_runtime_id,
+                        ..NetworkItemStack::empty()
+                    })
+                    .collect(),
+            }));
+        let listed = session.book_recipes(false, false, 0, usize::MAX);
+        assert_eq!(listed.len(), 2);
+        assert!(
+            listed
+                .iter()
+                .all(|entry| entry.craftable == (block_runtime_id == 0))
+        );
+    }
+}
+
+#[test]
 fn replacing_recipes_while_the_book_is_closed_frees_the_old_batch() {
     let mut session = session();
     assert!(!session.book_recipes(false, false, 0, usize::MAX).is_empty());

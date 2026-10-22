@@ -13,7 +13,7 @@ use protocol::{
 /// Opens an acknowledged crafting screen with one real input and one missing ingredient.
 fn selected_recipe(
     workbench: bool,
-    ordinary_result: bool,
+    ordinary_result_count: Option<u16>,
 ) -> (player_state::PlayerState, UiRuntime) {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
@@ -69,7 +69,7 @@ fn selected_recipe(
         )
     };
     let mut recipes = vec![recipe];
-    if ordinary_result {
+    if let Some(count) = ordinary_result_count {
         recipes.push(RecipeFixture {
             net_id: 78,
             ..RecipeFixture::shaped(
@@ -77,7 +77,7 @@ fn selected_recipe(
                 1,
                 1,
                 vec![IngredientFixture::named("minecraft:oak_log", 0)],
-                vec![OutputFixture::new(output, 4)],
+                vec![OutputFixture::new(output, count)],
             )
         });
     }
@@ -128,7 +128,7 @@ fn selected_recipe(
             player.inventory.crafting_match(),
             inventory::CraftGridMatch::Unique(_)
         ),
-        ordinary_result
+        ordinary_result_count.is_some()
     );
     (player, runtime)
 }
@@ -225,7 +225,7 @@ fn assert_engine_result(
 
 /// Checks ghost cell art, item icons and real input preservation in one fallback screen.
 fn assert_ghost_cells(workbench: bool, ordinary_result: bool) {
-    let (player, runtime) = selected_recipe(workbench, ordinary_result);
+    let (player, runtime) = selected_recipe(workbench, ordinary_result.then_some(4));
     let ledger = player.inventory.ledger();
     let first = ledger.crafting_grid().slots().next().unwrap();
     let real = ledger
@@ -389,4 +389,136 @@ fn fallback_crafting_draws_identical_real_personal_result_normally() {
 #[test]
 fn fallback_crafting_draws_identical_real_workbench_result_normally() {
     assert_ghost_cells(true, true);
+}
+
+/// Checks that hovering a fallback ghost publishes and draws the item's tooltip.
+fn assert_ghost_tooltip(workbench: bool, output: bool) {
+    use crate::ui_runtime::presentation::{
+        inventory_tooltip,
+        publish::{capture_hud_frame, hovered_stack, item_icons::ItemIconFrames},
+    };
+    use ui_screens::container_actions::InventoryCellHit;
+
+    let (player, mut runtime) = selected_recipe(workbench, None);
+    let ledger = player.inventory.ledger();
+    let first = ledger.crafting_grid().slots().next().unwrap();
+    let (hit, expected) = if output {
+        (
+            InventoryCellHit::CraftOutput,
+            ledger.crafting_ghost_output(),
+        )
+    } else {
+        (
+            InventoryCellHit::Craft(first + 1),
+            ledger.crafting_ghost_stack(first + 1),
+        )
+    };
+    let expected = expected.unwrap().clone();
+    let registry = protocol::ItemRegistryEvent {
+        entries: protocol::vanilla_item_registry(),
+    };
+    let identifier = &registry
+        .entries
+        .iter()
+        .find(|entry| entry.network_id == expected.network_id)
+        .unwrap()
+        .identifier;
+    let tooltip = inventory_tooltip::tooltip_lines(&runtime, &expected, Some(identifier), None);
+    assert!(!tooltip.is_empty());
+    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(stream.seed_item_registry(registry));
+    let mut presentation = presentation();
+    runtime.screen_state_mut().hover = Some(hit);
+    runtime.set_inventory_pointer_gui(Some([260.0, 120.0]));
+    capture_hud_frame(
+        &player,
+        &mut runtime,
+        &mut presentation,
+        Some(&stream),
+        semantic_input::PerspectiveMode::FirstPerson,
+        0,
+        ItemIconFrames::default(),
+    );
+    let input = presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(presentation.engine_container_frame().is_none());
+    snapshot::write(
+        &input,
+        &format!(
+            "fallback-ghost-tooltip-{}-{}",
+            if workbench { "workbench" } else { "personal" },
+            if output { "output" } else { "input" },
+        ),
+    );
+    assert_eq!(hovered_stack(&player, &runtime), Some((expected, None)));
+    let lines = |tooltip: &[crate::ui_runtime::presentation::hud_layout::TooltipLine]| {
+        tooltip
+            .iter()
+            .map(|line| (line.text.clone(), line.color))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        lines(&presentation.hud_frame().window_text.tooltip),
+        lines(&tooltip)
+    );
+}
+
+#[test]
+fn fallback_crafting_ghost_tooltip_personal_input() {
+    assert_ghost_tooltip(false, false);
+}
+
+#[test]
+fn fallback_crafting_ghost_tooltip_workbench_input() {
+    assert_ghost_tooltip(true, false);
+}
+
+#[test]
+fn fallback_crafting_ghost_tooltip_personal_output() {
+    assert_ghost_tooltip(false, true);
+}
+
+#[test]
+fn fallback_crafting_ghost_tooltip_workbench_output() {
+    assert_ghost_tooltip(true, true);
+}
+
+#[test]
+fn fallback_crafting_hover_keeps_real_inputs_and_prefers_the_real_result() {
+    use crate::ui_runtime::presentation::publish::hovered_stack;
+    use ui_screens::container_actions::InventoryCellHit;
+
+    for workbench in [false, true] {
+        let (player, mut runtime) = selected_recipe(workbench, Some(1));
+        let ledger = player.inventory.ledger();
+        let first = ledger.crafting_grid().slots().next().unwrap();
+        let real = ledger
+            .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(first))
+            .unwrap()
+            .clone();
+        runtime.screen_state_mut().hover = Some(InventoryCellHit::Craft(first));
+        assert_eq!(hovered_stack(&player, &runtime), Some((real, None)));
+        runtime.screen_state_mut().hover = Some(InventoryCellHit::Craft(first + 2));
+        assert!(hovered_stack(&player, &runtime).is_none());
+        runtime.screen_state_mut().hover = Some(InventoryCellHit::CraftOutput);
+        let (output, name) = hovered_stack(&player, &runtime).unwrap();
+        assert!(name.is_none());
+        assert_eq!(output.count, 1);
+        assert_eq!(ledger.crafting_ghost_output().unwrap().count, 4);
+    }
 }

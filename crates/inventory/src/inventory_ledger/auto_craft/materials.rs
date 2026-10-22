@@ -13,6 +13,7 @@ pub(crate) struct AutoCraftMaterials(Vec<Option<Source>>);
 struct Source {
     network_id: i32,
     metadata: u32,
+    block_runtime_id: i32,
     count: u16,
     /// Compared by identity first, then by content, so restated stacks keep the listing.
     extra_data: Arc<[u8]>,
@@ -25,6 +26,7 @@ impl PartialEq for Source {
     fn eq(&self, other: &Self) -> bool {
         self.network_id == other.network_id
             && self.metadata == other.metadata
+            && self.block_runtime_id == other.block_runtime_id
             && self.count == other.count
             && (Arc::ptr_eq(&self.extra_data, &other.extra_data)
                 || self.extra_data == other.extra_data)
@@ -51,6 +53,7 @@ impl PlayerInventoryLedger {
                     Some(Source {
                         network_id: held.stack.network_id,
                         metadata: held.stack.metadata,
+                        block_runtime_id: held.stack.block_runtime_id,
                         count: held.stack.count,
                         extra_data: Arc::clone(&held.stack.extra_data),
                         nbt_digest: held.stack.nbt_digest,

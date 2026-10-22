@@ -134,7 +134,7 @@ pub fn capture_contents(
 }
 
 /// Projects a real match before a selected recipe ghost, retaining which supplied the result.
-fn crafting_output(
+pub fn crafting_output(
     ledger: &PlayerInventoryLedger,
     matched: inventory::CraftGridMatch,
 ) -> Option<(NetworkItemStack, bool)> {
