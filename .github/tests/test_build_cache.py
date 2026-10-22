@@ -266,15 +266,13 @@ class RetentionTests(unittest.TestCase):
     def test_missing_replacement_preserves_the_predecessor(self):
         """A skipped or failed upload never authorizes retention cleanup."""
         self.entries.pop()
-        with self.assertRaises(cache.BudgetError):
-            cache.prune(self.env)
+        cache.prune(self.env)
         self.deleted.assert_not_called()
 
     def test_wrong_ref_does_not_validate_a_replacement(self):
         """An entry with the same key on another ref cannot replace this ref's cache."""
         self.entries[1]["ref"] = "refs/pull/1/merge"
-        with self.assertRaises(cache.BudgetError):
-            cache.prune(self.env)
+        cache.prune(self.env)
         self.deleted.assert_not_called()
 
     def test_valid_replacement_retires_only_older_entries(self):
@@ -553,7 +551,20 @@ class ArtifactRetentionTests(unittest.TestCase):
             env = {"CACHE_ARCHIVE": str(Path(temporary) / "archive"), "CACHE_PREFIX": "linux-compiler-",
                    "CACHE_ARTIFACT_ID": "20"}
             with patch.object(cache, "artifacts", return_value=[]), patch.object(cache, "delete") as deleted, \
-                    patch.object(cache, "delete_caches") as deleted_caches, self.assertRaises(cache.BudgetError):
+                    patch.object(cache, "delete_caches") as deleted_caches:
+                cache.prune_artifacts(env)
+            deleted.assert_not_called()
+            deleted_caches.assert_not_called()
+
+    def test_concurrent_writer_can_retire_this_upload_before_pruning(self):
+        """A newer successful writer may remove this upload before its own prune step runs."""
+        with tempfile.TemporaryDirectory() as temporary:
+            env = {"CACHE_ARCHIVE": str(Path(temporary) / "archive"), "CACHE_PREFIX": "linux-ci-compiler-",
+                   "CACHE_BUCKET": "linux-ci-", "CACHE_ARTIFACT_ID": "20", "GITHUB_REF": "refs/heads/dev",
+                   "GITHUB_REPOSITORY": "owner/repo"}
+            newer = [{"id": 30, "created_at": "2026-01-03"}]
+            with patch.object(cache, "artifacts", return_value=newer), patch.object(cache, "delete") as deleted, \
+                    patch.object(cache, "delete_caches") as deleted_caches:
                 cache.prune_artifacts(env)
             deleted.assert_not_called()
             deleted_caches.assert_not_called()

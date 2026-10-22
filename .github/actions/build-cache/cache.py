@@ -234,7 +234,8 @@ def prune(env):
                   and entry["ref"] == env["GITHUB_REF"]), None)
     limit = budget("cache", env["CACHE_BUCKET"])
     if saved is None:
-        raise BudgetError(f"Kept existing caches: replacement {env['CACHE_KEY']} was not saved on {env['GITHUB_REF']}")
+        print(f"::notice::Kept existing caches: replacement {env['CACHE_KEY']} is not listed on {env['GITHUB_REF']}")
+        return
     print(f"{env['CACHE_KEY']} is {saved['size_in_bytes']} bytes of its {limit}-byte budget")
     if saved["size_in_bytes"] > limit:
         delete_caches(env, [saved["id"]])
@@ -519,7 +520,9 @@ def prune_artifacts(env):
     found = artifacts(env, name)
     replacement = next((entry for entry in found if entry["id"] == keep), None)
     if replacement is None:
-        raise BudgetError(f"Kept existing caches: uploaded artifact {keep} is not visible")
+        # A newer validated upload may already have retired this one.
+        print(f"::notice::Kept existing caches: uploaded artifact {keep} is no longer listed")
+        return
     for artifact_id in superseded_artifacts(found, keep):
         delete(f"repos/{env['GITHUB_REPOSITORY']}/actions/artifacts/{artifact_id}")
     # A bucket moved out of the shared store may still have older entries there.
