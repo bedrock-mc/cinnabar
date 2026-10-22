@@ -230,8 +230,9 @@ replay keeps the starting frame's capture, refreshes later ones and copies the r
 word back to the live state, keeping the live spin and glide counters and swim blend.
 Still incomplete: server `UsingItem` writes, which vanilla keeps in the same word and
 reconciles with local item use on movement ticks; writes setting several pose flags (the
-locomotion mode keeps one pose), the Riptide spin's entity-hit end, block-climber flags and
-live-server evidence for these adoptions.
+locomotion mode keeps one pose), the Riptide spin's entity-hit end, block-climber flags,
+keeping the live camera eye-height blend through replay (vanilla's copy-back leaves it live;
+Cinnabar rebuilds it) and live-server evidence for these adoptions.
 Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
