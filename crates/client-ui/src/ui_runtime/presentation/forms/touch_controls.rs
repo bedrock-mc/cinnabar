@@ -172,7 +172,6 @@ impl UiPresentationRuntime {
             );
         }
         let mut data = DataSource::new();
-        data.set_global("#touch_editor_open", Scalar::Bool(state.editor.is_some()));
         for &(name, id) in CONTROLS {
             let held = state
                 .contacts
@@ -276,24 +275,6 @@ fn layout_catalog() -> Result<Catalog, json_ui::LoadError> {
     let mut layout: serde_json::Value =
         serde_json::from_slice(LAYOUT).expect("built-in touch layout parses");
     editor::enable_placement(&mut layout);
-    let controls = layout["screen"]["controls"]
-        .as_array_mut()
-        .expect("touch controls array");
-    for (name, text, y, scale) in [
-        ("editor_title", "Touch controls", 28., 1.2),
-        (
-            "editor_help",
-            "Drag a control. Guides align edges and centers.",
-            44.,
-            0.65,
-        ),
-    ] {
-        controls.push(serde_json::json!({name: {"type":"label", "text":text,
-            "localize":false, "font_scale_factor":scale, "shadow":true, "text_alignment":"center",
-            "anchor_from":"top_middle", "anchor_to":"top_middle", "offset":[0,y],
-            "size":["100%",14], "color":[1,1,1], "visible":false,
-            "bindings":[{"binding_name":"#touch_editor_open","binding_name_override":"#visible"}]}}));
-    }
     let bytes = serde_json::to_vec(&layout).expect("touch layout serializes");
     Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),

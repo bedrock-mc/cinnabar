@@ -26,6 +26,7 @@ impl HudEditor {
             close_requested: false,
             reset: false,
             history_buttons: true,
+            chrome_scale: 1.,
             grid: false,
             snap: false,
             bypass_snap: false,

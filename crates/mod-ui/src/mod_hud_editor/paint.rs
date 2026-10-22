@@ -37,6 +37,16 @@ impl HudEditor {
 
             return;
         }
+        let chrome_scale = if editor.history_buttons {
+            (2. / f64::from(px)).max(1.)
+        } else {
+            1.
+        };
+        if editor.chrome_scale != chrome_scale {
+            editor.chrome_scale = chrome_scale;
+            editor.data_dirty = true;
+            editor.catalog = None;
+        }
         if editor.viewport != viewport {
             editor.data_dirty = true;
             editor.viewport = viewport;
@@ -128,14 +138,18 @@ impl HudEditor {
                     editor.data = data;
                 }
                 if editor.catalog.is_none() {
-                    let catalog =
-                        match template::catalog(&editor.draft, viewport, editor.history_buttons) {
-                            Ok(catalog) => catalog,
-                            Err(error) => {
-                                tracing::warn!(%error,"HUD editor template rejected");
-                                return None;
-                            }
-                        };
+                    let catalog = match template::catalog(
+                        &editor.draft,
+                        viewport,
+                        editor.history_buttons,
+                        editor.chrome_scale,
+                    ) {
+                        Ok(catalog) => catalog,
+                        Err(error) => {
+                            tracing::warn!(%error,"HUD editor template rejected");
+                            return None;
+                        }
+                    };
                     editor.catalog = Some(Arc::new(catalog));
                     editor.screen = CachedScreen::default();
                 }

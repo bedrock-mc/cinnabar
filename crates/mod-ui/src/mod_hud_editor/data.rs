@@ -143,7 +143,26 @@ impl HudEditor {
                 f64::from(size[1]),
             ]);
         }
-        feedback::measurements(data, self.viewport, rect, &obstacles);
+        let scale = if self.history_buttons {
+            let layout = template::host::Layout::new(
+                self.viewport,
+                self.draft.cards.len(),
+                self.chrome_scale,
+            );
+            obstacles.extend([
+                [
+                    0.,
+                    0.,
+                    self.viewport[0],
+                    layout.palette[1] + layout.palette[3],
+                ],
+                layout.toolbar,
+            ]);
+            self.chrome_scale * TOUCH_MEASUREMENT_SCALE
+        } else {
+            1.
+        };
+        feedback::measurements(data, self.viewport, rect, &obstacles, scale);
     }
 
     /// Publishes inspector values from the same displayed rectangle used by pointer bounds.
@@ -227,7 +246,11 @@ impl HudEditor {
             .or(self.selected)
             .and_then(|index| self.draft.cards.get(index))
             .map(ui::mod_hud::Card::editor_name)
-            .unwrap_or("Select a widget")
+            .unwrap_or(if self.history_buttons {
+                "Select a control"
+            } else {
+                "Select a widget"
+            })
     }
 }
 
@@ -266,8 +289,13 @@ mod tests {
         assert_eq!(editor.editor_label(), "Select a widget");
         editor.selected = Some(0);
         assert_eq!(editor.editor_label(), "Frame rate");
-        let catalog =
-            template::catalog(&editor.draft, [400., 250.], editor.history_buttons).unwrap();
+        let catalog = template::catalog(
+            &editor.draft,
+            [400., 250.],
+            editor.history_buttons,
+            editor.chrome_scale,
+        )
+        .unwrap();
         let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
             .control
             .unwrap();

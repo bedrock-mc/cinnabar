@@ -48,6 +48,8 @@ const MEASUREMENT_PILL_PADDING: f64 = 4.;
 /// Distance label font scale (about 3.5 px glyphs) and a digit advance that covers it.
 const MEASUREMENT_FONT_SCALE: f64 = 0.45;
 const MEASUREMENT_DIGIT_ADVANCE: f64 = 3.;
+/// Touch distance labels remain readable independently of gameplay geometry.
+const TOUCH_MEASUREMENT_SCALE: f64 = 1.6;
 const AXIS_SNAP_DISTANCE: f64 = 6.;
 const GEOMETRY_EPSILON: f64 = 0.001;
 const EDITOR_MARGIN: f64 = 8.;
@@ -66,6 +68,7 @@ pub struct HudEditor {
     /// Reset intent for the next result; autosave clears it after publication.
     reset: bool,
     history_buttons: bool,
+    chrome_scale: f64,
     grid: bool,
     snap: bool,
     bypass_snap: bool,

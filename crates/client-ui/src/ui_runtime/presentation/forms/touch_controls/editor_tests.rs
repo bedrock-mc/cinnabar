@@ -252,3 +252,64 @@ fn touch_editor_factory_layout_matches_fresh_geometry_after_scale_changing_resiz
         TouchLayout::default()
     );
 }
+
+/// Small artwork retains its gameplay size while labeled drag handles stay finger-sized.
+#[test]
+fn touch_editor_chrome_and_alternate_drag_handles_remain_usable_at_small_scales() {
+    for (size, dpi) in [([854, 480], 1.), ([1280, 720], 1.), ([1280, 720], 2.)] {
+        let Some((mut p, runtime, _)) = setup(size) else {
+            return;
+        };
+        p.build(
+            &player_state::PlayerState::new(1),
+            &runtime,
+            1000,
+            size,
+            ui::DpiScale::new(dpi).unwrap(),
+        )
+        .unwrap();
+        let editor = p.screens.touch.editor.as_ref().unwrap();
+        let mut targets = Vec::new();
+        for index in 0..editor.draft().cards.len() {
+            targets.push(editor.action_bounds(&format!("hud.card:{index}")).unwrap());
+        }
+        for action in ["save", "cancel", "undo", "redo", "reset", "grid", "snap"] {
+            targets.push(
+                p.touch_editor_action_bounds(&format!("hud.{action}"))
+                    .unwrap(),
+            );
+        }
+        for [x, y, w, h] in targets {
+            assert!(w >= 48. && h >= 48., "{size:?}, DPI {dpi}: {w} × {h}");
+            assert!(
+                x >= 0.
+                    && y >= 0.
+                    && x + w <= size[0] as f32 / dpi + 0.1
+                    && y + h <= size[1] as f32 / dpi + 0.1
+            );
+        }
+        let original = p.touch_editor_bounds("chat").unwrap();
+        let index = p
+            .screens
+            .touch
+            .editor
+            .as_ref()
+            .unwrap()
+            .draft()
+            .cards
+            .iter()
+            .position(|card| card.id == "chat")
+            .unwrap();
+        let [x, y, w, h] = p
+            .touch_editor_action_bounds(&format!("hud.card:{index}"))
+            .unwrap();
+        let start = [x + w / 2., y + h / 2.];
+        assert!((start[0] - original[0]).hypot(start[1] - original[1]) > 48.);
+        p.touch_editor_pointer(start, true, true);
+        p.touch_editor_pointer([start[0] + 80., start[1] + 80.], false, true);
+        p.touch_editor_pointer([start[0] + 80., start[1] + 80.], false, false);
+        let moved = p.touch_editor_bounds("chat").unwrap();
+        assert!(moved[0] > original[0] + 50. && moved[1] > original[1] + 50.);
+        assert_eq!([original[2], original[3]], [moved[2], moved[3]]);
+    }
+}

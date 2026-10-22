@@ -67,6 +67,7 @@ pub(super) fn measurements(
     viewport: [f64; 2],
     rect: Option<([f64; 2], [f64; 2])>,
     obstacles: &[[f64; 4]],
+    scale: f64,
 ) {
     for axis in 0..2 {
         let mut offset = [0.; 2];
@@ -75,7 +76,7 @@ pub(super) fn measurements(
         let mut distance = 0.;
         let mut caption_visible = false;
         let mut label = String::new();
-        let mut extent_of_pill = pill_size("");
+        let mut extent_of_pill = pill_size("").map(|size| size * scale);
         if let Some((at, extent)) = rect {
             let far = (viewport[axis] - at[axis] - extent[axis]).max(0.);
             let near = at[axis] <= far;
@@ -84,7 +85,7 @@ pub(super) fn measurements(
             offset[1 - axis] = at[1 - axis] + extent[1 - axis] * 0.5;
             size[axis] = distance;
             label = format!("{distance:.0}");
-            extent_of_pill = pill_size(&label);
+            extent_of_pill = pill_size(&label).map(|size| size * scale);
             pill = offset;
             pill[axis] += distance * 0.5;
             for axis in 0..2 {
@@ -170,6 +171,7 @@ mod tests {
             [400., 240.],
             Some(([12., 37.], [56., 18.])),
             &[selected, keys],
+            1.,
         );
         for axis in 0..2 {
             assert_eq!(
@@ -197,6 +199,7 @@ mod tests {
             [400., 240.],
             Some(([12., 37.], [56., 18.])),
             &[[0., 0., 400., 240.]],
+            1.,
         );
         assert_eq!(
             data.global_value("#measurement_0_visible"),
