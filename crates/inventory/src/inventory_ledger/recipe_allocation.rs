@@ -148,6 +148,7 @@ impl RecipeAllocation<'_> {
             in_grid,
             remaining: self.variants.iter().map(|variant| variant.total).collect(),
             assigned: vec![None; self.counts.len()],
+            order: (0..self.counts.len()).collect(),
             #[cfg(test)]
             work_budget: None,
         };
@@ -191,6 +192,7 @@ struct Search<'a> {
     in_grid: bool,
     remaining: Vec<u32>,
     assigned: Vec<Option<usize>>,
+    order: Vec<usize>,
     #[cfg(test)]
     work_budget: Option<usize>,
 }
@@ -202,68 +204,49 @@ impl Search<'_> {
             && (!self.in_grid || self.allocation.variants[variant].capacity >= self.demands[cell])
     }
 
-    /// Rejects any group of remaining cells whose shared supply cannot cover its demand,
-    /// even after omitting the largest demands allowed by the missing-cell budget.
-    fn shared_capacity_fits(&self, first: usize, missing: usize) -> bool {
-        let mut demands: Vec<_> = self.demands[first..].iter().copied().enumerate().collect();
-        demands.sort_unstable_by_key(|(_, demand)| std::cmp::Reverse(*demand));
-        let masks: Vec<usize> = (0..self.remaining.len())
-            .map(|variant| {
-                (first..self.demands.len())
-                    .enumerate()
-                    .fold(0, |mask, (offset, cell)| {
-                        if self.allocation.accepts[cell].contains(&variant)
-                            && self.fits(cell, variant)
-                        {
-                            mask | (1 << offset)
-                        } else {
-                            mask
-                        }
-                    })
-            })
-            .collect();
-        for subset in 1..(1usize << demands.len()) {
-            let needed: u32 = demands
-                .iter()
-                .filter(|(cell, _)| subset & (1 << cell) != 0)
-                .skip(missing)
-                .map(|(_, demand)| u32::from(*demand))
-                .sum();
-            if needed == 0 {
-                continue;
-            }
-            let available: u32 = self
-                .remaining
-                .iter()
-                .zip(&masks)
-                .filter(|(_, mask)| **mask & subset != 0)
-                .map(|(count, _)| *count)
-                .sum();
-            if available < needed {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// Tries every variant, pruning branches with insufficient capacity for remaining cells.
-    fn assign(&mut self, cell: usize, missing: usize) -> bool {
-        #[cfg(test)]
-        if let Some(budget) = &mut self.work_budget {
-            *budget = budget
-                .checked_sub(1)
-                .expect("allocation work budget exceeded");
-        }
-        if cell == self.demands.len() {
-            return true;
-        }
-        if !self.shared_capacity_fits(cell, missing) {
+    /// Rejects missing individual supply and insufficient total capacity before branching.
+    fn remaining_capacity_fits(&self, first: usize, missing: usize) -> bool {
+        let cells = &self.order[first..];
+        let impossible = cells.iter().filter(|cell| {
+            self.demands[**cell] > 0 && !self.allocation.accepts[**cell].iter().any(|variant| self.fits(**cell, *variant))
+        }).count();
+        if impossible > missing {
             return false;
         }
+        let mut demands: Vec<_> = cells.iter().map(|cell| self.demands[*cell]).collect();
+        demands.sort_unstable_by(|a, b| b.cmp(a));
+        let needed: u32 = demands.into_iter().skip(missing).map(u32::from).sum();
+        let available: u32 = self.remaining.iter().enumerate().filter(|(variant, _)| {
+            cells.iter().any(|cell| self.allocation.accepts[*cell].contains(variant) && self.fits(*cell, *variant))
+        }).map(|(_, count)| *count).sum();
+        available >= needed
+    }
+
+    /// Resolves the cell with the fewest whole-demand choices first, then backtracks every
+    /// variant. Unrelated flexible cells wait until constrained cells have been resolved.
+    fn assign(&mut self, first: usize, missing: usize) -> bool {
+        #[cfg(test)]
+        if let Some(budget) = &mut self.work_budget {
+            *budget = budget.checked_sub(1).expect("allocation work budget exceeded");
+        }
+        if first == self.demands.len() {
+            return true;
+        }
+        if !self.remaining_capacity_fits(first, missing) {
+            return false;
+        }
+        let next = (first..self.order.len()).min_by_key(|index| {
+            let cell = self.order[*index];
+            self.allocation.accepts[cell].iter().filter(|variant| self.fits(cell, **variant)).count()
+        }).expect("remaining cell");
+        self.order.swap(first, next);
+        let cell = self.order[first];
         let allocation = self.allocation;
         let demand = self.demands[cell];
         if demand == 0 {
-            return self.assign(cell + 1, missing);
+            let complete = self.assign(first + 1, missing);
+            self.order.swap(first, next);
+            return complete;
         }
         for &variant in &allocation.accepts[cell] {
             if !self.fits(cell, variant) {
@@ -271,13 +254,15 @@ impl Search<'_> {
             }
             self.remaining[variant] -= u32::from(demand);
             self.assigned[cell] = Some(variant);
-            if self.assign(cell + 1, missing) {
+            if self.assign(first + 1, missing) {
                 return true;
             }
             self.remaining[variant] += u32::from(demand);
             self.assigned[cell] = None;
         }
-        missing > 0 && self.assign(cell + 1, missing - 1)
+        let complete = missing > 0 && self.assign(first + 1, missing - 1);
+        self.order.swap(first, next);
+        complete
     }
 }
 
