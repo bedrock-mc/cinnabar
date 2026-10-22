@@ -105,6 +105,19 @@ pub(super) fn long_library() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the standard confirmation before deleting an imported shader pack.
+pub(super) fn removal_dialog() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.dialog = Some(launcher::menu::MenuDialog::RemoveShaderPack(
+        0,
+        view.shader_packs_revision,
+    ));
+    view.focused_action = Some(MenuAction::DismissDialog);
+    Fixture::Menu(view)
+}
+
 /// Frames the Video shortcut above the graphics controls so its full row is visible.
 pub(super) fn video_shortcut() -> Fixture {
     let Fixture::Menu(mut view) = settings_shaders(false) else {

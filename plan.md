@@ -560,7 +560,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested. Retired loads cancel between translation programs and GPU
   batches; rapid selections share one load worker. The Shaders library uses full-width pack
-  rows with controls on the selected pack. Incomplete: matched shader-feature-off versus
+  rows with controls on the selected pack and confirmed removal of imported copies and their
+  saved settings. Incomplete: matched shader-feature-off versus
   feature-on/no-pack startup, frame-time, memory and visual acceptance across supported
   backends, including shared artwork texture views. These changes do not enable the feature
   by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option

@@ -23,6 +23,53 @@ impl MenuRuntime {
         }
     }
 
+    /// Opens a confirmation only for a current imported library entry.
+    pub(super) fn remove_shader_pack_dialog(&mut self, index: u16, revision: u64) {
+        if render_model::SHADER_PACKS_ENABLED
+            && revision == self.shader_packs_revision
+            && self.shader_packs.get(usize::from(index)).is_some()
+            && self.shader_pack_removing.is_none()
+        {
+            self.dialog = Some(launcher::menu::MenuDialog::RemoveShaderPack(
+                index, revision,
+            ));
+            self.focused = 0;
+        }
+    }
+
+    /// Queues deletion after confirmation, rejecting stale lists and duplicate requests.
+    pub(super) fn confirm_remove_shader_pack(&mut self, index: u16, revision: u64) {
+        if !render_model::SHADER_PACKS_ENABLED
+            || revision != self.shader_packs_revision
+            || self.dialog
+                != Some(launcher::menu::MenuDialog::RemoveShaderPack(
+                    index, revision,
+                ))
+            || self.shader_pack_removing.is_some()
+        {
+            return;
+        }
+        let Some(name) = self.shader_packs.get(usize::from(index)).cloned() else {
+            return;
+        };
+        self.dialog = None;
+        self.shader_pack_removing = Some(std::sync::Arc::from(name.as_str()));
+        self.shader_pack_remove_request = Some(name.clone());
+        if self.shader_pack.as_deref() == Some(name.as_str()) {
+            self.select_renderer(RendererChoice::Vanilla);
+        }
+    }
+
+    /// Consumes one confirmed library deletion for the host's background worker.
+    pub fn take_shader_pack_removal(&mut self) -> Option<String> {
+        self.shader_pack_remove_request.take()
+    }
+
+    /// Releases the pending state after the host reports a deletion outcome.
+    pub fn finish_shader_pack_removal(&mut self) {
+        self.shader_pack_removing = None;
+    }
+
     /// Replaces the discovered shader-pack names the picker offers, in display order. Names
     /// past `u16::MAX` are dropped so every listed pack stays addressable by its choice.
     pub fn sync_shader_packs(&mut self, mut names: Vec<String>) {
@@ -30,6 +77,12 @@ impl MenuRuntime {
         if self.shader_packs[..] != names[..] {
             self.shader_packs = names.into();
             self.shader_packs_revision += 1;
+            if matches!(
+                self.dialog,
+                Some(launcher::menu::MenuDialog::RemoveShaderPack(..))
+            ) {
+                self.dialog = None;
+            }
         }
     }
 
@@ -328,5 +381,53 @@ mod tests {
             BindingId::ReloadShaders.row(false).is_some(),
             render_model::SHADER_PACKS_ENABLED
         );
+    }
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::*;
+    use launcher::menu::{MenuAction, MenuDialog};
+
+    #[test]
+    fn removal_requires_current_confirmation_and_turns_the_selected_pack_off() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+        menu.sync_shader_packs(vec!["Dusk.zip".into(), "Lumen".into()]);
+        let revision = menu.view().shader_packs_revision;
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0, revision,
+        )));
+        menu.take_render_mode_request();
+        menu.take_shader_pack_request();
+        menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+        assert!(menu.take_shader_pack_removal().is_none());
+        menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+        assert_eq!(
+            menu.view().dialog,
+            Some(MenuDialog::RemoveShaderPack(0, revision))
+        );
+        menu.activate(MenuAction::DismissDialog);
+        menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+        assert!(menu.take_shader_pack_removal().is_none());
+        menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+        menu.sync_shader_packs(vec!["Lumen".into()]);
+        menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+        assert!(menu.take_shader_pack_removal().is_none());
+        let revision = menu.view().shader_packs_revision;
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0, revision,
+        )));
+        menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+        menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+        assert_eq!(menu.take_shader_pack_removal().as_deref(), Some("Lumen"));
+        assert_eq!(menu.view().render_mode, ui::RenderMode::Vanilla);
+        assert_eq!(menu.view().shader_pack_removing.as_deref(), Some("Lumen"));
+        menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+        assert!(menu.view().dialog.is_none());
+        menu.finish_shader_pack_removal();
+        assert!(menu.view().shader_pack_removing.is_none());
     }
 }

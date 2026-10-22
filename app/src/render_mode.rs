@@ -223,7 +223,10 @@ impl Plugin for RenderModePlugin {
                 shader_options::drive_shader_options.after(apply_menu_render_mode),
             );
         #[cfg(feature = "shaderpacks")]
-        shader_pack::import::configure(app);
+        {
+            shader_pack::import::configure(app);
+            shader_pack::removal::configure(app);
+        }
     }
 }
 

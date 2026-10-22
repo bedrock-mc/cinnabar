@@ -1,0 +1,135 @@
+use super::*;
+use crate::render_mode::shader_pack::ShaderPackDirs;
+use launcher::menu::MenuAction;
+
+/// Runs the production removal worker against an isolated imported library.
+fn fixture(path: &std::path::Path, selected: Option<&str>) -> App {
+    let packs = path.join("shaderpacks");
+    for name in ["Dusk", "Lumen"] {
+        std::fs::create_dir_all(packs.join(name).join("shaders")).unwrap();
+    }
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.sync_shader_packs(vec!["Dusk".into(), "Lumen".into()]);
+    let mut settings = RuntimeSettings::default();
+    set_graphics_settings(
+        &mut settings,
+        &GraphicsSettings {
+            mode: if selected.is_some() {
+                ui::RenderMode::ShaderPack
+            } else {
+                ui::RenderMode::Vanilla
+            },
+            shader_pack: selected.map(str::to_owned),
+        },
+    );
+    let mut app = App::new();
+    app.insert_resource(RenderModeConfig {
+        cli: None,
+        attributable: false,
+        path: Some(path.join("graphics.json")),
+        cli_shader_pack: None,
+        shader_pack_revision: 0,
+        shader_packs: Some(ShaderPackDirs {
+            packs,
+            cache: path.join("cache"),
+            discovered: Vec::new(),
+        }),
+    })
+    .insert_resource(menu)
+    .insert_resource(settings)
+    .init_resource::<Time<Real>>();
+    app.add_systems(Update, super::super::super::apply_menu_render_mode);
+    configure(&mut app);
+    app.update();
+    app
+}
+
+/// Confirms the current row through the same actions as the popup.
+fn remove(app: &mut App, index: u16) {
+    let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+    let revision = menu.view().shader_packs_revision;
+    menu.activate(MenuAction::RemoveShaderPackDialog(index, revision));
+    menu.activate(MenuAction::ConfirmRemoveShaderPack(index, revision));
+}
+
+#[test]
+fn removing_the_selected_copy_switches_off_and_forgets_its_saved_selection() {
+    let root = tempfile::tempdir().unwrap();
+    let mut app = fixture(root.path(), Some("Dusk"));
+    remove(&mut app, 0);
+    test_time::eventually("the confirmed shader pack removal", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    assert!(!root.path().join("shaderpacks/Dusk").exists());
+    assert!(root.path().join("shaderpacks/Lumen/shaders").is_dir());
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::Vanilla);
+    assert!(video.shader_pack.is_none());
+    let saved =
+        crate::render_mode::load_graphics_settings(&root.path().join("graphics.json")).unwrap();
+    assert_eq!(saved.mode, ui::RenderMode::Vanilla);
+    assert!(saved.shader_pack.is_none());
+    assert_eq!(
+        &*app.world().resource::<MenuRuntime>().view().shader_packs,
+        ["Lumen".to_owned()]
+    );
+}
+
+#[test]
+fn removing_an_inactive_copy_keeps_the_other_pack_selected() {
+    let root = tempfile::tempdir().unwrap();
+    let mut app = fixture(root.path(), Some("Lumen"));
+    remove(&mut app, 0);
+    test_time::eventually("the inactive shader pack removal", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::ShaderPack);
+    assert_eq!(video.shader_pack.as_deref(), Some("Lumen"));
+}
+
+#[test]
+fn failed_deletion_restores_controls_and_keeps_the_library_entry() {
+    let root = tempfile::tempdir().unwrap();
+    let mut app = fixture(root.path(), None);
+    // A settings directory cannot be removed as an option file, so report failure.
+    std::fs::create_dir(root.path().join("shaderpacks/Dusk.txt")).unwrap();
+    remove(&mut app, 0);
+    test_time::eventually("shader removal failure", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    assert!(root.path().join("shaderpacks/Dusk/shaders").is_dir());
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_packs
+            .len(),
+        2
+    );
+}

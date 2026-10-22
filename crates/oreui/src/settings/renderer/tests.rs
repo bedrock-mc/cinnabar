@@ -320,3 +320,27 @@ fn long_shader_libraries_remain_scrollable_and_selectable() {
         .collect();
     assert_eq!(renderer_choices(&view).len(), view.shader_packs.len() + 1);
 }
+
+#[test]
+fn removal_is_available_only_for_managed_entries_and_locks_while_pending() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    let remove = MenuAction::RemoveShaderPackDialog(0, view.shader_packs_revision);
+    assert!(controls(&view).0.contains(&remove));
+    view.shader_pack_removing = Some(Arc::from("Dusk.zip"));
+    assert!(!controls(&view).0.contains(&remove));
+    view.shader_pack_removing = None;
+    view.shader_packs = Arc::from([]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.renderer = None;
+    view.shader_pack = Some("Outside.zip".into());
+    assert!(
+        !controls(&view)
+            .0
+            .iter()
+            .any(|action| matches!(action, MenuAction::RemoveShaderPackDialog(..)))
+    );
+}

@@ -790,6 +790,12 @@ const STATES: &[State] = &[
         fixture: shader_pack::pack_picker,
     },
     State {
+        name: "settings-shaders-remove",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::removal_dialog,
+    },
+    State {
         name: "settings-shaders-empty",
         size: SIZE,
         gui_scale: GUI_SCALE,

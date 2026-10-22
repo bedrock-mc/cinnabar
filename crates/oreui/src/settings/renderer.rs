@@ -86,6 +86,9 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         content,
         "Drop a shader pack .zip or folder onto this page to add it. Selecting a pack applies it immediately.",
     )?;
+    if let Some(name) = view.shader_pack_removing.as_deref() {
+        caption(content, &format!("Removing {name}…"))?;
+    }
     if let Some(failure) = view.renderer_failure.as_deref() {
         note(content, failure, theme::NEUTRAL80.fill)?;
     }
@@ -106,7 +109,7 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             true,
             None,
         )?;
-        selected_controls(content)?;
+        selected_controls(content, None)?;
     }
     content.heading(
         &format!("My shader packs ({})", view.shader_packs.len()),
@@ -135,10 +138,13 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             pack_label(name),
             &subtitle,
             active,
-            Some(MenuAction::SelectRenderer(choice)),
+            (view.shader_pack_removing.as_deref() != Some(name.as_str()))
+                .then_some(MenuAction::SelectRenderer(choice)),
         )?;
         if active {
-            selected_controls(content)?;
+            selected_controls(content, Some((index, view.shader_packs_revision)))?;
+        } else {
+            remove_control(content, index, view.shader_packs_revision)?;
         }
     }
     caption(
@@ -193,8 +199,11 @@ fn pack_row(
     Ok(())
 }
 
-/// Keeps reload and pack options with the selection they operate on.
-fn selected_controls(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+/// Keeps pack settings, reload and removal with the selection they operate on.
+fn selected_controls(
+    content: &mut Content<'_, '_>,
+    entry: Option<(u16, u64)>,
+) -> Result<(), PaintError> {
     use super::super::widgets::Variant;
     let mut buttons = Vec::new();
     if content.view.shader_options_available {
@@ -209,8 +218,45 @@ fn selected_controls(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         Variant::Secondary,
         Some(MenuAction::ReloadShaders),
     ));
+    if let Some((index, revision)) = entry {
+        buttons.push((
+            "Remove…",
+            Variant::Secondary,
+            content
+                .view
+                .shader_pack_removing
+                .is_none()
+                .then_some(MenuAction::RemoveShaderPackDialog(index, revision)),
+        ));
+    }
     super::resources::actions(content, &buttons)?;
     content.y += content.canvas.r(1.2);
+    Ok(())
+}
+
+/// Offers deletion only for a managed library row and disables it during pending file work.
+fn remove_control(
+    content: &mut Content<'_, '_>,
+    index: u16,
+    revision: u64,
+) -> Result<(), PaintError> {
+    let [_, right] = content.inset();
+    let label = "Remove…";
+    let width = content.canvas.measure(label, super::super::theme::BODY)? + content.canvas.r(3.2);
+    let height = content.canvas.r(4.4);
+    widgets::button(
+        content.canvas,
+        content.view,
+        [right - width, content.y, right, content.y + height],
+        super::super::widgets::Variant::Secondary,
+        label,
+        content
+            .view
+            .shader_pack_removing
+            .is_none()
+            .then_some(MenuAction::RemoveShaderPackDialog(index, revision)),
+    )?;
+    content.y += height + content.canvas.r(1.2);
     Ok(())
 }
 
