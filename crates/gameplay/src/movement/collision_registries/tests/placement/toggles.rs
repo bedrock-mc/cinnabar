@@ -1,6 +1,7 @@
 use super::{fixtures, id, record, store};
 use assets::{NetworkIdMode, facts::BlockProperty as P, registry::ModelFamily};
 use serde_json::{Map, Value};
+use sim::CollisionWorld;
 use world::{BlockUpdate, ChunkStore, SubChunkKey};
 
 const LOWER: [i32; 3] = [8, 8, 8];
