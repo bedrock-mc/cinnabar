@@ -440,7 +440,7 @@ impl HatState {
                     },
                     identifier: Arc::clone(&definition.identifier),
                     effect: Arc::clone(&definition.effect),
-                    sprite: definition.sprite.as_ref().cloned(),
+                    sprite: definition.sprite.clone(),
                     transform,
                 });
             }

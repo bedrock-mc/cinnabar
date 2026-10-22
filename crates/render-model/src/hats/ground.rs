@@ -23,9 +23,7 @@ impl Cadence {
             *self = Self::default();
             return None;
         }
-        let Some((previous, was_grounded)) = self.previous.replace((feet, grounded)) else {
-            return None;
-        };
+        let (previous, was_grounded) = self.previous.replace((feet, grounded))?;
         let dx = feet[0] - previous[0];
         let dz = feet[2] - previous[2];
         let horizontal = dx.hypot(dz);
