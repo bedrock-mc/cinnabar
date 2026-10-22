@@ -89,6 +89,9 @@ fn panel_categories_match_the_controls_rendered_by_each_section() {
         let mut view = settings_view(section.name);
         view.touch_available = true;
         view.updates.active = true;
+        if !view.settings_section_shown(section.id) {
+            continue;
+        }
         let (_, hits, _) = crate::review_tests::paint(HashMap::new(), |canvas| {
             super::super::draw(
                 canvas,

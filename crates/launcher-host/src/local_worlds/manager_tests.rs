@@ -115,6 +115,54 @@ fn bds_world(runner: &Arc<FakeRunner>) -> (Fixture, World) {
     (fixture, world)
 }
 
+/// An in-game change reaches the running server at once and stays saved; a clean stop, after
+/// which the server's own data holds it, ends it being pending.
+#[test]
+fn applied_settings_reach_the_running_server_and_persist() {
+    use launcher::local_worlds::{
+        in_world::{Action, update},
+        options::WorldOption as O,
+        world::Difficulty,
+    };
+    let runner = Arc::new(FakeRunner::default());
+    let (fixture, world) = bds_world(&runner);
+    let manager = &fixture.manager;
+    let hard = update(&world, Action::Difficulty(Difficulty::Hard)).expect("an update");
+    manager.apply(&world.id, &hard).expect("saved while closed");
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let instance = runner.last();
+    assert!(
+        lock(&instance.console).is_empty(),
+        "a closed world takes no commands"
+    );
+    let world = manager.inner.store.get(&world.id).expect("saved world");
+    assert_eq!(world.difficulty, Difficulty::Hard);
+    let cheats = update(&world, Action::Option(O::ActivateCheats, 1)).expect("cheats on");
+    let world = manager.apply(&world.id, &cheats).expect("apply");
+    let keep = update(&world, Action::Option(O::KeepInventory, 1)).expect("a rule");
+    let saved = manager.apply(&world.id, &keep).expect("apply");
+    assert!(saved.options.enabled(O::KeepInventory) && saved.options.enabled(O::ActivateCheats));
+    assert_eq!(
+        *lock(&instance.console),
+        [
+            "changesetting allow-cheats true",
+            "gamerule keepinventory true"
+        ]
+    );
+    let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+    assert_eq!(
+        pending.get(O::KeepInventory),
+        Some(1),
+        "pending until the server saves"
+    );
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+    let (reopened, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+    assert!(pending.is_empty(), "{pending:?}");
+    assert!(reopened.options.enabled(O::KeepInventory));
+}
+
 /// Each start hosts the account signed in at that moment, and a malformed XUID grants nobody.
 #[test]
 fn starts_carry_the_signed_in_host() {

@@ -805,6 +805,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::WorldSettings(action) => self.activate_world_settings(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
             MenuAction::Invite(action) => self.activate_invite(action),
             MenuAction::JoinRequest(accept) => self.answer_join_request(accept),

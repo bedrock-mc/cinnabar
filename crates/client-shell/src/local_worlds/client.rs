@@ -46,7 +46,9 @@ fn read_thumbnails(
 ) -> Vec<(String, WorldThumbnail)> {
     let worlds = match event {
         Event::Listed(worlds) => worlds.as_slice(),
-        Event::Created(world) | Event::Updated(world) => std::slice::from_ref(world),
+        Event::Created(world) | Event::Updated(world) | Event::Applied(world) => {
+            std::slice::from_ref(world)
+        }
         Event::Imported { worlds, .. } => worlds.as_slice(),
         Event::Deleted(id) => {
             loaded.remove(id);
@@ -209,6 +211,9 @@ fn execute(
         Effect::Update { id, update } => manager
             .update(&id, &update)
             .map_or_else(failed, Event::Updated),
+        Effect::Apply { id, update } => manager
+            .apply(&id, &update)
+            .map_or_else(failed, Event::Applied),
         Effect::Open(id) => match manager.open(&id, None) {
             Ok(()) => Event::Status(route.status(manager)),
             Err(WorldError::EulaRequired) => Event::EulaRequired,

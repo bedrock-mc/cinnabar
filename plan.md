@@ -513,10 +513,10 @@ Local worlds use the Go server integration. Qualify creation, offline play, relo
 import, persistence and hosting/session teardown. The accepted local-world scope does
 not establish full vanilla world-generation parity.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
-catalog and generated server properties and level data. Pack and experiment configuration,
-hardcore, flat presets, Education Edition, operator status for a signed-out host and live
-acceptance of every option on supported platforms remain incomplete.
-hardcore, flat presets, Education Edition and live acceptance of every option on supported
+catalog and generated server properties and level data. Settings' in-game Game section changes
+the played BDS world live through the server console. Pack and experiment configuration,
+hardcore, flat presets, Education Edition, operator status for a signed-out host, the in-game
+Personal Game Mode and Multiplayer section, and live acceptance of every option on supported
 platforms remain incomplete.
 Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
 offers no NetherNet route, so the join fails with an explanation instead of connecting.

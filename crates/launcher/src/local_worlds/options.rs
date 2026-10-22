@@ -17,8 +17,12 @@ pub enum Control {
 pub struct Choice {
     pub label: &'static str,
     pub value: i32,
+    /// The value's name in server properties or game rule commands.
     pub wire: &'static str,
 }
+/// Default player permission values of [`WorldOption::PlayerPermissions`].
+pub const MEMBER: i32 = 1;
+pub const OPERATOR: i32 = 2;
 const PERMISSIONS: &[Choice] = &[
     Choice {
         label: "Visitor",
@@ -27,12 +31,12 @@ const PERMISSIONS: &[Choice] = &[
     },
     Choice {
         label: "Member",
-        value: 1,
+        value: MEMBER,
         wire: "member",
     },
     Choice {
         label: "Operator",
-        value: 2,
+        value: OPERATOR,
         wire: "operator",
     },
 ];
@@ -40,12 +44,12 @@ const WAYPOINTS: &[Choice] = &[
     Choice {
         label: "Off",
         value: 0,
-        wire: "0",
+        wire: "off",
     },
     Choice {
         label: "On",
         value: 1,
-        wire: "1",
+        wire: "everyone",
     },
 ];
 
@@ -235,6 +239,16 @@ impl OptionChanges {
     /// Returns an explicitly edited value.
     pub fn get(&self, id: WorldOption) -> Option<i32> {
         self.0.get(&id).copied()
+    }
+    /// The edits to options `keep` accepts.
+    pub fn filtered(&self, keep: impl Fn(WorldOption) -> bool) -> Self {
+        Self(
+            self.0
+                .iter()
+                .filter(|(id, _)| keep(**id))
+                .map(|(&id, &value)| (id, value))
+                .collect(),
+        )
     }
     /// Drops edits identical to `applied`, keeping any made since it was captured.
     pub fn acknowledge(&mut self, applied: &Self) {

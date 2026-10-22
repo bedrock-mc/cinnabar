@@ -275,3 +275,99 @@ fn world_options_properties_match_native_and_container_configuration() {
     spec.world.options.set(O::Multiplayer, 1);
     assert_eq!(world_player_limit(&spec, 8), 8);
 }
+
+/// Every option the in-game settings apply live has a console command; startup-only ones have none.
+#[test]
+fn live_settings_each_have_a_console_command() {
+    use launcher::local_worlds::{
+        in_world::{Timing, timing},
+        options::{Control, WorldOption as O},
+    };
+    let base = crate::local_worlds::test_support::world();
+    for &id in O::ALL {
+        let mut world = base.clone();
+        let value = match id.definition().control {
+            Control::Toggle => 1 - world.options.get(id),
+            Control::Choice(choices) => choices[0].value,
+            Control::Number { min, .. } => min,
+        };
+        let mut options = world.options.clone();
+        options.set(id, value);
+        let changes = options.changes_from(&world.options);
+        world.options = options;
+        let update = WorldUpdate {
+            options: Some(changes),
+            ..Default::default()
+        };
+        let commands = live_commands(&world, &update);
+        assert_eq!(
+            !commands.is_empty(),
+            timing(id) == Timing::Live,
+            "{id:?}: {commands:?}"
+        );
+    }
+}
+
+/// Combined options restore what they stand in for; difficulty applies live, the default game
+/// mode on the next start.
+#[test]
+fn live_commands_cover_combined_settings() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let mut world = crate::local_worlds::test_support::world();
+    let changes = |pairs: &[(O, i32)]| {
+        let mut options = launcher::local_worlds::options::WorldOptions::default();
+        for &(id, value) in pairs {
+            options.set(id, value);
+        }
+        options.changes_from(&launcher::local_worlds::options::WorldOptions::default())
+    };
+    world.options.set(O::SleepSkipNight, 0);
+    let update = WorldUpdate {
+        difficulty: Some(Difficulty::Peaceful),
+        options: Some(changes(&[(O::SleepSkipNight, 0)])),
+        ..Default::default()
+    };
+    world.difficulty = Difficulty::Peaceful;
+    assert_eq!(
+        live_commands(&world, &update),
+        [
+            "difficulty peaceful",
+            "gamerule playerssleepingpercentage 101",
+        ]
+    );
+    let waypoints = changes(&[(O::PlayerWaypoints, 0)]);
+    world.options.apply_changes(&waypoints);
+    let update = WorldUpdate {
+        options: Some(waypoints),
+        ..Default::default()
+    };
+    assert_eq!(
+        live_commands(&world, &update),
+        ["gamerule playerwaypoints off"]
+    );
+    let mode = WorldUpdate {
+        game_mode: Some(GameMode::Adventure),
+        ..Default::default()
+    };
+    assert_eq!(
+        live_commands(&world, &mode).is_empty(),
+        launcher::local_worlds::in_world::GAME_MODE_TIMING
+            != launcher::local_worlds::in_world::Timing::Live
+    );
+    world.options.set(O::AlwaysDay, 1);
+    let mut toggled = world.options.clone();
+    toggled.set(O::AlwaysDay, 0);
+    let off = toggled.changes_from(&world.options);
+    world.options = toggled;
+    // Always Day had stopped the cycle, so turning it off keeps the world's own stopped cycle.
+    assert_eq!(
+        live_commands(
+            &world,
+            &WorldUpdate {
+                options: Some(off),
+                ..Default::default()
+            }
+        ),
+        ["alwaysday false", "gamerule dodaylightcycle false"]
+    );
+}

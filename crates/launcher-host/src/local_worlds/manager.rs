@@ -6,8 +6,10 @@ use std::{
 
 use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
-use launcher::local_worlds::world::{
-    NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate,
+use launcher::local_worlds::{
+    in_world::{Timing, timing},
+    options::OptionChanges,
+    world::{NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate},
 };
 
 use crate::lifecycle::children::{self, ExitHookGuard};
@@ -144,6 +146,8 @@ struct Life {
     retiring: Vec<Retiring>,
     /// Counts opens, so a stop that finishes late never idles a newer open.
     generation: u64,
+    /// Pending edits the running server applied live; a clean stop has saved them in its data.
+    live_applied: OptionChanges,
 }
 
 /// A world whose exited or closing server has not finished backend cleanup.
@@ -301,6 +305,43 @@ impl Manager {
     /// Renames a world or changes its game mode or difficulty, which apply on its next open.
     pub fn update(&self, id: &str, update: &WorldUpdate) -> Result<World, WorldError> {
         self.inner.store.update(id, update)
+    }
+
+    /// Saves `update` to world `id` and sends the running server the commands that apply it at
+    /// once; settings the server reads only at startup apply on the next start.
+    pub fn apply(&self, id: &str, update: &WorldUpdate) -> Result<World, WorldError> {
+        let world = self.inner.store.update(id, update)?;
+        let (instance, generation) = {
+            let mut life = lock(&self.inner.life);
+            let running = life.state == WorldState::Running
+                && life.world.as_ref().is_some_and(|open| open.id == id);
+            if !running {
+                return Ok(world);
+            }
+            life.world = Some(world.clone());
+            (life.instance.clone(), life.generation)
+        };
+        let Some(instance) = instance else {
+            return Ok(world);
+        };
+        let commands = super::bds::live_commands(&world, update);
+        let sent = commands
+            .iter()
+            .all(|command| match instance.console(command) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!("local world {id}: `{command}` failed: {error}");
+                    false
+                }
+            });
+        if sent && let Some(changes) = &update.options {
+            let mut life = lock(&self.inner.life);
+            if life.generation == generation {
+                life.live_applied
+                    .extend(&changes.filtered(|id| timing(id) == Timing::Live));
+            }
+        }
+        Ok(world)
     }
 
     /// Deletes a world that is not starting, running or stopping.
@@ -587,9 +628,26 @@ impl Manager {
         }
     }
 
-    fn stop_instance(&self, instance: &dyn Instance) {
-        if let Err(error) = instance.stop(self.inner.stop_timeout) {
+    /// Stops the server; true once it saved and exited in time.
+    fn stop_instance(&self, instance: &dyn Instance) -> bool {
+        let stopped = instance.stop(self.inner.stop_timeout);
+        if let Err(error) = &stopped {
             tracing::warn!("stop local world server: {error}");
+        }
+        stopped.is_ok()
+    }
+
+    /// Stops the server, then drops the pending edits it applied live and saved on the way out.
+    fn stop_and_acknowledge(
+        &self,
+        instance: &dyn Instance,
+        saved: Option<(String, OptionChanges)>,
+    ) {
+        if self.stop_instance(instance)
+            && let Some((id, applied)) = saved.filter(|(_, applied)| !applied.is_empty())
+            && let Err(error) = self.inner.store.acknowledge(&id, &applied)
+        {
+            tracing::warn!("local world {id}: record its saved settings: {error}");
         }
     }
 
@@ -631,16 +689,18 @@ impl Manager {
                 self.set_state(&mut life, WorldState::Stopping);
                 let stopping = Arc::clone(&instance);
                 let generation = life.generation;
-                let fallback_done = stopping_done.clone();
+                let applied = std::mem::take(&mut life.live_applied);
+                let saved = life.world.as_ref().map(|world| (world.id.clone(), applied));
+                let fallback = (stopping_done.clone(), saved.clone());
                 let spawned = self.background(move |manager| {
-                    manager.stop_instance(stopping.as_ref());
+                    manager.stop_and_acknowledge(stopping.as_ref(), saved);
                     drop(stopping_done);
                     manager.idle_if_current(generation);
                 });
                 if !spawned {
                     drop(life);
-                    self.stop_instance(instance.as_ref());
-                    drop(fallback_done);
+                    self.stop_and_acknowledge(instance.as_ref(), fallback.1);
+                    drop(fallback.0);
                     self.idle_if_current(generation);
                 }
             }

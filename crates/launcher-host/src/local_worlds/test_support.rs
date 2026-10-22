@@ -298,6 +298,8 @@ pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\nech
 /// Records every pause request; exits once stopped.
 pub(crate) struct FakeInstance {
     pub paused: Mutex<Vec<bool>>,
+    /// Every console command sent, in order.
+    pub console: Mutex<Vec<String>>,
     exit: Mutex<Option<Sender<()>>>,
     exited: Receiver<()>,
     pub can_pause: bool,
@@ -314,6 +316,7 @@ impl FakeInstance {
         let (exit, exited) = crossbeam_channel::bounded(0);
         Self {
             paused: Mutex::default(),
+            console: Mutex::default(),
             exit: Mutex::new(Some(exit)),
             exited,
             can_pause,
@@ -379,6 +382,11 @@ impl Instance for FakeInstance {
 
     fn lan_address(&self) -> Option<&str> {
         self.lan.as_deref()
+    }
+
+    fn console(&self, command: &str) -> std::io::Result<()> {
+        lock(&self.console).push(command.to_owned());
+        Ok(())
     }
 }
 

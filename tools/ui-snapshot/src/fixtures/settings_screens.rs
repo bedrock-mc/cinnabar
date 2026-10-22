@@ -24,6 +24,47 @@ pub(super) const SEARCH_STATES: &[State] = &[
     },
 ];
 
+/// Settings' Game section while the host plays their own local world, with cheats off and on.
+pub(super) const WORLD_STATES: &[State] = &[
+    State {
+        name: "settings-world-game",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_world_game(false),
+    },
+    State {
+        name: "settings-world-game-cheats",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_world_game(true),
+    },
+];
+
+/// The Game section of an anonymous dedicated-server world.
+fn settings_world_game(cheats: bool) -> Fixture {
+    use launcher::local_worlds::{in_world, options::WorldOptions, world::World};
+    let mut view = settings(SettingSection::Game.definition().name);
+    view.over_world = true;
+    let mut options = WorldOptions::default();
+    options.restore_cheats(cheats);
+    let world = World {
+        id: "0123456789abcdef".to_owned(),
+        name: "My World".to_owned(),
+        game_mode: Default::default(),
+        generator: Default::default(),
+        difficulty: Default::default(),
+        backend: bridge::Backend::Bds,
+        seed: 1_234_567,
+        options,
+        options_unavailable: false,
+        created_unix: 0,
+        last_played_unix: 0,
+        size_bytes: 0,
+    };
+    view.world_settings = in_world::View::of(&world).map(Arc::new);
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows the keyboard options and command macro modifier without a live session.
 pub(super) fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))

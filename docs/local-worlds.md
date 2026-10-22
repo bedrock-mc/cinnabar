@@ -48,6 +48,14 @@ The edit screen exposes the remaining options.
 Older and imported worlds recover their options from level data. A `level.dat` over 1 MiB is
 never parsed or rewritten; that world's options show as unavailable.
 
+While the host plays a BDS world, Settings lists a Game section under World in vanilla's in-game
+order and wording. Name, seed, world type, starting map, bonus chest, simulation distance and
+hardcore stay locked; cheat rules wait for cheats, and turning cheats off keeps them. Each change
+saves at once and reaches the running server through its console (`gamerule`, `difficulty`,
+`defaultgamemode`, `alwaysday`, `changesetting allow-cheats`); container BDS takes the line
+through the image's `send-command`. Default player permission applies on the next start. Rules
+applied this way stay pending until a clean stop, when BDS has saved them itself.
+
 Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
 friends-broadcast settings are not exposed on the local BDS multiplayer page. Hardcore remains
 unavailable, as do custom flat presets and Education Edition. Runtime acceptance of every option across supported BDS platforms remains open.

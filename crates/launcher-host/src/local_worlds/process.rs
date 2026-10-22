@@ -66,6 +66,10 @@ pub(crate) trait Instance: Send + Sync {
     fn lan_address(&self) -> Option<&str> {
         None
     }
+    /// Runs one server console command; unsupported unless the server takes commands.
+    fn console(&self, _command: &str) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
 }
 
 /// Launches local servers; `start` returns once the server accepts connections.
@@ -359,7 +363,11 @@ fn for_each_line(reader: impl Read, mut line: impl FnMut(&str)) {
 }
 
 impl Process {
-    fn send(&self, line: &str) -> io::Result<()> {
+    /// Writes one line to the server's stdin; a line break inside `line` is refused.
+    pub(crate) fn send(&self, line: &str) -> io::Result<()> {
+        if line.contains(['\n', '\r']) {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
         let mut stdin = lock(&self.stdin);
         let pipe = stdin
             .as_mut()

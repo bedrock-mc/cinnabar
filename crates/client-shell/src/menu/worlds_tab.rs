@@ -44,17 +44,38 @@ pub(super) struct LocalWorldsUi {
     /// Numeric options focused since the last sync, whose text still goes to the module after
     /// focus leaves.
     editing: std::collections::BTreeSet<launcher::local_worlds::options::WorldOption>,
+    /// The world being played, as Settings' Game section shows it.
+    in_world: Option<std::sync::Arc<launcher::local_worlds::in_world::View>>,
+    /// Game section presses waiting for the next sync.
+    in_world_actions: Vec<launcher::local_worlds::in_world::Action>,
+    /// The Game section's numeric options typed into since the last sync, as [`Self::editing`].
+    in_world_editing: std::collections::BTreeSet<launcher::local_worlds::options::WorldOption>,
 }
 
 impl LocalWorldsUi {
-    /// Starts editing a numeric option from the text the module keeps for it.
-    pub(super) fn begin_option_edit(&mut self, id: launcher::local_worlds::options::WorldOption) {
-        let text = self.view.numeric_text(id);
+    /// Starts editing a numeric option from the text the module keeps for it, or from the
+    /// played world's value when Settings' Game section has the box.
+    pub(super) fn begin_option_edit(
+        &mut self,
+        id: launcher::local_worlds::options::WorldOption,
+        in_world: bool,
+    ) {
+        let text = match &self.in_world {
+            Some(world) if in_world => {
+                if !self.in_world_editing.insert(id) {
+                    return;
+                }
+                world.numeric_text(id)
+            }
+            _ => {
+                self.editing.insert(id);
+                self.view.numeric_text(id)
+            }
+        };
         self.options
             .get_mut(&id)
             .expect("numeric world option")
             .set_text(&text);
-        self.editing.insert(id);
     }
 
     /// Local preparation progress covers standalone prompts and owns their input.
@@ -91,6 +112,9 @@ impl Default for LocalWorldsUi {
             max_players: None,
             prepared: false,
             editing: Default::default(),
+            in_world: None,
+            in_world_actions: Vec::new(),
+            in_world_editing: Default::default(),
         }
     }
 }
@@ -194,6 +218,7 @@ impl MenuRuntime {
         self.finish_storage_world(view.screen);
         self.local_ui.view = view;
         let active = self.local_world_joined && (in_session || self.is_connecting());
+        self.sync_world_settings(worlds, active && in_session);
         if active != self.local_world_active {
             self.local_world_active = active;
             if active {
@@ -210,6 +235,65 @@ impl MenuRuntime {
         // The invite screen opens over the pause screen, which stays up beneath it.
         let paused = matches!(self.screen, MenuScreen::Pause | MenuScreen::Invite);
         worlds.set_pause_menu(active && self.visible && paused);
+    }
+
+    /// Sends Settings' Game section presses and typed numbers to the played world, then mirrors it.
+    fn sync_world_settings(&mut self, worlds: &mut LocalWorlds, playing: bool) {
+        use launcher::local_worlds::in_world::{Action, View};
+        let id = self.local_ui.world_id.clone().filter(|_| playing);
+        let field = self.field;
+        let ui = &mut self.local_ui;
+        for &option in &ui.in_world_editing {
+            let current = ui
+                .in_world
+                .as_ref()
+                .map(|world| world.world.options.get(option));
+            if let Ok(value) = ui.options[&option].as_str().parse::<i32>()
+                && current.is_some_and(|current| current != value)
+            {
+                ui.in_world_actions.push(Action::Option(option, value));
+            }
+        }
+        ui.in_world_editing
+            .retain(|&option| field == Some(MenuField::WorldOption(option)));
+        for action in std::mem::take(&mut ui.in_world_actions) {
+            if let Some(id) = &id {
+                worlds.input(Input::InWorld(id.clone(), action));
+            }
+        }
+        ui.in_world = id
+            .and_then(|id| worlds.menu().worlds().iter().find(|world| world.id == id))
+            .and_then(View::of)
+            .map(std::sync::Arc::new);
+        if ui.in_world.is_none() {
+            ui.in_world_editing.clear();
+        }
+    }
+
+    /// Queues a press in Settings' Game section; a numeric box takes focus instead.
+    pub(super) fn activate_world_settings(
+        &mut self,
+        action: launcher::local_worlds::in_world::Action,
+    ) {
+        if !matches!(
+            action,
+            launcher::local_worlds::in_world::Action::OptionField(_)
+        ) {
+            self.local_ui.in_world_actions.push(action);
+        }
+    }
+
+    /// The played world's Game section, with its numeric boxes' live text.
+    pub(super) fn world_settings_view(
+        &self,
+    ) -> Option<std::sync::Arc<launcher::local_worlds::in_world::View>> {
+        let mut world = self.local_ui.in_world.clone()?;
+        for &id in &self.local_ui.in_world_editing {
+            std::sync::Arc::make_mut(&mut world)
+                .option_text
+                .insert(id, self.local_ui.options[&id].as_str().to_owned());
+        }
+        Some(world)
     }
 
     /// The local-world screens' state for the menu view, with the fields' live text.
@@ -774,6 +858,61 @@ mod tests {
         menu.sync_local_worlds(&mut worlds, false);
         assert!(worlds.menu().form_error().is_some());
         assert!(!worlds.menu().busy());
+    }
+
+    /// Settings' Game section shows only while the world is played, and its presses and typed
+    /// numbers change that world through the module.
+    #[test]
+    fn game_section_changes_reach_the_played_world() {
+        use launcher::local_worlds::{
+            in_world::Action, model::Event, options::WorldOption as O, world::World,
+        };
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let mut worlds = LocalWorlds::default();
+        worlds.apply(Event::Listed(vec![World {
+            options: Default::default(),
+            id: "world-id".into(),
+            name: "Saved".into(),
+            game_mode: GameMode::Survival,
+            generator: launcher::local_worlds::world::Generator::Normal,
+            difficulty: Difficulty::Normal,
+            backend: Backend::Bds,
+            seed: 1,
+            created_unix: 0,
+            last_played_unix: 0,
+            options_unavailable: false,
+            size_bytes: 0,
+        }]));
+        menu.local_ui.world_id = Some("world-id".into());
+        menu.local_world_joined = true;
+        menu.sync_local_worlds(&mut worlds, false);
+        assert!(menu.view().world_settings.is_none(), "not yet in the world");
+        menu.sync_local_worlds(&mut worlds, true);
+        assert!(menu.view().world_settings.is_some());
+        menu.activate(MenuAction::WorldSettings(Action::Difficulty(
+            Difficulty::Hard,
+        )));
+        menu.sync_local_worlds(&mut worlds, true);
+        assert_eq!(worlds.menu().worlds()[0].difficulty, Difficulty::Hard);
+        menu.screen = MenuScreen::Settings;
+        menu.activate(MenuAction::WorldSettings(Action::OptionField(
+            O::RespawnRadius,
+        )));
+        assert_eq!(menu.field, Some(MenuField::WorldOption(O::RespawnRadius)));
+        assert_eq!(menu.local_ui.options[&O::RespawnRadius].as_str(), "10");
+        menu.local_ui
+            .options
+            .get_mut(&O::RespawnRadius)
+            .unwrap()
+            .set_text("24");
+        menu.sync_local_worlds(&mut worlds, true);
+        assert_eq!(worlds.menu().worlds()[0].options.get(O::RespawnRadius), 24);
+        assert_eq!(
+            menu.view()
+                .world_settings
+                .map(|world| world.numeric_text(O::RespawnRadius)),
+            Some("24".to_owned())
+        );
     }
 
     /// Back saves an edit, so an invalid number must stop it before the last valid prefix saves.

@@ -77,6 +77,12 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             Some("options.general"),
         ),
         Updates => (None, [64, 113, 78], Glyph::Download, None),
+        Game => (
+            None,
+            [97, 141, 64],
+            Glyph::Gamepad,
+            Some("realmsSettingsScreen.worldSectionTitle"),
+        ),
         Video => (
             Some(SETTINGS_ICONS[6]),
             [193, 142, 62],
@@ -171,11 +177,8 @@ pub(super) fn draw(
     let tabs: Vec<_> = TABS
         .iter()
         .filter(|tab| {
-            tab.section
-                != launcher::menu::settings_sections::SettingSection::Server
-                    .definition()
-                    .name
-                || view.over_world
+            launcher::menu::settings_sections::SettingSection::from_name(tab.section)
+                .is_some_and(|section| view.settings_section_shown(section))
         })
         .collect();
     let labels: Vec<_> = tabs

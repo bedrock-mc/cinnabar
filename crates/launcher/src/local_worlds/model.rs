@@ -70,6 +70,8 @@ pub enum Input {
     ImportFiles(Vec<PathBuf>),
     /// Cancels the current screen; while opening it also closes the world.
     Back,
+    /// A change to the open world `id` from its in-game settings.
+    InWorld(String, super::in_world::Action),
 }
 
 /// World-service work for the executor; each yields at most one [`Event`].
@@ -79,6 +81,11 @@ pub enum Effect {
     Create(NewWorld),
     Delete(String),
     Update {
+        id: String,
+        update: WorldUpdate,
+    },
+    /// Saves an in-game change and applies it to the world's running server.
+    Apply {
         id: String,
         update: WorldUpdate,
     },
@@ -110,6 +117,8 @@ pub enum Event {
     Created(World),
     Deleted(String),
     Updated(World),
+    /// The world as an [`Effect::Apply`] saved it.
+    Applied(World),
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
     EulaRequired,
@@ -468,6 +477,12 @@ impl WorldsMenu {
     }
 
     pub fn update(&mut self, input: Input) -> Vec<Effect> {
+        // The open world's settings are independent of the menu's screens and requests.
+        if let Input::InWorld(id, action) = input {
+            return super::in_world::change(&mut self.worlds, &id, action)
+                .into_iter()
+                .collect();
+        }
         if self.busy && !matches!(input, Input::Back) {
             return Vec::new();
         }
@@ -805,6 +820,10 @@ impl WorldsMenu {
                 self.busy = false;
                 self.screen = Screen::List;
                 self.play_edited()
+            }
+            Event::Applied(world) => {
+                super::in_world::applied(&mut self.worlds, world);
+                Vec::new()
             }
             Event::Status(status) => {
                 self.note_status(&status);
