@@ -23,10 +23,12 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
     if !view.updates.active {
-        return content.label(
-            &installed_version(),
-            "App update controls are unavailable in this window.",
-        );
+        let message = if view.updates.manual_pending {
+            view.updates.status_text()
+        } else {
+            "App update controls are unavailable in this window.".into()
+        };
+        return content.label(&installed_version(), &message);
     }
     for option in SettingPanel::Updates.options() {
         content.option(option.id)?;

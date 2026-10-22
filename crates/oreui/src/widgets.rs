@@ -160,6 +160,42 @@ pub(super) fn button_face(
     state: Interaction,
     enabled: bool,
 ) -> Result<(), PaintError> {
+    let (face, text) = button_art(canvas, b, variant, state, enabled)?;
+    canvas.text_centred(
+        label,
+        face,
+        variant.label(),
+        text,
+        matches!(variant, Variant::Hero) && enabled,
+    )
+}
+
+/// A solid button showing `icon` instead of a label.
+pub(super) fn icon_button(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    variant: Variant,
+    icon: Icon,
+    action: Option<MenuAction>,
+) -> Result<(), PaintError> {
+    let interaction = canvas.interaction(view, action);
+    let (face, text) = button_art(canvas, b, variant, interaction, action.is_some())?;
+    icons::draw_centred(canvas, icon, face, text)?;
+    if let Some(action) = action {
+        canvas.hit(action, b)?;
+    }
+    Ok(())
+}
+
+/// Paints a solid button without its content; returns the content area and colour.
+fn button_art(
+    canvas: &mut Canvas<'_>,
+    b: Bounds,
+    variant: Variant,
+    state: Interaction,
+    enabled: bool,
+) -> Result<(Bounds, Rgba), PaintError> {
     let role = if enabled {
         variant.role(canvas.bundle)
     } else {
@@ -181,14 +217,9 @@ pub(super) fn button_face(
         b[2],
         b[3],
     ];
+    let content = [outer[0], outer[1], outer[2], outer[3] - shadow];
     if art::elevated_motion(canvas, b, variant, state, enabled, motion)? {
-        return canvas.text_centred(
-            label,
-            [outer[0], outer[1], outer[2], outer[3] - shadow],
-            variant.label(),
-            role.text,
-            matches!(variant, Variant::Hero) && enabled,
-        );
+        return Ok((content, role.text));
     }
     canvas.fill(
         outer,
@@ -228,14 +259,7 @@ pub(super) fn button_face(
             opacity(OUTLINE, motion.focus),
         )?;
     }
-    let shadowed = matches!(variant, Variant::Hero) && enabled;
-    canvas.text_centred(
-        label,
-        [outer[0], outer[1], outer[2], outer[3] - shadow],
-        variant.label(),
-        role.text,
-        shadowed,
-    )
+    Ok((content, role.text))
 }
 
 /// A neutral80 panel with the dark one-texel border.

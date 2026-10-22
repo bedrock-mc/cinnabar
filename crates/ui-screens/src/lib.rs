@@ -41,6 +41,7 @@ pub mod menu_renderers;
 pub mod menu_screens;
 pub mod motion_blur_setting;
 pub mod npc;
+pub mod occlusion_setting;
 pub mod play_screen;
 pub mod player_list;
 pub mod recipe_book;

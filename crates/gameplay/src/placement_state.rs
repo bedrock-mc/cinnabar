@@ -38,9 +38,9 @@ pub fn resolve_placement_state(
             ],
         )
     {
-        crate::placement_state::valid_property(&states, P::WeirdoDirection)?;
+        valid_property(fact, &states, P::WeirdoDirection)?;
         bit(&states, P::UpsideDownBit.name())?;
-        valid_property(&states, P::MinecraftCorner)?;
+        valid_property(fact, &states, P::MinecraftCorner)?;
         set_value(
             &mut states,
             P::WeirdoDirection.name(),
@@ -51,14 +51,14 @@ pub fn resolve_placement_state(
         }
         set_value(&mut states, P::MinecraftCorner.name(), Value::from("none"))?;
     } else if fact.placement == R::Loom && only_keys(&states, &[P::Direction.name()]) {
-        crate::placement_state::valid_property(&states, P::Direction)?;
+        valid_property(fact, &states, P::Direction)?;
         set_value(
             &mut states,
             P::Direction.name(),
             Value::from([2, 3, 0, 1][yaw_quadrant(input.yaw)?]),
         )?;
     } else if fact.placement == R::Glazed && only_keys(&states, &[P::FacingDirection.name()]) {
-        crate::placement_state::valid_property(&states, P::FacingDirection)?;
+        valid_property(fact, &states, P::FacingDirection)?;
         set_value(
             &mut states,
             P::FacingDirection.name(),
@@ -67,26 +67,26 @@ pub fn resolve_placement_state(
     } else if fact.placement == R::Snow
         && only_keys(&states, &[P::Height.name(), P::CoveredBit.name()])
     {
-        crate::placement_state::valid_property(&states, P::Height)?;
+        valid_property(fact, &states, P::Height)?;
         set_value(&mut states, P::Height.name(), Value::from(0))?;
         set_bit(&mut states, P::CoveredBit.name(), false)?;
     } else if fact.placement == R::SeaPickle
         && only_keys(&states, &[P::ClusterCount.name(), P::DeadBit.name()])
     {
-        crate::placement_state::valid_property(&states, P::ClusterCount)?;
+        valid_property(fact, &states, P::ClusterCount)?;
         set_value(&mut states, P::ClusterCount.name(), Value::from(0))?;
         set_bit(&mut states, P::DeadBit.name(), true)?;
     } else if fact.placement == R::Candle && only_keys(&states, &[P::Candles.name(), P::Lit.name()])
     {
-        crate::placement_state::valid_property(&states, P::Candles)?;
+        valid_property(fact, &states, P::Candles)?;
         set_value(&mut states, P::Candles.name(), Value::from(0))?;
         set_bit(&mut states, P::Lit.name(), false)?;
     } else if fact.placement == R::Axis && only_keys(&states, &[P::PillarAxis.name()]) {
-        valid_property(&states, P::PillarAxis)?;
+        valid_property(fact, &states, P::PillarAxis)?;
         let axis = ["y", "y", "z", "z", "x", "x"][usize::from(input.face)];
         set_value(&mut states, P::PillarAxis.name(), Value::from(axis))?;
     } else if fact.placement == R::Slab && only_keys(&states, &[P::MinecraftVerticalHalf.name()]) {
-        valid_property(&states, P::MinecraftVerticalHalf)?;
+        valid_property(fact, &states, P::MinecraftVerticalHalf)?;
         set_value(
             &mut states,
             P::MinecraftVerticalHalf.name(),
@@ -102,7 +102,7 @@ pub fn resolve_placement_state(
             ],
         )
     {
-        crate::placement_state::valid_property(&states, P::Direction)?;
+        valid_property(fact, &states, P::Direction)?;
         bit(&states, P::OpenBit.name())?;
         bit(&states, P::UpsideDownBit.name())?;
         // Trapdoors use their own four-way encoding rather than cardinal direction.
@@ -156,7 +156,7 @@ pub fn merge_slab_state(
     {
         return None;
     }
-    valid_property(&held, P::MinecraftVerticalHalf)?;
+    valid_property(held_fact, &held, P::MinecraftVerticalHalf)?;
     let upper = match value(&existing, P::MinecraftVerticalHalf.name())?.as_str()? {
         "top" => true,
         "bottom" => false,
@@ -203,10 +203,10 @@ pub(crate) fn value<'a>(states: &'a Map<String, Value>, key: &str) -> Option<&'a
     }
 }
 
-/// Checks a state against the domain generated from the pinned property registry.
-pub(crate) fn valid_property(states: &Map<String, Value>, key: P) -> Option<()> {
+/// Checks a state against the values the block's own pinned states admit.
+pub(crate) fn valid_property(fact: BlockFact, states: &Map<String, Value>, key: P) -> Option<()> {
     let value = value(states, key.name())?;
-    let valid = match key.domain() {
+    let valid = match fact.domain(key) {
         PropertyDomain::Bool => value.is_boolean() || matches!(value.as_u64(), Some(0 | 1)),
         PropertyDomain::Int(domain) => value
             .as_i64()
@@ -217,9 +217,9 @@ pub(crate) fn valid_property(states: &Map<String, Value>, key: P) -> Option<()> 
     valid.then_some(())
 }
 
-/// Returns the largest admitted integer in a pinned state property's domain.
-pub(crate) fn maximum(key: P) -> Option<u64> {
-    let PropertyDomain::Int(domain) = key.domain() else {
+/// Returns the largest integer the block's own pinned states admit for `key`.
+pub(crate) fn maximum(fact: BlockFact, key: P) -> Option<u64> {
+    let PropertyDomain::Int(domain) = fact.domain(key) else {
         return None;
     };
     u64::try_from(*domain.iter().max()?).ok()
@@ -520,6 +520,17 @@ mod tests {
         ] {
             assert!(resolve_placement_state(identifier, canonical, click).is_none());
         }
+    }
+
+    #[test]
+    fn shared_property_names_keep_each_blocks_own_domain() {
+        let state = json!({"direction": 7});
+        let chalkboard = block_fact("minecraft:chalkboard");
+        let trapdoor = block_fact("minecraft:trapdoor");
+        assert!(valid_property(chalkboard, state.as_object().unwrap(), P::Direction).is_some());
+        assert!(valid_property(trapdoor, state.as_object().unwrap(), P::Direction).is_none());
+        assert_eq!(maximum(chalkboard, P::Direction), Some(15));
+        assert_eq!(maximum(trapdoor, P::Direction), Some(3));
     }
 
     #[test]

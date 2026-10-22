@@ -29,6 +29,7 @@ mod materials;
 mod molang;
 mod mount;
 mod native_bind_pose;
+mod native_boat;
 mod native_dragon_geometry;
 mod native_held_items;
 mod pack;
@@ -264,6 +265,14 @@ fn compile_with_behavior(
         &mut geometries,
     )?;
     total_source_bytes += painting::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
+        None,
+    )?;
+    total_source_bytes += native_boat::complete_bindings(
         root,
         &mut sources,
         &mut source_payloads,

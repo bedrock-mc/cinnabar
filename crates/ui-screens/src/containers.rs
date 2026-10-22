@@ -829,9 +829,13 @@ fn station_cell<'a>(
             }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
-                // The anvil's result is the client's prediction until the server states one.
+                // Anvil and grindstone results are the client's prediction until the server
+                // states one.
                 (None, Some(output))
-                    if ledger.window_kind() == Some(protocol::WindowKind::Anvil) =>
+                    if matches!(
+                        ledger.window_kind(),
+                        Some(protocol::WindowKind::Anvil | protocol::WindowKind::Grindstone)
+                    ) =>
                 {
                     (Some(&output.stack), output.icon, output.durability)
                 }

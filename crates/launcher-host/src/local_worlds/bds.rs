@@ -30,7 +30,8 @@ use super::{
 
 const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 pub(crate) const BDS_READY_MARKER: &str = "Server started.";
-pub(crate) const DEFAULT_BDS_VIEW: u32 = 10;
+/// BDS raises a smaller `view-distance` to this; it has no upper bound.
+const MIN_BDS_VIEW: u32 = 5;
 /// BDS's `transport` setting for its NetherNet HTTP listener.
 pub(crate) const BDS_TRANSPORT: &str = "nethernet";
 /// Makes existing BDS worlds use the launcher's selected game mode at login.
@@ -92,9 +93,11 @@ impl Runner for BdsRunner {
         link_world(&link, &world_dir)?;
         let properties = server_properties(spec, port, max_players, self.lan_visible);
         if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
+            .map_err(|error| failed(format!("write server.properties: {error}")))
+            .and_then(|()| write_host_permissions(install, spec))
         {
             unlink_world(&link);
-            return Err(failed(format!("write server.properties: {error}")));
+            return Err(error);
         }
         let run = |label: &str| {
             let mut command = Command::new(binary.as_os_str());
@@ -227,13 +230,15 @@ pub(crate) fn create_world<S: FnOnce() -> Result<(), String>>(
     Ok(true)
 }
 
-/// The view distance BDS gets, and the tick distance that follows from it.
+/// BDS's view and tick distances. The view distance only caps each player's RequestChunkRadius, so
+/// it defaults to the largest radius the client requests and a render-distance change needs no
+/// restart.
 pub(crate) fn view_and_tick(spec: &StartSpec) -> (u32, u32) {
     let view = spec
         .view_distance
         .filter(|view| *view > 0)
-        .unwrap_or(DEFAULT_BDS_VIEW)
-        .clamp(5, 32);
+        .unwrap_or(render_api::MAX_VIEW_RADIUS_CHUNKS.unsigned_abs())
+        .max(MIN_BDS_VIEW);
     (view, spec.world.options.get(O::SimulationDistance) as u32)
 }
 
@@ -283,6 +288,25 @@ pub(crate) fn server_properties(
         let _ = writeln!(properties, "{key}={value}");
     }
     properties
+}
+
+/// BDS's operator list in the install, keyed by XUID.
+pub(crate) const PERMISSIONS_FILE: &str = "permissions.json";
+
+/// Makes the host an operator as a vanilla world owner is. BDS reads XUIDs only from
+/// service-signed logins, so friends and other joiners keep the world's default permission.
+/// Rewriting the list each start drops an earlier account's grant from the shared install.
+pub(crate) fn write_host_permissions(install: &Path, spec: &StartSpec) -> Result<(), WorldError> {
+    let operators: Vec<_> = spec
+        .host_xuid
+        .iter()
+        .map(|xuid| serde_json::json!({ "permission": "operator", "xuid": xuid }))
+        .collect();
+    write_private(
+        &install.join(PERMISSIONS_FILE),
+        serde_json::Value::from(operators).to_string().as_bytes(),
+    )
+    .map_err(|error| failed(format!("write {PERMISSIONS_FILE}: {error}")))
 }
 
 /// Limits a single-player world to its host while keeping multiplayer's configured capacity.

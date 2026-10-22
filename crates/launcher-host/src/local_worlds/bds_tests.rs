@@ -22,7 +22,6 @@ fn server_properties_configure_local_play() {
     spec.world.game_mode = GameMode::Creative;
     spec.world.difficulty = Difficulty::Hard;
     spec.world.seed = -5;
-    spec.view_distance = Some(64);
     let properties = server_properties(&spec, 5000, 1, false);
     for expected in [
         "server-name=MyWorld 1\n",
@@ -37,7 +36,6 @@ fn server_properties_configure_local_play() {
         "level-name=0123456789abcdef\n",
         "level-seed=-5\n",
         "level-type=FLAT\n",
-        "view-distance=32\n",
         "tick-distance=4\n",
         "transport=nethernet\n",
         "server-ip=127.0.0.1\n",
@@ -49,13 +47,8 @@ fn server_properties_configure_local_play() {
         );
     }
     spec.world.generator = Generator::Normal;
-    spec.view_distance = None;
     let defaults = server_properties(&spec, 1, 1, true);
-    for expected in [
-        "level-type=DEFAULT\n",
-        "view-distance=10\n",
-        "enable-lan-visibility=true\n",
-    ] {
+    for expected in ["level-type=DEFAULT\n", "enable-lan-visibility=true\n"] {
         assert!(
             defaults.contains(expected),
             "missing {expected:?}:\n{defaults}"
@@ -65,6 +58,28 @@ fn server_properties_configure_local_play() {
         !defaults.contains("server-portv6="),
         "NetherNet ignores the separate IPv6 port"
     );
+}
+
+/// BDS's view distance only caps RequestChunkRadius, so it must not hold the client below its
+/// render distance; the simulation distance follows the world option however far the client sees.
+#[test]
+fn the_view_distance_admits_every_client_render_distance() {
+    let dir = scratch();
+    let mut spec = spec(dir.path());
+    let max = render_api::MAX_VIEW_RADIUS_CHUNKS;
+    for (requested, view) in [(None, max), (Some(64), 64), (Some(2), 5)] {
+        spec.view_distance = requested.map(i32::unsigned_abs);
+        let properties = server_properties(&spec, 5000, 1, false);
+        for expected in [
+            format!("view-distance={view}\n"),
+            "tick-distance=4\n".to_owned(),
+        ] {
+            assert!(
+                properties.contains(&expected),
+                "missing {expected:?}:\n{properties}"
+            );
+        }
+    }
 }
 
 /// Shared worlds keep their player limit and size the UDP window to it.
@@ -134,6 +149,38 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         world_dir.join(LEVEL_DIR).is_dir(),
         "world data must survive the stop"
     );
+}
+
+/// The host is the only operator, and a later start without one drops the earlier grant.
+#[cfg(unix)]
+#[test]
+fn the_native_runner_makes_only_the_host_an_operator() {
+    let dir = scratch();
+    let provisioner = installed_provisioner(dir.path(), LINUX, FAKE_BDS);
+    let install = provisioner.root.join(VERSION);
+    let runner = BdsRunner::new(Arc::new(provisioner), String::new());
+    let world_dir = dir.path().join("world");
+    let operators = || {
+        let file = fs::read(install.join(PERMISSIONS_FILE)).expect("permissions");
+        serde_json::from_slice::<serde_json::Value>(&file).expect("permissions JSON")
+    };
+    let mut spec = spec(&world_dir);
+    spec.host_xuid = Some("2535400000000001".to_owned());
+    let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    assert_eq!(
+        operators(),
+        serde_json::json!([{ "permission": "operator", "xuid": "2535400000000001" }])
+    );
+    let properties = fs::read_to_string(install.join("server.properties")).expect("properties");
+    assert!(
+        properties.contains("default-player-permission-level=member"),
+        "other players keep the world's default: {properties}"
+    );
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    spec.host_xuid = None;
+    let instance = runner.start(&spec, &Cancel::never()).expect("restart");
+    assert_eq!(operators(), serde_json::json!([]));
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
 }
 
 /// A first start that saves no world fails clearly instead of writing level data itself.

@@ -46,7 +46,7 @@ fn evaluate(
             *complete = false;
             continue;
         };
-        if value == 0.0 {
+        if !BlockMolang::holds(value) {
             continue;
         }
         if let Some(collision) = &physical.collision {
