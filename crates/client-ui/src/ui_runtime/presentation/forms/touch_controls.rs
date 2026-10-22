@@ -16,7 +16,7 @@ use super::super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::UiRuntime;
 
 const SCREEN: &str = "cinnabar_touch.screen";
-const LAYOUT: &[u8] = include_bytes!("touch_controls.json");
+const LAYOUT: &[u8] = assets::TOUCH_CONTROLS_LAYOUT;
 /// Each control's name in the layout, which its `cinnabar.touch.<name>` button id and
 /// `#touch_<name>_pressed` binding carry.
 const CONTROLS: &[(&str, u16)] = &[
