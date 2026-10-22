@@ -457,6 +457,9 @@ imported entry. Declared sizes, identity, digests and framing remain validated. 
 selections preserve service errors and wait for the account core result. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
 preparation and broader sparse-startup coverage.
+Server handoff keeps the advertised UUID and version for stack selection when a valid
+archive's manifest names another identity; local imports and library selections still match
+exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
