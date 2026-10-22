@@ -2185,6 +2185,11 @@ path = "crates/pack-compiler/entity/src/entity/materials.rs"
 literal = ".skinning"
 reason = "Material declaration grammar suffix for a skinning variant of the same base."
 
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/item/components.rs"
+literal = "minecraft:digger"
+reason = "Item component key in a server registry entry; it shares its text with the native item tag but names the component, not tag membership."
+
 [[crates]]
 name = "cosmetics"
 path = "crates/cosmetics"

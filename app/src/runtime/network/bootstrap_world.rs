@@ -150,3 +150,14 @@ pub(super) fn build(
     stream.set_publication_allowance(publication.allowance());
     stream
 }
+
+/// Prepares tag programs for digger queries that a later item registry introduces.
+pub(super) fn admit_item_registry_diggers(
+    client_world: &mut ClientWorld,
+    entries: &[protocol::ItemRegistryEntry],
+) {
+    if let Some(extended) = client_world.digger_filters.extended(entries) {
+        let old = std::mem::replace(&mut client_world.digger_filters, Arc::new(extended));
+        client_runtime::session::release_off_frame(old);
+    }
+}

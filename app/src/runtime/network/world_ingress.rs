@@ -182,6 +182,11 @@ pub(super) fn drain(
             );
             continue;
         }
+        if let WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(registry)) =
+            &sequenced.event
+        {
+            super::bootstrap_world::admit_item_registry_diggers(client_world, &registry.entries);
+        }
         let Some(stream) = client_world.stream.as_mut() else {
             *fatal_error = Some("received world data before StartGame bootstrap".to_owned());
             continue;

@@ -351,7 +351,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server items' `minecraft:digger` speeds replace tool speed and harvest for blocks
   matched by name or tag query. Native block tags other than the pickaxe, axe, shovel
   and hoe destructible tags are not carried yet, and state-restricted entries naming the
-  target fall back to hand mining; both remain incomplete.
+  target or tag queries the client cannot evaluate fall back to hand mining; both remain
+  incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.

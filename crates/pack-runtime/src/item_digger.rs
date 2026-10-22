@@ -15,31 +15,48 @@ pub enum DiggerMatch {
 }
 
 /// Session-owned block tag programs for every digger the item registry declares.
-#[derive(Debug, Default)]
-pub struct DiggerFilters(HashMap<Arc<str>, Option<pack_entity_compiler::ItemTagMolang>>);
+///
+/// Programs are shared, so extending the set for a later registry is cheap and leaves earlier
+/// queries' results unchanged.
+#[derive(Debug, Default, Clone)]
+pub struct DiggerFilters(HashMap<Arc<str>, Arc<Option<pack_entity_compiler::ItemTagMolang>>>);
 
 impl DiggerFilters {
     /// Compiles each distinct tag query once, when the session's item registry is installed.
     pub fn new<'a>(entries: impl IntoIterator<Item = &'a ItemRegistryEntry>) -> Self {
-        let mut filters = HashMap::new();
+        Self::default().extended(entries).unwrap_or_default()
+    }
+
+    /// Returns these programs plus ones for tag queries that `entries` declare and this set
+    /// lacks, or `None` when every query is already prepared.
+    pub fn extended<'a>(
+        &self,
+        entries: impl IntoIterator<Item = &'a ItemRegistryEntry>,
+    ) -> Option<Self> {
+        let mut extended: Option<Self> = None;
         let diggers = entries
             .into_iter()
             .filter_map(|entry| entry.components.as_ref()?.digger.as_deref());
         for digger in diggers {
             for entry in digger.destroy_speeds.iter() {
-                if let DiggerBlock::Tags(expression) = &entry.block {
-                    filters
-                        .entry(Arc::clone(expression))
-                        .or_insert_with(|| pack_entity_compiler::ItemTagMolang::parse(expression));
+                let DiggerBlock::Tags(expression) = &entry.block else {
+                    continue;
+                };
+                if extended.as_ref().unwrap_or(self).0.contains_key(expression) {
+                    continue;
                 }
+                extended.get_or_insert_with(|| self.clone()).0.insert(
+                    Arc::clone(expression),
+                    Arc::new(pack_entity_compiler::ItemTagMolang::parse(expression)),
+                );
             }
         }
-        Self(filters)
+        extended
     }
 
     /// Evaluates only prepared programs; a missing or unsupported query stays unresolved.
     fn evaluate(&self, source: &str, has_tag: &dyn Fn(&str) -> bool) -> Option<bool> {
-        self.0.get(source)?.as_ref()?.evaluate(has_tag)
+        self.0.get(source)?.as_ref().as_ref()?.evaluate(has_tag)
     }
 }
 
@@ -87,15 +104,18 @@ mod tests {
         }
     }
 
-    fn filters(digger: &ItemDigger) -> DiggerFilters {
-        let entry = ItemRegistryEntry {
+    fn registry_entry(digger: &ItemDigger) -> ItemRegistryEntry {
+        ItemRegistryEntry {
             components: Some(Arc::new(protocol::ItemComponents {
                 digger: Some(Arc::new(digger.clone())),
                 ..Default::default()
             })),
             ..protocol::vanilla_item_registry()[0].clone()
-        };
-        DiggerFilters::new([&entry])
+        }
+    }
+
+    fn filters(digger: &ItemDigger) -> DiggerFilters {
+        DiggerFilters::new([&registry_entry(digger)])
     }
 
     /// Reports exactly the listed tags.
@@ -134,10 +154,10 @@ mod tests {
 
     #[test]
     fn unprepared_queries_and_state_restricted_names_stay_unresolved() {
-        let digger = digger(&[(DiggerBlock::Tags("q.any_tag('stone')".into()), 12)]);
+        let tagged = digger(&[(DiggerBlock::Tags("q.any_tag('stone')".into()), 12)]);
         assert_eq!(
             digger_match(
-                &digger,
+                &tagged,
                 &DiggerFilters::default(),
                 "minecraft:stone",
                 &tags(&["stone"])
@@ -157,6 +177,30 @@ mod tests {
             digger_match(&states, &filters, "minecraft:dirt", &tags(&[])),
             DiggerMatch::None
         );
+    }
+
+    #[test]
+    fn a_later_registry_adds_its_queries_and_keeps_earlier_ones() {
+        let first = digger(&[(DiggerBlock::Tags("q.any_tag('stone')".into()), 12)]);
+        let later = digger(&[(DiggerBlock::Tags("q.any_tag('dirt')".into()), 4)]);
+        let initial = filters(&first);
+        assert_eq!(
+            digger_match(&later, &initial, "minecraft:dirt", &tags(&["dirt"])),
+            DiggerMatch::Unresolved
+        );
+        let entry = registry_entry(&later);
+        let extended = initial
+            .extended([&entry])
+            .expect("a new query extends the set");
+        assert_eq!(
+            digger_match(&later, &extended, "minecraft:dirt", &tags(&["dirt"])),
+            DiggerMatch::Speed(4)
+        );
+        assert_eq!(
+            digger_match(&first, &extended, "minecraft:stone", &tags(&["stone"])),
+            DiggerMatch::Speed(12)
+        );
+        assert!(extended.extended([&entry]).is_none());
     }
 
     #[test]

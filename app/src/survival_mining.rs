@@ -111,13 +111,13 @@ pub(crate) fn observe_destroy_target(
     };
     let component_digger = entry
         .and_then(|entry| entry.components.as_ref()?.digger.as_deref())
-        .and_then(|digger| {
+        .map(|digger| {
             component_digger(
                 digger,
                 &context.client_world.digger_filters,
                 context
                     .collisions
-                    .block_identifier(mode, observed.target.runtime_id)?,
+                    .block_identifier(mode, observed.target.runtime_id),
                 &has_block_tag,
                 protocol::item_enchantment_level(item.extra_data(), EFFICIENCY_ENCHANTMENT_ID)
                     .unwrap_or(0),
@@ -189,16 +189,20 @@ pub(crate) fn observe_destroy_target(
     })
 }
 
-/// Resolves a component item's digger speed for one block; `None` keeps the hand rules when the
-/// matching entry cannot be decided.
+/// Resolves a component item's digger speed for one block. A digger replaces the item's vanilla
+/// tool rules, so an unmatched entry list, an unknown block or an entry that cannot be decided
+/// all mine like an empty hand.
 fn component_digger(
     digger: &protocol::ItemDigger,
     filters: &pack_runtime::DiggerFilters,
-    block: &str,
+    block: Option<&str>,
     has_tag: &dyn Fn(&str) -> bool,
     efficiency_level: u8,
-) -> Option<ComponentDigger> {
-    match pack_runtime::digger_match(digger, filters, block, has_tag) {
+) -> ComponentDigger {
+    let matched = block.map_or(pack_runtime::DiggerMatch::Unresolved, |block| {
+        pack_runtime::digger_match(digger, filters, block, has_tag)
+    });
+    match matched {
         pack_runtime::DiggerMatch::Speed(speed) => {
             let level = f32::from(efficiency_level);
             // The Efficiency bonus applies only when the digger opts in and the item is enchanted.
@@ -207,19 +211,99 @@ fn component_digger(
             } else {
                 0.0
             };
-            Some(ComponentDigger {
+            ComponentDigger {
                 speed: speed as f32 + bonus,
                 matched: true,
-            })
+            }
         }
-        pack_runtime::DiggerMatch::None => Some(ComponentDigger {
-            speed: 1.0,
-            matched: false,
-        }),
-        pack_runtime::DiggerMatch::Unresolved => None,
+        pack_runtime::DiggerMatch::None | pack_runtime::DiggerMatch::Unresolved => {
+            ComponentDigger {
+                speed: 1.0,
+                matched: false,
+            }
+        }
     }
 }
 
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
 const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
 const UNBREAKING_ENCHANTMENT_ID: i16 = 17;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::{DiggerBlock, DiggerSpeed, ItemDigger, ItemRegistryEntry};
+    use std::sync::Arc;
+
+    const HAND: ComponentDigger = ComponentDigger {
+        speed: 1.0,
+        matched: false,
+    };
+
+    fn pickaxe_query(use_efficiency: bool) -> ItemDigger {
+        ItemDigger {
+            use_efficiency,
+            destroy_speeds: Arc::new([DiggerSpeed {
+                block: DiggerBlock::Tags(
+                    "q.any_tag('minecraft:is_pickaxe_item_destructible')".into(),
+                ),
+                speed: 8,
+            }]),
+        }
+    }
+
+    fn prepared(digger: &ItemDigger) -> pack_runtime::DiggerFilters {
+        let entry = ItemRegistryEntry {
+            components: Some(Arc::new(protocol::ItemComponents {
+                digger: Some(Arc::new(digger.clone())),
+                ..Default::default()
+            })),
+            ..protocol::vanilla_item_registry()[0].clone()
+        };
+        pack_runtime::DiggerFilters::new([&entry])
+    }
+
+    fn pickaxe_tag(tag: &str) -> bool {
+        tag == "minecraft:is_pickaxe_item_destructible"
+    }
+
+    #[test]
+    fn undecidable_component_digger_mines_like_a_hand() {
+        let digger = pickaxe_query(true);
+        let unprepared = pack_runtime::DiggerFilters::default();
+        let concrete = Some("minecraft:red_concrete");
+        assert_eq!(
+            component_digger(&digger, &unprepared, concrete, &pickaxe_tag, 5),
+            HAND
+        );
+        assert_eq!(
+            component_digger(&digger, &prepared(&digger), None, &pickaxe_tag, 5),
+            HAND
+        );
+    }
+
+    #[test]
+    fn matched_component_digger_adds_efficiency_only_when_it_opts_in() {
+        let concrete = Some("minecraft:red_concrete");
+        let opted_in = pickaxe_query(true);
+        assert_eq!(
+            component_digger(&opted_in, &prepared(&opted_in), concrete, &pickaxe_tag, 2),
+            ComponentDigger {
+                speed: 13.0,
+                matched: true,
+            }
+        );
+        let plain = pickaxe_query(false);
+        assert_eq!(
+            component_digger(&plain, &prepared(&plain), concrete, &pickaxe_tag, 2),
+            ComponentDigger {
+                speed: 8.0,
+                matched: true,
+            }
+        );
+        assert_eq!(
+            component_digger(&plain, &prepared(&plain), concrete, &|_| false, 2),
+            HAND
+        );
+    }
+}
