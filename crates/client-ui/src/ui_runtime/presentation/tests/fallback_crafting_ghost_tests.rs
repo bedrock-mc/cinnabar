@@ -125,7 +125,7 @@ fn presentation() -> UiPresentationRuntime {
             }
         })
         .collect();
-    let entries: Vec<_> = items
+    let mut entries: Vec<_> = items
         .iter()
         .enumerate()
         .map(|(index, (name, _))| assets::IconEntry {
@@ -134,6 +134,9 @@ fn presentation() -> UiPresentationRuntime {
             sprite: index as u32,
         })
         .collect();
+    entries.sort_unstable_by(|left, right| {
+        (&left.identifier, left.metadata).cmp(&(&right.identifier, right.metadata))
+    });
     let icons = assets::RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog([9; 32], &sprites, &entries).unwrap(),
     )
