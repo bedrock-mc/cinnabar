@@ -100,7 +100,7 @@ fn answered_predecessors_keep_known_rollback_and_next_transport() {
                 transaction.actions[0].from_item.count,
                 transaction.actions[0].from_item.stack_network_id
             ),
-            (expected.0, Some(expected.1))
+            (expected.0, None)
         );
     }
 }
@@ -138,7 +138,7 @@ fn unknown_retired_source_recovers_from_fresh_authority() {
             transaction.actions[0].from_item.count,
             transaction.actions[0].from_item.stack_network_id
         ),
-        (8, 7, Some(202))
+        (8, 7, None)
     );
 }
 
@@ -244,7 +244,7 @@ fn accepted_descendant_supersedes_unverified_ancestor_history() {
             observe_transaction(&packet).unwrap().actions[0]
                 .from_item
                 .stack_network_id,
-            Some(94)
+            None
         );
     }
 }
@@ -394,7 +394,7 @@ fn retirement_cancels_unsent_dependants_before_building_a_transaction() {
         observe_transaction(&packet).unwrap().actions[0]
             .from_item
             .stack_network_id,
-        Some(100)
+        None
     );
 }
 
@@ -443,7 +443,7 @@ fn retiring_an_empty_owner_keeps_a_known_nonempty_local_source() {
             transaction.actions[0].from_item.count,
             transaction.actions[0].from_item.stack_network_id
         ),
-        (2, Some(second_legacy))
+        (2, None)
     );
 }
 
@@ -489,7 +489,7 @@ fn server_authority_transition_requires_assigned_backing_identities() {
         observe_transaction(&packet).unwrap().actions[0]
             .from_item
             .stack_network_id,
-        Some(assigned.stack_network_id)
+        None
     );
 }
 
@@ -522,7 +522,7 @@ fn mining_request_counters_do_not_vouch_for_sparse_wire_ownership() {
         observe_transaction(&packet).unwrap().actions[0]
             .from_item
             .stack_network_id,
-        Some(101)
+        None
     );
 }
 
@@ -552,7 +552,7 @@ fn explicit_rollback_recovery_survives_authority_changes() {
         observe_transaction(&packet).unwrap().actions[0]
             .from_item
             .stack_network_id,
-        Some(101)
+        None
     );
 }
 

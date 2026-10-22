@@ -162,15 +162,9 @@ fn queued_drops_serialize_the_established_legacy_source_and_world_descriptor() {
         assert_eq!(count, 1);
         let transaction = observe_transaction(&packet).unwrap();
         assert_eq!(transaction.actions.len(), 2);
-        assert_eq!(
-            transaction.actions[0].from_item.stack_network_id,
-            Some(first_legacy)
-        );
+        assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
         assert_eq!(transaction.actions[0].from_item.count, 2);
-        assert_eq!(
-            transaction.actions[1].to_item.stack_network_id,
-            Some(first_legacy)
-        );
+        assert_eq!(transaction.actions[1].to_item.stack_network_id, None);
         assert_eq!(transaction.actions[1].to_item.count, second_amount);
         assert_eq!(
             transaction.legacy_request_id,

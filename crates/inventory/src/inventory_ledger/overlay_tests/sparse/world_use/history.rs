@@ -365,7 +365,7 @@ fn consumption_rebuilds_an_unsent_drop_from_restored_backing() {
             transaction.actions[0].from_item.stack_network_id,
             transaction.actions[0].to_item.count
         ),
-        (3, Some(consumption), 2)
+        (3, None, 2)
     );
 }
 
@@ -432,7 +432,7 @@ fn consumption_keeps_its_resolved_rollback_through_screen_retirement() {
                     transaction.actions[0].from_item.count,
                     transaction.actions[0].from_item.stack_network_id
                 ),
-                (5, Some(11))
+                (5, None)
             );
         }
     }

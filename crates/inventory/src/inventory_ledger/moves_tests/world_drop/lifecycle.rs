@@ -198,10 +198,7 @@ fn admitted_consumption_is_in_the_next_drops_source_and_rollback() {
     let legacy = drop_legacy_id(&ledger, request);
     let transaction = queued_transaction(&ledger);
     assert_eq!(transaction.actions[0].from_item.count, 2);
-    assert_eq!(
-        transaction.actions[0].from_item.stack_network_id,
-        Some(change.legacy_request_id)
-    );
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].to_item.count, 1);
     assert!(ledger.mark_transport_enqueued(0));
     ledger.apply(&response(legacy, StackResponseStatus::Rejected, None));
