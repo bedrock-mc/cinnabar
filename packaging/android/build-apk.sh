@@ -49,12 +49,13 @@ export CINNABAR_BUILD_COMMIT="${CINNABAR_BUILD_COMMIT:-$(git rev-parse HEAD)}"
 # 16 KB pages: Android 15 devices may use them, and every LOAD segment must allow it.
 page_flags='-Wl,-z,max-page-size=16384'
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=$page_flags"
+# Bash 3.2 needs a guarded expansion for an empty array under nounset.
 feature_args=()
 if [[ -n "${PACKAGE_CARGO_FEATURES:-}" ]]; then
     feature_args=(--features "$PACKAGE_CARGO_FEATURES")
 fi
-cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p "$client_package" "${feature_args[@]}"
-cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p asset-compiler --bin assetc "${feature_args[@]}"
+cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p "$client_package" ${feature_args[@]+"${feature_args[@]}"}
+cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p asset-compiler --bin assetc ${feature_args[@]+"${feature_args[@]}"}
 target_dir="$(cargo metadata --format-version 1 --no-deps --locked | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
 # Cargo writes the `dev` profile's artifacts under `debug`.
 profile_dir="$profile"
