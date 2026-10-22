@@ -3,11 +3,18 @@ use super::*;
 impl WorldAuthority {
     /// Publishes each accepted local death once, preserving life state across actor replacement.
     pub(super) fn publish_local_life(&mut self, sequence: u64, dead: bool) {
-        if dead && !self.local_player_dead {
+        if dead && self.local_player_dead != Some(true) {
             self.push_committed_control(CommittedControlEvent::LocalDeath { sequence });
         }
-        self.local_player_dead = dead;
+        self.local_player_dead = Some(dead);
     }
+
+    /// Retires an unknown initial death before its delayed health snapshot arrives.
+    pub fn commit_local_respawn_ready(&mut self, sequence: u64) {
+        self.local_player_dead.get_or_insert(true);
+        self.push_committed_ui(CommittedUiEvent::LocalRespawnReady { sequence });
+    }
+
     /// Counts consumer deltas that retain world admission credit.
     pub fn retained_commit_count(&self) -> usize {
         self.committed_controls

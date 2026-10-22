@@ -48,3 +48,52 @@ fn respawn_ready_responses_follow_distinct_controls_before_latency() {
         assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
     }
 }
+
+#[test]
+fn ready_before_initial_zero_health_keeps_input_available_until_a_new_death() {
+    for attributes in [false, true] {
+        let mut app = wiring_app(authorized_ticker(false), LocalPhysicsController::default());
+        let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+        app.insert_resource(network);
+        submit(
+            &mut app,
+            1,
+            WorldEvent::Respawn(RespawnEvent {
+                position: [0.0, 70.0, 0.0],
+                state: 1,
+                runtime_entity_id: 0,
+            }),
+        );
+        let health = |current| {
+            if attributes {
+                WorldEvent::Actor(protocol::ActorEvent::Attributes(
+                    protocol::ActorAttributesUpdateEvent {
+                        runtime_id: 1,
+                        dimension: 0,
+                        tick: 0,
+                        attributes: std::sync::Arc::from([protocol::ActorAttribute {
+                            name: protocol_ids::Attribute::Health.wire_name().into(),
+                            min: 0.0,
+                            max: 20.0,
+                            current: current as f32,
+                            default: None,
+                            modifiers: Default::default(),
+                        }]),
+                    },
+                ))
+            } else {
+                WorldEvent::Ui(protocol::UiEvent::Hud(protocol::HudEvent::Health {
+                    health: current,
+                }))
+            }
+        };
+        submit(&mut app, 2, health(0));
+        app.update();
+        assert_eq!(captured.drain(), [protocol::respawn_ready_packet(1)]);
+        assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
+        submit(&mut app, 3, health(20));
+        submit(&mut app, 4, health(0));
+        app.update();
+        assert!(app.world().resource::<ClientWorld>().respawn.input_held());
+    }
+}

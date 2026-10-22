@@ -127,26 +127,33 @@ impl WorldAuthority {
                     self.commit_local_actor_move(sequence, *movement);
                     self.resolve_actor_teleport(movement);
                 }
-                let (local_life_update, explicit_death) = match &event {
+                let local_death = match &event {
                     ActorEvent::Attributes(update)
                         if update.runtime_id == self.local_player_runtime_id
-                            && update.dimension == self.current_dimension
-                            && update.attributes.iter().any(|attribute| {
-                                attribute.name.as_ref() == Attribute::Health.wire_name()
-                            }) =>
+                            && update.dimension == self.current_dimension =>
                     {
-                        (true, None)
+                        update
+                            .attributes
+                            .iter()
+                            .filter(|attribute| {
+                                attribute.name.as_ref() == Attribute::Health.wire_name()
+                            })
+                            .filter_map(|attribute| {
+                                crate::LocalPlayerStat::from_attribute(attribute)
+                                    .map(|_| attribute.current <= 0.0)
+                            })
+                            .next_back()
                     }
                     ActorEvent::Status(status)
                         if status.runtime_id == self.local_player_runtime_id =>
                     {
                         match status.kind {
-                            protocol::ActorStatusKind::Death => (true, Some(true)),
-                            protocol::ActorStatusKind::SpawnAlive => (true, Some(false)),
-                            _ => (false, None),
+                            protocol::ActorStatusKind::Death => Some(true),
+                            protocol::ActorStatusKind::SpawnAlive => Some(false),
+                            _ => None,
                         }
                     }
-                    _ => (false, None),
+                    _ => None,
                 };
                 let player_list_changed =
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
@@ -316,7 +323,7 @@ impl WorldAuthority {
                         }),
                     });
                 }
-                if local_life_update
+                if let Some(dead) = local_death
                     && matches!(
                         result,
                         crate::actor_store::ActorApplyResult::Updated
@@ -324,12 +331,7 @@ impl WorldAuthority {
                             | crate::actor_store::ActorApplyResult::CapacityRejected
                     )
                 {
-                    self.publish_local_life(
-                        sequence,
-                        explicit_death.unwrap_or_else(|| {
-                            self.actors.local_player_dead(self.local_player_runtime_id)
-                        }),
-                    );
+                    self.publish_local_life(sequence, dead);
                 }
                 if local_hurt {
                     self.push_committed_control(CommittedControlEvent::LocalHurt {

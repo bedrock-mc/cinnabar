@@ -135,8 +135,8 @@ pub struct WorldAuthority {
     resolved_server_position: ResolvedServerPosition,
     latest_movement_correction_tick: Option<u64>,
     actor_session_id: u64,
-    /// Logical life state survives replacement of the synthetic actor during dimension changes.
-    local_player_dead: bool,
+    /// Logical life state starts unknown and survives synthetic actor replacement.
+    local_player_dead: Option<bool>,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
     committed_audio: VecDeque<CommittedAudioEvent>,
@@ -218,7 +218,7 @@ impl WorldAuthority {
             resolved_server_position,
             latest_movement_correction_tick: None,
             actor_session_id,
-            local_player_dead: false,
+            local_player_dead: None,
             committed_controls: VecDeque::new(),
             committed_ui: VecDeque::new(),
             committed_audio: VecDeque::new(),
