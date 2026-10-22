@@ -569,9 +569,11 @@ pub(crate) fn prepare_enhanced_views(
                 ShadowTargets::new(&device, resolution, cascades)
             });
         }
-        if state.shadow.is_none() {
-            frame.flags.x &= !super::frame::FEATURE_SHADOWS;
-        }
+        frame.flags.x = super::frame::available_features(
+            frame.flags.x,
+            state.resolved_depth.is_some(),
+            state.shadow.is_some(),
+        );
         state.settings = *settings;
         state.cascades.clear();
         state.cascades.extend(fits.iter().map(|fit| fit.bounds));
