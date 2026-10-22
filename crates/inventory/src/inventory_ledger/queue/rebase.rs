@@ -84,38 +84,18 @@ impl PlayerInventoryLedger {
                 for prediction in &request.predicted {
                     cells.set(prediction.cell, prediction.before.clone());
                 }
-                // Rebinds in action order: a cell a consume has emptied is addressed as empty.
-                let mut emptied = Vec::new();
-                for action in &mut request.actions {
-                    let consumed = match action {
-                        protocol::StackRequestAction::Consume { amount, source } => {
-                            Some((*amount, *source))
-                        }
-                        _ => None,
-                    };
-                    for slot in crate::inventory_ledger::helpers::action_slots_mut(action) {
-                        if slot.stack_network_id == request.request_id {
-                            continue;
-                        }
-                        if let Some(cell) = self.request_cell(*slot) {
-                            slot.stack_network_id = if emptied.contains(&cell) {
-                                0
-                            } else {
-                                cells
-                                    .get(cell)
-                                    .map_or(0, |held| held.stack.stack_network_id)
-                            };
-                        }
-                    }
-                    if let Some((amount, source)) = consumed
-                        && let Some(cell) = self.request_cell(source)
-                        && cells
-                            .get(cell)
-                            .is_some_and(|held| held.stack.count <= u16::from(amount))
-                    {
-                        emptied.push(cell);
-                    }
-                }
+                self.rebind_actions_in_order(
+                    &mut request.actions,
+                    request.request_id,
+                    |cell| {
+                        Some(
+                            cells
+                                .get(cell)
+                                .map_or(0, |held| held.stack.stack_network_id),
+                        )
+                    },
+                    |cell| cells.get(cell).map(|held| held.stack.count),
+                );
                 let mut placements = Vec::new();
                 if !request.groups.iter_mut().all(|group| {
                     group.rebind(&cells);

@@ -839,9 +839,9 @@ fn server_previewed_grindstone_result_can_be_taken() {
     }
 }
 
-/// An enchantment queued while its input's placement awaits acknowledgement is rebound when
-/// that acknowledgement arrives: it consumes the acknowledged stack and places its result into
-/// the slot that consume emptied.
+/// An enchantment queued while its input's placement awaits acknowledgement places its result
+/// into the slot its consume empties, both when sent first and when rebound after that
+/// acknowledgement arrives.
 #[test]
 fn unsent_enchants_rebind_after_an_earlier_transfer_is_acknowledged() {
     let mut ledger = ledger_with(&[(0, stack(60, 1))]);
@@ -854,6 +854,16 @@ fn unsent_enchants_rebind_after_an_earlier_transfer_is_acknowledged() {
     assert!(ledger.target_stack(InventoryTarget::Craft(14)).is_some());
     ledger.begin_enchant(3, true).unwrap();
     assert_eq!(ledger.pending_request_count(), 2);
+    // Before the acknowledgement, the consume names the placement and the place an empty slot.
+    let actions = &ledger.newest_request().unwrap().actions;
+    let Some(StackRequestAction::Consume { source, .. }) = actions.get(2) else {
+        panic!("the input is consumed: {actions:?}");
+    };
+    assert_eq!(source.stack_network_id, placement);
+    let Some(StackRequestAction::Place { destination, .. }) = actions.get(3) else {
+        panic!("the result is placed: {actions:?}");
+    };
+    assert_eq!((destination.slot, destination.stack_network_id), (14, 0));
     ledger.apply(&InventoryEvent::Response(
         protocol::ItemStackResponseEvent {
             responses: Arc::from([protocol::StackResponse {
