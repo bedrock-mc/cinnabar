@@ -21,7 +21,7 @@ pub(super) fn use_button(world: &mut World, held: bool) {
 }
 
 /// Runs the two item-use phases around the production movement FIFO drain.
-fn item_phases(world: &mut World) {
+pub(super) fn item_phases(world: &mut World) {
     world
         .run_system_cached(crate::item_use::prepare_item_release)
         .unwrap();

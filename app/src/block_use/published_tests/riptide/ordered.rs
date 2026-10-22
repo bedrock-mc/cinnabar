@@ -205,3 +205,50 @@ fn ordered_riptide_observed_release_precedes_fresh_held_mining() {
         "the current held input can start mining after release completion"
     );
 }
+
+/// A pending server clear waits for a Use release that sits behind an earlier
+/// ordered edge in the same ticking frame, so the release still sends its
+/// transaction, as vanilla handles input before its movement tick.
+#[test]
+fn ordered_use_release_behind_a_pick_precedes_a_server_clear() {
+    let (mut world, mut captured) =
+        respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
+    world.init_resource::<crate::melee::MeleeTarget>();
+    world.init_resource::<client_state::GameplayScreenControls>();
+    let clear = client_world::MovementFlagUpdate {
+        using_item: Some(false),
+        ..Default::default()
+    };
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(0, clear);
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    let mut events = semantic_input::DesktopEvents::default();
+    for (button, pressed) in [(3, true), (3, false), (2, false)] {
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(button),
+            pressed,
+            modifiers: semantic_input::ModifierChord::default(),
+        });
+    }
+    ordered_frame(&mut world, events, Vec::new());
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    tick(&mut world);
+    respawn::item_phases(&mut world);
+    // The charged release waits for the input carrying its facing.
+    let mut packets = captured.drain();
+    tick(&mut world);
+    respawn::item_phases(&mut world);
+    packets.extend(captured.drain());
+    let releases = packets
+        .iter()
+        .filter_map(protocol::test_support::transactions::observe_transaction)
+        .filter(|transaction| transaction.release().is_some())
+        .count();
+    assert_eq!(releases, 1, "the queued Use release keeps its transaction");
+    assert!(!world.resource::<ItemUseRuntime>().is_using());
+}

@@ -132,7 +132,7 @@ pub(crate) fn adopt_server_item_use(
     // its tick, so a release now still sends its transaction.
     let button = use_button(&player_runtime, &context);
     runtime.observe_gameplay_focus(button.gameplay_focused);
-    runtime.observe_use_button(button.held);
+    runtime.observe_use_button(button.held_through_frame);
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     if !runtime.has_server_using_item() {
         return;
@@ -344,8 +344,11 @@ struct UseButton {
     /// Use input reaches item use: focused gameplay, a game mode allowing
     /// item use, and an input snapshot.
     admitted: bool,
-    /// The admitted use button is down.
+    /// The admitted use button is down at the ordered input cursor.
     held: bool,
+    /// The button is down at the cursor and still down when this frame's input
+    /// ends, so a release queued behind earlier ordered edges counts as up.
+    held_through_frame: bool,
 }
 
 /// Reads this frame's use-button facts from focus, game mode and input.
@@ -365,6 +368,7 @@ fn use_button(player_runtime: &client_state::PlayerRuntime, context: &ItemUseCon
         gameplay_focused,
         admitted,
         held,
+        held_through_frame: held && context.input.phase(Action::Use).held,
     }
 }
 
