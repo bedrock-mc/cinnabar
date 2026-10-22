@@ -66,6 +66,15 @@ pub(super) fn failed() -> Fixture {
     ])
 }
 
+/// The Shaders tab while the render host is still loading the selected pack.
+pub(super) fn settings_shaders_loading() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.shader_pack_loading = true;
+    Fixture::Menu(view)
+}
+
 /// The Shaders tab with `PACK` chosen as the renderer, failed or not.
 pub(super) fn settings_shaders(failed: bool) -> Fixture {
     let mut view = super::settings(SettingSection::Shaders.definition().name);
@@ -96,12 +105,20 @@ pub(super) fn empty_library() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Exercises wrapping and scrolling with a populated library in a narrow viewport.
+/// Exercises wrapping and scrolling in a narrow viewport, with a selected card and a zip and
+/// folder that share a name.
 pub(super) fn long_library() -> Fixture {
     let mut view = super::settings(SettingSection::Shaders.definition().name);
-    view.shader_packs = (0..16)
-        .map(|index| format!("Evening Light {index} with a long descriptive release name.zip"))
-        .collect();
+    view.shader_packs =
+        std::iter::once("Evening Light 0 with a long descriptive release name".to_owned())
+            .chain((0..16).map(|index| {
+                format!("Evening Light {index} with a long descriptive release name.zip")
+            }))
+            .collect();
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some(view.shader_packs[0].clone());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.shader_options_available = true;
     Fixture::Menu(Box::new(view))
 }
 

@@ -463,6 +463,8 @@ pub struct MenuView {
     /// Why the selected shader pack failed to load, for the Shaders tab; see
     /// [`super::shader_pack_status::failure_description`].
     pub renderer_failure: Option<std::sync::Arc<str>>,
+    /// The render host is still loading the selected shader pack.
+    pub shader_pack_loading: bool,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
@@ -722,6 +724,7 @@ impl MenuView {
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,
             renderer_failure: None,
+            shader_pack_loading: false,
             vsync_override: None,
             display_name,
             servers: MenuList::default(),

@@ -1,6 +1,9 @@
 //! Video renderer choices and the shader-pack library use separate settings tabs.
 
-use super::super::widgets;
+use super::super::icons::Icon;
+use super::super::paint::{Bounds, Canvas};
+use super::super::theme::{self, BODY, CAPTION, EDGE, TEXT, TEXT_DIMMER};
+use super::super::widgets::{self, Variant};
 use super::Content;
 use launcher::menu::{
     MenuAction, RendererChoice,
@@ -56,72 +59,56 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
-/// Draws a vertical pack library with import guidance and controls on the selected pack.
+/// Draws Off and every pack as one pick-one list, ending in the drop zone that adds packs.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    use super::super::{theme, widgets::Variant};
-    use super::resources::{actions, caption, empty, note};
-
     if !render_model::SHADER_PACKS_ENABLED {
         return Ok(());
     }
     let view = content.view;
     content.heading(
-        "Shaders",
+        "Shader pack",
         "Change your world's lighting with Java shader packs.",
     )?;
-    if view.storage.opens_folders {
-        actions(
-            content,
-            &[(
-                "Open shader packs folder",
-                Variant::Secondary,
-                Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
-                    StorageFolder::ShaderPacks,
-                ))),
-            )],
-        )?;
-        content.y += content.canvas.r(1.2);
-    }
-    caption(
+    banner(
         content,
-        "Drop a shader pack .zip or folder onto this page to add it. Selecting a pack applies it immediately.",
+        "Shader packs are experimental. If a pack can't load, the game uses Vanilla rendering.",
     )?;
-    if let Some(name) = view.shader_pack_removing.as_deref() {
-        caption(content, &format!("Removing {name}…"))?;
-    }
-    if let Some(failure) = view.renderer_failure.as_deref() {
-        note(content, failure, theme::NEUTRAL80.fill)?;
-    }
-    let selected = view.render_mode == ui::RenderMode::ShaderPack;
-    pack_row(
+    let active = view.render_mode == ui::RenderMode::ShaderPack;
+    let removing = view.shader_pack_removing.as_deref();
+    let status = if view.renderer_failure.is_some() {
+        Chip::Failed
+    } else if view.shader_pack_loading {
+        Chip::Loading
+    } else {
+        Chip::Active
+    };
+    entry(
         content,
-        "Off",
-        "Use Vanilla rendering without a shader pack.",
-        !selected,
-        Some(MenuAction::SelectRenderer(RendererChoice::Vanilla)),
-        None,
+        Entry {
+            title: "Off",
+            caption: Some("Vanilla rendering"),
+            icon: Icon::Off,
+            chips: &[],
+            selected: !active,
+            select: Some(MenuAction::SelectRenderer(RendererChoice::Vanilla)),
+            remove: None,
+            controls: false,
+        },
     )?;
-    if selected && view.renderer.is_none() {
+    if active && view.renderer.is_none() {
         let name = view.shader_pack.as_deref().unwrap_or("Selected pack");
-        pack_row(
+        entry(
             content,
-            pack_label(name),
-            "Selected pack is outside this list or is no longer available.",
-            true,
-            None,
-            None,
-        )?;
-        selected_controls(content)?;
-    }
-    content.heading(
-        &format!("My shader packs ({})", view.shader_packs.len()),
-        "",
-    )?;
-    if view.shader_packs.is_empty() {
-        empty(
-            content,
-            "No shader packs added",
-            "Add a Java shader pack .zip or folder to get started.",
+            Entry {
+                title: pack_label(name),
+                caption: Some("Not in your shader pack library"),
+                icon: Icon::Sun,
+                chips: &[status],
+                selected: true,
+                select: None,
+                remove: None,
+                controls: true,
+            },
         )?;
     }
     for (index, name) in view.shader_packs.iter().enumerate() {
@@ -129,124 +116,443 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             continue;
         };
         let choice = RendererChoice::ShaderPack(index, view.shader_packs_revision);
-        let active = selected && view.renderer == Some(choice);
-        let subtitle = if active {
-            format!("Selected · {name}")
-        } else {
-            name.to_owned()
-        };
-        pack_row(
-            content,
-            pack_label(name),
-            &subtitle,
-            active,
-            (view.shader_pack_removing.as_deref() != Some(name.as_str()))
-                .then_some(MenuAction::SelectRenderer(choice)),
-            Some((index, view.shader_packs_revision)),
-        )?;
-        if active {
-            selected_controls(content)?;
+        let selected = active && view.renderer == Some(choice);
+        let label = pack_label(name);
+        let mut chips = Vec::new();
+        if removing == Some(name.as_str()) {
+            chips.push(Chip::Removing);
+        } else if selected {
+            chips.push(status);
         }
+        // Only a shared label needs the kind to tell the entries apart.
+        if view
+            .shader_packs
+            .iter()
+            .filter(|other| pack_label(other) == label)
+            .nth(1)
+            .is_some()
+        {
+            chips.push(if label.len() < name.len() {
+                Chip::Zip
+            } else {
+                Chip::Folder
+            });
+        }
+        entry(
+            content,
+            Entry {
+                title: label,
+                caption: None,
+                icon: Icon::Sun,
+                chips: &chips,
+                selected,
+                select: (removing != Some(name.as_str()))
+                    .then_some(MenuAction::SelectRenderer(choice)),
+                remove: selected.then_some(MenuAction::RemoveShaderPackDialog(
+                    index,
+                    view.shader_packs_revision,
+                )),
+                controls: selected,
+            },
+        )?;
     }
-    caption(
-        content,
-        "Shader packs are experimental. If a pack cannot load, the game uses Vanilla rendering.",
-    )
+    drop_zone(content)
 }
 
-/// Draws wrapping pack text and independent selection and deletion targets on one row.
-fn pack_row(
-    content: &mut Content<'_, '_>,
-    title: &str,
-    subtitle: &str,
+/// A short state or kind label beside a pack's name.
+#[derive(Clone, Copy)]
+enum Chip {
+    Active,
+    Loading,
+    Failed,
+    Removing,
+    Zip,
+    Folder,
+}
+
+impl Chip {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Active => "Active",
+            Self::Loading => "Loading…",
+            Self::Failed => "Failed",
+            Self::Removing => "Removing…",
+            Self::Zip => "ZIP",
+            Self::Folder => "Folder",
+        }
+    }
+
+    /// Draws the chip from its top-left corner; returns its right edge.
+    fn draw(self, canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<f32, PaintError> {
+        let [fill, text] = match self {
+            Self::Active => [theme::PRIMARY_ROLE.fill, TEXT],
+            Self::Failed => [theme::DESTRUCTIVE.fill, TEXT],
+            Self::Loading | Self::Removing | Self::Zip | Self::Folder => {
+                [theme::NEUTRAL80.fill, TEXT_DIMMER]
+            }
+        };
+        let width = canvas.measure(self.label(), CAPTION)? + canvas.r(1.6);
+        let bounds = [at[0], at[1], at[0] + width, at[1] + canvas.r(2.0)];
+        canvas.fill(bounds, fill)?;
+        canvas.frame(bounds, EDGE, theme::BORDER)?;
+        canvas.text_centred(self.label(), bounds, CAPTION, text, false)?;
+        Ok(bounds[2])
+    }
+}
+
+/// One library row; the selected row becomes a card holding its pack's controls.
+struct Entry<'a> {
+    title: &'a str,
+    caption: Option<&'a str>,
+    icon: Icon,
+    chips: &'a [Chip],
     selected: bool,
-    action: Option<MenuAction>,
-    entry: Option<(u16, u64)>,
-) -> Result<(), PaintError> {
-    use super::super::theme::{BODY, CAPTION, TEXT, TEXT_DIMMER};
+    select: Option<MenuAction>,
+    remove: Option<MenuAction>, // shown in the card's corner; locked while a removal runs
+    controls: bool,
+}
+
+/// Draws a compact row, or the selected card with deletion, failure, settings and reload.
+fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintError> {
+    let view = content.view;
     let [left, right] = content.inset();
-    let pad = content.canvas.r(1.2);
-    let select_right = if entry.is_some() {
-        right - content.canvas.r(5.2)
+    let top = content.y;
+    let canvas = &mut *content.canvas;
+    let locked = view.shader_pack_removing.is_some();
+    let pad = canvas.r(1.2);
+    let tile = canvas.r(3.6);
+    let tile_left = left + canvas.r(4.8);
+    let text_left = tile_left + tile + pad;
+    let corner = canvas.r(4.0);
+    let select_right = if entry.remove.is_some() {
+        right - pad - corner - canvas.r(0.4)
     } else {
         right
     };
-    let text_left = left + content.canvas.r(5.2);
-    let width = (select_right - text_left - pad).max(1.0);
-    let title_height = content.canvas.measure_height(title, width, BODY)?;
-    let subtitle_height = content.canvas.measure_height(subtitle, width, CAPTION)?;
-    let height = (title_height + subtitle_height + 2.0 * pad).max(content.canvas.r(7.2));
-    let bounds = [left, content.y, select_right, content.y + height];
-    widgets::row(content.canvas, content.view, bounds, selected, action)?;
-    if let Some((index, revision)) = entry {
-        let remove = content
-            .view
-            .shader_pack_removing
-            .is_none()
-            .then_some(MenuAction::RemoveShaderPackDialog(index, revision));
-        let target = [select_right, bounds[1], right, bounds[3]];
-        widgets::row(content.canvas, content.view, target, selected, remove)?;
-        let icon = super::super::icons::Icon::Trash;
-        let [icon_width, icon_height] = icon
-            .texels()
-            .map(|size| content.canvas.r(size as f32 * super::super::theme::EDGE));
-        super::super::icons::draw(
-            content.canvas,
-            icon,
+    let text_right = select_right.min(right - pad);
+    let width = (text_right - text_left).max(1.0);
+    let title_height = canvas
+        .measure_height(entry.title, width, BODY)?
+        .max(canvas.r(BODY.line));
+    let caption_height = match entry.caption {
+        Some(caption) => canvas
+            .measure_height(caption, width, CAPTION)?
+            .max(canvas.r(CAPTION.line)),
+        None => 0.0,
+    };
+    let chip_height = if entry.chips.is_empty() {
+        0.0
+    } else {
+        canvas.r(2.4)
+    };
+    let stack = title_height + caption_height + chip_height;
+    let header = (stack + 2.0 * pad).max(tile + 2.0 * pad);
+    let inner = [text_left, right - pad];
+    let failure = entry
+        .controls
+        .then_some(view.renderer_failure.as_deref())
+        .flatten();
+    let failure_height = match failure {
+        Some(text) => {
+            canvas.measure_height(text, (inner[1] - inner[0] - 2.0 * pad).max(1.0), CAPTION)?
+                + 2.0 * canvas.r(0.8)
+                + canvas.r(0.8)
+        }
+        None => 0.0,
+    };
+    let controls_height = if entry.controls {
+        canvas.r(4.4) + pad
+    } else {
+        0.0
+    };
+    let card = [
+        left,
+        top,
+        right,
+        top + header + failure_height + controls_height,
+    ];
+    let state = canvas.interaction(view, entry.select);
+    if entry.selected {
+        widgets::row(canvas, view, card, true, None)?;
+        canvas.frame(card, EDGE, theme::FIELD_CARET)?;
+        if state.focused {
+            let ring = canvas.r(0.4);
+            canvas.frame(
+                [
+                    card[0] - ring,
+                    card[1] - ring,
+                    card[2] + ring,
+                    card[3] + ring,
+                ],
+                EDGE,
+                theme::OUTLINE,
+            )?;
+        }
+        if let Some(action) = entry.select {
+            canvas.hit(action, [left, top, select_right, top + header])?;
+        }
+    } else {
+        widgets::row(canvas, view, card, false, entry.select)?;
+    }
+    let middle = top + header * 0.5;
+    super::super::radio::draw(
+        canvas,
+        [left + canvas.r(2.4), middle],
+        entry.selected,
+        state,
+        entry.select.is_some() || entry.selected,
+    )?;
+    let tile_bounds = [
+        tile_left,
+        middle - tile * 0.5,
+        tile_left + tile,
+        middle + tile * 0.5,
+    ];
+    canvas.fill(tile_bounds, theme::NEUTRAL80.fill)?;
+    canvas.frame(tile_bounds, EDGE, theme::BORDER)?;
+    super::super::icons::draw_centred(
+        canvas,
+        entry.icon,
+        tile_bounds,
+        if entry.selected { TEXT } else { TEXT_DIMMER },
+    )?;
+    let mut y = top + (header - stack) * 0.5;
+    canvas.text(entry.title, [text_left, y], width, BODY, TEXT, false)?;
+    y += title_height;
+    if let Some(caption) = entry.caption {
+        canvas.text(caption, [text_left, y], width, CAPTION, TEXT_DIMMER, false)?;
+        y += caption_height;
+    }
+    let mut x = text_left;
+    for chip in entry.chips {
+        x = chip.draw(canvas, [x, y + canvas.r(0.4)])? + canvas.r(0.6);
+    }
+    if let Some(remove) = entry.remove {
+        widgets::icon_button(
+            canvas,
+            view,
             [
-                (target[0] + target[2] - icon_width) * 0.5,
-                (target[1] + target[3] - icon_height) * 0.5,
+                right - pad - corner,
+                top + pad,
+                right - pad,
+                top + pad + corner,
             ],
-            if remove.is_some() { TEXT } else { TEXT_DIMMER },
+            Variant::Neutral,
+            Icon::Trash,
+            (!locked).then_some(remove),
         )?;
     }
-    let state = content.canvas.interaction(content.view, action);
-    super::super::radio::draw(
-        content.canvas,
-        [left + content.canvas.r(2.6), (bounds[1] + bounds[3]) * 0.5],
-        selected,
-        state,
-        action.is_some(),
+    let mut y = top + header;
+    if let Some(text) = failure {
+        let bounds = [inner[0], y, inner[1], y + failure_height - canvas.r(0.8)];
+        canvas.fill(bounds, theme::NEUTRAL80.fill)?;
+        canvas.frame(bounds, EDGE, theme::BORDER)?;
+        canvas.fill(
+            [bounds[0], bounds[1], bounds[0] + canvas.r(0.4), bounds[3]],
+            theme::DESTRUCTIVE_TINT,
+        )?;
+        canvas.text(
+            text,
+            [inner[0] + pad, y + canvas.r(0.8)],
+            (inner[1] - inner[0] - 2.0 * pad).max(1.0),
+            CAPTION,
+            TEXT_DIMMER,
+            false,
+        )?;
+        y = bounds[3] + canvas.r(0.8);
+    }
+    if entry.controls {
+        let height = canvas.r(4.4);
+        let gap = canvas.r(0.8);
+        let mut x = inner[0];
+        if view.shader_options_available {
+            let label = "Settings";
+            let width = (canvas.measure(label, BODY)? + canvas.r(6.4))
+                .min(inner[1] - inner[0] - height - gap)
+                .max(height);
+            widgets::button(
+                canvas,
+                view,
+                [x, y, x + width, y + height],
+                Variant::Secondary,
+                label,
+                (!locked).then_some(MenuAction::ShaderOptions(Action::Open)),
+            )?;
+            x += width + gap;
+        }
+        widgets::icon_button(
+            canvas,
+            view,
+            [x, y, x + height, y + height],
+            Variant::Secondary,
+            Icon::Reload,
+            (!locked).then_some(MenuAction::ReloadShaders),
+        )?;
+    }
+    content.y = card[3] + content.canvas.r(0.8);
+    Ok(())
+}
+
+/// The informative note under the section heading.
+fn banner(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
+    let [left, right] = content.inset();
+    let canvas = &mut *content.canvas;
+    let pad = canvas.r(1.2);
+    let bar = canvas.r(0.4);
+    let [icon_width, _] = Icon::Info
+        .texels()
+        .map(|texels| canvas.r(texels as f32 * EDGE));
+    let text_left = left + bar + pad + icon_width + pad;
+    let width = (right - pad - text_left).max(1.0);
+    let height = canvas
+        .measure_height(text, width, CAPTION)?
+        .max(canvas.r(CAPTION.line))
+        + 2.0 * canvas.r(0.8);
+    let bounds = [left, content.y, right, content.y + height];
+    canvas.fill(bounds, theme::NEUTRAL80.fill)?;
+    canvas.frame(bounds, EDGE, theme::BORDER)?;
+    canvas.fill(
+        [left, bounds[1], left + bar, bounds[3]],
+        theme::INFORMATIVE_TINT,
     )?;
-    content.canvas.text(
-        title,
-        [text_left, content.y + pad],
-        width,
-        BODY,
-        TEXT,
-        false,
+    super::super::icons::draw_centred(
+        canvas,
+        Icon::Info,
+        [
+            left + bar + pad,
+            bounds[1],
+            left + bar + pad + icon_width,
+            bounds[3],
+        ],
+        theme::INFORMATIVE_TINT,
     )?;
-    content.canvas.text(
-        subtitle,
-        [text_left, content.y + pad + title_height],
+    canvas.text(
+        text,
+        [text_left, bounds[1] + canvas.r(0.8)],
         width,
         CAPTION,
         TEXT_DIMMER,
         false,
     )?;
-    content.y = bounds[3] + content.canvas.r(0.8);
+    content.y = bounds[3] + content.canvas.r(1.2);
     Ok(())
 }
 
-/// Keeps settings and reload controls beneath the selected pack.
-fn selected_controls(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    use super::super::widgets::Variant;
-    let mut buttons = Vec::new();
-    let enabled = content.view.shader_pack_removing.is_none();
-    if content.view.shader_options_available {
-        buttons.push((
-            "Shader pack settings…",
-            Variant::Secondary,
-            enabled.then_some(MenuAction::ShaderOptions(Action::Open)),
-        ));
+/// The dashed import target closing the list, with the folder shortcut where the host has one.
+/// An empty library centres it as a larger first-use prompt.
+fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    let view = content.view;
+    let [left, right] = content.inset();
+    let canvas = &mut *content.canvas;
+    let empty = view.shader_packs.is_empty();
+    let pad = canvas.r(if empty { 3.2 } else { 1.6 });
+    let title = "Drop a .zip or folder here";
+    let caption = empty.then_some("Shader packs you add appear in this list.");
+    let open = view
+        .storage
+        .opens_folders
+        .then_some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
+            StorageFolder::ShaderPacks,
+        )));
+    let label = "Open folder";
+    let button = [canvas.measure(label, BODY)? + canvas.r(4.8), canvas.r(4.4)];
+    let full = (right - left - 2.0 * pad).max(1.0);
+    let inline =
+        open.is_none() || (!empty && canvas.measure(title, BODY)? + pad + button[0] <= full);
+    let width = if inline && open.is_some() {
+        full - pad - button[0]
+    } else {
+        full
+    };
+    let title_height = canvas
+        .measure_height(title, width, BODY)?
+        .max(canvas.r(BODY.line));
+    let caption_height = match caption {
+        Some(caption) => canvas.measure_height(caption, width, CAPTION)?,
+        None => 0.0,
+    };
+    let stack = title_height + caption_height;
+    let gap = canvas.r(1.6);
+    let body = match (open, inline) {
+        (None, _) => stack,
+        (Some(_), true) => stack.max(button[1]),
+        (Some(_), false) => stack + gap + button[1],
+    };
+    let bounds = [left, content.y, right, content.y + body + 2.0 * pad];
+    dashed_frame(canvas, bounds, theme::TEXT_DIMMEST)?;
+    let text_top = if inline {
+        (bounds[1] + bounds[3] - stack) * 0.5
+    } else {
+        bounds[1] + pad
+    };
+    let line = |canvas: &mut Canvas<'_>, text: &str, top: f32, style, color| {
+        if empty {
+            canvas.centered_wrapped_text(text, [left + pad, top], width, style, color)
+        } else {
+            canvas.text(text, [left + pad, top], width, style, color, false)
+        }
+    };
+    line(
+        canvas,
+        title,
+        text_top,
+        BODY,
+        if empty { TEXT } else { TEXT_DIMMER },
+    )?;
+    if let Some(caption) = caption {
+        line(
+            canvas,
+            caption,
+            text_top + title_height,
+            CAPTION,
+            TEXT_DIMMER,
+        )?;
     }
-    buttons.push((
-        "Reload",
-        Variant::Secondary,
-        enabled.then_some(MenuAction::ReloadShaders),
-    ));
-    super::resources::actions(content, &buttons)?;
-    content.y += content.canvas.r(1.2);
+    if let Some(open) = open {
+        let x = if inline {
+            right - pad - button[0]
+        } else if empty {
+            (left + right - button[0]) * 0.5
+        } else {
+            left + pad
+        };
+        let y = if inline {
+            (bounds[1] + bounds[3] - button[1]) * 0.5
+        } else {
+            text_top + stack + gap
+        };
+        widgets::button(
+            canvas,
+            view,
+            [x, y, x + button[0], y + button[1]],
+            Variant::Secondary,
+            label,
+            Some(open),
+        )?;
+    }
+    content.y = bounds[3] + content.canvas.r(2.4);
+    Ok(())
+}
+
+/// A one-texel dashed outline.
+fn dashed_frame(canvas: &mut Canvas<'_>, b: Bounds, color: theme::Rgba) -> Result<(), PaintError> {
+    let edge = canvas.r(EDGE);
+    let dash = canvas.r(1.2);
+    let step = dash + canvas.r(0.8);
+    let mut x = b[0];
+    while x < b[2] {
+        let end = (x + dash).min(b[2]);
+        canvas.fill([x, b[1], end, b[1] + edge], color)?;
+        canvas.fill([x, b[3] - edge, end, b[3]], color)?;
+        x += step;
+    }
+    let mut y = b[1];
+    while y < b[3] {
+        let end = (y + dash).min(b[3]);
+        canvas.fill([b[0], y, b[0] + edge, end], color)?;
+        canvas.fill([b[2] - edge, y, b[2], end], color)?;
+        y += step;
+    }
     Ok(())
 }
 

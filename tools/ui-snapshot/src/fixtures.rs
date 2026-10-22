@@ -974,6 +974,12 @@ const STATES: &[State] = &[
         fixture: || shader_pack::settings_shaders(false),
     },
     State {
+        name: "settings-shaders-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::settings_shaders_loading,
+    },
+    State {
         name: "settings-shaders-failed",
         size: SHADER_PACK_ROW_SIZE,
         gui_scale: GUI_SCALE,
