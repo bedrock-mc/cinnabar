@@ -1,7 +1,7 @@
 //! Local hotbar slot selection.
 //!
 //! Number keys, the mouse wheel and controller buttons announce the selected slot through
-//! equipment packets. Ordered desktop input publishes its local selection on FIFO admission.
+//! equipment packets. Selection-only input stays local until the next tick's announcement.
 
 use crate::runtime::{
     network::resource_packs::PackApplication,
@@ -14,22 +14,28 @@ use protocol::Packet;
 
 pub(crate) mod ordered;
 
-/// Flushes the queued hotbar selection after input sampling and before block use.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Player authority is borrowed separately from UI state."
-)]
+/// Announces a queued selection before unordered hand actions capture it.
+/// Selection-only frames leave the announcement to the next tick.
 pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal_error: ResMut<FatalError>,
     input: Option<Res<client_state::SemanticInputSnapshot>>,
 ) {
-    if input
-        .as_ref()
-        .and_then(|input| input.snapshot())
-        .is_some_and(|input| input.ordered.is_some())
-    {
+    let Some(input) = input.as_ref().and_then(|input| input.snapshot()) else {
+        return;
+    };
+    let hand_action = [
+        semantic_input::Action::Attack,
+        semantic_input::Action::Use,
+        semantic_input::Action::PickItem,
+    ]
+    .into_iter()
+    .any(|action| {
+        let phase = input.phases[action as usize];
+        phase.pressed || phase.held || phase.released
+    });
+    if input.ordered.is_some() || !hand_action {
         return;
     }
     ordered::flush_existing_with(

@@ -520,6 +520,9 @@ Ordered desktop interactions still need live input and overload-timing acceptanc
 global camera-sampling qualification, other input modes and device-specific chords.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
+Selection-only hotbar changes coalesce into the next tick's equipment announcement.
+Same-frame hand actions still announce their selection first; matching their complete
+native packet order remains incomplete.
 
 ### Held block placement
 
