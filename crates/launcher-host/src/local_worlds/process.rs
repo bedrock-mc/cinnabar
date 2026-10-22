@@ -33,10 +33,13 @@ const EXIT_POLL: Duration = Duration::from_millis(10);
 pub(crate) struct StartSpec {
     pub world: World,
     pub dir: PathBuf,
-    /// Chunks; `None` takes the backend's default.
+    /// The largest radius a player may be granted, in chunks; `None` allows the client's maximum.
     pub view_distance: Option<u32>,
     /// No start has applied the world's options yet, so creation-only ones still apply.
     pub options_unapplied: bool,
+    /// The signed-in host's XUID, which BDS grants operator like a vanilla world owner; resolved
+    /// when the start begins.
+    pub host_xuid: Option<String>,
 }
 
 /// One running local server.

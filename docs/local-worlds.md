@@ -32,6 +32,10 @@ the host updates the owned fields in `level.dat` and preserves other tags. Game 
 bonus chest, sleep settings,
 respawn radius and daylight settings use level data. Server properties apply cheats, simulation
 distance and default player permissions to both native and container servers.
+Like a vanilla world owner, the signed-in host is an operator through the install's
+`permissions.json`, keyed by XUID; friends and other joiners get the default permission. A start
+made while the account's profile loads waits for its XUID. A signed-out host has no XUID, so it
+keeps the default too.
 Turning multiplayer off limits the server to its host and withdraws friend hosting.
 LAN visibility is not offered: both runtimes bind and advertise loopback only, so discovery stays off.
 A new world's first start lets BDS create it from server.properties and stops it once ready, so its
@@ -72,8 +76,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   runs at a time. Worlds move between backends only where formats allow; dragonfly-written `level.dat` files may
   not satisfy BDS and vice versa, so do not share one folder across backends.
 - **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`,
-  the multiplayer player limit, client view distance (5–32), independent simulation distance (4–12),
-  `transport=nethernet` and `enable-lan-visibility=false`. Seed and level type apply at creation only.
+  the multiplayer player limit, `view-distance` at the client's largest render distance (each
+  RequestChunkRadius picks the radius), independent simulation distance (4–12), `transport=nethernet`
+  and `enable-lan-visibility=false`. Seed and level type apply at creation only.
 - **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
   the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the
   generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.

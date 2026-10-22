@@ -216,6 +216,44 @@ pub(super) fn play_worlds_importing() -> Fixture {
     Fixture::Menu(view)
 }
 
+/// Drives Create World through the real menu while the Docker probe reports `reason`.
+pub(super) fn docker_prompt(reason: launcher::local_worlds::world::UnavailableReason) -> Fixture {
+    use launcher::local_worlds::world::{Prefs, Setup, SetupState, WorldStatus};
+    use launcher::local_worlds::{Event, Input, WorldsMenu};
+    let status = WorldStatus {
+        state: bridge::WorldState::Idle,
+        world_id: None,
+        backend: None,
+        paused: false,
+        pause_supported: true,
+        error: None,
+        setup: Some(Setup {
+            state: SetupState::Unsupported,
+            version: None,
+            bytes_done: 0,
+            bytes_total: 0,
+            layers_done: 0,
+            layers_total: 0,
+            eula_accepted: false,
+            error: None,
+            runtime: "none".into(),
+            reason: None,
+        }),
+        backend_unavailable_reason: Some(reason),
+        max_players: None,
+    };
+    let mut worlds = WorldsMenu::default();
+    let _ = worlds.apply(Event::Prefs(Prefs::default(), status.clone()));
+    let _ = worlds.update(Input::BeginCreate);
+    let _ = worlds.update(Input::SubmitCreate);
+    let _ = worlds.apply(Event::Prefs(Prefs::default(), status));
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!()
+    };
+    view.local = worlds.view();
+    Fixture::Menu(view)
+}
+
 /// Drives the real delete-and-Back transition while the worker's reply is still pending.
 pub(super) fn world_edit_after_delete_back() -> Fixture {
     use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};

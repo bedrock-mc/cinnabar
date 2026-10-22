@@ -20,6 +20,7 @@ mod updates;
 
 use std::sync::Arc;
 
+use launcher::local_worlds::world::UnavailableReason;
 use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
@@ -621,6 +622,18 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: out_of_game::play_worlds_importing,
+    },
+    State {
+        name: "local-docker-missing",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::docker_prompt(UnavailableReason::DockerMissing),
+    },
+    State {
+        name: "local-docker-not-running",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::docker_prompt(UnavailableReason::DockerNotRunning),
     },
     State {
         name: "world-edit-after-delete-back",

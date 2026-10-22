@@ -61,9 +61,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.terrainFixtureGenerate {
 		return generateTerrainFixture(cfg, stdout)
 	}
-	if standby && cfg.experiences != "" {
+	if standby && (cfg.experiences != "" || cfg.luckyBlock) {
 		// Its warm-up has finalised the block registry that Experience blocks register in.
-		return errors.New("a standby server cannot host -experiences")
+		return errors.New("a standby server cannot host -experiences or -lucky-block")
+	}
+	if cfg.luckyBlock {
+		registerLuckyBlock()
 	}
 	pending := cfg.startGenerators()
 	defer pending.discard()
