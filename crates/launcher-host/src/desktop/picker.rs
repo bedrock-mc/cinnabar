@@ -10,6 +10,9 @@ pub struct Filter {
     pub extensions: &'static [&'static str],
     /// Appended to errors when no picker opens.
     pub unavailable_hint: &'static str,
+    /// The largest file the importer reads, or `None` without a size limit. Android copies picked
+    /// documents into app storage and refuses one that grows past this instead of filling storage.
+    pub max_bytes: Option<u64>,
 }
 
 /// Returns one selected filename, cancellation, or a visible picker error.
@@ -58,8 +61,9 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     }
     // Android has no picker tools; the Storage Access Framework copies picks into app storage.
     #[cfg(target_os = "android")]
-    return super::android::pick_documents(multiple)
-        .map_err(|reason| unavailable(&reason, filter))
+    return super::android::pick_documents(multiple, filter.max_bytes)
+        .map_err(|error| format!("{error}."))?
+        .ok_or_else(|| unavailable("no document picker is available", filter))
         .and_then(|paths| selected(filter, paths));
     #[cfg(not(any(windows, target_os = "android")))]
     selected(
@@ -207,6 +211,7 @@ mod tests {
         name: "Resource packs",
         extensions: &PACK_IMPORT_EXTENSIONS,
         unavailable_hint: "Drop a pack onto the window to import it.",
+        max_bytes: Some(resource_pack::MAX_ARCHIVE_BYTES as u64),
     };
 
     /// Returns a tool's arguments as strings for inspecting its dialog configuration.

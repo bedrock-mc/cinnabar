@@ -45,8 +45,11 @@ public final class FilePicker {
      * could open and an empty array on cancellation. Each selection gets its own directory, since
      * another worker may still be importing an earlier one; the first selection of a process
      * clears earlier sessions' copies, and Android may reclaim the cache directory at any time.
+     * A document larger than a non-negative {@code maxBytes} fails the selection without
+     * filling storage; a failed selection removes its copies.
      */
-    public static String[] pick(boolean multiple) throws IOException, InterruptedException {
+    public static String[] pick(boolean multiple, long maxBytes)
+            throws IOException, InterruptedException {
         final Activity host;
         final Pending request = new Pending();
         final int selection;
@@ -85,14 +88,20 @@ public final class FilePicker {
         File directory = new File(imports, Integer.toString(selection));
         List<String> paths = new ArrayList<>();
         ContentResolver resolver = host.getContentResolver();
-        for (int index = 0; index < request.uris.size(); index++) {
-            Uri uri = request.uris.get(index);
-            File target = new File(new File(directory, Integer.toString(index)), name(resolver, uri));
-            if (!target.getParentFile().mkdirs()) {
-                throw new IOException("Could not create " + target.getParent());
+        try {
+            for (int index = 0; index < request.uris.size(); index++) {
+                Uri uri = request.uris.get(index);
+                String name = name(resolver, uri);
+                File target = new File(new File(directory, Integer.toString(index)), name);
+                if (!target.getParentFile().mkdirs()) {
+                    throw new IOException("Could not create " + target.getParent());
+                }
+                copy(resolver, uri, target, name, maxBytes);
+                paths.add(target.getAbsolutePath());
             }
-            copy(resolver, uri, target);
-            paths.add(target.getAbsolutePath());
+        } catch (IOException | RuntimeException error) {
+            delete(directory);
+            throw error;
         }
         return paths.toArray(new String[0]);
     }
@@ -142,17 +151,33 @@ public final class FilePicker {
         return name.isEmpty() || name.equals(".") || name.equals("..") ? "import" : name;
     }
 
-    /** Streams one document into private storage. */
-    private static void copy(ContentResolver resolver, Uri uri, File target) throws IOException {
+    /** Streams one document into private storage, stopping once it exceeds a non-negative limit. */
+    private static void copy(ContentResolver resolver, Uri uri, File target, String name,
+            long maxBytes) throws IOException {
         try (InputStream input = resolver.openInputStream(uri);
              OutputStream output = new FileOutputStream(target)) {
-            if (input == null) throw new IOException("Could not open " + uri);
+            if (input == null) throw new IOException("Could not open " + name);
             byte[] buffer = new byte[64 * 1024];
-            for (int count; (count = input.read(buffer)) != -1; ) output.write(buffer, 0, count);
+            long copied = 0;
+            for (int count; (count = input.read(buffer)) != -1; ) {
+                copied += count;
+                if (maxBytes >= 0 && copied > maxBytes) {
+                    throw new IOException(name + " is larger than the " + size(maxBytes)
+                            + " import limit");
+                }
+                output.write(buffer, 0, count);
+            }
         }
     }
 
-    /** Removes copies left by earlier sessions. */
+    /** Formats a byte limit for the import status line. */
+    private static String size(long bytes) {
+        long mebibyte = 1024 * 1024;
+        return bytes >= mebibyte && bytes % mebibyte == 0
+                ? bytes / mebibyte + " MiB" : bytes + "-byte";
+    }
+
+    /** Removes a directory tree of import copies. */
     private static void delete(File file) {
         File[] children = file.listFiles();
         if (children != null) for (File child : children) delete(child);
