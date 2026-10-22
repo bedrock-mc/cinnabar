@@ -3,6 +3,7 @@ use super::{
     history::{CameraHistory, ExposureUniform},
     pipeline::BlurPipeline,
 };
+use crate::gpu_allocation::FailedRequests;
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::ecs::system::SystemParam;
 use bevy::{
@@ -37,8 +38,6 @@ pub(crate) struct BlurView {
     pub resolve_pipeline: CachedRenderPipelineId,
     pub(super) resolved: Option<super::resolve::ResolvedInputs>,
     pub(super) footprint: Option<super::footprint::Footprint>,
-    /// The main-texture extent whose targets ran out of memory; blur stays off until a resize.
-    unavailable_at: Option<Extent3d>,
     pub active: bool,
 }
 
@@ -98,10 +97,12 @@ pub(super) fn prepare_views(
     actors: ActorResources,
     mut views: Views,
     removed: RemovedViews,
+    mut failed: Local<FailedRequests<Extent3d>>,
 ) {
     for entity in &removed {
         commands.entity(entity).remove::<BlurView>();
     }
+    failed.retain(|view| views.contains(view));
     for (entity, settings, view, resolution, target, depth, msaa, enhanced, previous) in &mut views
     {
         let pose = view.world_from_view.to_matrix();
@@ -139,11 +140,10 @@ pub(super) fn prepare_views(
                 resolve_pipeline,
                 resolved: None,
                 footprint: None,
-                unavailable_at: None,
                 active: false,
             };
             update(
-                &mut new_view,
+                (&mut new_view, entity, &mut failed),
                 history,
                 *settings,
                 target,
@@ -165,7 +165,7 @@ pub(super) fn prepare_views(
         state.row_pipeline = row_pipeline;
         state.resolve_pipeline = resolve_pipeline;
         update(
-            state,
+            (state, entity, &mut failed),
             history,
             *settings,
             target,
@@ -187,7 +187,7 @@ pub(super) fn prepare_views(
     reason = "view resources are borrowed together during preparation"
 )]
 fn update(
-    state: &mut BlurView,
+    (state, entity, failed): (&mut BlurView, Entity, &mut FailedRequests<Extent3d>),
     history: CameraHistory,
     settings: CameraMotionBlur,
     target: &ViewTarget,
@@ -239,43 +239,41 @@ fn update(
         .as_ref()
         .map_or(neutral_motion, |actors| &actors.view);
     let size = target.main_texture().size();
-    if state.unavailable_at == Some(size) {
-        state.active = false;
-        return;
-    }
-    if super::resolve::ResolvedInputs::prepare(
-        &mut state.resolved,
-        device,
-        cache,
-        pipeline.resolve_layout(samples),
-        &state.uniform,
-        (crate::scene_sampling::view_depth(depth), motion),
-        size,
-    ) {
-        state.bindings.clear();
-    }
-    if let Some(resolved) = &state.resolved
-        && super::footprint::Footprint::prepare(
-            &mut state.footprint,
+    let prepared = failed.attempt(entity, size, || {
+        if super::resolve::ResolvedInputs::prepare(
+            &mut state.resolved,
             device,
             cache,
-            pipeline.footprint_layouts(),
+            pipeline.resolve_layout(samples),
             &state.uniform,
-            &resolved.motion,
+            (crate::scene_sampling::view_depth(depth), motion),
             size,
-        )
-    {
-        state.bindings.clear();
-    }
-    if state.resolved.is_none() || state.footprint.is_none() {
-        // Out of memory: the frame keeps its unblurred scene.
+        ) {
+            state.bindings.clear();
+        }
+        if let Some(resolved) = &state.resolved
+            && super::footprint::Footprint::prepare(
+                &mut state.footprint,
+                device,
+                cache,
+                pipeline.footprint_layouts(),
+                &state.uniform,
+                &resolved.motion,
+                size,
+            )
+        {
+            state.bindings.clear();
+        }
+        (state.resolved.is_some() && state.footprint.is_some()).then_some(())
+    });
+    if prepared.is_none() {
+        // Out of memory: the frame keeps its unblurred scene while the targets back off.
         state.resolved = None;
         state.footprint = None;
-        state.unavailable_at = Some(size);
+        state.bindings.clear();
         state.active = false;
         return;
     }
-    state.unavailable_at = None;
     let resolved = state.resolved.as_ref().unwrap();
     let footprint = &state.footprint.as_ref().unwrap().view;
     if state

@@ -395,10 +395,10 @@ fn exposure_taps_do_not_repeat_raw_surface_resolves() {
     }
 }
 
-/// Out-of-memory exposure targets turn blur off for the view instead of quitting, and the same
-/// extent is not retried every frame.
+/// Out-of-memory exposure targets turn blur off for the view instead of quitting; the same
+/// extent backs off rather than retrying every frame, then recovers.
 #[test]
-fn exposure_targets_out_of_memory_disable_blur_until_resize() {
+fn exposure_targets_out_of_memory_back_off_then_recover() {
     let (mut app, entity) = fixture();
     let world = app.world_mut();
     world.entity_mut(entity).insert(CameraMotionBlur {
@@ -430,4 +430,9 @@ fn exposure_targets_out_of_memory_disable_blur_until_resize() {
     }
     assert_eq!(attempts.get(), 0);
     assert!(world.get::<BlurView>(entity).unwrap().resolved.is_none());
+    for _ in 0..4 {
+        prepare.run((), world).unwrap();
+    }
+    let state = world.get::<BlurView>(entity).unwrap();
+    assert!(state.resolved.is_some() && state.footprint.is_some());
 }

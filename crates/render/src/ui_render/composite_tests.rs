@@ -482,3 +482,39 @@ fn layer_allocation_failure_falls_back_to_full_replay() {
     }
     assert!(layers.is_empty());
 }
+
+/// Extra rasters that ran out of memory back off as a set instead of reallocating every frame,
+/// while the content raster stays resident, and the segments return once memory frees.
+#[test]
+fn failed_segment_rasters_back_off_then_recover() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let size = Extent3d {
+        width: 40,
+        height: 40,
+        depth_or_array_layers: 1,
+    };
+    let view = Entity::PLACEHOLDER;
+    let mut layers = Vec::new();
+    let mut failed = crate::gpu_allocation::FailedRequests::default();
+    let allocations = std::rc::Rc::new(std::cell::Cell::new(0));
+    {
+        let allocations = allocations.clone();
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            if label != "retained gamma-space UI layer" {
+                return false;
+            }
+            allocations.set(allocations.get() + 1);
+            allocations.get() == 3
+        });
+        for _ in 0..3 {
+            synchronize_view_layers(&mut layers, &mut failed, view, device, size, 3);
+            assert_eq!(layers.len(), 1);
+        }
+    }
+    assert_eq!(allocations.get(), 3, "the backed-off set was reallocated");
+    for _ in 0..4 {
+        synchronize_view_layers(&mut layers, &mut failed, view, device, size, 3);
+    }
+    assert_eq!(layers.len(), 3);
+}

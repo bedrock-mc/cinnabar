@@ -6,6 +6,7 @@ pub(crate) mod nodes;
 #[path = "scene_target/tests.rs"]
 mod tests;
 
+use crate::gpu_allocation::FailedRequests;
 use bevy::{
     camera::CameraMainTextureUsages,
     core_pipeline::{Core3d, Core3dSystems},
@@ -307,10 +308,10 @@ fn admit_copy_destination(mut cameras: Query<&mut CameraMainTextureUsages, With<
     }
 }
 
-/// A view whose scene colour could not be allocated at this size, format and sample count.
-/// Its world passes skip until the request changes, instead of drawing into mismatched targets.
-#[derive(Component, PartialEq)]
-pub(crate) struct SceneTargetUnavailable(Extent3d, TextureFormat, u32);
+/// A view whose scene colour could not be allocated; its world passes skip instead of drawing
+/// into mismatched targets until an allocation succeeds.
+#[derive(Component)]
+pub(crate) struct SceneTargetUnavailable;
 
 /// Whether a view's world passes must skip because its scene colour is unavailable.
 pub(crate) fn unavailable(world: &World, view: Entity) -> bool {
@@ -344,7 +345,6 @@ type SceneTargetView<'a> = (
     Option<&'a ExtractedCamera>,
     &'a Msaa,
     Option<&'a SceneTarget>,
-    Option<&'a SceneTargetUnavailable>,
 );
 
 /// Keeps one bounded colour allocation per camera and drops stale camera resources.
@@ -354,11 +354,13 @@ pub(crate) fn prepare_scene_targets(
     mut fallback: ResMut<MultisampleFallback>,
     views: Query<SceneTargetView, With<Camera3d>>,
     removed: Query<Entity, (With<SceneTarget>, Without<ViewTarget>)>,
+    mut failed: Local<FailedRequests<(Extent3d, TextureFormat, u32)>>,
 ) {
     for entity in &removed {
         commands.entity(entity).remove::<SceneTarget>();
     }
-    for (entity, target, camera, msaa, previous, unavailable) in &views {
+    failed.retain(|view| views.contains(view));
+    for (entity, target, camera, msaa, previous) in &views {
         let size = target.main_texture().size();
         let format = target.main_texture_format();
         let samples = msaa.samples();
@@ -366,17 +368,15 @@ pub(crate) fn prepare_scene_targets(
             previous.unwrap().begin_frame();
             continue;
         }
-        let request = SceneTargetUnavailable(size, format, samples);
-        if unavailable == Some(&request) {
-            continue;
-        }
         let mut view = commands.entity(entity);
-        match SceneTarget::new(&device, size, format, samples) {
+        match failed.attempt(entity, (size, format, samples), || {
+            SceneTarget::new(&device, size, format, samples)
+        }) {
             Some(scene) => {
                 view.insert(scene).remove::<SceneTargetUnavailable>();
             }
             None => {
-                view.remove::<SceneTarget>().insert(request);
+                view.remove::<SceneTarget>().insert(SceneTargetUnavailable);
                 if samples > 1
                     && let Some(size) = camera.and_then(|camera| camera.physical_target_size)
                 {

@@ -591,16 +591,16 @@ fn scene_colour_out_of_memory_falls_back_to_single_sample_until_resize() {
     );
 }
 
-/// A single-sample failure is not retried every frame, only once the request changes.
+/// A single-sample failure backs off instead of retrying every frame, then recovers.
 #[test]
-fn failed_scene_colour_waits_for_a_new_request() {
+fn failed_scene_colour_backs_off_then_recovers() {
     use bevy::ecs::schedule::SingleThreadedExecutor;
     let (mut owned, view, mut schedule) = msaa_view_fixture();
     schedule.set_executor(SingleThreadedExecutor::new());
     let world = &mut owned;
     *world.get_mut::<Msaa>(view).unwrap() = Msaa::Off;
     let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
-    let _failure = crate::gpu_allocation::inject({
+    let failure = crate::gpu_allocation::inject({
         let attempts = attempts.clone();
         move |label, _| {
             let scene = label == "shared main-pass colour";
@@ -614,4 +614,11 @@ fn failed_scene_colour_waits_for_a_new_request() {
     }
     assert_eq!(attempts.get(), 1);
     assert!(world.get::<SceneTarget>(view).is_none());
+    drop(failure);
+    for _ in 0..8 {
+        *world.get_mut::<Msaa>(view).unwrap() = Msaa::Off;
+        schedule.run(world);
+    }
+    assert!(world.get::<SceneTarget>(view).is_some());
+    assert!(world.get::<SceneTargetUnavailable>(view).is_none());
 }

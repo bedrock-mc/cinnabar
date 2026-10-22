@@ -144,6 +144,30 @@ mod tests {
         );
     }
 
+    /// A failed depth surface is retried with backoff, so models return once memory frees.
+    #[test]
+    fn failed_model_depth_retries_after_backoff() {
+        let world = super::super::ordered_command_tests::binding_world();
+        let device = world.resource::<RenderDevice>();
+        let owner = Entity::from_bits(7);
+        let size = Extent3d {
+            width: 64,
+            height: 32,
+            depth_or_array_layers: 1,
+        };
+        let mut depths = UiModelDepths::default();
+        depths.synchronize_device(device);
+        {
+            let _failure = crate::gpu_allocation::inject(|label, _| label == "JSON-UI model depth");
+            depths.ensure_surface(owner, size, 1, device);
+        }
+        assert!(!depths.views.contains_key(&owner));
+        for _ in 0..4 {
+            depths.ensure_surface(owner, size, 1, device);
+        }
+        assert_eq!(depths.views[&owner].size, size);
+    }
+
     #[test]
     fn ui_model_depth_surface_reuses_one_allocation_and_tracks_extent_samples() {
         let world = super::super::ordered_command_tests::binding_world();

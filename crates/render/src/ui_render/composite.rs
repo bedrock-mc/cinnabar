@@ -275,6 +275,8 @@ impl CompositeBindings {
 pub(crate) struct UiLayerStore {
     device: Option<wgpu::Device>,
     views: HashMap<Entity, Vec<RetainedLayer>>,
+    /// Extent and segment count whose extra rasters ran out of memory.
+    failed_segments: crate::gpu_allocation::FailedRequests<(Extent3d, usize)>,
 }
 
 impl UiLayerStore {
@@ -282,6 +284,7 @@ impl UiLayerStore {
     fn synchronize_device(&mut self, device: &RenderDevice) {
         if self.device.as_ref() != Some(device.wgpu_device()) {
             self.views.clear();
+            self.failed_segments = Default::default();
             self.device = Some(device.wgpu_device().clone());
         }
     }
@@ -289,6 +292,7 @@ impl UiLayerStore {
     /// Releases rasters and their accepted publications when the owning view disappears.
     fn retain_live_views(&mut self, live: impl Fn(Entity) -> bool) {
         self.views.retain(|view, _| live(*view));
+        self.failed_segments.retain(live);
     }
 }
 
@@ -304,6 +308,7 @@ pub(crate) fn prepare_ui_layers(
     views: Query<(Entity, &ViewTarget, Option<&ExtractedCamera>)>,
     gpu: Option<Res<UiGpu>>,
 ) {
+    let store = &mut *store;
     store.synchronize_device(&device);
     store.retain_live_views(|view| views.contains(view));
     let requested = gpu
@@ -336,9 +341,16 @@ pub(crate) fn prepare_ui_layers(
         };
         let count = retained_segment_count(requested.max(1), size);
         let layers = store.views.entry(entity).or_default();
-        synchronize_layers(layers, &device, size, count);
+        synchronize_view_layers(
+            layers,
+            &mut store.failed_segments,
+            entity,
+            &device,
+            size,
+            count,
+        );
         if layers.is_empty() {
-            // Out of memory: the UI skips this frame and allocates again on the next.
+            // Out of memory: the content raster retries every frame; the UI skips until then.
             commands.entity(entity).remove::<UiLayerTexture>();
             continue;
         }
@@ -386,6 +398,28 @@ fn retained_segment_count(requested: usize, size: Extent3d) -> usize {
         requested
     } else {
         1
+    }
+}
+
+/// Allocates `count` rasters for `view`; extra rasters that ran out of memory back off as a set
+/// while the single-layer replay covers them, and the content raster retries every frame.
+fn synchronize_view_layers(
+    layers: &mut Vec<RetainedLayer>,
+    failed: &mut crate::gpu_allocation::FailedRequests<(Extent3d, usize)>,
+    view: Entity,
+    device: &RenderDevice,
+    size: Extent3d,
+    count: usize,
+) {
+    let segmented = count > 1
+        && failed
+            .attempt(view, (size, count), || {
+                synchronize_layers(layers, device, size, count);
+                (layers.len() == count).then_some(())
+            })
+            .is_some();
+    if !segmented {
+        synchronize_layers(layers, device, size, 1);
     }
 }
 
