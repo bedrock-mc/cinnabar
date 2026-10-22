@@ -1,7 +1,7 @@
 name: Build cache
 description: Restore or save compiler outputs without creating caches on pull requests
 # The budget manifest selects shared caches or workflow artifacts. Shared entries leave room for
-# their largest replacement; larger CI archives and release lanes use workflow artifacts.
+# all concurrent replacements; larger CI archives and release lanes use workflow artifacts.
 inputs:
   phase:
     description: restore or save

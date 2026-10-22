@@ -216,12 +216,13 @@ def delete_caches(env, ids):
 
 
 def make_room(env):
-    """Allow an upload only with headroom for both entries, preserving the last working cache."""
-    limit = budget("cache", env["CACHE_BUCKET"])
+    """Reserve all shared replacements together, preserving predecessors during parallel uploads."""
+    budget("cache", env["CACHE_BUCKET"])
+    reserve = sum(json.loads(BUDGETS.read_text())["cache"].values())
     used = sum(entry["size_in_bytes"] for entry in caches(env))
-    if used + limit > CACHE_LIMIT:
-        print(f"::notice::Kept existing caches: {used} bytes used plus the {limit}-byte replacement "
-              f"budget exceeds the {CACHE_LIMIT}-byte repository limit; skipping this upload")
+    if used + reserve > CACHE_LIMIT:
+        print(f"::notice::Kept existing caches: {used} bytes used plus the {reserve}-byte concurrent "
+              f"replacement reserve exceeds the {CACHE_LIMIT}-byte repository limit; skipping this upload")
         return False
     return True
 

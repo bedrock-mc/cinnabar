@@ -215,8 +215,11 @@ class RetentionTests(unittest.TestCase):
             {"id": 1, "key": "linux-old", "ref": "refs/heads/dev", "created_at": "2026-01-01", "size_in_bytes": 20},
             {"id": 2, "key": "linux-current", "ref": "refs/heads/dev", "created_at": "2026-01-02", "size_in_bytes": 30},
         ]
-        for name, value in (("budget", 30), ("caches", self.entries)):
-            patcher = patch.object(cache, name, return_value=value)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.budgets = Path(temporary.name) / "budgets.json"
+        self.budgets.write_text(json.dumps({"cache": {"linux-": 30}}))
+        for patcher in (patch.object(cache, "BUDGETS", self.budgets), patch.object(cache, "caches", return_value=self.entries)):
             patcher.start()
             self.addCleanup(patcher.stop)
         patcher = patch.object(cache, "delete_caches")
@@ -231,6 +234,13 @@ class RetentionTests(unittest.TestCase):
     def test_save_requires_room_for_both_entries(self):
         """A replacement cannot evict a predecessor by exceeding the shared storage limit."""
         with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertFalse(cache.make_room(self.env))
+        self.deleted.assert_not_called()
+
+    def test_admission_reserves_every_concurrent_bucket_replacement(self):
+        """Separate upload decisions cannot each spend the same remaining repository space."""
+        self.budgets.write_text(json.dumps({"cache": {"linux-": 30, "other-": 20}}))
+        with patch.object(cache, "CACHE_LIMIT", 90):
             self.assertFalse(cache.make_room(self.env))
         self.deleted.assert_not_called()
 
@@ -282,7 +292,7 @@ class BudgetTests(unittest.TestCase):
 
     def test_cache_budgets_fit_the_repository_limit(self):
         budgets = json.loads(cache.BUDGETS.read_text())
-        self.assertLessEqual(sum(budgets["cache"].values()) + max(budgets["cache"].values()), cache.CACHE_LIMIT)
+        self.assertLessEqual(2 * sum(budgets["cache"].values()), cache.CACHE_LIMIT)
         self.assertFalse(budgets["cache"].keys() & budgets["artifact"].keys())
         for store in ("cache", "artifact"):
             for bucket, size in budgets[store].items():
@@ -292,7 +302,7 @@ class BudgetTests(unittest.TestCase):
     def test_observed_linux_archives_fit_their_budgets(self):
         """The largest observed Rust and Go archives must survive retention."""
         self.assertLessEqual(2_791_327_868, cache.budget("artifact", "build-v1-rust-Linux-X64-ci-"))
-        self.assertLessEqual(857_488_115, cache.budget("cache", "build-v1-go-Linux-X64-ci-"))
+        self.assertLessEqual(857_488_115, cache.budget("artifact", "build-v1-go-Linux-X64-ci-"))
 
     def test_release_caches_stay_out_of_the_shared_cache(self):
         """Rarely used release entries would be the first evicted from the shared cache."""
