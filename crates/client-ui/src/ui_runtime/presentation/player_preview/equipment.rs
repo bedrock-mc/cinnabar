@@ -1,6 +1,5 @@
-//! Worn armor and the held item on the preview model: the humanoid armor
-//! boxes (`geometry.humanoid.armor.*`: helmet and chestplate inflated one
-//! pixel, leggings half a pixel, left limbs mirrored) over their 64x32 armor
+//! Worn armor and the held item on the preview model: the player armor boxes
+//! (`geometry.player.armor.*`, left limbs mirrored) over their 64x32 armor
 //! textures. Native held model sources are separate from the CPU icon fallback.
 
 use std::sync::Arc;
@@ -144,27 +143,30 @@ const HEAD: [f32; 3] = [-4.0, 24.0, -4.0];
 const BODY: [f32; 3] = [-4.0, 12.0, -2.0];
 const RIGHT_ARM: [f32; 3] = [-8.0, 12.0, -2.0];
 const LEFT_ARM: [f32; 3] = [4.0, 12.0, -2.0];
-const RIGHT_LEG: [f32; 3] = [-4.0, 0.0, -2.0];
-const LEFT_LEG: [f32; 3] = [0.0, 0.0, -2.0];
+// The pinned armor legs sit 0.1 pixel inward, unlike the skin's legs.
+const RIGHT_LEG: [f32; 3] = [-3.9, 0.0, -2.0];
+const LEFT_LEG: [f32; 3] = [-0.1, 0.0, -2.0];
 const TORSO: [f32; 3] = [8.0, 12.0, 4.0];
 const LIMB: [f32; 3] = [4.0, 12.0, 4.0];
 
 // Pinned vanilla models/entity/player_armor.json: UV coordinates use the model's
 // logical size, regardless of the replacement image's physical texel density.
+// Its inflations keep each layer's faces apart: the chestplate torso (1.01) clears
+// the one-pixel sleeves and boots, and the leggings' legs (0.49) clear their waist (0.5).
 const ARMOR_UV_SIZE: [f32; 2] = [64.0, 32.0];
 
 /// The boxes of each armor slot, helmet to boots.
 fn slot_boxes(slot: usize) -> &'static [ArmorBox] {
     const HELMET: [ArmorBox; 1] = [armor_box(0, HEAD, [8.0; 3], 1.0, [0.0, 0.0], false)];
     const CHESTPLATE: [ArmorBox; 3] = [
-        armor_box(1, BODY, TORSO, 1.0, [16.0, 16.0], false),
+        armor_box(1, BODY, TORSO, 1.01, [16.0, 16.0], false),
         armor_box(2, RIGHT_ARM, LIMB, 1.0, [40.0, 16.0], false),
         armor_box(3, LEFT_ARM, LIMB, 1.0, [40.0, 16.0], true),
     ];
     const LEGGINGS: [ArmorBox; 3] = [
         armor_box(1, BODY, TORSO, 0.5, [16.0, 16.0], false),
-        armor_box(4, RIGHT_LEG, LIMB, 0.5, [0.0, 16.0], false),
-        armor_box(5, LEFT_LEG, LIMB, 0.5, [0.0, 16.0], true),
+        armor_box(4, RIGHT_LEG, LIMB, 0.49, [0.0, 16.0], false),
+        armor_box(5, LEFT_LEG, LIMB, 0.49, [0.0, 16.0], true),
     ];
     const BOOTS: [ArmorBox; 2] = [
         armor_box(4, RIGHT_LEG, LIMB, 1.0, [0.0, 16.0], false),
@@ -306,5 +308,62 @@ mod review_tests {
         assert_eq!(texture.sample([0.0, 0.0]), Some([199, 100, 49, 255]));
         assert_eq!(texture.sample([0.5, 0.0]), Some([100, 100, 0, 255]));
         assert_eq!(texture.sample([1.0, 0.0]), Some([0, 0, 0, 0]));
+    }
+
+    /// Bounds of each armor box in a slot, read back from its 36 emitted vertices.
+    fn box_bounds(slot: usize) -> Vec<(u32, [f32; 3], [f32; 3])> {
+        armor_vertices(slot)
+            .chunks(36)
+            .map(|corners| {
+                let mut min = [f32::INFINITY; 3];
+                let mut max = [f32::NEG_INFINITY; 3];
+                for corner in corners {
+                    for axis in 0..3 {
+                        min[axis] = min[axis].min(corner.position[axis]);
+                        max[axis] = max[axis].max(corner.position[axis]);
+                    }
+                }
+                (corners[0].part, min, max)
+            })
+            .collect()
+    }
+
+    /// Whether two boxes have faces in one plane that cover a common area.
+    fn share_a_face_plane(a: ([f32; 3], [f32; 3]), b: ([f32; 3], [f32; 3])) -> bool {
+        (0..3).any(|axis| {
+            let planes = |(min, max): ([f32; 3], [f32; 3])| [min[axis], max[axis]];
+            let coplanar = planes(a)
+                .iter()
+                .any(|plane| planes(b).iter().any(|other| (plane - other).abs() < 1e-6));
+            coplanar
+                && (0..3)
+                    .filter(|&other| other != axis)
+                    .all(|other| a.1[other].min(b.1[other]) - a.0[other].max(b.0[other]) > 1e-6)
+        })
+    }
+
+    #[test]
+    fn worn_torso_layers_never_share_a_face_plane_with_other_armor() {
+        let worn: Vec<_> = (0..4)
+            .flat_map(|slot| {
+                box_bounds(slot)
+                    .into_iter()
+                    .map(move |bounds| (slot, bounds))
+            })
+            .collect();
+        for &(slot, (part, min, max)) in &worn {
+            if part != 1 {
+                continue;
+            }
+            for &(other_slot, (other_part, other_min, other_max)) in &worn {
+                if (other_slot, other_part) == (slot, part) {
+                    continue;
+                }
+                assert!(
+                    !share_a_face_plane((min, max), (other_min, other_max)),
+                    "slot {slot} torso shares a face plane with slot {other_slot} part {other_part}"
+                );
+            }
+        }
     }
 }

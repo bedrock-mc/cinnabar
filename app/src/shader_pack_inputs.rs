@@ -24,7 +24,7 @@ use render_scene::{
     ActorRenderFrame, AtmosphereFrame, ChunkRenderQueue, WorldLighting,
     shaderpack::{
         SKY_BIOME_SLOTS, ShaderPackActorIds, ShaderPackFrameInputs, ShaderPackIdMaps,
-        ShaderPackStatus,
+        ShaderPackRequest, ShaderPackStatus,
     },
 };
 
@@ -73,12 +73,19 @@ impl Plugin for ShaderPackInputsPlugin {
                 (
                     publish_frame_inputs
                         .after(update_atmosphere_frame)
-                        .after(LocalPlayerFrameSet::Interaction),
+                        .after(LocalPlayerFrameSet::Interaction)
+                        .run_if(shader_inputs_requested),
                     publish_actor_ids,
                     mesh_like_java_for_shader_packs,
                 ),
             );
     }
+}
+
+/// Samples shader-only world data while a pack is requested, including its initial load.
+/// The loader needs the current dimension before it can make the pack ready.
+fn shader_inputs_requested(request: Option<Res<ShaderPackRequest>>) -> bool {
+    request.is_some_and(|request| request.pack.is_some())
 }
 
 /// Bedrock blocks Java fills with water (`seagrass`, `kelp` and `kelp_plant`, `bubble_column`
@@ -255,7 +262,7 @@ fn publish_frame_inputs(
         let main_hand = player_runtime.selected_stack();
         next.held_item_id = held_item_id(stream, &ids, main_hand);
         next.held_block_light = held_block_light(stream, main_hand);
-        let off_hand = ui.gameplay_hud().offhand_stack();
+        let off_hand = ui.local_offhand_stack(&player_runtime);
         next.held_item_id2 = held_item_id(stream, &ids, off_hand);
         next.held_block_light2 = held_block_light(stream, off_hand);
     }
@@ -474,6 +481,54 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shader-only sampling follows the request, including before a pack becomes ready.
+    #[test]
+    fn world_sampling_stops_when_shaders_are_off() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut app = App::new();
+        app.init_resource::<WorldClock>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<AtmosphereFrame>()
+            .init_resource::<WorldLighting>()
+            .init_resource::<CameraMediumState>()
+            .init_resource::<VisionEffects>()
+            .init_resource::<ClientWorld>()
+            .init_resource::<ActorRenderFrame>()
+            .init_resource::<ShaderPackRequest>()
+            .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
+            .add_plugins(ShaderPackInputsPlugin)
+            .insert_resource(FrameTimeCounterPin(Some(17.0)));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            None
+        );
+        app.world_mut().resource_mut::<ShaderPackRequest>().pack = Some("Dusk.zip".into());
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            Some(17.0)
+        );
+        app.world_mut().resource_mut::<ShaderPackRequest>().pack = None;
+        app.world_mut().resource_mut::<FrameTimeCounterPin>().0 = Some(23.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            Some(17.0)
+        );
+    }
 
     #[test]
     fn java_meshing_toggle_discards_old_uploads_and_preserves_removals() {

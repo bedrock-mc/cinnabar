@@ -3851,6 +3851,14 @@
       "suffix": "hanging_sign"
     },
     {
+      "id": "render-leaf-litter",
+      "fact": "render:LeafLitter",
+      "status": "verified",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",
@@ -5799,7 +5807,8 @@
       "id": "offset-boat",
       "status": "provisional",
       "members": [
-        "minecraft:boat"
+        "minecraft:boat",
+        "minecraft:chest_boat"
       ],
       "facts": {
         "network_y_offset": 0.375
@@ -6703,6 +6712,8 @@
       "NetheriteBlock": "minecraft:netherite_block"
     },
     "VanillaEntity": {
+      "Boat": "minecraft:boat",
+      "ChestBoat": "minecraft:chest_boat",
       "Player": "minecraft:player"
     }
   },

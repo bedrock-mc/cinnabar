@@ -104,7 +104,7 @@ func totemFixturePackets(mode string, playerID uint64, position mgl32.Vec3) []pa
 			&packet.ActorEvent{EntityRuntimeID: totemFixtureActor, EventType: packet.ActorEventTalismanActivate},
 		)
 	}
-	if mode != "offhand" && mode != "main" && mode != "empty" && mode != "idle" {
+	if mode != "offhand" && mode != "main" && mode != "empty" && mode != "idle" && mode != "staleecho" {
 		return packets
 	}
 	runtimeID, metadata, ok := world.ItemRuntimeID(item.Totem{})
@@ -116,6 +116,11 @@ func totemFixturePackets(mode string, playerID uint64, position mgl32.Vec3) []pa
 		Count:    1, NBTData: map[string]any{}, CanBePlacedOn: []string{}, CanBreak: []string{},
 	}}
 	window := uint32(protocol.WindowIDOffHand)
+	if mode == "staleecho" {
+		// The player's own offhand equipment echo with an older empty stack, while the offhand
+		// still holds its item; a vanilla client ignores it for the local player.
+		return append(packets, &packet.MobEquipment{EntityRuntimeID: playerID, WindowID: byte(window)})
+	}
 	if mode == "main" {
 		packets = append(packets, &packet.InventorySlot{WindowID: window, Slot: 0})
 		window = protocol.WindowIDInventory

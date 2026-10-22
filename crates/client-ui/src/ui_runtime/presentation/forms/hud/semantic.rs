@@ -197,7 +197,7 @@ impl SemanticHud {
                     player.selected_hotbar_slot() == Some(index as u8),
                 )
             })
-            && match (&self.model.offhand, runtime.gameplay_hud().offhand_stack()) {
+            && match (&self.model.offhand, runtime.local_offhand_stack(player)) {
                 (None, None) => true,
                 (Some(slot), Some(stack)) => self.slot_matches(
                     slot,
@@ -258,7 +258,7 @@ impl SemanticHud {
                 )
             })
             .collect();
-        self.model.offhand = runtime.gameplay_hud().offhand_stack().map(|stack| {
+        self.model.offhand = runtime.local_offhand_stack(player).map(|stack| {
             slot(
                 Some(stack),
                 frame.offhand_icon,
@@ -367,6 +367,10 @@ impl SemanticHud {
         changed |= replace(
             &mut self.model.chat_background_opacity,
             f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0,
+        );
+        changed |= replace(
+            &mut self.model.chat_text,
+            ui_screens::settings_chat::chat_text(settings),
         );
         changed
     }

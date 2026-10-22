@@ -9,6 +9,11 @@ use ui_engine::engine::screen::PaintError;
 #[cfg(test)]
 mod tests;
 
+/// Half the focus ring's side in rem, before the square turns.
+const RING: f32 = 1.4;
+/// How far in rem the turned square reaches from its centre, focus ring included.
+pub(super) const REACH: f32 = RING * std::f32::consts::SQRT_2;
+
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     centre: [f32; 2],
@@ -22,7 +27,7 @@ pub(super) fn draw(
     let mut square = Square { canvas, centre };
     if motion.focus > 0.0 {
         square.frame(
-            [-1.4, -1.4, 1.4, 1.4],
+            [-RING, -RING, RING, RING],
             0.2,
             opacity(theme::OUTLINE, motion.focus),
         )?;

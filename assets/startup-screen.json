@@ -1,0 +1,41 @@
+{
+  "background": [
+    23,
+    22,
+    21,
+    255
+  ],
+  "foreground": [
+    240,
+    240,
+    240,
+    255
+  ],
+  "accent": [
+    111,
+    179,
+    31,
+    255
+  ],
+  "loading_assets": "Loading resources\u2026",
+  "preparing_interface": "Preparing menus\u2026",
+  "opening_window": "Starting\u2026",
+  "waiting_for_content": "Opening screen\u2026",
+  "layout": {
+    "design_size": [
+      854.0,
+      480.0
+    ],
+    "minimum_scale": 0.5,
+    "logo_width": 320.0,
+    "side_margin": 48.0,
+    "logo_center_y": 0.44,
+    "label_top": 0.63,
+    "label_size": 18.0,
+    "indicator_top": 0.73,
+    "dot_size": 6.0,
+    "dot_spacing": 14.0,
+    "step_millis": 300,
+    "frame_millis": 50
+  }
+}

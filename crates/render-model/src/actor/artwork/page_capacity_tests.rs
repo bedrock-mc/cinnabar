@@ -160,3 +160,37 @@ fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
         assert_eq!(page.pixels(), texture.rgba8.as_ref());
     }
 }
+
+#[test]
+fn a_single_layer_pack_page_shares_its_source_allocation() {
+    let pixels: Arc<[u8]> = (0..68).map(|byte| byte as u8).collect::<Vec<_>>().into();
+    let texture = assets::ActorTexture {
+        source: 0,
+        width: 17,
+        height: 1,
+        pixel_sha256: Sha256::digest(&pixels).into(),
+        rgba8: pixels,
+    };
+    let pages = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    assert_eq!(pages.pages().len(), 1);
+    let page = &pages.pages()[0];
+    assert!(Arc::ptr_eq(&page.rgba8, &texture.rgba8));
+    assert_eq!(page.layers, 1);
+    assert_eq!(page.pixels(), texture.rgba8.as_ref());
+}
+
+#[test]
+fn a_single_layer_equipment_page_shares_its_source_allocation() {
+    let raster = EquipmentRaster {
+        width: 19,
+        height: 1,
+        rgba8: (11..87).map(|byte| byte as u8).collect::<Vec<_>>().into(),
+    };
+    let (pages, locations) =
+        ActorArtworkPages::default().with_equipment_rasters(std::slice::from_ref(&raster));
+    let location = locations[0].unwrap();
+    let page = &pages.pages()[usize::from(location.page()) - 1];
+    assert!(Arc::ptr_eq(&page.rgba8, &raster.rgba8));
+    assert_eq!(page.layers, 1);
+    assert_eq!(page.pixels(), raster.rgba8.as_ref());
+}

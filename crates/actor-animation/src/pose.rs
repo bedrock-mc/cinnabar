@@ -244,6 +244,9 @@ pub(super) fn sample_clips_reused<'a>(
     if let (Some(blend), Some(sides)) = (pending, sides.as_mut()) {
         compose_blend(&mut local, sides, blend.amount);
     }
+    if super::boat::is_boat(evaluator.actor) {
+        super::boat::pose_paddles(evaluator.actor, channel_bones.names, &mut local);
+    }
     if legacy_weight > 0.0 {
         super::legacy_swing::apply(
             channel_bones.names,

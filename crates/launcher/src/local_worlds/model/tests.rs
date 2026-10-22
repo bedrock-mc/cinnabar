@@ -10,6 +10,7 @@ use super::*;
 
 fn world(id: &str, name: &str) -> World {
     World {
+        options: Default::default(),
         id: id.to_owned(),
         name: name.to_owned(),
         game_mode: GameMode::Survival,
@@ -19,6 +20,7 @@ fn world(id: &str, name: &str) -> World {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }
 }
@@ -249,6 +251,7 @@ fn edit_prefills_validates_and_sends_only_changes() {
         vec![Effect::Update {
             id: "id0".to_owned(),
             update: WorldUpdate {
+                options: None,
                 name: Some("New".to_owned()),
                 game_mode: None,
                 difficulty: Some(Difficulty::Hard),
@@ -386,16 +389,33 @@ fn no_backend_reason_never_shows_the_docker_modal() {
     assert_eq!(menu.create_form().generator, Generator::Normal);
 }
 
+const REDETECT: Effect = Effect::SetPrefs {
+    dismiss_docker_prompt: false,
+    redetect: true,
+};
+
+/// Submits the create form against a stale verdict and answers the fresh probe with `reason`.
+fn submit_against(menu: &mut WorldsMenu, reason: UnavailableReason) {
+    assert_eq!(menu.update(Input::SubmitCreate), vec![REDETECT]);
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
+    assert!(
+        menu.apply(Event::Prefs(Prefs::default(), with_reason(reason)))
+            .is_empty()
+    );
+}
+
 #[test]
-fn missing_docker_blocks_only_bds_and_fallback_preserves_the_form() {
+fn missing_docker_prompt_links_retries_and_preserves_the_form() {
     for generator in [Generator::Normal, Generator::Flat] {
         let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
         menu.update(Input::BeginCreate);
         menu.update(Input::SetName("My saved form".into()));
         menu.update(Input::SetSeed("-7".into()));
         menu.update(Input::SetFlat(generator == Generator::Flat));
-        menu.update(Input::SetBackend(Backend::Bds));
-        assert!(menu.update(Input::SubmitCreate).is_empty());
+        submit_against(&mut menu, UnavailableReason::DockerMissing);
         assert_eq!(
             menu.prompt(),
             prompt(PromptKind::DockerMissing, PromptFor::CreateBds)
@@ -406,17 +426,66 @@ fn missing_docker_blocks_only_bds_and_fallback_preserves_the_form() {
         );
         menu.update(Input::Back);
         assert_eq!(menu.screen(), Screen::Create);
-        assert_eq!(menu.create_form().backend, Backend::Bds);
-        menu.update(Input::SubmitCreate);
-        let effects = menu.update(Input::Prompt(PromptButton::UseDragonfly));
+        submit_against(&mut menu, UnavailableReason::DockerMissing);
+        assert_eq!(
+            menu.update(Input::Prompt(PromptButton::Retry)),
+            vec![REDETECT]
+        );
+        let effects = menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
         let [Effect::Create(spec)] = effects.as_slice() else {
-            panic!("missing create");
+            panic!("an installed Docker must continue the create: {effects:?}");
         };
-        assert_eq!(spec.backend, Some(Backend::Dragonfly));
+        assert_eq!(spec.backend, Some(Backend::Bds));
         assert_eq!(spec.generator, generator);
         assert_eq!(spec.name, "My saved form");
         assert_eq!(spec.seed, Some(-7));
     }
+}
+
+/// Docker installed or started after the startup probe must not be reported missing.
+#[test]
+fn a_stale_docker_verdict_is_probed_again_before_the_modal() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.update(Input::SubmitCreate), vec![REDETECT]);
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
+    let effects = menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
+    assert!(
+        matches!(effects.as_slice(), [Effect::Create(_)]),
+        "{effects:?}"
+    );
+    assert_eq!(menu.prompt(), None);
+}
+
+/// The probe runs behind a modal whose Cancel ends the action, so a late verdict never resumes it.
+#[test]
+fn cancelling_the_docker_probe_drops_the_action() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SubmitCreate);
+    assert!(menu.update(Input::Prompt(PromptButton::Retry)).is_empty());
+    menu.update(Input::Prompt(PromptButton::Cancel));
+    assert_eq!(menu.screen(), Screen::Create);
+    let idle = status(WorldState::Idle, "");
+    assert!(
+        menu.apply(Event::Prefs(Prefs::default(), idle.clone()))
+            .is_empty()
+    );
+    assert_eq!(menu.screen(), Screen::Create);
+
+    let mut bds = world("id0", "a");
+    bds.backend = Backend::Bds;
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.apply(Event::Listed(vec![bds]));
+    assert_eq!(menu.update(Input::Play), vec![REDETECT]);
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(menu.prompt(), prompt(PromptKind::Checking, PromptFor::Play));
+    menu.update(Input::Back);
+    assert!(menu.apply(Event::Prefs(Prefs::default(), idle)).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
 }
 
 #[test]
@@ -438,25 +507,27 @@ fn backend_selection_preserves_terrain_and_seed() {
 fn retry_redetects_and_continues_once_docker_is_up() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
     menu.update(Input::BeginCreate);
-    menu.update(Input::SetBackend(Backend::Bds));
-    menu.update(Input::SubmitCreate);
+    submit_against(&mut menu, UnavailableReason::DockerNotRunning);
     assert_eq!(
         menu.prompt(),
         prompt(PromptKind::DockerNotRunning, PromptFor::CreateBds)
     );
     assert_eq!(
         menu.update(Input::Prompt(PromptButton::Retry)),
-        vec![Effect::SetPrefs {
-            dismiss_docker_prompt: false,
-            redetect: true
-        }]
+        vec![REDETECT]
     );
-    assert!(menu.busy());
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
     menu.apply(Event::Prefs(
         Prefs::default(),
         with_reason(UnavailableReason::DockerNotRunning),
     ));
-    assert_eq!((menu.screen(), menu.busy()), (Screen::BackendPrompt, false));
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerNotRunning, PromptFor::CreateBds)
+    );
     menu.update(Input::Prompt(PromptButton::Retry));
     menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
     assert_eq!(menu.screen(), Screen::Create);
@@ -474,7 +545,11 @@ fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_needs_docker() {
     let mut bds = world("id0", "a");
     bds.backend = Backend::Bds;
     menu.apply(Event::Listed(vec![bds]));
-    assert!(menu.update(Input::Play).is_empty());
+    assert_eq!(menu.update(Input::Play), vec![REDETECT]);
+    menu.apply(Event::Prefs(
+        Prefs::default(),
+        with_reason(UnavailableReason::DockerNotRunning),
+    ));
     assert_eq!(
         menu.prompt(),
         prompt(PromptKind::DockerNotRunning, PromptFor::Play)
@@ -721,16 +796,14 @@ fn template_create_action_opens_the_create_form() {
 }
 
 #[test]
-fn a_new_world_defaults_to_bds_and_waits_for_docker() {
+fn new_world_backend_defaults_to_bds_and_requires_docker() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     menu.update(Input::BeginCreate);
     assert_eq!(menu.screen(), Screen::Create);
-    assert!(menu.update(Input::SubmitCreate).is_empty());
-    assert_eq!(
-        menu.prompt(),
-        prompt(PromptKind::DockerMissing, PromptFor::CreateBds)
-    );
     assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    menu.update(Input::SubmitCreate);
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
 }
 
 /// An import holds the list behind its modal until the worker reports, then lists the world first.
@@ -799,4 +872,166 @@ fn dropped_files_import_only_from_the_list() {
     let files = vec![PathBuf::from("/w/a.mcworld")];
     assert!(menu.update(Input::ImportFiles(files)).is_empty());
     assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn world_options_flow_through_create_and_edit_with_cheat_activation() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(Vec::new()));
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetOption(O::KeepInventory, 1));
+    assert!(menu.create_form().options.enabled(O::ActivateCheats));
+    let effects = menu.update(Input::SubmitCreate);
+    let Effect::Create(spec) = &effects[0] else {
+        panic!("expected creation");
+    };
+    assert!(spec.options.enabled(O::KeepInventory));
+    let mut saved = world("fixture", "Options");
+    saved.backend = Backend::Bds;
+    saved.options = spec.options.clone();
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![saved]));
+    menu.update(Input::BeginEdit(0));
+    assert!(menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+    menu.update(Input::SelectTab(Tab::Cheats));
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { update, .. } = &effects[0] else {
+        panic!("expected update");
+    };
+    assert_eq!(
+        update.options.as_ref().unwrap().get(O::KeepInventory),
+        Some(0)
+    );
+}
+
+#[test]
+fn world_options_reject_controls_for_existing_dragonfly_worlds() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = loaded(&["Legacy"]);
+    menu.update(Input::BeginEdit(0));
+    assert!(!menu.view().options_available());
+    menu.update(Input::SelectTab(Tab::Cheats));
+    assert_eq!(menu.view().tab, Tab::General);
+    menu.update(Input::SetOption(O::KeepInventory, 1));
+    assert!(!menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+}
+
+#[test]
+fn world_options_edits_keep_the_form_baseline_when_the_list_refreshes() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut original = world("fixture", "Options");
+    original.backend = Backend::Bds;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![original.clone()]));
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    original.options.set(O::RandomTickSpeed, 42);
+    menu.apply(Event::Listed(vec![original]));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { update, .. } = &effects[0] else {
+        panic!("option update");
+    };
+    let changes = update.options.as_ref().unwrap();
+    assert_eq!(changes.get(O::ShowCoordinates), Some(1));
+    assert_eq!(changes.get(O::RandomTickSpeed), None);
+}
+
+/// Options of a BDS world whose level data is unreadable stay hidden and unchangeable.
+#[test]
+fn world_options_are_unavailable_when_level_data_cannot_be_read() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![World {
+        backend: Backend::Bds,
+        options_unavailable: true,
+        ..world("id0", "Oversized")
+    }]));
+    menu.update(Input::BeginEdit(0));
+    assert!(!menu.view().options_available());
+    menu.update(Input::SelectTab(Tab::Advanced));
+    assert_eq!(menu.view().tab, Tab::General);
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    assert!(
+        !menu
+            .edit_form()
+            .unwrap()
+            .options
+            .enabled(O::ShowCoordinates)
+    );
+}
+
+fn bds_edit_menu() -> WorldsMenu {
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![World {
+        backend: Backend::Bds,
+        ..world("id0", "Saved")
+    }]));
+    menu.update(Input::BeginEdit(0));
+    menu
+}
+
+/// Typed text survives the delete modal, so a later Back cannot save the last valid prefix.
+#[test]
+fn world_options_invalid_text_survives_cancelling_delete() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::SleepPercentage, "35".to_owned()));
+    menu.update(Input::SetOptionText(O::SleepPercentage, "355".to_owned()));
+    menu.update(Input::RequestDelete);
+    assert_eq!(menu.screen(), Screen::ConfirmDelete);
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert_eq!(menu.view().numeric_text(O::SleepPercentage), "355");
+    assert!(menu.update(Input::Back).is_empty());
+    assert!(menu.update(Input::PlayFromEdit).is_empty());
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert!(menu.form_error().is_some());
+}
+
+/// A disabled field's text never blocks submitting; configuration writes its sentinel instead.
+#[test]
+fn world_options_disabled_fields_skip_text_validation() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::SleepPercentage, "355".to_owned()));
+    menu.update(Input::SetOption(O::SleepSkipNight, 0));
+    let effects = menu.update(Input::Back);
+    assert!(
+        matches!(effects.as_slice(), [Effect::Update { .. }]),
+        "{effects:?}"
+    );
+    assert!(menu.form_error().is_none());
+}
+
+/// A toggle that resets a numeric option also drops its typed text, so display matches the save.
+#[test]
+fn world_options_reset_by_a_toggle_drop_their_typed_text() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOptionText(O::RandomTickSpeed, "42".to_owned()));
+    assert!(menu.edit_form().unwrap().options.enabled(O::ActivateCheats));
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    assert_eq!(menu.view().numeric_text(O::RandomTickSpeed), "1");
+    assert_eq!(menu.edit_form().unwrap().options.get(O::RandomTickSpeed), 1);
+    // Nothing differs from the saved world any more, so Back saves nothing.
+    assert!(menu.update(Input::Back).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
+    assert_eq!(menu.worlds()[0].options.get(O::RandomTickSpeed), 1);
+}
+
+/// Turning cheats off drops invalid typing in the fields it gates, even at their default value.
+#[test]
+fn world_options_toggles_drop_invalid_text_in_gated_fields() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = bds_edit_menu();
+    menu.update(Input::SetOption(O::ActivateCheats, 1));
+    menu.update(Input::SetOptionText(O::RandomTickSpeed, "5000".to_owned()));
+    assert_eq!(menu.edit_form().unwrap().options.get(O::RandomTickSpeed), 1);
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    assert_eq!(menu.view().numeric_text(O::RandomTickSpeed), "1");
+    assert!(menu.update(Input::Back).is_empty());
+    assert!(menu.form_error().is_none());
+    assert_eq!(menu.screen(), Screen::List);
 }

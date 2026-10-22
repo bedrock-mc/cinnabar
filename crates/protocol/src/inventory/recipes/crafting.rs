@@ -72,6 +72,11 @@ impl RecipeHandle {
         self.recipe().output()
     }
 
+    /// Results after [`Self::output`], such as the buckets a cake returns, in wire order.
+    pub fn extra_outputs(&self) -> impl ExactSizeIterator<Item = RecipeOutput> + '_ {
+        self.recipe().extra_outputs()
+    }
+
     /// Per-craft ingredient counts in recipe order, empty shape cells skipped.
     pub fn ingredient_counts(&self) -> impl Iterator<Item = u8> + '_ {
         self.recipe()

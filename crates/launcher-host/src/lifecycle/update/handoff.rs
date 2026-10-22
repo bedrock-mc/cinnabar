@@ -43,7 +43,7 @@ pub(super) fn spawn(layout: &InstallLayout, ready: &Ready) -> Result<()> {
     }
     let args = [
         ready.stage.as_os_str().to_owned(),
-        installed_target()?.into_os_string(),
+        apply_target(ready)?.into_os_string(),
         std::process::id().to_string().into(),
         ready.channel.name().into(),
     ];
@@ -53,6 +53,11 @@ pub(super) fn spawn(layout: &InstallLayout, ready: &Ready) -> Result<()> {
         std::mem::forget(lease.clone());
     }
     Ok(())
+}
+
+/// A downloaded copy applies to its original installation, rather than replacing itself.
+pub(super) fn apply_target(ready: &Ready) -> Result<PathBuf> {
+    ready.target.clone().map_or_else(installed_target, Ok)
 }
 
 /// Starts rollback recovery with the same exact-parent exit barrier as an ordinary apply.
@@ -163,19 +168,29 @@ fn manual_package(ready: &Ready) -> Result<ManualPackage> {
     let name =
         update_manifest::platforms::artifact_name(std::env::consts::OS, std::env::consts::ARCH)
             .context("unknown native artifact")?;
+    let current = update_manifest::build::Build::current();
     snapshot_package(
         &ready.stage,
         name,
         &keys,
-        Check {
-            channel: ready.channel.name(),
-            platform: &platform,
-            current: env!("CARGO_PKG_VERSION"),
-            current_build: update_manifest::build_number(),
-            switch_now: ready.switch_now,
-        },
+        manual_check(ready, &platform, &current),
         OffsetDateTime::now_utc,
     )
+}
+
+/// Reauthenticates a selected repair package independently of the temporary running copy's build.
+pub(super) fn manual_check<'a>(
+    ready: &Ready,
+    platform: &'a str,
+    current: &'a update_manifest::build::Build,
+) -> Check<'a> {
+    Check {
+        channel: ready.channel.name(),
+        platform,
+        current: &current.version,
+        current_build: current.number,
+        switch_now: ready.switch_now || ready.target.is_some(),
+    }
 }
 
 /// A verified manual installer held independently of further stage replacement or deletion.

@@ -52,6 +52,7 @@ mod properties;
 mod reflect;
 mod reflect_link;
 mod reflection;
+mod remove;
 mod source;
 mod token;
 mod transform;
@@ -97,5 +98,6 @@ pub use reflection::{
     TextureDimension, UNIFORM_GROUP, UniformBlock, UniformMember, ValueType, VertexAttribute,
     VertexInput,
 };
+pub use remove::remove_pack;
 pub use source::{PackError, PackOrigin, PackSource};
 pub use translate::{ProgramTranslation, StageTranslation};
