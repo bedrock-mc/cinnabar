@@ -675,20 +675,28 @@ impl ActiveUse {
     }
 
     /// Adds whole-stack admission for a fresh release while retaining held and
-    /// retry policies: vanilla's release validation compares count, auxiliary
-    /// value, user data and block with the in-use stack, ignoring only the
-    /// stack network id, which inventory updates rename.
+    /// retry policies, as vanilla's release validation compares the stack:
+    /// count, an auxiliary value where neither side is the 0x7fff wildcard,
+    /// typed user data and restrictions (absent equals an empty compound), and
+    /// the block only when the selected stack has one. The stack network id,
+    /// which inventory updates rename, is ignored.
     fn release_selection_changed(
         &self,
         selection: Option<&FrozenMiningSelection>,
         check_count: bool,
     ) -> bool {
+        const ANY_AUX: u32 = 0x7fff;
         let stack_changed = |selection: &FrozenMiningSelection| {
             let (current, saved) = (&selection.item, &self.selection.item);
             current.count() != saved.count()
-                || current.metadata() != saved.metadata()
-                || current.nbt_digest() != saved.nbt_digest()
-                || current.block_runtime_id() != saved.block_runtime_id()
+                || (current.metadata() != saved.metadata()
+                    && current.metadata() != ANY_AUX
+                    && saved.metadata() != ANY_AUX)
+                // Data the typed comparison cannot read compares byte for byte.
+                || !protocol::item_user_data_equal(current.extra_data(), saved.extra_data())
+                    .unwrap_or_else(|| current.extra_data() == saved.extra_data())
+                || (current.block_runtime_id() != 0
+                    && current.block_runtime_id() != saved.block_runtime_id())
         };
         self.selection_changed(selection) || (check_count && selection.is_some_and(stack_changed))
     }

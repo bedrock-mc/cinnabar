@@ -38,7 +38,8 @@ impl ItemUseRuntime {
     /// Reconciles a pending server `UsingItem` value with the item in use at
     /// the movement tick `frame` names, just before it simulates; returns
     /// whether a use started. A start waits while the selected stack is
-    /// unverified and covers held uses only.
+    /// unverified, keeps waiting on an empty hand, and gives an item without a
+    /// held use a zero-duration use.
     pub fn resolve_server_using_item(&mut self, frame: &UseFrame) -> bool {
         let Some(using) = self.server_using else {
             return false;

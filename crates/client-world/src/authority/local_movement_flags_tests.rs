@@ -188,3 +188,55 @@ fn a_local_game_mode_update_commits_an_ordered_control() {
         );
     }
 }
+
+/// A world-default change to spectator stops item use for a local player whose
+/// mode follows the default, in packet order like an explicit change.
+#[test]
+fn a_default_game_mode_change_reaches_a_player_following_the_default() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    let spectator = protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator);
+    let default_change =
+        |update| WorldEvent::Ui(UiEvent::DefaultGameMode(protocol::GameModeEvent { update }));
+    authority
+        .apply_ordered_event(default_change(spectator), Some(1))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
+    authority.set_local_game_mode_follows_default(true);
+    authority
+        .apply_ordered_event(default_change(spectator), Some(2))
+        .unwrap();
+    assert!(matches!(
+        authority.take_committed_controls().as_slice(),
+        [CommittedControlEvent::LocalGameMode {
+            sequence: 2,
+            spectator: true
+        }]
+    ));
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::GameMode(protocol::GameModeEvent {
+                update: protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Survival),
+            })),
+            Some(3),
+        )
+        .unwrap();
+    authority.take_committed_controls();
+    authority
+        .apply_ordered_event(default_change(spectator), Some(4))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
+}

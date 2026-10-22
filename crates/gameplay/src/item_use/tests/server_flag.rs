@@ -485,3 +485,42 @@ fn a_release_with_changed_item_metadata_stops_without_a_transaction() {
     assert!(outcome.packets.is_empty());
     assert!(!runtime.is_using());
 }
+
+/// Release validation accepts what vanilla's stack comparison accepts: an
+/// auxiliary value of 0x7fff matches any, and a block is compared only when
+/// the selected stack has one.
+#[test]
+fn release_validation_accepts_vanilla_equivalent_stacks() {
+    let with_metadata = |metadata, block_runtime_id| {
+        let extra_data: Arc<[u8]> = Arc::from([]);
+        let stack = NetworkItemStack {
+            network_id: MENU_ITEM,
+            metadata,
+            stack_network_id: 41,
+            count: 3,
+            nbt_digest: Sha256::digest(&extra_data).into(),
+            block_runtime_id,
+            extra_data,
+        };
+        FrozenMiningSelection {
+            slot: 2,
+            item: VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap(),
+        }
+    };
+    for (started, released) in [((0, 7), (0x7fff, 7)), ((0, 7), (0, 0))] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        let start = with_metadata(started.0, started.1);
+        assert_eq!(
+            kinds(&runtime.step(&item_frame(10, true, start, "minecraft:bread"))),
+            ["use"]
+        );
+        let release = with_metadata(released.0, released.1);
+        let outcome = runtime.step(&item_frame(11, false, release, "minecraft:bread"));
+        assert_eq!(
+            kinds(&outcome),
+            ["release"],
+            "{started:?} then {released:?}"
+        );
+    }
+}

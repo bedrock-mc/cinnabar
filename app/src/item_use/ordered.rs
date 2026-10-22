@@ -6,12 +6,17 @@ use client_presentation::local_player::LocalViewPose;
 
 /// Records whether the use button holds an accepted use before any
 /// admission can reject this edge, so a rejected press cannot swallow the
-/// release of a use the button now owns.
+/// release of a use the button now owns. Server item-use events handled
+/// earlier reach item use first.
 pub(crate) fn observe_button(
     In(input): In<crate::ordered_interactions::InteractionInput>,
     player: Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<ItemUseRuntime>,
+    mut physics: Option<ResMut<client_interaction::movement::LocalPhysicsController>>,
 ) {
+    // A game-mode stop handled before this input reaches item use first, as
+    // vanilla stops the use while handling the packet.
+    take_server_item_use(&mut runtime, physics.as_deref_mut());
     let allowed = player
         .facts
         .game_mode_capabilities()

@@ -233,8 +233,10 @@ a set bit starts the selected item's use and reports `StartUsingItem` (an item w
 use completes on the next tick, and whether vanilla slows that tick is unverified; an empty
 hand keeps the flag set), a clear bit stops the use
 without a release transaction, and a spectator game-mode change stops it in packet order.
-Each tick refreshes the in-use stack, count included, and replayed ticks keep the slowdown
-their live tick recorded. Still incomplete: pose flags as independent bits (vanilla's glide,
+Each tick refreshes the in-use stack, count included; release validation compares the whole
+stack as vanilla's does (two comparator fields, one at stack offset 0x70 and the charged-item
+state, are not yet mapped to the retained item data). Replayed ticks keep the slowdown their
+live tick recorded. Still incomplete: pose flags as independent bits (vanilla's glide,
 swim and crawl triggers each keep their own bit and report actions only from their own
 requests, while the locomotion mode keeps one pose); the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the

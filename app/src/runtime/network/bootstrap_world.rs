@@ -17,6 +17,7 @@ pub(super) struct StreamBootstrap<'a> {
     pub custom_blocks: &'a protocol::CustomBlocks,
     pub item_registry: Option<protocol::ItemRegistryEvent>,
     pub world_default_game_mode: protocol::GameModeUpdate,
+    pub player_game_mode_uses_world_default: bool,
     pub terrain_before_spawn: bool,
 }
 
@@ -44,6 +45,7 @@ pub(super) fn build(
         custom_blocks,
         item_registry,
         world_default_game_mode,
+        player_game_mode_uses_world_default,
         terrain_before_spawn,
     } = input;
     let StreamResources {
@@ -105,6 +107,7 @@ pub(super) fn build(
     }
     stream.set_server_animation_compiler(server_animation::compile_stop);
     stream.set_world_default_game_mode(world_default_game_mode);
+    stream.set_local_game_mode_follows_default(player_game_mode_uses_world_default);
     stream.set_display_interval(display_interval);
     stream.begin_frame_work();
     stream.set_startup_priority(true);

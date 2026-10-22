@@ -264,3 +264,33 @@ fn ordered_use_release_behind_a_pick(represses: bool) {
         .count();
     assert_eq!(releases, 1, "the queued Use release keeps its transaction");
 }
+
+/// A spectator game-mode stop reaches item use before later ordered input in
+/// the frame, so a Use release after it has no use left to release, as
+/// vanilla stops the use while handling the packet.
+#[test]
+fn a_game_mode_stop_precedes_later_ordered_use_input() {
+    let (mut world, mut captured) =
+        respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
+    world.init_resource::<crate::melee::MeleeTarget>();
+    world.init_resource::<client_state::GameplayScreenControls>();
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .stop_item_use_for_game_mode();
+    let mut events = semantic_input::DesktopEvents::default();
+    events.push(semantic_input::DesktopEvent::Button {
+        control: semantic_input::PhysicalControl::MouseButton(2),
+        pressed: false,
+        modifiers: semantic_input::ModifierChord::default(),
+    });
+    ordered_frame(&mut world, events, Vec::new());
+    assert!(!world.resource::<ItemUseRuntime>().is_using());
+    assert!(!world.resource::<MovementTicker>().has_held_release());
+    let releases = captured
+        .drain()
+        .iter()
+        .filter_map(protocol::test_support::transactions::observe_transaction)
+        .filter(|transaction| transaction.release().is_some())
+        .count();
+    assert_eq!(releases, 0);
+}

@@ -407,6 +407,15 @@ impl WorldAuthority {
                     }
                     UiEvent::DefaultGameMode(event) => {
                         self.actors.apply_world_game_mode(event.update);
+                        // A player following the default takes its new mode.
+                        if self.local_mode_follows_default
+                            && let protocol::GameModeUpdate::Explicit(mode) = event.update
+                        {
+                            self.push_committed_control(CommittedControlEvent::LocalGameMode {
+                                sequence,
+                                spectator: mode == protocol::PlayerGameMode::Spectator,
+                            });
+                        }
                         UiEvent::DefaultGameMode(event)
                     }
                     event => event,
@@ -467,6 +476,13 @@ impl WorldAuthority {
     /// Only the native spectator mode, explicit or through the world default,
     /// counts; legacy viewer modes are not spectators.
     fn push_local_game_mode(&mut self, sequence: u64, update: protocol::GameModeUpdate) {
+        match update {
+            protocol::GameModeUpdate::WorldDefault => self.local_mode_follows_default = true,
+            protocol::GameModeUpdate::Explicit(_) | protocol::GameModeUpdate::LegacyViewer => {
+                self.local_mode_follows_default = false;
+            }
+            protocol::GameModeUpdate::Unknown(_) => {}
+        }
         let spectator = match update {
             protocol::GameModeUpdate::Explicit(mode) => mode == protocol::PlayerGameMode::Spectator,
             protocol::GameModeUpdate::WorldDefault => {

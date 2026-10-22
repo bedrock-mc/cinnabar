@@ -277,6 +277,12 @@ impl WorldAuthority {
         self.actors.lifetime(runtime_id)
     }
 
+    /// Publishes StartGame's binding of the local player's mode to the world
+    /// default, which later default changes then reach.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.local_mode_follows_default = follows;
+    }
+
     /// Publishes the session's level mode before remote players are admitted.
     pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         self.actors.apply_world_game_mode(mode);

@@ -222,6 +222,7 @@ pub(super) fn apply(
             custom_blocks: &custom_blocks,
             item_registry: world_item_registry,
             world_default_game_mode,
+            player_game_mode_uses_world_default,
             terrain_before_spawn,
         },
         &packs,

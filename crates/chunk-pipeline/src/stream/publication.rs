@@ -23,6 +23,11 @@ impl WorldStream {
             .set_local_actor_presentation_position(position, reanchor);
     }
 
+    /// Retains StartGame's binding of the local player's mode to the world default.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.authority.set_local_game_mode_follows_default(follows);
+    }
+
     /// Retains StartGame's level mode for remote-player target admission.
     pub fn set_world_default_game_mode(&mut self, mode: client_world::ingestion::GameModeUpdate) {
         self.authority.set_world_default_game_mode(mode);

@@ -96,6 +96,8 @@ pub const COMMITTED_PARTICLE_CAPACITY: usize = 512;
 /// The one session owner of packed terrain, actors, identities and committed consumer queues.
 /// Terrain scheduling borrows this owner synchronously; it keeps no shadow world or frontier.
 pub struct WorldAuthority {
+    /// The local player's game mode follows the world default.
+    local_mode_follows_default: bool,
     terrain: ChunkStore,
     actors: ActorStore,
     combat_evidence: VecDeque<ActorCombatEvidence>,
@@ -180,6 +182,7 @@ impl WorldAuthority {
             terrain: ChunkStore::new(),
             actors,
             combat_evidence: VecDeque::new(),
+            local_mode_follows_default: false,
             combat_revision: 0,
             totems: None,
             block_events: block_events::BlockEvents::default(),
