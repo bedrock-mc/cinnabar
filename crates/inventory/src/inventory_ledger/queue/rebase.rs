@@ -66,7 +66,8 @@ impl PlayerInventoryLedger {
                     };
                     let same_data = match (prediction.before.as_ref(), replacement.as_ref()) {
                         (Some(before), Some(after)) => {
-                            before.stack.nbt_digest == after.stack.nbt_digest
+                            before.stack.count == after.stack.count
+                                && before.stack.nbt_digest == after.stack.nbt_digest
                         }
                         (None, None) => true,
                         _ => false,

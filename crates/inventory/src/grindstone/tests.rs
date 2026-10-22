@@ -145,3 +145,15 @@ fn enchanted_books_lose_their_kind_without_curses() {
         );
     }
 }
+
+/// Durability merges are computed without overflowing a negotiated maximum.
+#[test]
+fn huge_negotiated_durability_does_not_overflow() {
+    let worn = GrindstoneItem {
+        damage: u32::MAX,
+        max_damage: Some(u32::MAX),
+        ..sword(&[], 0, 0)
+    };
+    let outcome = evaluate_grindstone(Some(&worn), Some(&worn)).unwrap();
+    assert_eq!(outcome.damage, Some(u32::MAX - u32::MAX / 20));
+}

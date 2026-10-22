@@ -77,8 +77,9 @@ pub fn evaluate_grindstone(
         {
             return None;
         }
-        let bonus = max / 20;
-        let damage = (top.damage + bottom.damage).saturating_sub(max + bonus);
+        let worn = u64::from(top.damage) + u64::from(bottom.damage);
+        let restored = u64::from(max) + u64::from(max / 20);
+        let damage = u32::try_from(worn.saturating_sub(restored)).unwrap_or(u32::MAX);
         return Some(GrindstoneOutcome {
             source: if top.has_user_data { 0 } else { 1 },
             damage: Some(damage),
