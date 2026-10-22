@@ -384,8 +384,12 @@ fn worker_records_match_direct_meshing_above_inside_and_below_the_layer() {
         );
         let mut gpu = world.resource_mut::<CloudGpu>();
         let prepared = gpu.views.get_mut(&view).unwrap();
-        let (mesh, waited) = prepared
-            .mesh_cache
+        // The cold frame meshed its window inline; a prefetched worker must produce the same.
+        let mut worker = mesh_cache::CloudMeshCache::default();
+        worker.set_identity([0x41; 32]);
+        worker.prefetch(&runtime, prepared.viewport, false);
+        worker.finish_pending();
+        let (mesh, waited) = worker
             .get(
                 &runtime,
                 prepared.viewport,
@@ -529,6 +533,7 @@ fn frame_uploads_stage_cloud_records_and_colour() {
 /// A cold window must not wait behind unrelated work occupying every shared worker.
 #[test]
 fn cold_cloud_window_does_not_wait_for_a_busy_worker_pool() {
+    use meshing::cloud_viewport::mesh_cloud_viewport;
     let _world = world();
     let pool = bevy::tasks::AsyncComputeTaskPool::get();
     let workers = pool.thread_num();
