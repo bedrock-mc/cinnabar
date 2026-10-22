@@ -273,34 +273,69 @@ fn large_same_size_textures_split_into_pages_within_the_byte_cap() {
     assert_eq!(page_layers(u16::MAX, u16::MAX), 1);
 }
 
+/// Builds a same-size test page of `layers` copies of one value.
+fn group_page(side: u16, layers: usize) -> ActorTexturePage {
+    ActorTexturePage {
+        width: side,
+        height: side,
+        layers: layers as u32,
+        rgba8: vec![9; usize::from(side) * usize::from(side) * 4 * layers].into(),
+        color_mask: false,
+        multitexture: false,
+    }
+}
+
 // A group over the remaining budget shares one downscale, so every member keeps a location.
 #[test]
 fn a_split_group_downscales_together_so_every_member_is_admitted() {
-    let side = 1024u16;
-    let layer = usize::from(side) * usize::from(side) * 4;
     let members: Vec<usize> = (0..9).collect();
-    let mut pages = Vec::new();
+    let (mut pages, mut placed) = (Vec::new(), 0);
     let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 32 * 1024 * 1024;
-    let placed = push_group(
+    push_group(
         &mut pages,
         &mut gpu_bytes,
         &members,
-        [side, side],
+        [1024, 1024],
         false,
-        |chunk| ActorTexturePage {
-            width: side,
-            height: side,
-            layers: chunk.len() as u32,
-            rgba8: vec![9; layer * chunk.len()].into(),
-            color_mask: false,
-            multitexture: false,
-        },
+        |chunk| (group_page(1024, chunk.len()), ()),
+        |chunk, _, (), _| placed += chunk.len(),
     );
-    assert_eq!(
-        placed.iter().map(|(chunk, _)| chunk.len()).sum::<usize>(),
-        9
-    );
-    assert!(placed.iter().all(|(_, page)| page.is_some()));
+    assert_eq!(placed, 9);
     assert!(pages.iter().all(|page| page.dimensions() == (512, 512)));
     assert!(gpu_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES);
+}
+
+// A downscaled chunk's full-resolution pixels are freed before the next chunk is built.
+#[test]
+fn a_downscaled_group_frees_each_original_before_building_the_next() {
+    let members: Vec<usize> = (0..300).collect();
+    let mut pages = Vec::new();
+    let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 8 * 1024 * 1024;
+    let mut originals: Vec<std::sync::Weak<[u8]>> = Vec::new();
+    let (mut chunks, mut placed) = (0, 0);
+    push_group(
+        &mut pages,
+        &mut gpu_bytes,
+        &members,
+        [128, 128],
+        false,
+        |chunk| {
+            assert!(
+                originals
+                    .iter()
+                    .all(|original| original.upgrade().is_none())
+            );
+            let page = group_page(128, chunk.len());
+            originals.push(Arc::downgrade(&page.rgba8));
+            chunks += 1;
+            (page, ())
+        },
+        |chunk, _, (), kept| {
+            assert!(!kept);
+            placed += chunk.len();
+        },
+    );
+    assert!(chunks > 1, "the fixture must split into several pages");
+    assert_eq!(placed, members.len());
+    assert!(pages.iter().all(|page| page.dimensions() == (64, 64)));
 }

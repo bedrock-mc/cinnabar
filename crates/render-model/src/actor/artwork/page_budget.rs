@@ -3,6 +3,7 @@
 use super::{
     ActorArtworkPageId, ActorTexturePage, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+use std::sync::Arc;
 
 /// Layers per generic entity page, within every backend's array-layer limit.
 pub(super) const MAX_ACTOR_PAGE_LAYERS: usize = 256;
@@ -40,15 +41,18 @@ pub(super) fn push_page(
 }
 
 /// Pushes a same-size group split into capped pages, all at the one resolution the remaining
-/// budget allows for the whole group; returns each chunk with its page id (`None` once ids run out).
-pub(super) fn push_group<'a>(
+/// budget allows for the whole group. Each chunk is built, fitted and placed before the next is
+/// built, so at most one full-resolution chunk is alive. `placed` receives each admitted chunk,
+/// its page id, `build`'s value, and whether the page kept the built pixels unchanged.
+pub(super) fn push_group<'a, T>(
     pages: &mut Vec<ActorTexturePage>,
     gpu_bytes: &mut usize,
     members: &'a [usize],
     [width, height]: [u16; 2],
     multitexture: bool,
-    mut build: impl FnMut(&'a [usize]) -> ActorTexturePage,
-) -> Vec<(&'a [usize], Option<ActorArtworkPageId>)> {
+    mut build: impl FnMut(&'a [usize]) -> (ActorTexturePage, T),
+    mut placed: impl FnMut(&'a [usize], ActorArtworkPageId, T, bool),
+) {
     let mut limit = u32::from(width.max(height));
     let [fitted_width, fitted_height] = loop {
         let fitted = crate::actor::texel_fit::fitted_dimensions(width, height, limit);
@@ -64,11 +68,16 @@ pub(super) fn push_group<'a>(
     } else {
         page_layers(fitted_width, fitted_height)
     };
-    members
-        .chunks(layers)
-        .map(|chunk| {
-            let page = build(chunk).fit_within(limit).into_owned();
-            (chunk, push_page(pages, gpu_bytes, page))
-        })
-        .collect()
+    for chunk in members.chunks(layers) {
+        let (built, value) = build(chunk);
+        let page = built.fit_within(limit).into_owned();
+        // Only unchanged pixels stay referenced; a downscaled chunk's original frees here.
+        let unchanged = Arc::ptr_eq(&built.rgba8, &page.rgba8).then(|| Arc::clone(&page.rgba8));
+        drop(built);
+        if let Some(id) = push_page(pages, gpu_bytes, page) {
+            let kept = unchanged
+                .is_some_and(|pixels| Arc::ptr_eq(&pixels, &pages[usize::from(id) - 1].rgba8));
+            placed(chunk, id, value, kept);
+        }
+    }
 }
