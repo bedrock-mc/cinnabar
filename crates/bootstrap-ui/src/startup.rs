@@ -187,8 +187,9 @@ mod tests {
 
     #[test]
     fn unresponsive_helper_is_reaped_when_content_is_ready_before_it_draws() {
+        // Keep the watchdog beyond this test's wait so only readiness can reap the helper.
         let controller =
-            Controller::from_child(unresponsive_helper(), FIRST_FRAME_TIMEOUT).unwrap();
+            Controller::from_child(unresponsive_helper(), test_time::DEFAULT_TIMEOUT * 2).unwrap();
         controller.ready();
         test_time::eventually("retired loading helper reaped", || {
             controller.child.try_wait().unwrap().is_some()
