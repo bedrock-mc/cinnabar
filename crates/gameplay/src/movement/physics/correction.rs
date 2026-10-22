@@ -44,6 +44,14 @@ impl LocalPhysicsController {
             let jump_edge_pending = self.jump_edge_pending;
             let input_edges = self.input_edges;
             let modes = self.modes;
+            // The spin and its counter, including one a server clear saved, are
+            // flag state a spatial snap leaves alone.
+            let spin = self.state.as_ref().map(|state| {
+                (
+                    state.spin_attack_ticks,
+                    self.server_flags.cleared_spin_on(state.tick),
+                )
+            });
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
             // jump input or movement abilities.
@@ -55,6 +63,12 @@ impl LocalPhysicsController {
                 state.jump_delay = jump_delay;
                 state.swim_amount = swim_amount;
                 state.swim_pose_active = swim_pose_active;
+                if let Some((ticks, cleared)) = spin {
+                    state.spin_attack_ticks = ticks;
+                    if let Some(cleared) = cleared {
+                        self.server_flags.save_cleared_spin(state.tick, cleared);
+                    }
+                }
             }
             if let (Some(velocity), Some(state)) = (velocity, self.state.as_mut()) {
                 state.velocity = velocity;

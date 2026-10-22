@@ -909,3 +909,42 @@ fn a_current_tick_correction_keeps_a_live_spin() {
     .unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
 }
+
+/// A spatial snap moves the player without touching the spin: an active spin
+/// keeps running and a counter a server clear saved still resumes.
+#[test]
+fn a_snap_keeps_the_spin_and_its_saved_counter() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let spin = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, spin(true));
+    let mut last = None;
+    for _ in 0..3 {
+        last = Some(tick(
+            &mut physics,
+            &mut ticker,
+            PhysicsSampleContext::default(),
+        ));
+    }
+    let last = last.unwrap();
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    let snap = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        reconcile_candidate_physics_correction(
+            ticker,
+            physics,
+            last.position,
+            last.tick,
+            true,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        )
+        .unwrap();
+    };
+    snap(&mut physics, &mut ticker);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+    physics.apply_server_movement_flags(0, spin(false));
+    snap(&mut physics, &mut ticker);
+    physics.apply_server_movement_flags(0, spin(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}

@@ -407,8 +407,14 @@ impl LocalPhysicsController {
     }
 
     /// Discards server writes waiting for the next tick when respawn or a
-    /// dimension change replaces the old life or world.
+    /// dimension change replaces the old life or world, and ends the old
+    /// life's Riptide spin with its saved counter; the spatial snap that
+    /// follows keeps flag state as it finds it.
     pub fn discard_server_flag_writes(&mut self) {
         self.server_flags.queued = None;
+        self.server_flags.cleared_spin = None;
+        if let Some(state) = self.state.as_mut() {
+            state.spin_attack_ticks = None;
+        }
     }
 }
