@@ -549,6 +549,9 @@ impl UiRuntime {
             InventoryCellHit::RecipeBook(index) => {
                 self.recipe_book_click(player_runtime, index, true, None)
             }
+            InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
+                self.book_widget_craft(player_runtime, index, true)
+            }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
                 self.activate_widget(player_runtime, Widget::Close)
@@ -822,21 +825,29 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => {
-                let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
-                let recipe = self
-                    .book_recipes(player_runtime, skip, 1)
-                    .into_iter()
-                    .next()
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
-                player_runtime
-                    .inventory
-                    .begin_book_craft(&recipe.recipe, false)
-            }
+            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),
         }
+    }
+
+    /// Crafts the fallback book's `index` entry on the current page once, or a stack with `all`.
+    fn book_widget_craft(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        index: u8,
+        all: bool,
+    ) -> Outcome {
+        let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
+        let recipe = self
+            .book_recipes(player_runtime, skip, 1)
+            .into_iter()
+            .next()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        player_runtime
+            .inventory
+            .begin_book_craft(&recipe.recipe, all)
     }
 
     /// A click on a recipe book entry: a creative item as on the catalog grid, else

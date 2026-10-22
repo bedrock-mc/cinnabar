@@ -172,9 +172,6 @@ fn a_held_stack_stops_a_secondary_recipe_click_and_shift_crafts_a_stack() {
             0,
             "{hit:?}"
         );
-        if hit != InventoryCellHit::RecipeBook(0) {
-            continue;
-        }
         runtime.perform_pointer_action(&mut player, PointerAction::QuickMove(hit));
         let ledger = player.inventory.ledger();
         assert_eq!(ledger.pending_request_count(), 1);
