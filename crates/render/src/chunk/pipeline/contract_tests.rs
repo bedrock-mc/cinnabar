@@ -300,6 +300,7 @@ fn cutout_pipeline_warmup_covers_every_sample_count() {
                             msaa,
                             hdr,
                             enhanced: false,
+                            shader_pack: false,
                             output: None,
                         },
                         &mut ids,

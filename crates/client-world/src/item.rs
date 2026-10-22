@@ -109,6 +109,27 @@ pub struct ActorArmorSnapshot {
     pub body: ActorArmorPiece,
 }
 
+impl ActorArmorSnapshot {
+    /// Worn stacks in wire order, including the separate body slot.
+    pub fn pieces(&self) -> [&ActorArmorPiece; 5] {
+        [
+            &self.helmet,
+            &self.chestplate,
+            &self.leggings,
+            &self.boots,
+            &self.body,
+        ]
+    }
+
+    /// Counts occupied slots independently of registry and drawable-model resolution.
+    pub fn equipment_count(&self) -> u8 {
+        self.pieces()
+            .iter()
+            .filter(|piece| !piece.item.identity.is_empty())
+            .count() as u8
+    }
+}
+
 /// Where one MobEquipment or MobArmorEquipment landed, for diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EquipmentNotice {

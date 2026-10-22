@@ -291,3 +291,33 @@ fn labels_keep_their_colour_after_ldr_and_hdr_world_replacement_and_retain_depth
         );
     }
 }
+
+#[test]
+fn ordinary_views_do_not_warm_shader_pack_label_variants() {
+    use crate::pipeline_warmup::{PrewarmPipelines, WarmView};
+    let (device, _) = wgpu::Device::noop(&default());
+    let cache = PipelineCache::new(RenderDevice::from(device), true);
+    let mut pipeline = NametagPipeline::from_world(&mut World::new());
+    let mut ids = Vec::new();
+    let view = WarmView {
+        msaa: Msaa::Off,
+        hdr: true,
+        enhanced: false,
+        shader_pack: false,
+        output: None,
+    };
+    pipeline.prewarm(&cache, view, &mut ids).unwrap();
+    assert_eq!(ids.len(), 4);
+    ids.clear();
+    pipeline
+        .prewarm(
+            &cache,
+            WarmView {
+                shader_pack: true,
+                ..view
+            },
+            &mut ids,
+        )
+        .unwrap();
+    assert_eq!(ids.len(), if cfg!(feature = "shaderpacks") { 8 } else { 4 });
+}

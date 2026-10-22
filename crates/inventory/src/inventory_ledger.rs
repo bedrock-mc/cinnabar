@@ -144,6 +144,10 @@ struct StorageWindow {
     data: BTreeMap<i32, i32>,
     generation: u64,
     identity: Option<ContainerIdentity>,
+    /// The container name of a chest-like block that requests must use instead of the level entity.
+    block_container: Option<u8>,
+    /// The address in-flight requests were sent under before the block entity renamed it.
+    superseded_identity: Option<ContainerIdentity>,
     resync_required: bool,
     /// Set by a local close while admitted predictions still await their
     /// responses, retaining the generation they reconcile against.

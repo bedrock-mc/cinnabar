@@ -29,7 +29,7 @@ impl MenuRuntime {
     /// Queues a press. [`Action::Open`] opens the screen for the selected pack, showing it as
     /// loading until the app publishes it; other presses need the screen open.
     pub(super) fn activate_shader_options(&mut self, action: Action) {
-        if !render_model::SHADER_PACKS_ENABLED {
+        if !render_model::SHADER_PACKS_ENABLED || self.shader_pack_removing.is_some() {
             return;
         }
         if action == Action::Open {
@@ -181,6 +181,35 @@ mod tests {
         view.status = launcher::shader_options::Status::Ready;
         menu.sync_shader_options(Some(view));
         menu
+    }
+
+    #[test]
+    fn removal_waits_for_the_editor_and_accepted_saves_to_close() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = editing_menu();
+        let revision = menu.shader_packs_revision;
+        for status in [
+            launcher::shader_options::Status::Ready,
+            launcher::shader_options::Status::Saving,
+        ] {
+            let mut view = View::loading("Dusk.zip");
+            view.status = status;
+            menu.sync_shader_options(Some(view));
+            menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+            assert!(menu.view().dialog.is_none());
+            menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+            assert!(menu.take_shader_pack_removal().is_none());
+        }
+        menu.sync_shader_options(None);
+        menu.activate(MenuAction::RemoveShaderPackDialog(0, revision));
+        menu.activate(MenuAction::ConfirmRemoveShaderPack(0, revision));
+        assert_eq!(menu.take_shader_pack_removal().as_deref(), Some("Dusk.zip"));
+        menu.activate(MenuAction::ShaderOptions(Action::Open));
+        menu.activate(MenuAction::ShaderOptions(Action::Apply));
+        assert!(menu.take_shader_option_actions().is_empty());
+        assert!(menu.view().shader_options.is_none());
     }
 
     #[test]

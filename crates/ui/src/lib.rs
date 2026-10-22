@@ -15,7 +15,7 @@ mod settings;
 pub mod settings_state;
 mod text;
 
-pub use action::{PointerPhase, UiAction, UiLimits};
+pub use action::{PointerPhase, TOUCH_DRAG_DISTANCE, UiAction, UiLimits};
 pub use chat::{
     ChatApplyResult, ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta,
     ChatAutocompleteError, ChatAutocompleteRequest, ChatAutocompleteResponse,

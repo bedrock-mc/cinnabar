@@ -412,3 +412,19 @@ fn gated_render_keeps_retained_scroll_state() {
         );
     }
 }
+
+#[test]
+fn scrollbar_roles_identify_the_controls_that_receive_pointer_hits() {
+    let root = view(json!({}), [100.0, 200.0], [100.0, 50.0], "vertical");
+    let (laid, report) = layout_with(&root, [200.0, 200.0], &env(), &scrolled(75.0));
+    let regions = hit_regions(&laid);
+    let metrics = &report.scrolls["/view"];
+    for (key, rect) in [
+        (&metrics.thumb_key, metrics.thumb),
+        (&metrics.track_key, metrics.track),
+    ] {
+        let rect = rect.unwrap();
+        let hit = json_ui::hit_test(&regions, [rect[0] + 1.0, rect[1] + 1.0]).unwrap();
+        assert_eq!(key.as_deref(), Some(hit.key.as_str()));
+    }
+}

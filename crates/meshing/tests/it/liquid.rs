@@ -24,6 +24,7 @@ const FACED_ALIAS: u32 = 22;
 const FACED_DEPTH_7: u32 = 23;
 const NON_WATER_LIQUID: u32 = 24;
 const GLASS: u32 = 25;
+const UNCLASSIFIED_MODEL: u32 = 26;
 const STILL: u32 = 1;
 const FLOW: u32 = 2;
 
@@ -847,7 +848,9 @@ fn runtime_assets() -> &'static RuntimeAssets {
             variant: 0,
             destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
-        let mut visuals = vec![diagnostic; 26];
+        let beacon = beacon::record();
+        let mut visuals = vec![diagnostic; beacon.sequential_id as usize + 1];
+        assert!(beacon.sequential_id > UNCLASSIFIED_MODEL);
         visuals[AIR as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
             flags: BlockFlags::AIR,
@@ -887,6 +890,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
             kind: VisualKind::Cube,
             ..diagnostic
         };
+        let open_model = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [15; 6],
+            kind: VisualKind::Model,
+            model_template: 0,
+            ..diagnostic
+        };
+        visuals[beacon.sequential_id as usize] = open_model;
+        visuals[UNCLASSIFIED_MODEL as usize] = open_model;
         let mut materials = vec![
             Material {
                 texture: TextureRef::DIAGNOSTIC,
@@ -963,7 +975,13 @@ fn runtime_assets() -> &'static RuntimeAssets {
         let light_properties = vec![assets::LightProperties::default(); visuals.len()];
         let compiled = CompiledAssets {
             visuals: visuals.into_boxed_slice(),
-            hashed: Box::new([]),
+            hashed: vec![
+                (AIR, AIR),
+                (WATER_SOURCE, WATER_SOURCE),
+                (UNCLASSIFIED_MODEL, UNCLASSIFIED_MODEL),
+                (beacon.network_hash, beacon.sequential_id),
+            ]
+            .into_boxed_slice(),
             materials: materials.into_boxed_slice(),
             model_templates: vec![assets::ModelTemplate {
                 quad_start: 0,
@@ -1074,5 +1092,7 @@ fn varint(mut value: i32) -> Vec<u8> {
     }
 }
 
+#[path = "liquid/beacon.rs"]
+mod beacon;
 #[path = "liquid/mixed.rs"]
 mod mixed;

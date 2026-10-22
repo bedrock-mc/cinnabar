@@ -106,6 +106,10 @@ pub(crate) fn drive_sign_editor(
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
     if input_available {
+        if mouse.just_pressed(MouseButton::Back) {
+            finish = true;
+            explicit_finish = true;
+        }
         for event in keyboard
             .read()
             .filter(|event| event.state == ButtonState::Pressed)

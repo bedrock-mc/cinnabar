@@ -112,6 +112,96 @@ fn divergent_fragments_keep_explicit_gradients_before_rejection() {
     }
 }
 
+/// Lists calls that pass a function's own matrix parameter on to another function.
+///
+/// Built-in shaders avoid this valid pattern for Adreno compiler compatibility.
+fn forwarded_matrix_arguments(module: &naga::Module) -> Vec<String> {
+    /// Visits calls in nested control flow without following calls into other functions.
+    fn visit(
+        module: &naga::Module,
+        function: &naga::Function,
+        block: &naga::Block,
+        found: &mut Vec<String>,
+    ) {
+        for statement in block.iter() {
+            match statement {
+                naga::Statement::Call {
+                    function: callee,
+                    arguments,
+                    ..
+                } => {
+                    for argument in arguments {
+                        let naga::Expression::FunctionArgument(index) =
+                            function.expressions[*argument]
+                        else {
+                            continue;
+                        };
+                        let parameter = &function.arguments[index as usize];
+                        if matches!(
+                            module.types[parameter.ty].inner,
+                            naga::TypeInner::Matrix { .. }
+                        ) {
+                            found.push(format!(
+                                "{} forwards {} to {}",
+                                function.name.as_deref().unwrap_or("?"),
+                                parameter.name.as_deref().unwrap_or("?"),
+                                module.functions[*callee].name.as_deref().unwrap_or("?"),
+                            ));
+                        }
+                    }
+                }
+                naga::Statement::Block(inner) => visit(module, function, inner, found),
+                naga::Statement::If { accept, reject, .. } => {
+                    visit(module, function, accept, found);
+                    visit(module, function, reject, found);
+                }
+                naga::Statement::Switch { cases, .. } => {
+                    for case in cases {
+                        visit(module, function, &case.body, found);
+                    }
+                }
+                naga::Statement::Loop {
+                    body, continuing, ..
+                } => {
+                    visit(module, function, body, found);
+                    visit(module, function, continuing, found);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for (_, function) in module.functions.iter() {
+        visit(module, function, &function.body, &mut found);
+    }
+    for entry in &module.entry_points {
+        visit(module, &entry.function, &entry.function.body, &mut found);
+    }
+    found
+}
+
+#[test]
+fn block_entity_stages_never_forward_matrix_parameters() {
+    let shader = shader_safety::from_block_entity_wesl(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        "block entity driver calls",
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
+    );
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("block entity constructor produces WESL");
+    };
+    let module = naga::front::wgsl::parse_str(&shader_source::standalone(&source, &[]))
+        .expect("block entity shader parses");
+    for entry in ["portal_vertex", "selection_line_vertex"] {
+        assert!(
+            module.entry_points.iter().any(|point| point.name == entry),
+            "{entry} remains in the checked module"
+        );
+    }
+    assert_eq!(forwarded_matrix_arguments(&module), Vec::<String>::new());
+}
+
 #[test]
 fn dragon_dissolve_passes_preserve_identical_vertex_depths() {
     let module = naga::front::wgsl::parse_str(&standalone(include_str!("../../src/actor.wesl")))
@@ -212,6 +302,9 @@ fn every_shader_parses_and_validates() {
                 .validate(&module)
                 {
                     failures.push(format!("{name}: {error:?}"));
+                }
+                for call in forwarded_matrix_arguments(&module) {
+                    failures.push(format!("{name}: {call}"));
                 }
             }
         }

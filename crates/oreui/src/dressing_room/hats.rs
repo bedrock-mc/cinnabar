@@ -90,7 +90,7 @@ pub(super) fn collection(
     Ok(y + count.div_ceil(columns) as f32 * (side + gap))
 }
 
-/// Uses the existing surface feedback, selection mark and focus frame around the preview.
+/// Keeps unowned previews visible behind a dim veil and lock, without wear targets.
 fn tile(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -98,14 +98,17 @@ fn tile(
     hat: cosmetics::Item,
 ) -> Result<(), PaintError> {
     let action = command(Action::SelectCosmetic(Some(hat)));
-    let selected = view
-        .dressing_room
-        .selected_cosmetics
-        .get(&hat.descriptor().slot)
-        .and_then(|value| value.as_deref())
-        == Some(hat.id());
-    let state = canvas.interaction(view, Some(action));
-    let motion = canvas.feedback(state, enabled(view), selected, Kind::Surface);
+    let owned = hat.is_owned();
+    let interactive = enabled(view) && owned;
+    let selected = owned
+        && view
+            .dressing_room
+            .selected_cosmetics
+            .get(&hat.descriptor().slot)
+            .and_then(|value| value.as_deref())
+            == Some(hat.id());
+    let state = canvas.interaction(view, interactive.then_some(action));
+    let motion = canvas.feedback(state, interactive, selected, Kind::Surface);
     let role = canvas.role(theme::NEUTRAL);
     canvas.fill(
         b,
@@ -133,7 +136,18 @@ fn tile(
             [b[0] + pad, b[1] + pad, b[2] - pad, b[3] - pad],
         )?;
     }
-    if selected {
+    if !owned {
+        canvas.fill(b, opacity(role.fill, 0.72))?;
+        let side = canvas.r(3.6);
+        let badge = [b[2] - side, b[1], b[2], b[1] + side];
+        canvas.fill(badge, canvas.appearance.surface(theme::BORDER))?;
+        icons::draw(
+            canvas,
+            Icon::Lock,
+            [badge[0] + canvas.r(0.6), badge[1] + canvas.r(0.6)],
+            TEXT,
+        )?;
+    } else if selected {
         let badge = [b[2] - canvas.r(2.8), b[1], b[2], b[1] + canvas.r(2.8)];
         canvas.fill(badge, theme::PRIMARY_ROLE.fill)?;
         icons::draw(
@@ -146,7 +160,7 @@ fn tile(
     if motion.focus > 0.0 {
         canvas.frame(b, EDGE, opacity(theme::OUTLINE, motion.focus))?;
     }
-    if enabled(view) {
+    if interactive {
         canvas.hit(action, b)?;
     }
     Ok(())
