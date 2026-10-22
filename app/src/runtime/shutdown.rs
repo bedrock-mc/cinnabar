@@ -8,7 +8,7 @@ use client_runtime::network::NetworkHandle;
 #[cfg(feature = "acceptance")]
 use bevy::ecs::system::SystemParam;
 use bevy::{
-    prelude::{App, AppExit, Last, MessageReader, MessageWriter, Res, ResMut, Resource},
+    prelude::{App, AppExit, Last, Local, MessageReader, MessageWriter, Res, ResMut, Resource},
     window::WindowCloseRequested,
 };
 #[cfg(feature = "acceptance")]
@@ -47,6 +47,14 @@ impl TerminalCause {
         cause
     }
 
+    /// Keeps the first cause; later failures during teardown are consequences of it.
+    fn record(&self, cause: String) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert(cause);
+    }
+
     /// The process failure for an error exit, naming its cause when one was recorded.
     pub(crate) fn exit_message(&self) -> String {
         let cause = self.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -71,11 +79,32 @@ fn capture_terminal_cause(
     else {
         return;
     };
-    cause
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get_or_insert(error);
+    cause.record(error);
+}
+
+/// Ends the app once the render device is lost, naming the driver's reason; nothing can draw
+/// again, so the crash window shows it and offers a restart.
+pub(crate) fn exit_on_device_loss(
+    loss: Res<render::DeviceLoss>,
+    cause: Res<TerminalCause>,
+    mut reported: Local<bool>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(message) = loss.message() else {
+        return;
+    };
+    if std::mem::replace(&mut *reported, true) {
+        return;
+    }
+    cause.record(device_loss_cause(message));
+    exit.write(AppExit::error());
+}
+
+fn device_loss_cause(driver: &str) -> String {
+    format!(
+        "the graphics device stopped working: the driver reset, the GPU was removed, or it ran \
+         out of video memory. Restart to continue. Driver report: {driver}"
+    )
 }
 
 pub(crate) fn fatal_runtime_exit(error: &str) -> Option<AppExit> {
@@ -209,6 +238,28 @@ mod tests {
         });
         assert!(app.run().is_error());
         assert!(terminal.exit_message().ends_with(first));
+    }
+
+    /// A lost GPU device must end the app with the driver's reason, not a bare error exit.
+    #[test]
+    fn device_loss_exits_with_the_driver_reason() {
+        let mut app = App::new();
+        app.init_resource::<render::DeviceLoss>()
+            .add_systems(Update, exit_on_device_loss);
+        let terminal = TerminalCause::install(&mut app);
+        app.update();
+        assert!(app.should_exit().is_none());
+
+        app.world_mut()
+            .resource_mut::<render::DeviceLoss>()
+            .record("DXGI_ERROR_DEVICE_REMOVED");
+        assert!(app.run().is_error());
+        let message = terminal.exit_message();
+        assert!(
+            message.contains("graphics device stopped working"),
+            "{message}"
+        );
+        assert!(message.ends_with("DXGI_ERROR_DEVICE_REMOVED"), "{message}");
     }
 
     #[test]

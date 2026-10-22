@@ -1,5 +1,5 @@
 //! Recoverable render allocations: out-of-memory skips the owner's work instead of
-//! quitting. Other GPU errors remain fatal.
+//! quitting. A lost device ends the app with its cause; other GPU errors remain fatal.
 
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
@@ -14,10 +14,29 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-/// Keeps rendering after an uncaptured out-of-memory error; other errors keep Bevy's policy.
-/// Install after the render plugin so this handler replaces the default.
+/// Keeps rendering after an uncaptured out-of-memory error and hands a lost device to the
+/// main world; other errors keep Bevy's policy. Install after the render plugin so this
+/// handler replaces the default.
 pub fn install_error_policy(app: &mut bevy::app::App) {
-    app.insert_resource(RenderErrorHandler(error_policy));
+    app.init_resource::<DeviceLoss>()
+        .insert_resource(RenderErrorHandler(error_policy));
+}
+
+/// The driver's description of a lost render device; nothing renders once it is set, and the
+/// app ends with it as the cause.
+#[derive(bevy::prelude::Resource, Default)]
+pub struct DeviceLoss(Option<String>);
+
+impl DeviceLoss {
+    /// The driver's description once the device is lost.
+    pub fn message(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+
+    /// Keeps the first loss; Bevy repeats a stopped renderer's error every frame.
+    pub fn record(&mut self, description: &str) {
+        self.0.get_or_insert_with(|| description.to_owned());
+    }
 }
 
 /// wgpu reports out-of-memory per failed operation and leaves the device usable; a real device
@@ -27,11 +46,19 @@ fn error_policy(
     main_world: &mut bevy::ecs::world::World,
     render_world: &mut bevy::ecs::world::World,
 ) -> RenderErrorPolicy {
-    if error.ty == ErrorType::OutOfMemory {
-        bevy::log::warn_once!("GPU memory exhausted; continuing without the failed allocation");
-        return RenderErrorPolicy::Ignore;
+    match error.ty {
+        ErrorType::OutOfMemory => {
+            bevy::log::warn_once!("GPU memory exhausted; continuing without the failed allocation");
+            RenderErrorPolicy::Ignore
+        }
+        ErrorType::DeviceLost => {
+            main_world
+                .get_resource_or_init::<DeviceLoss>()
+                .record(&error.description);
+            RenderErrorPolicy::StopRendering
+        }
+        _ => (RenderErrorHandler::default().0)(error, main_world, render_world),
     }
-    (RenderErrorHandler::default().0)(error, main_world, render_world)
 }
 
 /// Returns no resource when allocation or staging ran out of memory on this thread.
@@ -226,5 +253,26 @@ mod tests {
         );
         assert!(matches!(policy, RenderErrorPolicy::StopRendering));
         assert!(!main_world.resource::<Messages<AppExit>>().is_empty());
+    }
+
+    /// A lost device stops rendering and leaves the exit, with its cause, to the main world.
+    #[test]
+    fn device_loss_stops_rendering_and_records_the_driver_reason() {
+        let lost = |description: &str| RenderError {
+            ty: ErrorType::DeviceLost,
+            description: description.into(),
+            source: None,
+        };
+        let (mut main_world, mut render_world) = (World::new(), World::new());
+        main_world.init_resource::<Messages<AppExit>>();
+        for description in ["DXGI_ERROR_DEVICE_HUNG", "repeated"] {
+            let policy = error_policy(&lost(description), &mut main_world, &mut render_world);
+            assert!(matches!(policy, RenderErrorPolicy::StopRendering));
+        }
+        assert!(main_world.resource::<Messages<AppExit>>().is_empty());
+        assert_eq!(
+            main_world.resource::<DeviceLoss>().message(),
+            Some("DXGI_ERROR_DEVICE_HUNG")
+        );
     }
 }
