@@ -41,6 +41,8 @@ impl TextureKey {
 #[derive(Debug)]
 pub struct BlockTextureMap {
     pub(super) entries: BTreeMap<Box<str>, BlockSourceEntry>,
+    /// `carried_textures` of blocks with no world `textures` (light blocks), for item icons only.
+    pub(super) carried_only: BTreeMap<Box<str>, Value>,
     pub(super) component_crosses: BTreeMap<Box<str>, super::CrossMaterial>,
     pub(super) component_models: BTreeMap<u32, super::ComponentModel>,
 }
@@ -357,7 +359,18 @@ pub fn resolve_carried_down_key<'a>(
     blocks: &'a BlockTextureMap,
     record: &RegistryRecord,
 ) -> Option<std::borrow::Cow<'a, str>> {
-    carried_or_world_key(blocks, record, BlockFace::Down, true)
+    carried_or_world_key(blocks, record, BlockFace::Down, true).or_else(|| {
+        let name = record
+            .name
+            .strip_prefix("minecraft:")
+            .unwrap_or(&record.name);
+        let carried = blocks.carried_only.get(name)?;
+        let key = match serde_json::from_value::<TextureValue>(carried.clone()).ok()? {
+            TextureValue::Key(key) => key,
+            TextureValue::Faces(faces) => faces.resolve(BlockFace::Down)?.to_owned(),
+        };
+        (!key.is_empty()).then_some(key.into())
+    })
 }
 
 /// A face of a block's `carried_textures`; `None` when the block declares none.
@@ -435,6 +448,7 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
     }
 
     let mut entries = BTreeMap::new();
+    let mut carried_only = BTreeMap::new();
     for (name, value) in document {
         let entry: BlockEntry =
             serde_json::from_value(value).map_err(|source| AssetError::InvalidBlockEntry {
@@ -443,6 +457,9 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
                 source,
             })?;
         let Some(textures) = entry.textures else {
+            if let Some(carried) = entry.extra.get("carried_textures") {
+                carried_only.insert(name.into_boxed_str(), carried.clone());
+            }
             continue;
         };
         if !textures.has_keys() {
@@ -459,6 +476,7 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
     }
     Ok(BlockTextureMap {
         entries,
+        carried_only,
         component_crosses: BTreeMap::new(),
         component_models: BTreeMap::new(),
     })

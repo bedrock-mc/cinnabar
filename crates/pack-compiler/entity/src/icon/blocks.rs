@@ -10,6 +10,7 @@ use std::{path::Path, sync::Arc};
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
     RegistryRecord, RuntimeAssets, VisualKind, VisualSupport, read_registry_for_protocol,
+    registry::BlockTraits,
 };
 
 use pack_compile_input::image::decode_texture;
@@ -84,6 +85,10 @@ impl IconBlocks {
         };
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
         FLAT_FAMILIES.contains(&record.model_family)
+            // Barriers and light blocks share a GUI shape the item renderer cannot tessellate.
+            || record
+                .traits
+                .intersects(BlockTraits::INVISIBLE | BlockTraits::LIGHT_BLOCK)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
             || (record.model_family == ModelFamily::Unknown
                 && assets::facts::block_render_fact(&record.name).flat_icon)
@@ -210,8 +215,32 @@ impl IconBlocks {
             .map(Into::into)
     }
 
-    pub(super) fn sprite(root: &Path, path: &str) -> Result<Option<IconSprite>, AssetError> {
-        Self::sprite_with_strip_frame(root, path, false)
+    /// A flat block icon; a flipbook texture shows its first frame, as the terrain atlas holds it.
+    pub(super) fn flat_sprite(
+        &self,
+        root: &Path,
+        path: &str,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let file = static_texture_path(root, path, path)?;
+        if !file.is_file() {
+            return Ok(None);
+        }
+        let mut decoded = decode_texture(&file, path)?;
+        let stem = |texture: &str| {
+            texture
+                .strip_suffix(".png")
+                .or_else(|| texture.strip_suffix(".tga"))
+                .unwrap_or(texture)
+                .to_owned()
+        };
+        if self.pack.as_ref().is_some_and(|pack| {
+            pack.flipbooks
+                .iter()
+                .any(|flipbook| stem(&flipbook.texture_path) == stem(path))
+        }) {
+            pack_compile_input::image::retain_first_strip_frame(&mut decoded);
+        }
+        Ok(super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite))
     }
 
     /// Loads a bounded sprite or an unresized square frame for carried-face baking.
@@ -298,6 +327,74 @@ mod tests {
                 .unwrap();
             assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
         }
+    }
+
+    fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
+        std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
+        std::fs::write(root.join("blocks.json"), blocks).unwrap();
+        std::fs::write(root.join("textures/terrain_texture.json"), terrain).unwrap();
+        std::fs::write(root.join("textures/flipbook_textures.json"), flipbooks).unwrap();
+    }
+
+    fn record(blocks: &IconBlocks, name: &str) -> BlockVisualId {
+        BlockVisualId(
+            blocks
+                .records
+                .iter()
+                .find(|record| record.name.as_ref() == name)
+                .unwrap()
+                .sequential_id,
+        )
+    }
+
+    /// Light blocks declare only carried textures and barriers have no tessellated GUI shape;
+    /// both draw their art flat.
+    #[test]
+    fn light_blocks_and_barriers_draw_flat_carried_art() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"light_block_7":{"carried_textures":"light_block_7"},"barrier":{"textures":"barrier"}}"#,
+            r#"{"texture_data":{"light_block_7":{"textures":"textures/blocks/light_7"},"barrier":{"textures":"textures/blocks/barrier"}}}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let light = record(&blocks, "minecraft:light_block_7");
+        let barrier = record(&blocks, "minecraft:barrier");
+        assert!(blocks.is_flat(&world, light) && blocks.is_flat(&world, barrier));
+        assert_eq!(
+            blocks.texture_path(light).as_deref(),
+            Some("textures/blocks/light_7")
+        );
+        assert_eq!(
+            blocks.texture_path(barrier).as_deref(),
+            Some("textures/blocks/barrier")
+        );
+    }
+
+    /// A flat icon shows one frame of a flipbook strip, while other textures keep their size.
+    #[test]
+    fn flat_flipbook_icons_show_their_first_frame() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"sculk_vein":{"textures":"sculk_vein"}}"#,
+            r#"{"texture_data":{"sculk_vein":{"textures":"textures/blocks/sculk_vein"}}}"#,
+            r#"[{"flipbook_texture":"textures/blocks/sculk_vein","atlas_tile":"sculk_vein","ticks_per_frame":2}]"#,
+        );
+        for name in ["sculk_vein", "tall"] {
+            image::RgbaImage::new(16, 64)
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let size = |path: &str| {
+            let sprite = blocks.flat_sprite(root.path(), path).unwrap().unwrap();
+            [sprite.width, sprite.height]
+        };
+        assert_eq!(size("textures/blocks/sculk_vein"), [16, 16]);
+        assert_eq!(size("textures/blocks/tall"), [16, 64]);
     }
 
     /// A model texture past the carrier's side is skipped rather than failing its decode.
