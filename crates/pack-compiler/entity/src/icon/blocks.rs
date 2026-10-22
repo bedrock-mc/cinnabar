@@ -83,7 +83,9 @@ impl IconBlocks {
             return false;
         };
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
-        FLAT_FAMILIES.contains(&record.model_family)
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::LeafLitter
+            || FLAT_FAMILIES.contains(&record.model_family)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
             || (record.model_family == ModelFamily::Unknown
                 && assets::facts::block_render_fact(&record.name).flat_icon)
@@ -297,6 +299,42 @@ mod tests {
                 .find(|record| record.name.as_ref() == name)
                 .unwrap();
             assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
+        }
+    }
+
+    #[test]
+    fn leaf_litter_uses_a_flat_carried_icon_for_every_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::create_dir_all(root.join("textures")).unwrap();
+        std::fs::write(
+            root.join("blocks.json"),
+            r#"{"leaf_litter":{"textures":"ground","carried_textures":"carried"}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("textures/terrain_texture.json"),
+            r#"{"texture_data":{"ground":{"textures":"textures/blocks/litter"},"carried":{"textures":"textures/items/litter"}}}"#).unwrap();
+        std::fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
+        let blocks = IconBlocks::read(root).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let records: Vec<_> = blocks
+            .records
+            .iter()
+            .filter(|record| record.name.as_ref() == "minecraft:leaf_litter")
+            .collect();
+        assert!(!records.is_empty());
+        for record in records {
+            assert!(
+                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
+                "{}",
+                record.canonical_state
+            );
+            assert_eq!(
+                blocks
+                    .texture_path(BlockVisualId(record.sequential_id))
+                    .as_deref(),
+                Some("textures/items/litter")
+            );
         }
     }
 

@@ -477,12 +477,16 @@ pub(super) fn visible_spans(
     spans: &[ActorDrawSpan],
     manifest: &[render_model::ActorDrawManifestEntry],
     hidden: &[u64],
+    main_count: Option<u32>,
 ) -> Vec<ActorDrawSpan> {
     let mut visible = Vec::with_capacity(spans.len());
     for span in spans {
         let mut run = None;
         for first in span.first..span.first + span.count {
-            if hidden.contains(&manifest[first as usize].identity.runtime_id) {
+            if main_count.map_or_else(
+                || hidden.contains(&manifest[first as usize].identity.runtime_id),
+                |count| first >= count,
+            ) {
                 if let Some(first_run) = run.take() {
                     visible.push(ActorDrawSpan {
                         first: first_run,

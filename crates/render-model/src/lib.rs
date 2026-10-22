@@ -211,7 +211,7 @@ pub use block_entity::{
 };
 pub use block_entity::{DecoratedPotModel, sherd_pattern};
 pub use block_entity::{
-    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
+    FramedMap, ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
     item_frame_item_transform,
 };
 pub use block_entity::{Oxidation, StatueModel, StatuePose};
