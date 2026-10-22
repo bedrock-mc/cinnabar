@@ -69,10 +69,11 @@ fn a_server_clear_stops_the_use_without_a_release() {
     assert!(runtime.step(&frame(11, false)).packets.is_empty());
 }
 
-/// A server start waits for a verified selection and starts nothing for an
-/// item without a held use.
+/// A server start waits for a verified selection. An empty hand starts
+/// nothing and keeps the flag set, so every movement tick retries it, as
+/// vanilla's start ignores an empty stack.
 #[test]
-fn a_server_start_needs_a_verified_held_use() {
+fn a_server_start_waits_for_a_selection_and_retries_an_empty_hand() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
     let unverified = UseFrame {
@@ -82,13 +83,45 @@ fn a_server_start_needs_a_verified_held_use() {
     assert!(!runtime.resolve_server_using_item(&unverified));
     assert!(!runtime.is_using());
     assert!(runtime.has_server_using_item());
-    let stick = UseFrame {
+    let empty = UseFrame {
+        selection: Some(FrozenMiningSelection {
+            slot: 2,
+            item: VerifiedNetworkItemStack::try_new(
+                NetworkItemStack::empty(),
+                NetworkItemStack::empty().nbt_digest,
+            )
+            .unwrap(),
+        }),
         air_use: None,
         ..frame(11, false)
     };
-    assert!(!runtime.resolve_server_using_item(&stick));
+    assert!(!runtime.resolve_server_using_item(&empty));
     assert!(!runtime.is_using());
-    assert!(!runtime.has_server_using_item());
+    assert!(runtime.has_server_using_item());
+    assert_eq!(runtime.movement_modifier(), None);
+}
+
+/// A server start for an item without a held use starts a use with no
+/// duration: that tick reports `StartUsingItem` with the default slowdown,
+/// and the next tick completes it locally, clearing the flag, as vanilla's
+/// start stores any selected item and its normal tick completes it.
+#[test]
+fn a_server_start_for_an_item_without_a_held_use_completes_next_tick() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    let stick = |tick| UseFrame {
+        air_use: None,
+        ..frame(tick, false)
+    };
+    assert!(runtime.resolve_server_using_item(&stick(10)));
+    assert!(runtime.is_using());
+    assert_eq!(
+        runtime.movement_modifier(),
+        Some(assets::item_use::DEFAULT_USE_MOVEMENT_MODIFIER)
+    );
+    assert!(runtime.step(&stick(11)).packets.is_empty());
+    assert!(!runtime.is_using());
+    assert_eq!(runtime.take_local_using_item(), Some(false));
 }
 
 /// A server start resolved before physics keeps receiving held-use maintenance
@@ -158,18 +191,23 @@ fn a_release_before_a_pending_clear_runs_sends_its_transaction() {
 
 /// A server start still waiting for its movement tick follows the selection
 /// that tick sees, so an earlier reselection to an item without a held use
-/// starts nothing.
+/// starts that item's zero-duration use, which the next tick completes.
 #[test]
 fn a_pending_server_start_follows_a_reselection() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
     runtime.retire_reselected_use(5);
-    let snowball = UseFrame {
+    let snowball = |tick| UseFrame {
         selection: Some(selection(5, SNOWBALL)),
         air_use: classify("minecraft:snowball", false, 0, None),
-        ..frame(12, false)
+        ..frame(tick, false)
     };
-    assert!(!runtime.resolve_server_using_item(&snowball));
+    assert!(runtime.resolve_server_using_item(&snowball(12)));
+    assert_eq!(
+        runtime.movement_modifier(),
+        Some(assets::item_use::DEFAULT_USE_MOVEMENT_MODIFIER)
+    );
+    assert!(runtime.step(&snowball(13)).packets.is_empty());
     assert!(!runtime.is_using());
 }
 
@@ -310,23 +348,21 @@ fn a_world_change_drops_a_pending_server_value() {
     assert!(!runtime.has_server_using_item());
 }
 
-/// Entering a game mode without item use, such as spectator, stops the use
-/// without a release transaction and drops a pending server start; a later
-/// server start in that mode still reconciles, as vanilla's tick has no
-/// spectator gate.
+/// A game-mode change to spectator stops the use without a release
+/// transaction and drops a pending server start; a server start after it
+/// still reconciles, as vanilla's tick has no spectator gate.
 #[test]
-fn entering_a_mode_without_item_use_stops_the_use_once() {
+fn a_game_mode_stop_stops_the_use_and_later_starts_reconcile() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     runtime.take_local_using_item();
     runtime.adopt_server_using_item(true);
-    runtime.observe_item_use_allowed(false);
+    runtime.stop_for_game_mode();
     assert!(!runtime.is_using());
     assert!(!runtime.has_server_using_item());
     assert_eq!(runtime.take_local_using_item(), Some(false));
     runtime.adopt_server_using_item(true);
-    runtime.observe_item_use_allowed(false);
     assert!(runtime.resolve_server_using_item(&bread(11, false)));
     assert!(runtime.is_using());
 }
@@ -342,13 +378,13 @@ fn a_server_start_under_a_held_button_releases_on_button_up() {
     assert!(runtime.is_releasing(false));
 }
 
-/// Entering a mode without item use while a server start still awaits its
-/// movement tick also clears the item-use flag, which the start had set.
+/// A game-mode stop while a server start still awaits its movement tick also
+/// clears the item-use flag, which the start had set.
 #[test]
-fn entering_a_mode_without_item_use_clears_a_pending_start_flag() {
+fn a_game_mode_stop_clears_a_pending_start_flag() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
-    runtime.observe_item_use_allowed(false);
+    runtime.stop_for_game_mode();
     assert!(!runtime.has_server_using_item());
     assert_eq!(runtime.take_local_using_item(), Some(false));
 }
@@ -379,4 +415,26 @@ fn a_release_in_the_frame_of_a_server_clear_sends_its_transaction() {
     assert!(!runtime.resolve_server_using_item(&frame(11, false)));
     assert!(runtime.is_using());
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
+}
+
+/// A count-only update refreshes the saved stack of an unowned server-started
+/// use, so a later owned release compares with the refreshed count and sends
+/// its transaction.
+#[test]
+fn a_count_change_refreshes_the_saved_stack_for_a_later_release() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    let two = stack(2, MENU_ITEM, 2);
+    assert!(runtime.resolve_server_using_item(&item_frame(10, false, two, "minecraft:bread")));
+    let three = || stack(2, MENU_ITEM, 3);
+    assert!(
+        runtime
+            .step(&item_frame(11, false, three(), "minecraft:bread"))
+            .packets
+            .is_empty()
+    );
+    runtime.observe_gameplay_focus(true);
+    runtime.observe_gameplay_focus(false);
+    let outcome = runtime.step(&item_frame(12, false, three(), "minecraft:bread"));
+    assert_eq!(kinds(&outcome), ["release"]);
 }

@@ -132,6 +132,12 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
+        if let CommittedControlEvent::LocalGameMode { spectator, .. } = control {
+            if spectator {
+                self.physics.stop_item_use_for_game_mode();
+            }
+            return ControlDisposition::Handled;
+        }
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
             if self.movement.physics_is_authorized()
                 && let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags)
@@ -401,6 +407,7 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
+            | CommittedControlEvent::LocalGameMode { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalMovementBoost { .. }

@@ -62,18 +62,26 @@ impl ItemUseRuntime {
             self.server_using = None;
             return false;
         }
-        if frame.selection.is_none() {
+        // Vanilla's start ignores an empty stack, so the flag stays set and
+        // every movement tick retries it; an unverified stack waits.
+        if frame
+            .selection
+            .as_ref()
+            .is_none_or(|selection| selection.item.is_empty())
+        {
             return false;
         }
         self.server_using = None;
         let air_use = self.crossbows.air_use(frame);
-        let Some(AirUse::Hold {
-            max_ticks,
-            slowdown,
-            ..
-        }) = air_use
-        else {
-            return false;
+        // Vanilla starts any other item with its use duration, which is zero
+        // without a held use; the next normal tick then completes it.
+        let (max_ticks, slowdown) = match air_use {
+            Some(AirUse::Hold {
+                max_ticks,
+                slowdown,
+                ..
+            }) => (max_ticks, slowdown),
+            _ => (0, assets::item_use::DEFAULT_USE_MOVEMENT_MODIFIER),
         };
         let Some(selection) = self.displayed_selection(frame) else {
             return false;
@@ -104,17 +112,12 @@ impl ItemUseRuntime {
         self.world = world;
     }
 
-    /// Notes whether the game mode allows item use. Entering a mode without
-    /// it, such as spectator, stops the use without a release transaction and
-    /// drops a pending server value, as vanilla's game-mode change does; later
-    /// server writes reconcile as usual.
-    pub fn observe_item_use_allowed(&mut self, allowed: bool) {
-        let entering = !allowed && !self.item_use_denied;
-        self.item_use_denied = !allowed;
-        if entering {
-            // Vanilla's stop clears the flag whether or not an item is in use.
-            self.stop_without_release();
-        }
+    /// Applies a game-mode change to spectator, taken in packet order with
+    /// server item-use writes: vanilla's change stops the use without a
+    /// release transaction and clears the flag whether or not an item is in
+    /// use, dropping earlier server values; later ones reconcile as usual.
+    pub fn stop_for_game_mode(&mut self) {
+        self.stop_without_release();
     }
 
     /// Notes whether gameplay has input focus. Vanilla's focus and chat

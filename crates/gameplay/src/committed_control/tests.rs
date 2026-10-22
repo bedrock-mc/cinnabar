@@ -495,3 +495,30 @@ fn dimension_change_discards_a_pending_server_item_use() {
     .apply(control, &NoQueries, |_| {});
     assert_eq!(physics.take_server_using_item(), None);
 }
+
+/// A local game-mode control stops item use only when it makes the player a
+/// spectator, in its packet order with flag writes.
+#[test]
+fn a_spectator_game_mode_control_stops_item_use() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    for (sequence, spectator) in [(1, false), (2, true)] {
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(
+            CommittedControlEvent::LocalGameMode {
+                sequence,
+                spectator,
+            },
+            &NoQueries,
+            |_| {},
+        );
+        assert_eq!(physics.take_game_mode_stop(), spectator);
+    }
+}

@@ -242,6 +242,9 @@ pub(super) struct ServerFlagAuthority {
     /// The live word's item-use bit: the last of the tick's capture, a local
     /// start or end, and a server write.
     live_using_item: bool,
+    /// A game-mode change to spectator the item-use owner has not taken; it
+    /// supersedes earlier server writes and precedes `pending_using_item`.
+    game_mode_stop: bool,
     /// A spin counter a live clear removed, with the tick it was cleared on.
     /// Vanilla's counter outlives its flag until a tick processes the clear.
     cleared_spin: Option<(u64, u8)>,
@@ -491,10 +494,26 @@ impl LocalPhysicsController {
         self.server_flags.queued = None;
         self.server_flags.cleared_spin = None;
         self.server_flags.pending_using_item = None;
+        self.server_flags.game_mode_stop = false;
         self.server_flags.live_using_item = false;
         if let Some(state) = self.state.as_mut() {
             state.spin_attack_ticks = None;
         }
+    }
+
+    /// Records a game-mode change to spectator in packet order with flag
+    /// writes: vanilla's change stops item use and clears the flag, superseding
+    /// earlier writes, while later writes still reconcile.
+    pub fn stop_item_use_for_game_mode(&mut self) {
+        self.server_flags.live_using_item = false;
+        self.server_flags.pending_using_item = None;
+        self.server_flags.game_mode_stop = true;
+    }
+
+    /// Takes a game-mode stop for the item-use owner, which applies it before
+    /// any server value taken after it.
+    pub fn take_game_mode_stop(&mut self) -> bool {
+        std::mem::take(&mut self.server_flags.game_mode_stop)
     }
 
     /// The live item-use flag: the last of a server write, a local start or

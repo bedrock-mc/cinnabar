@@ -138,3 +138,53 @@ fn local_air_drag_modifier_commits_finite_values_with_their_tick() {
                 ))
     );
 }
+
+/// A local game-mode update commits a control in packet order, marking only
+/// the native spectator mode.
+#[test]
+fn a_local_game_mode_update_commits_an_ordered_control() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, update, spectator) in [
+        (
+            1,
+            protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator),
+            true,
+        ),
+        (2, protocol::GameModeUpdate::LegacyViewer, false),
+        (
+            3,
+            protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Survival),
+            false,
+        ),
+    ] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Ui(UiEvent::GameMode(protocol::GameModeEvent { update })),
+                Some(sequence),
+            )
+            .unwrap();
+        let controls = authority.take_committed_controls();
+        assert!(
+            matches!(
+                controls.as_slice(),
+                [CommittedControlEvent::LocalGameMode { sequence: committed, spectator: marked }]
+                    if *committed == sequence && *marked == spectator
+            ),
+            "update {sequence}"
+        );
+    }
+}

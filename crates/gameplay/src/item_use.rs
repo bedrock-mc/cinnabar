@@ -163,8 +163,6 @@ pub struct ItemUseRuntime {
     /// Session and dimension last observed, which a pending server value
     /// belongs to.
     world: Option<(SessionGeneration, i32)>,
-    /// The game mode denied item use when last observed.
-    item_use_denied: bool,
     /// The use button was down when last observed.
     button_held: bool,
     /// The item-use flag a local start or end last wrote, until movement's
@@ -461,6 +459,16 @@ impl ItemUseRuntime {
             Some(current) => current.clone(),
             // An in-flight inventory request hides the stack; keep the one the use began with.
             None => active.selection.clone(),
+        };
+        // Vanilla's normal tick refreshes the in-use stack, count included, so
+        // a later release compares with the current count.
+        if frame.selection.is_some()
+            && let Some(active) = self.active.as_mut()
+        {
+            active.selection = selection.clone();
+        }
+        let Some(active) = &self.active else {
+            return;
         };
         let depleted =
             frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);

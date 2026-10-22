@@ -491,33 +491,39 @@ fn selected_count_change_cancels_the_old_use_without_release() {
     assert_eq!(kinds(&released), ["release"]);
 }
 
-/// Count admission belongs to release; a held update does not replace its start snapshot.
+/// Vanilla's normal tick refreshes the in-use stack, count included, without
+/// restarting the use; release then compares with the refreshed count, so a
+/// release at the refreshed count sends its transaction and one at another
+/// count stops the use without it.
 #[test]
-fn selected_count_change_while_held_keeps_the_original_use_until_release() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_press(true);
-    runtime.step(&item_frame(
-        100,
-        true,
-        stack(2, MENU_ITEM, 16),
-        "minecraft:golden_apple",
-    ));
-    let timing = runtime.active_timing();
-    let held = runtime.step(&item_frame(
-        101,
-        true,
-        stack(2, MENU_ITEM, 15),
-        "minecraft:golden_apple",
-    ));
-    assert!(held.packets.is_empty() && !held.started);
-    assert_eq!(runtime.active_timing(), timing);
-    let released = runtime.step(&item_frame(
-        102,
-        false,
-        stack(2, MENU_ITEM, 16),
-        "minecraft:golden_apple",
-    ));
-    assert_eq!(kinds(&released), ["release"]);
+fn a_held_count_change_refreshes_the_in_use_stack() {
+    for (released_count, expected) in [(15, vec!["release"]), (16, vec![])] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        runtime.step(&item_frame(
+            100,
+            true,
+            stack(2, MENU_ITEM, 16),
+            "minecraft:golden_apple",
+        ));
+        let timing = runtime.active_timing();
+        let held = runtime.step(&item_frame(
+            101,
+            true,
+            stack(2, MENU_ITEM, 15),
+            "minecraft:golden_apple",
+        ));
+        assert!(held.packets.is_empty() && !held.started);
+        assert_eq!(runtime.active_timing(), timing);
+        let released = runtime.step(&item_frame(
+            102,
+            false,
+            stack(2, MENU_ITEM, released_count),
+            "minecraft:golden_apple",
+        ));
+        assert_eq!(kinds(&released), expected, "released at {released_count}");
+        assert!(!runtime.is_using());
+    }
 }
 
 /// A briefly unverifiable selection (inventory request in flight) keeps the use and its release.

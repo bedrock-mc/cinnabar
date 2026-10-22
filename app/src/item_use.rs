@@ -107,13 +107,7 @@ pub(crate) fn adopt_server_item_use(
         return;
     }
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
-    if let Some(using) = context
-        .physics
-        .as_deref_mut()
-        .and_then(|physics| physics.take_server_using_item())
-    {
-        runtime.adopt_server_using_item(using);
-    }
+    take_server_item_use(&mut runtime, context.physics.as_deref_mut());
     let ticks = context.physics.as_deref().is_some_and(|physics| {
         gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
     });
@@ -127,7 +121,6 @@ pub(crate) fn adopt_server_item_use(
     else {
         return;
     };
-    runtime.observe_item_use_allowed(item_use_allowed(&player_runtime));
     // This frame's focus and button come first, as vanilla's input precedes
     // its tick, so a release now still sends its transaction.
     let button = use_button(&player_runtime, &context);
@@ -229,13 +222,7 @@ fn produce_use(
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     // The latest server write waits in the owner, where a local start or end
     // supersedes it before the next movement tick reconciles.
-    if let Some(using) = context
-        .physics
-        .as_deref_mut()
-        .and_then(|physics| physics.take_server_using_item())
-    {
-        runtime.adopt_server_using_item(using);
-    }
+    take_server_item_use(&mut runtime, context.physics.as_deref_mut());
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -256,7 +243,6 @@ fn produce_use(
         };
         gameplay::movement::note_click_drop("use", reason);
     }
-    runtime.observe_item_use_allowed(item_use_allowed(&player_runtime));
     runtime.observe_gameplay_focus(button.gameplay_focused);
     let held = button.held;
     runtime.observe_use_button(held);
@@ -335,6 +321,23 @@ fn produce_use(
         &frozen,
     );
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
+/// Hands movement's ordered server item-use events to item use: a game-mode
+/// stop first, then the latest server value written after it.
+fn take_server_item_use(
+    runtime: &mut ItemUseRuntime,
+    physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
+) {
+    let Some(physics) = physics else {
+        return;
+    };
+    if physics.take_game_mode_stop() {
+        runtime.stop_for_game_mode();
+    }
+    if let Some(using) = physics.take_server_using_item() {
+        runtime.adopt_server_using_item(using);
+    }
 }
 
 /// This frame's use-button facts.

@@ -317,3 +317,59 @@ fn discarding_server_writes_clears_the_live_item_use_flag() {
     physics.apply_server_movement_flags(101, using);
     assert_eq!(physics.take_server_using_item(), Some(true));
 }
+
+/// A game-mode stop keeps its packet order with item-use writes: it drops a
+/// write that came before it and precedes one that came after it.
+#[test]
+fn a_game_mode_stop_keeps_its_order_with_item_use_writes() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let using = |value| flags(|flags| flags.using_item = Some(value));
+    physics.apply_server_movement_flags(0, using(true));
+    physics.stop_item_use_for_game_mode();
+    assert!(!physics.live_using_item());
+    assert!(physics.take_game_mode_stop());
+    assert_eq!(physics.take_server_using_item(), None);
+    physics.stop_item_use_for_game_mode();
+    physics.apply_server_movement_flags(0, using(true));
+    assert!(physics.take_game_mode_stop());
+    assert_eq!(physics.take_server_using_item(), Some(true));
+}
+
+/// Replay slows a tick exactly when the live tick was slowed: vanilla's
+/// slowdown reads the item in use, recorded per tick, never the replayed
+/// item-use flag, so a stamped clear leaves the replayed movement unchanged.
+#[test]
+fn replay_keeps_each_tick_recorded_item_use_slowdown() {
+    let (mut physics, mut ticker) = airborne();
+    let forward = |using: bool| MovementInput {
+        forward: 1.0,
+        item_use_movement_modifier: using.then_some(0.35),
+        ..MovementInput::default()
+    };
+    for using in [false, true, true, true] {
+        physics.write_local_using_item(using);
+        tick_with(
+            &mut physics,
+            &mut ticker,
+            forward(using),
+            PhysicsSampleContext::default(),
+        );
+    }
+    let (mut reference, mut reference_ticker) = (physics.clone(), ticker.clone());
+    let clear = flags(|flags| flags.using_item = Some(false));
+    physics.apply_server_movement_flags(101, clear);
+    for (physics, ticker) in [
+        (&mut physics, &mut ticker),
+        (&mut reference, &mut reference_ticker),
+    ] {
+        physics.queue_server_motion([0.0; 3], 101);
+        reconcile_timeline_rewind(ticker, physics, 101, &VersionedFloor(1)).unwrap();
+    }
+    let positions = |physics: &LocalPhysicsController| -> Vec<_> {
+        (102..=104)
+            .map(|tick| physics.sample_at(tick).unwrap().position)
+            .collect()
+    };
+    assert_eq!(positions(&physics), positions(&reference));
+}
