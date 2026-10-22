@@ -47,7 +47,7 @@ use bevy::{
     },
 };
 
-use crate::media::MediaTexture;
+use crate::media::{MediaTexture, MediaUpload};
 
 const MEDIA_SCREEN_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("5b8e2f4a-3c71-4d09-a6e2-91f0c7d3b852");
@@ -230,13 +230,18 @@ fn prepare_media_screens(
                 }
             }
             if let Some(texture) = &state.texture {
-                state.uploaded |= texture.upload(
+                match texture.upload(
                     &uploads.device,
                     &uploads.queue,
                     size,
                     state.texture_generation,
                     &frame.rgba,
-                );
+                ) {
+                    MediaUpload::Uploaded => state.uploaded = true,
+                    MediaUpload::Rejected => {}
+                    // Keeps the previous picture and retries this frame, which may be the last.
+                    MediaUpload::OutOfMemory => state.serial = None,
+                }
             }
         }
         if screen.frame.is_none() {
@@ -737,7 +742,8 @@ mod tests {
         let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
         assert!(state.texture.is_some() && !state.uploaded);
 
-        prepared(&mut app, vec![with(2)]);
+        // A paused clip offers the same frame again, which must still reach the texture.
+        prepared(&mut app, vec![with(1)]);
         assert!(app.world().resource::<MediaScreenGpu>().screens[&7].uploaded);
     }
 

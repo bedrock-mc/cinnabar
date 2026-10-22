@@ -333,6 +333,9 @@ pub(crate) fn prepare_resources(
         selection_revision,
         ..
     } = &mut *gpu;
+    // Snapshots and revisions advance only for lists the GPU received, so a failed upload
+    // retries against what the GPU still holds.
+    let mut frame_published = true;
     if *frame_revision != frame.revision {
         for (list, previous, vertices, label) in [
             (
@@ -360,33 +363,44 @@ pub(crate) fn prepare_resources(
                 "block-entity overlay vertices",
             ),
         ] {
-            list.upload(previous, vertices, &uploads, label);
-            *previous = Arc::clone(vertices);
+            if list.upload(previous, vertices, &uploads, label) {
+                *previous = Arc::clone(vertices);
+            } else {
+                frame_published = false;
+            }
         }
     }
+    let mut selection_published = true;
     if *selection_revision != selection.revision {
-        outline.upload(
+        selection_published = outline.upload(
             &uploaded.outline,
             &selection.outline,
             &uploads,
             "block selection line vertices",
         );
-        uploaded.outline = Arc::clone(&selection.outline);
+        if selection_published {
+            uploaded.outline = Arc::clone(&selection.outline);
+        }
     }
     if *frame_revision != frame.revision || *selection_revision != selection.revision {
         crack_scratch.clear();
         crack_scratch.extend_from_slice(&frame.crack);
-        *frame_crack_count = frame.crack.len() as u32;
         crack_scratch.extend_from_slice(&selection.highlight);
-        crack.upload(
+        if crack.upload(
             &uploaded.crack,
             crack_scratch,
             &uploads,
             "block-entity crack vertices",
-        );
-        std::mem::swap(crack_scratch, &mut uploaded.crack);
-        *frame_revision = frame.revision;
-        *selection_revision = selection.revision;
+        ) {
+            *frame_crack_count = frame.crack.len() as u32;
+            std::mem::swap(crack_scratch, &mut uploaded.crack);
+            if frame_published {
+                *frame_revision = frame.revision;
+            }
+            if selection_published {
+                *selection_revision = selection.revision;
+            }
+        }
     }
 }
 

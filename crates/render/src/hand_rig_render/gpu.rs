@@ -159,7 +159,11 @@ pub(super) fn prepare(
         deactivate(&mut gpu);
         return;
     }
-    upload_pose(&mut gpu, &uploads, frame);
+    // A pose that could not be resized would pair old bones with new geometry; skip the draw.
+    if !upload_pose(&mut gpu, &uploads, frame) {
+        deactivate(&mut gpu);
+        return;
+    }
     upload_skin(&mut gpu, &uploads.device, &uploads.queue, frame);
     upload_atlas(&mut gpu, &uploads.device, &uploads.queue, frame);
     upload_glint(&mut gpu, &uploads.device, &uploads.queue, frame);
@@ -261,14 +265,16 @@ pub(super) fn upload_geometry(
     true
 }
 
-/// Uploads the current rig pose and instance stream into retained buffers.
+/// Uploads the current rig pose and instance stream into retained buffers; false when out of
+/// memory kept the previous pose.
+#[must_use]
 pub(super) fn upload_pose(
     gpu: &mut HandRigGpu,
     uploads: &crate::upload_staging::FrameUploads<'_>,
     frame: &HandRigFrame,
-) {
+) -> bool {
     if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
-        return;
+        return true;
     }
     // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
     let streams = [
@@ -303,7 +309,7 @@ pub(super) fn upload_pose(
             bytes,
             BufferUsages::STORAGE,
         ) else {
-            return;
+            return false;
         };
         *replacement = Some(buffer);
     }
@@ -334,6 +340,7 @@ pub(super) fn upload_pose(
     if recreated {
         gpu.bind_group = None;
     }
+    true
 }
 
 /// Reuses the skin texture until its artwork changes.

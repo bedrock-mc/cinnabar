@@ -31,17 +31,19 @@ impl VertexList {
     }
 
     /// Keeps the live prefix current, writing only bounded dirty ranges unless storage grows.
+    /// False when out of memory left the previous list in place; the caller keeps `previous`.
+    #[must_use]
     pub(super) fn upload(
         &mut self,
         previous: &[BlockEntityVertex],
         vertices: &[BlockEntityVertex],
         upload: &FrameUploads<'_>,
         label: &'static str,
-    ) {
+    ) -> bool {
         if vertices.is_empty() {
             self.count = 0;
             render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
-            return;
+            return true;
         }
         let needed = vertices.len() as u64;
         let reallocated = self.buffer.is_none() || self.capacity_vertices < needed;
@@ -57,7 +59,7 @@ impl VertexList {
                 },
             ) else {
                 // Out of memory keeps drawing the previous list; the next call reallocates.
-                return;
+                return false;
             };
             self.buffer = Some(buffer);
             self.capacity_vertices = capacity;
@@ -66,7 +68,7 @@ impl VertexList {
             self.dirty.push(0..vertices.len());
         } else if !changed_ranges(previous, vertices, &mut self.dirty) {
             self.count = u32::try_from(vertices.len()).unwrap_or(0);
-            return;
+            return true;
         }
         self.count = u32::try_from(vertices.len()).unwrap_or(0);
         render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
@@ -81,6 +83,7 @@ impl VertexList {
             }
             upload.write_batch(&writes[..self.dirty.len()]);
         }
+        true
     }
 }
 
@@ -223,12 +226,12 @@ mod tests {
         let staging = world.resource::<BufferUploadStaging>();
         let mut list = VertexList::new();
         let original = vec![BlockEntityVertex::default(); COMPARE_VERTICES * 12];
-        list.upload(&[], &original, &upload, "dirty vertex fixture");
+        assert!(list.upload(&[], &original, &upload, "dirty vertex fixture"));
         let mut next = original.clone();
         next[0].position[0] = 1.0;
         next[COMPARE_VERTICES * 10].position[0] = 1.0;
         let before = staging.stats();
-        list.upload(&original, &next, &upload, "dirty vertex fixture");
+        assert!(list.upload(&original, &next, &upload, "dirty vertex fixture"));
         let after = staging.stats();
         assert_eq!(after.staged_writes - before.staged_writes, 2);
         assert_eq!(after.batches - before.batches, 1);
@@ -250,15 +253,15 @@ mod tests {
         let upload = state.get(&world).unwrap();
         let mut list = VertexList::new();
         let small = vec![BlockEntityVertex::default(); 4];
-        list.upload(&[], &small, &upload, "growth fixture");
+        assert!(list.upload(&[], &small, &upload, "growth fixture"));
         let large = vec![BlockEntityVertex::default(); MIN_BUFFER_VERTICES as usize + 1];
         {
             let _failure = crate::gpu_allocation::inject(|label, _| label == "growth fixture");
-            list.upload(&small, &large, &upload, "growth fixture");
+            assert!(!list.upload(&small, &large, &upload, "growth fixture"));
         }
         assert_eq!(list.count, 4);
         assert_eq!(list.capacity_vertices, MIN_BUFFER_VERTICES);
-        list.upload(&large, &large, &upload, "growth fixture");
+        assert!(list.upload(&small, &large, &upload, "growth fixture"));
         assert_eq!(list.count as usize, large.len());
     }
 

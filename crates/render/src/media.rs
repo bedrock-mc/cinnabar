@@ -13,6 +13,16 @@ use bevy::render::{
 const TEXTURE_LABEL: &str = "Cinnabar server media";
 const FRAME_LABEL: &str = "Cinnabar server media frame";
 
+/// The outcome of offering one decoded frame to a [`MediaTexture`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaUpload {
+    Uploaded,
+    /// Stale, resized midstream or malformed; a later frame replaces it.
+    Rejected,
+    /// The device had no staging memory; the same frame may retry.
+    OutOfMemory,
+}
+
 pub struct MediaTexture {
     texture: Texture,
     view: TextureView,
@@ -66,8 +76,7 @@ impl MediaTexture {
         })
     }
 
-    /// Updates existing storage; stale frames, midstream size changes and frames the device
-    /// had no staging memory for are rejected.
+    /// Updates existing storage; stale frames and midstream size changes are rejected.
     pub fn upload(
         &self,
         device: &RenderDevice,
@@ -75,12 +84,12 @@ impl MediaTexture {
         size: [u32; 2],
         generation: u64,
         rgba: &[u8],
-    ) -> bool {
+    ) -> MediaUpload {
         if size != self.size
             || generation != self.generation
             || rgba.len() as u64 != self.allocated_bytes()
         {
-            return false;
+            return MediaUpload::Rejected;
         }
         let [width, height] = size;
         crate::gpu_allocation::checked(device, FRAME_LABEL, self.allocated_bytes(), || {
@@ -104,7 +113,7 @@ impl MediaTexture {
                 },
             )
         })
-        .is_some()
+        .map_or(MediaUpload::OutOfMemory, |()| MediaUpload::Uploaded)
     }
 
     /// Every authorized surface samples this view; it does not create another decoder.

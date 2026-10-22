@@ -87,6 +87,8 @@ impl Arena {
         if needed <= self.capacity() {
             return Growth::default();
         }
+        // Slots skipped by an earlier failure are rewritten once any of them gain storage.
+        let pending = self.resync;
         let mut growth = Growth::default();
         let base = (self.chunks.len() - 1) * self.chunk_slots;
         let target = (needed - base)
@@ -109,13 +111,15 @@ impl Arena {
             let descriptor = slot_descriptor(self.bytes, slots);
             let Some(chunk) = crate::gpu_allocation::buffer(device, &descriptor) else {
                 self.resync = true;
+                growth.resync = pending && growth.changed;
                 return growth;
             };
             self.chunks.push(chunk);
             self.last_capacity = slots;
             growth.changed = true;
         }
-        growth.resync = std::mem::take(&mut self.resync);
+        self.resync = false;
+        growth.resync = pending;
         growth
     }
 

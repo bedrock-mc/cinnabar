@@ -156,6 +156,58 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
     }
 }
 
+/// A pose the device has no memory to resize must not be drawn with the previous bones.
+#[cfg(target_os = "macos")]
+#[test]
+fn failed_pose_resize_skips_the_hand_draw_and_retries() {
+    use bevy::{ecs::system::RunSystemOnce, render::view::RetainedViewEntity};
+    let Some(mut app) = crate::upload_allocation_tests::app(HandRigRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.spawn((
+        Msaa::Off,
+        crate::render_test_support::camera(false),
+        ExtractedView {
+            retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+            clip_from_view: Mat4::IDENTITY,
+            world_from_view: GlobalTransform::IDENTITY,
+            clip_from_world: None,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
+            viewport: UVec4::new(0, 0, 64, 64),
+            color_grading: default(),
+            invert_culling: false,
+        },
+    ));
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    world.insert_resource(scene);
+    world.run_system_once(prepare).unwrap();
+    assert_eq!(world.resource::<HandRigGpu>().instance_count, 1);
+
+    let mut rig = single_instance_frame();
+    rig.instances = Arc::from([ActorGpuInstance::default(); 2]);
+    assert!(
+        world
+            .resource_mut::<HandRigScene>()
+            .publish(rig, skin(), light(), 1.2, 2)
+    );
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "first-person rig instance");
+        world.run_system_once(prepare).unwrap();
+    }
+    let gpu = world.resource::<HandRigGpu>();
+    assert_eq!(gpu.instance_count, 0);
+    assert!(gpu.bind_group.is_none());
+    assert_eq!(gpu.revision, None);
+
+    world.run_system_once(prepare).unwrap();
+    let gpu = world.resource::<HandRigGpu>();
+    assert_eq!(gpu.revision, Some(2));
+    assert_eq!(gpu.instance_count, 2);
+}
+
 #[test]
 fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     use bevy::ecs::system::RunSystemOnce;
@@ -362,7 +414,11 @@ fn pose_updates_reuse_their_buffers() {
     let mut buffers = Vec::new();
     for revision in 1..=3 {
         assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
-        upload_pose(&mut gpu, &uploads, scene.frame.as_ref().unwrap());
+        assert!(upload_pose(
+            &mut gpu,
+            &uploads,
+            scene.frame.as_ref().unwrap()
+        ));
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
