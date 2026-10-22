@@ -7,6 +7,91 @@ use launcher::local_worlds::world::Generator;
 #[cfg(unix)]
 use std::path::Path;
 
+#[test]
+fn console_acknowledgements_require_the_exact_response() {
+    let ack = OutputAck::default();
+    let (sender, replied) = crossbeam_channel::bounded(1);
+    *lock(&ack.0) = Some(("applied", sender));
+    for line in [
+        "unrelated applied",
+        "applied extra",
+        "not applied",
+        "[INFO] unrelated",
+    ] {
+        ack.observe(line);
+        assert!(matches!(replied.try_recv(), Err(TryRecvError::Empty)));
+    }
+    ack.observe("[timestamp INFO] applied");
+    assert_eq!(replied.try_recv(), Ok(()));
+    ack.observe("applied");
+    assert_eq!(replied.try_recv(), Ok(()));
+}
+
+/// Uses the real child output reader and command wait without a game installation.
+#[cfg(unix)]
+#[test]
+fn console_confirmation_ends_on_reply_exit_cancel_or_timeout() {
+    let dir = scratch();
+    let binary = dir.path().join("console");
+    write_script(
+        &binary,
+        br#"#!/bin/sh
+echo ready
+while IFS= read -r line; do
+  case "$line" in
+    apply) echo '[INFO] applied' ;;
+    exit) exit 0 ;;
+    stop) exit 0 ;;
+  esac
+done
+"#,
+    );
+    let start = || {
+        let spawned = spawn(
+            Command::new(&binary),
+            None,
+            true,
+            ready_line,
+            "console fixture".into(),
+        )
+        .expect("spawn");
+        await_ready(spawned, test_time::DEFAULT_TIMEOUT, &Cancel::never()).expect("ready")
+    };
+    let process = start();
+    process
+        .send_confirmed(
+            "apply",
+            "applied",
+            test_time::DEFAULT_TIMEOUT,
+            &Cancel::never(),
+        )
+        .expect("output confirmation");
+    let (handle, cancel) = super::super::cancel_pair();
+    drop(handle);
+    assert!(matches!(
+        process.send_confirmed("apply", "applied", test_time::DEFAULT_TIMEOUT, &cancel),
+        Err(WorldError::Cancelled)
+    ));
+    assert!(
+        process
+            .send_confirmed("silent", "applied", Duration::ZERO, &Cancel::never())
+            .is_err()
+    );
+    process.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    let process = start();
+    assert!(
+        process
+            .send_confirmed(
+                "exit",
+                "applied",
+                test_time::DEFAULT_TIMEOUT,
+                &Cancel::never()
+            )
+            .is_err()
+    );
+    process.stop(test_time::DEFAULT_TIMEOUT).expect("stopped");
+}
+
 /// A Dragonfly stand-in: logs its arguments, prints `ready`, and stops on `stop` or stdin EOF.
 #[cfg(unix)]
 const FAKE_SERVER: &[u8] = b"#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\necho ready\nwhile IFS= read -r line; do\n  [ \"$line\" = stop ] && exit 0\ndone\n";

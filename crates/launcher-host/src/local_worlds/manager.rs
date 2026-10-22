@@ -1,7 +1,7 @@
 use std::{
     sync::{Arc, Condvar, Mutex, TryLockError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
@@ -14,7 +14,7 @@ use crate::lifecycle::children::{self, ExitHookGuard};
 
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
-    process::{Instance, Runner, SAVE_BUDGET, StartSpec},
+    process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
     provision::{Provisioner, RuntimeInfo, RuntimeKind},
     store::Store,
     world::{WorldError, validate_name},
@@ -23,7 +23,8 @@ use super::{
 const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
 /// Outlasts the Docker probe's own timeout.
 const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
-/// Covers a first sign-in's profile load; a start then proceeds without an operator.
+/// Covers a first sign-in's profile load, counted from before the server launches; a start then
+/// proceeds without an operator.
 const DEFAULT_HOST_WAIT: Duration = Duration::from_secs(30);
 /// How often a start waiting on the host rechecks its cancel.
 const HOST_POLL: Duration = Duration::from_millis(50);
@@ -33,7 +34,7 @@ const HOST_POLL: Duration = Duration::from_millis(50);
 pub enum Host {
     #[default]
     SignedOut,
-    /// Signed in with the XUID still loading; starts wait for it.
+    /// Signed in with the XUID still loading; BDS starts wait for it before reporting running.
     Loading,
     Xuid(String),
 }
@@ -56,6 +57,14 @@ impl Runners {
             .ok_or(WorldError::BackendUnavailable)?
             .start(spec, cancel)
     }
+
+    /// When `backend`'s runner applies the host grant; Dragonfly and a missing runner grant nobody.
+    fn host_grant(&self, backend: Backend) -> HostGrant {
+        match (backend, &self.bds) {
+            (Backend::Bds, Some(runner)) => runner.host_grant(),
+            (Backend::Bds, None) | (Backend::Dragonfly, _) => HostGrant::None,
+        }
+    }
 }
 
 /// What a [`Manager`] is built from.
@@ -71,7 +80,7 @@ pub(crate) struct Parts {
     pub stop_timeout: Duration,
     /// How long a create waits for a runtime detection in flight.
     pub runtime_wait: Duration,
-    /// How long a start waits for a [`Host::Loading`] host.
+    /// How long a BDS start waits for a [`Host::Loading`] host, counted from before its launch.
     pub host_wait: Duration,
 }
 
@@ -387,18 +396,42 @@ impl Manager {
         self.inner.host_changed.notify_all();
     }
 
-    /// The host's XUID once it is no longer loading, the wait expires or `cancel` fires.
-    fn host_xuid(&self, cancel: &Cancel) -> Option<String> {
-        let deadline = std::time::Instant::now() + self.inner.host_wait;
+    /// The host's XUID now, without waiting for one that is loading.
+    fn known_host(&self) -> Option<String> {
+        match &*lock(&self.inner.host) {
+            Host::Xuid(xuid) => Some(xuid.clone()),
+            Host::SignedOut | Host::Loading => None,
+        }
+    }
+
+    /// The host's XUID once it is no longer loading, `deadline` passes or `cancel` fires; logs how
+    /// the wait ended, without the XUID.
+    fn await_host(
+        &self,
+        deadline: Instant,
+        cancel: &Cancel,
+        stage: &str,
+        exited: Option<&Receiver<()>>,
+    ) -> Option<String> {
+        let waiting = Instant::now();
         let mut host = lock(&self.inner.host);
+        let loading = *host == Host::Loading;
         #[cfg(test)]
-        if *host == Host::Loading {
+        if loading {
             self.inner
                 .host_waits
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         while *host == Host::Loading && !cancel.is_cancelled() {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if exited.is_some_and(|exit| {
+                matches!(
+                    exit.try_recv(),
+                    Err(crossbeam_channel::TryRecvError::Disconnected)
+                )
+            }) {
+                break;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 break;
             }
@@ -409,9 +442,60 @@ impl Manager {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .0;
         }
-        match &*host {
-            Host::Xuid(xuid) => Some(xuid.clone()),
-            Host::SignedOut | Host::Loading => None,
+        let (xuid, outcome) = match (&*host, loading) {
+            (Host::Xuid(xuid), false) => (Some(xuid.clone()), "already signed in"),
+            (Host::Xuid(xuid), true) => (Some(xuid.clone()), "signed in while loading"),
+            (Host::SignedOut, false) => (None, "signed out"),
+            (Host::SignedOut, true) => (None, "signed out while loading"),
+            (Host::Loading, _) if cancel.is_cancelled() => (None, "cancelled while loading"),
+            (Host::Loading, _)
+                if exited.is_some_and(|exit| {
+                    matches!(
+                        exit.try_recv(),
+                        Err(crossbeam_channel::TryRecvError::Disconnected)
+                    )
+                }) =>
+            {
+                (None, "server exited while loading")
+            }
+            (Host::Loading, _) => (None, "still loading at the deadline"),
+        };
+        drop(host);
+        let waited = waiting.elapsed().as_millis();
+        tracing::info!("local world host {stage}: {outcome} after {waited} ms");
+        xuid
+    }
+
+    /// Grants `instance` the host once it stops loading or `deadline` passes, unless it launched
+    /// with that host. A cancelled wait returns the instance for the caller to stop; a failed grant
+    /// stops the server gracefully and fails the start.
+    fn grant_when_ready(
+        &self,
+        instance: Arc<dyn Instance>,
+        launched_with: Option<&str>,
+        deadline: Instant,
+        cancel: &Cancel,
+    ) -> Result<Arc<dyn Instance>, WorldError> {
+        let exited = instance.exited();
+        let host = self.await_host(deadline, cancel, "after launch", Some(&exited));
+        if matches!(
+            exited.try_recv(),
+            Err(crossbeam_channel::TryRecvError::Disconnected)
+        ) {
+            self.stop_instance(instance.as_ref());
+            return Err(super::world::failed(
+                "local server exited while waiting for the host",
+            ));
+        }
+        if cancel.is_cancelled() || host.as_deref() == launched_with {
+            return Ok(instance);
+        }
+        match instance.grant_host(host.as_deref(), cancel) {
+            Ok(()) => Ok(instance),
+            Err(error) => {
+                self.stop_instance(instance.as_ref());
+                Err(error)
+            }
         }
     }
 
@@ -493,10 +577,14 @@ impl Manager {
                 break;
             }
         }
-        // Only BDS grants the host operator.
-        let host_xuid = (spec.world.backend == Backend::Bds)
-            .then(|| self.host_xuid(cancel))
-            .flatten();
+        let grant = self.inner.runners.host_grant(spec.world.backend);
+        // Set before launch, so a new world's creation run counts against the host's wait.
+        let host_deadline = Instant::now() + self.inner.host_wait;
+        let host_xuid = match grant {
+            HostGrant::None => None,
+            HostGrant::AtLaunch => self.await_host(host_deadline, cancel, "before launch", None),
+            HostGrant::WhenReady => self.known_host(),
+        };
         let mut fresh_world = None;
         let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
@@ -510,13 +598,19 @@ impl Manager {
                         dir: spec.dir.clone(),
                         view_distance: spec.view_distance,
                         options_unapplied,
-                        host_xuid,
+                        host_xuid: host_xuid.clone(),
                     };
                     let started = self.inner.runners.start(&fresh, cancel);
                     fresh_world = Some(fresh.world);
                     started
                 },
             )
+        };
+        let started = match started {
+            Ok(instance) if grant == HostGrant::WhenReady && !cancel.is_cancelled() => {
+                self.grant_when_ready(instance, host_xuid.as_deref(), host_deadline, cancel)
+            }
+            started => started,
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {

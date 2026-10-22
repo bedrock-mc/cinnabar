@@ -93,6 +93,8 @@ require a connection. Earlier startup aborts leave extended reliability testing 
 An available account can join the local server without online verification when account services
 are unavailable or the server reports missing verification keys. This local retry lacks the host's
 account-based operator grant. Complete APK acceptance and the ten-second startup target remain open.
+Local-server startup logs include milestone elapsed times and, when accessible, child-process CPU
+time. These entries are available without verbose logging and help distinguish CPU work from waiting.
 BDS worlds cannot pause simulation.
 
 With an emulator running, the runtime probe can check the packaged helper under the app's

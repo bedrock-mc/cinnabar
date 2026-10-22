@@ -568,11 +568,13 @@ or the launcher's own server reports missing verification keys; other rejections
 transferred servers retain their authentication policy. Player-data continuity between account-backed
 and local identities, offline acceptance in the full APK and physical-phone retesting remain open. Other BDS hosts can still
 offer no NetherNet route with every external interface down, producing an explanatory error.
-hardcore, flat presets, Education Edition and live acceptance of every option on supported
-platforms remain incomplete.
 Local HTTP and LAN joins include client loopback ICE candidates. Full offline play of native
 BDS worlds is still a confirmed gap: without a non-loopback network interface BDS
 offers no NetherNet route, so the join fails with an explanation instead of connecting.
+Startup logs report milestone elapsed times and child-process CPU time when available.
+Native and translated BDS startup overlaps host-profile loading and confirms any changed
+operator grant before reporting running; container servers still resolve it before launch.
+Physical-phone startup profiling and the ten-second join target remain open.
 
 See [local worlds](docs/local-worlds.md).
 

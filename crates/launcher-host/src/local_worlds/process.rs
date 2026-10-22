@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use launcher::local_worlds::world::World;
 
 use crate::lifecycle::children::{self, Spawned};
@@ -37,9 +37,22 @@ pub(crate) struct StartSpec {
     pub view_distance: Option<u32>,
     /// No start has applied the world's options yet, so creation-only ones still apply.
     pub options_unapplied: bool,
-    /// The signed-in host's XUID, which BDS grants operator like a vanilla world owner; resolved
-    /// when the start begins.
+    /// The signed-in host's XUID that BDS writes as its operator, as a vanilla world owner is. A
+    /// [`HostGrant::AtLaunch`] runner gets the host resolved first; a [`HostGrant::WhenReady`] one
+    /// gets the host known at launch, `None` while it still loads.
     pub host_xuid: Option<String>,
+}
+
+/// When a runner's servers apply the host's operator grant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HostGrant {
+    /// The server makes nobody an operator, so its starts never wait for the host.
+    None,
+    /// The operator list is fixed at launch, so a start waits out a loading host before launching.
+    AtLaunch,
+    /// The server launches with the host known then, and takes [`Instance::grant_host`] after it
+    /// is ready and before its world is reported running.
+    WhenReady,
 }
 
 /// One running local server.
@@ -66,11 +79,17 @@ pub(crate) trait Instance: Send + Sync {
     fn lan_address(&self) -> Option<&str> {
         None
     }
+    /// Makes `xuid` the running server's only operator, or nobody, replacing its launch grant.
+    /// Returns once the server acknowledges it, or cancellation or failure ends the wait. Servers of
+    /// runners other than [`HostGrant::WhenReady`] cannot change their grant and return an error.
+    fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError>;
 }
 
 /// Launches local servers; `start` returns once the server accepts connections.
 pub(crate) trait Runner: Send + Sync {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError>;
+    /// When this runner's next start applies the host's operator grant.
+    fn host_grant(&self) -> HostGrant;
     /// Readies a server ahead of a likely open, so the open skips the process's startup work.
     fn prepare(&self) {}
     /// Ends a readied server at once, as the client exits; a lock held by the exiting thread
@@ -158,6 +177,11 @@ impl Runner for ProcessRunner {
         Ok(process)
     }
 
+    /// Dragonfly has no operator list for the host.
+    fn host_grant(&self) -> HostGrant {
+        HostGrant::None
+    }
+
     fn prepare(&self) {
         let mut standby = lock(&self.standby);
         if standby
@@ -209,12 +233,36 @@ pub(crate) struct Process {
     /// Tracked so the client's exit sweep ends it even when no destructor runs.
     child: Arc<Spawned>,
     stdin: Mutex<Option<ChildStdin>>,
+    /// Serializes acknowledged commands while output readers can independently deliver a reply.
+    console: Mutex<()>,
+    output_ack: Arc<OutputAck>,
     /// Set at launch, or when a standby server is given its world.
     address: OnceLock<String>,
     can_pause: bool,
     exited: Receiver<()>,
     status: Arc<Mutex<Option<ExitStatus>>>,
     stop_requested: AtomicBool,
+}
+
+/// One pending console response; registration always precedes writing the command.
+#[derive(Default)]
+struct OutputAck(Mutex<Option<(&'static str, Sender<()>)>>);
+
+impl OutputAck {
+    /// Delivers an exact response after stripping the server's optional log prefix.
+    fn observe(&self, line: &str) {
+        let line = line.trim();
+        let message = if line.starts_with('[') {
+            line.split_once("] ").map_or(line, |(_, message)| message)
+        } else {
+            line
+        };
+        if let Some((expected, sender)) = lock(&self.0).as_ref()
+            && message == *expected
+        {
+            let _ = sender.try_send(());
+        }
+    }
 }
 
 /// Starts `command` as a tracked child and waits for its ready line, killing it on exit, timeout
@@ -252,19 +300,26 @@ fn spawn(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    let started = Instant::now();
     let child = children::spawn_saving(&mut command, SAVE_BUDGET)
         .map_err(|error| failed(format!("start local server: {error}")))?;
+    tracing::info!(label, pid = child.id(), "local server spawned");
     let (stdin, stdout, stderr) = (child.take_stdin(), child.take_stdout(), child.take_stderr());
     let child = Arc::new(child);
     let status = Arc::new(Mutex::new(None));
     let (ready_sender, ready) = crossbeam_channel::bounded(1);
     let (exit_sender, exited) = crossbeam_channel::bounded::<()>(0);
+    let output_ack = Arc::new(OutputAck::default());
     let mut readers = Vec::new();
     if let Some(stdout) = stdout {
         let label = label.clone();
+        let mut timing = super::startup_timing::StartupTiming::new(started, child.id());
+        let output_ack = Arc::clone(&output_ack);
         readers.push(thread::spawn(move || {
             for_each_line(stdout, |line| {
                 tracing::debug!("{label}: {line}");
+                output_ack.observe(line);
+                timing.observe(&label, line);
                 if is_ready(line) {
                     let _ = ready_sender.try_send(());
                 }
@@ -299,6 +354,8 @@ fn spawn(
     let process = Arc::new(Process {
         child,
         stdin: Mutex::new(stdin),
+        console: Mutex::new(()),
+        output_ack,
         address: address.map_or_else(OnceLock::new, OnceLock::from),
         can_pause,
         exited,
@@ -359,7 +416,41 @@ fn for_each_line(reader: impl Read, mut line: impl FnMut(&str)) {
 }
 
 impl Process {
-    fn send(&self, line: &str) -> io::Result<()> {
+    /// Sends a command and waits for its response, process exit, cancellation or the caller's budget.
+    pub(crate) fn send_confirmed(
+        &self,
+        line: &str,
+        response: &'static str,
+        timeout: Duration,
+        cancel: &Cancel,
+    ) -> Result<(), WorldError> {
+        let _console = lock(&self.console);
+        if cancel.is_cancelled() {
+            return Err(WorldError::Cancelled);
+        }
+        let (sender, replied) = crossbeam_channel::bounded(1);
+        *lock(&self.output_ack.0) = Some((response, sender));
+        let result = self
+            .send(line)
+            .map_err(|error| failed(format!("send local server command: {error}")))
+            .and_then(|()| {
+                crossbeam_channel::select! {
+                    recv(replied) -> _ => Ok(()),
+                    recv(self.exited) -> _ => Err(failed("local server exited before confirming its command")),
+                    recv(cancel.receiver()) -> _ => Err(WorldError::Cancelled),
+                    recv(crossbeam_channel::after(timeout)) -> _ => Err(failed("local server did not confirm its command in time")),
+                }
+            });
+        lock(&self.output_ack.0).take();
+        if cancel.is_cancelled() {
+            return Err(WorldError::Cancelled);
+        }
+        result
+    }
+
+    /// Writes `line` and a newline to the server's console input; succeeding means only that the
+    /// pipe took it, not that the server has read or applied it.
+    pub(crate) fn send(&self, line: &str) -> io::Result<()> {
         let mut stdin = lock(&self.stdin);
         let pipe = stdin
             .as_mut()
@@ -418,6 +509,11 @@ impl Instance for Process {
 
     fn can_pause(&self) -> bool {
         self.can_pause
+    }
+
+    /// A Dragonfly server has no operator list to change.
+    fn grant_host(&self, _xuid: Option<&str>, _cancel: &Cancel) -> Result<(), WorldError> {
+        Err(failed("this local server grants no operator"))
     }
 }
 

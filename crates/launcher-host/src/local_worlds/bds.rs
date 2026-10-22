@@ -6,7 +6,7 @@ use std::{
     process::Command,
     sync::{Arc, Once},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bridge::contract::HOSTED_WORLD_MAX_PLAYERS;
@@ -21,7 +21,7 @@ use super::{
     docker::DOCKER,
     junction::create_world_link,
     ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, lan_address, loopback},
-    process::{Instance, Launch, Process, Runner, StartSpec, launch},
+    process::{HostGrant, Instance, Launch, Process, Runner, StartSpec, launch},
     provision::{Provisioner, RuntimeKind, install_dir},
     store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
@@ -101,7 +101,7 @@ impl Runner for BdsRunner {
         let properties = server_properties(spec, port, max_players, self.lan_visible);
         if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
             .map_err(|error| failed(format!("write server.properties: {error}")))
-            .and_then(|()| write_host_permissions(install, spec))
+            .and_then(|()| write_host_permissions(install, spec.host_xuid.as_deref()))
         {
             unlink_world(&link);
             return Err(error);
@@ -127,18 +127,23 @@ impl Runner for BdsRunner {
                 cancel,
             )
         };
-        let created = create_world(&world_dir, || {
-            let process = run("bds create")?;
-            Ok(move || process.stop(super::process::SAVE_BUDGET))
+        let id = &spec.world.id;
+        let created = timed_create(id, || {
+            create_world(&world_dir, || {
+                let process = run("bds create")?;
+                Ok(move || process.stop(super::process::SAVE_BUDGET))
+            })
         });
         if let Err(error) = created.and_then(|created| {
             let fresh = created || spec.options_unapplied;
-            super::level_dat::configure(&spec.world, &world_dir, fresh)
+            timed("bds configure", id, || {
+                super::level_dat::configure(&spec.world, &world_dir, fresh)
+            })
         }) {
             unlink_world(&link);
             return Err(error);
         }
-        let launched = run("bds");
+        let launched = timed("bds final run", id, || run("bds"));
         let process = match launched {
             Ok(process) => process,
             Err(error) => {
@@ -148,6 +153,7 @@ impl Runner for BdsRunner {
         };
         let instance = Arc::new(BdsInstance {
             process,
+            install: install.to_path_buf(),
             link,
             unlinked: Once::new(),
             lan_address: self.lan_visible.then(|| lan_address(0)),
@@ -161,11 +167,53 @@ impl Runner for BdsRunner {
         let instance: Arc<dyn Instance> = instance;
         Ok(instance)
     }
+
+    /// A container's operator list is fixed when it launches; a native or translated server
+    /// reloads its list from the install while running.
+    fn host_grant(&self) -> HostGrant {
+        match self.provisioner.runtime_info().kind {
+            RuntimeKind::Container => HostGrant::AtLaunch,
+            RuntimeKind::Native | RuntimeKind::Translated | RuntimeKind::None => {
+                HostGrant::WhenReady
+            }
+        }
+    }
+}
+
+/// Logs how long startup phase `phase` of world `id` took and whether it succeeded.
+pub(crate) fn timed<T>(
+    phase: &str,
+    id: &str,
+    run: impl FnOnce() -> Result<T, WorldError>,
+) -> Result<T, WorldError> {
+    let started = Instant::now();
+    let result = run();
+    let outcome = if result.is_ok() { "done" } else { "failed" };
+    let elapsed = started.elapsed().as_millis();
+    tracing::info!("{phase} {id}: {outcome} in {elapsed} ms");
+    result
+}
+
+/// Runs `create`, a [`create_world`] call, and logs its span unless the world already existed.
+pub(crate) fn timed_create(
+    id: &str,
+    create: impl FnOnce() -> Result<bool, WorldError>,
+) -> Result<bool, WorldError> {
+    let started = Instant::now();
+    let result = create();
+    if !matches!(result, Ok(false)) {
+        let outcome = if result.is_ok() { "done" } else { "failed" };
+        let elapsed = started.elapsed().as_millis();
+        tracing::info!("bds create run {id}: {outcome} in {elapsed} ms");
+    }
+    result
 }
 
 /// A native server that drops its world link once it has exited.
 struct BdsInstance {
     process: Arc<Process>,
+    /// Holds the operator list the server reloads.
+    install: PathBuf,
     link: PathBuf,
     unlinked: Once,
     lan_address: Option<String>,
@@ -214,7 +262,23 @@ impl Instance for BdsInstance {
     fn lan_address(&self) -> Option<&str> {
         self.lan_address.as_deref()
     }
+
+    /// Rewrites the operator list and waits for BDS to confirm reloading it before the host joins.
+    fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError> {
+        write_host_permissions(&self.install, xuid)?;
+        self.process.send_confirmed(
+            PERMISSION_RELOAD,
+            PERMISSION_RELOADED,
+            BDS_START_TIMEOUT,
+            cancel,
+        )
+    }
 }
+
+/// The console command that makes a running BDS reread its operator list.
+pub(crate) const PERMISSION_RELOAD: &str = "permission reload";
+/// The server confirms the entire permission list after reloading operators.
+const PERMISSION_RELOADED: &str = "Permissions reloaded from file.";
 
 /// Lets BDS create a world that has no level data yet, so its own new-world setup (spawn search,
 /// world version, flat layers) runs before owned fields change; true when it did. `start` runs a
@@ -303,12 +367,16 @@ pub(crate) fn server_properties(
 /// BDS's operator list in the install, keyed by XUID.
 pub(crate) const PERMISSIONS_FILE: &str = "permissions.json";
 
-/// Makes the host an operator as a vanilla world owner is. BDS reads XUIDs only from
-/// service-signed logins, so friends and other joiners keep the world's default permission.
-/// Rewriting the list each start drops an earlier account's grant from the shared install.
-pub(crate) fn write_host_permissions(install: &Path, spec: &StartSpec) -> Result<(), WorldError> {
-    let operators: Vec<_> = spec
-        .host_xuid
+/// Makes the host an operator as a vanilla world owner is; a malformed XUID grants nobody. BDS
+/// reads XUIDs only from service-signed logins, so friends and other joiners keep the world's
+/// default permission. Rewriting the list each start drops an earlier account's grant from the
+/// shared install.
+pub(crate) fn write_host_permissions(
+    install: &Path,
+    host_xuid: Option<&str>,
+) -> Result<(), WorldError> {
+    let operators: Vec<_> = host_xuid
+        .filter(|xuid| bridge::valid_cinnabar_xuid(xuid))
         .iter()
         .map(|xuid| serde_json::json!({ "permission": "operator", "xuid": xuid }))
         .collect();

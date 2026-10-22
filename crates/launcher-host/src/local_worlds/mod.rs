@@ -14,6 +14,7 @@ mod manager;
 mod ports;
 mod process;
 mod provision;
+mod startup_timing;
 mod store;
 #[cfg(test)]
 mod test_support;
