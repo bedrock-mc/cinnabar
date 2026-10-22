@@ -161,10 +161,9 @@ impl ModeTracker {
         self.fall_fly_ticks
     }
 
-    /// Takes `live`'s glide counter, which vanilla keeps in its own component
-    /// that replay copy-back leaves live.
-    pub(super) fn keep_live_glide_counter(&mut self, live: &Self) {
-        self.fall_fly_ticks = live.fall_fly_ticks;
+    /// Sets the glide counter, which vanilla keeps in its own component.
+    pub(super) fn set_glide_counter(&mut self, ticks: u32) {
+        self.fall_fly_ticks = ticks;
     }
 
     pub(super) fn contact_height(&self) -> f64 {

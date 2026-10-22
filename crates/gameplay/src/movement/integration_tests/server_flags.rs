@@ -811,3 +811,77 @@ fn replay_resumes_a_spin_set_after_a_collision_stop_from_its_counted_stop() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, stopped, &TallWall).unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// A later rewind starts from the counters the starting frame captured live,
+/// not from history an earlier replay rebuilt, so a jump the live glide
+/// survived still continues it after replay from just before the jump.
+#[test]
+fn a_later_rewind_starts_from_the_frame_captured_glide_counter() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..13 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let glide = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, glide), None);
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    let jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let sample = tick_with(&mut physics, &mut ticker, jump, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Gliding);
+    physics.queue_server_motion([0.0; 3], 113);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 113, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+}
+
+/// A positional correction at a side-collision stop keeps the counted stop
+/// the next frame captured, so a spin a correction sets there still resumes
+/// from one and expires on the tick the live one did.
+#[test]
+fn a_positional_correction_keeps_the_counted_spin_stop() {
+    let origin = [0.5, 101.620_01, -1.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let step = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        let frame = physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &TallWall,
+        );
+        let sample = frame
+            .samples
+            .into_iter()
+            .next()
+            .expect("one completed tick");
+        ticker.enqueue_completed_physics(sample).unwrap();
+    };
+    step(&mut physics, &mut ticker);
+    let spin = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, spin(true));
+    physics.queue_server_motion([0.0, 0.0, -0.6], 0);
+    step(&mut physics, &mut ticker);
+    let stopped = physics.state().unwrap().tick;
+    physics.apply_server_movement_flags(stopped, spin(true));
+    while physics.state().unwrap().spin_attack_ticks.is_some() {
+        step(&mut physics, &mut ticker);
+    }
+    let mut position = physics.sample_at(stopped).unwrap().position;
+    position[0] += 0.25;
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        position,
+        stopped,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &TallWall,
+    )
+    .unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}

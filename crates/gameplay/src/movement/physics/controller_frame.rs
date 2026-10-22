@@ -32,6 +32,9 @@ pub(super) struct ControllerFrame {
     pub entry_flags: server_flags::FlagWord,
     /// Retained server flag writes that apply before this tick.
     pub flag_correction: server_flags::FlagCorrection,
+    /// Counters this tick started with; replay restores those of the frame it
+    /// starts from and refreshes later ones.
+    pub entry_counters: server_flags::EntryCounters,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,

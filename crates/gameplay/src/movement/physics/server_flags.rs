@@ -184,6 +184,40 @@ pub(super) fn dormant_spin(spun: bool, state: &PlayerState) -> u8 {
     )
 }
 
+/// Counters vanilla keeps in components beside the flag word and snapshots
+/// with every frame: the glide counter, the swim blend and the Riptide spin
+/// counter, which keeps its value while the spin flag is clear.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(super) struct EntryCounters {
+    fall_fly_ticks: u32,
+    swim_amount: f32,
+    spin: u8,
+}
+
+impl EntryCounters {
+    /// The counters `modes` and `state` hold; `dormant` is the spin counter
+    /// while the spin flag is clear.
+    pub(super) fn capture(modes: &ModeTracker, state: &PlayerState, dormant: u8) -> Self {
+        Self {
+            fall_fly_ticks: modes.fall_fly_ticks(),
+            swim_amount: state.swim_amount,
+            spin: state.spin_attack_ticks.unwrap_or(dormant),
+        }
+    }
+
+    /// Restores these counters as the state a replay starts from, as vanilla
+    /// restores the starting frame's snapshot; returns the spin counter a spin
+    /// the frame's word starts resumes from.
+    pub(super) fn restore(self, modes: &mut ModeTracker, state: &mut PlayerState) -> u8 {
+        modes.set_glide_counter(self.fall_fly_ticks);
+        state.swim_amount = self.swim_amount;
+        if let Some(ticks) = state.spin_attack_ticks.as_mut() {
+            *ticks = self.spin;
+        }
+        self.spin
+    }
+}
+
 /// Server flag state outside the retained frames.
 #[derive(Debug, Clone, Default)]
 pub(super) struct ServerFlagAuthority {
@@ -263,14 +297,16 @@ fn apply_live_correction(
 /// queued for it without applying it again, as vanilla moves queued corrections into the captured frame; the
 /// queue keeps it until a later tick, so a failed tick retries with it. The
 /// pose and spin the tick starts from become its action baseline. Returns the
-/// capture and the attached correction.
+/// capture, the attached correction and the counters the tick starts with.
 pub(super) fn capture_tick(
     authority: &mut ServerFlagAuthority,
     modes: &ModeTracker,
     state: &PlayerState,
     input: &mut super::super::TickInput,
-) -> (FlagWord, FlagCorrection) {
+) -> (FlagWord, FlagCorrection, EntryCounters) {
     let entry = FlagWord::capture(modes.mode(), state.spin_attack_ticks.is_some());
+    let dormant = authority.cleared_spin_on(state.tick).unwrap_or(0);
+    let counters = EntryCounters::capture(modes, state, dormant);
     let next = state.tick.checked_add(1);
     authority.queued = authority.queued.filter(|(tick, _)| Some(*tick) >= next);
     let correction = authority
@@ -279,7 +315,7 @@ pub(super) fn capture_tick(
         .map_or_else(FlagCorrection::default, |(_, correction)| correction);
     input.server_mode = Some(modes.mode());
     input.server_spinning = Some(state.spin_attack_ticks.is_some());
-    (entry, correction)
+    (entry, correction, counters)
 }
 
 impl LocalPhysicsController {

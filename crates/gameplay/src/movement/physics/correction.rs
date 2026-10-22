@@ -264,16 +264,21 @@ impl LocalPhysicsController {
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)
                         .expect("controller and prediction histories retain the same ticks");
-                    // Vanilla keeps the capture of the frame replay starts from and
-                    // refreshes later ones before re-applying their corrections.
-                    if frame.tick != tick + 1 {
+                    // Vanilla restores the snapshot of the frame replay starts from
+                    // and refreshes later ones before re-applying their corrections.
+                    let dormant = if frame.tick == tick + 1 {
+                        frame.entry_counters.restore(&mut modes, state)
+                    } else {
                         frame.entry_flags = server_flags::FlagWord::capture(
                             modes.mode(),
                             state.spin_attack_ticks.is_some(),
                         );
-                    }
+                        let dormant = server_flags::dormant_spin(spun, state);
+                        frame.entry_counters =
+                            server_flags::EntryCounters::capture(&modes, state, dormant);
+                        dormant
+                    };
                     let word = frame.flag_correction.apply(frame.entry_flags);
-                    let dormant = server_flags::dormant_spin(spun, state);
                     server_flags::impose(word, &mut modes, state, dormant);
                     baselines.push((frame.tick, modes.mode(), state.spin_attack_ticks.is_some()));
                     let environment = previous.map_or(anchor_controller.environment, |output| {
@@ -437,7 +442,7 @@ impl LocalPhysicsController {
                 state.swim_amount = amount;
             }
         }
-        modes.keep_live_glide_counter(&self.modes);
+        modes.set_glide_counter(self.modes.fall_fly_ticks());
         self.modes = modes;
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;

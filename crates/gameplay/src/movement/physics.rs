@@ -570,7 +570,7 @@ impl LocalPhysicsController {
                 .map(|request| request.launch);
             input.skip_travel = self.skip_travel_pending;
             let mut tick_input = self.input_edges.sample(context.input);
-            let (entry_flags, flag_correction) = server_flags::capture_tick(
+            let (entry_flags, flag_correction, entry_counters) = server_flags::capture_tick(
                 &mut self.server_flags,
                 &self.modes,
                 state,
@@ -741,6 +741,7 @@ impl LocalPhysicsController {
                         server_sprinting: tick_input.server_sprinting,
                         entry_flags,
                         flag_correction,
+                        entry_counters,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
