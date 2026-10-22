@@ -106,6 +106,14 @@ class BuildIdTests(unittest.TestCase):
             with patch.dict(os.environ, {"CARGO_PROFILE_RELEASE_DEBUG": "false"}):
                 self.assertFalse(symbols.has_symbols(SOURCE))
 
+    def test_older_android_sources_keep_the_stripped_packaging_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for source, expected in [(Path(temporary), "false"), (SOURCE, "true")]:
+                result = subprocess.run([sys.executable, str(SCRIPT), "android-supported"],
+                    env={**os.environ, "CINNABAR_SOURCE_ROOT": str(source)}, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+
     def test_every_cargo_runtime_binary_and_the_prep_kit_compiler_need_symbols(self):
         cargo = [name for name, rust in symbols.runtime_binaries(SOURCE) if rust]
         self.assertTrue(cargo)

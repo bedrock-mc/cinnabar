@@ -119,10 +119,10 @@ device requirements and installation.
 
 `packaging/release-assets.json` is the canonical list of downloadable release artifacts and
 their repository. `assets` lists desktop updater platforms; `manual_assets` lists downloads such
-as Android APKs that are installed separately and have no desktop update payload or symbol archive.
-Publication requires every platform installer, every desktop platform's symbol archive
-and the generated Linux install script before writing checksums for the native downloads. A new tagged Beta release
-stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep
+as Android APKs that are installed separately and have no desktop update payload.
+Publication requires every platform installer and the generated Linux install script before writing
+checksums for the native downloads. Symbol archives and caches must reach private R2 before
+publication. A new tagged Beta release stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep
 existing payload downloads public; the signature authenticates the update manifest.
 
 Linux users can install the latest Beta release without root:
@@ -158,13 +158,11 @@ Installers ship only the stripped binaries: packagers stage binaries by name and
 rejects any other file. Each package job zips its Rust binaries with their debug files and a
 `manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
-the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
-print symbolized tracebacks themselves and have no symbol files. Android release APKs use the
-`release` profile with split debug info disabled and have no symbol archive; the separate Android
-CI workflow uses `play`. Releasing an older source branch without debug info publishes no archives
-when run without those overrides, with a workflow warning; `release-symbols.py has-symbols` checks
-the effective setting for both the package
-and publish jobs.
+each package job uploads it directly to private R2. The publish job builds and stores caches keyed
+by build id there. Symbols never enter GitHub artifacts, public release assets or checksums. Android
+ELF line tables are split before APK staging and use the same private pipeline. Older source checkouts without the Android splitter keep their stripped
+APK path and produce a warning instead of an Android symbol archive. Go binaries print symbolized
+tracebacks themselves.
 
 To symbolicate a user's crash, ask for the crash folder (`crashes/<UTC time>-<id>/` under the
 user data directory, or the `devtool diag` bundle that includes it), download the symbol
@@ -178,7 +176,11 @@ It prints the `report.json` summary, warns when the archive's version or commit 
 report, and walks every thread of `crash.dmp`, giving function, file and line for frames in a binary
 whose build id matches the archive and module offsets elsewhere. A folder without a dump prints only
 the summary; a bare `.dmp` path works too, and `--symbols` also accepts an extracted directory.
-Nightly releases replace their symbol archives, so keep the archive for any nightly you need to debug.
+Private archives are retained by release version and commit. Address-only uploaded reports use
+`cargo run -p devtool --locked -- crash-symbols resolve report.json path/to/symbol-cache`.
+`crash-symbols index <symbols-dir-or-zip> <cache-dir>` builds those caches with `symbolic`.
+Both commands work offline. A frame resolves only against its module's build id; unmatched frames
+keep their raw module-relative addresses. Scanned frames are labelled because they can be stale.
 
 ## Sign-in
 The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the
@@ -205,7 +207,7 @@ headers by name), `decode-samples/` (bodies of packets the session rejected, whe
 core and packs). The last three come from the session's `crashes/.live-<session id>/` staging
 directory, whose rings are mapped files that outlive any crash; the crash window lists the last
 packets in its details. When the client dies, the monitor opens the
-crash window (Restart, Copy report, Open folder, Close, Join our Discord) for the fault, or for
+crash window (Restart, Copy report, Send report, Open folder, Close, Join our Discord) for the fault, or for
 the panic that ended it. A client that dies without a dump (a fail-fast abort such as
 `0xC0000409`, an out-of-memory or external kill) gets a `kind: abort` report from its exit status;
 a clean exit (code 0, or 130 after Ctrl+C) gets none. When `main` fails in a Windows GUI build,
@@ -221,8 +223,22 @@ a monitor that connects later reports nothing more; folders from fatal Unix sign
 `-signal` and, written with async-signal-safe calls only, lack the three staging files. The
 newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
 `CINNABAR_FULL_DUMP=1` writes full-memory dumps (Windows). `devtool diag` bundles the latest
-session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
-uploaded.
+session's folders after redaction. Copy report replaces the home directory with `~`.
+
+Reports stay local unless the player chooses **Send report** in the crash window or Android's
+next-launch dialog, or enables **Settings → General → Advanced → Send crash reports automatically**.
+Automatic sending defaults to off. `CINNABAR_CRASH_UPLOAD=0` disables both forms of sending.
+Desktop uploads run in the healthy crash monitor; Android sends on a later launch. The producer
+queues automatic sending only after the report, log sections and native metadata are complete.
+
+The gzip payload is at most 64 KiB (512 KiB before compression). It contains a redacted copy of
+`report.json`, a grouping signature, up to the last 200 client log lines, and native module build
+ids and frame offsets. Session ids and user comments are omitted. Shared redaction removes account
+identifiers, gamertags, home paths, servers and IP addresses. A random per-install id is used only
+for report rate limits. Minidumps, packet captures and decode samples remain local because they
+can contain private process memory. Retries keep the same random report id, use persisted backoff,
+and are deduplicated by the API. Turning automatic sending off also blocks its pending reports.
+The API retains reports for 90 days and requires owner authentication for reading them.
 
 A `bedrock-core` process that crashes while the client lives (a Go panic or fatal error, or an
 exit other than 0 or its own logged failure status 1 that the client did not ask for) gets a

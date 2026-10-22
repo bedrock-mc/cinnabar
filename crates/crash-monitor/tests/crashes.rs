@@ -37,6 +37,7 @@ const TWO_WINDOWS_OF_CHECKS: u64 = 2 * crash_monitor::HANG_SAMPLES_PER_WINDOW + 
 fn layout(root: &Path) -> launcher::install_layout::InstallLayout {
     let mut layout = launcher::test_support::checkout();
     layout.user_data_root = root.to_owned();
+    layout.user_config_root = root.join("config");
     layout
 }
 
@@ -286,6 +287,15 @@ fn crash(kind: &str) -> Run {
         "CLIENT_SESSION_START session=0123456789abcdef\nfixture client line\n",
     )
     .unwrap();
+    let endpoint = std::env::var("CINNABAR_CRASH_E2E_URL").ok();
+    if endpoint.is_some() {
+        use launcher::menu::settings_options::{SETTINGS_FILE, SettingId, SettingsOptions};
+        let mut settings = SettingsOptions::default();
+        settings.set(SettingId::SendCrashReports.index(), 1);
+        let config = root.path().join("config");
+        fs::create_dir_all(&config).unwrap();
+        settings.save(&config.join(SETTINGS_FILE)).unwrap();
+    }
     let mut client = Command::new(std::env::current_exe().unwrap());
     client
         .args(["--exact", "client_fixture", "--nocapture"])
@@ -295,6 +305,9 @@ fn crash(kind: &str) -> Run {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    if let Some(endpoint) = endpoint {
+        client.env(launcher_host::lifecycle::crash::upload::URL_ENV, endpoint);
+    }
     if kind == "early_panic" {
         client.env(GO_ENV, root.path().join("go"));
     }
@@ -346,6 +359,15 @@ fn assert_report(folder: &Path, kind: Kind, dumped: bool) {
             .contains("fixture client line")
     );
     assert_traffic(folder);
+    if std::env::var_os("CINNABAR_CRASH_E2E_URL").is_some() {
+        assert!(
+            matches!(
+                crash_report::upload::state::read(folder),
+                Some(crash_report::upload::state::Upload::Sent { .. })
+            ),
+            "the local API stored the crash report"
+        );
+    }
 }
 
 /// Asserts `folder` carries the packets, sample and log line [`record_traffic`] recorded.

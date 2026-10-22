@@ -29,20 +29,20 @@ impl CrashSummary {
         }
     }
 
-    /// The opening sentence under the title: what happened and that nothing was sent.
+    /// The opening sentence under the title: what happened and how reports can be shared.
     pub(crate) fn body(&self) -> String {
         match &self.headline {
             Headline::Crashed { activity } => format!(
                 "{PRODUCT_NAME} stopped unexpectedly while you were {activity}. A crash report was \
-                 saved on this computer; nothing was sent anywhere."
+                 saved on this computer. Send report shares the error, device details and redacted recent logs with the Cinnabar team."
             ),
             Headline::CouldNotStart => format!(
                 "{PRODUCT_NAME} couldn't start. The error is below and a report was saved on this \
-                 computer; nothing was sent anywhere."
+                 computer. Send report shares the error, device details and redacted recent logs with the Cinnabar team."
             ),
             Headline::Stopped { activity } => format!(
                 "{PRODUCT_NAME} stopped on an error while you were {activity}. The error is below \
-                 and a report was saved on this computer; nothing was sent anywhere."
+                 and a report was saved on this computer. Send report shares the error, device details and redacted recent logs with the Cinnabar team."
             ),
         }
     }

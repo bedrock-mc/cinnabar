@@ -517,6 +517,8 @@ settings! {
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
+    SendCrashReports => "send_crash_reports", toggle("Send crash reports automatically", false),
+        [(SettingPanel::GeneralAdvanced, 2)], [], None, None;
     TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
         [(SettingPanel::Touch, 0)], [], None, None;
 

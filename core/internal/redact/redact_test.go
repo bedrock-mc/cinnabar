@@ -13,7 +13,10 @@ import (
 // The vectors in the shared rule file give the same output here as in crash_report::redact.
 func TestConformanceVectors(t *testing.T) {
 	var file struct {
-		Vectors []struct{ Name, Input, Output string } `json:"vectors"`
+		Vectors []struct {
+			Name, Input, Output string
+			FileName            bool `json:"file_name"`
+		} `json:"vectors"`
 	}
 	if err := json.Unmarshal(rulesJSON, &file); err != nil {
 		t.Fatal(err)
@@ -22,10 +25,14 @@ func TestConformanceVectors(t *testing.T) {
 		t.Fatal("the rule file has no vectors")
 	}
 	for _, vector := range file.Vectors {
-		if got := Text(vector.Input); got != vector.Output {
+		apply := Text
+		if vector.FileName {
+			apply = FileName
+		}
+		if got := apply(vector.Input); got != vector.Output {
 			t.Errorf("%s:\n got  %q\n want %q", vector.Name, got, vector.Output)
 		}
-		if got := Text(vector.Output); got != vector.Output {
+		if got := apply(vector.Output); got != vector.Output {
 			t.Errorf("%s redacts its own output again: %q", vector.Name, got)
 		}
 	}

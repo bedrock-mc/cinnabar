@@ -77,6 +77,10 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         start_log(layout, args);
     }
     let launch = read_launch()?;
+    // The healthy monitor owns all desktop network work, including retries from earlier runs.
+    let previous_uploads = layout
+        .cloned()
+        .and_then(launcher_host::lifecycle::crash::upload::spawn_send_due);
     // Retain before READY: any introduced client has a monitor protecting its attachments.
     let staging = launch
         .staging
@@ -136,11 +140,11 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
     let watchdog = launch
         .hang
         .as_ref()
-        .and_then(|hang| watch_hangs(args, hang, &observed));
+        .and_then(|hang| watch_hangs(args, hang, &observed, layout));
     let mut panicked = false;
     for event in &received {
         match event {
-            Event::PanicDumped => write_panics(args, &observed, &mut panicked),
+            Event::PanicDumped => write_panics(args, layout, &observed, &mut panicked),
             Event::ClientGone => break,
         }
     }
@@ -155,7 +159,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         shutdown.store(true, Ordering::Relaxed);
     }
     let _ = serving.join();
-    write_panics(args, &observed, &mut panicked);
+    write_panics(args, layout, &observed, &mut panicked);
     let observed = observed
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -172,10 +176,21 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         _ => report(args, &observed, &ending),
     };
     drop(staging);
-    Ok(shown.map(|written| {
+    if let (Some(layout), Some(written)) = (layout, &shown) {
+        launcher_host::lifecycle::crash::upload::completed(layout, &written.folder);
+    }
+    let current_uploads = layout
+        .cloned()
+        .and_then(launcher_host::lifecycle::crash::upload::spawn_send_due);
+    // Network retries must not delay opening the crash window or launching a requested restart.
+    let shown = shown.map(|written| {
         show(layout, &launch.restart, &written);
         written.folder
-    }))
+    });
+    for worker in [previous_uploads, current_uploads].into_iter().flatten() {
+        let _ = worker.join();
+    }
+    Ok(shown)
 }
 
 /// Reads the client's [`Launch`] line from stdin.
@@ -209,7 +224,12 @@ fn start_log(layout: &InstallLayout, args: &Args) {
 }
 
 /// Writes the folders of panics dumped since the last call, while the client may live on.
-fn write_panics(args: &Args, observed: &Mutex<Observed>, panicked: &mut bool) {
+fn write_panics(
+    args: &Args,
+    layout: Option<&InstallLayout>,
+    observed: &Mutex<Observed>,
+    panicked: &mut bool,
+) {
     let (hello, dumped) = {
         let mut observed = observed.lock().unwrap_or_else(PoisonError::into_inner);
         (
@@ -227,6 +247,9 @@ fn write_panics(args: &Args, observed: &Mutex<Observed>, panicked: &mut bool) {
         match outcome::write(&args.crash_dir, &hello, &report, dump, now_ms) {
             Ok((folder, _)) => {
                 tracing::info!("panic report saved to {}", folder.display());
+                if let Some(layout) = layout {
+                    launcher_host::lifecycle::crash::upload::completed(layout, &folder);
+                }
                 *panicked = true;
             }
             Err(error) => tracing::error!("panic report could not be written: {error}"),
@@ -265,17 +288,25 @@ fn watch_hangs(
     args: &Args,
     hang: &HangWatch,
     observed: &Arc<Mutex<Observed>>,
+    layout: Option<&InstallLayout>,
 ) -> Option<Watchdog<Written>> {
     let heartbeat = Heartbeat::open(&hang.heartbeat)
         .map_err(|error| tracing::warn!("hang detection unavailable: {error}"))
         .ok()?;
     let args = args.clone();
     let observed = Arc::clone(observed);
+    let layout = layout.cloned();
     hang::spawn(
         heartbeat,
         hang.stall_after_ms,
         now_ms,
-        move |region, stall| write_hang(&args, &observed, region, stall),
+        move |region, stall| {
+            let written = write_hang(&args, &observed, region, stall)?;
+            if let Some(layout) = &layout {
+                launcher_host::lifecycle::crash::upload::completed(layout, &written.folder);
+            }
+            Some(written)
+        },
     )
     .map_err(|error| tracing::warn!("hang watchdog did not start: {error}"))
     .ok()
@@ -379,14 +410,22 @@ fn show(layout: Option<&InstallLayout>, restart: &Restart, written: &Written) {
     }
     let summary: CrashSummary =
         describe::summary(&written.report, &written.logs, written.folder.clone());
-    let choice = match layout {
-        Some(layout) => window::show(summary.clone(), layout),
-        None => Choice::Unavailable,
-    };
+    match layout {
+        Some(layout) => {
+            window::show(summary.clone(), layout, |choice| {
+                apply_choice(restart, &summary, choice)
+            });
+        }
+        None => apply_choice(restart, &summary, Choice::Unavailable),
+    }
+}
+
+/// Starts a requested replacement process before the crash window waits for pending uploads.
+fn apply_choice(restart: &Restart, summary: &CrashSummary, choice: Choice) {
     let restarting = match choice {
         Choice::Restart => true,
         Choice::Close => false,
-        Choice::Unavailable => actions::native_dialog(&summary),
+        Choice::Unavailable => actions::native_dialog(summary),
     };
     if restarting && let Err(error) = actions::restart(restart) {
         tracing::error!("restart failed: {error}");
@@ -462,7 +501,7 @@ mod tests {
                     },
                     state: State::default(),
                 });
-            write_panics(&args, &observed, &mut panicked);
+            write_panics(&args, None, &observed, &mut panicked);
         }
         assert!(panicked);
         let shown = saved_panic(&args.crash_dir, "0123456789abcdef").unwrap();

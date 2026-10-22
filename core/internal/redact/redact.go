@@ -115,7 +115,15 @@ func compile(data []byte) (*ruleSet, error) {
 // placeholder; the Rust client's crash_report::redact::patterns gives the same result.
 func Text(text string) string {
 	for _, rule := range rules.rules {
-		text = rules.apply(rule, text)
+		text = rules.apply(rule, text, false)
+	}
+	return text
+}
+
+// FileName applies the shared rules to a known module filename without mistaking it for a host.
+func FileName(text string) string {
+	for _, rule := range rules.rules {
+		text = rules.apply(rule, text, true)
 	}
 	return text
 }
@@ -149,7 +157,7 @@ func PackIdentityKey(key string) bool {
 	return false
 }
 
-func (set *ruleSet) apply(rule rule, text string) string {
+func (set *ruleSet) apply(rule rule, text string, fileName bool) string {
 	matches := rule.pattern.FindAllStringSubmatchIndex(text, -1)
 	if matches == nil {
 		return text
@@ -183,6 +191,9 @@ func (set *ruleSet) apply(rule rule, text string) string {
 				replace(start, stop)
 			}
 		case "host":
+			if fileName && !strings.ContainsAny(text, ":/\\") {
+				continue
+			}
 			if !set.keepsHost(text[start:end], start, end, sources) {
 				replace(start, end)
 			}

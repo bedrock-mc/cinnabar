@@ -89,11 +89,15 @@ pub(super) fn settings_general_toggle(id: SettingId) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// The Advanced rows with Verbose logging and Record network session turned on.
+/// The Advanced rows with every diagnostics toggle turned on.
 pub(super) fn settings_general_diagnostics_on() -> Fixture {
     let mut view = settings(SettingSection::General.definition().name);
     let mut options = (*view.settings_options).clone();
-    for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
+    for id in [
+        SettingId::VerboseLogging,
+        SettingId::RecordNetworkSession,
+        SettingId::SendCrashReports,
+    ] {
         options.set(id.index(), 1);
     }
     view.settings_options = Arc::new(options);

@@ -1,0 +1,59 @@
+name: Private release symbols
+description: Transfer symbol archives and caches directly to private R2
+inputs:
+  operation:
+    description: upload-file, upload-directory, or download-directory
+    required: true
+  path:
+    description: Local file or directory to transfer
+    required: true
+  prefix:
+    description: Object prefix in the private bucket
+    required: true
+  account:
+    description: Cloudflare account id
+    required: true
+  bucket:
+    description: Private R2 bucket name
+    required: true
+  access-key-id:
+    description: Bucket-scoped S3 access key id
+    required: true
+  secret-access-key:
+    description: Bucket-scoped S3 secret access key
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SYMBOLS_OPERATION: ${{ inputs.operation }}
+        SYMBOLS_PATH: ${{ inputs.path }}
+        SYMBOLS_PREFIX: ${{ inputs.prefix }}
+        SYMBOLS_ACCOUNT: ${{ inputs.account }}
+        SYMBOLS_BUCKET: ${{ inputs.bucket }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.secret-access-key }}
+        AWS_DEFAULT_REGION: auto
+      run: |
+        : "${AWS_ACCESS_KEY_ID:?Configure private symbol upload credentials}"
+        : "${AWS_SECRET_ACCESS_KEY:?Configure private symbol upload credentials}"
+        : "${SYMBOLS_ACCOUNT:?Configure the private R2 account}"
+        : "${SYMBOLS_BUCKET:?Configure the private R2 bucket}"
+        export PYTHONPATH="$RUNNER_TEMP/private-symbols-aws"
+        if [[ ! -f "$PYTHONPATH/awscli/__main__.py" ]]; then
+          python -m pip install --disable-pip-version-check --no-warn-script-location --target "$PYTHONPATH" awscli
+        fi
+        endpoint="https://$SYMBOLS_ACCOUNT.r2.cloudflarestorage.com"
+        remote="s3://$SYMBOLS_BUCKET/$SYMBOLS_PREFIX"
+        case "$SYMBOLS_OPERATION" in
+          upload-file)
+            python -m awscli s3 cp "$SYMBOLS_PATH" "$remote/$(basename "$SYMBOLS_PATH")" --endpoint-url "$endpoint" --only-show-errors ;;
+          upload-directory)
+            python -m awscli s3 sync "$SYMBOLS_PATH" "$remote" --endpoint-url "$endpoint" --only-show-errors ;;
+          download-directory)
+            python -m awscli s3 sync "$remote" "$SYMBOLS_PATH" --endpoint-url "$endpoint" --only-show-errors ;;
+          *)
+            echo "Unknown private symbol transfer operation" >&2
+            exit 1 ;;
+        esac

@@ -32,6 +32,7 @@ fn identity() -> Identity {
 fn harness(root: &Path) -> (CoreOutput, Arc<AtomicU64>) {
     let mut layout = launcher::test_support::checkout();
     layout.user_data_root = root.to_owned();
+    layout.user_config_root = root.join("config");
     let context = super::super::context(&layout, identity());
     fs::create_dir_all(layout.log_dir()).unwrap();
     fs::write(
@@ -149,4 +150,48 @@ fn a_core_this_client_kills_writes_no_folder() {
     child.wait();
     wait_for_exit_handled(dir.path(), pid);
     assert_eq!(reports.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn automatic_upload_consent_follows_completed_core_attachments() {
+    use launcher::menu::settings_options::{SETTINGS_FILE, SettingId, SettingsOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let mut layout = launcher::test_support::checkout();
+    layout.user_data_root = dir.path().join("data");
+    layout.user_config_root = dir.path().join("config");
+    let mut settings = SettingsOptions::default();
+    settings.set(SettingId::SendCrashReports.index(), 1);
+    settings
+        .save(&layout.user_config_root.join(SETTINGS_FILE))
+        .unwrap();
+    let context = super::super::context(&layout, identity());
+    // Obtain a portable status; the synthetic crash supplies its own traceback.
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("--list")
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    let folder = write(
+        &context,
+        &CoreCrash {
+            role: CoreRole::Game,
+            pid: 123,
+            status,
+            crash_output: b"panic: fixture\ntraceback".to_vec(),
+        },
+        NOW_MS,
+    )
+    .unwrap();
+    assert!(
+        fs::read_to_string(folder.join(folder::CORE_CRASH_FILE))
+            .unwrap()
+            .contains("traceback")
+    );
+    assert!(matches!(
+        crash_report::upload::state::read(&folder),
+        Some(crash_report::upload::state::Upload::Pending {
+            consent: crash_report::upload::state::Consent::Auto,
+            ..
+        })
+    ));
 }

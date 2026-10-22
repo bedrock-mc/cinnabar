@@ -52,6 +52,16 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                     fn_ptr: prepare as *mut c_void,
                 },
                 NativeMethod {
+                    name: "captureCrashReports".into(),
+                    sig: "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;".into(),
+                    fn_ptr: super::crash_upload::capture as *mut c_void,
+                },
+                NativeMethod {
+                    name: "crashReport".into(),
+                    sig: "(Ljava/lang/String;Ljava/lang/String;JIILjava/lang/String;[BZ)Ljava/lang/String;".into(),
+                    fn_ptr: super::crash_upload::report as *mut c_void,
+                },
+                NativeMethod {
                     name: "cancel".into(),
                     sig: "(J)V".into(),
                     fn_ptr: cancel as *mut c_void,

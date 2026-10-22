@@ -47,6 +47,8 @@ impl Content<'_, '_> {
             "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
+        } else if id == SettingId::SendCrashReports {
+            "Send each crash report to the Cinnabar team when the game stops unexpectedly: the error, your device and graphics driver, and the last log lines with names, servers and addresses removed. Uses a random install ID and keeps reports for 90 days. Off sends nothing unless you choose Send report.".to_owned()
         } else if description.is_empty() {
             let fallback = super::sections::fallback(&description_key);
             if fallback == description_key {

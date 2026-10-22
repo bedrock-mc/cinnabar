@@ -59,6 +59,12 @@ install -m 0755 "$rust_out/lib$client_library.so" "$libs/lib$client_library.so"
 install -m 0755 "$rust_out/assetc" "$libs/$(pin compiler_library)"
 install -m 0644 "$toolchain/sysroot/usr/lib/$triple/libc++_shared.so" "$libs/libc++_shared.so"
 
+# Keep line tables outside the APK, keyed by each ELF build id in the release symbol manifest.
+if [[ "${CINNABAR_ANDROID_SYMBOLS:-0}" == 1 ]]; then
+    bash "$here/split-symbols.sh" "$libs" "$out/symbols" "$toolchain/bin" \
+        "lib$client_library.so" "$(pin compiler_library)"
+fi
+
 # Pion's Android interface lookup (anet) needs Go's private net linknames.
 CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$toolchain/bin/$triple$min_sdk-clang" \
     go build -buildmode=pie -trimpath \

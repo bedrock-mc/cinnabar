@@ -291,6 +291,29 @@
       "name": "time-like explicit endpoints remain private",
       "input": "target=12:34:56 endpoint=23:59:59\nconnect 12:34\n24:00:00 ERROR invalid time",
       "output": "target=[redacted] endpoint=[redacted]\nconnect [redacted]\n[redacted]:00 ERROR invalid time"
+    },
+    {
+      "name": "module filename context preserves Android driver identity",
+      "file_name": true,
+      "input": "vulkan.adreno.so",
+      "output": "vulkan.adreno.so"
+    },
+    {
+      "name": "module filename context preserves versioned shared libraries",
+      "file_name": true,
+      "input": "libcinnabar_android.so.1",
+      "output": "libcinnabar_android.so.1"
+    },
+    {
+      "name": "ordinary so hostnames remain private",
+      "input": "connect game.example.so",
+      "output": "connect [redacted]"
+    },
+    {
+      "name": "filename context never exempts endpoints",
+      "file_name": true,
+      "input": "driver.so:19132",
+      "output": "[redacted]"
     }
   ],
   "timestamp": "(?m)(?:\\b[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?|^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:[ \\t]|$))"

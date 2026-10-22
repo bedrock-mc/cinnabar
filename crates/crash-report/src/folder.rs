@@ -15,6 +15,8 @@ use crate::{
 pub const MAX_REPORTS: usize = 8;
 /// The report inside each folder.
 pub const REPORT_FILE: &str = "report.json";
+/// An in-process fallback has finished every member and a healthy sender may recover it.
+pub const FALLBACK_READY_FILE: &str = ".fallback-ready";
 /// The crashing session's section of `client.log`.
 pub const CLIENT_LOG_FILE: &str = "client.log";
 /// The crashing session's section of `core.log`.
@@ -188,6 +190,12 @@ pub fn write_with(
     Ok(folder)
 }
 
+/// Marks an in-process fallback only after every report member is finished.
+/// This grants no consent; a healthy sender still checks the player's current settings.
+pub fn mark_fallback_ready(folder: &Path) -> io::Result<()> {
+    write_new(&folder.join(FALLBACK_READY_FILE), b"")
+}
+
 /// Accepts relative paths of normal components whose first component is not a fixed member.
 fn check_attachment(name: &str) -> io::Result<()> {
     let mut components = Path::new(name).components();
@@ -198,9 +206,15 @@ fn check_attachment(name: &str) -> io::Result<()> {
             .chain(components)
             .all(|component| matches!(component, std::path::Component::Normal(_)));
     let fixed = first.is_some_and(|first| {
-        [REPORT_FILE, CLIENT_LOG_FILE, CORE_LOG_FILE, DUMP_FILE]
-            .iter()
-            .any(|member| first.as_os_str() == *member)
+        [
+            REPORT_FILE,
+            CLIENT_LOG_FILE,
+            CORE_LOG_FILE,
+            DUMP_FILE,
+            FALLBACK_READY_FILE,
+        ]
+        .iter()
+        .any(|member| first.as_os_str() == *member)
     });
     if normal && !fixed {
         Ok(())
@@ -242,8 +256,9 @@ pub fn read(folder: &Path) -> io::Result<Report> {
 }
 
 /// Crash folders in `crash_dir`, oldest first; other entries are ignored.
-/// Within a UTC second, directory modification times order completed writes rather than ids
-/// or reusable collision suffixes. The path breaks ties when filesystem times are equal.
+/// The report file's write time orders crashes without later upload-state changes affecting
+/// retention. Prepared folder names can predate a fault; names are only a fallback before a
+/// report is written. The path breaks ties when filesystem times are equal.
 pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = fs::read_dir(crash_dir)
         .into_iter()
@@ -254,13 +269,15 @@ pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
         .filter(|path| created_at_ms(path).is_some())
         .collect();
     folders.sort_by_cached_key(|path| {
-        (
-            created_at_ms(path),
-            fs::metadata(path)
-                .and_then(|metadata| metadata.modified())
-                .ok(),
-            path.clone(),
-        )
+        let written = fs::metadata(path.join(REPORT_FILE))
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .or_else(|| {
+                created_at_ms(path).and_then(|at| {
+                    std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(at))
+                })
+            });
+        (written, path.clone())
     });
     folders
 }
@@ -343,6 +360,57 @@ mod tests {
         names
     }
 
+    /// Sets synthetic filesystem time without reading the clock or waiting for a write interval.
+    fn set_modified(path: &Path, at_ms: u64) {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x02000000).access_mode(0x100);
+        }
+        options
+            .open(path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_millis(at_ms)),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn uploading_newest_first_cannot_reverse_crash_retention() {
+        use crate::upload::state::{self, Consent, Outcome};
+        // A prepared signal folder can be named long before the fault writes its report.
+        for newer_stamp in [NOW_MS, NOW_MS - 3_600_000] {
+            let dir = tempfile::tempdir().unwrap();
+            let older =
+                write(dir.path(), &report("older"), &Logs::default(), None, NOW_MS).unwrap();
+            let newer = write(
+                dir.path(),
+                &report("newer"),
+                &Logs::default(),
+                None,
+                newer_stamp,
+            )
+            .unwrap();
+            set_modified(&older.join(REPORT_FILE), NOW_MS);
+            set_modified(&newer.join(REPORT_FILE), NOW_MS + 1);
+            for (folder, id) in [(&newer, "a"), (&older, "b")] {
+                state::consent(folder, Consent::User, &id.repeat(32), NOW_MS).unwrap();
+                state::record(folder, &Outcome::Sent, NOW_MS).unwrap();
+            }
+            // Uploads replace files in newest-first order; simulate their directory write times.
+            set_modified(&newer, NOW_MS + 10);
+            set_modified(&older, NOW_MS + 20);
+            assert_eq!(list(dir.path()), [older.clone(), newer.clone()]);
+            prune(dir.path(), 1);
+            assert!(!older.exists());
+            assert!(newer.exists());
+        }
+    }
+
     #[test]
     fn write_creates_a_dated_folder_that_reads_back() {
         let dir = tempfile::tempdir().unwrap();
@@ -413,6 +481,7 @@ mod tests {
             absolute,
             REPORT_FILE,
             CORE_LOG_FILE,
+            FALLBACK_READY_FILE,
             "crash.dmp/inner.txt",
         ] {
             let error = write_with(
@@ -566,20 +635,7 @@ mod tests {
                 NOW_MS,
             )
             .unwrap();
-            let modified = std::time::UNIX_EPOCH + std::time::Duration::from_millis(NOW_MS + index);
-            let mut options = fs::OpenOptions::new();
-            options.read(true);
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::OpenOptionsExt;
-                // FILE_FLAG_BACKUP_SEMANTICS opens a directory; FILE_WRITE_ATTRIBUTES sets its times.
-                options.custom_flags(0x02000000).access_mode(0x100);
-            }
-            options
-                .open(folder)
-                .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(modified))
-                .unwrap();
+            set_modified(&folder.join(REPORT_FILE), NOW_MS + index);
         }
         let messages: Vec<_> = list(dir.path())
             .iter()

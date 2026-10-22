@@ -172,6 +172,15 @@ pub(crate) fn write(
         &attachments.as_folder(),
         now_ms,
     )?;
+    if let Some(stack) = folder
+        .join(folder::DUMP_FILE)
+        .is_file()
+        .then(|| dump::stack(&folder.join(folder::DUMP_FILE)))
+        .flatten()
+        && let Err(error) = crash_report::stack::write(&folder, &stack)
+    {
+        tracing::warn!("native frame metadata could not be written: {error}");
+    }
     Ok((folder, logs))
 }
 

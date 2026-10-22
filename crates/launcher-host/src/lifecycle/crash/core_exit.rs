@@ -47,14 +47,16 @@ pub(super) fn write(context: &Context, crash: &CoreCrash, now_ms: u64) -> std::i
             bytes: &crash.crash_output,
         });
     }
-    folder::write_with(
+    let folder = folder::write_with(
         &context.crash_dir,
         &report,
         &logs,
         None,
         &attachments,
         now_ms,
-    )
+    )?;
+    super::upload::completed_with_settings(&folder, &context.settings_file, now_ms);
+    Ok(folder)
 }
 
 #[cfg(test)]

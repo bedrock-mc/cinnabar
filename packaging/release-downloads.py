@@ -44,15 +44,15 @@ def symbols_archive(config, version, platform, arch):
     return config["symbols"]["archive"].format(version=version, platform=platform, arch=arch)
 
 
-def checksum(directory, version, symbols=True):
-    """Checksums the release; `symbols` is False only for a source build without split debug info
-    (release-symbols.py has-symbols), which publishes no symbol archives."""
+def checksum(directory, version):
+    """Checksums public downloads and rejects private symbol archives in the publish directory."""
     config = manifest()
     expected = [name for arches in download_assets(config).values() for name in arches.values()]
     expected.extend(name for arches in config["update_assets"].values() for name in arches.values())
-    if symbols:
-        expected.extend(symbols_archive(config, version, platform, arch)
-                        for platform, arches in config["assets"].items() for arch in arches)
+    private = [symbols_archive(config, version, platform, arch)
+               for platform, arches in download_assets(config).items() for arch in arches]
+    if any((directory / name).exists() for name in private):
+        raise ValueError("private symbols must not enter the public release directory")
     expected.append(config["install_script"])
     missing = [name for name in expected if not (directory / name).is_file()]
     if missing:
@@ -106,8 +106,6 @@ def main():
     checksums = commands.add_parser("checksums")
     checksums.add_argument("directory", type=Path)
     checksums.add_argument("--version", required=True, help="app version naming the symbol archives")
-    checksums.add_argument("--without-symbols", action="store_true",
-                           help="the source build has no split debug info, so no symbol archives")
     args = parser.parse_args()
     if args.command == "asset":
         print(download_assets(manifest())[args.platform][args.arch])
@@ -141,7 +139,7 @@ def main():
         args.output.write_text(render_installer())
         args.output.chmod(0o755)
     else:
-        checksum(args.directory, args.version, symbols=not args.without_symbols)
+        checksum(args.directory, args.version)
 
 
 if __name__ == "__main__":

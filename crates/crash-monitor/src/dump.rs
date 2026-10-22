@@ -1,5 +1,9 @@
 //! What a minidump says about the fault it captured.
 
+mod stack;
+
+pub(crate) use stack::read as stack;
+
 use std::{fs::File, io, path::Path};
 
 use crash_report::native::{Address, module_name};

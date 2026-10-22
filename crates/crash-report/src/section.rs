@@ -1,7 +1,7 @@
 //! The crashing session's part of an append-only log, found by its session header.
 
 pub mod header;
-pub(crate) mod session;
+pub mod session;
 
 use std::{
     fs,

@@ -211,7 +211,7 @@ fn passive_clients_keep_mod_checks_without_app_update_controls() {
     }
 }
 
-/// General ends with an Advanced heading holding both diagnostics toggles, off by default,
+/// General ends with an Advanced heading holding the diagnostics toggles, off by default,
 /// and the capture caption says what a recording holds and that it stays local.
 #[test]
 fn general_advanced_rows_toggle_diagnostics_and_explain_the_capture() {
@@ -252,6 +252,7 @@ fn general_advanced_rows_toggle_diagnostics_and_explain_the_capture() {
         "Recordnetworksession",
         "containschatmessagesandplayernames",
         "neveruploaded",
+        "Sendcrashreportsautomatically",
     ] {
         assert!(text.contains(expected), "missing {expected}");
     }
@@ -261,7 +262,11 @@ fn general_advanced_rows_toggle_diagnostics_and_explain_the_capture() {
         heading < text.find("Verboselogging").unwrap(),
         "the toggles sit under the Advanced heading"
     );
-    for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
+    for id in [
+        SettingId::VerboseLogging,
+        SettingId::RecordNetworkSession,
+        SettingId::SendCrashReports,
+    ] {
         assert!(
             hits.iter()
                 .any(|(action, _)| *action == MenuAction::SettingsOption(id.index() as u16, 1)),

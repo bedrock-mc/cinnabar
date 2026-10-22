@@ -59,6 +59,8 @@ pub(super) struct CrashApp {
     overlay_at: Option<Instant>,
     epoch: Instant,
     choice: Option<Choice>,
+    layout: Option<launcher::install_layout::InstallLayout>,
+    upload: Option<std::thread::JoinHandle<()>>,
 }
 
 impl CrashApp {
@@ -68,9 +70,11 @@ impl CrashApp {
         faces: render_model::PanoramaFaces,
         logo: Option<Image>,
         preferences: Preferences,
+        layout: Option<launcher::install_layout::InstallLayout>,
     ) -> Self {
         let screen = CrashScreen {
             expanded: false,
+            queued: false,
             copied: None,
         };
         let mut input = Input::default();
@@ -101,6 +105,8 @@ impl CrashApp {
             overlay_at: None,
             epoch: Instant::now(),
             choice: None,
+            layout,
+            upload: None,
         }
     }
 
@@ -115,6 +121,21 @@ impl CrashApp {
             CrashAction::Close => self.finish(Choice::Close, event_loop),
             CrashAction::OpenFolder => desktop::open_folder(&self.summary.folder),
             CrashAction::Discord => launcher_host::desktop::open_url(launcher::DISCORD_INVITE_URL),
+            CrashAction::SendReport => {
+                use launcher_host::lifecycle::crash::upload;
+                if let Some(layout) = &self.layout
+                    && upload::Policy::load(layout).is_some()
+                    && upload::consent(
+                        &self.summary.folder,
+                        crash_report::upload::state::Consent::User,
+                        upload::now_ms(),
+                    )
+                    .is_ok()
+                {
+                    self.screen.queued = true;
+                    queue_upload(&mut self.upload, || upload::spawn_send_due(layout.clone()));
+                }
+            }
             CrashAction::CopyReport => {
                 let outcome = match super::copy_report(&self.summary) {
                     Ok(()) => Copied::Done,
@@ -132,6 +153,11 @@ impl CrashApp {
             }
         }
         self.overlay_dirty = true;
+    }
+
+    /// Transfers the pending send so the window's caller can apply the choice before waiting.
+    pub(super) fn take_upload(&mut self) -> Option<std::thread::JoinHandle<()>> {
+        self.upload.take()
     }
 
     fn finish(&mut self, choice: Choice, event_loop: &ActiveEventLoop) {
@@ -261,6 +287,23 @@ impl CrashApp {
         self.drag_to(y, grab);
         self.overlay_dirty = true;
         true
+    }
+}
+
+/// Reaps finished sends and starts a requested worker, keeping any active send in place.
+pub(super) fn queue_upload(
+    worker: &mut Option<std::thread::JoinHandle<()>>,
+    spawn: impl FnOnce() -> Option<std::thread::JoinHandle<()>>,
+) {
+    if worker
+        .as_ref()
+        .is_some_and(std::thread::JoinHandle::is_finished)
+        && let Some(finished) = worker.take()
+    {
+        let _ = finished.join();
+    }
+    if worker.is_none() {
+        *worker = spawn();
     }
 }
 

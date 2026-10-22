@@ -49,6 +49,11 @@ def has_symbols(source):
             and profile.get("debug", False) not in (False, 0, "none"))
 
 
+def supports_android_symbols(source):
+    """Whether this source checkout can split native symbols before staging its APK."""
+    return (source / "packaging/android/split-symbols.sh").is_file()
+
+
 def runtime_binaries(source):
     """(name, built by Cargo) for each runtime binary; Go rows have no Cargo package."""
     rows = []
@@ -189,7 +194,18 @@ def linux_entry(binaries, name):
     return [(name, binary), (debug.name, debug)], record
 
 
-ENTRIES = {"windows": windows_entry, "macos": macos_entry, "linux": linux_entry}
+ENTRIES = {"windows": windows_entry, "macos": macos_entry, "linux": linux_entry, "android": linux_entry}
+
+
+def symbol_names(source, platform):
+    """The Rust native files shipped on this platform, derived from its package manifests."""
+    if platform != "android":
+        return rust_binaries(source)
+    with (source / "packaging/android/client/Cargo.toml").open("rb") as file:
+        name = tomllib.load(file)["package"]["name"].replace("-", "_")
+    runtime = json.loads((source / "packaging/android/runtime.json").read_text())
+    return [f"lib{name}.so", runtime["compiler_library"]]
+
 
 
 def collect(source, platform, arch, version, commit, binaries, out):
@@ -200,7 +216,7 @@ def collect(source, platform, arch, version, commit, binaries, out):
               f"publishing {platform}-{arch} without a symbol archive")
         return False
     files, records = [], []
-    for name in rust_binaries(source):
+    for name in symbol_names(source, platform):
         entry_files, record = ENTRIES[platform](binaries, name)
         files.extend(entry_files)
         records.append(record)
@@ -248,10 +264,13 @@ def main():
     collecting.add_argument("--binaries", type=Path, required=True)
     collecting.add_argument("--out", type=Path, required=True)
     commands.add_parser("has-symbols", help="print true when the source release build splits debug info")
+    commands.add_parser("android-supported", help="print true when the selected Android source can split native symbols")
     args = parser.parse_args()
     source = source_root()
     if args.command == "split":
         split(source, args.binaries, args.out)
+    elif args.command == "android-supported":
+        print("true" if supports_android_symbols(source) else "false")
     elif args.command == "has-symbols":
         print("true" if has_symbols(source) else "false")
     else:

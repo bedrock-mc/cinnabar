@@ -142,6 +142,7 @@ image = { version = "0.25", default-features = false, features = ["bmp", "gif", 
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = "0.7"
 web-time = "1.1"
+windows-sys = "0.61"
 bytes = "1"
 futures = "0.3"
 anyhow = "1"

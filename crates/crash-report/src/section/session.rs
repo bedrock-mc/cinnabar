@@ -18,7 +18,7 @@ fn belongs(file: &mut File, marker: &str, session_id: &str) -> io::Result<bool> 
 }
 
 /// Matches a bounded header prefix without allocation or IO, including in signal handlers.
-pub(crate) fn matches_header(header: &[u8], marker: &str, session_id: &str) -> bool {
+pub fn matches_header(header: &[u8], marker: &str, session_id: &str) -> bool {
     let line = header
         .split(|byte| *byte == b'\n')
         .rfind(|line| line.starts_with(marker.as_bytes()))

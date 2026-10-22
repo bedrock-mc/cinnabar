@@ -21,6 +21,8 @@ struct Rule {
 #[derive(Deserialize)]
 struct Vector {
     name: String,
+    #[serde(default)]
+    file_name: bool,
     input: String,
     output: String,
 }
@@ -67,15 +69,24 @@ fn conformance_vectors_pass_and_are_stable() {
     let file = file();
     assert!(!file.vectors.is_empty());
     for vector in file.vectors {
-        assert_eq!(patterns(&vector.input), vector.output, "{}", vector.name);
+        let apply = if vector.file_name {
+            super::patterns_file_name
+        } else {
+            patterns
+        };
+        assert_eq!(apply(&vector.input), vector.output, "{}", vector.name);
         assert_eq!(
-            patterns(&vector.output),
+            apply(&vector.output),
             vector.output,
             "{} redacts its own output again",
             vector.name
         );
         assert_eq!(
-            Redactor::default().text(&vector.input).unwrap(),
+            if vector.file_name {
+                Redactor::default().file_name(&vector.input).unwrap()
+            } else {
+                Redactor::default().text(&vector.input).unwrap()
+            },
             vector.output,
             "{} through the layered redactor",
             vector.name
@@ -236,4 +247,14 @@ fn diagnostics_audit_every_filename_exemption_rejects_ports() {
     ] {
         assert_eq!(patterns(source), source);
     }
+}
+
+#[test]
+fn module_filenames_still_remove_learned_private_values() {
+    let mut learned = Learned::default();
+    learned.text("gamertag=FixturePlayer").unwrap();
+    assert_eq!(
+        learned.redactor().file_name("libFixturePlayer.so").unwrap(),
+        "lib[redacted].so"
+    );
 }

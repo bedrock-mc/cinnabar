@@ -14,6 +14,7 @@ mod diagnostic_bundle;
 mod metadata;
 mod selection;
 mod symbolicate;
+mod upload_symbols;
 mod web;
 mod worktrees;
 
@@ -65,6 +66,7 @@ pub fn dispatch(args: Vec<String>) -> Result<(), DevtoolError> {
         Some("capture") => capture::run(&args[1..], false),
         Some("trace-summary") => capture::run(&args[1..], true),
         Some("wt-gc") => worktrees::run(&args[1..]),
+        Some("crash-symbols") => upload_symbols::run(&args[1..]),
         Some("symbolicate") => symbolicate::run(&args[1..]),
         Some("build-web") => web::run(&args[1..]),
         Some("check-web") => web::check(&args[1..]),

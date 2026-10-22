@@ -123,10 +123,10 @@ fn regex(pattern: &str) -> Result<Regex, String> {
 
 impl Rules {
     /// Applies every rule once, in file order.
-    pub(super) fn apply(&self, text: &str) -> String {
+    pub(super) fn apply(&self, text: &str, file_name: bool) -> String {
         let mut text = text.to_owned();
         for rule in &self.rules {
-            if let Some(next) = self.apply_rule(rule, &text) {
+            if let Some(next) = self.apply_rule(rule, &text, file_name) {
                 text = next;
             }
         }
@@ -134,7 +134,7 @@ impl Rules {
     }
 
     /// The text with `rule`'s spans replaced, or `None` when nothing changed.
-    fn apply_rule(&self, rule: &Rule, text: &str) -> Option<String> {
+    fn apply_rule(&self, rule: &Rule, text: &str, file_name: bool) -> Option<String> {
         let sources = if rule.check == Some(Check::Host) {
             self.source_locations(text)
         } else {
@@ -160,6 +160,7 @@ impl Rules {
             let span = match rule.check {
                 None => Some(whole),
                 Some(Check::Ipv6) => ipv6_span(text, whole),
+                Some(Check::Host) if file_name && !text.contains([':', '/', '\\']) => None,
                 Some(Check::Host) => {
                     (!self.keeps_host(&text[whole.clone()], &whole, &sources)).then_some(whole)
                 }

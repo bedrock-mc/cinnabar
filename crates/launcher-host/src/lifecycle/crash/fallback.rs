@@ -43,14 +43,16 @@ fn write(
         .as_ref()
         .map(|staging| Attachments::read(staging.dir()))
         .unwrap_or_default();
-    folder::write_with(
+    let folder = folder::write_with(
         &context.crash_dir,
         report,
         &logs,
         None,
         &attachments.as_folder(),
         now_ms,
-    )
+    )?;
+    folder::mark_fallback_ready(&folder)?;
+    Ok(folder)
 }
 
 /// Writes a native report from the faulting thread. Windows exception handling has no signal

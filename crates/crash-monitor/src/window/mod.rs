@@ -74,6 +74,7 @@ pub enum Choice {
 enum CrashAction {
     Restart,
     CopyReport,
+    SendReport,
     OpenFolder,
     Close,
     ToggleDetails,
@@ -82,9 +83,10 @@ enum CrashAction {
 
 /// Focus order: the action row first so Restart is the Enter default, then the row above it
 /// from right to left, so Close moves up to Discord and Restart moves back up to the toggle.
-const ACTIONS: [CrashAction; 6] = [
+const ACTIONS: [CrashAction; 7] = [
     CrashAction::Restart,
     CrashAction::CopyReport,
+    CrashAction::SendReport,
     CrashAction::OpenFolder,
     CrashAction::Close,
     CrashAction::Discord,
@@ -92,9 +94,10 @@ const ACTIONS: [CrashAction; 6] = [
 ];
 
 /// The action row, left to right.
-const ROW: [CrashAction; 4] = [
+const ROW: [CrashAction; 5] = [
     CrashAction::Restart,
     CrashAction::CopyReport,
+    CrashAction::SendReport,
     CrashAction::OpenFolder,
     CrashAction::Close,
 ];
@@ -109,6 +112,7 @@ enum Copied {
 /// The window's interactive state.
 struct CrashScreen {
     expanded: bool,
+    queued: bool,
     copied: Option<(Copied, Instant)>,
 }
 
@@ -133,6 +137,8 @@ impl CrashScreen {
                 Some((Copied::Failed, _)) => "Copy failed",
                 None => "Copy report",
             },
+            CrashAction::SendReport if self.queued => "Queued",
+            CrashAction::SendReport => "Send report",
             CrashAction::OpenFolder => "Open folder",
             CrashAction::Close => "Close",
             CrashAction::ToggleDetails if self.expanded => "Hide details",
@@ -160,13 +166,25 @@ pub(crate) fn copy_report(summary: &CrashSummary) -> Result<(), String> {
 }
 
 /// Shows the crash window for `summary` with the UI font and menu preferences `layout` holds, and
-/// waits for the player's choice. [`Choice::Unavailable`] means no font, event loop, window or
+/// calls `selected` with the player's choice before waiting for pending uploads.
+/// [`Choice::Unavailable`] means no font, event loop, window or
 /// GPU adapter, so the caller should fall back to a native dialog.
-pub fn show(summary: CrashSummary, layout: &InstallLayout) -> Choice {
+pub fn show(
+    summary: CrashSummary,
+    layout: &InstallLayout,
+    selected: impl FnOnce(Choice),
+) -> Choice {
     match bootstrap_ui::text(layout) {
-        Ok(text) => show_with_text(summary, text, Preferences::load(layout)),
+        Ok(text) => show_with_text(
+            summary,
+            text,
+            Preferences::load(layout),
+            Some(layout.clone()),
+            selected,
+        ),
         Err(error) => {
             tracing::warn!("crash window unavailable: no usable UI font ({error:#})");
+            selected(Choice::Unavailable);
             Choice::Unavailable
         }
     }
@@ -175,7 +193,7 @@ pub fn show(summary: CrashSummary, layout: &InstallLayout) -> Choice {
 /// [`show`] with caller-supplied UI font bytes (Cinnangles Sans) and preferences.
 pub fn show_with_font(summary: CrashSummary, font: &[u8], preferences: Preferences) -> Choice {
     match Text::from_bytes(font) {
-        Some(text) => show_with_text(summary, text, preferences),
+        Some(text) => show_with_text(summary, text, preferences, None, |_| {}),
         None => {
             tracing::warn!("crash window unavailable: the UI font does not parse");
             Choice::Unavailable
@@ -183,38 +201,49 @@ pub fn show_with_font(summary: CrashSummary, font: &[u8], preferences: Preferenc
     }
 }
 
-fn show_with_text(summary: CrashSummary, text: Text, preferences: Preferences) -> Choice {
+/// Runs one crash window, retaining upload workers until its actions finish.
+fn show_with_text(
+    summary: CrashSummary,
+    text: Text,
+    preferences: Preferences,
+    layout: Option<InstallLayout>,
+    selected: impl FnOnce(Choice),
+) -> Choice {
     let Some(faces) = bootstrap_ui::built_in_faces() else {
+        selected(Choice::Unavailable);
         return Choice::Unavailable;
     };
     let Ok(event_loop) = EventLoop::new() else {
+        selected(Choice::Unavailable);
         return Choice::Unavailable;
     };
     event_loop.set_control_flow(ControlFlow::Poll);
     let logo = bootstrap_ui::decode_logo();
-    let mut app = app::CrashApp::new(summary, text, faces, logo, preferences);
+    let mut app = app::CrashApp::new(summary, text, faces, logo, preferences, layout);
     let failed = event_loop.run_app(&mut app).is_err();
-    app.choice().unwrap_or(if failed {
+    let choice = app.choice().unwrap_or(if failed {
         Choice::Unavailable
     } else {
         Choice::Close
-    })
+    });
+    let upload = app.take_upload();
+    finish_choice(app, choice, upload, selected)
+}
+
+/// Destroys the window owner before applying the selected action and waiting for its upload.
+fn finish_choice<T>(
+    window_owner: T,
+    choice: Choice,
+    upload: Option<std::thread::JoinHandle<()>>,
+    selected: impl FnOnce(Choice),
+) -> Choice {
+    drop(window_owner);
+    selected(choice);
+    if let Some(worker) = upload {
+        let _ = worker.join();
+    }
+    choice
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn copy_feedback_expires_back_to_its_label() {
-        let at = Instant::now();
-        let mut screen = CrashScreen {
-            expanded: false,
-            copied: Some((Copied::Done, at)),
-        };
-        assert_eq!(screen.label(CrashAction::CopyReport), "Copied");
-        assert!(!screen.expire(at));
-        assert!(screen.expire(at + COPY_FEEDBACK));
-        assert_eq!(screen.label(CrashAction::CopyReport), "Copy report");
-    }
-}
+mod tests;

@@ -179,6 +179,12 @@ impl SettingsOptions {
         self.value(SettingId::RecordNetworkSession) != 0
     }
 
+    /// Whether the crash monitor may send new crash reports without asking.
+    /// `CINNABAR_CRASH_UPLOAD=0` overrides it.
+    pub fn send_crash_reports(&self) -> bool {
+        self.value(SettingId::SendCrashReports) != 0
+    }
+
     /// Whether new menu screens use the additional accessibility scale step.
     pub fn extra_large_ui(&self) -> bool {
         self.value(SettingId::GuiAccessibilityScaling) != 0

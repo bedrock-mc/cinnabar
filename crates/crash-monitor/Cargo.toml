@@ -40,6 +40,7 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+png = "0.18"
 # The game binary enables wgpu's platform backends; the standalone crash preview needs them too.
 wgpu = { workspace = true, features = ["dx12", "metal", "vulkan"] }
 bytes.workspace = true

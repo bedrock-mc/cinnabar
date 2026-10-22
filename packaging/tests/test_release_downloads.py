@@ -68,10 +68,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
             name for arches in self.config["assets"].values() for name in arches.values()
         ] + [
             name for arches in self.config["manual_assets"].values() for name in arches.values()
-        ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [
-            self.symbol_archive(platform, arch)
-            for platform, arches in self.config["assets"].items() for arch in arches
-        ] + [self.config["install_script"]]
+        ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [self.config["install_script"]]
 
     def populate(self):
         for name in self.required_assets():
@@ -120,18 +117,17 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(checksum.read_bytes(), first)
 
-    def test_only_a_release_without_split_debug_info_may_omit_symbol_archives(self):
+    def test_private_symbols_are_rejected_in_the_public_download_directory(self):
         self.populate()
-        archives = [self.symbol_archive(platform, arch)
-                    for platform, arches in self.config["assets"].items() for arch in arches]
-        for name in archives:
-            (self.dist / name).unlink()
-        result = self.run_helper("checksums", self.dist, "--version", self.version)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(archives[0], result.stderr)
-        result = self.run_helper("checksums", self.dist, "--version", self.version, "--without-symbols")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.dist / self.config["checksums"]).is_file())
+        for platform, arches in self.config["assets"].items():
+            for arch in arches:
+                archive = self.dist / self.symbol_archive(platform, arch)
+                archive.write_bytes(b"private symbols")
+                result = self.run_helper("checksums", self.dist, "--version", self.version)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("private symbols", result.stderr)
+                self.assertFalse((self.dist / self.config["checksums"]).exists())
+                archive.unlink()
 
     def test_symbol_archives_are_named_by_version_platform_and_arch(self):
         names = {self.symbol_archive(platform, arch)

@@ -247,11 +247,15 @@ jobs:
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
       - if: steps.symbols.outputs.archived == 'true'
-        uses: actions/upload-artifact@v7
+        uses: ./release-tools/.github/actions/private-symbols
         with:
-          name: symbols-macos-${{ matrix.arch }}
+          operation: upload-file
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
-          if-no-files-found: error
+          prefix: releases/${{ needs.prepare.outputs.version }}/${{ needs.prepare.outputs.commit }}
+          account: ${{ vars.CINNABAR_SYMBOLS_R2_ACCOUNT_ID }}
+          bucket: ${{ vars.CINNABAR_SYMBOLS_R2_BUCKET }}
+          access-key-id: ${{ secrets.CINNABAR_SYMBOLS_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CINNABAR_SYMBOLS_R2_SECRET_ACCESS_KEY }}
 
       - name: Upload Rust build timings
         if: ${{ !cancelled() }}
@@ -394,11 +398,15 @@ jobs:
             ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
       - if: steps.symbols.outputs.archived == 'true'
-        uses: actions/upload-artifact@v7
+        uses: ./release-tools/.github/actions/private-symbols
         with:
-          name: symbols-windows-x64
+          operation: upload-file
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
-          if-no-files-found: error
+          prefix: releases/${{ needs.prepare.outputs.version }}/${{ needs.prepare.outputs.commit }}
+          account: ${{ vars.CINNABAR_SYMBOLS_R2_ACCOUNT_ID }}
+          bucket: ${{ vars.CINNABAR_SYMBOLS_R2_BUCKET }}
+          access-key-id: ${{ secrets.CINNABAR_SYMBOLS_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CINNABAR_SYMBOLS_R2_SECRET_ACCESS_KEY }}
 
       - name: Upload Rust build timings
         if: ${{ !cancelled() }}
@@ -527,11 +535,15 @@ jobs:
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
       - if: steps.symbols.outputs.archived == 'true'
-        uses: actions/upload-artifact@v7
+        uses: ./release-tools/.github/actions/private-symbols
         with:
-          name: symbols-linux-x86_64
+          operation: upload-file
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
-          if-no-files-found: error
+          prefix: releases/${{ needs.prepare.outputs.version }}/${{ needs.prepare.outputs.commit }}
+          account: ${{ vars.CINNABAR_SYMBOLS_R2_ACCOUNT_ID }}
+          bucket: ${{ vars.CINNABAR_SYMBOLS_R2_BUCKET }}
+          access-key-id: ${{ secrets.CINNABAR_SYMBOLS_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CINNABAR_SYMBOLS_R2_SECRET_ACCESS_KEY }}
 
       - name: Upload Rust build timings
         if: ${{ !cancelled() }}
@@ -549,7 +561,7 @@ jobs:
     timeout-minutes: 180
     env:
       CINNABAR_ANDROID_PROFILE: release
-      # Android APKs do not use the desktop symbol archive pipeline.
+      # Split the native ELF files after linking, before staging the APK.
       CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
     steps:
       - uses: actions/checkout@v6
@@ -588,6 +600,18 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends librsvg2-bin
+      - name: Select Android symbol support for the source checkout
+        id: android_symbols
+        run: |
+          enabled="$(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" android-supported)"
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          if [[ "$enabled" == true ]]; then
+            echo "CARGO_PROFILE_RELEASE_STRIP=none" >> "$GITHUB_ENV"
+            echo "CINNABAR_ANDROID_SYMBOLS=1" >> "$GITHUB_ENV"
+          else
+            echo "CARGO_PROFILE_RELEASE_STRIP=debuginfo" >> "$GITHUB_ENV"
+            echo "::warning::Selected source predates Android symbol splitting; keeping its stripped APK packaging path"
+          fi
       - name: Build and sign the release APK
         env:
           CINNABAR_ANDROID_KEYSTORE_BASE64: ${{ secrets.CINNABAR_ANDROID_KEYSTORE_BASE64 }}
@@ -607,6 +631,22 @@ jobs:
           export CINNABAR_ANDROID_KEYSTORE="$keystore"
           bash packaging/android/build-apk.sh
           mv target/android/*-arm64-v8a.apk "$RUNNER_TEMP/$RELEASE_ASSET"
+      - name: Collect Android symbols
+        if: steps.android_symbols.outputs.enabled == 'true'
+        run: |
+          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect android arm64 \
+            --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
+            --binaries target/android/symbols --out "$RUNNER_TEMP/android-symbols.zip"
+      - uses: ./release-tools/.github/actions/private-symbols
+        if: steps.android_symbols.outputs.enabled == 'true'
+        with:
+          operation: upload-file
+          path: ${{ runner.temp }}/android-symbols.zip
+          prefix: releases/${{ needs.prepare.outputs.version }}/${{ needs.prepare.outputs.commit }}
+          account: ${{ vars.CINNABAR_SYMBOLS_R2_ACCOUNT_ID }}
+          bucket: ${{ vars.CINNABAR_SYMBOLS_R2_BUCKET }}
+          access-key-id: ${{ secrets.CINNABAR_SYMBOLS_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CINNABAR_SYMBOLS_R2_SECRET_ACCESS_KEY }}
       - uses: actions/upload-artifact@v7
         with:
           name: android-arm64
@@ -647,17 +687,42 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: source/dist
-          # Timing reports are CI diagnostics, never release downloads; symbol archives are.
-          pattern: "{macos-*,windows-x64,linux-x86_64,android-arm64,symbols-*}"
+          # Symbols stay in private R2 and never enter the public dist directory.
+          pattern: "{macos-*,windows-x64,linux-x86_64,android-arm64}"
           merge-multiple: true
+      - name: Download private release symbols
+        uses: ./release-tools/.github/actions/private-symbols
+        with:
+          operation: download-directory
+          path: ${{ runner.temp }}/private-symbols
+          prefix: releases/${{ env.RELEASE_VERSION }}/${{ env.RELEASE_COMMIT }}
+          account: ${{ vars.CINNABAR_SYMBOLS_R2_ACCOUNT_ID }}
+          bucket: ${{ vars.CINNABAR_SYMBOLS_R2_BUCKET }}
+          access-key-id: ${{ secrets.CINNABAR_SYMBOLS_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CINNABAR_SYMBOLS_R2_SECRET_ACCESS_KEY }}
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env --channel "$RELEASE_CHANNEL" --tag "$RELEASE_TAG" >> "$GITHUB_ENV"
       - name: Add the standalone Linux installer
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" install-script --output "dist/$INSTALL_SCRIPT"
       - name: Install the release tooling Rust toolchain
-        if: env.UPDATE_SIGNED == 'true'
         working-directory: release-tools
         run: rustup toolchain install
+      - name: Index symbols by build ID
+        working-directory: release-tools
+        run: |
+          for archive in "$RUNNER_TEMP/private-symbols/"*.zip; do
+            cargo run --quiet --locked -p devtool -- crash-symbols index "$archive" "$RUNNER_TEMP/symbol-cache"
+          done
+      - name: Publish build ID caches to private R2
+        uses: ./release-tools/.github/actions/private-symbols
+        with:
+          operation: upload-directory
+          path: ${{ runner.temp }}/symbol-cache
+          prefix: builds
+          account: ${{ vars.CINNABAR_SYMBOLS_R2_ACCOUNT_ID }}
+          bucket: ${{ vars.CINNABAR_SYMBOLS_R2_BUCKET }}
+          access-key-id: ${{ secrets.CINNABAR_SYMBOLS_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CINNABAR_SYMBOLS_R2_SECRET_ACCESS_KEY }}
       - name: Sign the update manifest
         env:
           CINNABAR_UPDATE_SIGNING_KEY: ${{ secrets.CINNABAR_UPDATE_SIGNING_KEY }}
@@ -681,13 +746,9 @@ jobs:
             > "$RUNNER_TEMP/$UPDATE_MANIFEST.partial"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST.partial" "$RUNNER_TEMP/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the release
-        # Use the same effective debug-generation setting as the native packaging jobs.
         run: |
-          symbols=()
-          [[ "$(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" has-symbols)" == true ]] ||
-            symbols=(--without-symbols)
           python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist \
-            --version "$RELEASE_VERSION" "${symbols[@]}"
+            --version "$RELEASE_VERSION"
       - name: Prepare the tagged release
         id: prepare_publish
         if: needs.prepare.outputs.track == 'tagged'

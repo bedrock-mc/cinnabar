@@ -12,7 +12,7 @@ use super::{
     summary::{DetailLine, Tone},
 };
 
-/// The panel's widest extent; wide enough for each summary row and action label on one line.
+/// The preferred panel width; measured action labels may require more room.
 const PANEL_WIDTH: f32 = 64.0;
 /// The logo's width; a third of its width tall.
 const LOGO_WIDTH: f32 = 24.0;
@@ -99,8 +99,21 @@ fn layout(
     loop {
         let margin = theme::SPACE[4] * rem;
         let pad = theme::LOADING_PAD * rem;
+        let widest_label = ROW
+            .iter()
+            .map(|action| text.width(screen.label(*action), theme::SECONDARY_BUTTON.size * rem))
+            .fold(0.0_f32, f32::max);
+        let actions_width = (widest_label + theme::SPACE[2] * rem * 2.0) * ROW.len() as f32
+            + theme::SPACE[1] * rem * (ROW.len() - 1) as f32;
+        let required = actions_width + pad * 2.0;
+        let available = width - margin * 2.0;
+        if required > available && rem > 1.0 {
+            rem = (rem - 0.5).max(1.0);
+            continue;
+        }
         let panel_w = (PANEL_WIDTH * rem)
-            .min(width - margin * 2.0)
+            .max(required)
+            .min(available)
             .max(pad * 2.0 + rem);
         let body = text.wrap(&body_text, theme::CAPTION.size * rem, panel_w - pad * 2.0);
         let fixed = theme::LOADING_PAD * 2.0

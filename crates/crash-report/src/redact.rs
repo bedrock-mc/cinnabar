@@ -50,7 +50,12 @@ impl std::error::Error for Error {}
 /// values and no escape decoding.
 #[must_use]
 pub fn patterns(text: &str) -> String {
-    RULES.apply(text)
+    RULES.apply(text, false)
+}
+
+/// The shared single-pass rules for a known module filename, retaining filename identity.
+pub fn patterns_file_name(text: &str) -> String {
+    RULES.apply(text, true)
 }
 
 /// Private values learned from text and JSON, to be removed wherever they appear.
@@ -178,7 +183,12 @@ impl Redactor {
     /// further redaction, so literal backslashes such as Windows paths survive unless a deeper
     /// decode revealed something private.
     pub fn text(&self, text: &str) -> Result<String, Error> {
-        let mut layer = self.scrub(&escapes::strip_ansi(text));
+        self.transform(text, false)
+    }
+
+    /// Applies escape decoding and learned values in either ordinary text or filename context.
+    fn transform(&self, text: &str, file_name: bool) -> Result<String, Error> {
+        let mut layer = self.scrub(&escapes::strip_ansi(text), file_name);
         let mut emitted = layer.clone();
         for _ in 0..MAX_ESCAPE_DEPTH {
             let decoded = escapes::strip_ansi(&escapes::decode(&layer));
@@ -186,7 +196,7 @@ impl Redactor {
                 return Ok(emitted);
             }
             // A later decode can disguise a value, such as turning `\b` into a backspace.
-            layer = self.scrub(&decoded);
+            layer = self.scrub(&decoded, file_name);
             if layer != decoded {
                 emitted.clone_from(&layer);
             }
@@ -195,6 +205,11 @@ impl Redactor {
             return Err(Error::EscapeDepth);
         }
         Ok(emitted)
+    }
+
+    /// Redacts a known module filename without treating the filename itself as a hostname.
+    pub fn file_name(&self, text: &str) -> Result<String, Error> {
+        self.transform(text, true)
     }
 
     /// Scrubs every string in `value` and replaces values under private keys whole, keeping
@@ -230,10 +245,10 @@ impl Redactor {
 
     /// Learned values first, before decoding can alter quote or backslash boundaries, then the
     /// shared rules.
-    fn scrub(&self, text: &str) -> String {
+    fn scrub(&self, text: &str, file_name: bool) -> String {
         match &self.values {
-            Some(values) => RULES.apply(&values.replace_all(text, PLACEHOLDER)),
-            None => RULES.apply(text),
+            Some(values) => RULES.apply(&values.replace_all(text, PLACEHOLDER), file_name),
+            None => RULES.apply(text, file_name),
         }
     }
 }

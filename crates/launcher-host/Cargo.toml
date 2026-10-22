@@ -80,6 +80,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 tokio = { workspace = true, features = ["test-util"] }
 test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }

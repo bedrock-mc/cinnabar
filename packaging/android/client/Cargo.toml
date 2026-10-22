@@ -18,6 +18,8 @@ anyhow.workspace = true
 assets = { path = "../../../crates/assets" }
 bevy = { workspace = true, features = ["android-native-activity"] }
 cinnabar = { path = "../../../app", default-features = false }
+crash-report = { path = "../../../crates/crash-report" }
+launcher-host = { path = "../../../crates/launcher-host" }
 first-run = { path = "../../../crates/first-run" }
 jni = "=0.21.1"
 launcher = { path = "../../../crates/launcher" }

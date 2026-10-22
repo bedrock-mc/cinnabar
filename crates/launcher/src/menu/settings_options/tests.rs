@@ -576,6 +576,8 @@ fn diagnostics_settings_default_off_persist_and_survive_group_resets() {
     let mut settings = SettingsOptions::default();
     assert!(!settings.verbose_logging());
     assert!(!settings.record_network_session());
+    assert!(!settings.send_crash_reports(), "crash uploads need opt-in");
+    assert!(settings.set(SettingId::SendCrashReports.index(), 1));
     assert!(settings.set(SettingId::VerboseLogging.index(), 1));
     assert!(settings.set(SettingId::RecordNetworkSession.index(), 1));
     let encoded = serde_json::to_value(&settings).unwrap();
@@ -593,6 +595,7 @@ fn diagnostics_settings_default_off_persist_and_survive_group_resets() {
         loaded.reset_group(group);
     }
     assert!(loaded.verbose_logging() && loaded.record_network_session());
+    assert!(loaded.send_crash_reports());
     assert!(loaded.set(SettingId::RecordNetworkSession.index(), 0));
     let loaded = SettingsOptions::decode(&serde_json::to_vec(&loaded).unwrap()).unwrap();
     assert!(loaded.verbose_logging());

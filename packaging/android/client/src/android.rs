@@ -1,6 +1,7 @@
 //! The NativeActivity entry that runs the client, and the setup activity's natives.
 
 mod bootstrap;
+mod crash_upload;
 
 use std::{
     path::{Path, PathBuf},
