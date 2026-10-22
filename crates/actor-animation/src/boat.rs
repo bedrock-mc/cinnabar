@@ -27,14 +27,17 @@ fn clamped_lerp([low, high]: [f32; 2], amount: f32) -> f32 {
     }
 }
 
-/// Left-paddle pitch and sweep in radians for one row time.
-fn stroke(row_time: f32) -> [f32; 2] {
+/// Left-paddle pitch and sweep in radians for one row time; `None` when the phase overflows.
+fn stroke(row_time: f32) -> Option<[f32; 2]> {
     let phase = row_time * PHASE_PER_ROW_TIME;
+    if !phase.is_finite() {
+        return None;
+    }
     let swing = |offset: f32| ((phase + offset).sin() + 1.0) * 0.5;
-    [
+    Some([
         clamped_lerp(PITCH, swing(0.0)),
         clamped_lerp(SWEEP, swing(1.0)),
-    ]
+    ])
 }
 
 fn row_time(actor: &dyn AnimatedActor, key: ActorDataKey) -> f32 {
@@ -59,7 +62,10 @@ pub(super) fn pose_paddles(
         let Some(delta) = local.get_mut(index) else {
             continue;
         };
-        let [pitch, sweep] = stroke(row_time(actor, key));
+        // An overflowing row time leaves the paddle at rest rather than poisoning the pose.
+        let Some([pitch, sweep]) = stroke(row_time(actor, key)) else {
+            continue;
+        };
         delta.rotation[0] += pitch.to_degrees();
         delta.rotation[1] += sweep_sign * sweep.to_degrees();
     }
@@ -87,15 +93,34 @@ mod tests {
         let mut local = [pose::LocalDelta::default(); 3];
         pose_paddles(&actor, &names, &mut local);
         assert_eq!(local[0].rotation, [0.0; 3], "hull parts keep their pose");
-        let [pitch, sweep] = stroke(0.1).map(f32::to_degrees);
+        let [pitch, sweep] = stroke(0.1).unwrap().map(f32::to_degrees);
         assert_eq!(local[1].rotation, [pitch, sweep, 0.0]);
-        let [rest_pitch, rest_sweep] = stroke(0.0).map(f32::to_degrees);
+        let [rest_pitch, rest_sweep] = stroke(0.0).unwrap().map(f32::to_degrees);
         assert_eq!(local[2].rotation, [rest_pitch, -rest_sweep, 0.0]);
         assert_ne!(local[1].rotation, local[2].rotation);
         for step in 0..200 {
-            let [pitch, sweep] = stroke(step as f32 * 0.01);
+            let [pitch, sweep] = stroke(step as f32 * 0.01).unwrap();
             assert!((PITCH[0]..=PITCH[1]).contains(&pitch));
             assert!((SWEEP[0]..=SWEEP[1]).contains(&sweep));
         }
+    }
+
+    /// A finite row time whose phase overflows leaves the paddle at rest with a finite pose.
+    #[test]
+    fn overflowing_row_times_leave_the_paddle_at_rest() {
+        let mut actor = TestActor {
+            kind: ActorKind::Entity {
+                identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
+            },
+            ..Default::default()
+        };
+        actor.metadata.insert(
+            ActorDataKey::RowTimeLeft.wire_value(),
+            ActorMetadataValue::Float(2e37),
+        );
+        let names: [Box<str>; 1] = ["paddle_left".into()];
+        let mut local = [pose::LocalDelta::default(); 1];
+        pose_paddles(&actor, &names, &mut local);
+        assert_eq!(local[0].rotation, [0.0; 3]);
     }
 }
