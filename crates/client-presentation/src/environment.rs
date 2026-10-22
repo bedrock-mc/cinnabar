@@ -263,6 +263,7 @@ pub fn apply_environment_control(
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
+        | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. }
         | CommittedControlEvent::ClientInputLocks { .. } => false,

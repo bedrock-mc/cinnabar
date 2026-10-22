@@ -505,6 +505,8 @@ settings! {
         [(SettingPanel::DiscordDetails, 3)], [SettingsGroup::Discord], None, None;
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
         [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
+    ShowCustomItemModels => "show_custom_item_models", toggle("Custom 3D Item Models", ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS),
+        [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),

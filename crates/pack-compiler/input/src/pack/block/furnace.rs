@@ -5,7 +5,7 @@ use assets::{
     facts::{BlockProperty, StateValue, pack::furnace_lit},
 };
 
-/// Selects the furnace pair without changing other containers or custom blocks.
+/// Selects furnace-family cubes without changing other containers or custom blocks.
 pub(super) fn is_record(record: &RegistryRecord) -> bool {
     furnace_lit(&record.name).is_some()
 }

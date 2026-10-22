@@ -95,6 +95,32 @@ fn standalone_renderers_keep_scene_format_independent_of_output() {
     );
 }
 
+#[test]
+fn disabling_msaa_after_loading_creates_no_pipelines() {
+    let mut app = app();
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    for _ in 0..64 {
+        app.update();
+        if readiness.is_ready() {
+            break;
+        }
+    }
+    assert!(readiness.is_ready(), "warmup never reported ready");
+    let warmed = created(&app);
+
+    let mut cameras = app
+        .world_mut()
+        .query_filtered::<&mut Msaa, With<Camera3d>>();
+    for mut msaa in cameras.iter_mut(app.world_mut()) {
+        *msaa = Msaa::Off;
+    }
+    for _ in 0..4 {
+        app.update();
+        assert!(readiness.is_ready());
+        assert_eq!(created(&app), warmed);
+    }
+}
+
 fn pass(revision: u64, enabled: bool) -> mod_render::Pass {
     mod_render::Pass {
         name: format!("grade-{revision}"),

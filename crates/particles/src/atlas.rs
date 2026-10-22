@@ -63,7 +63,8 @@ pub struct ParticleAtlas {
     patches: HashMap<usize, AtlasPatch>,
     seq: u64,
     placements: HashMap<Box<str>, Placement>,
-    tiles: HashMap<u64, (usize, u64)>,
+    tiles: HashMap<u64, (Placement, u64)>,
+    occupied: Vec<Option<u64>>,
     pinned: HashMap<usize, usize>,
     next_slot: usize,
     tick: u64,
@@ -79,6 +80,7 @@ impl Default for ParticleAtlas {
             seq: 0,
             placements: HashMap::new(),
             tiles: HashMap::new(),
+            occupied: Vec::new(),
             pinned: HashMap::new(),
             next_slot: 0,
             tick: 0,
@@ -211,12 +213,14 @@ impl ParticleAtlas {
     /// Returns the dynamic slot covered by a tile placement; static textures have no pin.
     fn dynamic_slot(&self, placement: Placement) -> Option<usize> {
         (placement.y >= self.static_rows()
-            && placement.width == TILE_SLOT
-            && placement.height == TILE_SLOT)
-            .then(|| {
-                ((placement.y - self.static_rows()) / TILE_SLOT * (self.side / TILE_SLOT)
-                    + placement.x / TILE_SLOT) as usize
-            })
+            && placement.x.is_multiple_of(TILE_SLOT)
+            && (placement.y - self.static_rows()).is_multiple_of(TILE_SLOT)
+            && placement.width.is_multiple_of(TILE_SLOT)
+            && placement.height.is_multiple_of(TILE_SLOT))
+        .then(|| {
+            ((placement.y - self.static_rows()) / TILE_SLOT * (self.side / TILE_SLOT)
+                + placement.x / TILE_SLOT) as usize
+        })
     }
 
     /// Protects one emitter's placement, including owners sharing the same slot.
@@ -254,55 +258,122 @@ impl ParticleAtlas {
     /// nearest-resampled to the slot) on first use and recycling the least recent slot when full.
     pub fn tile(&mut self, key: u64, size: u32, pixels: &[u8]) -> Option<Placement> {
         let source_side = size as usize;
-        let bytes = source_side.checked_mul(source_side)?.checked_mul(4)?;
-        if size == 0 || pixels.len() != bytes {
+        if size == 0 || pixels.len() != source_side.checked_mul(source_side)?.checked_mul(4)? {
             return None;
         }
-        self.tick += 1;
-        let slot = if let Some(entry) = self.tiles.get_mut(&key) {
-            entry.1 = self.tick;
-            entry.0
-        } else {
-            let slot = if self.next_slot < self.max_slots() {
-                self.next_slot += 1;
-                self.next_slot - 1
-            } else {
-                let (&victim, &(slot, _)) = self
-                    .tiles
-                    .iter()
-                    .filter(|(_, (slot, _))| !self.pinned.contains_key(slot))
-                    .min_by_key(|(_, (_, used))| *used)?;
-                self.tiles.remove(&victim);
+        if let Some((placement, used)) = self.tiles.get_mut(&key) {
+            if placement.width != TILE_SLOT {
+                return None;
+            }
+            self.tick = self.tick.wrapping_add(1);
+            *used = self.tick;
+            return Some(*placement);
+        }
+        let mut resampled = vec![0; (TILE_SLOT * TILE_SLOT * 4) as usize];
+        for y in 0..TILE_SLOT as usize {
+            for x in 0..TILE_SLOT as usize {
+                let from = ((y * source_side / TILE_SLOT as usize) * source_side
+                    + x * source_side / TILE_SLOT as usize)
+                    * 4;
+                let to = (y * TILE_SLOT as usize + x) * 4;
+                resampled[to..to + 4].copy_from_slice(&pixels[from..from + 4]);
+            }
+        }
+        self.sprite(key, TILE_SLOT, &resampled)
+    }
+
+    /// Retains original cosmetic flipbook texels in a contiguous square dynamic region.
+    /// Live emitters pin the whole region; terrain tiles keep their historical 16-texel size.
+    pub fn sprite(&mut self, key: u64, side: u32, pixels: &[u8]) -> Option<Placement> {
+        if ![16, 32, 64, 128].contains(&side) || pixels.len() != (side * side * 4) as usize {
+            return None;
+        }
+        self.tick = self.tick.wrapping_add(1);
+        if let Some((placement, used)) = self.tiles.get_mut(&key) {
+            if placement.width != side {
+                return None;
+            }
+            *used = self.tick;
+            return Some(*placement);
+        }
+        self.occupied.resize(self.max_slots(), None);
+        let cells = side / TILE_SLOT;
+        let columns = self.side / TILE_SLOT;
+        let rows = DYNAMIC_ROWS / TILE_SLOT;
+        let slot = if cells == 1 {
+            let free = (self.next_slot..self.max_slots())
+                .chain(0..self.next_slot)
+                .find(|&slot| self.occupied[slot].is_none());
+            if let Some(slot) = free {
+                self.next_slot = (slot + 1) % self.max_slots();
                 slot
-            };
-            let placement = self.slot_placement(slot);
-            let mut resampled = vec![0u8; (TILE_SLOT * TILE_SLOT * 4) as usize];
-            for ty in 0..TILE_SLOT {
-                for tx in 0..TILE_SLOT {
-                    let sx = tx as usize * source_side / TILE_SLOT as usize;
-                    let sy = ty as usize * source_side / TILE_SLOT as usize;
-                    let from = (sy * source_side + sx) * 4;
-                    let to = ((ty * TILE_SLOT + tx) * 4) as usize;
-                    resampled[to..to + 4].copy_from_slice(&pixels[from..from + 4]);
+            } else {
+                let (placement, _) = self
+                    .tiles
+                    .values()
+                    .filter(|(p, _)| !self.pinned.contains_key(&self.dynamic_slot(*p).unwrap()))
+                    .min_by_key(|(_, used)| *used)?;
+                self.dynamic_slot(*placement)?
+            }
+        } else {
+            // Prefer free rectangles, then the rectangle whose newest evictable occupant is oldest.
+            let mut best: Option<(u64, usize)> = None;
+            for y in 0..=rows - cells {
+                for x in 0..=columns - cells {
+                    let mut newest = 0;
+                    let mut blocked = false;
+                    for dy in 0..cells {
+                        for dx in 0..cells {
+                            let at = ((y + dy) * columns + x + dx) as usize;
+                            if let Some(owner) = self.occupied[at] {
+                                let (p, age) = self.tiles[&owner];
+                                blocked |= self.pinned.contains_key(&self.dynamic_slot(p).unwrap());
+                                newest = newest.max(age);
+                            }
+                        }
+                    }
+                    if !blocked && best.is_none_or(|(age, _)| newest < age) {
+                        best = Some((newest, (y * columns + x) as usize));
+                    }
                 }
             }
-            self.blit(placement.x, placement.y, TILE_SLOT, TILE_SLOT, &resampled);
-            self.seq += 1;
-            self.patches.insert(
-                slot,
-                AtlasPatch {
-                    seq: self.seq,
-                    x: placement.x,
-                    y: placement.y,
-                    width: TILE_SLOT,
-                    height: TILE_SLOT,
-                    rgba8: Arc::from(resampled),
-                },
-            );
-            self.tiles.insert(key, (slot, self.tick));
-            slot
+            best?.1
         };
-        Some(self.slot_placement(slot))
+        let mut placement = self.slot_placement(slot);
+        placement.width = side;
+        placement.height = side;
+        let covered: Vec<_> = (0..cells)
+            .flat_map(|y| (0..cells).map(move |x| slot + (y * columns + x) as usize))
+            .collect();
+        let victims: std::collections::HashSet<_> =
+            covered.iter().filter_map(|&at| self.occupied[at]).collect();
+        for victim in victims {
+            let (old, _) = self.tiles.remove(&victim).unwrap();
+            self.patches.remove(&self.dynamic_slot(old).unwrap());
+            for cell in &mut self.occupied {
+                if *cell == Some(victim) {
+                    *cell = None;
+                }
+            }
+        }
+        for at in covered {
+            self.occupied[at] = Some(key);
+        }
+        self.blit(placement.x, placement.y, side, side, pixels);
+        self.seq += 1;
+        self.patches.insert(
+            slot,
+            AtlasPatch {
+                seq: self.seq,
+                x: placement.x,
+                y: placement.y,
+                width: side,
+                height: side,
+                rgba8: Arc::from(pixels),
+            },
+        );
+        self.tiles.insert(key, (placement, self.tick));
+        Some(placement)
     }
 
     fn slot_placement(&self, slot: usize) -> Placement {
@@ -506,5 +577,68 @@ mod tests {
         let tile = atlas.tile(1, 16, &[9; 16 * 16 * 4]).unwrap();
         assert!(tile.y >= placement.y + placement.height);
         assert!(atlas.base().len() <= assets::texture::policy::MAX_SUBSCRIBER_BYTES);
+    }
+}
+
+#[cfg(test)]
+mod sprite_tests {
+    use super::*;
+
+    #[test]
+    fn cosmetic_regions_keep_every_texel_and_share_one_cached_patch() {
+        let mut atlas = ParticleAtlas::default();
+        let pixels: Vec<_> = (0..128 * 128)
+            .flat_map(|i| [(i % 251) as u8, (i / 128) as u8, 91, 255])
+            .collect();
+        let p = atlas.sprite(42, 128, &pixels).unwrap();
+        for row in 0..128 {
+            let dest = (((p.y + row) * atlas.side + p.x) * 4) as usize;
+            let source = (row * 128 * 4) as usize;
+            assert_eq!(
+                &atlas.pixels[dest..dest + 512],
+                &pixels[source..source + 512]
+            );
+        }
+        let seq = atlas.patch_seq();
+        assert_eq!(atlas.sprite(42, 128, &pixels), Some(p));
+        assert_eq!(atlas.patch_seq(), seq);
+        assert_eq!(atlas.patches()[0].width, 128);
+        assert!(atlas.sprite(42, 16, &[1; 1024]).is_none());
+    }
+
+    #[test]
+    fn terrain_tiles_cannot_replace_any_part_of_a_shared_live_sprite() {
+        let mut atlas = ParticleAtlas::default();
+        let p = atlas.sprite(99999, 128, &vec![77; 128 * 128 * 4]).unwrap();
+        atlas.retain_placement(p);
+        atlas.retain_placement(p);
+        atlas.release_placement(p);
+        for key in 0..(MAX_SLOTS as u64 * 2) {
+            atlas.tile(key, 1, &[key as u8; 4]).unwrap();
+        }
+        for row in 0..128 {
+            let dest = (((p.y + row) * atlas.side + p.x) * 4) as usize;
+            assert_eq!(&atlas.pixels[dest..dest + 512], &[77; 512]);
+        }
+        assert_eq!(atlas.placement_references(p), 1);
+        atlas.release_placement(p);
+        for key in 100000..100000 + MAX_SLOTS as u64 {
+            atlas.tile(key, 1, &[1; 4]).unwrap();
+        }
+        assert!(!atlas.tiles.contains_key(&99999));
+        assert_eq!(atlas.tiles.len(), MAX_SLOTS);
+    }
+
+    #[test]
+    fn an_all_pinned_atlas_refuses_large_allocations_without_changing_pixels() {
+        let mut atlas = ParticleAtlas::default();
+        for key in 0..MAX_SLOTS as u64 {
+            let p = atlas.tile(key, 1, &[3; 4]).unwrap();
+            atlas.retain_placement(p);
+        }
+        let seq = atlas.patch_seq();
+        assert!(atlas.sprite(99999, 128, &vec![4; 128 * 128 * 4]).is_none());
+        assert_eq!(atlas.patch_seq(), seq);
+        assert_eq!(atlas.tiles.len(), MAX_SLOTS);
     }
 }

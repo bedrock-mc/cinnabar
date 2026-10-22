@@ -7,6 +7,7 @@ fn summary() -> Summary {
         path: PathBuf::from("capture.mp4"),
         frames: 3,
         size: Some([2, 2]),
+        filled: 0,
     }
 }
 

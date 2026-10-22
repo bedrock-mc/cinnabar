@@ -253,17 +253,46 @@ fn settings_wrapped_inline_choice_labels_fit_their_selectable_controls() {
             .position(|choice| choice.label == key)
             .map(|choice| std::sync::Arc::<str>::from(labels[choice]))
     };
-    let (_, hits, nodes) = super::review_tests::paint(HashMap::new(), |canvas| {
-        settings::draw(
-            canvas,
-            &view,
-            [1280.0, 720.0],
-            &translate,
-            None,
-            &mut Default::default(),
-        )
-        .unwrap();
-    });
+    let draw = |offsets| {
+        super::review_tests::paint(offsets, |canvas| {
+            settings::draw(
+                canvas,
+                &view,
+                [1280.0, 720.0],
+                &translate,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap();
+        })
+    };
+    // Platform-only rows above it, such as the Windows graphics API, can push the row to the
+    // viewport edge, which clips its hit targets; scroll it clear of both edges first.
+    let mut scrolls = MenuScrolls::<MenuAction>::default();
+    let (mut areas, mut hits, mut nodes) = draw(HashMap::new());
+    for _ in 0..64 {
+        let viewport = areas
+            .iter()
+            .max_by(|left, right| left.viewport.min().x().total_cmp(&right.viewport.min().x()))
+            .expect("settings content scroll view")
+            .viewport;
+        if (0..choices.len()).all(|choice| {
+            let action = MenuAction::SettingsOption(index as u16, choice as i32);
+            hits.iter().any(|(found, bounds)| {
+                *found == action
+                    && bounds.min().y() > viewport.min().y()
+                    && bounds.max().y() < viewport.max().y()
+            })
+        }) {
+            break;
+        }
+        scrolls.set_areas(areas.clone());
+        assert!(
+            scrolls.wheel(centre(viewport), -1.0, false),
+            "camera perspective choices must be reachable by scrolling the Video pane"
+        );
+        (areas, hits, nodes) = draw(scrolls.offsets().clone());
+    }
     let mut wrapped = false;
     for choice in 0..choices.len() {
         let action = MenuAction::SettingsOption(index as u16, choice as i32);

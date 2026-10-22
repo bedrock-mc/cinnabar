@@ -42,6 +42,10 @@ impl CollisionLookup for crate::movement::PhysicsCollisionRegistries {
     fn block_identifier(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
         std::ops::Deref::deref(self).block_identifier(mode, runtime_id)
     }
+    /// Resolves the custom block component retained by the collision registry.
+    fn block_sound_material(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
+        std::ops::Deref::deref(self).block_sound_material(mode, runtime_id)
+    }
 }
 impl MiningObservation for crate::survival_mining::SurvivalMiningRuntime {
     /// Observes the admitted target without advancing mining.

@@ -147,7 +147,7 @@ fn ordered_mining_authoritative_replacement_cancels_a_refused_press() {
                 }]),
             )
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "replacement block ingress", || {
+        test_time::eventually("replacement block ingress", || {
             stream.poll([4.5, 2.620_01, 8.5], 0);
             stream.committed_sequence() == sequence
         });

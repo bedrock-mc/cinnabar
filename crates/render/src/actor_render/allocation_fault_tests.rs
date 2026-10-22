@@ -259,7 +259,7 @@ fn execute_draws(world: &mut World) {
     let spans = if let Some(drawn) = drawn {
         assert!(drawn.is_exact());
         assert_eq!(drawn.frame_generation, generation);
-        assert_eq!(drawn.manifest.as_ref(), gpu.manifest.as_ref());
+        assert_eq!(drawn.manifest.as_ref(), gpu.main_manifest.as_ref());
         gpu.spans.clone()
     } else {
         assert_eq!(

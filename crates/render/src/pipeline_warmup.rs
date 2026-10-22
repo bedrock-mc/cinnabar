@@ -35,6 +35,13 @@ pub(crate) struct WarmView {
 
 pub(crate) type WarmupIds = Vec<CachedRenderPipelineId>;
 
+/// Enumerates active coverage and Performance's single-sample path without duplicates.
+pub(crate) fn sample_modes(current: Msaa) -> impl Iterator<Item = Msaa> {
+    [Some(current), (current != Msaa::Off).then_some(Msaa::Off)]
+        .into_iter()
+        .flatten()
+}
+
 /// Implemented by each pipeline owner so warmup fills the same memoized variants drawing uses.
 pub(crate) trait PrewarmPipelines:
     Resource<Mutability = bevy::ecs::component::Mutable>
@@ -167,14 +174,17 @@ fn prewarm_owner<T: PrewarmPipelines>(
     };
     let WarmupRegistry { views, ids, .. } = &mut *registry;
     for &view in views.iter() {
-        if warmed.contains(&view) {
-            continue;
+        for msaa in sample_modes(view.msaa) {
+            let view = WarmView { msaa, ..view };
+            if warmed.contains(&view) {
+                continue;
+            }
+            // The draw path would fail the same way, so the error does not hold loading.
+            if let Err(error) = owner.prewarm(&cache, view, ids) {
+                error!("pipeline prewarm {}: {error}", std::any::type_name::<T>());
+            }
+            warmed.push(view);
         }
-        // The draw path would fail the same way, so the error does not hold loading.
-        if let Err(error) = owner.prewarm(&cache, view, ids) {
-            error!("pipeline prewarm {}: {error}", std::any::type_name::<T>());
-        }
-        warmed.push(view);
     }
 }
 
