@@ -4,7 +4,6 @@ use bedrock_protocol_1_26_51::{
     enums::ContainerEnumName,
     packets,
     types::{InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData},
-    wire,
 };
 use protocol::{
     ActorUseAction, ActorUseRequest, BlockItemInteraction, BlockUseRequest, HeldItemRequest,
