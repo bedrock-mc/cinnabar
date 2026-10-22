@@ -287,7 +287,9 @@ impl LocalPhysicsController {
         };
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
-        let mut changed = self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
+        // Flag corrections are retained without scheduling a replay of their own.
+        self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
+        let mut changed = false;
         if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
             let (edited, _) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),

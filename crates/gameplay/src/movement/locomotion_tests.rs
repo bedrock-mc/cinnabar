@@ -1090,10 +1090,7 @@ fn a_stamped_crawl_clear_lets_the_tunnel_restart_the_crawl() {
         ..Default::default()
     };
     let stamp = samples[0].tick;
-    assert_eq!(
-        physics.apply_server_movement_flags(stamp, clear),
-        Some(stamp)
-    );
+    assert_eq!(physics.apply_server_movement_flags(stamp, clear), None);
     super::reconcile_timeline_rewind(&mut ticker, &mut physics, stamp, &tunnel).unwrap();
     assert_eq!(physics.mode(), MovementMode::Crawling);
     let pending = ticker.pending_snapshots();

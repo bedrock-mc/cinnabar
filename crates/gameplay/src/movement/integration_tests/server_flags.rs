@@ -120,7 +120,7 @@ fn a_retained_server_glide_start_replays_from_its_stamp() {
     let walking = flags(|flags| flags.gliding = Some(false));
     assert_eq!(physics.apply_server_movement_flags(101, walking), None);
     let start = flags(|flags| flags.gliding = Some(true));
-    assert_eq!(physics.apply_server_movement_flags(101, start), Some(101));
+    assert_eq!(physics.apply_server_movement_flags(101, start), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.mode(), sim::MovementMode::Gliding);
     assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
@@ -178,7 +178,7 @@ fn a_retained_server_spin_start_replays_from_its_stamp() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let start = flags(|flags| flags.spinning = Some(true));
-    assert_eq!(physics.apply_server_movement_flags(101, start), Some(101));
+    assert_eq!(physics.apply_server_movement_flags(101, start), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(2));
     assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
@@ -234,7 +234,7 @@ fn retained_server_writes_survive_an_earlier_rewind() {
         flags.gliding = Some(true);
         flags.spinning = Some(true);
     });
-    assert_eq!(physics.apply_server_movement_flags(102, start), Some(102));
+    assert_eq!(physics.apply_server_movement_flags(102, start), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
     let expected = physics.state().cloned();
     assert_eq!(expected.as_ref().unwrap().spin_attack_ticks, Some(2));
@@ -265,10 +265,7 @@ fn a_same_stamp_clear_compares_with_the_frame_capture() {
             flags.using_item = Some(value);
         })
     };
-    assert_eq!(
-        physics.apply_server_movement_flags(101, set(true)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, set(true)), None);
     assert_eq!(physics.apply_server_movement_flags(101, set(false)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.mode(), sim::MovementMode::Gliding);
@@ -316,7 +313,7 @@ fn a_stamped_spin_cancel_applies_live() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let clear = flags(|flags| flags.spinning = Some(false));
-    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), None);
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
 
@@ -353,7 +350,7 @@ fn a_stamped_spin_clear_without_replay_reports_no_stop_action() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let clear = flags(|flags| flags.spinning = Some(false));
-    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), None);
     let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     assert!(!sample.processed.spinning);
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
@@ -432,10 +429,7 @@ fn a_replayed_stamped_write_is_not_the_base_for_later_writes() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let write = |value| flags(|flags| flags.spinning = Some(value));
-    assert_eq!(
-        physics.apply_server_movement_flags(101, write(true)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, write(true)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.apply_server_movement_flags(101, write(false)), None);
     assert!(physics.state().unwrap().spin_attack_ticks.is_some());
@@ -454,17 +448,11 @@ fn an_earlier_replay_refreshes_captured_live_writes() {
     for _ in 0..2 {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
-    assert_eq!(
-        physics.apply_server_movement_flags(102, write(false)),
-        Some(102)
-    );
+    assert_eq!(physics.apply_server_movement_flags(102, write(false)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
     physics.queue_server_motion([0.0; 3], 101);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(
-        physics.apply_server_movement_flags(102, write(true)),
-        Some(102)
-    );
+    assert_eq!(physics.apply_server_movement_flags(102, write(true)), None);
 }
 
 /// One stamped update fixes its comparison bases before recording any field,
@@ -484,7 +472,7 @@ fn one_update_compares_every_flag_with_the_same_base() {
         flags.using_item = Some(true);
         flags.gliding = Some(true);
     });
-    assert_eq!(physics.apply_server_movement_flags(101, update), Some(101));
+    assert_eq!(physics.apply_server_movement_flags(101, update), None);
 }
 
 /// A live write captured with a frame stays that frame's base after a stamped
@@ -498,10 +486,7 @@ fn a_captured_live_write_stays_the_base_after_a_correction() {
     for _ in 0..2 {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
-    assert_eq!(
-        physics.apply_server_movement_flags(101, write(false)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, write(false)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.apply_server_movement_flags(101, write(true)), None);
 }
@@ -515,10 +500,7 @@ fn an_item_only_stamped_write_settles_through_replay() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let using = |value| flags(|flags| flags.using_item = Some(value));
-    assert_eq!(
-        physics.apply_server_movement_flags(101, using(true)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, using(true)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(true));
     physics.apply_server_movement_flags(101, using(false));
@@ -534,10 +516,7 @@ fn a_write_compares_with_its_capture_while_another_awaits_replay() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let write = |value| flags(|flags| flags.spinning = Some(value));
-    assert_eq!(
-        physics.apply_server_movement_flags(101, write(true)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, write(true)), None);
     assert_eq!(physics.apply_server_movement_flags(102, write(false)), None);
     assert!(physics.state().unwrap().spin_attack_ticks.is_some());
 }
@@ -649,15 +628,78 @@ fn replay_carries_a_corrected_item_use_into_later_captures() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let using = |value| flags(|flags| flags.using_item = Some(value));
-    assert_eq!(
-        physics.apply_server_movement_flags(101, using(true)),
-        Some(101)
-    );
+    assert_eq!(physics.apply_server_movement_flags(101, using(true)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(true));
-    assert_eq!(
-        physics.apply_server_movement_flags(102, using(false)),
-        Some(102)
-    );
+    assert_eq!(physics.apply_server_movement_flags(102, using(false)), None);
+    assert_eq!(physics.take_server_using_item(), Some(false));
+}
+
+/// A stamped flag write schedules no replay of its own, as vanilla's flag
+/// correction has no pending type: a spin stamped long ago starts live now.
+#[test]
+fn a_stamped_flag_write_schedules_no_replay() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..25 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, spin), None);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+}
+
+/// Capturing a queued correction does not apply it again, so an unstamped
+/// clear after a current-stamped set keeps the spin cleared.
+#[test]
+fn capturing_a_queued_correction_keeps_a_later_clear() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(101, write(true));
+    physics.apply_server_movement_flags(0, write(false));
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+}
+
+/// A current-stamped item-use write keeps its correction for the next frame
+/// even when an unstamped write follows, so replay through that frame
+/// restores it.
+#[test]
+fn a_current_stamped_item_use_write_keeps_its_correction() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let using = |value| flags(|flags| flags.using_item = Some(value));
+    physics.apply_server_movement_flags(101, using(true));
+    physics.apply_server_movement_flags(0, using(false));
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    physics.take_server_using_item();
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.take_server_using_item(), Some(true));
+}
+
+/// Replay hands the item-use bit its corrections leave to the item-use owner,
+/// whatever packet arrived last.
+#[test]
+fn replay_hands_the_final_item_use_to_the_owner() {
+    let (mut physics, mut ticker) = airborne();
+    for using in [false, false, false, true] {
+        let input = MovementInput {
+            item_use_movement_modifier: using.then_some(0.35),
+            ..MovementInput::default()
+        };
+        tick_with(
+            &mut physics,
+            &mut ticker,
+            input,
+            PhysicsSampleContext::default(),
+        );
+    }
+    let using = |value| flags(|flags| flags.using_item = Some(value));
+    physics.apply_server_movement_flags(103, using(false));
+    physics.apply_server_movement_flags(101, using(true));
+    assert_eq!(physics.take_server_using_item(), Some(true));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(false));
 }

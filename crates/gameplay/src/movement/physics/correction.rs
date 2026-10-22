@@ -226,6 +226,8 @@ impl LocalPhysicsController {
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let mut using_carry = None;
+        // The item-use bit the replayed word ends with, once a correction wrote it.
+        let mut replayed_using = None;
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -263,6 +265,9 @@ impl LocalPhysicsController {
                     }
                     let word = frame.flag_correction.apply(frame.entry_flags);
                     using_carry = (word.using_item() != captured_using).then(|| word.using_item());
+                    if replayed_using.is_some() || frame.flag_correction.writes_using_item() {
+                        replayed_using = Some(word.using_item());
+                    }
                     server_flags::impose(word, &mut modes, state);
                     baselines.push((frame.tick, modes.mode(), state.spin_attack_ticks.is_some()));
                     let environment = previous.map_or(anchor_controller.environment, |output| {
@@ -408,7 +413,7 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         self.modes = modes;
-        self.reapply_queued_server_flags();
+        self.adopt_replayed_using_item(replayed_using);
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;
         self.last_environment = controller_frames

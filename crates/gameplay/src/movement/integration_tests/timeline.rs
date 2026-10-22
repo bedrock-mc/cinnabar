@@ -272,7 +272,7 @@ fn a_server_glide_clear_ends_the_retained_glide_and_the_live_mode() {
     }
     assert_eq!(physics.mode(), sim::MovementMode::Gliding);
     let clear = flags(|flags| flags.gliding = Some(false));
-    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), None);
     assert_eq!(physics.mode(), sim::MovementMode::Walking);
 }
 

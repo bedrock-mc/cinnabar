@@ -106,6 +106,11 @@ impl FlagCorrection {
         }
     }
 
+    /// Whether this correction writes the item-use bit.
+    pub(super) fn writes_using_item(self) -> bool {
+        self.mask & USING_ITEM != 0
+    }
+
     /// `word` with this correction applied.
     pub(super) fn apply(self, word: FlagWord) -> FlagWord {
         FlagWord((word.0 & !self.mask) | self.value)
@@ -212,14 +217,15 @@ fn apply_live_correction(
 }
 
 /// Captures the live word a fixed tick starts with (`using_item` is the
-/// tick's item use), then attaches and applies a correction queued for it; the
+/// tick's item use) and attaches a correction queued for it without applying
+/// it again, as vanilla moves queued corrections into the captured frame; the
 /// queue keeps it until a later tick, so a failed tick retries with it. The
 /// pose and spin the tick starts from become its action baseline. Returns the
 /// capture and the attached correction.
 pub(super) fn capture_tick(
     authority: &mut ServerFlagAuthority,
-    modes: &mut ModeTracker,
-    state: &mut PlayerState,
+    modes: &ModeTracker,
+    state: &PlayerState,
     input: &mut super::super::TickInput,
     using_item: bool,
 ) -> (FlagWord, FlagCorrection) {
@@ -230,12 +236,6 @@ pub(super) fn capture_tick(
         .queued
         .filter(|(tick, _)| Some(*tick) == next)
         .map_or_else(FlagCorrection::default, |(_, correction)| correction);
-    let live = FlagWord::capture(
-        modes.mode(),
-        state.spin_attack_ticks.is_some(),
-        authority.pending_using_item.unwrap_or(using_item),
-    );
-    apply_live_correction(correction, live, modes, state, authority);
     input.server_mode = Some(modes.mode());
     input.server_spinning = Some(state.spin_attack_ticks.is_some());
     (entry, correction)
@@ -280,11 +280,11 @@ impl LocalPhysicsController {
     /// live word changes the live state, and a nonzero stamp also queues it
     /// for the next frame's capture so replay keeps it.
     pub(super) fn adopt_live_server_flags(&mut self, tick: u64, write: FlagWrite) {
+        let correction = FlagCorrection::against(write, self.live_flag_word());
         // The item-use owner compares a live item-use write with its own use.
         if write.present & USING_ITEM != 0 {
             self.server_flags.pending_using_item = Some(write.value & USING_ITEM != 0);
         }
-        let correction = FlagCorrection::against(write, self.live_flag_word());
         if correction.is_empty() {
             return;
         }
@@ -307,8 +307,10 @@ impl LocalPhysicsController {
     }
 
     /// Attaches a write stamped at retained `tick` to the following frame as
-    /// the difference from that frame's capture, and applies it live; returns
-    /// whether the frame changed and needs replay.
+    /// the difference from that frame's capture, and applies it live. Like
+    /// vanilla's flag correction, whose pending type is zero, it schedules no
+    /// replay; a later replay through the frame applies it. Returns whether
+    /// the frame changed.
     pub(super) fn retain_server_flags(&mut self, tick: u64, write: FlagWrite) -> bool {
         let Some(frame) = self
             .controller_history
@@ -326,25 +328,11 @@ impl LocalPhysicsController {
         true
     }
 
-    /// Re-applies a queued correction to a live state that replay rebuilt.
-    pub(super) fn reapply_queued_server_flags(&mut self) {
-        let next = self
-            .state
-            .as_ref()
-            .and_then(|state| state.tick.checked_add(1));
-        if let Some((tick, correction)) = self.server_flags.queued
-            && Some(tick) == next
-        {
-            let live = self.live_flag_word();
-            if let Some(state) = self.state.as_mut() {
-                apply_live_correction(
-                    correction,
-                    live,
-                    &mut self.modes,
-                    state,
-                    &mut self.server_flags,
-                );
-            }
+    /// Hands the item-use bit replay left in the flag word to the item-use
+    /// owner, which reconciles with it on the next movement tick.
+    pub(super) fn adopt_replayed_using_item(&mut self, using: Option<bool>) {
+        if using.is_some() {
+            self.server_flags.pending_using_item = using;
         }
     }
 

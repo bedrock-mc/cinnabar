@@ -572,7 +572,7 @@ impl LocalPhysicsController {
             let mut tick_input = self.input_edges.sample(context.input);
             let (entry_flags, flag_correction) = server_flags::capture_tick(
                 &mut self.server_flags,
-                &mut self.modes,
+                &self.modes,
                 state,
                 &mut tick_input,
                 item_use_modifier.is_some(),

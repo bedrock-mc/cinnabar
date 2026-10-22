@@ -407,13 +407,14 @@ impl ItemUseRuntime {
         }
         let release_pending = std::mem::take(&mut self.release_pending);
         self.end_use(frame, &mut outcome, release_pending);
+        let ended = was_using && self.active.is_none();
         if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, &mut outcome);
         }
         if !frame.held {
             self.repeat_armed = false;
         }
-        if was_using != self.active.is_some() {
+        if ended || outcome.started {
             // A local start or end writes the item-use flag after any server write.
             self.server_using = None;
         }

@@ -186,3 +186,17 @@ fn a_local_release_supersedes_pending_server_writes() {
     assert!(!runtime.resolve_server_using_item(&frame(12, false)));
     assert!(!runtime.is_using());
 }
+
+/// Replacing a use within one step is a local start, which supersedes an
+/// older pending server clear.
+#[test]
+fn a_replacement_use_supersedes_a_pending_server_clear() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
+    runtime.adopt_server_using_item(false);
+    runtime.observe_press(true);
+    assert!(runtime.step(&bread(20, true)).started);
+    assert!(!runtime.resolve_server_using_item(&bread(21, true)));
+    assert!(runtime.is_using());
+}
