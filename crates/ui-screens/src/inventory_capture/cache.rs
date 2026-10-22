@@ -247,7 +247,7 @@ impl InventoryProjectionCache {
                         ..NetworkItemStack::empty()
                     })
                 }
-                _ => None,
+                _ => ledger.crafting_ghost_output().cloned(),
             };
             self.output.read(stack.as_ref(), None);
         }
@@ -350,7 +350,9 @@ impl InventoryProjectionCache {
             let stack = if slot == protocol::CREATED_OUTPUT_SLOT {
                 ledger.created_output_stack()
             } else if protocol::ui_slot_container_name(slot).is_some() {
-                ledger.target_stack(InventoryTarget::Craft(slot))
+                ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .or_else(|| ledger.crafting_ghost_stack(slot))
             } else {
                 None
             };

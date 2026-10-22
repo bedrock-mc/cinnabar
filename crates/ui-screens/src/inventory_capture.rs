@@ -89,7 +89,10 @@ pub fn capture_contents(
             .zip(ledger.crafting_grid().slots())
         {
             let target = inventory::inventory_ledger::InventoryTarget::Craft(slot);
-            if let Some(stack) = ledger.target_stack(target) {
+            if let Some(stack) = ledger
+                .target_stack(target)
+                .or_else(|| ledger.crafting_ghost_stack(slot))
+            {
                 *icon = resolve_icon(stack, None);
             }
         }
@@ -104,6 +107,8 @@ pub fn capture_contents(
             };
             let icon = resolve_icon(&stack, None);
             crafting.output = Some((icon, stack));
+        } else if let Some(ghost) = ledger.crafting_ghost_output() {
+            crafting.output = Some((resolve_icon(ghost, None), ghost.clone()));
         }
     }
     // Hover names for the open container's cells (JSON-UI tooltips).

@@ -179,6 +179,17 @@ impl InventorySession {
         self.ledger_mut().begin_auto_craft(recipe, all)
     }
 
+    /// Rechecks recipe discovery at the action frontier, then lays the recipe into the grid.
+    pub fn begin_book_placement(
+        &mut self,
+        recipe: &RecipeHandle,
+    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        if !self.book_recipe_selectable(recipe) {
+            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
+        }
+        self.ledger_mut().begin_recipe_placement(recipe)
+    }
+
     /// Lists one variant per output for the open grid, with pagination after grouping.
     /// Discovery ranks candidates before ingredients and priority. Materials and held
     /// ingredients are aggregated independently across variants. Nonempty search may

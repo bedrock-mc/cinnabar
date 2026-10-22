@@ -229,6 +229,8 @@ pub struct PlayerInventoryLedger {
     /// Acknowledged closes whose requests still await answers; they stay current.
     storage: Option<StorageWindow>,
     pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
+    /// The last recipe-book placement into the crafting grid.
+    recipe_placement: Option<crafting::RecipePlacement>,
     /// Each window kind retains one desired state and at most one outstanding request.
     controls: control::WindowControls,
     /// Admitted requests abandoned unanswered and the surfaces each put into
@@ -278,6 +280,7 @@ impl Default for PlayerInventoryLedger {
             personal: None,
             storage: None,
             furnace_selection: None,
+            recipe_placement: None,
             controls: control::WindowControls::default(),
             abandoned: VecDeque::new(),
             recovery_since_millis: None,

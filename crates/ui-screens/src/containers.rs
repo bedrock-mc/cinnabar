@@ -644,6 +644,17 @@ impl Cells<'_> {
     }
 }
 
+/// A recipe-book ghost: the missing item on the red cell art.
+fn ghost_cell(item: CollectionItem) -> CollectionItem {
+    item.with(
+        "#container_item_background",
+        Scalar::Int(GHOST_CELL_BACKGROUND),
+    )
+}
+
+/// `#container_item_background` for a cell the selected recipe still needs.
+const GHOST_CELL_BACKGROUND: i64 = 3;
+
 /// The player's main inventory (slots 9 to 35) and hotbar as vanilla's `inventory_items` and
 /// `hotbar_items` rows, reserving an icon entry even for empty cells.
 pub fn player_rows(
@@ -718,18 +729,29 @@ pub fn screen_data(
                 2
             };
             let first = layout.craft_slot();
+            let icon = |index: usize| frame.crafting_icons.get(index).copied().flatten();
+            let mut ghosted = false;
             let grid = (0..width * width)
                 .map(|index| {
                     let slot = first + index as u8;
-                    cells.cell(
-                        ledger.target_stack(InventoryTarget::Craft(slot)),
-                        frame.crafting_icons.get(index).copied().flatten(),
-                        None,
-                    )
+                    match ledger.target_stack(InventoryTarget::Craft(slot)) {
+                        Some(stack) => cells.cell(Some(stack), icon(index), None),
+                        None => match ledger.crafting_ghost_stack(slot) {
+                            Some(ghost) => {
+                                ghosted = true;
+                                ghost_cell(cells.cell(Some(ghost), icon(index), None))
+                            }
+                            None => cells.cell(None, icon(index), None),
+                        },
+                    }
                 })
                 .collect();
             data.set_collection("crafting_input_items", grid);
             let output = match frame.crafting_output {
+                // An unfilled recipe-book selection shows its result as a ghost too.
+                Some((icon, stack)) if ghosted && ledger.crafting_ghost_output() == Some(stack) => {
+                    ghost_cell(cells.cell(Some(stack), *icon, None))
+                }
                 Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
                 None => cells.cell(None, None, None),
             };

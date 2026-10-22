@@ -18,9 +18,12 @@ use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryL
 
 mod allocation;
 
+/// One ingredient's `(cell, amount, stack id)` sources.
+pub(super) type IngredientSources = Vec<(u8, u16, i32)>;
+
 impl PlayerInventoryLedger {
     /// Settled stacks with intact retained bytes and a negotiated binding can supply ingredients.
-    fn auto_craft_stack(
+    pub(super) fn auto_craft_stack(
         &self,
         slot: u8,
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
@@ -98,8 +101,13 @@ impl PlayerInventoryLedger {
         self.auto_craft_sources(recipe, 1).is_some()
     }
 
-    /// Shares deterministic ingredient allocation between craftability and request construction.
-    fn auto_craft_sources(&self, recipe: &RecipeHandle, crafts: u8) -> Option<Vec<(u8, u16, i32)>> {
+    /// Shares deterministic ingredient allocation between craftability and request construction:
+    /// each ingredient's `(cell, amount, stack id)` sources, in ingredient order.
+    pub(super) fn auto_craft_sources(
+        &self,
+        recipe: &RecipeHandle,
+        crafts: u8,
+    ) -> Option<Vec<IngredientSources>> {
         let mut taken: Vec<(u8, u16)> = Vec::new();
         let mut all = Vec::new();
         let ingredients = recipe.ingredient_views();
@@ -108,9 +116,32 @@ impl PlayerInventoryLedger {
                 return self.reassigned_sources(&ingredients, crafts);
             };
             taken.extend(sources.iter().map(|(cell, amount, _)| (*cell, *amount)));
-            all.extend(sources);
+            all.push(sources);
         }
         Some(all)
+    }
+
+    /// Names `ingredient` as the request declares it: a tag by the item of its first source,
+    /// since servers match consumed items against concrete names, anything else as listed.
+    fn auto_craft_descriptor(
+        &self,
+        ingredient: &RecipeIngredientView,
+        sources: &[(u8, u16, i32)],
+    ) -> StackItemDescriptor {
+        let held = sources
+            .first()
+            .and_then(|(slot, _, _)| self.auto_craft_stack(*slot));
+        match held {
+            Some((_, entry)) if ingredient.tag => StackItemDescriptor::Name {
+                identifier: Arc::clone(&entry.identifier),
+                aux: i32::from(protocol::RECIPE_ANY_AUX),
+            },
+            _ if ingredient.tag => StackItemDescriptor::Tag(Arc::clone(&ingredient.name)),
+            _ => StackItemDescriptor::Name {
+                identifier: Arc::clone(&ingredient.name),
+                aux: i32::from(ingredient.aux),
+            },
+        }
     }
 
     /// Reassigns quantities only when the ordinary first-choice plan cannot satisfy every input.
@@ -118,7 +149,7 @@ impl PlayerInventoryLedger {
         &self,
         views: &[Option<RecipeIngredientView>],
         crafts: u8,
-    ) -> Option<Vec<(u8, u16, i32)>> {
+    ) -> Option<Vec<IngredientSources>> {
         let ingredients: Vec<_> = views.iter().flatten().collect();
         let demands: Vec<_> = ingredients
             .iter()
@@ -143,17 +174,18 @@ impl PlayerInventoryLedger {
             }
         }
         let assigned = allocation::plan(&demands, &counts, &accepts)?;
-        let mut sources = Vec::new();
-        for row in assigned.iter().take(ingredients.len()) {
-            for (slot, amount) in row
-                .iter()
-                .copied()
-                .enumerate()
-                .filter(|(_, amount)| *amount > 0)
-            {
-                sources.push((slot as u8, amount, identities[slot]));
-            }
-        }
+        let sources = assigned
+            .iter()
+            .take(ingredients.len())
+            .map(|row| {
+                row.iter()
+                    .copied()
+                    .enumerate()
+                    .filter(|(_, amount)| *amount > 0)
+                    .map(|(slot, amount)| (slot as u8, amount, identities[slot]))
+                    .collect()
+            })
+            .collect();
         Some(sources)
     }
 
@@ -238,15 +270,9 @@ impl PlayerInventoryLedger {
             .ingredient_views()
             .iter()
             .flatten()
-            .map(|ingredient| AutoCraftIngredient {
-                descriptor: if ingredient.tag {
-                    StackItemDescriptor::Tag(Arc::clone(&ingredient.name))
-                } else {
-                    StackItemDescriptor::Name {
-                        identifier: Arc::clone(&ingredient.name),
-                        aux: i32::from(ingredient.aux),
-                    }
-                },
+            .zip(&sources)
+            .map(|(ingredient, sources)| AutoCraftIngredient {
+                descriptor: self.auto_craft_descriptor(ingredient, sources),
                 count: 1,
             })
             .collect();
@@ -266,7 +292,7 @@ impl PlayerInventoryLedger {
         ];
         let mut groups = Vec::new();
         let mut consumed = Vec::new();
-        for (slot, total, id) in sources {
+        for (slot, total, id) in sources.into_iter().flatten() {
             let cell = Cell::Inventory(slot);
             // Crafting accepts ingredients only from the combined inventory name, and each
             // consume carries at most one action's amount.

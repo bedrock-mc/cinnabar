@@ -44,7 +44,9 @@ impl PlayerInventoryLedger {
         Ok(true)
     }
 
-    fn return_close_cell(&mut self, source: Cell) -> Result<(), InventoryGestureError> {
+    /// Returns `source` to the player, merging first and dropping what does not fit, in one
+    /// request whose id it returns.
+    pub(super) fn return_close_cell(&mut self, source: Cell) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         self.check_surfaces([source])?;
         let from = self
@@ -138,8 +140,7 @@ impl PlayerInventoryLedger {
             personal_generation,
             requires_distinct_stack_ids: distinct,
             registry_bound_merge: registry_bound,
-        })?;
-        Ok(())
+        })
     }
 
     /// A close follows every gesture still waiting for transport, so the server

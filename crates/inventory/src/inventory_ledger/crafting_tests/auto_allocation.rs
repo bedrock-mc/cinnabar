@@ -165,3 +165,32 @@ fn an_incomplete_allocation_leaves_inventory_and_request_queue_unchanged() {
     }
     assert!(ledger.cursor_stack().is_none());
 }
+
+/// Servers refuse a recipe-book craft whose tag ingredient is not named by the consumed item.
+#[test]
+fn auto_craft_names_a_tag_ingredient_by_the_item_it_consumes() {
+    let recipe = recipe(vec![
+        IngredientFixture::tagged("test:wood"),
+        IngredientFixture::named("minecraft:oak_log", 0),
+    ]);
+    let mut ledger = stocked(&[(9, LOG, 101, 1), (10, PLANKS, 102, 1)]);
+    ledger.begin_auto_craft(&recipe, false).unwrap();
+    let Some(StackRequestAction::AutoCraft { ingredients, .. }) = ledger.newest_action() else {
+        panic!("expected an auto-craft request");
+    };
+    let named = |identifier: &str, aux| protocol::StackItemDescriptor::Name {
+        identifier: Arc::from(identifier),
+        aux,
+    };
+    let descriptors: Vec<_> = ingredients
+        .iter()
+        .map(|ingredient| ingredient.descriptor.clone())
+        .collect();
+    assert_eq!(
+        descriptors,
+        [
+            named("minecraft:oak_planks", i32::from(protocol::RECIPE_ANY_AUX)),
+            named("minecraft:oak_log", 0),
+        ]
+    );
+}

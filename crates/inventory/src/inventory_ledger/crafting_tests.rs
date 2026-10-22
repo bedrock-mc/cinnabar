@@ -16,6 +16,7 @@ use super::*;
 mod action_scopes;
 mod auto_allocation;
 mod book_output;
+mod book_placement;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
 mod extra_results;
