@@ -42,6 +42,10 @@ impl RemoteSource for Downloads {
             RemoteState::Failed => RemoteImage::Failed,
         }
     }
+
+    fn touch(&self, url: &str) {
+        self.0.touch(url);
+    }
 }
 
 /// A fresh remote image cache for one engine.

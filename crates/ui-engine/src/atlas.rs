@@ -272,6 +272,9 @@ impl Page {
     }
 }
 
+/// A downloaded body's address and length with its parsed pixel size.
+type RemoteSize = (usize, usize, [u32; 2]);
+
 /// The server pack's UI textures, packed on demand into a fixed number of
 /// reserved pages: a texture becomes resident when a rendered screen draws it,
 /// and a full atlas evicts its least recently drawn page.
@@ -285,10 +288,11 @@ pub struct ServerAtlas {
     sidecars: BTreeMap<String, TextureMeta>,
     frames: frame_sidecars::FrameSidecars,
     pack: Option<PackTextures>,
-    /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
+    /// Vanilla images, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
-    /// Downloaded URLs held in `extra`, least recently used first.
-    remote_order: RefCell<VecDeque<String>>,
+    /// Header sizes of downloaded URLs by body address and length. The bodies stay owned by the
+    /// host's download cache, which alone decides how long they stay resident.
+    remote_sizes: RefCell<BTreeMap<String, RemoteSize>>,
     local_reads: source_reads::SourceReads,
     /// Local vanilla sidecars inherit independently from the texture image.
     extra_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
@@ -674,33 +678,19 @@ impl ServerAtlas {
         found
     }
 
-    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
-    /// remembered; a URL still loading is asked again next time.
+    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is remembered; a
+    /// URL is asked of the host each time, which marks it in use.
     fn fallback(&self, key: &str) -> Option<Source> {
+        if is_remote(key) {
+            return match self.remote.as_ref()?.state(key) {
+                RemoteImage::Ready(bytes) => self.remote_source(key, bytes),
+                RemoteImage::Failed | RemoteImage::Loading => None,
+            };
+        }
         if let Some(found) = self.extra.borrow().get(key) {
-            if found.is_some() && is_remote(key) {
-                let mut order = self.remote_order.borrow_mut();
-                order.retain(|used| used != key);
-                order.push_back(key.to_owned());
-            }
             return found.clone();
         }
-        let (found, settled) = if is_remote(key) {
-            match self.remote.as_ref()?.state(key) {
-                RemoteImage::Ready(bytes) => {
-                    let found = source(bytes);
-                    if let Some(found) = &found {
-                        self.make_remote_room(found.bytes.len());
-                        self.remote_order.borrow_mut().push_back(key.to_owned());
-                    }
-                    (found, true)
-                }
-                RemoteImage::Failed => (None, true),
-                RemoteImage::Loading => (None, false),
-            }
-        } else {
-            self.local_source(key)
-        };
+        let (found, settled) = self.local_source(key);
         if settled {
             let mut extra = self.extra.borrow_mut();
             if extra.len() >= MAX_EXTRA {
@@ -711,25 +701,32 @@ impl ServerAtlas {
         found
     }
 
-    /// Forgets the least recently used downloaded sources until `bytes` more fit one allowance.
-    /// Every URL counts, with no small-image exemption, because the server chooses them all; a
-    /// forgotten URL is fetched from the download cache again when next drawn.
-    fn make_remote_room(&self, bytes: usize) {
-        let mut extra = self.extra.borrow_mut();
-        let mut order = self.remote_order.borrow_mut();
-        order.retain(|key| matches!(extra.get(key), Some(Some(_))));
-        let mut held: usize = order
-            .iter()
-            .filter_map(|key| extra.get(key)?.as_ref())
-            .map(|source| source.bytes.len())
-            .sum();
-        while held + bytes > render_model::MAX_UI_NATIVE_SHEET_BYTES
-            && let Some(key) = order.pop_front()
-        {
-            if let Some(Some(source)) = extra.remove(&key) {
-                held -= source.bytes.len();
+    /// A downloaded body as a source, reusing its parsed header while the host keeps that body.
+    fn remote_source(&self, key: &str, bytes: std::sync::Arc<[u8]>) -> Option<Source> {
+        let body = (bytes.as_ptr() as usize, bytes.len());
+        let known = self
+            .remote_sizes
+            .borrow()
+            .get(key)
+            .filter(|(address, length, _)| (*address, *length) == body)
+            .map(|(_, _, size)| *size);
+        let size = match known {
+            Some(size) => size,
+            None => {
+                let size = source(std::sync::Arc::clone(&bytes))?.size;
+                let mut sizes = self.remote_sizes.borrow_mut();
+                if sizes.len() >= MAX_EXTRA {
+                    sizes.pop_first();
+                }
+                sizes.insert(key.to_owned(), (body.0, body.1, size));
+                size
             }
-        }
+        };
+        Some(Source {
+            bytes,
+            size,
+            packed: fitted(size),
+        })
     }
 
     pub fn placement(&self, key: &str) -> Option<ServerTexture> {
@@ -767,6 +764,12 @@ impl ServerAtlas {
         // this frame still draws.
         let mut missing = Vec::new();
         for key in keys {
+            // Every draw of a downloaded image tells the host it is still on screen.
+            if is_remote(key)
+                && let Some(remote) = &self.remote
+            {
+                remote.touch(key);
+            }
             if self.is_native_sheet(key) {
                 let Some(source) = self.native_source(key) else {
                     continue;

@@ -452,41 +452,39 @@ fn a_host_without_workers_completes_large_images_inline() {
     );
 }
 
-/// Serves the same downloaded image for every URL.
-struct SameImage(Arc<[u8]>);
+/// Serves the same downloaded image for every URL and records which URLs a draw touched.
+struct SameImage(Arc<[u8]>, Mutex<Vec<String>>);
 
 impl RemoteSource for SameImage {
     fn state(&self, _: &str) -> RemoteImage {
         RemoteImage::Ready(self.0.clone())
     }
+
+    fn touch(&self, url: &str) {
+        self.1.lock().unwrap().push(url.to_owned());
+    }
 }
 
-// Downloaded form images had no byte allowance, so a form of large URLs pinned each body (up to
-// 64 MiB) for 512 atlas entries. Past the allowance the oldest downloads are forgotten, never a
-// new image, and a forgotten one draws again from the download cache.
+// The atlas kept its own copies of downloaded bodies and its own recency, so the download cache
+// could evict an image an open form still drew. The host's cache now owns both.
 #[test]
-fn downloaded_images_stay_within_one_byte_allowance() {
+fn downloaded_bodies_stay_owned_by_the_host_and_draws_touch_them() {
     let (_, encoded) = large_noise();
-    let remote: Arc<dyn RemoteSource> = Arc::new(SameImage(Arc::from(encoded)));
-    let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(remote));
+    let body: Arc<[u8]> = Arc::from(encoded);
+    let remote = Arc::new(SameImage(Arc::clone(&body), Mutex::default()));
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_fallbacks(None, Some(remote.clone() as Arc<dyn RemoteSource>));
     let urls: Vec<_> = (0..64)
         .map(|index| format!("https://images.test/{index}.png"))
         .collect();
     assert!(urls.iter().all(|url| atlas.fallback_size(url).is_some()));
-    let retained = || -> usize {
-        atlas
-            .extra
-            .borrow()
-            .values()
-            .flatten()
-            .map(|source| source.bytes.len())
-            .sum()
-    };
-    assert!(retained() <= render_model::MAX_UI_NATIVE_SHEET_BYTES);
-    assert!(!atlas.extra.borrow().contains_key(&urls[0]));
-    assert!(
-        atlas.fallback_size(&urls[0]).is_some(),
-        "a forgotten URL draws again"
+    assert!(atlas.extra.borrow().keys().all(|key| !is_remote(key)));
+    assert_eq!(
+        Arc::strong_count(&body),
+        2,
+        "only the host and this test hold the body"
     );
-    assert!(retained() <= render_model::MAX_UI_NATIVE_SHEET_BYTES);
+    atlas.require(urls.iter().take(2).map(String::as_str));
+    let touched = remote.1.lock().unwrap();
+    assert!(urls.iter().take(2).all(|url| touched.contains(url)));
 }

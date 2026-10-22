@@ -35,10 +35,23 @@ pub enum RemoteState {
 #[derive(Clone, Default)]
 pub struct RemoteImages(Arc<Remote>);
 
-#[derive(Default)]
+/// The host clock deciding which images open screens still use.
+type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
 struct Remote {
     entries: Mutex<Entries>,
     worker: Mutex<Option<Sender<String>>>,
+    now: Clock,
+}
+
+impl Default for Remote {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::default(),
+            worker: Mutex::default(),
+            now: Arc::new(Instant::now),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -103,10 +116,32 @@ impl Entries {
 }
 
 impl RemoteImages {
-    /// The download state of `url`, starting its download on first sight.
+    /// A cache whose sense of which images are in use follows `now`.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_clock(now: impl Fn() -> Instant + Send + Sync + 'static) -> Self {
+        Self(Arc::new(Remote {
+            now: Arc::new(now),
+            ..Remote::default()
+        }))
+    }
+
+    /// Marks `url` as drawn now without starting a download. Every draw of a downloaded image
+    /// touches it, and this one record of use is what keeps it cached past the byte budget.
+    pub fn touch(&self, url: &str) {
+        let mut entries = self.0.entries.lock().unwrap_or_else(|p| p.into_inner());
+        if matches!(
+            entries.states.get(url),
+            Some(RemoteState::Loading | RemoteState::Ready(_))
+        ) {
+            let now = (self.0.now)();
+            entries.asked.insert(url.to_owned(), now);
+        }
+    }
+
+    /// The download state of `url`, starting its download on first sight; asking touches it.
     pub fn state(&self, url: &str) -> RemoteState {
         let mut entries = self.0.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let now = Instant::now();
+        let now = (self.0.now)();
         if let Some(state) = entries.states.get(url).cloned() {
             if state != RemoteState::Failed {
                 entries.asked.insert(url.to_owned(), now);
@@ -165,17 +200,14 @@ impl Remote {
             };
             entries.ready_bytes = entries.ready_bytes - replaced + added;
         }
-        entries.trim(Instant::now());
+        entries.trim((self.now)());
     }
 
     /// Whether a queued `url` is still wanted; an obsolete one is forgotten so
     /// a later ask queues it afresh.
     fn still_wanted(&self, url: &str) -> bool {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let fresh = entries
-            .asked
-            .get(url)
-            .is_some_and(|asked| asked.elapsed() < OBSOLETE_AFTER);
+        let fresh = entries.in_use(url, (self.now)());
         if !fresh {
             entries.forget(url);
         }

@@ -15,8 +15,12 @@ pub trait LocalPack: Send + Sync {
 
 /// Images named by URL; the host owns the downloads and their cache.
 pub trait RemoteSource: Send + Sync {
-    /// Where `url`'s download stands, starting it on first sight.
+    /// Where `url`'s download stands, starting it on first sight; asking marks it in use.
     fn state(&self, url: &str) -> RemoteImage;
+
+    /// Marks `url` as drawn now, so the host keeps its download while a screen shows it. The
+    /// host's record of use is the only one; the atlas keeps no recency of its own.
+    fn touch(&self, _url: &str) {}
 }
 
 /// One downloaded image's progress.
