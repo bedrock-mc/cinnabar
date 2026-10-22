@@ -456,6 +456,9 @@ impl ScoreboardStore {
                 self.diagnostics.unsupported_display_slots.saturating_add(1);
             return RetainedUiApply::Ignored;
         };
+        if objective_name.is_empty() {
+            return self.clear_display_slot(slot);
+        }
         let sort_order = ScoreSortOrder::from(raw_sort_order);
         let render_type = ScoreRenderType::from_criteria_name(&criteria_name);
         let old_bytes = self.objectives.get(&objective_name).map_or(0, |objective| {
@@ -512,6 +515,18 @@ impl ScoreboardStore {
                 self.diagnostics.unsupported_sort_orders.saturating_add(1);
         }
         RetainedUiApply::Applied
+    }
+
+    /// Clears one slot, retiring its objective only after the last display reference is gone.
+    fn clear_display_slot(&mut self, slot: DisplaySlot) -> RetainedUiApply {
+        let Some(objective_name) = self.slots.remove(&slot) else {
+            return RetainedUiApply::Ignored;
+        };
+        if self.slots.values().any(|name| name == &objective_name) {
+            RetainedUiApply::Applied
+        } else {
+            self.remove_objective(&objective_name)
+        }
     }
 
     fn remove_objective(&mut self, objective_name: &str) -> RetainedUiApply {
