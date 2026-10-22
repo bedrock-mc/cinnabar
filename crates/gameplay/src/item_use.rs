@@ -425,7 +425,7 @@ impl ItemUseRuntime {
         }
         let release_pending = std::mem::take(&mut self.release_pending);
         self.end_use(frame, &mut outcome, release_pending);
-        if self.active.is_none() && (pressed || frame.held) {
+        if self.active.is_none() && (pressed || frame.held) && !self.clear_awaits_tick(frame.tick) {
             self.try_use(frame, pressed, &mut outcome);
         }
         if !frame.held {

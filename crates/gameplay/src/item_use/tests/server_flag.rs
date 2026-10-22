@@ -310,3 +310,19 @@ fn losing_focus_before_a_server_start_runs_sends_no_release() {
     assert!(!runtime.is_releasing(false));
     assert!(runtime.step(&frame(10, false)).packets.is_empty());
 }
+
+/// A press while a server clear awaits its tick starts no new use: vanilla
+/// still holds the established use then.
+#[test]
+fn a_press_before_a_pending_clear_runs_starts_nothing() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.step(&frame(11, false));
+    runtime.adopt_server_using_item(false);
+    runtime.resolve_server_using_item(&frame(12, false));
+    runtime.observe_press(true);
+    let outcome = runtime.step(&frame(12, true));
+    assert!(outcome.packets.is_empty());
+    assert!(!runtime.is_using());
+}

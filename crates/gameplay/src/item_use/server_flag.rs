@@ -47,6 +47,16 @@ impl ItemUseRuntime {
         self.active = Some(cleared);
     }
 
+    /// Whether a server clear stopped an established use for `tick`, which
+    /// vanilla still holds until that tick runs, so a press starts nothing.
+    pub(super) fn clear_awaits_tick(&self, tick: u64) -> bool {
+        self.cleared_use
+            .as_ref()
+            .is_some_and(|(cleared_tick, cleared)| {
+                *cleared_tick == tick && cleared.has_run(tick.saturating_sub(1))
+            })
+    }
+
     /// Whether a server `UsingItem` value still awaits a tick.
     pub const fn has_server_using_item(&self) -> bool {
         self.server_using.is_some()

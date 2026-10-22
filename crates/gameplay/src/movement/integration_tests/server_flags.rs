@@ -561,3 +561,38 @@ fn a_pending_correction_elsewhere_makes_writes_compare_live() {
     );
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// A server pose write keeps flight, which vanilla holds beside pose flags.
+#[test]
+fn a_server_pose_write_keeps_flight() {
+    let (mut physics, mut ticker) = airborne();
+    let flying = PhysicsSampleContext {
+        mode_intent: super::super::ModeIntent {
+            can_fly: true,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
+            ..Default::default()
+        },
+        ..PhysicsSampleContext::default()
+    };
+    tick(&mut physics, &mut ticker, flying);
+    assert_eq!(physics.mode(), sim::MovementMode::Flying);
+    let crawl = flags(|flags| flags.crawling = Some(true));
+    physics.apply_server_movement_flags(0, crawl);
+    assert_eq!(physics.mode(), sim::MovementMode::Flying);
+    let sample = tick(&mut physics, &mut ticker, flying);
+    assert_eq!(sample.processed.mode, sim::MovementMode::Flying);
+}
+
+/// Respawn retires a server spin baseline the old life left for the next
+/// input, so the new life reports no stop action.
+#[test]
+fn respawn_retires_pending_server_spin_baselines() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    physics.apply_server_movement_flags(0, flags(|flags| flags.spinning = Some(true)));
+    ticker.discard_respawn_actions(&mut physics);
+    let tick_now = physics.state().unwrap().tick;
+    physics.reanchor_network_position([0.0, 65.620_01, 0.0], tick_now, false);
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}

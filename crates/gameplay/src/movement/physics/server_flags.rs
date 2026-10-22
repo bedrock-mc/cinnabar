@@ -42,8 +42,12 @@ impl PoseWrite {
 
     /// The locomotion mode after this write: a cleared pose ends, and a set
     /// pose starts unless a pose that the write did not end continues.
-    /// Cinnabar keeps one pose, so a write setting several starts the first.
+    /// Cinnabar keeps one pose, so a write setting several starts the first,
+    /// and flight, which vanilla keeps beside pose flags, stays.
     fn resulting(self, mode: sim::MovementMode) -> sim::MovementMode {
+        if mode == sim::MovementMode::Flying {
+            return mode;
+        }
         let ended = POSES
             .into_iter()
             .zip(self.0)
@@ -461,6 +465,17 @@ impl LocalPhysicsController {
             overlay.captured.using_item = Some(using);
         }
         self.server_flags.pending_using_item = Some(using);
+    }
+
+    /// Retires server writes awaiting the next tick when respawn discards the
+    /// old life: their action baselines and the pending item-use value.
+    pub(in crate::movement) fn discard_server_flag_baselines(&mut self) {
+        if let Some(pending) = self.server_control_flags.as_mut() {
+            pending.mode = None;
+            pending.spinning = None;
+        }
+        self.input_edges.replace_server_pose(None, None);
+        self.server_flags.pending_using_item = None;
     }
 
     /// Takes the latest server `UsingItem` value the item-use owner must adopt.
