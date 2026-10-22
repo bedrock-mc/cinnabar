@@ -157,3 +157,14 @@ fn huge_negotiated_durability_does_not_overflow() {
     let outcome = evaluate_grindstone(Some(&worn), Some(&worn)).unwrap();
     assert_eq!(outcome.damage, Some(u32::MAX - u32::MAX / 20));
 }
+
+/// A declared zero maximum is still damageable, so two copies merge to no damage.
+#[test]
+fn a_zero_maximum_still_merges() {
+    let zero = GrindstoneItem {
+        max_damage: Some(0),
+        ..sword(&[SHARPNESS], 0, 0)
+    };
+    let outcome = evaluate_grindstone(Some(&zero), Some(&zero)).unwrap();
+    assert_eq!(outcome.damage, Some(0));
+}

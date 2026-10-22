@@ -271,3 +271,25 @@ fn predictions_are_reused_until_an_input_changes() {
     assert_eq!(changed.source_stack_id, 32);
     assert_ne!(changed.stack.extra_data, first.stack.extra_data);
 }
+
+/// A component item declaring a zero maximum is damageable, so two copies still merge.
+#[test]
+fn declared_zero_durability_items_merge() {
+    let (mut runtime, mut player) = grindstone();
+    let mut sword_entry = entry("minecraft:diamond_sword", SWORD);
+    sword_entry.component_based = true;
+    sword_entry.components = Some(Arc::new(protocol::ItemComponents {
+        durability_declared: true,
+        max_durability: Some(0),
+        ..Default::default()
+    }));
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&ItemRegistryEvent {
+            entries: Arc::from([sword_entry]),
+        });
+    place(&mut runtime, &mut player, 16, sword(30, sword_data(false)));
+    place(&mut runtime, &mut player, 17, sword(31, sword_data(false)));
+    let preview = runtime.grindstone_preview(&player).unwrap();
+    assert_eq!(protocol::item_stack_damage(&preview.stack), Some(0));
+}

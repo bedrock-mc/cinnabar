@@ -116,10 +116,11 @@ impl UiRuntime {
                 count: stack.count,
                 damage: protocol::item_stack_damage(stack).unwrap_or(0),
                 // Unbreakable items cannot be merged for durability.
-                max_damage: fact
-                    .durability
-                    .maximum()
-                    .filter(|_| !protocol::item_extra_unbreakable(&stack.extra_data)),
+                max_damage: match fact.durability {
+                    assets::item::durability::ItemDurability::Maximum { maximum } => Some(maximum),
+                    _ => None,
+                }
+                .filter(|_| !protocol::item_extra_unbreakable(&stack.extra_data)),
                 enchantments: &data.enchantments,
                 repair_cost: protocol::item_repair_cost(&stack.extra_data),
                 has_user_data: has_compound(&stack.extra_data),

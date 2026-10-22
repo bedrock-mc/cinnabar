@@ -14,7 +14,7 @@ pub struct GrindstoneItem<'a> {
     pub kind: Option<crate::SessionItemKind>,
     pub count: u16,
     pub damage: u32,
-    /// Durability, for damageable items.
+    /// Durability, for damageable items; a declared zero is still damageable.
     pub max_damage: Option<u32>,
     pub enchantments: &'a [(i16, i16)],
     pub repair_cost: i32,
@@ -70,16 +70,15 @@ pub fn evaluate_grindstone(
     }
     let repair_cost = *REPAIR_COST_BY_CURSES.get(kept.len())?;
     if let (Some(top), Some(bottom)) = (top, bottom) {
-        let max = top.max_damage.filter(|max| *max > 0)?;
-        if top.kind.is_none()
-            || top.kind != bottom.kind
-            || bottom.max_damage.filter(|max| *max > 0).is_none()
-        {
+        let max = top.max_damage?;
+        if top.kind.is_none() || top.kind != bottom.kind || bottom.max_damage.is_none() {
             return None;
         }
         let worn = u64::from(top.damage) + u64::from(bottom.damage);
         let restored = u64::from(max) + u64::from(max / 20);
-        let damage = u32::try_from(worn.saturating_sub(restored)).unwrap_or(u32::MAX);
+        let damage = u32::try_from(worn.saturating_sub(restored))
+            .unwrap_or(u32::MAX)
+            .min(max);
         return Some(GrindstoneOutcome {
             source: if top.has_user_data { 0 } else { 1 },
             damage: Some(damage),
