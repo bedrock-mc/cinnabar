@@ -11,24 +11,59 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// Names a chest-like window after the block entity it opened on: barrels and shulker
+    /// boxes share the generic window type, but servers validate their own container names.
+    pub fn name_storage_block(&mut self, position: [i32; 3], block_entity: Option<&str>) {
+        let name = match block_entity {
+            Some("Barrel") => Some(protocol_ids::ContainerName::Barrel.wire_value()),
+            Some("ShulkerBox") => Some(protocol_ids::ContainerName::ShulkerBox.wire_value()),
+            _ => None,
+        };
+        let Some(storage) = self
+            .storage
+            .as_mut()
+            .filter(|storage| storage.position == position && storage.actor_unique_id == -1)
+        else {
+            return;
+        };
+        if storage.block_container == name {
+            return;
+        }
+        storage.block_container = name;
+        let Some(previous) = storage.identity else {
+            return;
+        };
+        self.bind_storage_request_identity();
+        // Requests already queued keep answering under the address they were sent with.
+        let storage = self.storage.as_mut().expect("storage observed above");
+        if storage.identity != Some(previous) {
+            storage.superseded_identity = Some(previous);
+        }
+    }
+
     /// Uses the screen model's outbound address, independently of ignored packet descriptors.
     pub(super) fn storage_request_identity(&self) -> Option<ContainerIdentity> {
         let storage = self.storage.as_ref()?;
         let (container, _) = protocol::open_cell_request(storage.kind, 0, None, None)?;
-        let name =
-            if protocol::open_name_first_cell(storage.kind, protocol::CONTAINER_NAME_LEVEL_ENTITY)
-                .is_some()
-            {
-                protocol::CONTAINER_NAME_LEVEL_ENTITY
-            } else {
-                match container {
-                    StackRequestContainer::LevelEntity { .. } => {
-                        protocol::CONTAINER_NAME_LEVEL_ENTITY
-                    }
-                    StackRequestContainer::OpenWindow { name, .. } => name,
-                    _ => return None,
-                }
-            };
+        let block = storage
+            .block_container
+            .filter(|name| protocol::open_name_first_cell(storage.kind, *name).is_some());
+        let name = if let Some(name) = block {
+            name
+        } else if protocol::open_name_first_cell(
+            storage.kind,
+            protocol::CONTAINER_NAME_LEVEL_ENTITY,
+        )
+        .is_some()
+        {
+            protocol::CONTAINER_NAME_LEVEL_ENTITY
+        } else {
+            match container {
+                StackRequestContainer::LevelEntity { .. } => protocol::CONTAINER_NAME_LEVEL_ENTITY,
+                StackRequestContainer::OpenWindow { name, .. } => name,
+                _ => return None,
+            }
+        };
         Some(ContainerIdentity {
             window_id: Some(storage.window_id),
             slot_type: Some(name),

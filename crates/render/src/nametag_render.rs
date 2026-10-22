@@ -572,8 +572,8 @@ impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
             crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced),
         );
         let overlay_mode = (view.msaa, false, true);
-        let warm_overlay = overlay::enabled(view.enhanced, cfg!(feature = "shaderpacks"))
-            && ordinary != overlay_mode;
+        let warm_overlay =
+            overlay::enabled(view.enhanced, view.shader_pack) && ordinary != overlay_mode;
         for (msaa, hdr, gamma_blend) in
             std::iter::once(ordinary).chain(warm_overlay.then_some(overlay_mode))
         {

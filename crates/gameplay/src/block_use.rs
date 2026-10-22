@@ -527,7 +527,7 @@ fn predicted_door_toggle(
     }
     let clicked_states =
         serde_json::from_str(collisions.block_canonical_state(mode, clicked)?).ok()?;
-    let upper = toggle_bit(&clicked_states, P::UpperBlockBit)?;
+    let upper = toggle_bit(fact, &clicked_states, P::UpperBlockBit)?;
     let mut neighbor = position;
     neighbor[1] = neighbor[1].checked_add(if upper { -1 } else { 1 })?;
     let partner = world.primary_runtime_id(neighbor).ok()?;
@@ -540,7 +540,7 @@ fn predicted_door_toggle(
         (position, clicked)
     };
     let mut states = serde_json::from_str(collisions.block_canonical_state(mode, lower)?).ok()?;
-    let open = toggle_bit(&states, P::OpenBit)?;
+    let open = toggle_bit(fact, &states, P::OpenBit)?;
     crate::placement_state::set_bit(&mut states, P::OpenBit.name(), !open)?;
     let block = collisions.block_state_runtime_id(
         mode,
@@ -551,8 +551,12 @@ fn predicted_door_toggle(
 }
 
 /// Reads a generated boolean domain without changing its canonical representation.
-fn toggle_bit(states: &serde_json::Map<String, serde_json::Value>, property: P) -> Option<bool> {
-    crate::placement_state::valid_property(states, property)?;
+fn toggle_bit(
+    fact: BlockFact,
+    states: &serde_json::Map<String, serde_json::Value>,
+    property: P,
+) -> Option<bool> {
+    crate::placement_state::valid_property(fact, states, property)?;
     let value = crate::placement_state::value(states, property.name())?;
     value
         .as_bool()

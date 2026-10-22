@@ -10,6 +10,7 @@
 | Network update | Update the backing container without rebasing or subtracting an active prediction. |
 | Request slot validation | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
 | Response handling | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
+| Result code | Only success applies slot corrections. Every other code, generic or specific, is an error that clears the request's predictions. |
 | Slot correction | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
 | Historic correction | Correct backing using the request's historic item without removing the newer active prediction. |
 | Clearing predictions | Remove remaining active cells whose stamp is the answered request, not older or later owners. |

@@ -108,6 +108,19 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             translated(translate, "gui.cancel", "Cancel"),
             MenuAction::ConfirmDeathQuit,
         ),
+        MenuDialog::RemoveShaderPack(index, revision) => (
+            "Remove shader pack?".into(),
+            format!(
+                "Remove {} from your shader packs? The imported copy and its saved shader settings will be deleted. The original file you imported is kept.",
+                view.shader_packs
+                    .get(usize::from(index))
+                    .filter(|_| revision == view.shader_packs_revision)
+                    .map_or("this pack", String::as_str)
+            ),
+            "Remove".into(),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmRemoveShaderPack(index, revision),
+        ),
         // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
             view.servers

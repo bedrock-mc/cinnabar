@@ -28,6 +28,7 @@ pub(super) enum Icon {
     Check,
     Filter,
     Lock,
+    Trash,
 }
 
 impl Icon {
@@ -41,13 +42,28 @@ impl Icon {
             Self::Pencil => ACTION_ICONS[4],
             Self::Check => ACTION_ICONS[5],
             Self::Filter => ACTION_ICONS[6],
-            Self::Lock => return None,
+            Self::Lock | Self::Trash => return None,
         })
     }
 
     /// Our pixel art: one row per string, `#` for a lit texel.
     fn pixels(self) -> &'static [&'static str] {
         match self {
+            Self::Trash => &[
+                ".........",
+                "..#####..",
+                "..#...#..",
+                "#########",
+                ".........",
+                ".#.....#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.....#.",
+                ".#######.",
+            ],
             Self::Lock => &[
                 "....####....",
                 "...######...",
@@ -201,6 +217,7 @@ mod tests {
             Icon::Check,
             Icon::Filter,
             Icon::Lock,
+            Icon::Trash,
         ] {
             let width = icon.pixels()[0].len();
             assert!(

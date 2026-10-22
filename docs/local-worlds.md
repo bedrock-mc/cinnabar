@@ -101,6 +101,10 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. Player-data persistence needs a stable client identity.
+- **Offline:** native BDS gathers ICE candidates only from non-loopback interfaces and has no other
+  transport, so on a device with no network its SDP answer carries no candidate. The core fails such
+  a join at once with `cinnabar.disconnect.localWorldOffline` rather than waiting for a candidate.
+  Joining a BDS world offline remains unsupported.
 
 ## Core route
 

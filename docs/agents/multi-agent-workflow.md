@@ -3,10 +3,10 @@
 ## Concurrent builds
 
 Bound concurrent Cargo builds to the machine's available CPU, memory, and disk.
-Use the configured shared build limiter when available and never hold a build lock
-while waiting for another. Set `CARGO_BUILD_JOBS` explicitly when several worktrees
-are active. Prefer `cargo check -p <crate>` and avoid release builds unless the task
-requires performance measurements. Local builds do not use sccache.
+Run builds independently without shared build locks, limiter wrappers, or reservation
+queues. Set `CARGO_BUILD_JOBS` explicitly when several worktrees are active. Prefer
+`cargo check -p <crate>` and avoid release builds unless the task requires performance
+measurements. Local builds do not use sccache.
 
 `.cargo/config.toml` gives each worktree its own Cargo `build-dir` under
 `$CARGO_HOME/build/cinnabar`, keyed by workspace path; `target` keeps only final artifacts. Never

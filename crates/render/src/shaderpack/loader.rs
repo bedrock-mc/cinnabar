@@ -234,6 +234,15 @@ pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateC
     }
 }
 
+/// Stops retired workers before opening files or submitting another GPU construction batch.
+fn check_cancelled(progress: &LoadProgress) -> Result<(), String> {
+    if progress.is_cancelled() {
+        Err("shader pack load cancelled".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 /// Opens, translates and builds `path` for `dimension` (a Java dimension id) with the values
 /// saved in `options` (the pack's Iris option file, if any); `vanilla` answers the pack's
 /// `minecraft:` texture references. Saved values are normalized in memory; the option editor
@@ -248,6 +257,7 @@ pub(crate) fn load(
     vanilla: &VanillaTextures,
     progress: &LoadProgress,
 ) -> Result<PackGpu, String> {
+    check_cancelled(progress)?;
     let pack = ShaderPack::open(path).map_err(|e| e.to_string())?;
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
@@ -324,9 +334,14 @@ pub(crate) fn build(
         ..translate_config(pack, dimension)
     };
     let started = std::time::Instant::now();
-    let translation = pack.translate_reporting(&config, |translated, programs| {
-        progress.record(translated, programs);
-    });
+    check_cancelled(progress)?;
+    let translation = pack
+        .translate_cancellable(
+            &config,
+            |translated, programs| progress.record(translated, programs),
+            || progress.is_cancelled(),
+        )
+        .ok_or_else(|| "shader pack load cancelled".to_owned())?;
     for diagnostic in &translation.properties.diagnostics {
         bevy::log::debug!(
             target: "cinnabar::shaderpack",
@@ -450,6 +465,7 @@ pub(crate) fn build(
                 .any(|s| s.stage == shaderpack::StageKind::Geometry)
     });
 
+    check_cancelled(progress)?;
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
     let loaded = crate::gpu_allocation::checked(&render_device, "shader pack load", 0, || {
@@ -476,6 +492,7 @@ pub(crate) fn build(
         // Per geometry program: its pipeline layout, vertex module and fragment stage.
         let mut geometry_stages = vec![];
         for (program, reflection) in all.iter().zip(&reflections) {
+            check_cancelled(progress)?;
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
@@ -666,6 +683,7 @@ pub(crate) fn build(
             });
         }
         let shadow_slots = constants.shadow_slots();
+        check_cancelled(progress)?;
         let draws = geometry_draws(
             gpu,
             pipeline_cache.as_ref().map(|c| &c.cache),
@@ -718,6 +736,7 @@ pub(crate) fn build(
             .flat_map(|shadow| shadow.slots.float.iter().flatten())
             .map(|slot| constants.constant(*slot).texture.format())
             .collect();
+        check_cancelled(progress)?;
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,
@@ -808,6 +827,7 @@ pub(crate) fn build(
     if let Some(error) = validation_error {
         return Err(format!("the device rejected the pack: {error}"));
     }
+    check_cancelled(progress)?;
     if let Some(cache) = pipeline_cache {
         cache.store();
     }
