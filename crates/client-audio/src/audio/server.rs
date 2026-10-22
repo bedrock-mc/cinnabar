@@ -223,12 +223,22 @@ pub fn current_generation() -> u64 {
         .0
 }
 
-/// Drops the published pack, without a new publication, when `seen` is still the latest one; the
-/// pack owns every archive of the ended session's stack.
+/// Releases the published pack, without a new publication, when `seen` is still the latest one.
+/// The pack may own every archive of the ended session's stack, so it is freed off the frame.
 pub(super) fn release_if_current(seen: u64) {
-    let mut mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());
-    if mailbox.0 == seen {
-        mailbox.1 = None;
+    let released = {
+        let mut mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());
+        if mailbox.0 == seen {
+            mailbox.1.take()
+        } else {
+            None
+        }
+    };
+    if let Some(pack) = released {
+        match bevy::tasks::AsyncComputeTaskPool::try_get() {
+            Some(pool) => pool.spawn(async move { drop(pack) }).detach(),
+            None => drop(pack),
+        }
     }
 }
 

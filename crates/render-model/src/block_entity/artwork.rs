@@ -32,6 +32,18 @@ pub struct PreparedBlockEntityArtwork {
     held: Arc<super::held::PreparedHeldBlockModels>,
 }
 
+impl assets::RetainedBuffers for PreparedBlockEntityArtwork {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        // Chalkboard and held models are small beside the shared atlas pixels.
+        let Self {
+            atlas,
+            chalkboards: _,
+            held: _,
+        } = self;
+        assets::RetainedBuffers::visit_buffers(atlas, visit);
+    }
+}
+
 impl PreparedBlockEntityArtwork {
     /// Shares held geometry prepared from these exact static pixels and placements.
     pub fn held_models(&self) -> &super::held::PreparedHeldBlockModels {

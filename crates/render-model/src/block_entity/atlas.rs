@@ -82,6 +82,20 @@ pub struct BlockEntityAtlas {
     text_pages: u32,
 }
 
+impl assets::RetainedBuffers for BlockEntityAtlas {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self {
+            size: _,
+            static_height: _,
+            static_rgba8,
+            placements: _,
+            identity: _,
+            text_pages: _,
+        } = self;
+        assets::visit_slice(static_rgba8, visit);
+    }
+}
+
 impl BlockEntityAtlas {
     #[must_use]
     pub fn from_assets(assets: &RuntimeBlockEntityAssets) -> Self {

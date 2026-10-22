@@ -666,10 +666,10 @@ fn taking_the_kept_stacks_releases_them() {
     assert_eq!(kept.len(), 0);
 }
 
-// Leaving kept a stack by its archive size alone, so GiBs of compiled entity rasters stayed
-// resident in the menu.
+// Leaving kept a stack by its archive size alone, so GiBs of compiled rasters stayed resident in
+// the menu; entity, icon and aim-assist pixels all count, each shared allocation once.
 #[test]
-fn the_rejoin_budget_counts_each_compiled_pixel_allocation_once() {
+fn the_rejoin_budget_counts_each_compiled_buffer_once() {
     let _cache = overlay_cache();
     let (_, _, entity_assets) = crate::tests::actor_rest_presentation::compiled_fixture(
         "1.0",
@@ -690,18 +690,35 @@ fn the_rejoin_budget_counts_each_compiled_pixel_allocation_once() {
         bindings: Arc::from(Vec::new()),
         equipment: None,
     });
+    let icons = client_ui::ui_runtime::presentation::SessionIcons {
+        icons: vec![client_ui::ui_runtime::presentation::SessionIcon {
+            identifier: "test:icon".into(),
+            metadata: 0,
+            width: 8,
+            height: 8,
+            rgba8: vec![3; 8 * 8 * 4].into(),
+        }],
+        ..Default::default()
+    };
+    let aim =
+        render_scene::AimAssistTexture::new([4, 4], Arc::from(vec![5u8; 4 * 4 * 4])).map(Arc::new);
     let application = PackApplication {
         admission: PackAdmission::Validated(admitted(&every_subscriber_archive(50, b"a=b"))),
         entities: Some(entities),
+        item_icons: Some(Arc::new(icons)),
+        aim_assist_textures: [aim.clone(), aim],
         ..Default::default()
     };
     let archives = super::retained_bytes(&PackApplication {
         entities: None,
+        item_icons: None,
+        aim_assist_textures: [None, None],
         ..application.clone()
     });
-    assert_eq!(super::retained_bytes(&application), archives + rgba8.len());
+    let compiled = rgba8.len() + 8 * 8 * 4 + 4 * 4 * 4;
+    assert_eq!(super::retained_bytes(&application), archives + compiled);
     let kept = CompiledStacks::new();
     kept.remember(CompileEnvironment::current(), &application, None, &|| false);
-    kept.keep_newest_within(archives + rgba8.len() - 1);
-    assert_eq!(kept.len(), 0, "compiled pixels count toward the budget");
+    kept.keep_newest_within(archives + compiled - 1);
+    assert_eq!(kept.len(), 0, "compiled buffers count toward the budget");
 }

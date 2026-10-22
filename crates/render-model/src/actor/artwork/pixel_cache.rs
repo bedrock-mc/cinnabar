@@ -91,3 +91,54 @@ fn add_owner(owners: &mut Vec<Page>, pages: &Arc<[ActorTexturePage]>, index: usi
         owners.push(Page { owner, index });
     }
 }
+
+impl assets::RetainedBuffers for ActorTexturePage {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self {
+            width: _,
+            height: _,
+            layers: _,
+            rgba8,
+            color_mask: _,
+            multitexture: _,
+        } = self;
+        assets::visit_slice(rgba8, visit);
+    }
+}
+
+impl assets::RetainedBuffers for EquipmentRaster {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self {
+            width: _,
+            height: _,
+            rgba8,
+        } = self;
+        assets::visit_slice(rgba8, visit);
+    }
+}
+
+impl assets::RetainedBuffers for ActorArtworkPages {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self {
+            identity: _,
+            entity_identity: _,
+            actor_glint,
+            item_glint,
+            pages,
+            routes: _,
+            source_locations: _,
+            entity_locations: _,
+            equipment: _,
+            equipment_artwork,
+            pack_source_locations: _,
+            pack_locations: _,
+            rejected_bindings: _,
+        } = self;
+        assets::RetainedBuffers::visit_buffers(actor_glint, visit);
+        assets::RetainedBuffers::visit_buffers(item_glint, visit);
+        assets::RetainedBuffers::visit_buffers(pages, visit);
+        for RetainedEquipmentArtwork { location: _, page } in equipment_artwork.values() {
+            assets::RetainedBuffers::visit_buffers(page, visit);
+        }
+    }
+}

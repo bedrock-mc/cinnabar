@@ -111,6 +111,46 @@ impl PreparedSessionResources {
     }
 }
 
+impl assets::RetainedBuffers for PreparedActorArtwork {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self {
+            base,
+            pack,
+            block_entity_art,
+            resources:
+                PreparedSessionResources {
+                    pages,
+                    locations: _,
+                    entities,
+                    equipment,
+                    held_block_entities,
+                    block_items,
+                },
+        } = self;
+        base.visit_buffers(visit);
+        pack.visit_buffers(visit);
+        block_entity_art.visit_buffers(visit);
+        pages.visit_buffers(visit);
+        entities.visit_buffers(visit);
+        equipment.visit_buffers(visit);
+        if let Some(PreparedHeldBlockEntities {
+            identity: _,
+            models: _,
+            geometries,
+        }) = held_block_entities
+        {
+            geometries.visit_buffers(visit);
+        }
+        if let Some(PlacedBlockItems {
+            source,
+            locations: _,
+        }) = block_items
+        {
+            source.visit_buffers(visit);
+        }
+    }
+}
+
 impl PreparedActorArtwork {
     /// Builds the immutable resources before the main frame can observe this pack.
     pub fn new(base: &ActorArtworkPages, pack: &Arc<SessionEntityPack>) -> Self {
@@ -179,11 +219,6 @@ impl PreparedActorArtwork {
                 .map(|blocks| &blocks.source),
             blocks,
         )
-    }
-
-    /// Pixel allocations of every page this preparation publishes, startup pages included.
-    pub fn page_pixels(&self) -> impl Iterator<Item = &Arc<[u8]>> {
-        self.resources.pages.pages.iter().map(|page| &page.rgba8)
     }
 
     /// Returns shared pages only while both immutable inputs are still the same snapshots.

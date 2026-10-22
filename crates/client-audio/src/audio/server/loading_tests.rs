@@ -233,7 +233,9 @@ fn ending_the_session_releases_the_published_pack_but_not_a_newer_one() {
     super::publish_server_sounds(Some(ended));
     engine.poll_server();
     engine.clear_server_if_current();
-    assert!(released.upgrade().is_none());
+    test_time::eventually("the ended session's sounds are released", || {
+        released.upgrade().is_none()
+    });
 
     let next = pack();
     let kept = Arc::downgrade(&next);

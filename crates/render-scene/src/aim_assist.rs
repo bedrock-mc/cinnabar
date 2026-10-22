@@ -19,6 +19,13 @@ pub struct AimAssistTexture {
     pub rgba: Arc<[u8]>,
 }
 
+impl assets::RetainedBuffers for AimAssistTexture {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self { size: _, rgba } = self;
+        assets::visit_slice(rgba, visit);
+    }
+}
+
 impl AimAssistTexture {
     /// Rejects unusable dimensions before a texture reaches GPU preparation.
     pub fn new(size: [u32; 2], rgba: Arc<[u8]>) -> Option<Self> {

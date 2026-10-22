@@ -30,36 +30,60 @@ fn rejoin_budget() -> usize {
     128 * 1024 * 1024
 }
 
-/// Archive bytes plus each distinct pixel allocation the compiled outputs hold, which dominate
-/// what keeping an application costs; startup pages they share are counted too.
+/// Bytes keeping `application` costs: its archives plus every distinct large buffer its compiled
+/// outputs own, including startup pages and carriers they share.
 fn retained_bytes(application: &PackApplication) -> usize {
-    let archives = match &application.admission {
-        PackAdmission::Validated(stack) => stack
-            .packs()
-            .iter()
-            .map(|pack| pack.archive_bytes().len())
-            .sum(),
-        PackAdmission::None => 0,
-    };
-    let entity_pixels = application
-        .entities
-        .iter()
-        .flat_map(|pack| pack.textures.iter().map(|texture| &texture.rgba8));
-    let page_pixels = application
-        .entity_artwork
-        .iter()
-        .flat_map(|pages| pages.pages.iter().map(|page| &page.rgba8))
-        .chain(
-            application
-                .prepared_actor_artwork
-                .iter()
-                .flat_map(|prepared| prepared.page_pixels()),
-        );
-    let mut seen = std::collections::HashSet::new();
-    entity_pixels
-        .chain(page_pixels)
-        .filter(|pixels| seen.insert(Arc::as_ptr(pixels).cast::<u8>()))
-        .fold(archives, |total, pixels| total.saturating_add(pixels.len()))
+    use assets::RetainedBuffers;
+    /// The admitted archives, which every stack view and sound pack reads from, and the
+    /// extension marker read from them.
+    struct Sources<'a>(&'a PackAdmission, Option<&'a [u8]>);
+    impl RetainedBuffers for Sources<'_> {
+        fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+            if let PackAdmission::Validated(stack) = self.0 {
+                for pack in stack.packs() {
+                    assets::visit_slice(pack.archive_bytes().as_slice(), visit);
+                }
+            }
+            if let Some(marker) = self.1 {
+                assets::visit_slice(marker, visit);
+            }
+        }
+    }
+    // Registries, inputs, language, item components, property defaults and sound definitions
+    // are tables built over the archives and startup carriers, small beside these buffers.
+    let PackApplication {
+        registries: _,
+        dependencies: _,
+        terrain_identity: _,
+        extension_marker,
+        admission,
+        inputs: _,
+        server_lang: _,
+        block_overlay,
+        item_icons,
+        item_components: _,
+        glyph_sheets,
+        block_entity_art,
+        entities,
+        entity_artwork,
+        prepared_actor_artwork,
+        property_defaults: _,
+        server_ui,
+        server_sounds: _,
+        aim_assist_textures,
+    } = application;
+    assets::retained_bytes(&[
+        &Sources(admission, extension_marker.as_deref()),
+        block_overlay,
+        item_icons,
+        glyph_sheets,
+        block_entity_art,
+        entities,
+        entity_artwork,
+        prepared_actor_artwork,
+        server_ui,
+        aim_assist_textures,
+    ])
 }
 
 /// Process tables a compile reads besides the stack and StartGame facts.

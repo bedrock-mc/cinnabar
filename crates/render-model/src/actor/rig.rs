@@ -112,6 +112,22 @@ pub struct ActorRigGeometry {
     prepared: Arc<PreparedGeometry>,
 }
 
+impl assets::RetainedBuffers for ActorRigGeometry {
+    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        let Self {
+            id: _,
+            vertices,
+            bone_pivots,
+            bones_used: _,
+            prepared,
+        } = self;
+        assets::visit_slice(vertices, visit);
+        assets::visit_slice(bone_pivots, visit);
+        assets::visit_slice(&prepared.vertices, visit);
+        assets::visit_slice(&prepared.bone_pivots, visit);
+    }
+}
+
 type BoneBounds = Option<([f32; 3], [f32; 3])>;
 
 /// Strong witnesses force public mutable access onto a different allocation.

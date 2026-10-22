@@ -53,6 +53,7 @@ pub mod potion;
 mod provenance;
 mod publication;
 pub mod registry;
+mod retained;
 mod runtime;
 pub mod seasonal_foliage;
 mod server_lang;
@@ -271,6 +272,7 @@ pub use registry::{
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
     pinned_block_identity, read_registry, read_registry_for_protocol, registry_header_protocol,
 };
+pub use retained::{BufferVisitor, RetainedBuffers, retained_bytes, visit_slice};
 pub use runtime::{
     BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,
     SequentialIdRemap, ServerDefinedBlock, VanillaFallback, server_defined_blocks,
