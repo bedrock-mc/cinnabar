@@ -64,6 +64,10 @@ fn video_chat_position_choices_are_clickable_in_both_saved_states() {
             present(&mut presentation, &view, size);
             for choice in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
                 let action = MenuAction::SettingsOption(index as u16, choice);
+                // Platform-only rows above it, such as the Windows graphics API, can push it
+                // below the viewport; focus reveals it as keyboard navigation would.
+                view.focused_action = Some(action);
+                present(&mut presentation, &view, size);
                 let bounds = presentation
                     .menu_hit_targets
                     .iter()
