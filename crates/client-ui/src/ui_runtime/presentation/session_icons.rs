@@ -63,8 +63,8 @@ pub struct SessionIcons {
     pub misses: HashMap<Arc<str>, Box<str>>,
 }
 
-impl assets::RetainedBuffers for SessionIcon {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for SessionIcon {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             identifier: _,
             metadata: _,
@@ -72,12 +72,12 @@ impl assets::RetainedBuffers for SessionIcon {
             height: _,
             rgba8,
         } = self;
-        assets::visit_slice(rgba8, visit);
+        assets::compiled::visit_slice(rgba8, visit);
     }
 }
 
-impl assets::RetainedBuffers for SessionIcons {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for SessionIcons {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             icons,
             block_sheets,
@@ -88,7 +88,7 @@ impl assets::RetainedBuffers for SessionIcons {
         icons.visit_buffers(visit);
         block_sheets.visit_buffers(visit);
         for model in block_models.values() {
-            assets::visit_slice(model, visit);
+            assets::compiled::visit_slice(model, visit);
         }
     }
 }

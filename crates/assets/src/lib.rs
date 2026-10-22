@@ -297,4 +297,4 @@ pub use ui::{
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
 pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};
-pub use {server_lang::ServerLangOverlay, session_entities::*};
+pub use {server_lang::ServerLangOverlay, session_entities::SessionEntityPack};

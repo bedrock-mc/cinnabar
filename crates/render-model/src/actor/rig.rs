@@ -112,8 +112,8 @@ pub struct ActorRigGeometry {
     prepared: Arc<PreparedGeometry>,
 }
 
-impl assets::RetainedBuffers for ActorRigGeometry {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for ActorRigGeometry {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             id: _,
             vertices,
@@ -121,10 +121,10 @@ impl assets::RetainedBuffers for ActorRigGeometry {
             bones_used: _,
             prepared,
         } = self;
-        assets::visit_slice(vertices, visit);
-        assets::visit_slice(bone_pivots, visit);
-        assets::visit_slice(&prepared.vertices, visit);
-        assets::visit_slice(&prepared.bone_pivots, visit);
+        assets::compiled::visit_slice(vertices, visit);
+        assets::compiled::visit_slice(bone_pivots, visit);
+        assets::compiled::visit_slice(&prepared.vertices, visit);
+        assets::compiled::visit_slice(&prepared.bone_pivots, visit);
     }
 }
 

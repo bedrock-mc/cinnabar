@@ -1,4 +1,7 @@
 pub mod block_destroy;
+mod retained;
+
+pub use retained::{BufferVisitor, RetainedBuffers, retained_bytes, visit_slice};
 
 use crate::{
     Animation, BlockFlags, CompiledBiomeAssets, ContributorRole, LightProperties, ModelQuad,

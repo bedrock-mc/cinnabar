@@ -111,8 +111,8 @@ impl PreparedSessionResources {
     }
 }
 
-impl assets::RetainedBuffers for PreparedActorArtwork {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for PreparedActorArtwork {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             base,
             pack,

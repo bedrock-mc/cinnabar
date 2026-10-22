@@ -74,8 +74,8 @@ pub(crate) struct CompiledBlockOverlay {
     pub(crate) vanilla_carried: Vec<CarriedBlock>,
 }
 
-impl assets::RetainedBuffers for CompiledBlockOverlay {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for CompiledBlockOverlay {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             overlay,
             gaps: _,

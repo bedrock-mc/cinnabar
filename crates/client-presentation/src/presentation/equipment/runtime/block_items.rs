@@ -21,8 +21,8 @@ pub struct PreparedBlockItems {
     pub(crate) rasters: Vec<EquipmentRaster>,
 }
 
-impl assets::RetainedBuffers for PreparedBlockItems {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for PreparedBlockItems {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         // The terrain carrier is the session's world, owned and counted elsewhere.
         let Self {
             world: _,
@@ -33,9 +33,9 @@ impl assets::RetainedBuffers for PreparedBlockItems {
             rasters,
         } = self;
         for model in models.values() {
-            assets::visit_slice(model, visit);
+            assets::compiled::visit_slice(model, visit);
         }
-        assets::RetainedBuffers::visit_buffers(rasters, visit);
+        assets::compiled::RetainedBuffers::visit_buffers(rasters, visit);
     }
 }
 

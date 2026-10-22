@@ -254,8 +254,8 @@ pub struct RuntimeEquipmentCatalog {
 #[path = "equipment/decode.rs"]
 mod decode;
 
-impl crate::RetainedBuffers for RuntimeEquipmentCatalog {
-    fn visit_buffers(&self, visit: &mut crate::BufferVisitor<'_>) {
+impl crate::compiled::RetainedBuffers for RuntimeEquipmentCatalog {
+    fn visit_buffers(&self, visit: &mut crate::compiled::BufferVisitor<'_>) {
         let Self {
             item_use_overlays: _,
             source_manifest_sha256: _,
@@ -274,7 +274,7 @@ impl crate::RetainedBuffers for RuntimeEquipmentCatalog {
             rgba8,
         } in textures.iter()
         {
-            crate::visit_slice(rgba8, visit);
+            crate::compiled::visit_slice(rgba8, visit);
         }
     }
 }

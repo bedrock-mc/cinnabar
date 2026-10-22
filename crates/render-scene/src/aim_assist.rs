@@ -19,10 +19,10 @@ pub struct AimAssistTexture {
     pub rgba: Arc<[u8]>,
 }
 
-impl assets::RetainedBuffers for AimAssistTexture {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for AimAssistTexture {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self { size: _, rgba } = self;
-        assets::visit_slice(rgba, visit);
+        assets::compiled::visit_slice(rgba, visit);
     }
 }
 

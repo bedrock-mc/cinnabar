@@ -92,8 +92,8 @@ fn add_owner(owners: &mut Vec<Page>, pages: &Arc<[ActorTexturePage]>, index: usi
     }
 }
 
-impl assets::RetainedBuffers for ActorTexturePage {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for ActorTexturePage {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             width: _,
             height: _,
@@ -102,23 +102,23 @@ impl assets::RetainedBuffers for ActorTexturePage {
             color_mask: _,
             multitexture: _,
         } = self;
-        assets::visit_slice(rgba8, visit);
+        assets::compiled::visit_slice(rgba8, visit);
     }
 }
 
-impl assets::RetainedBuffers for EquipmentRaster {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for EquipmentRaster {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             width: _,
             height: _,
             rgba8,
         } = self;
-        assets::visit_slice(rgba8, visit);
+        assets::compiled::visit_slice(rgba8, visit);
     }
 }
 
-impl assets::RetainedBuffers for ActorArtworkPages {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for ActorArtworkPages {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             identity: _,
             entity_identity: _,
@@ -134,11 +134,11 @@ impl assets::RetainedBuffers for ActorArtworkPages {
             pack_locations: _,
             rejected_bindings: _,
         } = self;
-        assets::RetainedBuffers::visit_buffers(actor_glint, visit);
-        assets::RetainedBuffers::visit_buffers(item_glint, visit);
-        assets::RetainedBuffers::visit_buffers(pages, visit);
+        assets::compiled::RetainedBuffers::visit_buffers(actor_glint, visit);
+        assets::compiled::RetainedBuffers::visit_buffers(item_glint, visit);
+        assets::compiled::RetainedBuffers::visit_buffers(pages, visit);
         for RetainedEquipmentArtwork { location: _, page } in equipment_artwork.values() {
-            assets::RetainedBuffers::visit_buffers(page, visit);
+            assets::compiled::RetainedBuffers::visit_buffers(page, visit);
         }
     }
 }

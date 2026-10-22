@@ -88,8 +88,8 @@ impl UiTextureFormat {
     }
 }
 
-impl assets::RetainedBuffers for UiTexturePage {
-    fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+impl assets::compiled::RetainedBuffers for UiTexturePage {
+    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
         let Self {
             dimensions: _,
             identity: _,
@@ -100,7 +100,7 @@ impl assets::RetainedBuffers for UiTexturePage {
         } = self;
         // Font pages belong to the startup font carrier, not to the output sharing them.
         if let Pixels::Owned(pixels) = pixels {
-            assets::visit_slice(pixels, visit);
+            assets::compiled::visit_slice(pixels, visit);
         }
     }
 }

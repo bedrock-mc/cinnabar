@@ -32,20 +32,23 @@ fn rejoin_budget() -> usize {
 
 /// Bytes keeping `application` costs: its archives plus every distinct large buffer its compiled
 /// outputs own, including startup pages and carriers they share.
-fn retained_bytes(application: &PackApplication, others: &[&dyn assets::RetainedBuffers]) -> usize {
-    use assets::RetainedBuffers;
+fn retained_bytes(
+    application: &PackApplication,
+    others: &[&dyn assets::compiled::RetainedBuffers],
+) -> usize {
+    use assets::compiled::RetainedBuffers;
     /// The admitted archives, which every stack view and sound pack reads from, and the
     /// extension marker read from them.
     struct Sources<'a>(&'a PackAdmission, Option<&'a [u8]>);
     impl RetainedBuffers for Sources<'_> {
-        fn visit_buffers(&self, visit: &mut assets::BufferVisitor<'_>) {
+        fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
             if let PackAdmission::Validated(stack) = self.0 {
                 for pack in stack.packs() {
-                    assets::visit_slice(pack.archive_bytes().as_slice(), visit);
+                    assets::compiled::visit_slice(pack.archive_bytes().as_slice(), visit);
                 }
             }
             if let Some(marker) = self.1 {
-                assets::visit_slice(marker, visit);
+                assets::compiled::visit_slice(marker, visit);
             }
         }
     }
@@ -72,7 +75,7 @@ fn retained_bytes(application: &PackApplication, others: &[&dyn assets::Retained
         server_sounds: _,
         aim_assist_textures,
     } = application;
-    let owned: [&dyn assets::RetainedBuffers; 10] = [
+    let owned: [&dyn assets::compiled::RetainedBuffers; 10] = [
         &Sources(admission, extension_marker.as_deref()),
         block_overlay,
         item_icons,
@@ -84,7 +87,7 @@ fn retained_bytes(application: &PackApplication, others: &[&dyn assets::Retained
         server_ui,
         aim_assist_textures,
     ];
-    assets::retained_bytes(
+    assets::compiled::retained_bytes(
         &owned
             .into_iter()
             .chain(others.iter().copied())
