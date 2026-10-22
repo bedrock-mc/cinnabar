@@ -699,12 +699,15 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   with a 2 GiB Rust heap limit, a 60-second CPU and elapsed-time limit, and bounded input/output.
   Cancellation kills and reaps that child; parser crashes fail the selected pack. Saved option
   files and generated helper copies have storage limits, and input files must be regular files.
-  Option-menu reads use the same compiler limits; closing the menu reaps its reader.
+  Option-menu reads use the same compiler limits; payload decoding stays off the UI thread,
+  and closing the menu retires its reader before another starts. Accepted expression depths
+  survive result transport. Unreadable render-side saved settings retain the default values.
   Render-view admission failures reach the pack picker and restore the native renderer.
   Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
-  builds cancel between
-  source, pixel and upload stages, and one cancelled build retires before its replacement
-  starts. Leaving the pack releases the nametag overlay layer, and shared actor, item,
+  builds cancel between source, pixel and upload stages, and one cancelled build retires before its
+  replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,
+  then released after Off; idle view and geometry preparation record no shader work.
+  Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
   one list ending in a drop zone; the selected pack's card shows its load state and holds

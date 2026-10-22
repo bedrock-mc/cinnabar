@@ -2,8 +2,8 @@
 
 use std::num::NonZeroU64;
 
-use bevy::asset::{load_internal_asset, uuid_handle};
-use bevy::prelude::{App, FromWorld, Handle, Resource, Shader, World, default};
+use bevy::asset::uuid_handle;
+use bevy::prelude::{FromWorld, Handle, Resource, Shader, World, default};
 use bevy::render::render_resource::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     CachedComputePipelineId, ComputePipelineDescriptor, PipelineCache, ShaderStages,
@@ -67,11 +67,16 @@ fn shader(source: &str, path: impl Into<String>) -> Shader {
 }
 
 /// Registers the expansion modules with Bevy's shader composer.
-pub(crate) fn load_shaders(app: &mut App) {
-    load_internal_asset!(app, EXPAND_COMMON_SHADER, "expand_common.wesl", shader);
-    load_internal_asset!(app, EXPAND_CUBES_SHADER, "expand_cubes.wesl", shader);
-    load_internal_asset!(app, EXPAND_MODELS_SHADER, "expand_models.wesl", shader);
-    load_internal_asset!(app, EXPAND_LIQUIDS_SHADER, "expand_liquids.wesl", shader);
+pub(crate) fn load_shaders(cache: &mut PipelineCache) {
+    use crate::shader_asset::internal_shader_asset;
+    for (id, shader) in [
+        internal_shader_asset!(EXPAND_COMMON_SHADER, "expand_common.wesl", shader),
+        internal_shader_asset!(EXPAND_CUBES_SHADER, "expand_cubes.wesl", shader),
+        internal_shader_asset!(EXPAND_MODELS_SHADER, "expand_models.wesl", shader),
+        internal_shader_asset!(EXPAND_LIQUIDS_SHADER, "expand_liquids.wesl", shader),
+    ] {
+        cache.set_shader(id, shader);
+    }
 }
 
 /// Packed-chunk bindings (group 0) each kernel reads, at the chunk layout's numbers.
@@ -173,7 +178,7 @@ pub(crate) struct ExpansionPipelines {
 
 impl FromWorld for ExpansionPipelines {
     fn from_world(world: &mut World) -> Self {
-        let cache = world.resource::<PipelineCache>();
+        let cache = &world.resource::<super::super::kernels::Kernels>().cache;
         let pipeline = |kind: JobKind| {
             let (label, shader, entry) = match kind {
                 JobKind::Cube => (

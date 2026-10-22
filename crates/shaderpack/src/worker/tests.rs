@@ -28,7 +28,13 @@ fn accepted_expression_depths_survive_the_compiler_payload() {
     let result = Ok::<_, String>(Response::Render(Box::new(compiled)));
     let mut bytes = Vec::new();
     ciborium::into_writer(&result, &mut bytes).unwrap();
-    let mut decoded = decode_output(bytes).unwrap().into_translation().unwrap();
+    let mut decoder = Decoder::start(std::io::Cursor::new(bytes)).unwrap();
+    let mut result = None;
+    test_time::eventually("accepted expression payload decoded", || {
+        result = decoder.poll();
+        result.is_some()
+    });
+    let mut decoded = result.unwrap().unwrap().into_translation().unwrap();
     assert!(decoded.translation.properties.program_rules[0].is_enabled(&Default::default()));
     assert_eq!(
         decoded.custom_uniforms.0.evaluate(&|_| None, 0.0),

@@ -22,6 +22,7 @@ use super::{MenuRuntime, RenderModeConfig, RuntimeSettings};
 pub(super) struct ShaderOptionsHost {
     open: Option<Open>,
     writer: Option<Writer>,
+    retiring: Option<Mutex<shaderpack::worker::Running>>,
 }
 
 /// One open screen and where its pack's values are saved.
@@ -48,44 +49,49 @@ struct Progress {
 }
 
 enum State {
+    Waiting(shaderpack::worker::Request),
     Loading(Mutex<shaderpack::worker::Running>, Instant),
     Ready(Box<Editor>),
     Failed(String),
 }
 
 impl Open {
-    /// Starts a bounded options compiler; closing the screen kills and reaps that child.
-    fn start(pack: SelectedPack, compiler: Option<&Path>) -> Open {
-        let state = compiler
-            .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
-            .and_then(|compiler| {
-                shaderpack::worker::Running::start(
-                    compiler,
-                    &shaderpack::worker::Request {
-                        pack: pack.path,
-                        options: pack.options.clone(),
-                        dimension: String::new(),
-                        environment: shaderpack::Environment::default(),
-                        purpose: shaderpack::worker::Purpose::Options,
-                    },
-                )
-            });
+    /// Keeps the latest request queued until the previous reader has retired.
+    fn pending(pack: SelectedPack) -> Open {
         Open {
             name: pack.name,
-            file: pack.options,
-            state: match state {
-                Ok(worker) => State::Loading(Mutex::new(worker), Instant::now()),
-                Err(error) => State::Failed(error),
-            },
+            file: pack.options.clone(),
+            state: State::Waiting(shaderpack::worker::Request {
+                pack: pack.path,
+                options: pack.options,
+                dimension: String::new(),
+                environment: shaderpack::Environment::default(),
+                purpose: shaderpack::worker::Purpose::Options,
+            }),
             saving: None,
             save_error: None,
         }
     }
 
+    /// Starts the queued reader without allowing overlapping readers or result decoders.
+    fn start(&mut self, compiler: Option<&Path>) -> bool {
+        let State::Waiting(request) = &self.state else {
+            return false;
+        };
+        let result = compiler
+            .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
+            .and_then(|compiler| shaderpack::worker::Running::start(compiler, request));
+        self.state = match result {
+            Ok(worker) => State::Loading(Mutex::new(worker), Instant::now()),
+            Err(reason) => State::Failed(reason),
+        };
+        true
+    }
+
     /// The screen to show.
     fn view(&self) -> View {
         let mut view = match &self.state {
-            State::Loading(..) => View::loading(&self.name),
+            State::Waiting(_) | State::Loading(..) => View::loading(&self.name),
             State::Ready(editor) => editor.view(),
             State::Failed(reason) => View::failed(&self.name, reason.clone()),
         };
@@ -206,6 +212,34 @@ impl Open {
     }
 }
 
+/// Cancels a screen's active reader without making the frame wait for its result decoder.
+fn retire_reader(
+    open: &mut Option<Open>,
+    retiring: &mut Option<Mutex<shaderpack::worker::Running>>,
+) {
+    if let Some(Open {
+        state: State::Loading(reader, _),
+        ..
+    }) = open.take()
+    {
+        debug_assert!(retiring.is_none(), "only one reader may run at a time");
+        *retiring = Some(reader);
+    }
+}
+
+/// Reaps a cancelled reader after it has stopped, without waiting on the frame thread.
+fn settle_reader(retiring: &mut Option<Mutex<shaderpack::worker::Running>>) {
+    if retiring.as_mut().is_some_and(|reader| {
+        reader
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .poll(std::time::Duration::ZERO, true)
+            .is_some()
+    }) {
+        *retiring = None;
+    }
+}
+
 /// Runs the screen's commands, saving and reloading the pack when values are applied, and
 /// publishes the screen whenever it changes.
 pub(super) fn drive_shader_options(
@@ -215,24 +249,24 @@ pub(super) fn drive_shader_options(
     mut host: ResMut<ShaderOptionsHost>,
     compiler: Option<Res<render_scene::shaderpack::ShaderPackCompilerExecutable>>,
 ) {
+    let ShaderOptionsHost {
+        open,
+        writer,
+        retiring,
+    } = &mut *host;
     let Some(mut menu) = menu else {
+        retire_reader(open, retiring);
+        settle_reader(retiring);
         return;
     };
-    let ShaderOptionsHost { open, writer } = &mut *host;
     let mut changed = false;
     for action in menu.take_shader_option_actions() {
         changed = true;
         if action == Action::Open {
             if open.as_ref().is_none_or(|open| open.saving.is_none()) {
-                // Reap the previous reader before starting its replacement.
-                *open = None;
-                *open =
-                    selected_pack(&config, &settings.user_settings_update().1.video).map(|pack| {
-                        Open::start(
-                            pack,
-                            compiler.as_deref().map(|compiler| compiler.0.as_path()),
-                        )
-                    });
+                retire_reader(open, retiring);
+                *open = selected_pack(&config, &settings.user_settings_update().1.video)
+                    .map(Open::pending);
             }
             continue;
         }
@@ -240,17 +274,27 @@ pub(super) fn drive_shader_options(
             continue;
         };
         if editor.handle(action, writer) {
-            *open = None;
+            retire_reader(open, retiring);
         }
     }
+    if open.as_ref().is_some_and(|editor| editor.saving.is_none())
+        && menu.view().shader_options.is_none()
+    {
+        retire_reader(open, retiring);
+        changed = true;
+    }
+    settle_reader(retiring);
     if let Some(editor) = open.as_mut() {
+        if retiring.is_none() {
+            changed |= editor.start(compiler.as_deref().map(|compiler| compiler.0.as_path()));
+        }
         let progress = editor.poll(writer);
         changed |= progress.changed;
         if progress.reload {
             menu.request_shader_pack_reload();
         }
         if progress.close {
-            *open = None;
+            retire_reader(open, retiring);
         }
     }
     if changed {

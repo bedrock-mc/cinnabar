@@ -32,7 +32,9 @@ impl ViewFailures {
 
     /// Takes and releases a pending failure, including after the player selected Off.
     fn take(&self) -> Option<(Arc<PackGpu>, String)> {
-        if !self.0.available.swap(false, Ordering::Acquire) {
+        if !self.0.available.load(Ordering::Relaxed)
+            || !self.0.available.swap(false, Ordering::Acquire)
+        {
             return None;
         }
         self.0

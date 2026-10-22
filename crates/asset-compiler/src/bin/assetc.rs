@@ -201,6 +201,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         std::process::exit(shaderpack::worker::run_stdio());
     }
+    #[cfg(feature = "shaderpacks")]
+    shaderpack::worker::disable_for_host();
     run(Cli::parse().command)
 }
 

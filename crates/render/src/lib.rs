@@ -94,6 +94,7 @@ mod scene_target;
 
 mod queue_writes;
 mod screen_overlay_render;
+mod shader_asset;
 mod shader_safety;
 #[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
