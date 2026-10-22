@@ -107,12 +107,12 @@ fn maintain_block_use(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let game_mode = player_runtime.facts.player_game_mode();
     let caps = player_runtime.facts.game_mode_capabilities();
-    let Some((input, _)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
-        focused
-            && !context.focus.ui_focused
-            && caps.can_use_blocks()
-            && input.input_mode != semantic_input::InputMode::Touch
-    }) else {
+    let Some((input, _)) = context
+        .input
+        .snapshot()
+        .zip(caps)
+        .filter(|(_, caps)| focused && !context.focus.ui_focused && caps.can_use_blocks())
+    else {
         runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);
         return;

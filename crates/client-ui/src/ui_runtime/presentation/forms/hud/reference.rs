@@ -46,7 +46,7 @@ pub(super) fn hud_model(
             )
         })
         .collect();
-    let offhand = runtime.gameplay_hud().offhand_stack().map(|stack| {
+    let offhand = runtime.local_offhand_stack(player_runtime).map(|stack| {
         slot(
             Some(stack),
             frame.offhand_icon,

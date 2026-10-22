@@ -74,6 +74,11 @@ fn prepare(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
+    let caps = caps.for_edit(stream.authority().held_edit_item(
+        &observed.selection.item,
+        protocol::ItemBlockList::CanPlaceOn,
+        observed.target.runtime_id,
+    ));
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),

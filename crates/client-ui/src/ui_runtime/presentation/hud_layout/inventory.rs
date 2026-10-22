@@ -110,13 +110,13 @@ impl HudLayout<'_> {
         }
         let offhand_slot = [origin[0] + 77.0, origin[1] + 62.0];
         self.inventory_slot(offhand_slot)?;
-        if runtime.gameplay_hud().offhand_stack().is_none() {
+        if runtime.local_offhand_stack(player_runtime).is_none() {
             self.ghost_icon(
                 frame.window_icons.ghost_shield,
                 [offhand_slot[0] + 1.0, offhand_slot[1] + 1.0],
             )?;
         }
-        if let Some(stack) = runtime.gameplay_hud().offhand_stack() {
+        if let Some(stack) = runtime.local_offhand_stack(player_runtime) {
             self.inventory_item(
                 frame.offhand_icon,
                 offhand_slot,

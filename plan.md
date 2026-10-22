@@ -254,6 +254,10 @@ Server sneak updates preserve local hold/toggle intent, and the next completed i
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
+Remote player presentation interpolates received positions along straight segments,
+which can cross a block corner between clear endpoints. Teleports discard that
+segment immediately. Behavioral coverage of these cases does not establish
+live-server movement acceptance.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
@@ -412,11 +416,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Hover reports and actor use share the attack's game-mode actor cap. The survival
+  block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
+  actor occlusion of the block outline remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Adventure mining and placement follow the held item's CanDestroy/CanPlaceOn list, or
+  PrivilegedBuilder with an empty hand, before the Build/Mine grant. The immutable-world
+  setting, the WorldBuilder bypass, allow/deny/border blocks, and the denied press's
+  DenyDestroyBlock action, Attack swing source and missed swing remain incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -440,6 +451,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
+  Recipe-book projections validate each occupied ingredient source once across the catalog.
+  First-open and repeated-open inventory timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
@@ -541,7 +554,8 @@ hardcore, flat presets, Education Edition, operator status for a signed-out host
 acceptance of every option on supported platforms remain incomplete.
 hardcore, flat presets, Education Edition and live acceptance of every option on supported
 platforms remain incomplete.
-Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
+Local HTTP and LAN joins include client loopback ICE candidates. Full offline play of native
+BDS worlds is still a confirmed gap: without a non-loopback network interface BDS
 offers no NetherNet route, so the join fails with an explanation instead of connecting.
 
 See [local worlds](docs/local-worlds.md).
@@ -574,11 +588,17 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete.
+  Pipeline loading prepares single-sample coverage before switching to Performance.
+  The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
+  Android pack, mod, skin and cape imports open the system document picker and copy the
+  chosen documents into app cache storage before importing them; device acceptance and skin
+  imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
