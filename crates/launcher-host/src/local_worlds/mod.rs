@@ -1,6 +1,7 @@
 //! Local single-player worlds: the saved-world store, the official dedicated-server download and
 //! the local server processes. The core only learns the open world's loopback address.
 
+mod android_setup;
 mod android_trust;
 mod bds;
 mod code_cache;
@@ -20,9 +21,11 @@ mod store;
 #[cfg(test)]
 mod test_support;
 mod translated;
+mod translated_setup;
 mod unpack;
 mod world;
 
+pub use android_setup::{android_server_needs_preparation, prepare_android_server};
 pub use android_trust::refresh as refresh_android_server_trust;
 pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
@@ -77,7 +80,8 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         platform,
         &layout.core_executable,
         android_runtime_dir(&layout.user_data_root),
-    );
+    )
+    .map(Arc::new);
     let (runtime, pending) = if let Some(translation) = &translation {
         (translation.runtime(), false)
     } else if platform.runs_bds() {
@@ -93,7 +97,12 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         pin.server_version.clone(),
     ));
     provisioner.set_runtime(runtime.clone());
-    let detected = translation.as_ref().map(translated::Translation::runtime);
+    if let Some(translation) = &translation {
+        android_setup::configure_preparation(&provisioner, translation);
+    }
+    let detected = translation
+        .as_ref()
+        .map(|translation| translation.runtime());
     provisioner.set_detector(Arc::new(move || {
         detected
             .clone()

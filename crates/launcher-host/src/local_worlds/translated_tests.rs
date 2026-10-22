@@ -8,31 +8,8 @@ use crate::local_worlds::{
 
 /// Original guest-library bytes with a matching immutable download pin.
 fn library_fixture() -> (TranslationPin, Vec<u8>) {
-    let revision = "fixture".to_owned();
-    let guest_library = "libguest.so".to_owned();
     let library = b"original guest library fixture".to_vec();
-    let pin = TranslationPin {
-        helper_library: "helper".to_owned(),
-        guest_base_url: "https://example.invalid/".to_owned(),
-        guest_directory: "x64lib".to_owned(),
-        revision,
-        guest_sha256: format!("{:x}", Sha256::digest(&library)),
-        guest_bytes: library.len() as u64,
-        guest_library,
-        native_runtime: NativeRuntime {
-            sha256: "native runtime fixture".to_owned(),
-            libraries: vec![
-                NativeLibrary {
-                    packaged: "loader".to_owned(),
-                    loader: true,
-                },
-                NativeLibrary {
-                    packaged: "libnative.so".to_owned(),
-                    loader: false,
-                },
-            ],
-        },
-    };
+    let pin = TranslationPin::fixture(&library, "https://example.invalid/".to_owned());
     (pin, library)
 }
 
@@ -258,7 +235,7 @@ trap '[ "$BOX64_DYNACACHE" != 1 ] || printf code > "$BOX64_DYNACACHE_FOLDER/bedr
             .collect::<Vec<_>>()
     };
     let mut runner = BdsRunner::new(Arc::new(provisioner), String::new());
-    runner.translation = Some(Translation::new(helper.clone(), cache, pin));
+    runner.translation = Some(Arc::new(Translation::new(helper.clone(), cache, pin)));
     runner.start_timeout = Some(test_time::DEFAULT_TIMEOUT);
     let world = spec(&dir.path().join("world"));
     let instance = runner.start(&world, &Cancel::never()).unwrap();
@@ -350,7 +327,7 @@ fn the_code_cache_identity_follows_the_server_install_translator_bytes_and_pins(
     fs::write(&helper, b"translator").unwrap();
     let generation = |pin: &TranslationPin| {
         Translation::new(helper.clone(), dir.path().join("runtime"), pin.clone())
-            .code_cache(&install)
+            .code_cache(&install.join("bedrock_server"))
             .map(|cache| cache.generation())
     };
     let record = |digest: &str| {
@@ -407,7 +384,11 @@ fn runtime_setup_failure_removes_the_world_link_and_preserves_its_data() {
     )
     .unwrap();
     let mut runner = BdsRunner::new(Arc::new(provisioner), String::new());
-    runner.translation = Some(Translation::new(dir.path().join("unused"), cache, pin));
+    runner.translation = Some(Arc::new(Translation::new(
+        dir.path().join("unused"),
+        cache,
+        pin,
+    )));
     let world = spec(&dir.path().join("world"));
     assert!(runner.start(&world, &Cancel::never()).is_err());
     assert_eq!(

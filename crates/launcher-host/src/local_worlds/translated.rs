@@ -26,7 +26,7 @@ const LEGACY_SOURCE_ARCHIVE: &str = "source.zip";
 /// Adds write, SIMD and regular barriers for the server's x86 memory ordering.
 const STRONG_MEMORY: &str = "3";
 /// The translator's reusable code cache, beside the versioned guest-library folders.
-const CODE_CACHE_DIR: &str = "code-cache";
+pub(super) const CODE_CACHE_DIR: &str = "code-cache";
 
 /// The certificate bundle shared by Android bootstrap and the translated server command.
 pub(super) fn trust_path(runtime_dir: &Path) -> PathBuf {
@@ -98,6 +98,41 @@ impl TranslationPin {
     }
 }
 
+#[cfg(test)]
+impl TranslationPin {
+    /// A pin of the guest `library` under `base_url`, with a fixture native runtime of a loader
+    /// named `loader` and one preloaded `libnative.so`.
+    pub(super) fn fixture(library: &[u8], base_url: String) -> Self {
+        Self {
+            helper_library: "helper".to_owned(),
+            guest_base_url: base_url,
+            guest_directory: "x64lib".to_owned(),
+            revision: "fixture".to_owned(),
+            guest_sha256: format!("{:x}", Sha256::digest(library)),
+            guest_bytes: library.len() as u64,
+            guest_library: "libguest.so".to_owned(),
+            native_runtime: NativeRuntime {
+                sha256: "native runtime fixture".to_owned(),
+                libraries: vec![
+                    NativeLibrary {
+                        packaged: "loader".to_owned(),
+                        loader: true,
+                    },
+                    NativeLibrary {
+                        packaged: "libnative.so".to_owned(),
+                        loader: false,
+                    },
+                ],
+            },
+        }
+    }
+
+    /// The cached guest library's folder and file name beneath a runtime folder.
+    pub(super) fn guest_path(&self, runtime_dir: &Path) -> PathBuf {
+        runtime_dir.join(&self.revision).join(&self.guest_library)
+    }
+}
+
 /// One translator helper plus its private, versioned guest-library and translated-code caches.
 pub(crate) struct Translation {
     helper: PathBuf,
@@ -110,7 +145,7 @@ pub(crate) struct Translation {
 impl Translation {
     /// A translation through `helper`, keeping its caches under `cache`; the helper is hashed on
     /// first use.
-    fn new(helper: PathBuf, cache: PathBuf, pin: TranslationPin) -> Self {
+    pub(super) fn new(helper: PathBuf, cache: PathBuf, pin: TranslationPin) -> Self {
         Self {
             helper,
             cache,
@@ -194,27 +229,28 @@ impl Translation {
         if fs::metadata(&trust).is_ok_and(|metadata| metadata.is_file() && metadata.len() != 0) {
             command.env("SSL_CERT_FILE", trust);
         }
-        let used = self
-            .code_cache(install)
-            .map_or_else(CodeCache::off, |cache| {
-                cache.prepare(code_cache::available_bytes)
-            });
+        let used = self.code_cache(server).map_or_else(
+            || CodeCache::off(code_cache::Off::Unidentified),
+            |cache| cache.prepare(code_cache::available_bytes),
+        );
         used.apply(&mut command);
         Ok((command, used))
     }
 
-    /// The code cache for this exact server install and packaged runtime; `None` when either
-    /// identity is unknown. The install's recorded archive digest identifies the server: the
-    /// translator itself checks each cached file against the mapped binary's path and length, and
-    /// each block against its guest code.
-    fn code_cache(&self, install: &Path) -> Option<CodeCache> {
-        let server = install_digest(install)?;
+    /// The code cache for the installed binary `server` and the packaged runtime; `None` when
+    /// either identity is unknown. The install's recorded archive digest identifies the server:
+    /// the translator itself checks each cached file against the mapped binary's path and length,
+    /// and each block against its guest code, so the binary always runs from its install path.
+    pub(super) fn code_cache(&self, server: &Path) -> Option<CodeCache> {
+        let executable = server.file_name()?.to_str()?;
+        let digest = install_digest(super::provision::install_dir(server).ok()?)?;
         let helper = self.helper_digest()?;
         let pin = &self.pin;
         Some(CodeCache::new(
             self.cache.join(CODE_CACHE_DIR),
+            executable,
             &[
-                &server,
+                &digest,
                 helper,
                 &pin.native_runtime.sha256,
                 &pin.guest_sha256,
@@ -222,6 +258,20 @@ impl Translation {
                 code_cache::UNCOMPRESSED,
             ],
         ))
+    }
+
+    /// The private folder holding this translation's guest library, code cache and trust store.
+    pub(super) fn runtime_dir(&self) -> &Path {
+        &self.cache
+    }
+
+    /// Whether the pinned guest library is already cached with its pinned size and digest. Only
+    /// reads; [`Self::command`] downloads a missing or damaged library.
+    pub(super) fn library_ready(&self) -> bool {
+        let pin = &self.pin;
+        let library = self.cache.join(&pin.revision).join(&pin.guest_library);
+        fs::metadata(&library).is_ok_and(|metadata| metadata.len() == pin.guest_bytes)
+            && fs::read(&library).is_ok_and(|bytes| pin.verify_library(&bytes).is_ok())
     }
 
     /// The packaged helper's digest, so any change to its bytes starts a new cache generation.

@@ -623,10 +623,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   the ten-second startup and join target is unverified.
   The guest library is downloaded directly and hash-checked, with valid cached copies reused;
   the source archive is needed only by the build toolchain.
-  Translated code is cached after a clean shutdown for the matching server and packaged runtime.
-  Later starts load it without rewriting it at each stop; the first start still needs translation.
-  Cache writes are skipped before allocation if they would exceed the 512 MiB cache budget or
-  leave less than 512 MiB free. Physical-phone timing, shutdown, storage
+  Translated code is cached for the matching server and packaged runtime, with later starts
+  loading it without rewriting it at each stop.
+  Android asset setup downloads the server and prepares reusable startup code in an isolated
+  temporary world before reporting Ready. The first saved-world open uses that prepared code;
+  the same server and runtime reuse it across worlds, and updates invalidate it. Setup failures
+  and cancellation never report readiness. Cache writes are skipped before creating a file if
+  they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
   and executable-cache acceptance remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
   The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.

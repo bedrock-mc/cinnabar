@@ -28,8 +28,12 @@ use super::{
     write_private,
 };
 
-const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+pub(crate) const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 pub(crate) const BDS_READY_MARKER: &str = "Server started.";
+/// The server configuration each start writes into the install.
+pub(crate) const PROPERTIES_FILE: &str = "server.properties";
+/// The install folder holding the link to the open world.
+pub(crate) const WORLDS_DIR: &str = "worlds";
 /// BDS raises a smaller `view-distance` to this; it has no upper bound.
 const MIN_BDS_VIEW: u32 = 5;
 /// BDS's `transport` setting for its NetherNet HTTP listener.
@@ -60,7 +64,7 @@ pub(crate) struct BdsRunner {
     /// Must name a digest.
     pub image: String,
     /// An APK-bundled translator; absent for native and container servers.
-    pub translation: Option<super::translated::Translation>,
+    pub translation: Option<Arc<super::translated::Translation>>,
 }
 
 impl BdsRunner {
@@ -96,10 +100,10 @@ impl Runner for BdsRunner {
         let world_dir = spec.dir.join(LEVEL_DIR);
         create_private_dir(&world_dir)
             .map_err(|error| failed(format!("create world folder: {error}")))?;
-        let link = install.join("worlds").join(&spec.world.id);
+        let link = install.join(WORLDS_DIR).join(&spec.world.id);
         link_world(&link, &world_dir)?;
         let properties = server_properties(spec, port, max_players, self.lan_visible);
-        if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
+        if let Err(error) = write_private(&install.join(PROPERTIES_FILE), properties.as_bytes())
             .map_err(|error| failed(format!("write server.properties: {error}")))
             .and_then(|()| write_host_permissions(install, spec.host_xuid.as_deref()))
         {
@@ -470,7 +474,7 @@ pub(crate) fn unlink_world(link: &Path) {
 /// Drops world links and empty mount points from an install; false when anything else remains,
 /// so deleting the install can never reach world data.
 pub(crate) fn release_world_links(install: &Path) -> bool {
-    let worlds = install.join("worlds");
+    let worlds = install.join(WORLDS_DIR);
     let entries = match fs::read_dir(&worlds) {
         Ok(entries) => entries,
         Err(error) => return error.kind() == io::ErrorKind::NotFound,

@@ -19,6 +19,11 @@ use super::{
 pub(crate) type Detector = Arc<dyn Fn() -> RuntimeInfo + Send + Sync>;
 /// Runs for each detection result that becomes current.
 pub(crate) type DetectedHook = Arc<dyn Fn(&RuntimeInfo) + Send + Sync>;
+/// Prepares an installed server before setup can report readiness.
+pub(crate) type Preparation =
+    Arc<dyn Fn(&Path, &Provisioner, &Cancel) -> Result<(), WorldError> + Send + Sync>;
+/// Whether the installed server has completed preparation for its current runtime.
+pub(crate) type Prepared = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
 /// Accepts the hosts downloads and their redirects may reach.
 pub(crate) type HostCheck = Arc<dyn Fn(&Url) -> bool + Send + Sync>;
 
@@ -149,6 +154,8 @@ pub(crate) struct Provisioner {
 struct Hooks {
     detect: Option<Detector>,
     on_detected: Option<DetectedHook>,
+    prepare: Option<Preparation>,
+    prepared: Option<Prepared>,
 }
 
 #[derive(Default)]
@@ -198,6 +205,19 @@ impl Provisioner {
     /// Sets the probe [`Self::redetect`] runs.
     pub(crate) fn set_detector(&self, detect: Detector) {
         lock(&self.hooks).detect = Some(detect);
+    }
+
+    /// Adds runtime preparation, performed after installation and reused across worlds.
+    pub(crate) fn set_preparer(&self, prepare: Preparation, prepared: Prepared) {
+        let mut hooks = lock(&self.hooks);
+        hooks.prepare = Some(prepare);
+        hooks.prepared = Some(prepared);
+    }
+
+    /// Checks runtime preparation without launching a server or changing the cache.
+    fn prepared(&self, binary: &Path) -> bool {
+        let check = lock(&self.hooks).prepared.clone();
+        check.is_none_or(|check| check(binary))
     }
 
     pub(crate) fn on_detected(&self, hook: DetectedHook) {
@@ -409,9 +429,14 @@ impl Provisioner {
             setup.state = op;
         } else if probing {
             setup.state = SetupState::CheckingRuntime;
-        } else if let Some((_, version)) = self.installed() {
-            setup.state = SetupState::Ready;
+        } else if let Some((binary, version)) = self.installed() {
             setup.version = Some(version);
+            if self.prepared(&binary) {
+                setup.state = SetupState::Ready;
+            } else if let Some(error) = last_error {
+                setup.state = SetupState::Failed;
+                setup.error = Some(error);
+            }
         } else if !accepted {
             setup.state = SetupState::EulaRequired;
         } else if let Some(error) = last_error {
@@ -467,10 +492,13 @@ impl Provisioner {
         if !self.eula_accepted() {
             return Err(WorldError::EulaRequired);
         }
-        if let Some((binary, _)) = self.installed() {
-            return Ok(binary);
+        if cancel.is_cancelled() {
+            return Err(WorldError::Cancelled);
         }
         lock(&self.state).last_error = None;
+        if let Some((binary, version)) = self.installed() {
+            return self.finish_setup(binary, &version, cancel);
+        }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -489,7 +517,35 @@ impl Provisioner {
             .unpack(&archive, &version, &link, &digest, size)
             .map_err(|error| self.fail(error))?;
         self.prune_old_installs(&version);
-        self.set_op(None, Some(&version), size, size);
+        self.finish_setup(binary, &version, cancel)
+    }
+
+    /// Keeps setup pending until the installed server's runtime preparation has finished. The
+    /// ensure lock serializes this with other setup and world-start requests.
+    fn finish_setup(
+        &self,
+        binary: PathBuf,
+        version: &str,
+        cancel: &Cancel,
+    ) -> Result<PathBuf, WorldError> {
+        let prepare = lock(&self.hooks).prepare.clone();
+        if let Some(prepare) = prepare {
+            self.set_op(Some(SetupState::Unpacking), Some(version), 0, 0);
+            if let Err(error) = prepare(&binary, self, cancel) {
+                return Err(self.fail_with("local world preparation failed", error));
+            }
+            if !self.prepared(&binary) {
+                return Err(self.fail_with(
+                    "local world preparation did not finish",
+                    failed("the translated server has no prepared startup code"),
+                ));
+            }
+        }
+        if cancel.is_cancelled() {
+            self.set_op(None, Some(version), 0, 0);
+            return Err(WorldError::Cancelled);
+        }
+        self.set_op(None, Some(version), 0, 0);
         Ok(binary)
     }
 }

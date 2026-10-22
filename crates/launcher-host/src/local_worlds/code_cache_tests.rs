@@ -3,10 +3,14 @@
 use super::*;
 
 const PLENTY: u64 = u64::MAX;
+/// The server executable's name, which begins its cache file's.
+const SERVER: &str = "bedrock_server";
 const SERVER_CACHE: &str = "bedrock_server-1-2.box64";
+/// A cache file for one of the server's libraries.
+const LIBRARY_CACHE: &str = "libgcc_s.so.1-1-2.box64";
 
 fn new_cache(root: &Path) -> CodeCache {
-    CodeCache::new(root.to_path_buf(), &["server", "helper"])
+    CodeCache::new(root.to_path_buf(), SERVER, &["server", "helper"])
 }
 
 fn prepare(cache: &CodeCache) -> Use {
@@ -88,7 +92,7 @@ fn the_first_launch_produces_and_later_launches_only_load() {
 #[test]
 fn an_off_launch_clears_every_inherited_cache_setting() {
     assert_eq!(
-        settings(&CodeCache::off()),
+        settings(&CodeCache::off(Off::Unidentified)),
         [
             set(MODE_VAR, "0"),
             cleared(COMPRESS_VAR),
@@ -221,7 +225,7 @@ fn a_failure_while_loading_turns_only_its_generation_off() {
     assert!(!dir.join(SERVER_CACHE).exists());
     assert_eq!(prepare(&cache).mode(), Mode::Off);
 
-    let updated = CodeCache::new(root.path().to_path_buf(), &["server", "new helper"]);
+    let updated = CodeCache::new(root.path().to_path_buf(), SERVER, &["server", "new helper"]);
     assert_eq!(prepare(&updated).mode(), Mode::Produce);
 }
 
@@ -230,7 +234,7 @@ fn a_new_key_removes_the_previous_generation() {
     let root = tempfile::tempdir().unwrap();
     let old = sealed(&new_cache(root.path()));
     fs::write(root.path().join("stray"), b"").unwrap();
-    let updated = CodeCache::new(root.path().to_path_buf(), &["new server", "helper"]);
+    let updated = CodeCache::new(root.path().to_path_buf(), SERVER, &["new server", "helper"]);
     assert_eq!(prepare(&updated).mode(), Mode::Produce);
     assert!(!old.exists());
     assert!(!root.path().join("stray").exists());
@@ -239,7 +243,7 @@ fn a_new_key_removes_the_previous_generation() {
 #[test]
 fn every_key_part_selects_its_own_generation() {
     let root = PathBuf::from("root");
-    let key = |parts: &[&str]| CodeCache::new(root.clone(), parts).key;
+    let key = |parts: &[&str]| CodeCache::new(root.clone(), SERVER, parts).key;
     let base = key(&["server", "helper", "glibc", "guest", "3", "0"]);
     for changed in [
         ["other", "helper", "glibc", "guest", "3", "0"],
@@ -296,4 +300,153 @@ fn a_second_launch_while_one_holds_the_cache_runs_with_it_off() {
     publish(&producing, SERVER_CACHE, 4096);
     producing.finish(Ending::Clean);
     assert_eq!(prepare(&cache).mode(), Mode::Load);
+}
+
+#[test]
+fn readiness_follows_the_sealed_generation_without_using_an_attempt_or_the_lease() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = new_cache(root.path());
+    assert!(!cache.ready(), "no generation yet");
+    let producing = prepare(&cache);
+    publish(&producing, SERVER_CACHE, 4096);
+    assert!(!cache.ready(), "published but not sealed");
+    let dir = producing.dir.clone();
+    producing.finish(Ending::Clean);
+    let partial = dir.join(format!("other{PARTIAL_MARK}1"));
+    fs::write(&partial, b"partial").unwrap();
+    let attempts = fs::read(dir.join(ATTEMPTS)).unwrap();
+    for _ in 0..=PRODUCER_ATTEMPTS {
+        assert!(cache.ready());
+    }
+    assert!(partial.exists(), "checking readiness removes nothing");
+    assert_eq!(fs::read(dir.join(ATTEMPTS)).unwrap(), attempts);
+    let loading = prepare(&cache);
+    assert!(cache.ready(), "a held lease does not change readiness");
+    assert_eq!(loading.mode(), Mode::Load);
+    drop(loading);
+
+    fs::File::options()
+        .write(true)
+        .open(dir.join(SERVER_CACHE))
+        .unwrap()
+        .set_len(4095)
+        .unwrap();
+    assert!(!cache.ready(), "a sealed file changed length");
+    assert_eq!(prepare(&cache).mode(), Mode::Produce);
+}
+
+#[test]
+fn a_disabled_or_rekeyed_generation_is_not_ready() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = new_cache(root.path());
+    sealed(&cache);
+    assert!(cache.ready());
+    assert!(
+        !CodeCache::new(
+            root.path().to_path_buf(),
+            SERVER,
+            &["server", "other helper"]
+        )
+        .ready()
+    );
+    let loading = prepare(&cache);
+    loading.finish(Ending::Failed);
+    assert!(!cache.ready());
+}
+
+#[test]
+fn an_off_launch_reports_why() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = new_cache(root.path());
+    let needed = (LIMIT_MIB + RESERVE_MIB) << 20;
+    let short = cache.prepare(|_| Ok(needed - 1));
+    assert_eq!(
+        short.off_reason(),
+        Some(&Off::LowSpace {
+            free: needed - 1,
+            needed
+        })
+    );
+    drop(short);
+    let unknown = cache.prepare(|_| Err(io::Error::from(io::ErrorKind::Unsupported)));
+    assert!(matches!(unknown.off_reason(), Some(Off::Io(_))));
+    drop(unknown);
+    let producing = prepare(&cache);
+    assert_eq!(producing.off_reason(), None);
+    assert_eq!(prepare(&cache).off_reason(), Some(&Off::InUse));
+    producing.finish(Ending::Failed);
+    prepare(&cache).finish(Ending::Failed);
+    assert_eq!(
+        prepare(&cache).off_reason(),
+        Some(&Off::Exhausted(PRODUCER_ATTEMPTS))
+    );
+}
+
+#[test]
+fn a_generation_without_the_server_executables_own_code_is_never_sealed_or_ready() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = new_cache(root.path());
+    let used = prepare(&cache);
+    publish(&used, LIBRARY_CACHE, 4096);
+    let dir = used.dir.clone();
+    used.finish(Ending::Clean);
+    assert!(!dir.join(SEALED).exists());
+    assert!(!dir.join(LIBRARY_CACHE).exists());
+    assert!(!cache.ready());
+
+    // A seal holding only library code, as an earlier build could write, is produced again.
+    let root = tempfile::tempdir().unwrap();
+    let cache = new_cache(root.path());
+    let dir = cache.generation();
+    fs::create_dir_all(&dir).unwrap();
+    fs::File::create(dir.join(LIBRARY_CACHE))
+        .unwrap()
+        .set_len(4096)
+        .unwrap();
+    write_private(
+        &dir.join(SEALED),
+        &serde_json::to_vec(&Sealed {
+            files: vec![(LIBRARY_CACHE.to_owned(), 4096)],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(!cache.ready());
+    let other = CodeCache::new(
+        root.path().to_path_buf(),
+        "other_server",
+        &["server", "helper"],
+    );
+    sealed(&cache);
+    assert!(cache.ready());
+    assert!(!dir.join(LIBRARY_CACHE).exists());
+    assert!(
+        !other.ready(),
+        "another executable's name is not this server's code"
+    );
+}
+
+#[test]
+fn a_new_setup_attempt_can_repair_a_disabled_cache_without_automatic_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = new_cache(&dir.path().join("code"));
+    let generation = sealed(&cache);
+    let loaded = prepare(&cache);
+    loaded.finish(Ending::Failed);
+    assert!(!cache.ready());
+    let still_off = prepare(&cache);
+    assert_eq!(still_off.mode(), Mode::Off);
+    assert_eq!(
+        cache.retry_disabled().unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    drop(still_off);
+    let world = dir.path().join("world.dat");
+    fs::write(&world, b"saved user world").unwrap();
+    cache.retry_disabled().unwrap();
+    assert!(!generation.exists());
+    assert_eq!(fs::read(world).unwrap(), b"saved user world");
+    let producer = prepare(&cache);
+    assert_eq!(producer.mode(), Mode::Produce);
+    producer.finish(Ending::Unstarted);
 }

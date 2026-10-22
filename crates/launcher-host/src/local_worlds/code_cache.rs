@@ -76,6 +76,40 @@ impl Mode {
     }
 }
 
+/// Why a launch runs with its cache off.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Off {
+    /// The server install or packaged runtime has no known identity.
+    Unidentified,
+    /// Another server holds the cache root.
+    InUse,
+    /// A failed launch that loaded it, or an oversized generation, turned this generation off.
+    Disabled,
+    /// Every producer attempt of this generation ended without a seal.
+    Exhausted(u32),
+    /// The file system has `free` bytes, below the `needed` generation plus its reserve.
+    LowSpace { free: u64, needed: u64 },
+    /// Reading or writing the cache folder failed.
+    Io(String),
+}
+
+impl std::fmt::Display for Off {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unidentified => write!(f, "the server or translator identity is unknown"),
+            Self::InUse => write!(f, "another server is using it"),
+            Self::Disabled => write!(f, "it was turned off for this server build"),
+            Self::Exhausted(attempts) => {
+                write!(f, "{attempts} attempts ended without a usable cache")
+            }
+            Self::LowSpace { free, needed } => {
+                write!(f, "{free} bytes free, {needed} needed")
+            }
+            Self::Io(error) => write!(f, "{error}"),
+        }
+    }
+}
+
 /// The files of a sealed generation, as sorted names and byte lengths.
 #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct Sealed {
@@ -87,7 +121,11 @@ struct Sealed {
 #[derive(Debug)]
 pub(crate) struct Use {
     mode: Mode,
+    /// Why `mode` is [`Mode::Off`]; `None` otherwise.
+    off: Option<Off>,
     dir: PathBuf,
+    /// Begins the name of the server executable's own cache file.
+    server_prefix: String,
     /// The root this use leased, released when it drops.
     leased: Option<PathBuf>,
 }
@@ -96,12 +134,17 @@ pub(crate) struct Use {
 pub(crate) struct CodeCache {
     root: PathBuf,
     key: String,
+    /// Begins the name of the server executable's own cache file.
+    server_prefix: String,
 }
 
 impl CodeCache {
-    /// A cache under `root`, which it owns exclusively. `parts` identify the exact translated
-    /// code: server bytes, translator bytes, runtime pins and code-generation settings.
-    pub(crate) fn new(root: PathBuf, parts: &[&str]) -> Self {
+    /// A cache under `root`, which it owns exclusively, for the server executable named
+    /// `executable`. `parts` identify the exact translated code: server bytes, translator bytes,
+    /// runtime pins and code-generation settings. A generation is usable only once it holds the
+    /// executable's own cache file, which the translator names after the executable and a `-`;
+    /// files for its libraries alone do not cover the server's startup.
+    pub(crate) fn new(root: PathBuf, executable: &str, parts: &[&str]) -> Self {
         let mut hash = Sha256::new();
         for part in parts {
             hash.update(part.as_bytes());
@@ -110,6 +153,7 @@ impl CodeCache {
         Self {
             root,
             key: format!("{:x}", hash.finalize()),
+            server_prefix: format!("{executable}-"),
         }
     }
 
@@ -120,15 +164,59 @@ impl CodeCache {
         let dir = self.root.join(&self.key);
         if !lock(&LEASED).insert(self.root.clone()) {
             tracing::warn!("translated code cache in use by another server; off for this launch");
-            return Self::off();
+            return Self::off(Off::InUse);
         }
         let leased = Some(self.root.clone());
-        let mode = choose(&self.root, &self.key, &dir, available).unwrap_or_else(|error| {
+        let chosen = choose(self, &dir, available).unwrap_or_else(|error| {
             tracing::warn!("translated code cache unavailable: {error}");
-            Mode::Off
+            Err(Off::Io(error.to_string()))
         });
+        let (mode, off) = match chosen {
+            Ok(mode) => (mode, None),
+            Err(off) => (Mode::Off, Some(off)),
+        };
         tracing::info!("translated code cache: {mode:?}");
-        Use { mode, dir, leased }
+        Use {
+            mode,
+            off,
+            dir,
+            server_prefix: self.server_prefix.clone(),
+            leased,
+        }
+    }
+
+    /// Whether the generation this cache selects is sealed with the server executable's own
+    /// file and every sealed file still present at its sealed length, so [`Self::prepare`] would
+    /// load it. Only reads: it takes no lease, uses no producer attempt and removes nothing. The
+    /// translator still validates each file against the mapped server binary when it loads it.
+    pub(crate) fn ready(&self) -> bool {
+        let dir = self.root.join(&self.key);
+        !dir.join(DISABLED).exists()
+            && read_sealed(&dir).is_some_and(|sealed| {
+                holds_server(&sealed.files, &self.server_prefix)
+                    && published_files(&dir).is_ok_and(|files| files == sealed.files)
+            })
+    }
+
+    /// Lets a new user-initiated setup attempt rebuild a generation disabled by an earlier
+    /// failure. Normal world starts never call this, and no launch is retried automatically.
+    /// Refuses to remove code while any process in this client still leases the cache root.
+    pub(crate) fn retry_disabled(&self) -> io::Result<()> {
+        let leased = lock(&LEASED);
+        if leased.contains(&self.root) {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "startup code is in use",
+            ));
+        }
+        let dir = self.root.join(&self.key);
+        if dir.join(DISABLED).is_file() || read_attempts(&dir) >= PRODUCER_ATTEMPTS {
+            match fs::remove_dir_all(&dir) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                result => result?,
+            }
+        }
+        Ok(())
     }
 
     /// The folder of the generation this cache selects.
@@ -137,20 +225,27 @@ impl CodeCache {
         self.root.join(&self.key)
     }
 
-    /// A launch that neither reads nor writes, for runtimes whose identity cannot be established.
-    pub(crate) fn off() -> Use {
+    /// A launch that neither reads nor writes, for `reason`.
+    pub(crate) fn off(reason: Off) -> Use {
         Use {
             mode: Mode::Off,
+            off: Some(reason),
             dir: PathBuf::new(),
+            server_prefix: String::new(),
             leased: None,
         }
     }
 }
 
 impl Use {
-    #[cfg(test)]
+    /// Whether this launch produces, loads or bypasses translated startup code.
     pub(crate) fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// Why this launch runs with its cache off; `None` when it reads or writes it.
+    pub(crate) fn off_reason(&self) -> Option<&Off> {
+        self.off.as_ref()
     }
 
     /// Sets this launch's translator cache settings explicitly, clearing inherited ones, so no
@@ -181,7 +276,7 @@ impl Use {
                 tracing::warn!("translated code cache off after a failed server that used it");
                 disable(&self.dir)
             }
-            (Mode::Produce, Ending::Clean) => seal(&self.dir),
+            (Mode::Produce, Ending::Clean) => seal(&self.dir, &self.server_prefix),
             (Mode::Produce, Ending::Cancelled | Ending::Unstarted) => {
                 discard(&self.dir).and_then(|()| return_attempt(&self.dir))
             }
@@ -201,23 +296,22 @@ impl Drop for Use {
     }
 }
 
-/// Mode selection. Any I/O error leaves the cache off for this launch.
+/// Mode selection, or why the cache is off. Any I/O error leaves the cache off for this launch.
 fn choose(
-    root: &Path,
-    key: &str,
+    cache: &CodeCache,
     dir: &Path,
     available: impl FnOnce(&Path) -> io::Result<u64>,
-) -> io::Result<Mode> {
-    remove_other_generations(root, key)?;
+) -> io::Result<Result<Mode, Off>> {
+    remove_other_generations(&cache.root, &cache.key)?;
     create_private_dir(dir)?;
     let files = cache_files(dir)?;
     if dir.join(DISABLED).exists() {
         remove_all(dir, &files)?;
-        return Ok(Mode::Off);
+        return Ok(Err(Off::Disabled));
     }
     if let Some(sealed) = read_sealed(dir) {
-        if sealed.files == files {
-            return Ok(Mode::Load);
+        if sealed.files == files && holds_server(&files, &cache.server_prefix) {
+            return Ok(Ok(Mode::Load));
         }
         // The translator deleted a file it rejected, or storage lost or changed one.
         tracing::info!("translated code cache changed since it was sealed; discarding it");
@@ -228,17 +322,17 @@ fn choose(
     if attempts >= PRODUCER_ATTEMPTS {
         write_private(&dir.join(DISABLED), b"")?;
         tracing::warn!("translated code cache off after {attempts} unsealed generations");
-        return Ok(Mode::Off);
+        return Ok(Err(Off::Exhausted(attempts)));
     }
     let needed = (LIMIT_MIB + RESERVE_MIB) << 20;
     let free = available(dir)?;
     if free < needed {
         tracing::info!("translated code cache off: {free} bytes free, {needed} needed");
-        return Ok(Mode::Off);
+        return Ok(Err(Off::LowSpace { free, needed }));
     }
     // Counted before launch, so a server that dies with the app still uses its attempt.
     write_private(&dir.join(ATTEMPTS), (attempts + 1).to_string().as_bytes())?;
-    Ok(Mode::Produce)
+    Ok(Ok(Mode::Produce))
 }
 
 /// Removes every entry under `root` except the current generation folder.
@@ -265,6 +359,17 @@ fn remove_other_generations(root: &Path, key: &str) -> io::Result<()> {
 /// Deletes interrupted translator writes, then returns the published cache files as sorted
 /// names and lengths.
 fn cache_files(dir: &Path) -> io::Result<Vec<(String, u64)>> {
+    list_files(dir, true)
+}
+
+/// The published cache files as sorted names and lengths, leaving interrupted writes in place.
+fn published_files(dir: &Path) -> io::Result<Vec<(String, u64)>> {
+    list_files(dir, false)
+}
+
+/// The published cache files of `dir` as sorted names and lengths; `remove_partial` also deletes
+/// interrupted translator writes.
+fn list_files(dir: &Path, remove_partial: bool) -> io::Result<Vec<(String, u64)>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -272,7 +377,9 @@ fn cache_files(dir: &Path) -> io::Result<Vec<(String, u64)>> {
             continue;
         };
         if name.contains(PARTIAL_MARK) {
-            fs::remove_file(entry.path())?;
+            if remove_partial {
+                fs::remove_file(entry.path())?;
+            }
         } else if name.ends_with(CACHE_SUFFIX) && entry.file_type()?.is_file() {
             files.push((name, entry.metadata()?.len()));
         }
@@ -309,18 +416,25 @@ fn disable(dir: &Path) -> io::Result<()> {
     discard(dir)
 }
 
+/// Whether `files` include the server executable's own cache file, named from `server_prefix`.
+fn holds_server(files: &[(String, u64)], server_prefix: &str) -> bool {
+    files
+        .iter()
+        .any(|(name, _)| name.starts_with(server_prefix))
+}
+
 /// Seals what a clean producer published. A generation over the limit turns the cache off; one
-/// with nothing published is discarded and its attempt stays used.
-fn seal(dir: &Path) -> io::Result<()> {
+/// without the server executable's file is discarded and its attempt stays used.
+fn seal(dir: &Path, server_prefix: &str) -> io::Result<()> {
     let files = cache_files(dir)?;
     let total: u64 = files.iter().map(|(_, bytes)| bytes).sum();
     if total > LIMIT_MIB << 20 {
         tracing::warn!("translated code cache off: generation holds {total} bytes");
         return disable(dir);
     }
-    if files.is_empty() {
-        tracing::warn!("translated code cache: the server exited without writing a generation");
-        return Ok(());
+    if !holds_server(&files, server_prefix) {
+        tracing::warn!("translated code cache: the server exited without writing its own code");
+        return remove_all(dir, &files);
     }
     let mut temporary = tempfile::NamedTempFile::new_in(dir)?;
     temporary.write_all(&serde_json::to_vec(&Sealed { files })?)?;
