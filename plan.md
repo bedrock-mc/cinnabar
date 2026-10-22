@@ -96,6 +96,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close paired-door presentation and interaction acceptance, including lower/upper
   state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
+  Hand-use prediction resolves either clicked half against its matching partner
+  and changes the lower half's open state; matched server and artwork acceptance
+  remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact

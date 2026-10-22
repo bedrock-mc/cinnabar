@@ -131,7 +131,7 @@ fn prepare(
                 .then(|| {
                     predicted_toggle(
                         &context.collisions,
-                        stream.network_id_mode(),
+                        stream,
                         world,
                         observed.target.position,
                         observed.target.runtime_id,

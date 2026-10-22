@@ -491,14 +491,18 @@ impl BlockUseRuntime {
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
-    _world: &sim::PaletteWorld<'_>,
+    world: &sim::PaletteWorld<'_>,
     position: [i32; 3],
     clicked: u32,
 ) -> Option<([i32; 3], u32)> {
-    let states = toggled_states(
-        collisions.block_facts(mode, clicked),
-        collisions.block_canonical_state(mode, clicked)?,
-    )?;
+    if world.primary_runtime_id(position).ok()? != clicked {
+        return None;
+    }
+    let fact = collisions.block_facts(mode, clicked);
+    if fact.family == ModelFamily::Door {
+        return predicted_door_toggle(collisions, mode, world, position, clicked);
+    }
+    let states = toggled_states(fact, collisions.block_canonical_state(mode, clicked)?)?;
     let block = collisions.block_state_runtime_id(
         mode,
         assets::facts::BlockStateIdentity::Compiled(
@@ -509,9 +513,55 @@ pub fn predicted_toggle(
     Some((position, block))
 }
 
-/// Trapdoors and levers flip `open_bit`; an
-/// unpressed button presses. Doors and fence gates also change their other
-/// half or facing, which is not modelled, so they wait for the server.
+/// Resolves both door cells and changes only the lower half's effective open state.
+fn predicted_door_toggle(
+    collisions: &PhysicsCollisionRegistries,
+    mode: assets::NetworkIdMode,
+    world: &sim::PaletteWorld<'_>,
+    position: [i32; 3],
+    clicked: u32,
+) -> Option<([i32; 3], u32)> {
+    let fact = collisions.block_facts(mode, clicked);
+    if !fact.traits.contains(T::TOGGLES_BY_HAND) {
+        return None;
+    }
+    let clicked_states =
+        serde_json::from_str(collisions.block_canonical_state(mode, clicked)?).ok()?;
+    let upper = toggle_bit(&clicked_states, P::UpperBlockBit)?;
+    let mut neighbor = position;
+    neighbor[1] = neighbor[1].checked_add(if upper { -1 } else { 1 })?;
+    let partner = world.primary_runtime_id(neighbor).ok()?;
+    if collisions.block_facts(mode, partner).identity != fact.identity {
+        return None;
+    }
+    let (lower_position, lower) = if upper {
+        (neighbor, partner)
+    } else {
+        (position, clicked)
+    };
+    let mut states = serde_json::from_str(collisions.block_canonical_state(mode, lower)?).ok()?;
+    let open = toggle_bit(&states, P::OpenBit)?;
+    crate::placement_state::set_bit(&mut states, P::OpenBit.name(), !open)?;
+    let block = collisions.block_state_runtime_id(
+        mode,
+        assets::facts::BlockStateIdentity::Compiled(fact.identity?),
+        &states,
+    )?;
+    Some((lower_position, block))
+}
+
+/// Reads a generated boolean domain without changing its canonical representation.
+fn toggle_bit(states: &serde_json::Map<String, serde_json::Value>, property: P) -> Option<bool> {
+    crate::placement_state::valid_property(states, property)?;
+    let value = crate::placement_state::value(states, property.name())?;
+    value
+        .as_bool()
+        .or_else(|| value.as_u64().map(|bit| bit != 0))
+}
+
+/// Trapdoors and levers flip `open_bit`; an unpressed button presses.
+/// Door use needs the paired world cells and is resolved by `predicted_toggle`.
+/// Fence gates still wait for the server's facing update.
 pub fn toggled_states(
     fact: BlockFact,
     canonical_state: &str,
