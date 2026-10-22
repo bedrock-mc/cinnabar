@@ -459,39 +459,3 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
         );
     }
 }
-
-/// A dimension change discards an old-world server item-use write before the
-/// item-use owner can adopt it in the destination.
-#[test]
-fn dimension_change_discards_a_pending_server_item_use() {
-    let (mut movement, mut physics, mut effects, mut speed) = owners();
-    let using = client_world::MovementFlagUpdate {
-        using_item: Some(true),
-        ..Default::default()
-    };
-    physics.apply_server_movement_flags(0, using);
-    let position = [10.0, 80.0, 20.0];
-    let control = CommittedControlEvent::ChangeDimension {
-        sequence: 1,
-        change: protocol::ChangeDimensionEvent {
-            dimension: 1,
-            position,
-            ..Default::default()
-        },
-        resolved: ResolvedServerPosition {
-            position,
-            surface_anchor: None,
-        },
-    };
-    CommittedGameplayState {
-        movement: &mut movement,
-        physics: &mut physics,
-        effects: &mut effects,
-        speed: &mut speed,
-        session_generation: 7,
-        dimension: 1,
-        dimension_transfer_active: true,
-    }
-    .apply(control, &NoQueries, |_| {});
-    assert_eq!(physics.take_server_using_item(), None);
-}

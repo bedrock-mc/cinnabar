@@ -575,7 +575,6 @@ impl LocalPhysicsController {
                 &self.modes,
                 state,
                 &mut tick_input,
-                item_use_modifier.is_some(),
             );
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge

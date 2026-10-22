@@ -227,12 +227,11 @@ without start/stop actions. Each retained frame captures the flag word it starts
 stamped write becomes a correction of the following frame where it differs from that
 capture without scheduling a replay itself (a future stamp joins the current frame), and
 replay keeps the starting frame's capture, refreshes later ones and copies the replayed
-word back to the live state. The word also retains server item-use writes,
-but they do not yet start or stop the local item use, which vanilla reconciles with the
-word on movement ticks (reporting `StartUsingItem` for a start). Still incomplete: that
-item-use adoption, writes setting several pose flags (the locomotion
-mode keeps one pose), the Riptide spin's entity-hit end, block-climber flags and
-live-server evidence for these adoptions.
+word back to the live state, keeping the live spin counter. Still incomplete: server
+`UsingItem` writes, which vanilla keeps in the same word and reconciles with local item use
+on movement ticks; writes setting several pose flags (the locomotion mode keeps one
+pose), the Riptide spin's entity-hit end, block-climber flags and live-server evidence for
+these adoptions.
 Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
