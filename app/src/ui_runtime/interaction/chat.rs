@@ -42,8 +42,9 @@ pub(super) fn commit_ime_text(
     }
 }
 
-/// Routes chat pointer actions while a settings modal owns its underlying controls. Text the
-/// platform committed before the frame's first key reaches the draft before any press.
+/// Routes chat pointer actions while a settings modal owns its underlying controls. Pointer
+/// actions precede the frame's key presses, so text the platform committed before the first
+/// key press reaches the draft before them.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
@@ -71,9 +72,10 @@ pub(crate) fn drive_chat_ui_actions(
         .as_deref()
         .map(|events| {
             super::ordered_ime_commits(window_cursor.read(events), window_entity)
+                .commits
                 .into_iter()
-                .take_while(|(keys, _)| *keys == 0)
-                .map(|(_, value)| value.to_owned())
+                .take_while(|commit| commit.presses == 0)
+                .map(|commit| commit.value.to_owned())
                 .collect()
         })
         .unwrap_or_default();

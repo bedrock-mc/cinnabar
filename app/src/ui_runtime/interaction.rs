@@ -301,9 +301,8 @@ pub(crate) fn drive_chat_keyboard_input(
         *button != MouseButton::Back || mouse_buttons.just_pressed(MouseButton::Back)
     });
     let (window_entity, window, mut cursor) = window.into_inner();
-    let mut ime_commits = ordered_ime_commits(window_events.iter().copied(), window_entity)
-        .into_iter()
-        .peekable();
+    let ime = ordered_ime_commits(window_events.iter().copied(), window_entity);
+    let mut ime_commits = ime.commits.into_iter().peekable();
     let authority = world
         .as_deref()
         .and_then(|world| world.stream.as_ref())
@@ -452,7 +451,7 @@ pub(crate) fn drive_chat_keyboard_input(
     // Platform Back is routed below at its place among this frame's keys.
     let platform_back = keyboard_events
         .iter()
-        .any(|input| crate::ui_runtime::platform_back::is_platform_back(input));
+        .any(crate::ui_runtime::platform_back::is_platform_back);
     if mouse_bindings && !platform_back && mouse_buttons.just_pressed(MouseButton::Back) {
         let inventory_cancelled = inventory::cancel_from_mouse_back(
             &mut player_runtime,
@@ -501,16 +500,15 @@ pub(crate) fn drive_chat_keyboard_input(
     let (mut consumed, mut kept) = (Vec::new(), Vec::new());
     for (arrival, input) in keyboard_events.iter().enumerate() {
         // Text committed before this key edits the draft the key then sees. Commits before the
-        // frame's first key already reached the draft with the chat's pointer input.
-        while let Some((keys, value)) = ime_commits.next_if(|(keys, _)| *keys <= arrival) {
-            if keys == 0 {
-                continue;
+        // frame's first key press already reached the draft with the chat's pointer input.
+        while let Some(commit) = ime_commits.next_if(|commit| commit.keys <= arrival) {
+            if commit.presses > 0 {
+                chat::commit_ime_text(
+                    &mut runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                    commit.value,
+                );
             }
-            chat::commit_ime_text(
-                &mut runtime,
-                presentation.as_deref().map(|view| &view.0),
-                value,
-            );
         }
         // Presses that arrived before this key meet the screen the earlier inputs left.
         router.observe(runtime.inventory_open());
@@ -822,7 +820,9 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             _ => {
                 let modified = chat_modifiers::text_modified(&modifiers);
+                // The chat already took the commit this key mirrors.
                 if !modified
+                    && !ime.mirrors.contains(&arrival)
                     && let Some(text) = input.text.as_deref()
                     && !text.chars().any(char::is_control)
                 {
@@ -832,14 +832,12 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         dismissed |= !runtime.chat_focused();
     }
-    for (keys, value) in ime_commits {
-        if keys > 0 {
-            chat::commit_ime_text(
-                &mut runtime,
-                presentation.as_deref().map(|view| &view.0),
-                value,
-            );
-        }
+    for commit in ime_commits.filter(|commit| commit.presses > 0) {
+        chat::commit_ime_text(
+            &mut runtime,
+            presentation.as_deref().map(|view| &view.0),
+            commit.value,
+        );
     }
     if routes_presses {
         // The frame's last key changed the screen for every press after it.

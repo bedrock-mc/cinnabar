@@ -123,3 +123,30 @@ fn platform_back_after_chat_key_closes_chat() {
             .just_pressed(MouseButton::Back)
     );
 }
+
+/// Scripted text arrives as a commit plus a typed mirror; chat inserts each text once.
+#[test]
+fn scripted_text_with_typed_mirror_is_inserted_once() {
+    let mut h = harness();
+    h.press(KeyCode::KeyT, None);
+    let mut events = Vec::new();
+    for value in ["hello", " 日本"] {
+        events.push(h.commit(value));
+        events.push(h.window_key(
+            KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+            Key::Character(value.into()),
+            Some(value),
+        ));
+    }
+    let release = WindowEvent::KeyboardInput(KeyboardInput {
+        key_code: KeyCode::KeyT,
+        logical_key: Key::Character("t".into()),
+        state: ButtonState::Released,
+        text: None,
+        repeat: false,
+        window: h.window,
+    });
+    events.insert(0, release);
+    h.frame(events);
+    assert_eq!(h.text(), "hello 日本");
+}
