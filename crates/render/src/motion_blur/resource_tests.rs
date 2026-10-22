@@ -247,6 +247,7 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
                             hdr,
                             msaa,
                             enhanced: false,
+                            shader_pack: false,
                             output: None,
                         },
                         &mut warmed,

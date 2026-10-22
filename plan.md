@@ -383,13 +383,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   combat, hotbar selection, stack/network-ID reconciliation and container/crafting
   prediction, acknowledgements, rollback and stale-session behavior.
   Native block requirements now cover every catalog identifier, including no-tool
-  beds; recipe tags share the pinned native catalog. Custom block mining retains
-  default, disabled and item-specific component values, including state overrides.
-  Discarded mining data stays unresolved, and item-tag filters compile during
-  session preparation for allocation-free evaluation.
-  Mining uncertainty leaves known physics and local placement prediction usable.
-  Mining states use separate storage and admission, preserving the physical state budget.
-  Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
+  beds; recipe tags share the pinned native catalog. Custom block mining reads the
+  client's float `value` and item-specific overrides for every admitted state.
+  Malformed item entries never match, and conditions the client reads as zero keep
+  the base value; item-tag filters compile during session preparation for
+  allocation-free evaluation, and an unsupported filter matches no item.
+  Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
@@ -517,6 +516,8 @@ Create and edit forms persist BDS advanced, multiplayer and cheat options throug
 catalog and generated server properties and level data. Pack and experiment configuration,
 hardcore, flat presets, Education Edition and live acceptance of every option on supported
 platforms remain incomplete.
+Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
+offers no NetherNet route, so the join fails with an explanation instead of connecting.
 
 See [local worlds](docs/local-worlds.md).
 
@@ -610,7 +611,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
 - Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
-  feature. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
+  feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
+  are deferred until requested. Retired loads cancel between translation programs and GPU
+  batches; rapid selections share one load worker. The Shaders library uses full-width pack
+  rows with controls on the selected pack and confirmed removal of imported copies and their
+  saved settings. Incomplete: matched shader-feature-off versus
+  feature-on/no-pack startup, frame-time, memory and visual acceptance across supported
+  backends, including shared artwork texture views. These changes do not enable the feature
+  by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
   menus, profiles and option files, evaluates custom uniforms and translates programs to
   validated naga modules, with calls ordered after forward declarations and generated
   helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
