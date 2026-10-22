@@ -109,6 +109,7 @@ impl MenuRuntime {
             dialog: initial.dialog,
             field: initial.field,
             caret_revision: 0,
+            field_activation: 0,
             history: {
                 let mut history = json_ui::ScreenNav::default();
                 history.reset(initial.screen);

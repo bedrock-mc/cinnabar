@@ -106,6 +106,8 @@ pub struct MenuRuntime {
     field: Option<MenuField>,
     /// Bumped by every field edit and caret move, restarting the caret blink.
     caret_revision: u64,
+    /// Explicit editor activations request the keyboard again after platform dismissal.
+    field_activation: u64,
     /// Screens opened on the way here; back returns to the one below.
     history: json_ui::ScreenNav<MenuScreen>,
     navigation_focus: navigation::NavigationFocus,

@@ -18,6 +18,9 @@ impl GuiScaleDrag {
         self.touch_slider = None;
         self.preview_touch = None;
         self.server_list_touch = None;
+        self.menu_touch = None;
+        self.scroll_touch = None;
+        presentation.move_menu_touch_scroll(None, false);
         menu.pointer_down = false;
         menu.pressed = None;
         menu.settings.slider_pointer = None;
