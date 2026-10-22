@@ -74,9 +74,9 @@ fn the_reload_key_only_reloads_a_selected_pack() {
         keys.clear();
         keys.press(KeyCode::KeyR);
         app.update();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(KeyCode::KeyR);
+        keys.clear();
     };
     let listed = |app: &App| {
         let config = app.world().resource::<RenderModeConfig>();
