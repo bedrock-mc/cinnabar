@@ -144,6 +144,12 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorMotionEvent,
     },
+    /// Marked server actor movement admitted for the locally controlled player.
+    LocalActorMove {
+        sequence: u64,
+        movement: protocol::ActorMoveEvent,
+        resolved: ResolvedServerPosition,
+    },
     /// A server-predicted movement effect (firework glide boost and similar)
     /// for the local player, stamped with the input tick it starts after.
     LocalMovementBoost {
@@ -244,6 +250,10 @@ pub enum CommittedUiEvent {
     },
     /// The local player's item activation, retaining its inventory FIFO position.
     LocalTotemActivation {
+        sequence: u64,
+    },
+    /// Respawn readiness retains its order relative to health and death rules.
+    LocalRespawnReady {
         sequence: u64,
     },
     /// The local player's authoritative mount after a link or actor-lifetime change.

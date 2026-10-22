@@ -61,6 +61,7 @@ pub(super) fn body_and_shadow_bounds(
         || cape
         || equipment.main.is_some()
         || equipment.off.is_some()
+        || equipment.body.is_some()
         || equipment.armor.iter().any(Option::is_some)
     {
         return ([f32::NAN; 3], [f32::NAN; 3]);
