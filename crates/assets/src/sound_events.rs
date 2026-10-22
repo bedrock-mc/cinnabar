@@ -3,7 +3,7 @@
 //! Block, entity, individual and interactive (per-material footstep) sections share one route
 //! model. An explicit empty sound string is silence, distinct from an absent event.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -382,6 +382,36 @@ impl SoundEventTables {
         variant: Option<&str>,
     ) -> Option<SoundRoute> {
         self.entity_lookup(identifier, event, variant).route()
+    }
+
+    /// Enumerates audible resolved events for an entity's default variant.
+    pub fn entity_events<'a>(
+        &'a self,
+        identifier: &'a str,
+    ) -> impl Iterator<Item = (&'a str, SoundRoute)> {
+        let events: HashSet<_> = self
+            .entity_defaults
+            .events
+            .keys()
+            .chain(
+                self.entities
+                    .get(bare(identifier))
+                    .into_iter()
+                    .flat_map(|entity| {
+                        entity.base.events.keys().chain(
+                            entity
+                                .variants
+                                .get("default")
+                                .into_iter()
+                                .flat_map(|set| set.events.keys()),
+                        )
+                    }),
+            )
+            .collect();
+        events.into_iter().filter_map(move |event| {
+            self.entity(identifier, event, None)
+                .map(|route| (event.as_ref(), route))
+        })
     }
 
     /// Like [`Self::entity`] but distinguishing an explicit silent entry from no entry.

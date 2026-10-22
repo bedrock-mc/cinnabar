@@ -325,13 +325,12 @@ impl SoundBank {
             .filter(|(event, _)| event.starts_with("attack."))
             .map(|(_, route)| route.sound.clone())
             .collect();
-        if let Some(route) = self.tables().entity(
-            assets::facts::VanillaEntity::Player.identifier(),
-            "hurt",
-            None,
-        ) {
-            combat.insert(route.sound);
-        }
+        combat.extend(
+            self.tables()
+                .entity_events(assets::facts::VanillaEntity::Player.identifier())
+                .filter(|(event, _)| event.starts_with("attack.") || *event == "hurt")
+                .map(|(_, route)| route.sound),
+        );
         let mut definitions: Vec<_> = catalog.definitions().iter().collect();
         definitions.sort_by_key(|definition| !combat.contains(&definition.identifier));
         let mut counts = [0; 3];

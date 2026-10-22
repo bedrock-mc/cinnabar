@@ -137,8 +137,12 @@ fn prewarming_prepares_every_alternative_of_routed_combat_sounds() {
     let (mut bank, path) = bank("combat", &definitions, &files);
     bank.tables = SoundEventTables::from_json(
         &serde_json::json!({
-            "individual_event_sounds": {"events": {"attack.strong": "fixture.hit"}},
-            "entity_sounds": {"entities": {"player": {"events": {"hurt": "fixture.hurt"}}}}
+            "entity_sounds": {
+                "defaults": {"events": {"attack.strong": "fixture.unrelated"}},
+                "entities": {"player": {"events": {
+                    "attack.strong": "fixture.hit", "hurt": "fixture.hurt"
+                }}}
+            }
         }),
         &serde_json::json!({}),
     );
