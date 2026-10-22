@@ -25,6 +25,8 @@ mod equipment;
 mod facts;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
+mod map;
+pub use map::item_map_id;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod nbt_edit;
 mod nbt_equal;

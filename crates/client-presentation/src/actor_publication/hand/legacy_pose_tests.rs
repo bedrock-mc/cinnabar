@@ -12,6 +12,7 @@ fn legacy_empty_main_arm_and_native_offhand_keep_separate_pose_stacks() {
         stream.advance_actor_interpolation_frame(0);
         input.off = Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),

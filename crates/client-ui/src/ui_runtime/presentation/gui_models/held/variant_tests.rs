@@ -210,6 +210,7 @@ fn selection_consumers_held_previews_draw_the_selected_definition_in_both_orders
                     glint: assets::item::glint::ItemGlint::Session { enabled: true },
                     use_animation: assets::item_use::ItemUseAnimation::None,
                     grip: assets::item::grip::ItemGrip::Unresolved,
+                    map_id: None,
                     charged_projectile: None,
                     charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                     damage: None,

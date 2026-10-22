@@ -105,6 +105,7 @@ fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::resolve_item_use(
                 &assets::item_use::diagnostic_profile(identifier),

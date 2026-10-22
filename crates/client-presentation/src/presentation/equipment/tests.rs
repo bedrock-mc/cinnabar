@@ -332,6 +332,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         overlay_rgba8: 0,
     };
     let worn = |identifier: &str| WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -402,6 +403,7 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
         let input = ActorEquipmentInput {
             main: Some(WornItem {
                 variant: Default::default(),
+                map_id: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip(identifier),
@@ -623,6 +625,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let (mut runtime, _) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let crown = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:crown"),
@@ -657,6 +660,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -723,6 +727,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let held = |identifier: &str| ActorEquipmentInput {
         main: Some(WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: if identifier == "test:blade" {
@@ -786,6 +791,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:controller"),
@@ -949,6 +955,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
     let input = ActorEquipmentInput {
         main: Some(WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -989,6 +996,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
     let mut body = player_body(&mut runtime);
     body.overlay_rgba8 = 0x6600_00ff;
     let item = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -1074,6 +1082,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let plain = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),

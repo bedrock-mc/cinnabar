@@ -226,7 +226,7 @@ pub fn collect_files(
     }
     files.extend(attachables);
     files.extend(geometry);
-    textures.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS.map(str::to_owned));
+    textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
     let paintings = assets::painting::PAINTING_MOTIVES
         .iter()
         .map(|motive| motive.texture())

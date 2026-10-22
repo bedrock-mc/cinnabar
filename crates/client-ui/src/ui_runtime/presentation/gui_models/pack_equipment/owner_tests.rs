@@ -512,6 +512,7 @@ fn check_stack_enchantment_selection(condition: &str) {
                     glint: assets::item::glint::ItemGlint::Session { enabled: intrinsic },
                     use_animation: assets::item_use::ItemUseAnimation::None,
                     grip: assets::item::grip::ItemGrip::Unresolved,
+                    map_id: None,
                     charged_projectile: None,
                     charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                     damage: None,

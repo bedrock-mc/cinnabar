@@ -18,7 +18,9 @@ pub(super) fn compile_texture_identifiers_with(
     mut identifiers: Vec<&str>,
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
-    identifiers.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS);
+    for identifier in assets::entity::shared_equipment_textures() {
+        identifiers.push(identifier);
+    }
     identifiers.sort_unstable();
     identifiers.dedup();
     let mut textures = Vec::new();

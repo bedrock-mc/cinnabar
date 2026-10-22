@@ -961,6 +961,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
     let input = crate::presentation::equipment::ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:apple"),

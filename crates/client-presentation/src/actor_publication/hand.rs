@@ -13,6 +13,9 @@ use render_model::{ActorRigSubmission, HandItemAtlas, HandRigLight};
 mod item_switch_tests;
 #[cfg(test)]
 mod lighting_tests;
+mod maps;
+#[cfg(test)]
+mod maps_tests;
 mod native_pose;
 #[cfg(test)]
 mod native_tests;
@@ -71,10 +74,14 @@ pub(super) fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let mut submissions = source.submissions();
-    for submission in submissions.iter_mut().flatten() {
-        super::equipment_layers::animate_glint(submission, partial_tick, glint);
-    }
+    let frame = builder.build(
+        partial_tick,
+        None,
+        source.all_submissions().map(|mut submission| {
+            super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
+            submission
+        }),
+    );
     let mut atlases = [None, None];
     for (index, entry) in source.items.into_iter().enumerate() {
         if let Some((layer, atlas)) = entry {
@@ -82,11 +89,11 @@ pub(super) fn publish_hand_rig(
             atlases[index] = Some(atlas);
         }
     }
-    let frame = builder.build(partial_tick, None, submissions.into_iter().flatten());
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
         scene.set_item_atlases(atlases);
         scene.set_item_glint(source.item_glint);
+        scene.set_map_background(source.maps.background);
     }
 }
 
@@ -137,6 +144,7 @@ pub(super) struct HandSource {
     pub(super) presentation: ActorRigPresentation,
     pub(super) body: Option<ActorRigSubmission>,
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
+    pub(super) maps: maps::MapLayers,
     /// The held-item glint raster, bound whenever an item draws with the glint material.
     pub(super) item_glint: Option<render_model::EquipmentRaster>,
     /// View-space hurt tilt, walk bob and sway applied before the rig placement.
@@ -146,6 +154,20 @@ pub(super) struct HandSource {
 }
 
 impl HandSource {
+    /// Includes paper independently of image availability, with the current camera motion.
+    pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
+        self.maps
+            .paper
+            .iter()
+            .flatten()
+            .map(|(paper, camera)| {
+                let mut paper = paper.clone();
+                paper.world_from_actor = camera_space_rows(self.motion * *camera);
+                paper
+            })
+            .chain(self.submissions().into_iter().flatten())
+    }
+
     /// Places the exact body/item submissions shared by validation and final construction.
     pub(super) fn submissions(&self) -> [Option<ActorRigSubmission>; 3] {
         let placement = hand_camera_from_rig(self.presentation.authored_scale, self.motion);
@@ -193,13 +215,12 @@ pub(super) fn is_ready(
     };
     HandRigScene::accepts_skin_and_fov(skin, fov)
         && source
-            .submissions()
-            .iter()
-            .flatten()
-            .any(|draw| builder.can_draw_submission(draw))
+            .all_submissions()
+            .any(|draw| builder.can_draw_submission(&draw))
 }
 
 /// Inputs shared by the built-in hand stacks and authored attachables.
+#[derive(Clone)]
 pub(super) struct HandInputs<'a> {
     pub(super) stream: &'a WorldStream,
     pub(super) presentation: ActorRigPresentation,
@@ -241,6 +262,7 @@ pub(super) fn vanilla_hand_source(
         native_pose.apply(&mut inputs);
         rig.held_item_scale = native_pose.held_item_scale;
     }
+    let map_inputs = inputs.clone();
     let HandInputs {
         stream,
         presentation,
@@ -259,8 +281,11 @@ pub(super) fn vanilla_hand_source(
     };
     let body_camera =
         bare.then(|| render_model::legacy_combat::legacy_first_person_arm(hand.swing, hand.equip));
-    let items = std::array::from_fn(|index| {
+    let mut items = std::array::from_fn(|index| {
         let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
+        if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER {
+            return None;
+        }
         let modern = item_animation.and_then(|mut render_input| {
             render_input.frame_alpha = alpha;
             let render_input =
@@ -315,6 +340,13 @@ pub(super) fn vanilla_hand_source(
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
+    let maps = maps::layers(
+        &map_inputs,
+        equipment,
+        hand,
+        &mut native_pose.maps,
+        &mut items,
+    );
     let arms = FirstPersonArms::for_hands(
         equipment_input
             .main
@@ -336,14 +368,16 @@ pub(super) fn vanilla_hand_source(
     } else {
         equipment.mask_first_person(&presentation.submission, arms)
     };
-    (body.is_some() || items.iter().any(Option::is_some)).then_some(HandSource {
-        presentation,
-        body,
-        items,
-        item_glint: artwork.item_glint.clone(),
-        motion,
-        body_camera,
-    })
+    (body.is_some() || items.iter().any(Option::is_some) || maps.paper.iter().any(Option::is_some))
+        .then_some(HandSource {
+            presentation,
+            body,
+            items,
+            maps,
+            item_glint: artwork.item_glint.clone(),
+            motion,
+            body_camera,
+        })
 }
 
 /// An outgoing main draw stays idle in its retained item frame; the offhand reads the actual

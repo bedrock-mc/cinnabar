@@ -745,17 +745,36 @@ const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 /// Seconds before an unanswered map request is repeated.
 const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
 
-/// Asks the server for the pixels of framed maps whose images have not arrived.
+/// Asks for missing held and framed map images through the shared retry ledger.
 pub(crate) fn request_missing_maps(
     mut runtime: ResMut<BlockEntityRuntime>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
     time: Res<Time<Real>>,
+    world: Res<ClientWorld>,
+    player: Res<client_state::PlayerRuntime>,
+    ui: Option<Res<UiRuntimeResource>>,
 ) {
     let Some(network) = network else {
         return;
     };
     let now = time.elapsed_secs_f64();
     let runtime = &mut *runtime;
+    if let Some(stream) = world.stream.as_ref() {
+        let held = client_presentation::presentation::equipment::local_input(
+            &player,
+            stream,
+            ui.as_deref().map(|ui| &ui.0),
+            stream.local_player_runtime_id(),
+        );
+        for item in [held.main, held.off].into_iter().flatten() {
+            if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
+                && let Some(id) = item.map_id
+                && stream.map_image(id).is_none()
+            {
+                runtime.missing_maps.push(id);
+            }
+        }
+    }
     runtime.missing_maps.sort_unstable();
     runtime.missing_maps.dedup();
     for id in std::mem::take(&mut runtime.missing_maps) {

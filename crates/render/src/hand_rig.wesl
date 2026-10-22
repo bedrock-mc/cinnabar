@@ -42,6 +42,7 @@ struct HandMaterial {
 @group(0) @binding(9) var<uniform> hand_light: HandLight;
 // Instances whose texture layer has its top bit set sample this equipment atlas page instead.
 @group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
+@group(0) @binding(14) var map_background: texture_2d_array<f32>;
 @group(0) @binding(11) var offhand_atlas: texture_2d_array<f32>;
 // Held-item enchantment glint, sampled with repeat addressing.
 @group(0) @binding(12) var item_glint: texture_2d<f32>;
@@ -188,7 +189,9 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     let skin_color = textureSampleGrad(skins, skin_sampler, uv, layer, uv_dx, uv_dy);
     let main_color = textureSampleGrad(item_atlas, skin_sampler, uv, layer, uv_dx, uv_dy);
     let off_color = textureSampleGrad(offhand_atlas, skin_sampler, uv, layer, uv_dx, uv_dy);
-    let item_color = select(main_color, off_color, (input.skin_layer & hand_material.texture_flags.y) != 0u);
+    let hand_color = select(main_color, off_color, (input.skin_layer & hand_material.texture_flags.y) != 0u);
+    let paper_color = textureSampleGrad(map_background, skin_sampler, uv, 0, uv_dx, uv_dy);
+    let item_color = select(hand_color, paper_color, (input.skin_layer & hand_material.layer_mask.y) != 0u);
     let is_item = (input.skin_layer & hand_material.texture_flags.x) != 0u;
     let color = select(skin_color, item_color, is_item);
     if ((!is_item || cutout) && color.a < 0.5) {

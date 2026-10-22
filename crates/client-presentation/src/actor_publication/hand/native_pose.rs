@@ -30,6 +30,7 @@ struct PoseKey {
 /// Keeps one lifetime's sampled pose instead of resampling unchanged captured inputs.
 #[derive(Default)]
 pub(in super::super) struct NativePoseCache {
+    pub(super) maps: super::maps::MapCache,
     rest: Option<(
         (
             actor_animation::ActorLifetimeId,

@@ -52,7 +52,7 @@ pub(super) struct HandRigGpu {
     pub(super) previous_bones: Option<Buffer>,
     pub(super) current_bones: Option<Buffer>,
     pub(super) skin: Option<HandRigSkin>,
-    pub(super) atlases: [Option<HandRigAtlas>; 2],
+    pub(super) atlases: [Option<HandRigAtlas>; 3],
     pub(super) glint_sampler: Sampler,
     pub(super) glint: Option<HandRigGlint>,
     pub(super) instance_count: u32,
@@ -102,7 +102,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         previous_bones: None,
         current_bones: None,
         skin: None,
-        atlases: [None, None],
+        atlases: [None, None, None],
         glint_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person repeat glint sampler"),
             address_mode_u: AddressMode::Repeat,
@@ -582,6 +582,9 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
             offhand_atlas: gpu.atlases[1]
                 .as_ref()
                 .map_or(&skin.view, |atlas| &atlas.view),
+            map_background: gpu.atlases[2]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
             item_glint: &glint.view,
             glint_sampler: &gpu.glint_sampler,
         }
@@ -758,6 +761,16 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 11,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 14,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     sample_type: TextureSampleType::Float { filterable: true },

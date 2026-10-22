@@ -7,7 +7,7 @@
   "archive_sha256": "c0b6151f5f9a0c31ebe3c909dfc82d97f12473ed2c6e039aa7e22d667042026c",
   "atlas_sha256": "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a",
   "retail_allowlist_sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821",
-  "coverage": "Explicit default icon bindings; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
+  "coverage": "Explicit default icon bindings, including the filled-map compatibility identity outside the retail census; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
   "routes": [
     {
       "identifier": "minecraft:apple",
@@ -92,6 +92,11 @@
     {
       "identifier": "minecraft:diamond_spear",
       "default_alias": "diamond_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:filled_map",
+      "default_alias": "map_filled",
       "atlas_variant": 0
     },
     {

@@ -35,6 +35,7 @@ pub(super) fn worn_item(
         return None;
     }
     Some(WornItem {
+        map_id: item.map_id,
         charged_projectile: item
             .charged_projectile
             .as_ref()
@@ -167,6 +168,7 @@ pub(super) fn canonical_fixture(
         visual: assets::ItemVisualRoute::Missing,
         grip: assets::item::grip::ItemGrip::Unresolved,
         use_animation: assets::item_use::ItemUseAnimation::None,
+        map_id: None,
         charged_projectile: None,
         charged_projectile_role: assets::item_use::ItemProjectileRole::None,
         damage: None,
@@ -213,6 +215,7 @@ mod tests {
     #[test]
     fn local_attachable_input_retains_other_hand_and_render_timing() {
         let item = |identifier: &str| WornItem {
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -267,6 +270,7 @@ mod tests {
             },
             identifier: Some(std::sync::Arc::from("minecraft:enchanted_book")),
             visual: ItemVisualRoute::Missing,
+            map_id: None,
             charged_projectile: None,
             damage: None,
             enchanted: false,

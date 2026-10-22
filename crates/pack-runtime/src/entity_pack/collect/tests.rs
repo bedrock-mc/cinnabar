@@ -3,10 +3,11 @@ use std::io::Write;
 use serde_json::json;
 
 #[test]
-fn shared_glint_overrides_are_collected_without_json_references() {
+fn shared_equipment_overrides_are_collected_without_json_references() {
     let base = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(base.path().join("textures/misc")).unwrap();
-    for identifier in assets::entity::GLINT_TEXTURE_IDENTIFIERS {
+    for identifier in assets::entity::shared_equipment_textures() {
+        std::fs::create_dir_all(base.path().join(identifier).parent().unwrap()).unwrap();
         let png = format!("{identifier}.png");
         let tga = format!("{identifier}.tga");
         std::fs::write(base.path().join(&png), b"startup glint").unwrap();

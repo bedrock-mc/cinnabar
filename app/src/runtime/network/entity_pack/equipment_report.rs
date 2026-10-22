@@ -173,6 +173,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             let mut input = ActorEquipmentInput::default();
             input.armor[slot as usize] = Some(WornItem {
                 variant: Default::default(),
+                map_id: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::ItemGrip::Unresolved,

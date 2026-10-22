@@ -54,10 +54,14 @@ impl RigSource for ShaderpackHand<'_> {
                 Hand::Main
             };
             let held = item.then_some(hand);
-            let texture = match held {
-                Some(Hand::Main) => self.gpu.atlases[0].as_ref().map(|atlas| &atlas._texture),
-                Some(Hand::Off) => self.gpu.atlases[1].as_ref().map(|atlas| &atlas._texture),
-                None => self.gpu.skin.as_ref().map(|skin| &skin._texture),
+            let texture = if flags & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0 {
+                self.gpu.atlases[2].as_ref().map(|atlas| &atlas._texture)
+            } else {
+                match held {
+                    Some(Hand::Main) => self.gpu.atlases[0].as_ref().map(|atlas| &atlas._texture),
+                    Some(Hand::Off) => self.gpu.atlases[1].as_ref().map(|atlas| &atlas._texture),
+                    None => self.gpu.skin.as_ref().map(|skin| &skin._texture),
+                }
             };
             let Some(texture) = texture else {
                 continue;

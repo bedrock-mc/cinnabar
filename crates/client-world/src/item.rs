@@ -28,6 +28,8 @@ mod animation_tests;
 mod glint;
 mod grip;
 #[cfg(test)]
+mod map_tests;
+#[cfg(test)]
 mod presentation_tests;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
@@ -48,6 +50,8 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// Signed image identity retained independently of visual metadata.
+    pub map_id: Option<i64>,
     /// Projectile drawing facts resolved when this stack enters canonical admission.
     pub charged_projectile_role: assets::item_use::ItemProjectileRole,
     /// Durability damage retained separately from the stack's visual metadata.
@@ -452,12 +456,14 @@ impl ItemStateStore {
                 let charged = piece.item.charged_projectile.take();
                 let damage = piece.item.damage;
                 let enchanted = piece.item.enchanted;
+                let map_id = piece.item.map_id;
                 piece.item = self.resolve_identity(piece.item.identity);
                 piece.item.charged_projectile = charged;
                 piece.item.charged_projectile_role =
                     self.projectile_role(piece.item.charged_projectile.as_deref());
                 piece.item.damage = damage;
                 piece.item.enchanted = enchanted;
+                piece.item.map_id = map_id;
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -486,6 +492,10 @@ impl ItemStateStore {
                 .equipment
                 .get(&key)
                 .is_some_and(|equipment| equipment.item.enchanted);
+            item.map_id = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.map_id);
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
             if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
@@ -541,6 +551,7 @@ impl ItemStateStore {
         item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
         item.damage = protocol::item_stack_damage(stack);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
+        item.map_id = protocol::item_map_id(&stack.extra_data);
         Some(item)
     }
 
@@ -576,6 +587,7 @@ impl ItemStateStore {
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
+                map_id: None,
                 charged_projectile: None,
                 damage: None,
                 durability: assets::item::durability::ItemDurability::NotDamageable,
@@ -608,6 +620,7 @@ impl ItemStateStore {
             identity,
             identifier,
             visual,
+            map_id: None,
             charged_projectile: None,
             damage: None,
             durability: self.item_durability(identity.network_id),

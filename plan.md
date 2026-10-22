@@ -268,6 +268,9 @@ performance qualification remains open.
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
+  Held maps submit server image updates over runtime pack paper in either hand.
+  Native pixel comparisons, narrow-aspect placement, decorations, explorer overlays,
+  nondefault inventory icon variants and third-person map presentation remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
