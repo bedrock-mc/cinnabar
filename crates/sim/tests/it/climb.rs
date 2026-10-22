@@ -295,10 +295,10 @@ fn assert_unmeasured(input: MovementInput, world: &impl CollisionWorld) {
     assert!(tick.world_identity.chunks.is_empty());
 }
 
-/// A placement at the same feet, as a matching correction applies, keeps the
-/// contact retained from that tick; a placement elsewhere measures afresh.
+/// A placement, as a correction applies, keeps the retained contact: the next
+/// descent action reads it wherever the feet now are.
 #[test]
-fn a_placement_keeps_the_retained_contact_only_at_the_same_feet() {
+fn a_placement_keeps_the_retained_contact() {
     let supported = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0]],
         solids: vec![[0, -1, 0]],
@@ -309,7 +309,7 @@ fn a_placement_keeps_the_retained_contact_only_at_the_same_feet() {
     };
     for (feet, descends) in [
         (Vec3::new(0.5, 1.0, 0.5), true),
-        (Vec3::new(5.5, 1.0, 0.5), false),
+        (Vec3::new(5.5, 1.0, 0.5), true),
     ] {
         let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
         state.on_ground = true;
@@ -325,6 +325,24 @@ fn a_placement_keeps_the_retained_contact_only_at_the_same_feet() {
             "{feet:?}"
         );
     }
+}
+
+/// The climber scans the resolved collision faces: a box stopped by a wall at
+/// x = 1 does not reach the column behind it.
+#[test]
+fn the_climber_scans_the_resolved_collision_box() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0]],
+        solids: vec![[0, 1, 0], [0, 2, 0], [1, 0, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(1.35, 1.0, 0.5));
+    state.on_ground = true;
+    state.velocity.x = -0.2;
+    let tick = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert!(tick.collisions.x);
+    assert!(!tick.environment.over_scaffolding);
 }
 
 /// Without retained contact, an unreadable block under the feet-layer scaffold

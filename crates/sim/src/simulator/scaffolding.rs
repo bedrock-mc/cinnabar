@@ -72,10 +72,12 @@ pub(super) fn finish_tick(
         state.climber = None;
         return;
     }
+    // The climber reads the resolved collision faces, not a box rebuilt
+    // around the rounded feet.
     let measured = measure(
         world,
         state.position,
-        Aabb::player_with_height_at(state.position, state.hitbox_height(*input)),
+        state.collision_box(state.hitbox_height(*input)),
         input,
         &mut result.world_identity,
     );
@@ -86,7 +88,7 @@ pub(super) fn finish_tick(
     }
     if let Some(contact) = measured {
         contact.publish(&mut result.environment);
-        state.retain_climber(contact);
+        state.climber = Some(contact);
     }
 }
 

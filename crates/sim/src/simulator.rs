@@ -156,7 +156,7 @@ impl Simulator {
         world: &impl CollisionWorld,
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
-        let start = state.retained_climber();
+        let start = state.climber;
         let mut output = self.advance(state, input, world)?;
         scaffolding::finish_tick(world, state, &input, start, &mut output.tick_result);
         riptide::finish(state);
@@ -266,10 +266,10 @@ impl Simulator {
         sampled.movement.on_climbable |= snow_climb;
         // The descent action, climb jump and gravity read the contact the block
         // climber measured after the previous move; without one, measure here.
-        let scaffold = match next.retained_climber() {
+        let scaffold = match next.climber {
             Some(contact) => contact,
             None => {
-                let player = Aabb::player_with_height_at(next.position, next.hitbox_height(input));
+                let player = next.collision_box(next.hitbox_height(input));
                 match scaffolding::sample_climber(
                     world,
                     player,
