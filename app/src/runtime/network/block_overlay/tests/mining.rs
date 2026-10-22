@@ -222,6 +222,7 @@ fn custom_mining_wire_seconds_complete_after_the_expected_ticks() {
     let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
     let item = protocol::NetworkItemStack::empty();
     let target = DestroyTarget {
+        local_runtime_id: 42,
         position: [0; 3],
         face: 1,
         runtime_id: 1,

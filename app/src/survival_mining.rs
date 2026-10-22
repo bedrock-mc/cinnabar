@@ -129,6 +129,7 @@ pub(crate) fn observe_destroy_target(
         })
     });
     Some(DestroyTarget {
+        local_runtime_id: stream.local_player_runtime_id(),
         position: observed.target.position,
         face: observed.target.face,
         runtime_id: observed.target.runtime_id,
