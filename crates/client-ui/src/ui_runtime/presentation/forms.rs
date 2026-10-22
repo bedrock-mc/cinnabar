@@ -23,6 +23,8 @@ pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
 #[cfg(test)]
+mod inventory_work_probe;
+#[cfg(test)]
 mod item_renderer_tests;
 #[cfg(test)]
 mod join_request_tests;
