@@ -39,11 +39,22 @@ impl Anchor {
 
     /// Resolves inward edge offsets and signed center offsets, clamping to available travel.
     pub fn origin(self, offset: [f32; 2], size: [f64; 2], viewport: [f64; 2]) -> [f64; 2] {
+        let at = self.origin_unclamped(offset, size, viewport);
+        std::array::from_fn(|axis| at[axis].clamp(0., (viewport[axis] - size[axis]).max(0.)))
+    }
+
+    /// Inverts authored offsets without moving a host factory control that overhangs the viewport.
+    pub fn origin_unclamped(
+        self,
+        offset: [f32; 2],
+        size: [f64; 2],
+        viewport: [f64; 2],
+    ) -> [f64; 2] {
         let fractions = self.fractions();
         std::array::from_fn(|axis| {
             let available = (viewport[axis] - size[axis]).max(0.);
             let direction = if fractions[axis] == 1. { -1. } else { 1. };
-            (available * fractions[axis] + f64::from(offset[axis]) * direction).clamp(0., available)
+            available * fractions[axis] + f64::from(offset[axis]) * direction
         })
     }
 
@@ -174,6 +185,25 @@ mod inverse_tests {
                 let offset = anchor.offset_for_origin(at, size, viewport);
                 let restored = anchor.origin(offset, size, viewport);
                 assert!((0..2).all(|axis| (restored[axis] - at[axis]).abs() < 0.0001));
+            }
+        }
+    }
+    /// Fixed native previews retain measured origins, including partial and full overhang.
+    #[test]
+    fn unclamped_offsets_invert_measured_origins_without_changing_bounded_placement() {
+        let viewport = [720., 1600.];
+        for anchor in Anchor::ALL {
+            for (at, size) in [
+                ([-158., 613.], [533., 533.]),
+                ([556., 530.], [220., 220.]),
+                ([-20., -30.], [900., 1800.]),
+            ] {
+                let offset = anchor.offset_for_origin(at, size, viewport);
+                let actual = anchor.origin_unclamped(offset, size, viewport);
+                assert!((0..2).all(|axis| (actual[axis] - at[axis]).abs() < 0.001));
+                let bounded = anchor.origin(offset, size, viewport);
+                assert!((0..2).all(|axis| bounded[axis] >= 0.
+                    && bounded[axis] + size[axis].min(viewport[axis]) <= viewport[axis]));
             }
         }
     }

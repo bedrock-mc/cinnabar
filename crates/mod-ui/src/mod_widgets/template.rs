@@ -524,5 +524,9 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     if let Some(position) = card.position {
         return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
     }
-    card.anchor.origin(card.offset, size, viewport)
+    if card.editor_size.is_some() {
+        card.anchor.origin_unclamped(card.offset, size, viewport)
+    } else {
+        card.anchor.origin(card.offset, size, viewport)
+    }
 }

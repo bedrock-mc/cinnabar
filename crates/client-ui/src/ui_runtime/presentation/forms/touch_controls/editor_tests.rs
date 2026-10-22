@@ -301,25 +301,67 @@ fn touch_editor_resize_reflows_defaults_without_losing_custom_history() {
     assert!(original[0] > moved[0]);
 }
 
-/// Native preview bounds preserve the complete control even beyond extension cell-size limits.
+/// An untouched native preview keeps even a partially clipped control at its authored origin.
+fn assert_factory_layout(p: &UiPresentationRuntime) {
+    let base = p.screens.touch.base.as_ref().unwrap();
+    for &(name, id) in CONTROLS {
+        if id == touch::LOOK_SURFACE {
+            continue;
+        }
+        let hit = base
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+            .unwrap();
+        let expected = [
+            base.origin[0] + hit.rect.x as f32 * base.scale,
+            base.origin[1] + hit.rect.y as f32 * base.scale,
+            hit.rect.w as f32 * base.scale,
+            hit.rect.h as f32 * base.scale,
+        ];
+        let actual = p.touch_editor_bounds(name).unwrap();
+        assert!(
+            (0..4).all(|axis| (expected[axis] - actual[axis]).abs() < 0.1),
+            "{name}: {actual:?} != {expected:?}"
+        );
+    }
+}
+
+/// Large measured controls preserve factory bounds and do not become custom on Save or Reset.
 #[test]
 fn touch_editor_opens_and_resizes_with_tall_desktop_geometry() {
     for initial in [[720, 1600], [1280, 720]] {
-        let Some((mut p, runtime, _)) = setup(initial) else {
-            return;
-        };
-        paint_overlay(&mut p, &runtime, [720, 1600]);
-        paint(&mut p, &runtime, [720, 1600]);
-        let actual = p.touch_editor_bounds("joystick").unwrap();
-        assert!((actual[2] - 1600. / 3.).abs() < 0.1);
-        assert!((actual[3] - actual[2]).abs() < 0.1);
-        p.screens
-            .touch
-            .editor
-            .as_ref()
-            .unwrap()
-            .draft()
-            .validate()
-            .unwrap();
+        for reset in [false, true] {
+            let Some((mut p, runtime, _)) = setup(initial) else {
+                return;
+            };
+            paint_overlay(&mut p, &runtime, [720, 1600]);
+            paint(&mut p, &runtime, [720, 1600]);
+            assert_factory_layout(&p);
+            let actual = p.touch_editor_bounds("joystick").unwrap();
+            assert!((actual[2] - 1600. / 3.).abs() < 0.1);
+            p.screens
+                .touch
+                .editor
+                .as_ref()
+                .unwrap()
+                .draft()
+                .validate()
+                .unwrap();
+            if reset {
+                drag(&mut p, "jump", [-60., 60.], true);
+                paint(&mut p, &runtime, [720, 1600]);
+                let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
+                p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
+                p.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
+                paint(&mut p, &runtime, [720, 1600]);
+                assert_factory_layout(&p);
+            }
+            p.touch_editor_key("Enter", Default::default());
+            assert_eq!(
+                p.take_touch_editor_result().unwrap().unwrap(),
+                TouchLayout::default()
+            );
+        }
     }
 }
