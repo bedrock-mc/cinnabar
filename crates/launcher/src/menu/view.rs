@@ -422,6 +422,8 @@ pub struct MenuView {
     pub gamepad_input: bool,
     /// Touch hardware remains available when a mouse or controller becomes active.
     pub touch_available: bool,
+    /// The touch-control draft owns this settings surface.
+    pub touch_editor_open: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -697,6 +699,7 @@ impl MenuView {
             navigation_focus_visible: true,
             gamepad_input: false,
             touch_available: cfg!(target_os = "android"),
+            touch_editor_open: false,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,

@@ -64,6 +64,7 @@ domain!(PackBlock {
     CobblestoneWall,
     Air,
     Stone,
+    HeavyCore,
     StrawBed
 });
 domain!(TextureSelector {
@@ -78,11 +79,12 @@ domain!(TextureSelector {
     Torchflower
 });
 
-/// Identifies the built-in furnace pair and whether its front uses lit artwork.
+/// Identifies a furnace-family cube (furnace, blast furnace, smoker) and whether its front
+/// uses lit artwork, from the registry policy's render routes.
 pub fn furnace_lit(identifier: &str) -> Option<bool> {
-    match identifier {
-        "minecraft:furnace" => Some(false),
-        "minecraft:lit_furnace" => Some(true),
+    match super::block_render_fact(identifier).kind {
+        super::BlockRenderKind::Furnace => Some(false),
+        super::BlockRenderKind::LitFurnace => Some(true),
         _ => None,
     }
 }
@@ -90,6 +92,9 @@ pub fn furnace_lit(identifier: &str) -> Option<bool> {
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
+    /// A vanilla material the pinned pack names but does not define; its definition is
+    /// unverified, so its texture alpha rounds at 0.5.
+    Provisional,
     UnmaskedArmor,
     AlphaTestNoCull,
     AlphaTest,
@@ -145,6 +150,24 @@ pub struct PackRules {
     pub minerals: Vec<MineralRule>,
     item_visuals: BTreeMap<String, ItemVisualKind>,
     empty_hand: PackBlock,
+    /// Render controllers vanilla entities reference but the pinned samples omit, each mapped
+    /// to the pack controller it is completed from.
+    omitted_render_controllers: BTreeMap<String, String>,
+}
+
+/// The pinned vanilla pack's names by domain (`material`, `actor`, `terrain_texture`, ...).
+fn vocabulary() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
+    static VOCABULARY: OnceLock<BTreeMap<&str, BTreeSet<&str>>> = OnceLock::new();
+    VOCABULARY.get_or_init(|| {
+        let mut vocabulary = BTreeMap::<&str, BTreeSet<&str>>::new();
+        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+            let (domain, name) = row
+                .split_once('\t')
+                .expect("pack vocabulary rows are tabbed");
+            vocabulary.entry(domain).or_default().insert(name);
+        }
+        vocabulary
+    })
 }
 
 /// Loads the compiler's embedded pack contracts once for asset admission.
@@ -225,9 +248,16 @@ impl PackRules {
             .iter()
             .any(|slot| self.textures[slot] == key)
     }
-    /// Resolves a native material alias without reclassifying it as an actor.
+    /// Resolves a native material alias without reclassifying it as an actor; every other
+    /// material the pinned vanilla pack names is [`MaterialKind::Provisional`].
     pub fn material(&self, name: &str) -> Option<MaterialKind> {
-        self.materials.get(name).copied()
+        self.materials.get(name).copied().or_else(|| {
+            vocabulary()
+                .get("material")?
+                .iter()
+                .any(|known| *known == name || known.strip_suffix(".skinning") == Some(name))
+                .then_some(MaterialKind::Provisional)
+        })
     }
     /// Selects the shader contract for exact authored native material targets.
     pub fn raster(&self, name: &str) -> EntityRenderMaterial {
@@ -289,6 +319,12 @@ impl PackRules {
             self.item_visuals.get(identifier).copied()
         }
     }
+    /// Each omitted render controller and the pack controller that completes it.
+    pub fn omitted_render_controllers(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.omitted_render_controllers
+            .iter()
+            .map(|(name, template)| (name.as_str(), template.as_str()))
+    }
     /// Returns the canonical empty-hand item identity for constructing its route.
     pub fn empty_hand(&self) -> &str {
         &self.blocks[&self.empty_hand]
@@ -313,6 +349,30 @@ pub fn leather_sprite(path: &str) -> bool {
     facts
         .by_identifier(&format!("minecraft:{stem}"))
         .is_some_and(|fact| fact.is_leather())
+}
+
+/// How a built-in block's native class picks its terrain texture array entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureVariant {
+    /// One entry for every state of the block.
+    Fixed(usize),
+    /// Entry one while the boolean state is set, else entry zero.
+    Flag(super::BlockProperty),
+}
+
+/// The class-selected terrain array entry of a built-in block; entries past an array draw its first.
+pub fn texture_variant(identifier: &str) -> Option<TextureVariant> {
+    use TextureVariant::{Fixed, Flag};
+    Some(match identifier {
+        "minecraft:carved_pumpkin" | "minecraft:cave_vines" => Fixed(0),
+        "minecraft:lit_pumpkin"
+        | "minecraft:cave_vines_body_with_berries"
+        | "minecraft:cave_vines_head_with_berries" => Fixed(1),
+        "minecraft:pumpkin" => Fixed(2),
+        "minecraft:pale_hanging_moss" => Flag(super::BlockProperty::Tip),
+        "minecraft:mangrove_propagule" => Flag(super::BlockProperty::Hanging),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

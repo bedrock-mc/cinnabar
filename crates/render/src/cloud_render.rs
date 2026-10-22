@@ -243,13 +243,19 @@ pub(crate) fn prepare_cloud_records(
                     .as_ref()
                     .is_none_or(|buffer| buffer.size() < bytes.len() as u64)
                 {
-                    prepared.record_buffer =
-                        Some(uploads.device.create_buffer(&BufferDescriptor {
+                    let Some(buffer) = crate::gpu_allocation::buffer(
+                        &uploads.device,
+                        &BufferDescriptor {
                             label: Some("retained viewport cloud quad records"),
                             size: (bytes.len() as u64).next_power_of_two(),
                             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                             mapped_at_creation: false,
-                        }));
+                        },
+                    ) else {
+                        // Out of memory keeps drawing the previous clouds and retries next frame.
+                        continue;
+                    };
+                    prepared.record_buffer = Some(buffer);
                     prepared.bind_group = None;
                     work.buffer_creations += 1;
                 }

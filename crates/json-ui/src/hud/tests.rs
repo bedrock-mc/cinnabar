@@ -276,6 +276,79 @@ fn legacy_game_mode_bindings_keep_pack_hotbars_and_status_rows_visible() {
 }
 
 #[test]
+fn hotbar_item_id_aux_shows_a_pack_overlay_only_over_its_item() {
+    let overlay = |index| ResolvedControl {
+        name: format!("overlay{index}"),
+        control_type: Some("image".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [
+            ("collection_index".into(), json!(index)),
+            (
+                "bindings".into(),
+                json!([
+                    {
+                        "binding_type": "collection",
+                        "binding_collection_name": "hotbar_items",
+                        "binding_name": "#item_id_aux"
+                    },
+                    {
+                        "binding_type": "view",
+                        "source_property_name": "(#item_id_aux / 65536)",
+                        "target_property_name": "#item_runtime_id"
+                    },
+                    {
+                        "binding_type": "view",
+                        "source_property_name": "(#item_runtime_id = 448)",
+                        "target_property_name": "#visible"
+                    }
+                ]),
+            ),
+        ]
+        .into(),
+        children: Vec::new(),
+        factory: None,
+    };
+    let root = Arc::new(ResolvedControl {
+        name: "hotbar".into(),
+        control_type: Some("panel".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [("collection_name".into(), json!("hotbar_items"))].into(),
+        children: (0..3).map(overlay).collect(),
+        factory: None,
+    });
+    let model = HudModel {
+        hotbar: [Some(448 << 16), None, Some(5 << 16)]
+            .into_iter()
+            .map(|id_aux| HudSlot {
+                icon: id_aux.map(|_| 0),
+                id_aux,
+                count: u32::from(id_aux.is_some()),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let (bound, diagnostics) = bind_stateful(
+        &root,
+        &hud_data_source(&model),
+        &EmptyLibrary,
+        &mut BindState::new(),
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let visible: Vec<_> = bound
+        .children
+        .iter()
+        .map(|child| child.properties.get("visible").cloned())
+        .collect();
+    assert_eq!(
+        visible,
+        [Some(json!(true)), Some(json!(false)), Some(json!(false))]
+    );
+}
+
+#[test]
 fn closed_chat_lines_use_the_chosen_font_size_and_line_spacing() {
     let chat_text = ChatText {
         font_scale: 1.5,

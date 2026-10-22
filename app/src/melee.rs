@@ -94,7 +94,7 @@ pub(crate) fn prepare_melee(
         (
             input.authority_generation,
             input.frame_sequence,
-            movement.interaction_authority_identity().1,
+            movement.position_authority_identity().1,
         )
     });
     if ordered.is_some() && target.prepared == identity {
@@ -104,12 +104,12 @@ pub(crate) fn prepare_melee(
     target.hover = None;
     target
         .frames
-        .publish(&context, movement.interaction_authority_identity().1);
+        .publish(&context, movement.position_authority_identity().1);
     let picked = resolve_crosshair(
         &player_runtime,
         &context,
         &target.frames,
-        movement.interaction_authority_identity().1,
+        movement.position_authority_identity().1,
     );
     target.prepared = picked.and(identity);
     if let Some(picked) = picked {
@@ -293,7 +293,7 @@ fn maintain_attacks(
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
-                movement.interaction_authority_identity().1,
+                movement.position_authority_identity().1,
             )
         })
     } else {

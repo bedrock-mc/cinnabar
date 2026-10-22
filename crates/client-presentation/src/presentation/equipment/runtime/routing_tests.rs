@@ -272,6 +272,7 @@ fn equipment_routing_fallback_table() {
                             JavaGrip::default(),
                             1.0,
                             &mut fallback,
+                            false,
                         );
                     } else {
                         runtime.push_attached(

@@ -134,7 +134,7 @@ impl MeleeRuntime {
         })
     }
 
-    /// Drops a latched press when the session or position authority changes.
+    /// Drops queued presses when the session or interaction identity changes.
     pub fn synchronize(&mut self, authority: (SessionGeneration, PositionAuthorityGeneration)) {
         if self
             .position_authority

@@ -201,12 +201,20 @@ pub fn engine_screen_for(player_runtime: &player_state::PlayerState, runtime: &U
     screen_layout(player_runtime, runtime, None).is_some()
 }
 
-/// The vanilla screen the open inventory or container draws.
+/// The vanilla screen the open inventory or container draws, including the storage variant
+/// (barrel, shulker box, ender chest) its retained block entity selects.
 pub fn container_screen_reference(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
 ) -> Option<&'static str> {
-    screen_layout(player_runtime, runtime, None).map(|layout| layout.screen().0)
+    let block_entity = runtime
+        .storage_block
+        .as_ref()
+        .filter(|(position, _)| {
+            runtime.inventory_ledger(player_runtime).window_position() == Some(*position)
+        })
+        .map(|(_, id)| &**id);
+    screen_layout(player_runtime, runtime, block_entity).map(|layout| layout.screen().0)
 }
 
 /// The player's main inventory and hotbar rows, as the container screens bind them.

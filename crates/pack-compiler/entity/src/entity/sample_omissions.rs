@@ -1,4 +1,5 @@
-//! Completes omitted harness bindings using the pack's artwork and controller.
+//! Completes definitions the pinned samples omit from resources the pack does ship: harness
+//! bindings and the render controllers named by the pack policy.
 
 use super::*;
 
@@ -20,7 +21,9 @@ pub(super) fn complete_bindings(
         .filter(|(path, _)| path.starts_with("attachables/"))
         .map(|(path, bytes)| parse_unique_json(&root.join(path.as_ref()), bytes))
         .collect::<Result<Vec<_>, _>>()?;
-    let missing = missing_harness_bindings(|path| payloads.contains_key(path), authored.iter())?;
+    let mut missing =
+        missing_harness_bindings(|path| payloads.contains_key(path), authored.iter())?;
+    missing.extend(missing_render_controllers(root, payloads, symbols)?);
     let mut size = 0;
     for (source, value) in missing {
         let bytes = serde_json::to_vec(&value)
@@ -41,6 +44,60 @@ pub(super) fn complete_bindings(
         payloads.insert(source, bytes.into());
     }
     Ok(size)
+}
+
+/// Policy-named render controllers that an entity references but no source defines, each as a
+/// document holding a copy of the pack's template controller.
+fn missing_render_controllers(
+    root: &Path,
+    payloads: &SourcePayloads,
+    symbols: &BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
+) -> Result<Vec<(Box<str>, Value)>, AssetError> {
+    let paths = |kind: EntityAssetKind, name: Option<&str>| {
+        symbols
+            .keys()
+            .filter(move |(symbol, identifier, _)| {
+                *symbol == kind && name.is_none_or(|name| &**identifier == name)
+            })
+            .map(|(_, _, path)| path)
+            .collect::<Vec<_>>()
+    };
+    let entities = paths(EntityAssetKind::Entity, None)
+        .into_iter()
+        .map(|path| parse_unique_json(&root.join(path.as_ref()), &payloads[path]))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut missing = Vec::new();
+    for (name, template) in assets::facts::pack::rules().omitted_render_controllers() {
+        let referenced = entities.iter().any(|entity| {
+            entity["minecraft:client_entity"]["description"]["render_controllers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|entry| entry.as_str() == Some(name) || entry.get(name).is_some())
+        });
+        let [template_path] = paths(EntityAssetKind::RenderController, Some(template))[..] else {
+            continue;
+        };
+        if !referenced || !paths(EntityAssetKind::RenderController, Some(name)).is_empty() {
+            continue;
+        }
+        let document =
+            parse_unique_json(&root.join(template_path.as_ref()), &payloads[template_path])?;
+        let definition = document["render_controllers"][template].clone();
+        if !definition.is_object() {
+            continue;
+        }
+        let mut controllers = serde_json::Map::new();
+        controllers.insert(name.to_owned(), definition);
+        missing.push((
+            format!("render_controllers/_cinnabar/omitted/{name}.json").into(),
+            serde_json::json!({
+                "format_version": document["format_version"],
+                "render_controllers": controllers,
+            }),
+        ));
+    }
+    Ok(missing)
 }
 
 /// Supplies omitted harness definitions from present resources without replacing authored items.

@@ -14,7 +14,7 @@ use super::{
     super::{SourceDocuments, molang::MolangCompiler},
     clip::{read_json, required_object},
     environment::unique_geometry_indices,
-    selection::{Selector, condition_text},
+    selection::{Selector, selection_condition},
 };
 
 const MAX_SLOTS_PER_LAYER: usize = 16;
@@ -225,14 +225,24 @@ pub(super) fn compile_render(
                     continue;
                 };
                 let first_candidate = candidates.len();
+                let mut default_candidate = None;
                 for (path, source) in leaves {
-                    let condition = match condition_text(&path) {
+                    let text = selection_condition(&path);
+                    let condition = match &text {
                         None => None,
-                        Some(text) => match compile_condition(molang, &text) {
+                        Some(text) => match compile_condition(molang, text) {
                             Some(index) => Some(index),
                             None => continue,
                         },
                     };
+                    // The leaf a default actor draws: every query and variable reads zero.
+                    if default_candidate.is_none()
+                        && text.as_deref().is_none_or(|text| {
+                            MolangCompiler::evaluate_default(text).is_some_and(|value| value != 0.0)
+                        })
+                    {
+                        default_candidate = Some((candidates.len() - first_candidate) as u16);
+                    }
                     candidates.push(EntityRenderCandidate { condition, source });
                 }
                 let count = candidates.len() - first_candidate;
@@ -242,6 +252,7 @@ pub(super) fn compile_render(
                 slots.push(EntityRenderSlot {
                     first_candidate: first_candidate as u32,
                     candidate_count: count as u16,
+                    default_candidate,
                 });
             }
             // Retain unresolved references so activation still controls artwork fallback.
@@ -397,7 +408,7 @@ fn compile_geometry_choices(
     };
     let mark = output.len();
     for (path, geometry) in leaves {
-        let condition = match condition_text(&path) {
+        let condition = match selection_condition(&path) {
             None => None,
             Some(text) => match compile_condition(molang, &text) {
                 Some(index) => Some(index),

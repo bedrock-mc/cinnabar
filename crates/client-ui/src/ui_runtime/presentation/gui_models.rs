@@ -571,7 +571,20 @@ impl UiPresentationRuntime {
                 return None;
             }
             let hand = hand.as_ref()?;
-            if let Some(selected) = self.gui_models.selected_held[index].as_ref()
+            let pack_model_suppressed = !self.player_preview_gear.show_custom_item_models
+                && self
+                    .gui_models
+                    .pack_equipment
+                    .source
+                    .as_ref()
+                    .is_some_and(|pack| {
+                        self.gui_models.selected_held[index]
+                            .as_ref()
+                            .is_some_and(|selected| Arc::ptr_eq(&selected.artwork, pack))
+                    });
+            if let Some(selected) = self.gui_models.selected_held[index]
+                .as_ref()
+                .filter(|_| !pack_model_suppressed)
                 && selected.ready
                 && selected.item.identifier.as_ref() == hand.identifier.as_ref()
                 && selected.item.metadata == hand.metadata
@@ -597,9 +610,12 @@ impl UiPresentationRuntime {
                     metadata,
                 })
             };
-            let base = held(metadata).or_else(|| held(0));
-            let model = if let Some((source, vertices)) =
-                self.session_icons.held_block(identifier, metadata)
+            let base = (!pack_model_suppressed)
+                .then(|| held(metadata).or_else(|| held(0)))
+                .flatten();
+            let model = if !pack_model_suppressed
+                && let Some((source, vertices)) =
+                    self.session_icons.held_block(identifier, metadata)
             {
                 player_preview::PreviewHeldModel {
                     source,
@@ -696,6 +712,9 @@ impl UiPresentationRuntime {
             cape,
         );
         for &hat in &self.menu_preview_model.cosmetics {
+            if render_model::hats::rig(hat).is_ground_effect() {
+                continue;
+            }
             let Some(icon) = self.menu_artwork_icon(&hat.texture_key()) else {
                 continue;
             };

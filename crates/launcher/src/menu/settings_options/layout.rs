@@ -18,7 +18,7 @@ macro_rules! panels {
 }
 
 panels! {
-AccessibilityTts,AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,ModUpdates,GeneralMisc,GeneralAdvanced,CreatorCoordinates,CreatorContentLog,CreatorDebugger,CreatorDiagnostic,CreatorWatchdog,CreatorDevice,CreatorEditor,CreatorFiltering,Chat,Discord,DiscordDetails
+AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,ModUpdates,GeneralAdvanced,CreatorCoordinates,Chat,Discord,DiscordDetails
 }
 
 /// Derives ordered rows once and rejects duplicate or missing row positions.
@@ -62,9 +62,7 @@ impl SettingPanel {
     pub const fn section(self) -> super::super::settings_sections::SettingSection {
         use super::super::settings_sections::SettingSection;
         match self {
-            Self::AccessibilityTts | Self::AccessibilityGameplay | Self::AccessibilityUi => {
-                SettingSection::Accessibility
-            }
+            Self::AccessibilityGameplay | Self::AccessibilityUi => SettingSection::Accessibility,
             Self::VideoBackend
             | Self::VideoGeneral
             | Self::VideoPerformance
@@ -77,20 +75,11 @@ impl SettingPanel {
             Self::Keyboard => SettingSection::KeyboardAndMouse,
             Self::Controller => SettingSection::ControllerAndSwitch,
             Self::Touch => SettingSection::Touch,
-            Self::General
-            | Self::GeneralPause
-            | Self::GeneralNetwork
-            | Self::GeneralMisc
-            | Self::GeneralAdvanced => SettingSection::General,
+            Self::General | Self::GeneralPause | Self::GeneralNetwork | Self::GeneralAdvanced => {
+                SettingSection::General
+            }
             Self::Updates | Self::ModUpdates => SettingSection::Updates,
-            Self::CreatorCoordinates
-            | Self::CreatorContentLog
-            | Self::CreatorDebugger
-            | Self::CreatorDiagnostic
-            | Self::CreatorWatchdog
-            | Self::CreatorDevice
-            | Self::CreatorEditor
-            | Self::CreatorFiltering => SettingSection::Creator,
+            Self::CreatorCoordinates => SettingSection::Creator,
             Self::Chat => SettingSection::Chat,
             Self::Discord | Self::DiscordDetails => SettingSection::Discord,
         }

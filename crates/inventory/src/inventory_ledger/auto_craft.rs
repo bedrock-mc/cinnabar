@@ -17,6 +17,9 @@ use super::recipe_allocation::{IngredientSources, RecipeInputs};
 use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
+mod materials;
+pub(crate) use materials::AutoCraftMaterials;
+
 #[cfg(test)]
 thread_local! {
     static SOURCE_VALIDATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

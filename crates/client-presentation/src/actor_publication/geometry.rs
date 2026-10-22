@@ -7,7 +7,7 @@ pub(super) fn apply_session_pack(
     scene: &mut ActorRenderScene,
     resources: &crate::prepared_actor_artwork::PreparedSessionResources,
     pack: Option<&assets::SessionEntityPack>,
-    session_icons: Option<StagedSessionIcons>,
+    session_icons: SessionIconInput<'_>,
     geometry_ready: &mut SessionGeometryReady,
     equipment: Option<&mut EquipmentRuntime>,
     profiler: Option<&RuntimeStageProfiler>,
@@ -32,11 +32,21 @@ pub(super) fn apply_session_pack(
         equipment.set_block_items(resources.block_items.as_ref());
     }
     let mut icon_locations = Vec::new();
-    if let Some(icons) = &session_icons {
-        let (extended, locations) = pages.with_equipment_rasters(icons.rasters());
-        pages = extended;
-        icon_locations = locations;
-    }
+    let session_icons = match session_icons {
+        SessionIconInput::Placed(placed) => {
+            pages = placed.pages.clone();
+            icon_locations = placed.locations.clone();
+            Some(placed.staged.clone())
+        }
+        SessionIconInput::Staged(staged) => {
+            if let Some(icons) = &staged {
+                let (extended, locations) = pages.with_equipment_rasters(icons.rasters());
+                pages = extended;
+                icon_locations = locations;
+            }
+            staged
+        }
+    };
     drop(equipment_timer);
     if !geometry_ready.entities || !geometry_ready.equipment {
         apply_session_geometry(scene, resources, geometry_ready, profiler);
@@ -48,6 +58,12 @@ pub(super) fn apply_session_pack(
         || resources.block_items.is_some())
     .then_some(pages);
     (effective, session_icons, icon_locations)
+}
+
+/// Session item icons a pack worker already placed, or icons the frame stages itself.
+pub(super) enum SessionIconInput<'a> {
+    Placed(&'a crate::prepared_actor_artwork::PlacedSessionIcons),
+    Staged(Option<StagedSessionIcons>),
 }
 
 /// Each accepted namespace can survive item/artwork refreshes independently.

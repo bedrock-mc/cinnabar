@@ -181,6 +181,28 @@ fn pack_rules_preserve_alpha_and_leather_sprite_membership() {
 }
 
 #[test]
+fn every_vanilla_pack_material_has_a_kind() {
+    for name in &vocabulary()["material"] {
+        assert!(rules().material(name).is_some(), "{name}");
+    }
+    assert_eq!(rules().material("spider"), Some(MaterialKind::Provisional));
+    assert_eq!(
+        rules().material("spider_invisible"),
+        Some(MaterialKind::Provisional)
+    );
+    assert_eq!(rules().material_state("spider"), None);
+    assert_eq!(rules().material("custom"), None);
+}
+
+#[test]
+fn pack_rules_reject_a_listed_provisional_material() {
+    let mut document: serde_json::Value = serde_json::from_slice(BLOCK_POLICY_BYTES).unwrap();
+    document["pack_rules"]["materials"]["spider"] = "Provisional".into();
+    let broken: PackRules = serde_json::from_value(document["pack_rules"].clone()).unwrap();
+    assert!(broken.validate().unwrap_err().contains("provisional"));
+}
+
+#[test]
 fn pack_rules_preserve_material_alias_states_and_rasters() {
     let mut names = BTreeSet::new();
     for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
@@ -372,6 +394,7 @@ fn pack_rules_preserve_typed_texture_and_block_requests() {
         (PackBlock::CobblestoneWall, "minecraft:cobblestone_wall"),
         (PackBlock::Air, "minecraft:air"),
         (PackBlock::Stone, "minecraft:stone"),
+        (PackBlock::HeavyCore, "minecraft:heavy_core"),
     ] {
         assert_eq!(slot.identifier(), old);
     }

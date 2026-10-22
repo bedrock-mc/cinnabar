@@ -65,6 +65,7 @@ mod response;
 mod revisions;
 mod screen_actions;
 mod trading;
+pub(crate) use auto_craft::AutoCraftMaterials;
 pub use trading::{ResolvedTrade, TradeState};
 #[cfg(test)]
 mod screens_tests;
@@ -205,8 +206,6 @@ pub struct PlayerInventoryLedger {
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
     /// Personal cells written by the latest event, consumed by the FIFO observer.
     personal_writes: u8,
-    /// Whether the latest inventory event restated the backing offhand cell.
-    offhand_written: bool,
     armor_known: [bool; cells::ARMOR_CELLS],
     offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
@@ -262,7 +261,6 @@ impl Default for PlayerInventoryLedger {
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
             personal_writes: 0,
-            offhand_written: false,
             armor_known: [false; cells::ARMOR_CELLS],
             offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
@@ -313,11 +311,6 @@ impl PlayerInventoryLedger {
                     .map(|held| &held.stack)
             })
         })
-    }
-
-    /// Reports an admitted offhand write in the most recently applied inventory event.
-    pub const fn offhand_authority_changed(&self) -> bool {
-        self.offhand_written
     }
 
     pub fn begin_session(&mut self, session_generation: u64) {
