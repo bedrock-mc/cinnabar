@@ -1,7 +1,10 @@
 //! The open grindstone's predicted result, which the server does not preview.
 
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
 use inventory::inventory_ledger::InventoryTarget;
-use protocol::{NetworkItemStack, WindowKind};
+use protocol::{ItemRegistryEntry, NetworkItemStack, WindowKind};
 use sha2::{Digest, Sha256};
 
 use super::UiRuntime;
@@ -24,16 +27,74 @@ fn has_compound(extra_data: &[u8]) -> bool {
     extra_data.get(..2) == Some(&[0xff, 0xff][..])
 }
 
+/// The inputs and registry snapshot one retained prediction was computed from.
+#[derive(Debug)]
+struct Cached {
+    inputs: [Option<NetworkItemStack>; 2],
+    registry: Option<Arc<BTreeMap<i32, ItemRegistryEntry>>>,
+    preview: Option<GrindstonePreview>,
+}
+
+/// Keeps the last grindstone prediction, including one that makes nothing.
+#[derive(Debug, Default)]
+pub(crate) struct PreviewCache(Mutex<Option<Cached>>);
+
+impl Clone for PreviewCache {
+    /// Cloned runtimes recompute on first use.
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 impl UiRuntime {
-    /// Predicts the open grindstone's result from its inputs.
+    /// The open grindstone's predicted result, recomputed only when its inputs or the item
+    /// registry change.
     pub(super) fn grindstone_preview(
         &self,
         player_runtime: &player_state::PlayerState,
     ) -> Option<GrindstonePreview> {
         let ledger = self.inventory_ledger(player_runtime);
+        let mut cache = self
+            .grindstone_cache
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if ledger.window_kind() != Some(WindowKind::Grindstone) {
+            *cache = None;
             return None;
         }
+        let inputs = GRINDSTONE_INPUTS.map(|slot| {
+            ledger
+                .target_stack(InventoryTarget::Craft(slot))
+                .filter(|stack| stack.count > 0)
+                .cloned()
+        });
+        let registry = ledger.item_registry_snapshot();
+        if let Some(cached) = cache.as_ref()
+            && cached.inputs == inputs
+            && match (cached.registry.as_ref(), registry) {
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                (None, None) => true,
+                _ => false,
+            }
+        {
+            return cached.preview.clone();
+        }
+        let preview = self.compute_grindstone_preview(player_runtime);
+        *cache = Some(Cached {
+            inputs,
+            registry: registry.cloned(),
+            preview: preview.clone(),
+        });
+        preview
+    }
+
+    /// Derives the grindstone's result from its inputs.
+    fn compute_grindstone_preview(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<GrindstonePreview> {
+        let ledger = self.inventory_ledger(player_runtime);
         let facts = ledger.item_facts();
         let stacks = GRINDSTONE_INPUTS.map(|slot| {
             ledger

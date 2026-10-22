@@ -258,3 +258,16 @@ fn user_data_is_read_from_the_compound_marker() {
     assert!(!has_compound(&shield), "a blocking tick is not user data");
     assert!(has_compound(&sword_data(false)));
 }
+
+/// The prediction is retained until an input changes.
+#[test]
+fn predictions_are_reused_until_an_input_changes() {
+    let (mut runtime, mut player) = grindstone();
+    let first = runtime.grindstone_preview(&player).unwrap();
+    assert!(runtime.grindstone_cache.0.lock().unwrap().is_some());
+    assert_eq!(runtime.grindstone_preview(&player), Some(first.clone()));
+    place(&mut runtime, &mut player, 16, sword(32, sword_data(false)));
+    let changed = runtime.grindstone_preview(&player).unwrap();
+    assert_eq!(changed.source_stack_id, 32);
+    assert_ne!(changed.stack.extra_data, first.stack.extra_data);
+}

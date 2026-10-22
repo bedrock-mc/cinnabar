@@ -1039,3 +1039,83 @@ fn shift_taken_loom_results_only_fill_empty_cells() {
     assert_eq!((destination.slot, destination.stack_network_id), (1, 0));
     assert_eq!(ledger.displayed_stack(0).unwrap().count, 3);
 }
+
+/// An enchanted `stack(id, 1)` worn to `damage`, which the grindstone admits.
+fn worn(stack_network_id: i32, damage: i32) -> NetworkItemStack {
+    let extra = protocol::edit_item_extra(
+        &[],
+        &protocol::ItemNbtEdit {
+            damage: Some(damage),
+            enchantments: Some(vec![(9, 1)]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    NetworkItemStack {
+        nbt_digest: sha2::Sha256::digest(&extra).into(),
+        extra_data: extra,
+        ..stack(stack_network_id, 1)
+    }
+}
+
+/// A take queued before its input placement is acknowledged is dropped, not sent with a stale
+/// result, when the acknowledgement corrects that input's damage.
+#[test]
+fn unsent_takes_are_dropped_when_their_inputs_are_corrected() {
+    let mut ledger = ledger_with(&[(0, worn(61, 900))]);
+    open(&mut ledger, 7, protocol::WINDOW_TYPE_GRINDSTONE);
+    let top = protocol::ui_slot_container_name(16).unwrap();
+    ledger.apply(&slot_update(named(124, top), 16, worn(50, 900)));
+    let placement = ledger.begin_quick_move(InventoryTarget::Player(0)).unwrap();
+    assert!(ledger.mark_transport_enqueued(1));
+    assert!(ledger.target_stack(InventoryTarget::Craft(17)).is_some());
+    let mut stale = worn(0, 161);
+    stale.count = 1;
+    ledger
+        .begin_screen_output(&ScreenCraft::Grindstone {
+            recipe_network_id: 50,
+            repair_cost: 0,
+            output: Some(stale),
+        })
+        .unwrap();
+    assert_eq!(ledger.pending_request_count(), 2);
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id: placement,
+                status: protocol::StackResponseStatus::Accepted,
+                containers: Arc::from([protocol::StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: protocol::ui_slot_container_name(17),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([protocol::StackResponseSlot {
+                        slot: 17,
+                        hotbar_slot: 17,
+                        count: 1,
+                        item_stack_id: 61,
+                        custom_name: Arc::from(""),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: 1000,
+                    }]),
+                }]),
+            }]),
+        },
+    ));
+    assert_eq!(
+        ledger.pending_request_count(),
+        0,
+        "the stale take is never sent"
+    );
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(
+        ledger.target_stack(InventoryTarget::Craft(16)),
+        Some(&worn(50, 900))
+    );
+    let corrected = ledger.target_stack(InventoryTarget::Craft(17)).unwrap();
+    assert_eq!(
+        protocol::item_extra_damage_value(&corrected.extra_data),
+        Some(1000)
+    );
+}

@@ -3,6 +3,7 @@
 use super::{
     Cell, Held, InventoryPendingState, PlayerInventoryLedger, RollbackAuthority, same_name,
 };
+use crate::inventory_ledger::overlay::DeltaGroup;
 
 impl PlayerInventoryLedger {
     /// Rebases later rollback sources and routes their item data through dependent results.
@@ -22,6 +23,16 @@ impl PlayerInventoryLedger {
             .iter_mut()
             .filter(|request| request.request_id < predecessor)
         {
+            // A predicted result was derived from its inputs' data, which a replay cannot redo.
+            let derived_result = request.groups.iter().any(|group| {
+                matches!(
+                    group,
+                    DeltaGroup::Set {
+                        cell: Cell::CreatedOutput,
+                        ..
+                    }
+                )
+            });
             let mut changed = false;
             let mut metadata = Vec::new();
             for prediction in request
@@ -53,8 +64,17 @@ impl PlayerInventoryLedger {
                         (None, None) => true,
                         _ => false,
                     };
+                    let same_data = match (prediction.before.as_ref(), replacement.as_ref()) {
+                        (Some(before), Some(after)) => {
+                            before.stack.nbt_digest == after.stack.nbt_digest
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
                     if request.state == InventoryPendingState::AwaitingTransport
-                        && (!same_item || *authority == RollbackAuthority::Unknown)
+                        && (!same_item
+                            || *authority == RollbackAuthority::Unknown
+                            || (derived_result && !same_data))
                     {
                         invalid = Some(request.request_id);
                         break 'requests;
