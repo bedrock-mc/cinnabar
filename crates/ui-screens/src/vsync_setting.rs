@@ -36,6 +36,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
 mod tests {
     use {super::*, launcher::menu::MenuView};
 
+    /// Finds a caption anywhere in a resolved control.
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
         control
             .properties

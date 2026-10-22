@@ -1,4 +1,4 @@
-use bevy::prelude::{App, DetectChanges, MinimalPlugins};
+use bevy::prelude::{App, Changed, IntoScheduleConfigs, MinimalPlugins};
 use render_model::{PresentModeKind, SurfacePresentModes};
 
 use super::*;
@@ -294,24 +294,38 @@ fn a_setting_update_retries_until_the_primary_window_exists() {
     assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
+/// Changes delivered to a window consumer after presentation policy runs.
+#[derive(Resource, Default)]
+struct WindowNotifications(usize);
+
+/// Records notifications rather than inspecting a component through a fresh query's tick range.
+fn observe_window_changes(
+    windows: Query<Entity, (With<PrimaryWindow>, Changed<Window>)>,
+    mut notifications: ResMut<WindowNotifications>,
+) {
+    notifications.0 += windows.iter().count();
+}
+
 #[test]
 fn a_stable_mode_never_requests_another_surface_reconfigure() {
     let runtime = PresentModeRuntime::from_startup(false, false, false, false);
     let render_policy = runtime.policy();
     let mut app = vsync_app(runtime);
+    app.init_resource::<WindowNotifications>().add_systems(
+        bevy::prelude::Update,
+        observe_window_changes.after(apply_present_mode),
+    );
     render_policy.publish_remedy(PresentModeRemedy::UseImmediate);
     app.update();
     assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 
-    app.world_mut().clear_trackers();
+    let notifications = app.world().resource::<WindowNotifications>().0;
     app.update();
-    let world = app.world_mut();
-    let mut windows = world.query_filtered::<bevy::prelude::Ref<Window>, With<PrimaryWindow>>();
-    let window = windows.single(world).unwrap();
-    assert_eq!(window.present_mode, PresentMode::Immediate);
-    assert!(
-        !window.is_changed(),
-        "a stable mode must not request another surface reconfigure"
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    assert_eq!(
+        app.world().resource::<WindowNotifications>().0,
+        notifications,
+        "an unchanged mode must not notify window consumers"
     );
 }
 
