@@ -83,10 +83,10 @@ pub fn send_movement_prediction_sync(
 /// state adopts server sneak, sprint and pose ends but not a server-started
 /// pose, item use or riptide spin. Its block climber and descent action
 /// rewrite the scaffolding and climbable-block flags locally, so the local
-/// values replace the server's; a tick that cannot read its terrain keeps the
-/// previous contact, and spectator ticks, whose climber eligibility is
-/// untraced, keep the server's. The riptide spin and every other flag remain
-/// the server's.
+/// values replace the server's. Cells without usable facts count as empty; a
+/// tick whose movement origin or scan is unavailable keeps the previous
+/// contact, and spectator ticks, whose climber eligibility is untraced, keep
+/// the server's. The riptide spin and every other flag remain the server's.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
     pose: Option<SyncPose>,
