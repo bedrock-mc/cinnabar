@@ -78,6 +78,8 @@ and resource qualification; they do not imply these systems need to be written.
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
   against native output while preserving packed storage and the shared quad contract.
+  Terrain particles use the dimension biome fallback until their column is published;
+  initial-join rendered colour acceptance remains incomplete.
 - [ ] Confirm or replace provisional biome blending using version-matched radius and
   kernel evidence. Cover abrupt boundaries, special foliage, custom-biome fallback,
   missing neighbours, replacement, teleport/eviction, GPU output and performance.
