@@ -1,6 +1,7 @@
 //! Local single-player worlds: the saved-world store, the official dedicated-server download and
 //! the local server processes. The core only learns the open world's loopback address.
 
+mod android_trust;
 mod bds;
 mod container;
 mod core_link;
@@ -20,6 +21,7 @@ mod translated;
 mod unpack;
 mod world;
 
+pub use android_trust::refresh as refresh_android_server_trust;
 pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
 pub use manager::{Host, Manager};

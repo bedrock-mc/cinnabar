@@ -71,7 +71,9 @@ and `CINNABAR_ANDROID_BDS_CXX` if the compilers are not named `aarch64-linux-gnu
 The experimental runtime packages an Android-adapted GNU C Library, uses Android-compatible
 interface enumeration and name resolution, and requests stronger x86 memory ordering from the
 translator. App setup exports Android's default accepted certificate authorities for the server's
-own TLS stack and refreshes the export on each launch. A target-SDK-35 test app on an Android 15 emulator has started BDS,
+own TLS stack and refreshes the export on each launch. An emulator check confirms that the server
+reads this bundle; its effect on service authentication and startup time remains unverified.
+A target-SDK-35 test app on an Android 15 emulator has started BDS,
 created a world, saved a changed spawn position, shut down cleanly and reopened the same world
 with SELinux enforcing. Two consecutive runs with every external network interface down also
 completed transport negotiation, signed-out login, spawn and clean shutdown using the production

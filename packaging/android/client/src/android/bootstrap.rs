@@ -8,8 +8,7 @@ use std::{
     cell::RefCell,
     ffi::c_void,
     fs,
-    io::{self, Write},
-    os::unix::fs::{OpenOptionsExt, symlink},
+    os::unix::fs::symlink,
     path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
 };
@@ -109,11 +108,7 @@ fn setup(
     let native_library_dir = PathBuf::from(String::from(env.get_string(native_library_dir)?));
     let layout = super::layout(&files_dir, &native_library_dir);
     launcher::install_layout::configure_android(layout.clone())?;
-    export_platform_trust(
-        env,
-        activity,
-        &launcher_host::local_worlds::android_server_trust_path(&layout.user_data_root),
-    );
+    export_platform_trust(env, activity, &layout.user_data_root)?;
     // The kit arrives as APK assets, but Android executes only native-library files.
     let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
     fs::create_dir_all(
@@ -151,25 +146,21 @@ fn setup(
     )
 }
 
-/// Replaces `bundle` with the app's platform trust as PEM for the translated local server's TLS.
-///
-/// Runs on every launch so authorities the platform no longer trusts never linger. A failed
-/// export removes any previous bundle and logs a generic warning instead of failing setup; the
-/// server then starts without platform trust.
-fn export_platform_trust(env: &mut JNIEnv<'_>, activity: &JObject<'_>, bundle: &Path) {
-    let exported =
-        platform_trust_pem(env, activity).and_then(|pem| write_private(bundle, pem.as_bytes()));
-    if exported.is_err() {
-        if let Err(error) = fs::remove_file(bundle)
-            && error.kind() != io::ErrorKind::NotFound
-        {
-            log_warning(env, "Cannot remove the previous platform trust export");
-        }
+/// Refreshes the server's platform trust, refusing setup if stale trust cannot be invalidated.
+fn export_platform_trust(env: &mut JNIEnv<'_>, activity: &JObject<'_>, root: &Path) -> Result<()> {
+    let pem = platform_trust_pem(env, activity);
+    let available = launcher_host::local_worlds::refresh_android_server_trust(
+        root,
+        pem.as_deref().ok().map(str::as_bytes),
+    )
+    .context("Cannot refresh or clear local server certificate trust")?;
+    if !available {
         log_warning(
             env,
             "Platform trust export failed; local worlds may lose online services",
         );
     }
+    Ok(())
 }
 
 /// Returns the activity's `platformTrustPem` export, clearing any exception it threw; a thrown,
@@ -192,39 +183,6 @@ fn platform_trust_pem(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Result<St
         bail!("platform trust export is empty");
     }
     Ok(pem)
-}
-
-/// Atomically replaces `path` with `bytes`, readable and writable only by the app's user.
-///
-/// Writes a sibling temporary file and renames it over `path`, so readers see either the old
-/// or the complete new contents. The temporary file is removed when any step fails.
-fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    fs::create_dir_all(path.parent().context("trust bundle path has no parent")?)?;
-    let mut temporary = path.as_os_str().to_owned();
-    temporary.push(".tmp");
-    let temporary = PathBuf::from(temporary);
-    let written = write_new_private(&temporary, bytes).and_then(|()| fs::rename(&temporary, path));
-    if written.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    Ok(written?)
-}
-
-/// Creates `path` afresh with mode 0600, never following an existing file or link, and writes
-/// and syncs `bytes` to it.
-fn write_new_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Err(error) = fs::remove_file(path)
-        && error.kind() != io::ErrorKind::NotFound
-    {
-        return Err(error);
-    }
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
 }
 
 /// Logs `message` at warning priority under the product's tag, discarding any logging failure.

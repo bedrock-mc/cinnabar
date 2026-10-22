@@ -5,10 +5,13 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"net"
+	"strings"
 	"sync/atomic"
 
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"golang.org/x/oauth2"
 )
 
 // localBDSLoginError identifies a failure at the launcher's own server, before any transfer.
@@ -43,4 +46,13 @@ func (n *localBDSAuthNetwork) DialContext(ctx context.Context, address string) (
 func (n *localBDSAuthNetwork) DialContextIdentityProvider(ctx context.Context, address, token string, key *ecdsa.PrivateKey, provider string) (net.Conn, error) {
 	n.started.Store(true)
 	return n.localNetherNetNetwork.DialContextIdentityProvider(ctx, address, token, key, provider)
+}
+
+// localHopDialer confines a local retry's offline identity to its original address.
+func localHopDialer(target *resolvedUpstreamTarget, address string, dialer minecraft.Dialer, account oauth2.TokenSource) minecraft.Dialer {
+	if target.keylessFallback && !strings.EqualFold(address, target.address) && dialer.TokenSource == nil && account != nil {
+		dialer.TokenSource = account
+		dialer.IdentityData = login.IdentityData{}
+	}
+	return dialer
 }

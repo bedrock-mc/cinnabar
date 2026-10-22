@@ -596,7 +596,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   performance and 4/16 KB compatibility acceptance remain incomplete.
   Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
   Setup refreshes a private export of Android's default accepted certificate authorities and supplies it
-  to the translated server's TLS stack. Runtime consumption and startup improvement need acceptance;
+  to the translated server's TLS stack. Runtime consumption passes in the emulator sandbox; startup improvement needs acceptance;
   the ten-second startup and join target is unverified.
   The guest library is downloaded directly and hash-checked, with valid cached copies reused;
   the source archive is needed only by the build toolchain.

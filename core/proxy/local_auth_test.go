@@ -135,3 +135,43 @@ func TestLocalBDSCanAttemptOfflineLoginWhenAccountServicesAreUnavailable(t *test
 		t.Fatalf("local offers = %d, error = %v; want one offline offer after the account service fails", offers.Load(), err)
 	}
 }
+
+func TestLocalBDSOfflineRetryRestoresAccountOnPreLoginTransfer(t *testing.T) {
+	account := authcache.NewAccount(t.Context(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil)
+	defer account.Close()
+	logger := slog.New(slog.DiscardHandler)
+	connections := newPreparedConnections("unused.invalid:19132", account, logger)
+	defer connections.shutdown()
+	connections.resolveTarget = withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
+		return localworld.ConnectionTarget{Address: "127.0.0.1:5000", Transport: localworld.TransportNetherNetHTTP}, true, nil
+	}, onlineStub("unused.invalid:19132"))
+	attempts, hops := 0, 0
+	stopped := errors.New("transfer authentication inspected")
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, &localBDSLoginError{err: &minecraft.DisconnectPacketError{Reason: packet.DisconnectReasonHostWithoutKeys}}
+		}
+		return dialFollowingTransfers(ctx, target.address, logger, func(_ context.Context, address string) (upstreamSession, error) {
+			hops++
+			attempt := localHopDialer(target, address, dialer, accountTokenSource(connections.account))
+			if address == target.address {
+				if attempt.TokenSource != nil || attempt.IdentityData.Identity != "local-player" {
+					t.Error("the local retry lost its offline identity")
+				}
+				return nil, &minecraft.TransferError{Address: "remote.example", Port: 19132}
+			}
+			if attempt.TokenSource != account || attempt.IdentityData != (login.IdentityData{}) {
+				t.Error("the transferred destination inherited the local retry identity")
+			}
+			return nil, stopped
+		})
+	}
+	_, err := connections.connect(t.Context(), dialerTestDownstream{
+		protocol: minecraft.DefaultProtocol,
+		identity: login.IdentityData{DisplayName: "Local Player", Identity: "local-player"},
+	})
+	if !errors.Is(err, stopped) || attempts != 2 || hops != 2 {
+		t.Fatalf("connect = %v; attempts = %d; transfer hops = %d", err, attempts, hops)
+	}
+}

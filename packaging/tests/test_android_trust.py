@@ -1,4 +1,4 @@
-"""Verify that Android's platform trust export contains exactly the accepted certificates."""
+"""Round-trip the platform-trust Java helper against the host JDK's accepted certificates."""
 
 import json
 from pathlib import Path
