@@ -158,6 +158,71 @@ fn cursor_diagnostics(
     )
 }
 
+/// The crosshair requires first-person gameplay input and a non-spectator mode.
+#[test]
+fn crosshair_is_first_person_only_and_mode_gated() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut presentation = presentation(Cursor::Native);
+    presentation.hud_frame_mut().first_person = false;
+    let mut runtime = runtime(Cursor::Native);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
+    let paint = |player_runtime: &player_state::PlayerState,
+                 presentation: &UiPresentationRuntime,
+                 runtime: &UiRuntime| {
+        hud_layout::capture_hud_paint(
+            player_runtime,
+            runtime,
+            presentation.hud_frame(),
+            presentation.hud_textures.as_ref(),
+            &Default::default(),
+        )
+    };
+    assert!(
+        paint(&player_runtime, &presentation, &runtime)
+            .crosshair
+            .is_none(),
+        "third person"
+    );
+    *presentation.hud_frame_mut() = first_person();
+    assert!(
+        crosshair(
+            &build(&player_runtime, &mut presentation, &runtime, 0),
+            30.0
+        )
+        .is_some()
+    );
+    runtime.open_chat(&mut player_runtime);
+    assert!(
+        crosshair(
+            &build(&player_runtime, &mut presentation, &runtime, 0),
+            30.0
+        )
+        .is_none(),
+        "chat owns input"
+    );
+    runtime.close_chat();
+    assert!(
+        crosshair(
+            &build(&player_runtime, &mut presentation, &runtime, 0),
+            30.0
+        )
+        .is_some(),
+        "closing chat restores gameplay input"
+    );
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Spectator);
+    assert!(
+        paint(&player_runtime, &presentation, &runtime)
+            .crosshair
+            .is_none(),
+        "spectator"
+    );
+}
+
 #[test]
 fn crosshair_menu_input_ownership_hides_every_style_and_restores_after_nested_close() {
     for cursor in [Cursor::Native, Cursor::Pack, Cursor::Custom] {

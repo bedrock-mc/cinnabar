@@ -82,7 +82,7 @@ pub(crate) fn observe_destroy_target(
             .inventory_ledger(player_runtime)
             .negotiated_item_entry(item.network_id());
         let builtin = assets::facts::ItemFacts::builtin().ok();
-        destroy_facts = pack_runtime::custom_mining_seconds(
+        let seconds = pack_runtime::custom_mining_seconds(
             mining,
             &context.client_world.mining_filters,
             entry.map(|entry| entry.identifier.as_ref()),
@@ -94,14 +94,11 @@ pub(crate) fn observe_destroy_target(
                         .and_then(|facts| facts.tag(tag))
                         .is_some_and(|tag| fact.tags.contains(tag))
             },
-        )
-        .map_or(
-            assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
-            |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
-                seconds_to_destroy_bits: seconds.to_bits(),
-                effective_tools,
-            },
         );
+        destroy_facts = assets::compiled::block_destroy::BlockDestroyFacts::Custom {
+            seconds_to_destroy_bits: seconds.to_bits(),
+            effective_tools,
+        };
     }
     let block = sim::BlockDestroyInfo::from_facts(destroy_facts);
     let instant = caps.instant_break;
@@ -140,6 +137,7 @@ pub(crate) fn observe_destroy_target(
         })
     });
     Some(DestroyTarget {
+        local_runtime_id: stream.local_player_runtime_id(),
         position: observed.target.position,
         face: observed.target.face,
         runtime_id: observed.target.runtime_id,

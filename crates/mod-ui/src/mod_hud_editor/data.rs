@@ -111,7 +111,33 @@ impl HudEditor {
                     cards::dimensions(&self.draft.cards[index]),
                 )
             });
-        feedback::measurements(data, self.viewport, rect);
+        let mut obstacles: Vec<_> = self
+            .draft
+            .cards
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| !self.hidden.contains(&card.id))
+            .map(|(index, card)| {
+                let at = self.card_origin(index);
+                let size = cards::dimensions(card);
+                [at[0], at[1], size[0], size[1]]
+            })
+            .collect();
+        obstacles.extend(self.caption_bounds);
+        if style.top_clearance > 0. {
+            obstacles.push([0., 0., self.viewport[0], f64::from(style.top_clearance)]);
+        }
+        if rect.is_some()
+            && let Some(size) = self.draft.inspector_size
+        {
+            obstacles.push([
+                self.inspector.at[0],
+                self.inspector.at[1],
+                f64::from(size[0]),
+                f64::from(size[1]),
+            ]);
+        }
+        feedback::measurements(data, self.viewport, rect, &obstacles);
     }
 
     /// Publishes inspector values from the same displayed rectangle used by pointer bounds.
@@ -167,13 +193,14 @@ impl HudEditor {
         );
         data.set_global("#hud_selected_size_text", Scalar::Text(size_text));
         data.set_global("#hud_selected_position_text", Scalar::Text(position_text));
+        let selection = selected
+            .filter(|_| card.is_some_and(|card| !self.hidden.contains(&card.id)))
+            .map(|_| [at[0], at[1], size[0], size[1]]);
+        let avoidance = self.write_caption(data, selection);
         // Moving the inspector mid-gesture would move the slider under the pointer.
         if !self.scaling() {
-            self.inspector.update(
-                selected.map(|_| [at[0], at[1], size[0], size[1]]),
-                self.viewport,
-                self.draft.inspector_size,
-            );
+            self.inspector
+                .update(avoidance, self.viewport, self.draft.inspector_size);
         }
         for (name, value) in [
             ("#hud_inspector_x", self.inspector.at[0]),

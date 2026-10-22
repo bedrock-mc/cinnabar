@@ -50,9 +50,8 @@ pub use experience::{
 };
 
 pub use credits::{ShowCreditsEvent, credits_finished_packet};
-pub use emote::emote_packet;
-
 pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_screen_packet};
+pub use emote::emote_packet;
 
 pub use actor::{
     ACTOR_DATA_ID_FLAGS_THIRD, ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent,
@@ -105,10 +104,11 @@ pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
-    click_air_packet, click_block_packet, click_block_transaction_packet, destroy_block_packet,
-    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
-    start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
-    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    click_air_packet, click_block_packet, click_block_transaction_packet,
+    creative_destroy_block_packet, destroy_block_packet, entity_hover_packet,
+    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
+    stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet, swing_arm_packet,
+    use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
     BrewingItem, BrewingMix, BrewingMixItem, BrewingRecipe, MAX_RECIPE_INGREDIENTS, MultiRecipe,
@@ -122,9 +122,9 @@ pub use inventory::recipes::{
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MODERN_TRADE_SLOTS,
-    NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem, TradeOffer,
-    WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MAX_STACK_REQUEST_AMOUNT,
+    MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem,
+    TradeOffer, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
@@ -179,8 +179,8 @@ pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
     ItemBannerPattern, ItemBook, ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry,
-    ItemRegistryEvent, ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown,
-    KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    ItemRegistryEvent, ItemRegistryVersion, ItemShooter, ItemStackFacts, ItemStackFactsCache,
+    ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, held_items_match, item_banner_patterns,
     item_banner_type, item_book, item_bundle_id, item_charged_projectile, item_custom_color,
@@ -192,7 +192,7 @@ pub use item::{
 pub use item::{
     ItemAnvilData, ItemBlockList, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra,
     item_anvil_data, item_block_list, item_custom_name, item_extra_lock, item_extra_slot_locked,
-    item_filtered_custom_name, item_repair_cost, item_user_data_equal,
+    item_filtered_custom_name, item_has_trim, item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};

@@ -142,7 +142,7 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
     actor
         .metadata
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
-    assert_eq!(tag_height(&actor), 2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * (3.6 + HEAD_CLEARANCE));
     let player_kind = actor.kind.clone();
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:zombie".into(),
@@ -158,6 +158,32 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
         tag_height(&actor),
         2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
     );
+}
+
+#[test]
+fn upright_players_follow_a_server_published_box_height() {
+    let mut actor = actor();
+    let feet = Vec3::new(0.0, 0.0, -5.0);
+    for (published, expected) in [
+        (None, DEFAULT_HEIGHT),
+        (Some(1.8), 1.8),
+        (Some(3.2), 3.2),
+        (Some(0.9), 0.9),
+    ] {
+        match published {
+            Some(height) => actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(height)),
+            None => actor.metadata.remove(&METADATA_HEIGHT),
+        };
+        let tag = extract_nametag_at_feet(&actor, view(Vec3::ZERO), None, "Npc".into(), None, feet)
+            .unwrap();
+        assert!(
+            (tag.position.y - (feet.y + expected + HEAD_CLEARANCE)).abs() < 1e-6,
+            "published height {published:?} placed the label at {}",
+            tag.position.y
+        );
+    }
 }
 
 #[test]

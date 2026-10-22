@@ -12,6 +12,8 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod hud_editor;
+#[cfg(feature = "test-support")]
+mod menu_keyboard;
 mod panorama;
 mod saturation_overlap;
 #[cfg(feature = "test-support")]
@@ -144,6 +146,10 @@ fn png_fixture(
     if matches!(&fixture, Fixture::SettingsDraft) {
         return settings_draft::png(state, dir);
     }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::MenuKeyboard) {
+        return menu_keyboard::png(state, dir);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -164,6 +170,7 @@ fn png_fixture(
         | Fixture::CursorDurability
         | Fixture::FormOverlap
         | Fixture::SettingsDraft
+        | Fixture::MenuKeyboard
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
@@ -214,6 +221,7 @@ fn png_fixture(
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
         | Fixture::SettingsDraft
+        | Fixture::MenuKeyboard
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
@@ -224,13 +232,17 @@ fn png_fixture(
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { selected } => {
+        Fixture::CraftOverlap {
+            selected,
+            block_identity,
+        } => {
             let mut engine = json_engine(&carriers)?;
             crafting::paint(
                 &engine,
                 &carriers.lang,
                 &craft_icons.unwrap(),
                 selected,
+                block_identity,
                 &mut frame,
             )?;
             add_server_pages(&mut engine, &mut carriers.pages);

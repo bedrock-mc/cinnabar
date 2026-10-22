@@ -359,6 +359,9 @@ pub const DISCONNECT_KEY_INVALID_NAME: &str = "disconnectionScreen.invalidName";
 /// Core disconnect message: The sign-in token was rejected because this device's clock is behind.
 pub const DISCONNECT_KEY_DEVICE_CLOCK: &str = "cinnabar.disconnect.deviceClock";
 
+/// Core disconnect message: The local Bedrock Dedicated Server world cannot be reached without a network connection.
+pub const DISCONNECT_KEY_LOCAL_WORLD_OFFLINE: &str = "cinnabar.disconnect.localWorldOffline";
+
 /// Inbox category names in display order.
 pub const INBOX_CATEGORIES: [&str; 4] = ["News", "Realms", "Invites", "Feedback"];
 
@@ -374,7 +377,7 @@ pub const MESSAGE_EVENT_TYPES: [&str; 7] = [
 ];
 
 /// Every lang key the core sends as a whole disconnect message.
-pub const CORE_DISCONNECT_KEYS: [&str; 8] = [
+pub const CORE_DISCONNECT_KEYS: [&str; 9] = [
     "disconnectionScreen.cantConnect",
     "disconnectionScreen.cantConnectToRealm",
     "disconnectionScreen.resourcePack",
@@ -383,6 +386,7 @@ pub const CORE_DISCONNECT_KEYS: [&str; 8] = [
     "disconnectionScreen.invalidSkin",
     "disconnectionScreen.invalidName",
     "cinnabar.disconnect.deviceClock",
+    "cinnabar.disconnect.localWorldOffline",
 ];
 
 /// A safe relay refusal code; unrecognized codes use the generic refusal.

@@ -41,8 +41,6 @@ const LEVEL_DAT: &str = "level.dat";
 const LEVEL_NAME_FILE: &str = "levelname.txt";
 /// Finder's resource-fork folder beside the world in archives zipped on macOS.
 const MAC_METADATA_DIR: &str = "__MACOSX";
-/// `level.dat` holds a few kilobytes of settings; anything far larger is not read.
-const MAX_LEVEL_DAT_BYTES: u64 = 1 << 20;
 const FALLBACK_NAME: &str = "Imported world";
 
 /// Unpacks `archive` into a new world on `backend`. A refused or cancelled import leaves nothing
@@ -74,6 +72,7 @@ pub(super) fn import(
         &staging,
         &level,
         &NewWorld {
+            options: super::level_dat::read_options(&level.join(LEVEL_DAT)),
             name,
             game_mode: settings.game_mode,
             generator: settings.generator,
@@ -137,16 +136,18 @@ struct LevelSettings {
     seed: Option<i64>,
 }
 
-/// Reads `level.dat`: an 8-byte header, then a little-endian NBT compound. An unreadable file
-/// yields what was read before the damage.
+/// Reads `level.dat`: an 8-byte header, then a little-endian NBT compound. A damaged or
+/// oversized file yields what was read before the damage or the bound.
 fn read_level_dat(path: &Path) -> LevelSettings {
     let mut settings = LevelSettings {
         generator: Generator::Normal,
         ..LevelSettings::default()
     };
     let mut bytes = Vec::new();
-    let read = fs::File::open(path)
-        .and_then(|file| file.take(MAX_LEVEL_DAT_BYTES).read_to_end(&mut bytes));
+    let read = fs::File::open(path).and_then(|file| {
+        file.take(super::level_dat::MAX_LEVEL_DAT_BYTES)
+            .read_to_end(&mut bytes)
+    });
     if read.is_ok() {
         let _ = Nbt(bytes.get(8..).unwrap_or_default()).root(&mut settings);
     }

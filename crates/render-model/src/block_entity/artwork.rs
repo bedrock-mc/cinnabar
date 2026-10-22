@@ -20,12 +20,15 @@ pub(super) struct StaticTexture {
 #[derive(Clone, Debug, Default)]
 pub struct BlockEntityArtworkPreparer {
     textures: Arc<[StaticTexture]>,
+    heads: super::heads::HeadModels,
+    chalkboards: Arc<super::chalkboard::ChalkboardModels>,
 }
 
 /// Appended pixels, placements and identity; publication shares the pixel allocation.
 #[derive(Clone, Debug)]
 pub struct PreparedBlockEntityArtwork {
     pub(super) atlas: BlockEntityAtlas,
+    pub(super) chalkboards: Arc<super::chalkboard::ChalkboardModels>,
     held: Arc<super::held::PreparedHeldBlockModels>,
 }
 
@@ -39,6 +42,18 @@ impl PreparedBlockEntityArtwork {
     pub fn atlas(&self) -> &BlockEntityAtlas {
         &self.atlas
     }
+
+    /// Refreshes held head geometry while sharing the already prepared static pixels.
+    pub(super) fn with_heads(&self, heads: &super::heads::HeadModels) -> Self {
+        Self {
+            atlas: self.atlas.clone(),
+            chalkboards: self.chalkboards.clone(),
+            held: Arc::new(super::held::PreparedHeldBlockModels::with_heads(
+                &self.atlas,
+                heads,
+            )),
+        }
+    }
 }
 
 impl BlockEntityArtworkPreparer {
@@ -46,7 +61,38 @@ impl BlockEntityArtworkPreparer {
     pub(super) fn new(textures: &[StaticTexture]) -> Self {
         Self {
             textures: textures.into(),
+            heads: Default::default(),
+            chalkboards: Default::default(),
         }
+    }
+
+    /// Snapshots placed-head geometry before preparation moves onto a worker.
+    pub(super) fn with_heads(mut self, heads: super::heads::HeadModels) -> Self {
+        self.heads = heads;
+        self
+    }
+
+    /// Snapshots startup board geometry for complete pack replacement and removal.
+    pub(super) fn with_chalkboards(
+        mut self,
+        models: Arc<super::chalkboard::ChalkboardModels>,
+    ) -> Self {
+        self.chalkboards = models;
+        self
+    }
+
+    /// Publishes active board models over the startup fallback with these exact pixels.
+    pub fn with_chalkboard_assets(
+        &self,
+        artwork: &PreparedBlockEntityArtwork,
+        assets: Option<&assets::RuntimeEntityAssets>,
+    ) -> PreparedBlockEntityArtwork {
+        let mut prepared = artwork.clone();
+        prepared.chalkboards = assets.map_or_else(
+            || self.chalkboards.clone(),
+            |assets| Arc::new(self.chalkboards.overlay(assets)),
+        );
+        prepared
     }
 
     /// Admits carrier dimensions only when static textures, maps and every text page also fit.
@@ -70,8 +116,15 @@ impl BlockEntityArtworkPreparer {
         }
         let mut atlas = BlockEntityAtlas::from_assets(assets);
         atlas.append_textures(&self.textures);
-        let held = Arc::new(super::held::PreparedHeldBlockModels::new(&atlas));
-        Some(PreparedBlockEntityArtwork { atlas, held })
+        let held = Arc::new(super::held::PreparedHeldBlockModels::with_heads(
+            &atlas,
+            &self.heads,
+        ));
+        Some(PreparedBlockEntityArtwork {
+            atlas,
+            held,
+            chalkboards: self.chalkboards.clone(),
+        })
     }
 }
 
