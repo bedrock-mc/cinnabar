@@ -9,9 +9,10 @@ pub(super) struct ActorPositionUpdate {
 }
 
 impl ActorPositionUpdate {
-    /// Changes spatial state without discarding velocity, abilities or queued impulses.
+    /// Drops previous-position contacts while preserving velocity, abilities and queued impulses.
     pub(super) fn apply(self, state: &mut PlayerState) {
         state.set_position(self.feet);
+        state.collisions = sim::AxisCollisions::default();
         state.on_ground = self.on_ground;
     }
 
