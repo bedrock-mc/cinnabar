@@ -140,7 +140,7 @@ impl LocalPhysicsController {
                 .is_some_and(|oldest| tick >= oldest)
     }
 
-    /// Stores a missing tick's correction on the current frame, without initiating a rewind.
+    /// Stores a missing tick's correction on the current frame, superseding its earlier placement.
     pub(in crate::movement) fn defer_prediction_correction(&mut self, anchor: PhysicsAnchor) {
         let Some(tick) = self
             .state
@@ -156,6 +156,13 @@ impl LocalPhysicsController {
             self.history.oldest_tick().unwrap_or(tick),
             self.history_capacity,
         );
+        if let Some(frame) = self
+            .controller_history
+            .iter_mut()
+            .find(|frame| frame.tick == tick)
+        {
+            frame.actor_position = None;
+        }
     }
 
     /// Reports corrections recorded since the last replay so a matching echo cannot discard them.
