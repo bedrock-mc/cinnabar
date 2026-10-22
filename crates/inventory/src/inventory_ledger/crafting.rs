@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use crate::CraftGridItem;
-use protocol::{CraftResult, NetworkItemStack, RecipeHandle, StackRequestAction};
+use protocol::{CraftResult, RecipeHandle, StackRequestAction};
 
 use super::cells::{Cell, FIRST_CRAFT_SLOT, Held};
 use super::gesture::Submission;
