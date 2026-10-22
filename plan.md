@@ -132,6 +132,10 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close crop comparison, sub-unit sprite geometry, atlas-edge UV calibration and
   torchflower positional variation. Earlier bounded artwork fixes do not close this scope.
 - [ ] Verify nether-wart geometry and selector acceptance independently of other crops.
+- [ ] Select terrain-array entries for the remaining block classes. Pumpkins, cave vines,
+  pale hanging moss and mangrove propagules follow their native class; the families in the
+  input crate's open-array check (candles, copper bulbs, cocoa, eggs, nether wart and others)
+  still draw entry zero until each class's variant source is verified.
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
   faults from geometry; do not mask them with speculative renderer changes.
@@ -363,6 +367,15 @@ label height. Tag eligibility uses always-show metadata or the shared crosshair 
 Camera distance controls server render limits and score range; passenger mounts keep
 their name without a score line. Depth testing honors sneaking and the nameplate flag.
 Matched rendered-frame qualification remains open.
+
+Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
+lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
+materials but do not define them, so all but the verified kinds in `registry-policy.json`
+are provisional with that rounding; their definitions (alpha test, blend, emissive) remain
+unverified. Rounding is wrong where alpha is an emissive weight: blaze, magma cube and glow
+squid bodies stay invisible, and spider, enderman and phantom eyes draw clear. Each rig geometry routes to the texture its own selection draws, else the
+default branch. The samples omit the iron golem's body controller; it is completed from
+the pack's default controller until a pinned pack defines it.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -630,7 +643,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
-  Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
+  Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
