@@ -7,7 +7,6 @@ use rodio::{OutputStream, Source, cpal::traits::HostTrait, dynamic_mixer};
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     time::Duration,
@@ -16,33 +15,22 @@ use std::{
 /// Device checks and retries stay off the game thread.
 const DEVICE_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 type MixerSlot = Arc<Mutex<Option<CaptureMixer>>>;
-pub(super) type SharedOutput = (
-    Arc<dynamic_mixer::DynamicMixerController<f32>>,
-    Arc<AtomicBool>,
-);
+pub(super) type SharedOutput = Arc<dynamic_mixer::DynamicMixerController<f32>>;
 pub(super) type Opening<H = SharedOutput> = Receiver<Option<(H, Sender<()>)>>;
 
 /// Keeps a shared mixer reachable while its hardware stream lives on another thread.
 pub(super) struct Output {
     pub(super) mixer: Arc<dynamic_mixer::DynamicMixerController<f32>>,
-    pub(super) ready: Arc<AtomicBool>,
     pub(super) _release: Sender<()>,
 }
 
 impl Output {
-    /// Reports the last hardware availability observed by the output owner.
-    pub(super) fn available(&self) -> bool {
-        self.ready.load(Ordering::Acquire)
-    }
-
     /// Adds a source to the same mixer across hardware output changes.
     pub(super) fn play_raw(
         &self,
         source: impl Source<Item = f32> + Send + 'static,
     ) -> Result<(), rodio::PlayError> {
-        if !self.available() {
-            return Err(rodio::PlayError::NoDevice);
-        }
+        // The mixer remains valid when hardware changes after a caller's readiness check.
         self.mixer.add(source);
         Ok(())
     }
@@ -88,7 +76,6 @@ impl Drop for MixerLease {
 pub(super) struct Route<D, S> {
     stream: Option<(D, S)>,
     mixer: MixerSlot,
-    ready: Arc<AtomicBool>,
 }
 
 impl<D, S> Route<D, S> {
@@ -104,7 +91,6 @@ impl<D, S> Route<D, S> {
         {
             return;
         }
-        self.ready.store(false, Ordering::Release);
         // Drop on the owner thread before lending the mixer to another callback.
         self.stream = None;
         let Some(device) = device else {
@@ -119,7 +105,6 @@ impl<D, S> Route<D, S> {
         };
         if let Some(stream) = open(&device, source) {
             self.stream = Some((device, stream));
-            self.ready.store(true, Ordering::Release);
         }
     }
 }
@@ -128,14 +113,12 @@ impl<D, S> Route<D, S> {
 pub(super) fn open_default_output()
 -> Option<(Route<rodio::cpal::Device, OutputStream>, SharedOutput)> {
     let (controller, mixer) = dynamic_mixer::mixer::<f32>(CAPTURE_CHANNELS, MIXER_RATE);
-    let ready = Arc::new(AtomicBool::new(false));
     let mut route = Route {
         stream: None,
         mixer: Arc::new(Mutex::new(Some(mixer))),
-        ready: Arc::clone(&ready),
     };
     refresh_output(&mut route);
-    Some((route, (controller, ready)))
+    Some((route, controller))
 }
 
 /// Queries the OS default without enumerating or selecting an alternate output.

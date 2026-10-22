@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::atomic::Ordering;
 
 type TestStream = rodio::source::UniformSourceIterator<MixerLease, f32>;
 
@@ -12,7 +13,6 @@ fn route() -> (
         Route {
             stream: None,
             mixer: Arc::new(Mutex::new(Some(mixer))),
-            ready: Arc::new(AtomicBool::new(false)),
         },
         controller,
     )
@@ -52,7 +52,7 @@ fn changing_default_output_preserves_active_and_pending_sources() {
     for expected in &samples[16..32] {
         assert_eq!(replacement.next(), Some(*expected + 0.25));
     }
-    assert!(route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_some());
 }
 
 #[test]
@@ -98,10 +98,10 @@ fn replacement_waits_for_the_old_callback_to_release_the_mixer() {
     route.refresh(Some(44_100), PartialEq::eq, |_, _| {
         panic!("old callback still owns the mixer")
     });
-    assert!(!route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_none());
     drop(old_callback);
     route.refresh(Some(44_100), PartialEq::eq, open);
-    assert!(route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_some());
 }
 
 #[test]
@@ -115,14 +115,14 @@ fn unplug_and_failed_reopens_retain_voice_ownership_until_recovery() {
     route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
     route.stream.as_mut().unwrap().1.next();
     route.refresh(None, PartialEq::eq, open);
-    assert!(!route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_none());
     assert_eq!(pool.occupied(), 1);
     route.refresh(Some(44_100), PartialEq::eq, |_, _| None);
-    assert!(!route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_none());
     assert_eq!(pool.occupied(), 1);
     control.cancel();
     route.refresh(Some(44_100), PartialEq::eq, open);
-    assert!(route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_some());
     for _ in 0..1024 {
         route.stream.as_mut().unwrap().1.next();
         if pool.occupied() == 0 {
@@ -136,7 +136,7 @@ fn unplug_and_failed_reopens_retain_voice_ownership_until_recovery() {
 fn no_initial_device_can_recover_and_shutdown_releases_pending_sources() {
     let (mut route, controller) = route();
     route.refresh(None, PartialEq::eq, open);
-    assert!(!route.ready.load(Ordering::Acquire));
+    assert!(route.stream.is_none());
     route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
     let pool = Arc::new(super::super::PermitPool::default());
     let (source, _) =
@@ -151,18 +151,17 @@ fn no_initial_device_can_recover_and_shutdown_releases_pending_sources() {
 #[test]
 fn a_temporary_output_gap_does_not_discard_the_owner() {
     let (controller, _) = dynamic_mixer::mixer::<f32>(CAPTURE_CHANNELS, MIXER_RATE);
-    let ready = Arc::new(AtomicBool::new(false));
     let (release, released) = mpsc::channel();
     let mut device = super::super::AudioDevice {
         output: Some(Output {
             mixer: controller,
-            ready: Arc::clone(&ready),
             _release: release,
         }),
         ..super::super::AudioDevice::disabled()
     };
-    assert!(!device.available());
-    assert!(!device.play_source(rodio::source::Zero::<f32>::new(
+    assert!(device.available());
+    assert!(!device.is_opening());
+    assert!(device.play_source(rodio::source::Zero::<f32>::new(
         CAPTURE_CHANNELS,
         MIXER_RATE
     )));
@@ -170,10 +169,93 @@ fn a_temporary_output_gap_does_not_discard_the_owner() {
         released.try_recv(),
         Err(mpsc::TryRecvError::Empty)
     ));
-    ready.store(true, Ordering::Release);
     assert!(device.available());
     assert!(device.play_source(rodio::source::Zero::<f32>::new(
         CAPTURE_CHANNELS,
         MIXER_RATE
     )));
+}
+
+#[test]
+fn a_device_change_during_named_submission_preserves_all_sources() {
+    let (mut route, controller) = route();
+    let (release, _released) = mpsc::channel();
+    let mut device = super::super::AudioDevice {
+        output: Some(Output {
+            mixer: controller,
+            _release: release,
+        }),
+        ..super::super::AudioDevice::disabled()
+    };
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    let sample = crate::named_audio::test_support::sample();
+    let mut audio = crate::named_audio::NamedAudio::new(None);
+    for slot in 0..2 {
+        let (source, control) = super::super::CancelablePcm::prepare(&sample, &audio.pool).unwrap();
+        audio.controls[slot] = Some(control);
+        audio.pending[slot] = Some(source);
+    }
+    // The owner can replace the output after the game thread has checked readiness.
+    assert!(!device.is_opening());
+    audio.flush(|source| {
+        route.refresh(None, PartialEq::eq, open);
+        device.submit(source)
+    });
+    assert_eq!(audio.stats.backend_failed, 0);
+    assert_eq!(audio.stats.submitted, 2);
+    assert!(
+        audio
+            .controls
+            .iter()
+            .flatten()
+            .all(|control| !control.cancel.load(Ordering::Acquire))
+    );
+    assert_eq!(audio.pool.occupied(), 2);
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    assert!(
+        route
+            .stream
+            .as_mut()
+            .unwrap()
+            .1
+            .by_ref()
+            .take(64)
+            .any(|sample| sample > 0.0)
+    );
+}
+
+#[test]
+fn named_sources_queue_without_failure_during_an_output_gap() {
+    let (mut route, controller) = route();
+    let (release, _released) = mpsc::channel();
+    let mut device = super::super::AudioDevice {
+        output: Some(Output {
+            mixer: controller,
+            _release: release,
+        }),
+        ..super::super::AudioDevice::disabled()
+    };
+    let sample = crate::named_audio::test_support::sample();
+    let mut audio = crate::named_audio::NamedAudio::new(None);
+    let (source, control) = super::super::CancelablePcm::prepare(&sample, &audio.pool).unwrap();
+    audio.controls[0] = Some(control);
+    audio.pending[0] = Some(source);
+    audio.flush_device(&mut device);
+    assert_eq!(audio.stats.submitted, 1);
+    assert_eq!(audio.stats.backend_failed, 0);
+    assert_eq!(audio.pool.occupied(), 1);
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    audio.flush_device(&mut device);
+    assert_eq!(audio.stats.submitted, 1);
+    assert_eq!(audio.stats.backend_failed, 0);
+    assert!(
+        route
+            .stream
+            .as_mut()
+            .unwrap()
+            .1
+            .by_ref()
+            .take(64)
+            .any(|sample| sample > 0.0)
+    );
 }

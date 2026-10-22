@@ -230,11 +230,10 @@ impl AudioDevice {
                 return;
             };
             match opening.try_recv() {
-                Ok(Some(((mixer, ready), release))) => {
+                Ok(Some((mixer, release))) => {
                     self.sample_rate = MIXER_RATE;
                     self.output = Some(Output {
                         mixer,
-                        ready,
                         _release: release,
                     });
                 }
@@ -293,6 +292,10 @@ impl AudioDevice {
             return true;
         }
         self.resolve();
+        // Native availability belongs to the retained mixer, including hardware handoffs.
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.output.is_some();
+        #[cfg(target_arch = "wasm32")]
         self.output.as_ref().is_some_and(Output::available)
     }
     /// Only replaces hardware transport; admission and source ownership are real.
