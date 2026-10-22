@@ -12,6 +12,7 @@ mod appearance_preparation;
 mod colliders;
 mod effect_members;
 pub use colliders::ActorCollisionBounds;
+mod death_visibility;
 mod local_presentation;
 mod native_facts;
 #[cfg(test)]
@@ -136,7 +137,7 @@ pub struct ActorSnapshot {
     pub source_tick: Option<u64>,
     /// Accepted actor metadata, independent of local animation flags.
     pub metadata: HashMap<u32, ActorMetadataValue>,
-    /// Primary flags for local rendering, retired by the next received primary word.
+    /// Client-derived rendering flags, retired by the next received primary word.
     local_presentation_flags: Option<u64>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<u32, i32>,

@@ -24,6 +24,9 @@ The local rig retains animation flags separately from gameplay metadata. Visual
 item use and locomotion poses no longer author correction-sync flag words.
 Rendering consumers read the separate animation state. Accepted local held-use and
 glide/swim/crawl projection, replay authority and send-phase parity remain open.
+Player death also changes presentation flags once after its visible sequence,
+retaining the actor and accepting later server visibility updates. Deterministic
+death, revival and removal coverage does not establish original Zeqa acceptance.
 
 ## Correction-sync posture retries
 
