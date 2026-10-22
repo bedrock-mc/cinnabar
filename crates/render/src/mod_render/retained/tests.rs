@@ -419,10 +419,17 @@ fn out_of_memory_draws_what_fits_and_uploads_geometry_later() {
     app.world_mut()
         .resource_mut::<render_scene::ModRenderScene>()
         .retained = vec![store.snapshot().clone()];
+    let geometry_attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     {
-        let _failure = crate::gpu_allocation::inject(|label, _| label == "mod retained drawing");
+        let attempts = std::rc::Rc::clone(&geometry_attempts);
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            attempts.set(attempts.get() + usize::from(label == "mod retained geometry"));
+            label.starts_with("mod retained")
+        });
         app.world_mut().run_system_once(gpu::queue).unwrap();
     }
+    // Both placements share one geometry, so its failed allocation is attempted once.
+    assert_eq!(geometry_attempts.get(), 1);
     let gpu = app.world().resource::<gpu::Gpu>();
     assert!(gpu.meshes.is_empty());
     let view = gpu.views.values().next().unwrap();

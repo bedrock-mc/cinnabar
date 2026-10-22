@@ -22,7 +22,7 @@ use render_scene::{
     mod_scene::retained::{DrawingFrame, GpuInstance, resolve, visible},
 };
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     ops::Range,
     sync::Arc,
 };
@@ -65,13 +65,14 @@ pub(super) struct CameraFrame {
 }
 
 const LABEL: &str = "mod retained drawing";
+const GEOMETRY_LABEL: &str = "mod retained geometry";
 
 /// Allocates a nonempty storage buffer, or `None` when the device is out of memory.
-fn buffer(device: &RenderDevice, bytes: usize) -> Option<Buffer> {
+fn buffer(device: &RenderDevice, label: &'static str, bytes: usize) -> Option<Buffer> {
     crate::gpu_allocation::buffer(
         device,
         &BufferDescriptor {
-            label: Some(LABEL),
+            label: Some(label),
             size: bytes.max(16) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -145,24 +146,26 @@ pub(super) fn queue(
         gpu.views.clear();
         return;
     }
+    // Each missing geometry is attempted once per frame however many instances share it;
+    // a failure retries next frame.
+    let mut attempted = BTreeSet::new();
     for resources in &resources {
         for instance in resources.instances.values() {
             let handle = instance.geometry;
-            if gpu.meshes.contains_key(&handle) {
+            if gpu.meshes.contains_key(&handle) || !attempted.insert(handle) {
                 continue;
             }
             let Some(geometry) = resources.geometry.get(&handle) else {
                 continue;
             };
             let vertices = mesh::build(geometry);
-            // Out of memory leaves the geometry undrawn and retries it next frame.
             let storage = if vertices.is_empty() {
-                buffer(&device, std::mem::size_of::<GpuVertex>())
+                buffer(&device, GEOMETRY_LABEL, std::mem::size_of::<GpuVertex>())
             } else {
                 crate::gpu_allocation::buffer_with_data(
                     &device,
                     &queue,
-                    LABEL,
+                    GEOMETRY_LABEL,
                     bytemuck::cast_slice(&vertices),
                     BufferUsages::STORAGE,
                 )
@@ -268,7 +271,7 @@ pub(super) fn queue(
         }
         let bytes = instances.len() * std::mem::size_of::<GpuInstance>();
         if bytes as u64 > prepared.buffer.size() {
-            if let Some(grown) = buffer(&device, bytes.next_power_of_two()) {
+            if let Some(grown) = buffer(&device, LABEL, bytes.next_power_of_two()) {
                 prepared.buffer = grown;
                 prepared.bindings.clear();
             } else {
