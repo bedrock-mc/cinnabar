@@ -11,7 +11,7 @@ use std::{
 use time::OffsetDateTime;
 use update_manifest::select::Check;
 
-/// Resolves only native app bundles, MSI layouts and mounted AppImage source files.
+/// Resolves native app bundles, MSI layouts, AppImage source files and extracted AppDirs.
 pub(super) fn installed_target() -> Result<PathBuf> {
     update_installer::target::resolve(
         std::env::consts::OS,

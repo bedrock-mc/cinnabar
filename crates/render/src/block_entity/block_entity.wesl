@@ -1,5 +1,5 @@
 import bevy_render::view::View;
-import render::world_projection::{camera_offset_clip, world_clip};
+import render::world_projection::camera_offset_clip;
 import render::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{cutout_alpha_2d};
@@ -85,7 +85,7 @@ const SELECTION_STROKE_PIXELS: f32 = 1.0;
 fn selection_endpoint(index: u32) -> vec4<f32> {
     let base = index * BLOCK_ENTITY_VERTEX_WORDS;
     let world = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
-    var clip = world_clip(view.clip_from_world, view.world_position, world);
+    var clip = camera_offset_clip(view.clip_from_world, view.world_position, world - view.world_position);
     clip.z += 0.00005;
     return clip;
 }
@@ -221,7 +221,7 @@ fn portal_vertex(@builtin(vertex_index) vertex_index: u32) -> PortalOutput {
     // Native fmod keeps the sign; atlas wrapping happens after interpolation.
     uv -= trunc(uv / 64.0) * 64.0;
     var out: PortalOutput;
-    out.position = world_clip(view.clip_from_world, view.world_position, world_position);
+    out.position = camera_offset_clip(view.clip_from_world, view.world_position, world_position - view.world_position);
     out.color_uv = vec2(vertex_f32(base + 3u), vertex_f32(base + 4u));
     out.parallax_uv = uv;
     out.phase = phase;

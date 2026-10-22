@@ -114,7 +114,7 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 			stats.education++
 			continue
 		}
-		if _, retail := allowed[identity.Name]; retail && identity.Name == "minecraft:shelf_mushroom" {
+		if _, retail := allowed[identity.Name]; retail && (identity.Name == "minecraft:shelf_mushroom" || identity.Name == "minecraft:straw_bed") {
 			projected[index] = identity
 			projection.classes[index] = v2193ClassAuthored
 			stats.authored++
@@ -226,8 +226,8 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 	if stats.additions != 0 {
 		return fmt.Errorf("v2193 projection has %d retail states without reviewed facts (fingerprint %s)", stats.additions, stats.additionFingerprint)
 	}
-	if stats.education != v2193EducationStateCount {
-		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount)
+	if stats.education != v2193EducationStateCount() {
+		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount())
 	}
 	projected := projection.records
 	if err := applyBeaconTints(projected, source); err != nil {
@@ -265,7 +265,7 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 	manifest.Projection.States, manifest.Projection.LegacyExactStates = len(projected), stats.legacy
 	manifest.Projection.LegacyReducedStates, manifest.Projection.TwinStates = stats.reduced, stats.twins
 	manifest.Projection.TwinNames, manifest.Projection.TwinFingerprint = len(twinNames), fmt.Sprintf("%x", twinHash.Sum(nil))
-	manifest.Projection.UnresolvedRetail = append([]string(nil), v2193UnresolvedRetail...)
+	manifest.Projection.UnresolvedRetail = append([]string{}, v2193UnresolvedRetail...)
 	manifest.Projection.DeniedCount, manifest.Projection.DeniedFingerprint = stats.denied, stats.deniedFingerprint
 	manifest.Projection.EducationStates = stats.education
 	manifest.Projection.AuthoredStates = stats.authored
@@ -429,7 +429,7 @@ var v2193Twins = map[string]v2193Twin{
 
 // v2193UnresolvedRetail are retail 1.26.50 blocks with no schema-identical
 // twin; they stay reserved until a reviewed fact source exists.
-var v2193UnresolvedRetail = []string{"minecraft:straw_bed"}
+var v2193UnresolvedRetail = []string{}
 
 func v2193TwinFor(name string) (v2193Twin, bool) {
 	twin, ok := v2193Twins[name]
