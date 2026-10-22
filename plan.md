@@ -130,8 +130,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close the exhaustive residual-family inventory for the pinned target. Every
   non-air state needs an authoritative accepted visual; provisional fallback does not count.
   Require zero diagnostic/provisional-fallback counters and current resource-cost evidence.
-  Leaf litter has state-driven ground patches and flat carried-item routing; its new
-  regressions, compiled-carrier regeneration and rendered before/after acceptance remain pending.
+  Leaf litter has state-driven ground patches and flat carried-item routing. Its focused
+  regressions, registry regeneration and Linux rendered comparison pass; matched native
+  visual and replacement-pack qualification remain incomplete.
 - [ ] Close coral-fan native placement and rendered acceptance for floor/wall orientations
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
