@@ -1,3 +1,4 @@
+use super::page_budget::{MAX_ACTOR_PAGE_BYTES, MAX_ACTOR_PAGE_LAYERS, page_layers, push_page};
 use super::*;
 
 #[test]
@@ -270,4 +271,36 @@ fn large_same_size_textures_split_into_pages_within_the_byte_cap() {
     );
     assert_eq!(page_layers(128, 128), MAX_ACTOR_PAGE_LAYERS);
     assert_eq!(page_layers(u16::MAX, u16::MAX), 1);
+}
+
+// A group over the remaining budget shares one downscale, so every member keeps a location.
+#[test]
+fn a_split_group_downscales_together_so_every_member_is_admitted() {
+    let side = 1024u16;
+    let layer = usize::from(side) * usize::from(side) * 4;
+    let members: Vec<usize> = (0..9).collect();
+    let mut pages = Vec::new();
+    let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 32 * 1024 * 1024;
+    let placed = push_group(
+        &mut pages,
+        &mut gpu_bytes,
+        &members,
+        [side, side],
+        false,
+        |chunk| ActorTexturePage {
+            width: side,
+            height: side,
+            layers: chunk.len() as u32,
+            rgba8: vec![9; layer * chunk.len()].into(),
+            color_mask: false,
+            multitexture: false,
+        },
+    );
+    assert_eq!(
+        placed.iter().map(|(chunk, _)| chunk.len()).sum::<usize>(),
+        9
+    );
+    assert!(placed.iter().all(|(_, page)| page.is_some()));
+    assert!(pages.iter().all(|page| page.dimensions() == (512, 512)));
+    assert!(gpu_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES);
 }
