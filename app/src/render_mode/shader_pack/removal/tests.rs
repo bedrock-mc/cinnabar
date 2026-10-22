@@ -144,6 +144,84 @@ fn removing_a_library_copy_preserves_an_external_cli_pack_with_the_same_name() {
 }
 
 #[test]
+fn removing_a_relative_cli_selection_switches_off_the_deleted_pack() {
+    let current = std::env::current_dir().unwrap();
+    let root = tempfile::tempdir_in(&current).unwrap();
+    let mut app = fixture(root.path(), Some("Dusk"));
+    let selected = root.path().join("shaderpacks/Dusk");
+    app.world_mut()
+        .resource_mut::<RenderModeConfig>()
+        .cli_shader_pack = Some(selected.strip_prefix(current).unwrap().to_owned());
+    app.update();
+    remove(&mut app, 0);
+    test_time::eventually("the relative CLI shader pack removal", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    assert!(!selected.exists());
+    assert!(
+        app.world()
+            .resource::<RenderModeConfig>()
+            .cli_shader_pack
+            .is_none()
+    );
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::Vanilla);
+    assert!(video.shader_pack.is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_path_identity_resolves_links() {
+    let root = tempfile::tempdir().unwrap();
+    let library = root.path().join("Dusk");
+    let alias = root.path().join("alias");
+    std::fs::create_dir(&library).unwrap();
+    std::os::unix::fs::symlink(&library, &alias).unwrap();
+    assert!(same_pack(&alias, &library));
+}
+
+#[test]
+fn completing_a_removal_preserves_a_newer_pack_selection() {
+    let root = tempfile::tempdir().unwrap();
+    let mut app = fixture(root.path(), Some("Dusk"));
+    let (send, receive) = mpsc::channel();
+    app.world_mut().resource_mut::<RemovalWorker>().0 = Some(("Dusk".into(), Mutex::new(receive)));
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        let revision = menu.view().shader_packs_revision;
+        menu.activate(MenuAction::SelectRenderer(
+            launcher::menu::RendererChoice::ShaderPack(1, revision),
+        ));
+    }
+    assert!(
+        send.send(RemovalOutcome {
+            result: Ok(()),
+            selected_path: Some(root.path().join("shaderpacks/Dusk")),
+        })
+        .is_ok()
+    );
+    app.update();
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::ShaderPack);
+    assert_eq!(video.shader_pack.as_deref(), Some("Lumen"));
+}
+
+#[test]
 fn failed_deletion_restores_controls_and_keeps_the_library_entry() {
     let root = tempfile::tempdir().unwrap();
     let mut app = fixture(root.path(), None);
