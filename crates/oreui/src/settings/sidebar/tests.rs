@@ -431,3 +431,17 @@ fn creator_remains_reachable_at_the_bottom() {
     assert!(row.max().y() <= viewport.max().y());
     assert!(row.max().y() - row.min().y() >= row_height);
 }
+
+/// With Party removed, the Social group heading moves to Chat, directly followed by Discord.
+#[test]
+fn social_group_starts_at_chat_without_party() {
+    use launcher::menu::settings_sections::SettingSection;
+    let position = |section: SettingSection| {
+        TABS.iter()
+            .position(|tab| tab.section == section.definition().name)
+    };
+    assert_eq!(position(SettingSection::Party), None);
+    let chat = position(SettingSection::Chat).unwrap();
+    assert_eq!(TABS[chat].group, Some("options.social"));
+    assert_eq!(position(SettingSection::Discord), Some(chat + 1));
+}

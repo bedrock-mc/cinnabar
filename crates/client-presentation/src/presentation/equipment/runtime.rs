@@ -151,9 +151,16 @@ pub struct EquipmentRuntime {
     startup_geometries: std::collections::BTreeSet<EntityRigId>,
     /// The strip frame each held dial (compass or clock) shows this frame.
     dial_frames: inventory::DialFrames,
+    /// Whether server-pack held models may replace their ordinary item sprites.
+    show_custom_item_models: bool,
 }
 
 impl EquipmentRuntime {
+    /// Applies the current video preference to the frame's held-item model selection.
+    pub fn set_show_custom_item_models(&mut self, enabled: bool) {
+        self.show_custom_item_models = enabled;
+    }
+
     /// Releases memoized poses of layers no recent frame drew.
     pub fn begin_frame(&mut self) {
         self.poses.begin_frame();
@@ -293,6 +300,7 @@ impl EquipmentRuntime {
             selected_geometries: Default::default(),
             startup_geometries: geometries.iter().copied().map(equipment_rig_id).collect(),
             dial_frames: Default::default(),
+            show_custom_item_models: ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
             external_armor: external_armor::ExternalArmor::new(catalog.as_deref()),
             assets,
             icons,

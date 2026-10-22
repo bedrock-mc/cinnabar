@@ -29,7 +29,7 @@ impl ThreadBudget {
     }
 
     fn current() -> Self {
-        Self::for_cores(std::thread::available_parallelism().map_or(1, usize::from))
+        Self::for_cores(chunk_pipeline::logical_cores())
     }
 
     pub(crate) fn task_pool_plugin() -> TaskPoolPlugin {

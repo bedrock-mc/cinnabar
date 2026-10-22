@@ -35,6 +35,8 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 static LAYOUT: OnceLock<InstallLayout> = OnceLock::new();
 static STATE: Mutex<State> = Mutex::new(State::new());
+/// Held while the exit handoff runs and true once it has run; see [`apply_after_exit`].
+static EXIT_HANDOFF: Mutex<bool> = Mutex::new(false);
 #[cfg(target_os = "linux")]
 static MANUAL: OnceLock<manual::Running> = OnceLock::new();
 #[cfg(unix)]
@@ -474,7 +476,24 @@ pub fn act(action: Action) -> bool {
 }
 
 /// Starts the offline helper only for a click or the separately saved quit-time opt-in.
+/// Both `main` and the shutdown watchdog call this; only the first call starts a helper, and a
+/// later caller returns only after that handoff finishes, so neither exits under the other.
 pub fn apply_after_exit() {
+    once_at_exit(&EXIT_HANDOFF, start_exit_handoff);
+}
+
+/// Runs `handoff` at most once under `done`, blocking concurrent callers until it returns.
+fn once_at_exit(done: &Mutex<bool>, handoff: impl FnOnce()) {
+    let mut done = done
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !std::mem::replace(&mut *done, true) {
+        handoff();
+    }
+}
+
+/// Copies and starts the helper for the accepted stage, reopening this client if that fails.
+fn start_exit_handoff() {
     let ready = STATE
         .lock()
         .ok()

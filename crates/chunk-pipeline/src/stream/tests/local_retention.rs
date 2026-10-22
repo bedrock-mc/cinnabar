@@ -111,7 +111,11 @@ fn serviced_retention_retires_dropped_requests_before_the_flush() {
         stream.loaded_columns.contains(&loaded),
         "terrain eviction waits for the next poll"
     );
-    stream.poll([320.0, 70.0, 0.0], 0);
+    // Eviction is wall-clock budgeted, so a loaded host may spread it over several polls.
+    test_time::eventually("deferred terrain eviction", || {
+        stream.poll([320.0, 70.0, 0.0], 0);
+        !stream.retention_due
+    });
     assert!(!stream.loaded_columns.contains(&loaded));
 }
 

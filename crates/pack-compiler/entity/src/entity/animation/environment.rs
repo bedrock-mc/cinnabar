@@ -9,7 +9,7 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::selection::{Selector, Step, condition_text};
+use super::selection::{Selector, selection_condition};
 use super::{
     super::{SourceDocuments, invalid},
     clip::{read_json, required_object},
@@ -190,14 +190,7 @@ pub(super) fn compile_geometry_selections(
                     leaves
                         .into_iter()
                         .map(|(path, geometry)| {
-                            // Rig candidate conditions must end in a boolean op; a lone
-                            // element test already does.
-                            let text = condition_text(&path)?;
-                            let text = if matches!(path.as_slice(), [Step::Element(..)]) {
-                                text
-                            } else {
-                                format!("({text}) != 0")
-                            };
+                            let text = selection_condition(&path)?;
                             let condition = transaction.compile(&text).ok()?;
                             Some(SelectableGeometry {
                                 geometry: geometry?,

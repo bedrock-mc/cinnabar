@@ -50,7 +50,7 @@ func resolveLocalLANTarget(ctx context.Context, target localworld.ConnectionTarg
 		address: strconv.FormatUint(id, 10), local: signaling, offline: true,
 		// BDS explicitly advertises offline LAN login and returns an identityless
 		// LAN answer. HTTP, external endpoints and online identities stay strict.
-		network:    minecraft.NetherNet{Signaling: signaling, Dialer: nethernet.Dialer{AllowIdentitylessServer: true}},
+		network:    minecraft.NetherNet{Signaling: signaling, Dialer: nethernet.Dialer{API: localNetherNetAPI(), AllowIdentitylessServer: true}},
 		clientData: func(client *login.ClientData) { client.Nonce = data.Nonce },
 	}, nil
 }

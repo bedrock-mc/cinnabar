@@ -168,6 +168,8 @@ pub enum MenuAction {
     AddSave,
     AddSaveConnect,
     AddBack,
+    /// Opens the native touch-control layout draft.
+    EditTouchControls,
     SettingsScale(i8),
     SettingsScalePicker,
     SettingsFullscreen(bool),

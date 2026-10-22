@@ -9,7 +9,10 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use launcher::local_worlds::{
     in_world::{Applied, Timing, timing},
     options::OptionChanges,
-    world::{NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate},
+    world::{
+        NATURAL_TERRAIN_REQUIRES_BDS, NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus,
+        WorldUpdate,
+    },
 };
 
 use crate::lifecycle::children::{self, ExitHookGuard};
@@ -251,7 +254,11 @@ impl Manager {
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
-        world.backend = Some(self.creatable_backend(world.backend)?);
+        let backend = self.creatable_backend(world.backend)?;
+        if !world.generator.supports_backend(backend) {
+            return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
+        }
+        world.backend = Some(backend);
         self.inner.store.create(&world)
     }
 
