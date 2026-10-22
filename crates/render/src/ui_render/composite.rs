@@ -783,15 +783,17 @@ pub(crate) fn ui_present(
     }
 }
 
+type UiOutputQuery = (
+    &'static ViewTarget,
+    &'static bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
+    Option<&'static ExtractedCamera>,
+    Option<&'static UiLayerTexture>,
+    Option<&'static bevy::render::view::ResolvedCompositingSpace>,
+);
+
 /// Qualifies content only after direct output or a successfully encoded ordinary output blit.
 fn observe_ui_output(
-    view: bevy::render::renderer::ViewQuery<(
-        &ViewTarget,
-        &bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
-        Option<&ExtractedCamera>,
-        Option<&UiLayerTexture>,
-        Option<&bevy::render::view::ResolvedCompositingSpace>,
-    )>,
+    view: bevy::render::renderer::ViewQuery<UiOutputQuery>,
     cache: Res<PipelineCache>,
     blit: Res<bevy::core_pipeline::blit::BlitPipeline>,
     mut pipelines: ResMut<

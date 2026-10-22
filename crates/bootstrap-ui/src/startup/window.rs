@@ -72,10 +72,10 @@ pub(super) fn run() -> Result<()> {
     let proxy = event_loop.create_proxy();
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
-            if let Ok(message) = serde_json::from_str(&line) {
-                if proxy.send_event(Some(message)).is_err() {
-                    return;
-                }
+            if let Ok(message) = serde_json::from_str(&line)
+                && proxy.send_event(Some(message)).is_err()
+            {
+                return;
             }
         }
         let _ = proxy.send_event(None);

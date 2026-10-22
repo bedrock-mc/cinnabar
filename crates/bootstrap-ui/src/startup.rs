@@ -62,10 +62,10 @@ impl Controller {
             input: Mutex::new(input),
             cancelled,
         };
-        if let Err(error) = first_frame.recv_timeout(Duration::from_secs(5)) {
-            if !controller.cancelled() {
-                return Err(error).context("startup screen did not draw");
-            }
+        if let Err(error) = first_frame.recv_timeout(Duration::from_secs(5))
+            && !controller.cancelled()
+        {
+            return Err(error).context("startup screen did not draw");
         }
         Ok(controller)
     }
