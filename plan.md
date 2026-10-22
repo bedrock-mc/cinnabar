@@ -515,6 +515,8 @@ Create and edit forms persist BDS advanced, multiplayer and cheat options throug
 catalog and generated server properties and level data. Pack and experiment configuration,
 hardcore, flat presets, Education Edition, operator status for a signed-out host and live
 acceptance of every option on supported platforms remain incomplete.
+hardcore, flat presets, Education Edition and live acceptance of every option on supported
+platforms remain incomplete.
 
 See [local worlds](docs/local-worlds.md).
 
