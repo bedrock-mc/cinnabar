@@ -14,6 +14,7 @@ public final class CinnabarActivity extends NativeActivity {
     private StartupScreen startup;
     private volatile boolean startupActive;
     private volatile long startupGeneration;
+    private ImmersiveMode immersiveMode;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -21,6 +22,7 @@ public final class CinnabarActivity extends NativeActivity {
         addContentView(startup, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        immersiveMode = new ImmersiveMode(getWindow());
         final View decor = getWindow().getDecorView();
         decor.setOnApplyWindowInsetsListener((view, insets) -> {
             updateKeyboardGeometry(decor, insets);
@@ -35,6 +37,7 @@ public final class CinnabarActivity extends NativeActivity {
         startupGeneration++;
         startupActive = true;
         super.onResume();
+        immersiveMode.restore();
     }
 
     @Override protected void onPause() {
@@ -59,12 +62,14 @@ public final class CinnabarActivity extends NativeActivity {
         if (Build.VERSION.SDK_INT >= 30) {
             bottomObstruction = insets.getInsets(
                     WindowInsets.Type.ime() | WindowInsets.Type.systemBars()).bottom;
+            immersiveMode.keyboardVisibilityChanged(insets.isVisible(WindowInsets.Type.ime()));
         } else {
             Rect visible = new Rect();
             int[] location = new int[2];
             decor.getWindowVisibleDisplayFrame(visible);
             decor.getLocationOnScreen(location);
             bottomObstruction = Math.max(0, location[1] + decor.getHeight() - visible.bottom);
+            immersiveMode.keyboardVisibilityChanged(bottomObstruction > insets.getStableInsetBottom());
         }
     }
 

@@ -20,6 +20,7 @@ mod updates;
 
 use std::sync::Arc;
 
+use launcher::local_worlds::world::UnavailableReason;
 use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
@@ -382,54 +383,6 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || chat::server_content(true),
     },
-    State {
-        name: "home-update-compact",
-        size: [480, 640],
-        gui_scale: 3,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-signed-in-update",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::signed_in,
-    },
-    State {
-        name: "home-update-ready",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-update-required",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, true),
-    },
-    State {
-        name: "home-update-download",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(false, false),
-    },
-    State {
-        name: "home-update-pending",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::pending,
-    },
-    State {
-        name: "home-update-pending-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: updates::pending,
-    },
-    State {
-        name: "home-update-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: || updates::home(true, false),
-    },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics",
@@ -587,6 +540,12 @@ const STATES: &[State] = &[
         fixture: out_of_game::disconnect_device_clock,
     },
     State {
+        name: "disconnect-local-world-offline",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_local_world_offline,
+    },
+    State {
         name: "connect-failed",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -663,6 +622,18 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: out_of_game::play_worlds_importing,
+    },
+    State {
+        name: "local-docker-missing",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::docker_prompt(UnavailableReason::DockerMissing),
+    },
+    State {
+        name: "local-docker-not-running",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::docker_prompt(UnavailableReason::DockerNotRunning),
     },
     State {
         name: "world-edit-after-delete-back",
@@ -812,6 +783,24 @@ const STATES: &[State] = &[
         fixture: shader_pack::pack_picker,
     },
     State {
+        name: "settings-shaders-remove",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::removal_dialog,
+    },
+    State {
+        name: "settings-shaders-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library,
+    },
+    State {
+        name: "settings-shaders-narrow-library",
+        size: [800, 720],
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::long_library,
+    },
+    State {
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -953,36 +942,6 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: shader_options::rest,
     },
-    State {
-        name: "toast-shader-pack-loading",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::loading,
-    },
-    State {
-        name: "toast-shader-pack-loaded",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::loaded,
-    },
-    State {
-        name: "toast-shader-pack-failed",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::failed,
-    },
-    State {
-        name: "settings-shaders-selected",
-        size: SHADER_PACK_ROW_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || shader_pack::settings_shaders(false),
-    },
-    State {
-        name: "settings-shaders-failed",
-        size: SHADER_PACK_ROW_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || shader_pack::settings_shaders(true),
-    },
 ];
 
 /// Opens a settings category by its registered name rather than a copied index.
@@ -1001,6 +960,8 @@ pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
         .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(updates::STATES)
+        .chain(shader_pack::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
 }

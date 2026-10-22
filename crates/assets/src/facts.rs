@@ -14,7 +14,7 @@ mod properties_generated;
 mod property_domains_generated;
 
 pub(crate) use properties::decode;
-pub use properties::{PropertyDomain, StateValue};
+pub use properties::{PropertyDomain, StateValue, block_property_domain};
 pub use properties_generated::BlockProperty;
 
 pub mod entity;

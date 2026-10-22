@@ -16,7 +16,7 @@ pub(super) fn evaluate(
                 .state_axes
                 .iter()
                 .position(|axis| axis.name.as_ref() == name)?;
-            Some(match &values[index] {
+            Some(match values.get(index)? {
                 CustomStateValue::String(value) => BlockStateValue::String(value),
                 CustomStateValue::Int(value) => BlockStateValue::Number(*value as f32),
                 CustomStateValue::Bool(value) => BlockStateValue::Number(f32::from(*value)),

@@ -51,9 +51,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_chat_keyboard_input
                 .run_if(client_extensions::server_experiences::input::ordinary_input)
                 .before(client_state::ShellFrameSet::MenuInput),
-            drive_inventory_ui_actions
-                .run_if(client_extensions::server_experiences::input::ordinary_input)
-                .after(client_state::ShellFrameSet::MenuInput),
+            drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
             drive_menu_services,
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
