@@ -78,3 +78,23 @@ and settle into a sit. Gait phase follows travelled distance. Tricks play during
 extended idle periods and cancel when the owner moves away. Ordinary blockage
 never teleports the companion; owner teleports reset only onto checked support. Water, flight and animation-event
 particle bursts remain incomplete; ordinary bone emitters work with the posed pet.
+
+## Ground contact effects
+
+An aura item's emitters may declare `trigger: "step"` or `trigger: "landing"`.
+Such items contain only ground-triggered emitters, with gallery-only geometry and
+no cloth, companion or animation controller. Emitters must use an instant rate
+and a one-shot lifetime with numeric active time from 0.05 to 1 second; they never
+restart while standing. Existing emitters default to `continuous`.
+
+Ground contacts use completed local physics samples or remote interpolated feet,
+including first-person wearers. Distance triggers alternate sides; landing waits
+for supported feet after descent. World-space bursts finish after unequipping.
+Teleport, dimension, session and actor-lifetime changes reset contact history.
+A decal requires continuous coplanar collision support; uneven steps and ledges
+suppress it. Ground effects yield when the particle table is full.
+
+Optional `sprite_side` selects a square 16, 32, 64 or 128 texel region (default 16).
+UVs address that square, including transparent padding. The dynamic atlas retains
+all authored texels and pins the complete region until its last emitter drains.
+Use `emitter_transform_xz` for ground planes that retain the contact heading.

@@ -164,6 +164,56 @@ fn stack_armor_beyond_the_model_atlas_still_dresses_every_slot_with_pack_art() {
 }
 
 #[test]
+fn worn_armor_keeps_gui_page_priority_when_hand_and_armor_textures_swap() {
+    let mut presentation = presentation();
+    let side = render_model::UI_MODEL_ATLAS_SIDE;
+    let full =
+        UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
+    presentation.gui_models.pages = vec![full; MODEL_PAGES - 1];
+    presentation.gui_models.required_pages = MODEL_PAGES - 1;
+    let pack = RuntimeEquipmentCatalog::from_parts(
+        [8; 32],
+        Vec::new(),
+        vec![
+            texture("pack/a_held", [side as u16, side as u16], [10, 20, 30, 255]),
+            texture(
+                "pack/z_chest",
+                [side as u16, side as u16],
+                [40, 50, 60, 255],
+            ),
+        ],
+    )
+    .unwrap();
+    presentation.set_preview_pack_equipment(Some(Arc::new(pack)));
+    presentation.wear_pack_equipment(
+        [None, Some("pack/z_chest"), None, None],
+        [Some("pack/a_held"), None],
+    );
+
+    assert!(presentation.gui_models.pack_equipment.region(1).is_some());
+    assert!(
+        !presentation
+            .gui_models
+            .pack_equipment
+            .regions
+            .contains_key("pack/a_held")
+    );
+
+    presentation.wear_pack_equipment(
+        [None, Some("pack/a_held"), None, None],
+        [Some("pack/z_chest"), None],
+    );
+    assert!(presentation.gui_models.pack_equipment.region(1).is_some());
+    assert!(
+        !presentation
+            .gui_models
+            .pack_equipment
+            .regions
+            .contains_key("pack/z_chest")
+    );
+}
+
+#[test]
 fn one_pack_texture_without_room_leaves_the_rest_of_the_pack_usable() {
     let mut presentation = presentation();
     let side = render_model::UI_MODEL_ATLAS_SIDE;

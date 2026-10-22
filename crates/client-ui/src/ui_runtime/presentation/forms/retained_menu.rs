@@ -25,6 +25,7 @@ impl UiPresentationRuntime {
         }
         let view = self.menu_view.as_deref()?;
         (view.visible
+            && !view.touch_editor_open
             && !view.over_world
             && matches!(
                 view.screen,

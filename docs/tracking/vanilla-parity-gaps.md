@@ -71,7 +71,7 @@ pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label:
 text, tooltip and durability placement/colours, the preview's size and vertical placement in its box, layer
 relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point). Menus (landed, uncompiled): start, play (worlds/friends/servers tabs), add/edit server,
 settings (sections, GUI scale, sound sliders bound to `AudioSettings` at 5% snaps whose
-granularity needs measurement; text-to-speech disabled), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
+granularity needs measurement; no text-to-speech controls), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
 (student view) and server settings (a form over the settings menu, not yet a settings
 section) draw from their vanilla screens, as do launcher dialogs (vanilla two-button popup);
 profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it completes before the

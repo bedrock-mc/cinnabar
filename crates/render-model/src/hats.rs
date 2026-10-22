@@ -354,9 +354,10 @@ mod cosmetics_animation;
 #[cfg(test)]
 mod emitter_tests;
 mod emitters;
+pub mod ground;
 pub use emitters::{
     COSMETIC_EFFECT_NAMESPACE, COSMETIC_PARTICLE_TEXTURE, COSMETIC_SPRITE_SIDE, CosmeticEmitter,
-    CosmeticSprite, MAX_COSMETIC_EMITTERS,
+    CosmeticSprite, CosmeticTrigger, MAX_COSMETIC_EMITTERS,
 };
 pub mod cloth;
 #[cfg(any(test, feature = "test-support"))]

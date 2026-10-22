@@ -40,7 +40,10 @@ schemas document every argument. Agents drive the client only through this endpo
   directly before sending a stimulus. These diagnostics do not grant movement authority.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
-  `fixed_clock: false`. Audio is captured to a WAV and muxed in.
+  `fixed_clock: false`. Audio is captured to a WAV and muxed in. A real-time recording never
+  waits for a lagging encoder: frames it has no room for are dropped and repeat the previous
+  frame, and `record_stop` reports them as `dropped_frames`. A fixed-clock recording instead
+  holds the game until the encoder catches up. Screenshots answer during either.
 
 ```json
 { "mcpServers": { "cinnabar": { "command": "target/debug/cinnabar-mcp", "args": ["--repo", "."] } } }

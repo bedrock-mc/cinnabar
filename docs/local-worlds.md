@@ -12,7 +12,7 @@ Each world records the backend that created it (`world.json`) and always reopens
 | --- | --- | --- |
 | `bds` native | Windows and Linux x86-64 | Official Bedrock Dedicated Server: vanilla terrain and mobs. |
 | `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
-| `dragonfly` | built-in local server on every supported host | Normal terrain through `bedrock-mc/vanilla-gen`, or Dragonfly's flat generator; mob behavior has parity gaps. |
+| `dragonfly` | built-in local server on every supported host | Flat terrain through Dragonfly's built-in generators; mob behavior has parity gaps. |
 
 New worlds use BDS and offer Infinite or Flat terrain. If BDS is unavailable, creation shows
 its runtime warning and the Docker setup prompt. Existing Dragonfly worlds keep their backend.
@@ -79,9 +79,11 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   the multiplayer player limit, `view-distance` at the client's largest render distance (each
   RequestChunkRadius picks the radius), independent simulation distance (4–12), `transport=nethernet`
   and `enable-lan-visibility=false`. Seed and level type apply at creation only.
-- **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
-  the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the
-  generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.
+- **Dragonfly terrain:** only Flat is supported. Use BDS for natural terrain. Existing Dragonfly
+  Normal saves remain on disk, but cannot be opened with the built-in server. Existing chunks
+  are never silently extended with a different generator. Seeds are retained in world metadata
+  for BDS; Dragonfly's flat terrain does not use them. Natural-terrain imports are rejected before
+  saving if the selected backend is Dragonfly; retry with BDS available.
 - **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
@@ -106,7 +108,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. Player-data persistence needs a stable client identity.
-- **Offline:** native BDS gathers ICE candidates only from non-loopback interfaces and has no other
+- **Offline:** the client includes loopback ICE candidates for both local HTTP and LAN joins, so
+  its transport can use same-device routes with external interfaces down. This does not create a
+  missing server route: native BDS gathers ICE candidates only from non-loopback interfaces and has no other
   transport, so on a device with no network its SDP answer carries no candidate. The core fails such
   a join at once with `cinnabar.disconnect.localWorldOffline` rather than waiting for a candidate.
   Joining a BDS world offline remains unsupported.
@@ -135,7 +139,6 @@ mode on each join, while keeping the host's other saved data. BDS launches use `
 
 ## v1 limits
 
-The owner-requested natural generator has not passed version-matched Bedrock terrain parity; its source targets
-Java-style generation. Dragonfly's mob AI and other parity gaps remain open. Docker-mounted LevelDB on macOS
+Natural terrain requires BDS. Dragonfly's mob AI and other parity gaps remain open. Docker-mounted LevelDB on macOS
 can be slow. A killed client can leave a container running; the next start of that world removes it
 before reserving ports.

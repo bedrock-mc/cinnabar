@@ -141,7 +141,7 @@ fn cancel_pending_owners(world: &mut World) {
 fn capture(world: &mut World, input: &ActionSnapshot, phase: DispatchPhase) -> CapturedContext {
     let position = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity()
+        .position_authority_identity()
         .1;
     if !world
         .resource::<crate::melee::MeleeTarget>()

@@ -9,7 +9,7 @@ use std::{
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
-use pack_json::parse_jsonc;
+use pack_json::validate_jsonc;
 
 use crate::{
     AdmissionError,
@@ -212,10 +212,7 @@ impl ValidatedPack {
         let is_json = path
             .rsplit_once('.')
             .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("json"));
-        if is_json
-            && parse_jsonc::<serde::de::IgnoredAny>(&decrypted).is_err()
-            && parse_jsonc::<serde::de::IgnoredAny>(&raw).is_ok()
-        {
+        if is_json && validate_jsonc(&decrypted).is_err() && validate_jsonc(&raw).is_ok() {
             return Ok(raw);
         }
         Ok(decrypted.into_boxed_slice())

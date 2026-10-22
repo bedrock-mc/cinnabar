@@ -39,6 +39,7 @@ mod modding;
 pub mod movement;
 mod named_audio;
 mod ordered_interactions;
+pub mod startup_feedback;
 
 mod particles;
 mod pick_block;
