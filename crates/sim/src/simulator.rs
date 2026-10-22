@@ -268,12 +268,23 @@ impl Simulator {
         // climber measured after the previous move; without one, measure here.
         let scaffold = match next.retained_climber() {
             Some(contact) => contact,
-            None => scaffolding::sample_climber(
-                world,
-                Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
-                input.can_stand_on_snow,
-                &mut sampled,
-            )?,
+            None => {
+                let player = Aabb::player_with_height_at(next.position, next.hitbox_height(input));
+                match scaffolding::sample_climber(
+                    world,
+                    player,
+                    input.can_stand_on_snow,
+                    &mut sampled,
+                ) {
+                    Ok(contact) => contact,
+                    // An unreadable support or lower-layer cell must not block
+                    // travel; feet-layer scaffolding still admits the ascent.
+                    Err(_) => scaffolding::ClimberContact {
+                        inside: scaffolding::sample_feet_scaffolding(world, player, &mut sampled)?,
+                        ..Default::default()
+                    },
+                }
+            }
         };
         // Sneaking over a climbable block descends through it at a fixed speed,
         // even on a tick whose travel is suppressed.

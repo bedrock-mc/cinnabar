@@ -100,11 +100,11 @@ impl PlayerState {
         }
     }
 
-    /// Applies an external placement, rebuilding contact faces even at the same position.
+    /// Applies an external placement, rebuilding contact faces even at the same
+    /// position. Retained climber contact survives only at the same feet.
     pub fn set_position(&mut self, position: Vec3) {
         self.position = position;
         self.collision_shape = None;
-        self.climber = None;
     }
 
     /// Climber contact retained from the previous tick, unless the feet moved since.

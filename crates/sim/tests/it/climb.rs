@@ -295,6 +295,86 @@ fn assert_unmeasured(input: MovementInput, world: &impl CollisionWorld) {
     assert!(tick.world_identity.chunks.is_empty());
 }
 
+/// A placement at the same feet, as a matching correction applies, keeps the
+/// contact retained from that tick; a placement elsewhere measures afresh.
+#[test]
+fn a_placement_keeps_the_retained_contact_only_at_the_same_feet() {
+    let supported = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    let unsupported = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [5, 0, 0]],
+        solids: Vec::new(),
+    };
+    for (feet, descends) in [
+        (Vec3::new(0.5, 1.0, 0.5), true),
+        (Vec3::new(5.5, 1.0, 0.5), false),
+    ] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        state.on_ground = true;
+        Simulator::default()
+            .tick(&mut state, MovementInput::default(), &supported)
+            .unwrap();
+        state.set_position(feet);
+        let tick = Simulator::default()
+            .tick(&mut state, sneaking(), &unsupported)
+            .unwrap();
+        assert_eq!(
+            tick.environment.descending_through_block, descends,
+            "{feet:?}"
+        );
+    }
+}
+
+/// Without retained contact, an unreadable block under the feet-layer scaffold
+/// leaves the ascent available instead of failing the tick.
+#[test]
+fn an_unreadable_support_does_not_block_the_scaffold_ascent() {
+    struct UnknownSupport(ScaffoldWorld);
+    impl CollisionWorld for UnknownSupport {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            self.0.collision_boxes(query)
+        }
+
+        fn collision_boxes_with_provenance(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+            self.0.collision_boxes_with_provenance(query)
+        }
+
+        fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            if block == [0, 0, 0] {
+                return Err(WorldQueryError::UnknownRuntimeId {
+                    runtime_id: 7,
+                    block,
+                });
+            }
+            self.0.block_physics(block)
+        }
+    }
+    let world = UnknownSupport(ScaffoldWorld {
+        scaffolds: vec![[0, 1, 0]],
+        solids: Vec::new(),
+    });
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.75, 0.5));
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(tick.movement.y as f32, 0.15_f32);
+}
+
 /// A tick with suppressed travel still starts the descent, without moving.
 #[test]
 fn skipped_travel_still_starts_the_scaffold_descent() {
