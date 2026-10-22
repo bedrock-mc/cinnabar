@@ -276,6 +276,7 @@ fn the_environment_query_reports_scaffolding_contact() {
             Vec3::new(0.5, 1.0, 0.5),
             sim::MovementMode::Walking,
             false,
+            sim::SneakProfile::Current,
             &world,
         )
         .unwrap();

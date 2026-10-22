@@ -160,7 +160,8 @@ const HORIZONTAL_POSE_FLAGS: [ActorFlag; 4] = [
 /// Sizes the standard player model from the sent pose, as vanilla's player
 /// size update does: a horizontal pose uses the width as its height, otherwise
 /// the current accepted walking size applies once a sample exists. The sent
-/// size is unscaled, so any scale keeps the pose sizing. Other models retain
+/// size is unscaled, so any scale keeps the pose sizing. The walking size
+/// follows the level's sneak profile. Other models retain
 /// their supplied metadata until their local contracts are available.
 fn predicted_bounding_box(
     metadata: &HashMap<u32, ActorMetadataValue>,
@@ -169,9 +170,10 @@ fn predicted_bounding_box(
 ) -> [f32; 3] {
     let mut size = bounding_box(metadata);
     let width = sim::PLAYER_WIDTH as f32;
+    // A legacy level's sneaking height is the standing height.
     let pose_heights = [
         sim::PLAYER_HEIGHT as f32,
-        sim::MovementMode::Walking.hitbox_height(true) as f32,
+        sim::SneakProfile::Current.height() as f32,
         width,
     ];
     if size[1] != width || !pose_heights.contains(&size[2]) {

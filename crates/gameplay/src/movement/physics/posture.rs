@@ -54,6 +54,24 @@ impl LocalPhysicsController {
             return None;
         }
         let sneaking = self.live_posture.sneaking.unwrap_or(frame.input.sneaking);
-        Some(frame.input.mode.hitbox_height(sneaking) as f32)
+        Some(
+            frame
+                .input
+                .mode
+                .hitbox_height(sneaking, frame.input.sneak_profile) as f32,
+        )
+    }
+
+    /// Selects the sneaking box and crouch eye for the level's StartGame base
+    /// game version; it survives prediction resets until the next StartGame.
+    pub fn set_base_game_version(&mut self, version: protocol::BaseGameVersion) {
+        self.modes
+            .set_sneak_profile(sim::SneakProfile::for_base_game_version(version.version()));
+    }
+
+    /// The level's sneaking dimensions, for queries outside the simulation tick.
+    #[must_use]
+    pub const fn sneak_profile(&self) -> sim::SneakProfile {
+        self.modes.sneak_profile()
     }
 }

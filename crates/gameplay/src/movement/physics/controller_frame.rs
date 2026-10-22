@@ -47,6 +47,7 @@ impl ControllerFrame {
         eye.tick(
             self.input.mode,
             self.input.sneaking,
+            self.input.sneak_profile,
             state.spin_attack_ticks.is_some(),
         );
         self.eye_offset = *eye;

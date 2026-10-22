@@ -44,6 +44,8 @@ pub trait PhysicsObservation {
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)>;
     /// Returns the pose selected by the completed simulation tick.
     fn mode(&self) -> sim::MovementMode;
+    /// Returns the level's sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile;
     /// Returns the consecutive gliding ticks of the completed simulation.
     fn fall_fly_ticks(&self) -> u32;
     /// Returns the collision identity used by the completed tick.

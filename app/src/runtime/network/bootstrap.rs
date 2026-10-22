@@ -92,6 +92,7 @@ pub(super) fn apply(
         player_game_mode_uses_world_default,
         server_authoritative_block_breaking,
         rewind_history_size,
+        base_game_version,
         hardcore,
         hud_rules,
         death_rules,
@@ -254,6 +255,7 @@ pub(super) fn apply(
         session_generation: clock.session_generation(),
         position: resolved.position,
         rewind_history_size,
+        base_game_version,
         auto_fly: auto_fly.enabled(),
         collision_registry_complete: collisions.is_complete(),
     })

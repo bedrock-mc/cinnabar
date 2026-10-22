@@ -4,7 +4,9 @@
 //! separate from effective flight when an ability layer fixes its value.
 
 use client_world::game_mode_capabilities::FlightAuthority;
-use sim::{BlockPhysicsFlags, CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
+use sim::{
+    BlockPhysicsFlags, CollisionWorld, MovementMode, SneakProfile, Vec3, WorldQueryError, pose_fits,
+};
 
 mod sprint_trigger;
 mod swimming_trigger;
@@ -144,11 +146,26 @@ pub(super) struct ModeTracker {
     fly_countdown: i32,
     /// Consecutive gliding ticks, including the one that started the glide.
     fall_fly_ticks: u32,
+    /// Level sneaking dimensions; a session constant that resets keep.
+    sneak_profile: SneakProfile,
 }
 
 impl ModeTracker {
+    /// Clears pose state while keeping the level's sneaking dimensions.
     pub(super) fn reset(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            sneak_profile: self.sneak_profile,
+            ..Self::default()
+        };
+    }
+
+    /// Installs the sneaking dimensions selected by the level's base game version.
+    pub(super) fn set_sneak_profile(&mut self, profile: SneakProfile) {
+        self.sneak_profile = profile;
+    }
+
+    pub(super) const fn sneak_profile(&self) -> SneakProfile {
+        self.sneak_profile
     }
 
     pub(super) const fn mode(&self) -> MovementMode {
@@ -160,7 +177,7 @@ impl ModeTracker {
     }
 
     pub(super) fn contact_height(&self) -> f64 {
-        self.mode.hitbox_height(self.sneaking)
+        self.mode.hitbox_height(self.sneaking, self.sneak_profile)
     }
 
     /// Uses the compact spin body for liquid sensing, preserving the prior pose otherwise.
@@ -269,6 +286,7 @@ impl ModeTracker {
             observed.feet,
             self.mode,
             self.sneaking,
+            self.sneak_profile,
             observed.liquid_contact_height,
             world,
         )?;
@@ -303,8 +321,9 @@ impl ModeTracker {
                 _ => observed.jump_edge,
             }
             && !feet_end_glide(world, observed.feet, intent.can_stand_on_snow)?;
-        let swimming =
-            !flying && !gliding && swimming_trigger::select(self.mode, intent, observed, world)?;
+        let swimming = !flying
+            && !gliding
+            && swimming_trigger::select(self.mode, self.sneak_profile, intent, observed, world)?;
 
         let (mode, forced_sneak) = if intent.ride.is_some() {
             (MovementMode::Riding, false)
@@ -314,11 +333,11 @@ impl ModeTracker {
             (MovementMode::Gliding, false)
         } else if swimming {
             (MovementMode::Swimming, false)
-        } else if intent.no_clip || pose_fits(world, observed.feet, MovementMode::Walking, false)? {
+        } else if intent.no_clip || self.fits(world, observed.feet, MovementMode::Walking, false)? {
             (MovementMode::Walking, false)
-        } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
+        } else if self.fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
-        } else if pose_fits(world, observed.feet, MovementMode::Crawling, false)? {
+        } else if self.fits(world, observed.feet, MovementMode::Crawling, false)? {
             // Low-space entry does not require an existing horizontal pose or sprint input.
             let low_mode = if observed.in_water {
                 MovementMode::Swimming
@@ -350,6 +369,17 @@ impl ModeTracker {
             sprinting: self.sprinting,
             flight_request,
         })
+    }
+
+    /// Whether `mode` fits at `feet` with this level's sneaking dimensions.
+    pub(super) fn fits(
+        &self,
+        world: &(impl CollisionWorld + ?Sized),
+        feet: Vec3,
+        mode: MovementMode,
+        sneaking: bool,
+    ) -> Result<bool, WorldQueryError> {
+        pose_fits(world, feet, mode, sneaking, self.sneak_profile)
     }
 
     /// Vanilla's flight double-tap: every tick shortens the window, a press opens it,

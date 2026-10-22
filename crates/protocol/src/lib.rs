@@ -198,11 +198,11 @@ pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 pub use login::{
-    ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
-    JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot,
-    PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff,
-    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, WebSessionReader,
-    login_memory_tier, network_stack_latency_reply,
+    BaseGameVersion, ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION,
+    GameData, JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION,
+    PacketIdTraceSnapshot, PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey,
+    ResourcePackHandoff, SessionIo, SessionLogin, StartupItems, StartupSettings,
+    WRITE_FAILURE_DRAIN, WebSessionReader, login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

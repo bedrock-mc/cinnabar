@@ -27,7 +27,13 @@ pub(super) fn use_surroundings(
         f64::from(network_position[2]),
     ];
     let half_width = sim::PLAYER_WIDTH * 0.5;
-    let height = sim::MovementMode::Walking.hitbox_height(sneaking);
+    let profile = context
+        .physics
+        .as_deref()
+        .map_or(sim::SneakProfile::Current, |physics| {
+            physics.sneak_profile()
+        });
+    let height = sim::MovementMode::Walking.hitbox_height(sneaking, profile);
     let mut surroundings = UseSurroundings {
         clicked: context.collisions.block_facts(
             stream.map_or(assets::NetworkIdMode::Sequential, |stream| {

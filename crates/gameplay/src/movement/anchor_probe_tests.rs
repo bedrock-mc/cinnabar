@@ -58,7 +58,16 @@ fn absent_anchor_defers_depenetration_until_terrain_arrives() {
     let BeforeTick::Adjust(cleared) = probe.before_tick(&arrived, feet, sim::PLAYER_HEIGHT) else {
         panic!("the deferred anchor must be cleared against newly arrived terrain");
     };
-    assert!(sim::pose_fits(&arrived, cleared, sim::MovementMode::Walking, false).unwrap());
+    assert!(
+        sim::pose_fits(
+            &arrived,
+            cleared,
+            sim::MovementMode::Walking,
+            false,
+            sim::SneakProfile::Current,
+        )
+        .unwrap()
+    );
     assert_ne!(cleared, feet);
 }
 

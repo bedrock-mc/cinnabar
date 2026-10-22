@@ -32,6 +32,9 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn mode(&self) -> sim::MovementMode {
         std::ops::Deref::deref(self).mode()
     }
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        std::ops::Deref::deref(self).sneak_profile()
+    }
     fn fall_fly_ticks(&self) -> u32 {
         std::ops::Deref::deref(self).fall_fly_ticks()
     }

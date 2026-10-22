@@ -96,6 +96,8 @@ pub enum NetworkControlEvent<P = ()> {
         server_authoritative_block_breaking: bool,
         /// StartGame `RewindHistorySize`, raw.
         rewind_history_size: i32,
+        /// StartGame's level base game version, resolved for version gates.
+        base_game_version: protocol::BaseGameVersion,
         hardcore: bool,
         hud_rules: protocol::HudRules,
         death_rules: protocol::DeathRules,

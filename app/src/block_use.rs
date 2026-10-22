@@ -59,6 +59,8 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    /// The level's sneaking dimensions size the player box that blocks placement.
+    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
     audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 

@@ -30,7 +30,8 @@ pub struct GameData {
 /// StartGame's session settings and world rules.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupSettings {
-    /// The world's lighting compatibility version.
+    /// The level's base game version as sent; [`crate::BaseGameVersion::parse`]
+    /// resolves the effective version that version-gated behavior reads.
     pub base_game_version: String,
     /// The block-breaking negotiation, separate from authority over any one block.
     pub server_authoritative_block_breaking: bool,

@@ -2,7 +2,9 @@
 
 use sim::view_direction;
 
-use super::{CollisionWorld, ModeIntent, ModeObservation, MovementMode, Vec3, WorldQueryError};
+use super::{
+    CollisionWorld, ModeIntent, ModeObservation, MovementMode, SneakProfile, Vec3, WorldQueryError,
+};
 
 // Swimming needs input magnitude ≥ 1/√2; entry needs look y below 0.15; at the
 // surface the pose holds within 45°, using vanilla's f32 degrees-per-radian.
@@ -13,6 +15,7 @@ const NATIVE_DEGREES_PER_RADIAN: f32 = 57.295_776;
 
 pub(super) fn select(
     previous: MovementMode,
+    sneak_profile: SneakProfile,
     intent: ModeIntent,
     observed: ModeObservation,
     world: &(impl CollisionWorld + ?Sized),
@@ -30,7 +33,7 @@ pub(super) fn select(
             return Ok(true);
         }
         let attach = attach_cell(observed);
-        let height = previous.hitbox_height(observed.sneaking) as f32;
+        let height = previous.hitbox_height(observed.sneaking, sneak_profile) as f32;
         let center = [
             observed.feet.x as f32,
             observed.feet.y as f32 + height * 0.5,
@@ -111,7 +114,13 @@ fn standing_fits(
     world: &(impl CollisionWorld + ?Sized),
     feet: Vec3,
 ) -> Result<bool, WorldQueryError> {
-    sim::pose_fits(world, feet, MovementMode::Walking, false)
+    sim::pose_fits(
+        world,
+        feet,
+        MovementMode::Walking,
+        false,
+        SneakProfile::Current,
+    )
 }
 
 #[cfg(test)]

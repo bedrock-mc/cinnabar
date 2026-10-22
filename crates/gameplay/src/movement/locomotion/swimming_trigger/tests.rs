@@ -204,7 +204,16 @@ fn source_water_head_sensing_uses_native_level_above_rendered_surface() {
     let rendered = 1.0 + pool.facts(true).fluid_height_blocks;
     assert!(input.feet.y + f64::from(input.liquid_attach_height) > rendered);
     assert!(head_in_water(&pool, input).unwrap());
-    assert!(select(MovementMode::Walking, ModeIntent::default(), input, &pool).unwrap());
+    assert!(
+        select(
+            MovementMode::Walking,
+            SneakProfile::Current,
+            ModeIntent::default(),
+            input,
+            &pool
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -236,6 +245,7 @@ fn secondary_water_does_not_assert_the_primary_head_material() {
     assert!(
         !select(
             MovementMode::Walking,
+            SneakProfile::Current,
             ModeIntent::default(),
             observed(),
             &pool
@@ -256,6 +266,7 @@ fn a_swimmer_keeps_backward_and_sideways_input_without_sprint() {
         assert!(
             select(
                 MovementMode::Swimming,
+                SneakProfile::Current,
                 ModeIntent::default(),
                 input,
                 &Pool::deep()
@@ -275,6 +286,7 @@ fn swim_continuation_uses_native_input_threshold_and_hunger_request() {
     assert!(
         select(
             MovementMode::Swimming,
+            SneakProfile::Current,
             ModeIntent::default(),
             threshold,
             &pool
@@ -285,12 +297,30 @@ fn swim_continuation_uses_native_input_threshold_and_hunger_request() {
         move_forward: f32::from_bits(MIN_SWIM_INPUT.to_bits() - 1),
         ..threshold
     };
-    assert!(!select(MovementMode::Swimming, ModeIntent::default(), below, &pool).unwrap());
+    assert!(
+        !select(
+            MovementMode::Swimming,
+            SneakProfile::Current,
+            ModeIntent::default(),
+            below,
+            &pool
+        )
+        .unwrap()
+    );
     let hungry = ModeIntent {
         swim_hunger_blocked: true,
         ..ModeIntent::default()
     };
-    assert!(!select(MovementMode::Swimming, hungry, observed(), &pool).unwrap());
+    assert!(
+        !select(
+            MovementMode::Swimming,
+            SneakProfile::Current,
+            hungry,
+            observed(),
+            &pool
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -305,17 +335,44 @@ fn upward_surface_exit_uses_horizontal_squared_angle_and_captured_pose_height() 
         pitch: -45.0,
         ..observed()
     };
-    assert!(!select(MovementMode::Swimming, ModeIntent::default(), input, &pool).unwrap());
+    assert!(
+        !select(
+            MovementMode::Swimming,
+            SneakProfile::Current,
+            ModeIntent::default(),
+            input,
+            &pool
+        )
+        .unwrap()
+    );
     let level = ModeObservation {
         pitch: -30.0,
         ..input
     };
-    assert!(select(MovementMode::Swimming, ModeIntent::default(), level, &pool).unwrap());
+    assert!(
+        select(
+            MovementMode::Swimming,
+            SneakProfile::Current,
+            ModeIntent::default(),
+            level,
+            &pool
+        )
+        .unwrap()
+    );
     let diving = ModeObservation {
         pitch: 45.0,
         ..input
     };
-    assert!(select(MovementMode::Swimming, ModeIntent::default(), diving, &pool).unwrap());
+    assert!(
+        select(
+            MovementMode::Swimming,
+            SneakProfile::Current,
+            ModeIntent::default(),
+            diving,
+            &pool
+        )
+        .unwrap()
+    );
     let submerged_eye = ModeObservation {
         liquid_attach_height: 0.25,
         ..input
@@ -323,6 +380,7 @@ fn upward_surface_exit_uses_horizontal_squared_angle_and_captured_pose_height() 
     assert!(
         select(
             MovementMode::Swimming,
+            SneakProfile::Current,
             ModeIntent::default(),
             submerged_eye,
             &pool

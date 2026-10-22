@@ -407,6 +407,33 @@ fn sneaking_fits_below_a_one_point_four_nine_five_ceiling() {
     assert!(!tick.collisions.z);
 }
 
+/// A level whose base game version predates 1.20.10 keeps the standing box
+/// while sneaking, so the same passage blocks the sneaking player.
+#[test]
+fn legacy_sneak_profile_keeps_the_standing_box_under_a_low_ceiling() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, -1.0, -8.0), Vec3::new(8.0, 0.0, 8.0));
+    world.boxes.push(Aabb::new(
+        Vec3::new(0.0, 1.495, 1.0),
+        Vec3::new(1.0, 3.0, 4.0),
+    ));
+    let mut state = PlayerState::new(Vec3::new(0.5, 0.0, 0.5));
+    state.on_ground = true;
+    state.velocity.z = 0.4;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                sneak_profile: sim::SneakProfile::Legacy,
+                ..Default::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(state.position.z < 0.71);
+    assert!(tick.collisions.z);
+}
+
 #[test]
 fn query_failure_is_transactional_and_sampling_is_bounded() {
     let world = TerrainWorld {

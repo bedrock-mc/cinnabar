@@ -61,7 +61,9 @@ impl PlayerState {
         if self.spin_attack_ticks.is_some() || launching {
             crate::PLAYER_WIDTH
         } else {
-            input.mode.hitbox_height(input.sneaking)
+            input
+                .mode
+                .hitbox_height(input.sneaking, input.sneak_profile)
         }
     }
     #[must_use]

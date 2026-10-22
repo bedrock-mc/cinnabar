@@ -119,7 +119,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
         };
         tracing::info!(
             base_game_version = %game_data.settings.base_game_version,
-            "world lighting compatibility version"
+            "level base game version"
         );
         let packs = match packs {
             None => return,
@@ -160,6 +160,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 player_game_mode_uses_world_default: settings.player_game_mode_uses_world_default,
                 server_authoritative_block_breaking: settings.server_authoritative_block_breaking,
                 rewind_history_size: settings.rewind_history_size,
+                base_game_version: protocol::BaseGameVersion::parse(&settings.base_game_version),
                 hardcore: settings.hardcore,
                 hud_rules: settings.hud_rules,
                 death_rules: settings.death_rules,

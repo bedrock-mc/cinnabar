@@ -41,7 +41,8 @@ fn bounding_box_falls_back_to_the_player_box() {
 fn local_walking_size_waits_for_a_sample_and_preserves_other_models() {
     let metadata = HashMap::new();
     let standing = [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32];
-    let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
+    let crouching =
+        sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32;
     assert_eq!(predicted_bounding_box(&metadata, None, [0; 3]), standing);
     assert_eq!(
         predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
@@ -313,7 +314,9 @@ fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {
                     bounding_box: [
                         1.0,
                         sim::PLAYER_WIDTH as f32,
-                        sim::MovementMode::Walking.hitbox_height(sneaking) as f32,
+                        sim::MovementMode::Walking
+                            .hitbox_height(sneaking, sim::SneakProfile::Current)
+                            as f32,
                     ],
                     attributes: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 0.0, 1.0],
                     unique_id: 70,
@@ -503,7 +506,8 @@ fn correction_sync_reports_a_local_swim_before_server_metadata() {
 #[test]
 fn horizontal_poses_send_the_width_as_the_height() {
     let width = sim::PLAYER_WIDTH as f32;
-    let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
+    let crouching =
+        sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32;
     let standing = HashMap::new();
     let swimming_echo = HashMap::from([(
         ActorDataKey::Height.wire_value(),
@@ -625,7 +629,9 @@ fn correction_sync_retry_preserves_server_posture_without_a_completed_tick() {
                             bounding_box: [
                                 1.0,
                                 sim::PLAYER_WIDTH as f32,
-                                sim::MovementMode::Walking.hitbox_height(accepted.0) as f32,
+                                sim::MovementMode::Walking
+                                    .hitbox_height(accepted.0, sim::SneakProfile::Current)
+                                    as f32,
                             ],
                             attributes: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 0.0, 1.0],
                             unique_id: 70,
@@ -677,7 +683,37 @@ fn correction_sync_posture_replaces_only_supplied_flags_until_the_next_tick() {
     assert_eq!(physics.prediction_sync_posture(), Some((true, false)));
     assert_eq!(
         physics.prediction_sync_walking_height(),
-        Some(sim::MovementMode::Walking.hitbox_height(true) as f32),
+        Some(sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32),
+    );
+}
+
+/// A level older than base game version 1.20.10 reports the standing height
+/// for a sneaking sync, and its ticks simulate the same legacy box.
+#[test]
+fn a_legacy_base_game_version_syncs_the_standing_height_while_sneaking() {
+    let mut physics = LocalPhysicsController::default();
+    physics.set_base_game_version(protocol::BaseGameVersion::parse("1.19.80"));
+    physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+    let input = sim::MovementInput {
+        forward: 1.0,
+        sneaking: true,
+        ..Default::default()
+    };
+    let frame = physics.advance(std::time::Duration::from_millis(50), input, &OpenWorld);
+    assert_eq!(frame.completed_ticks, 1);
+    assert_eq!(physics.prediction_sync_posture(), Some((true, false)));
+    assert_eq!(
+        physics.prediction_sync_walking_height(),
+        Some(sim::PLAYER_HEIGHT as f32),
+    );
+    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
+
+    physics.set_base_game_version(protocol::BaseGameVersion::parse("1.20.10"));
+    physics.reanchor_network_position([0.5, 72.0, 0.5], 101, false);
+    physics.advance(std::time::Duration::from_millis(50), input, &OpenWorld);
+    assert_eq!(
+        physics.prediction_sync_walking_height(),
+        Some(sim::SneakProfile::Current.height() as f32),
     );
 }
 

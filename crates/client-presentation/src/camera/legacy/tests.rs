@@ -43,6 +43,10 @@ impl PhysicsObservation for TestPhysics {
     fn mode(&self) -> sim::MovementMode {
         sim::MovementMode::Walking
     }
+    /// The fixture uses the current sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        sim::SneakProfile::Current
+    }
     /// No glide state is present.
     fn fall_fly_ticks(&self) -> u32 {
         0

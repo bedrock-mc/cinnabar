@@ -559,6 +559,7 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        input.sneak_profile = self.modes.sneak_profile();
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
             let context = context.for_next_tick(state.tick);
