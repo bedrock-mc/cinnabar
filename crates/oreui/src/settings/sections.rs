@@ -34,6 +34,7 @@ pub(super) fn draw(
         SettingSection::Updates => super::updates::draw(content),
         SettingSection::Creator => creator(content),
         SettingSection::Chat => chat(content),
+        SettingSection::Discord => discord(content),
         SettingSection::Server => content.heading(
             section.title(),
             "Settings supplied by the connected server appear here when available.",
@@ -80,7 +81,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
     super::presets::draw(content)?;
-    content.option(SettingId::GraphicsApi)?;
+    options(content, SettingPanel::VideoBackend)?;
     content.heading(
         "menu.video.group.general",
         "menu.video.group.general.description",
@@ -170,7 +171,10 @@ fn draw_macros(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 }
 
 /// One macro slot: its title with the bound key, then the command box beneath.
-fn draw_macro_slot(content: &mut Content<'_, '_>, slot: usize) -> Result<(), PaintError> {
+pub(super) fn draw_macro_slot(
+    content: &mut Content<'_, '_>,
+    slot: usize,
+) -> Result<(), PaintError> {
     draw_macro_binding(content, slot)?;
     draw_macro_command(content, slot)
 }
@@ -385,7 +389,8 @@ fn bindings(content: &mut Content<'_, '_>, gamepad: bool) -> Result<(), PaintErr
     Ok(())
 }
 
-fn binding(
+/// Draws one binding with its existing capture and reset actions.
+pub(super) fn binding(
     content: &mut Content<'_, '_>,
     defaults: &SettingsOptions,
     index: usize,
@@ -595,6 +600,20 @@ fn chat(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     reset(content, SettingsGroup::Chat, "chat.settings.reset")
 }
 
+fn discord(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    content.heading(
+        SettingSection::Discord.title(),
+        "discord.settings.description",
+    )?;
+    options(content, SettingPanel::Discord)?;
+    content.heading(
+        "discord.settings.details.title",
+        "discord.settings.details.description",
+    )?;
+    options(content, SettingPanel::DiscordDetails)?;
+    reset(content, SettingsGroup::Discord, "discord.settings.reset")
+}
+
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
@@ -645,6 +664,37 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.notificationDuration.Chat.description" => {
             "How long chat notifications remain visible on the HUD"
         }
+        "Discord" | "discord.settings.title" => "Discord",
+        "discord.settings.description" => {
+            "Control what Cinnabar shares with the Discord desktop app"
+        }
+        "discord.settings.enabled" => "Discord Rich Presence",
+        "discord.settings.enabled.description" => {
+            "Publish your current Cinnabar activity to the Discord desktop app"
+        }
+        "discord.settings.details.title" => "Activity details",
+        "discord.settings.details.description" => {
+            "Choose which optional information the Discord activity card can show"
+        }
+        "discord.settings.serverDetails" => "Show server and world details",
+        "discord.settings.serverDetails.description" => {
+            "Display the server address or local world name in the activity card"
+        }
+        "discord.settings.partySize" => "Show party size",
+        "discord.settings.partySize.description" => {
+            "Display the current and maximum player count when available"
+        }
+        "discord.settings.allowJoins" => "Allow Discord joins",
+        "discord.settings.allowJoins.description" => {
+            "Let Discord friends join through the activity card and send join requests"
+        }
+        "discord.settings.timestamp" => "Show elapsed time",
+        "discord.settings.timestamp.description" => {
+            "Show how long you have been in the current activity"
+        }
+        "discord.settings.reset" => "Reset Discord Settings",
+        "discord.settings.reset.description" => "Restore all Discord options to default values",
+        "discord.settings.reset.buttonLabel" => "Reset",
         "color.white" => "White",
         "color.green" => "Green",
         "color.aqua" => "Aqua",

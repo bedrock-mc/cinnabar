@@ -10,6 +10,7 @@ use client_session::PacketSendError;
 pub(crate) struct RespawnLifecycle {
     session: Option<u64>,
     last_sequence: Option<u64>,
+    pending_control_sequence: Option<u64>,
     searching: bool,
     completion_actor: Option<u64>,
 }
@@ -26,7 +27,27 @@ impl RespawnLifecycle {
 
     /// Input remains withheld until the native completion precedes it in the queue.
     pub(crate) fn input_held(&self) -> bool {
-        self.searching || self.completion_actor.is_some()
+        self.searching
+            || self.completion_actor.is_some()
+            || self
+                .pending_control_sequence
+                .is_some_and(|pending| self.last_sequence.is_none_or(|consumed| consumed < pending))
+    }
+
+    /// Withholds fresh gameplay while committed respawn phases await older controls.
+    pub(super) fn retain_committed_input_hold(&mut self, controls: &[CommittedControlEvent]) {
+        for control in controls {
+            if let CommittedControlEvent::Respawn {
+                sequence, respawn, ..
+            } = control
+                && (respawn.searching_for_spawn() || respawn.ready_to_spawn())
+            {
+                self.pending_control_sequence = Some(
+                    self.pending_control_sequence
+                        .map_or(*sequence, |pending| pending.max(*sequence)),
+                );
+            }
+        }
     }
 
     pub(super) fn consume_nonspatial_phase(

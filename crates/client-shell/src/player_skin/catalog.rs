@@ -521,7 +521,7 @@ pub(crate) fn toggle_cosmetic(
     hat: Option<cosmetics::Item>,
 ) -> Result<(), String> {
     if let Some(item) = hat {
-        if !item.descriptor().free && !cosmetics::owns(item.id()) {
+        if !item.is_owned() {
             return Err("This item is not owned.".to_owned());
         }
         let slot = item.descriptor().slot.clone();

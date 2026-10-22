@@ -103,11 +103,13 @@ impl MenuRuntime {
             hovered: initial.hovered,
             pressed: initial.pressed,
             pointer_down: false,
+            touch_available: cfg!(target_os = "android"),
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,
             dialog: initial.dialog,
             field: initial.field,
             caret_revision: 0,
+            field_activation: 0,
             history: {
                 let mut history = json_ui::ScreenNav::default();
                 history.reset(initial.screen);
@@ -120,6 +122,8 @@ impl MenuRuntime {
             address: field_editor(MenuField::Address),
             port: field_editor(MenuField::Port),
             skin_name: field_editor(MenuField::SkinName),
+            friend_query: field_editor(MenuField::FriendQuery),
+            settings_query: field_editor(MenuField::SettingsQuery),
             macro_commands: macro_editors(&settings_options),
             message,
             gui_scale_preference: gui_scale
@@ -169,6 +173,7 @@ impl MenuRuntime {
             editing: initial.editing,
             disconnect_message: initial.disconnect_message,
             death_shown: false,
+            death_lifecycle: None,
             death_loading: false,
             death_presentation: launcher::menu::death::DeathPresentation::default(),
             death_retry_remaining: None,

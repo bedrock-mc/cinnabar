@@ -8,6 +8,7 @@ pub enum SettingsGroup {
     Accessibility,
     Audio,
     Chat,
+    Discord,
 }
 
 impl SettingsGroup {
@@ -64,7 +65,7 @@ mod tests {
             ),
             (
                 SettingsGroup::Accessibility,
-                SettingId::ChatBackgroundOpacity,
+                SettingId::HudTextBackgroundOpacity,
                 SettingId::FieldOfView,
             ),
             (

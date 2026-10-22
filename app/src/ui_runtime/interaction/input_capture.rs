@@ -7,6 +7,9 @@ use bevy::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
+#[cfg(test)]
+mod cancel_tests;
+
 pub(crate) fn suppress_gameplay_input_for_inventory(
     runtime: &UiRuntime,
     cursor: &mut CursorOptions,

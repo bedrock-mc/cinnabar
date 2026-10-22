@@ -1,7 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
 mod chat;
-mod chat_settings;
 mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
@@ -13,8 +12,10 @@ mod minecraft_import;
 mod mods;
 mod out_of_game;
 mod roster;
+mod settings_screens;
 mod shader_options;
 mod shader_pack;
+mod social_settings;
 mod updates;
 
 use std::sync::Arc;
@@ -91,6 +92,9 @@ pub enum Fixture {
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
+    /// Retained Add Server focus after a simulated keyboard reduces the visible height.
+    #[cfg(feature = "test-support")]
+    MenuKeyboard,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -98,6 +102,7 @@ pub enum Fixture {
     #[cfg(feature = "test-support")]
     CraftOverlap {
         selected: bool,
+        block_identity: i32,
     },
     /// A client toast as the toast screen shows it once slid in.
     Toast {
@@ -246,6 +251,13 @@ const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "add-server-keyboard",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::MenuKeyboard,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "settings-draft-return",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -370,48 +382,26 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || chat::server_content(true),
     },
-    State {
-        name: "home-update-compact",
-        size: [480, 640],
-        gui_scale: 3,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-signed-in-update",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::signed_in,
-    },
-    State {
-        name: "home-update-ready",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-update-required",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, true),
-    },
-    State {
-        name: "home-update-download",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(false, false),
-    },
-    State {
-        name: "home-update-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: || updates::home(true, false),
-    },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics",
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: cosmetics::wardrobe,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-locked",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: cosmetics::locked_cosmetics,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-locked-narrow",
+        size: [480, 1280],
+        gui_scale: GUI_SCALE,
+        fixture: cosmetics::locked_cosmetics,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -481,14 +471,30 @@ const STATES: &[State] = &[
         name: "craft-overlap-ready",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || Fixture::CraftOverlap { selected: false },
+        fixture: || Fixture::CraftOverlap {
+            selected: false,
+            block_identity: 0,
+        },
     },
     #[cfg(feature = "test-support")]
     State {
         name: "craft-overlap-selected",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || Fixture::CraftOverlap { selected: true },
+        fixture: || Fixture::CraftOverlap {
+            selected: true,
+            block_identity: 0,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "craft-block-identity-selected",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CraftOverlap {
+            selected: true,
+            block_identity: i32::MIN + 1,
+        },
     },
     State {
         name: "edit-selection-transfer",
@@ -767,13 +773,13 @@ const STATES: &[State] = &[
         name: "settings-keyboard",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: settings_keyboard,
+        fixture: settings_screens::settings_keyboard,
     },
     State {
         name: "settings-general",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_general_toggle(SettingId::EcomodeToggle),
+        fixture: || settings_screens::settings_general_toggle(SettingId::EcomodeToggle),
     },
     State {
         name: "settings-updates",
@@ -794,11 +800,11 @@ const STATES: &[State] = &[
         fixture: || updates::settings(launcher::menu::updates::Status::Failed),
     },
     State {
-        name: "settings-general-mod-updates-passive",
+        name: "settings-updates-mod-updates-passive",
         size: [1280, 1200],
         gui_scale: GUI_SCALE,
         fixture: || {
-            let mut view = settings(SettingSection::General.definition().name);
+            let mut view = settings(SettingSection::Updates.definition().name);
             view.updates.active = false;
             Fixture::Menu(Box::new(view))
         },
@@ -807,25 +813,25 @@ const STATES: &[State] = &[
         name: "settings-general-advanced",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_general_toggle(SettingId::RecordNetworkSession),
+        fixture: || settings_screens::settings_general_toggle(SettingId::RecordNetworkSession),
     },
     State {
         name: "settings-general-advanced-on",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: settings_general_diagnostics_on,
+        fixture: settings_screens::settings_general_diagnostics_on,
     },
     State {
         name: "settings-keyboard-physical-label",
         size: KEYBOARD_SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_keyboard_layout(false),
+        fixture: || settings_screens::settings_keyboard_layout(false),
     },
     State {
         name: "settings-keyboard-azerty",
         size: KEYBOARD_SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_keyboard_layout(true),
+        fixture: || settings_screens::settings_keyboard_layout(true),
     },
     State {
         name: "settings-mods",
@@ -942,57 +948,12 @@ pub fn settings(section: &str) -> MenuView {
     view
 }
 
-/// Shows the keyboard options and command macro modifier without a live session.
-fn settings_keyboard() -> Fixture {
-    Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
-}
-
-/// Scrolls the General section to toggle `id` through the client's focus scrolling; a toggle's
-/// action carries the value it switches to.
-fn settings_general_toggle(id: SettingId) -> Fixture {
-    let mut view = settings(SettingSection::General.definition().name);
-    view.focused_action = Some(MenuAction::SettingsOption(
-        id.index() as u16,
-        1 - view.settings_options.value(id),
-    ));
-    Fixture::Menu(Box::new(view))
-}
-
-/// The Advanced rows with Verbose logging and Record network session turned on.
-fn settings_general_diagnostics_on() -> Fixture {
-    let mut view = settings(SettingSection::General.definition().name);
-    let mut options = (*view.settings_options).clone();
-    for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
-        options.set(id.index(), 1);
-    }
-    view.settings_options = Arc::new(options);
-    view.focused_action = Some(MenuAction::SettingsOption(
-        SettingId::RecordNetworkSession.index() as u16,
-        0,
-    ));
-    Fixture::Menu(Box::new(view))
-}
-
-/// Shows the same physical hotbar binding with a fallback or an observed AZERTY label.
-fn settings_keyboard_layout(observed: bool) -> Fixture {
-    use launcher::menu::settings_options::{
-        BindingId, KEY_BINDINGS, control_bindings::decode_control,
-    };
-
-    let mut view = settings("keyboard_and_mouse_forced_index");
-    let row = KEY_BINDINGS
-        .iter()
-        .position(|(_, name)| *name == BindingId::Hotbar1.name())
-        .unwrap();
-    let settings = Arc::make_mut(&mut view.settings_options);
-    assert!(settings.remap(row, decode_control(0x14).unwrap()));
-    if observed {
-        settings.set_key_label(0x14, "a");
-    }
-    Fixture::Menu(Box::new(view))
-}
-
-/// Enumerates every fixture, including the Chat section's independently owned states.
+/// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(chat_settings::STATES)
+    STATES
+        .iter()
+        .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(updates::STATES)
+        .chain(social_settings::STATES)
+        .chain(settings_screens::SEARCH_STATES)
 }

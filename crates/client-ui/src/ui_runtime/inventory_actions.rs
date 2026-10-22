@@ -2,6 +2,7 @@
 //! screen widgets, result cells and the creative catalog.
 
 use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
+use std::collections::HashMap;
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
@@ -85,35 +86,56 @@ pub fn recipe_book_entries<'a>(
                 })
                 .collect();
         }
-        let mut entries = Vec::with_capacity(items.len());
-        let mut open: Option<u32> = None;
+        enum BookOrder<'a> {
+            Item(&'a CreativeItem),
+            Group(u32),
+        }
+
+        // Creative items are sorted by network id for lookup, not by group. Collect
+        // each named group before publishing rows so an interleaved catalog cannot
+        // emit the same group head once per network-id run.
+        let mut order = Vec::with_capacity(items.len());
+        let mut grouped = HashMap::<u32, Vec<&CreativeItem>>::new();
         for item in items.iter() {
             let group = catalog
                 .groups
                 .get(item.group as usize)
                 .filter(|group| !group.name.is_empty());
-            let Some(group) = group else {
-                open = None;
-                entries.push(BookEntry::Creative {
-                    item,
-                    grouped: false,
-                });
+            let Some(_) = group else {
+                order.push(BookOrder::Item(item));
                 continue;
             };
-            let expanded = state.creative_expanded.contains(&item.group);
-            if open != Some(item.group) {
-                open = Some(item.group);
-                entries.push(BookEntry::Group {
-                    index: item.group,
-                    group,
-                    expanded,
-                });
+            if !grouped.contains_key(&item.group) {
+                order.push(BookOrder::Group(item.group));
             }
-            if expanded {
-                entries.push(BookEntry::Creative {
+            grouped.entry(item.group).or_default().push(item);
+        }
+        let mut entries = Vec::with_capacity(items.len());
+        for entry in order {
+            match entry {
+                BookOrder::Item(item) => entries.push(BookEntry::Creative {
                     item,
-                    grouped: true,
-                });
+                    grouped: false,
+                }),
+                BookOrder::Group(index) => {
+                    let Some(group) = catalog.groups.get(index as usize) else {
+                        continue;
+                    };
+                    let expanded = state.creative_expanded.contains(&index);
+                    entries.push(BookEntry::Group {
+                        index,
+                        group,
+                        expanded,
+                    });
+                    if expanded {
+                        entries.extend(grouped.remove(&index).into_iter().flatten().map(|item| {
+                            BookEntry::Creative {
+                                item,
+                                grouped: true,
+                            }
+                        }));
+                    }
+                }
             }
         }
         return entries;
@@ -409,10 +431,15 @@ impl UiRuntime {
         if let InventoryCellHit::CreativeGrid(index) = hit {
             return self.creative_click(player_runtime, index, false, Some(1));
         }
-        if let InventoryCellHit::RecipeBook(index) = hit
-            && player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
-        {
+        if let InventoryCellHit::RecipeBook(index) = hit {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
+        }
+        if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+            // A secondary click crafts once only with an empty cursor.
+            if player_runtime.inventory.ledger().cursor_stack().is_some() {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
+            return self.activate_widget(player_runtime, widget);
         }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
@@ -521,6 +548,9 @@ impl UiRuntime {
             }
             InventoryCellHit::RecipeBook(index) => {
                 self.recipe_book_click(player_runtime, index, true, None)
+            }
+            InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
+                self.book_widget_craft(player_runtime, index, true)
             }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
@@ -795,23 +825,34 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => {
-                let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
-                let recipe = self
-                    .book_recipes(player_runtime, skip, 1)
-                    .into_iter()
-                    .next()
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
-                player_runtime.inventory.begin_book_craft(&recipe.recipe)
-            }
+            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),
         }
     }
 
-    /// A click on a recipe book entry: a creative item as on the catalog grid,
-    /// else auto-crafting the recipe into the grid.
+    /// Crafts the fallback book's `index` entry on the current page once, or a stack with `all`.
+    fn book_widget_craft(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        index: u8,
+        all: bool,
+    ) -> Outcome {
+        let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
+        let recipe = self
+            .book_recipes(player_runtime, skip, 1)
+            .into_iter()
+            .next()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        player_runtime
+            .inventory
+            .begin_book_craft(&recipe.recipe, all)
+    }
+
+    /// A click on a recipe book entry: a creative item as on the catalog grid, else
+    /// auto-crafting the recipe into the inventory; `into_inventory` (shift) crafts a stack
+    /// and `requested` marks a secondary click.
     fn recipe_book_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -855,7 +896,16 @@ impl UiRuntime {
                 }
                 Ok(0)
             }
-            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
+            // A secondary click crafts once only with an empty cursor.
+            Some(Clicked::Recipe(_))
+                if requested.is_some()
+                    && player_runtime.inventory.ledger().cursor_stack().is_some() =>
+            {
+                Err(InventoryGestureError::InvalidRequest)
+            }
+            Some(Clicked::Recipe(recipe)) => player_runtime
+                .inventory
+                .begin_book_craft(&recipe, into_inventory),
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),

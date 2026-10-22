@@ -93,6 +93,8 @@ pub struct ActorStatus {
     pub death_time: u8,
     /// Signed death ticks for native camera effects, independent of body animation progress.
     pub(crate) native_death_ticks: i16,
+    /// Whether this death has completed its one-time player visibility transition.
+    pub(super) player_death_completed: bool,
     pub(crate) dragon_death_time: u16,
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
@@ -179,6 +181,7 @@ impl ActorStatus {
 
     fn die(&mut self) {
         self.creeper_swell.clear();
+        self.player_death_completed = false;
         self.dead = true;
     }
 

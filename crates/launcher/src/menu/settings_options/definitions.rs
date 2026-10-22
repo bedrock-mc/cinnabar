@@ -153,6 +153,19 @@ pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition = SettingId::CinnabarVis
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition = SettingId::DiscordPresence.definition();
 
+/// Controls whether the activity card names the current server or world.
+pub const DISCORD_SERVER_DETAILS_OPTION: SettingDefinition =
+    SettingId::DiscordServerDetails.definition();
+
+/// Controls whether Discord receives the current and maximum player count.
+pub const DISCORD_PARTY_SIZE_OPTION: SettingDefinition = SettingId::DiscordPartySize.definition();
+
+/// Controls Discord join secrets and incoming join requests.
+pub const DISCORD_ALLOW_JOINS_OPTION: SettingDefinition = SettingId::DiscordAllowJoins.definition();
+
+/// Controls the elapsed-time timestamp on the activity card.
+pub const DISCORD_TIMESTAMP_OPTION: SettingDefinition = SettingId::DiscordTimestamp.definition();
+
 /// Optional crosshair visibility in both third-person camera views.
 pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
     SettingId::ThirdPersonCrosshair.definition();
@@ -345,9 +358,9 @@ settings! {
     ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),
         [(SettingPanel::CreatorContentLog, 3)], [], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
-        [(SettingPanel::AccessibilityUi, 4)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
-        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::Chat, 4)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 4)], [SettingsGroup::Chat], None, None;
     ControllerSensitivity => "controller_sensitivity", slider("options.sensitivity", 0, 100, 50),
         [(SettingPanel::Controller, 0)], [], None, Some("options.controller.sensitivity.name");
     SpyglassGamepadDampening => "spyglass_gamepad_dampening", slider("options.spyglassdampen", 0, 100, 50),
@@ -355,9 +368,9 @@ settings! {
     GamepadCursorSensitivity => "gamepad_cursor_sensitivity", slider("options.gamepadcursorsensitivity", 0, 100, 50),
         [], [], None, None;
     HudTextBackgroundOpacity => "hud_text_background_opacity", slider("options.hudTextBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatBackgroundOpacity => "chat_background_opacity", slider("options.chatBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 1), (SettingPanel::Chat, 1)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 1)], [SettingsGroup::Chat], None, None;
     ActionbarTextBackgroundOpacity => "actionbar_text_background_opacity", slider("options.actionBarTextBackgroundOpacity", 0, 100, 50),
         [(SettingPanel::AccessibilityUi, 0)], [SettingsGroup::Accessibility], None, None;
     Darkness => "darkness", slider("options.darknessEffectModifier", 0, 100, 100),
@@ -493,9 +506,9 @@ settings! {
     UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
         [(SettingPanel::Updates, 0)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
-        [(SettingPanel::GeneralNetwork, 4)], [], None, None;
+        [(SettingPanel::ModUpdates, 0)], [], None, None;
     ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),
-        [(SettingPanel::GeneralNetwork, 5)], [], None, None;
+        [(SettingPanel::ModUpdates, 1)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),
@@ -549,7 +562,7 @@ settings! {
     EnableDitheringMobs => "enable_dithering_mobs", toggle("options.enableDitheringMobs", false),
         [(SettingPanel::AccessibilityGameplay, 4)], [SettingsGroup::Accessibility], None, None;
     GuiAccessibilityScaling => "gui_accessibility_scaling", toggle("options.gui.accessibility.scaling", false),
-        [(SettingPanel::AccessibilityUi, 6), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
+        [(SettingPanel::AccessibilityUi, 4), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
@@ -571,17 +584,28 @@ settings! {
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
-        [], [], None, None;
+        [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
+    DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
+        [(SettingPanel::DiscordDetails, 0)], [SettingsGroup::Discord], None, None;
+    DiscordPartySize => "discord_party_size", toggle("discord.settings.partySize", true),
+        [(SettingPanel::DiscordDetails, 1)], [SettingsGroup::Discord], None, None;
+    DiscordAllowJoins => "discord_allow_joins", toggle("discord.settings.allowJoins", true),
+        [(SettingPanel::DiscordDetails, 2)], [SettingsGroup::Discord], None, None;
+    DiscordTimestamp => "discord_timestamp", toggle("discord.settings.timestamp", true),
+        [(SettingPanel::DiscordDetails, 3)], [SettingsGroup::Discord], None, None;
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
         [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
-        [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
-        [], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 0)], [], None, None;
+
 }
