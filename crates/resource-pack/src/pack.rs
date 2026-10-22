@@ -72,6 +72,11 @@ impl std::fmt::Debug for ValidatedPack {
 }
 
 impl ValidatedPack {
+    /// Drops this archive's retained inflated and decrypted reads, keeping their hashes.
+    pub(crate) fn release_cached_reads(&self) {
+        self.reads.release_retained();
+    }
+
     #[must_use]
     pub const fn pack_id(&self) -> Uuid {
         self.pack_id
@@ -337,6 +342,14 @@ impl ValidatedPackStack {
     #[must_use]
     pub fn packs(&self) -> &[ValidatedPack] {
         &self.packs
+    }
+
+    /// Drops the inflated and decrypted reads every layer retains, keeping their hashes, so an
+    /// idle stack costs only its archives; later reads inflate again.
+    pub fn release_cached_reads(&self) {
+        for pack in &self.packs {
+            pack.release_cached_reads();
+        }
     }
 
     /// Returns the admission-time archive digests without hashing composed copies again.

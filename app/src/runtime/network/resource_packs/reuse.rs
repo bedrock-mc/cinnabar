@@ -32,7 +32,7 @@ fn rejoin_budget() -> usize {
 
 /// Bytes keeping `application` costs: its archives plus every distinct large buffer its compiled
 /// outputs own, including startup pages and carriers they share.
-fn retained_bytes(application: &PackApplication) -> usize {
+fn retained_bytes(application: &PackApplication, others: &[&dyn assets::RetainedBuffers]) -> usize {
     use assets::RetainedBuffers;
     /// The admitted archives, which every stack view and sound pack reads from, and the
     /// extension marker read from them.
@@ -72,7 +72,7 @@ fn retained_bytes(application: &PackApplication) -> usize {
         server_sounds: _,
         aim_assist_textures,
     } = application;
-    assets::retained_bytes(&[
+    let owned: [&dyn assets::RetainedBuffers; 10] = [
         &Sources(admission, extension_marker.as_deref()),
         block_overlay,
         item_icons,
@@ -83,7 +83,13 @@ fn retained_bytes(application: &PackApplication) -> usize {
         prepared_actor_artwork,
         server_ui,
         aim_assist_textures,
-    ])
+    ];
+    assets::retained_bytes(
+        &owned
+            .into_iter()
+            .chain(others.iter().copied())
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// Process tables a compile reads besides the stack and StartGame facts.
@@ -142,7 +148,14 @@ struct Kept {
     /// Admits `stack`; `server_ui` is the source the worker catalog prepares, not its result.
     application: PackApplication,
     /// Keeps the worker catalog cache's prepared UI alive for the next join over the same carrier.
-    _prepared_ui: Option<Arc<ServerUiPack>>,
+    prepared_ui: Option<Arc<ServerUiPack>>,
+}
+
+impl Kept {
+    /// Bytes keeping this entry costs; buffers its source and prepared UI share count once.
+    fn retained_bytes(&self) -> usize {
+        retained_bytes(&self.application, &[&self.prepared_ui])
+    }
 }
 
 /// The most recently joined stacks, newest first.
@@ -243,7 +256,7 @@ impl CompiledStacks {
         let entry = Kept {
             environment,
             stack: Arc::clone(stack),
-            _prepared_ui: application.server_ui.clone(),
+            prepared_ui: application.server_ui.clone(),
             application: PackApplication {
                 server_ui: source_ui,
                 ..application.clone()
@@ -308,15 +321,22 @@ impl CompiledStacks {
     fn keep_newest_within(&self, budget: usize) {
         let released: Vec<Kept> = {
             let mut kept = self.lock();
-            let keep = kept
-                .front()
-                .is_some_and(|newest| retained_bytes(&newest.application) <= budget);
+            let keep = kept.front().is_some_and(|newest| {
+                newest.stack.release_cached_reads();
+                newest.retained_bytes() <= budget
+            });
             kept.drain(usize::from(keep)..).collect()
         };
         #[cfg(not(target_arch = "wasm32"))]
         rayon::spawn(move || drop(released));
         #[cfg(target_arch = "wasm32")]
         client_runtime::session::release_off_frame(released);
+    }
+
+    /// What keeping the newest stack costs, if one is kept.
+    #[cfg(test)]
+    fn newest_retained_bytes(&self) -> Option<usize> {
+        self.lock().front().map(Kept::retained_bytes)
     }
 
     /// How many stacks are kept.

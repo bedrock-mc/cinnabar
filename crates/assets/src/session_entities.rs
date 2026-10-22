@@ -5,6 +5,11 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+
+#[path = "retained.rs"]
+mod retained;
+pub use retained::*;
+
 /// The pack's entity catalog with the artwork of its eligible rigs.
 #[derive(Clone, Debug)]
 pub struct SessionEntityPack {

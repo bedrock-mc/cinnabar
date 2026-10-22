@@ -66,6 +66,13 @@ impl ReadCache {
         }
     }
 
+    /// Drops every retained payload, keeping the hashes; later reads inflate again.
+    pub(crate) fn release_retained(&self) {
+        let released =
+            std::mem::take(&mut *self.retained.lock().unwrap_or_else(|e| e.into_inner()));
+        drop(released);
+    }
+
     /// Assigns a distinct entry identity shared by logical aliases and cloned packs.
     pub(crate) fn entry(&self) -> Arc<CachedEntry> {
         Arc::new(CachedEntry {

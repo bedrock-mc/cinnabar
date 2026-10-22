@@ -645,7 +645,9 @@ fn leaving_keeps_only_the_newest_stack_within_the_rejoin_budget() {
     assert_eq!(kept.len(), 1);
     let environment = CompileEnvironment::current();
     assert!(kept.matching(stack(&game), &environment).is_some());
-    let retained = super::retained_bytes(&game);
+    let retained = kept
+        .newest_retained_bytes()
+        .expect("the game stack is kept");
     kept.keep_newest_within(retained);
     assert_eq!(kept.len(), 1, "a stack exactly at the budget stays");
     kept.keep_newest_within(retained - 1);
@@ -709,16 +711,54 @@ fn the_rejoin_budget_counts_each_compiled_buffer_once() {
         aim_assist_textures: [aim.clone(), aim],
         ..Default::default()
     };
-    let archives = super::retained_bytes(&PackApplication {
-        entities: None,
-        item_icons: None,
-        aim_assist_textures: [None, None],
-        ..application.clone()
-    });
+    let archives = super::retained_bytes(
+        &PackApplication {
+            entities: None,
+            item_icons: None,
+            aim_assist_textures: [None, None],
+            ..application.clone()
+        },
+        &[],
+    );
     let compiled = rgba8.len() + 8 * 8 * 4 + 4 * 4 * 4;
-    assert_eq!(super::retained_bytes(&application), archives + compiled);
+    assert_eq!(
+        super::retained_bytes(&application, &[]),
+        archives + compiled
+    );
     let kept = CompiledStacks::new();
     kept.remember(CompileEnvironment::current(), &application, None, &|| false);
     kept.keep_newest_within(archives + compiled - 1);
     assert_eq!(kept.len(), 0, "compiled buffers count toward the budget");
+}
+
+// The kept prepared UI deep-copies its definitions, so it must weigh with the kept stack too.
+#[test]
+fn kept_prepared_ui_counts_toward_the_rejoin_budget() {
+    let _cache = overlay_cache();
+    let ui = |byte: u8| {
+        Arc::new(client_ui::ui_runtime::presentation::ServerUiPack {
+            textures: vec![("ui/a.png".to_owned(), vec![byte; 4096])],
+            ..Default::default()
+        })
+    };
+    let application = PackApplication {
+        admission: PackAdmission::Validated(admitted(&every_subscriber_archive(51, b"a=b"))),
+        server_ui: Some(ui(1)),
+        ..Default::default()
+    };
+    let archives = super::retained_bytes(
+        &PackApplication {
+            server_ui: None,
+            ..application.clone()
+        },
+        &[],
+    );
+    let kept = CompiledStacks::new();
+    kept.remember(
+        CompileEnvironment::current(),
+        &application,
+        Some(ui(2)),
+        &|| false,
+    );
+    assert_eq!(kept.newest_retained_bytes(), Some(archives + 2 * 4096));
 }
