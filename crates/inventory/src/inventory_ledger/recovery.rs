@@ -13,7 +13,7 @@ impl PlayerInventoryLedger {
             None => self.resync_required(),
             Some(since) => {
                 !self.resync_required()
-                    || now_millis >= since.saturating_add(INVENTORY_RECOVERY_WINDOW_MILLIS)
+                    || now_millis.saturating_sub(since) >= INVENTORY_RECOVERY_WINDOW_MILLIS
             }
         }
     }
@@ -25,8 +25,11 @@ impl PlayerInventoryLedger {
             self.recovery_since_millis = None;
             return;
         }
-        let since = *self.recovery_since_millis.get_or_insert(now_millis);
-        if now_millis < since.saturating_add(INVENTORY_RECOVERY_WINDOW_MILLIS) {
+        let Some(since) = self.recovery_since_millis else {
+            self.recovery_since_millis = Some(now_millis);
+            return;
+        };
+        if now_millis.saturating_sub(since) < INVENTORY_RECOVERY_WINDOW_MILLIS {
             return;
         }
         tracing::debug!(target: "cinnabar::inventory_requests",

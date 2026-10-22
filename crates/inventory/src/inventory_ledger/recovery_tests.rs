@@ -272,6 +272,13 @@ fn an_unanswered_anvil_take_stops_refusing_gestures_after_the_recovery_window() 
         Err(InventoryGestureError::ResyncRequired)
     );
     assert!(!ledger.timeout_work_due(timed_out + 1));
+    let mut saturated = ledger.clone();
+    saturated.poll_timeout(u64::MAX);
+    saturated.poll_timeout(u64::MAX);
+    assert!(
+        saturated.resync_required(),
+        "the window starts at its first poll, even at the clock's limit"
+    );
     let lifted = timed_out + INVENTORY_RECOVERY_WINDOW_MILLIS;
     assert!(ledger.timeout_work_due(lifted));
     ledger.poll_timeout(lifted);
