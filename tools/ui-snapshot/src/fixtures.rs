@@ -382,54 +382,6 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || chat::server_content(true),
     },
-    State {
-        name: "home-update-compact",
-        size: [480, 640],
-        gui_scale: 3,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-signed-in-update",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::signed_in,
-    },
-    State {
-        name: "home-update-ready",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-update-required",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, true),
-    },
-    State {
-        name: "home-update-download",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(false, false),
-    },
-    State {
-        name: "home-update-pending",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::pending,
-    },
-    State {
-        name: "home-update-pending-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: updates::pending,
-    },
-    State {
-        name: "home-update-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: || updates::home(true, false),
-    },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics",
@@ -1001,6 +953,7 @@ pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
         .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(updates::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
 }
