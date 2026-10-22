@@ -16,6 +16,7 @@ mod attack_admission;
 mod creative_destroy;
 mod custom_mining;
 mod painting_attacks;
+mod refused_starts;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
     DestroyTarget {
@@ -79,6 +80,7 @@ impl MiningAdmission {
             )
         })?;
         Some(crate::melee::PressContext {
+            refused_destroy: None,
             tick: sample.tick,
             player_position: sample.position,
             input_mode: protocol::PlayerInputMode::Mouse,

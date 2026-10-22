@@ -54,6 +54,53 @@ pub struct PressContext {
     pub now_millis: u64,
     /// Piercing components route actor/air attacks through the item transaction.
     pub item_attack: Option<ItemAttackPress>,
+    /// The reached block when the game mode or held item refuses to start destroying it.
+    pub refused_destroy: Option<RefusedDestroy>,
+}
+
+/// A block press whose destroy fails at its start, as vanilla reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RefusedDestroy {
+    pub position: [i32; 3],
+    pub face: u8,
+    pub reason: RefusedDestroyReason,
+}
+
+/// Why a block press cannot start destroying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusedDestroyReason {
+    /// Adventure rules forbid breaking the block with what the player holds.
+    Denied,
+    /// Creative mode holds an item that cannot break blocks.
+    CreativeNoBreak,
+}
+
+impl RefusedDestroy {
+    /// The press tick's block actions: an aborted start, preceded in Creative by the start and
+    /// its standalone destroy request.
+    fn payload(self, local_runtime_id: u64) -> crate::survival_mining::SurvivalTickPayload {
+        let mut payload = crate::survival_mining::SurvivalTickPayload::default();
+        let action = |kind, face| protocol::BlockAction {
+            kind,
+            position: self.position,
+            face,
+        };
+        // An abort carries the progress percent, which no refused start has made.
+        let abort = action(protocol::BlockActionKind::AbortDestroy, 0);
+        if self.reason == RefusedDestroyReason::CreativeNoBreak {
+            let _ = payload
+                .actions
+                .push(action(protocol::BlockActionKind::StartDestroy, self.face));
+            payload.creative_destroy = Some(crate::survival_mining::CreativeDestroyBlock {
+                local_runtime_id,
+                position: self.position,
+                face: self.face,
+            });
+        }
+        // At most two actions, within the bounded list.
+        let _ = payload.actions.push(abort);
+        payload
+    }
 }
 
 /// The sampled aim and authored cooldown for an item-directed attack.
@@ -256,7 +303,13 @@ impl MeleeRuntime {
             return outcome;
         }
         if crosshair == Crosshair::Block {
-            self.queue.entries.front_mut().unwrap().work = queue::Work::Block { tick: press.tick };
+            self.queue.entries.front_mut().unwrap().work = match press.refused_destroy {
+                Some(refused) => queue::Work::Refused {
+                    tick: press.tick,
+                    payload: Box::new(refused.payload(press.local_runtime_id)),
+                },
+                None => queue::Work::Block { tick: press.tick },
+            };
         } else {
             self.queue.entries.pop_front();
         }
@@ -321,7 +374,21 @@ impl MeleeRuntime {
                 }
                 swing(&mut outcome, SwingSource::Attack);
             }
-            Crosshair::Block => swing(&mut outcome, SwingSource::Mine),
+            Crosshair::Block => match press.refused_destroy {
+                None => swing(&mut outcome, SwingSource::Mine),
+                // A refused start swings as an attack, reports a denial, and misses.
+                Some(refused) => {
+                    swing(&mut outcome, SwingSource::Attack);
+                    if refused.reason == RefusedDestroyReason::Denied {
+                        outcome.packets.push(protocol::deny_destroy_block_packet(
+                            press.local_runtime_id,
+                            refused.position,
+                            refused.face,
+                        ));
+                    }
+                    outcome.missed_swing = true;
+                }
+            },
             Crosshair::Miss => {
                 // Touch skips the early swing on a miss but still reports it.
                 if press.input_mode != PlayerInputMode::Touch {

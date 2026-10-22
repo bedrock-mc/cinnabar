@@ -218,7 +218,7 @@ fn maintain_attacks(
 ) {
     let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let attack = (|| {
+    let mut attack = (|| {
         if context
             .input
             .snapshot()
@@ -245,6 +245,7 @@ fn maintain_attacks(
         Some((
             picked.crosshair,
             PressContext {
+                refused_destroy: None,
                 tick: sample.tick,
                 player_position: sample.position,
                 input_mode: protocol_input_mode(input.input_mode),
@@ -284,7 +285,12 @@ fn maintain_attacks(
         );
     let wants_target =
         active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
-    let destroy = if wants_target {
+    // A block press is refused at its start even where the game mode cannot mine.
+    let block_press = focused
+        && attack
+            .as_ref()
+            .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
+    let observation = if wants_target || block_press {
         input.and_then(|input| {
             crate::survival_mining::observe_destroy_target(
                 &player,
@@ -298,6 +304,18 @@ fn maintain_attacks(
         })
     } else {
         None
+    };
+    let destroy = match observation {
+        Some(crate::survival_mining::DestroyObservation::Refused(refused)) => {
+            if let Some((_, press)) = attack.as_mut() {
+                press.refused_destroy = Some(refused);
+            }
+            None
+        }
+        Some(crate::survival_mining::DestroyObservation::Target(target)) if wants_target => {
+            Some(target)
+        }
+        _ => None,
     };
     let local_runtime_id = context
         .client_world
