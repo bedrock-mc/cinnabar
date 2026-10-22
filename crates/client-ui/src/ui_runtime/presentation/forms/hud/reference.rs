@@ -31,6 +31,7 @@ pub(super) fn hud_model(
         });
         HudSlot {
             icon,
+            id_aux: stack.map(protocol::item_id_aux),
             count: stack.map_or(0, |stack| u32::from(stack.count)),
             selected,
             durability: stack.and(durability).map(f64::from),

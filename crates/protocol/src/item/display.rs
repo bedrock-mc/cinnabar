@@ -119,6 +119,22 @@ pub fn item_has_enchantment_list(extra_data: &[u8]) -> bool {
     })
 }
 
+/// The key vanilla's UI binds as `#item_id_aux` for a stack: the network id in the high 16 bits,
+/// the auxiliary value in the low 16, with bit 15 set when the user data carries an `ench` list.
+/// An empty stack reads as -1, which matches no item.
+#[must_use]
+pub fn item_id_aux(stack: &super::NetworkItemStack) -> i32 {
+    if stack.is_empty() {
+        return -1;
+    }
+    let enchanted = if item_has_enchantment_list(&stack.extra_data) {
+        0x8000
+    } else {
+        0
+    };
+    ((u32::from(stack.network_id as u16) << 16) | (stack.metadata & 0xffff) | enchanted) as i32
+}
+
 /// Reads the `bundle_id` int that ties a bundle item to its dynamic container.
 #[must_use]
 pub fn item_bundle_id(extra_data: &[u8]) -> Option<u32> {
@@ -220,6 +236,29 @@ mod tests {
         extra.push(1);
         extra.extend(nbt);
         extra
+    }
+
+    #[test]
+    fn id_aux_packs_id_aux_and_enchantment_list() {
+        let mut stack = super::super::NetworkItemStack {
+            network_id: 448,
+            metadata: 3,
+            count: 1,
+            ..Default::default()
+        };
+        assert_eq!(item_id_aux(&stack), (448 << 16) | 3);
+        stack.extra_data = extra(|nbt| {
+            nbt.push(TAG_LIST);
+            nbt.extend(4_u16.to_le_bytes());
+            nbt.extend(b"ench");
+            nbt.push(TAG_COMPOUND);
+            nbt.extend(0_i32.to_le_bytes());
+        })
+        .into();
+        assert_eq!(item_id_aux(&stack), (448 << 16) | 0x8000 | 3);
+        stack.count = 0;
+        assert_eq!(item_id_aux(&stack), -1);
+        assert_eq!(item_id_aux(&super::super::NetworkItemStack::empty()), -1);
     }
 
     #[test]

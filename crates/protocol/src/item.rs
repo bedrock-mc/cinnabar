@@ -36,7 +36,7 @@ pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
-    item_has_enchantment_list,
+    item_has_enchantment_list, item_id_aux,
 };
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{

@@ -220,6 +220,7 @@ impl SemanticHud {
         selected: bool,
     ) -> bool {
         slot.count == stack.map_or(0, |stack| u32::from(stack.count))
+            && slot.id_aux == stack.map(protocol::item_id_aux)
             && slot.selected == selected
             && slot.durability == stack.and(durability).map(f64::from)
             && slot.icon.and_then(|index| self.icons.get(index).copied()) == stack.and(icon)
@@ -243,6 +244,7 @@ impl SemanticHud {
             });
             HudSlot {
                 icon,
+                id_aux: stack.map(protocol::item_id_aux),
                 count: stack.map_or(0, |stack| u32::from(stack.count)),
                 selected,
                 durability: stack.and(durability).map(f64::from),

@@ -628,6 +628,10 @@ impl Cells<'_> {
             }),
         )
         .with("#hover_text", Scalar::Text(name))
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(stack.map_or(-1, protocol::item_id_aux))),
+        )
         .with("#is_selected_slot", Scalar::Bool(false))
         // The classic cell art; the controller always answers the background.
         .with("#container_item_background", Scalar::Int(0))
