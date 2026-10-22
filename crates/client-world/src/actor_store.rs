@@ -608,6 +608,8 @@ pub struct MovementFlagUpdate {
     pub gliding: Option<bool>,
     pub swimming: Option<bool>,
     pub crawling: Option<bool>,
+    /// A riptide spin (`DamageNearbyMobs`).
+    pub spinning: Option<bool>,
     pub has_gravity: Option<bool>,
     pub uniform_air_drag: Option<bool>,
 }
@@ -643,6 +645,7 @@ impl MovementFlagUpdate {
             gliding: bit(ActorFlag::Gliding.wire_value()),
             swimming: bit(ActorFlag::Swimming.wire_value()),
             crawling: bit(ActorFlag::Crawling.wire_value()),
+            spinning: bit(ActorFlag::DamageNearbyMobs.wire_value()),
             has_gravity: bit(ActorFlag::HasGravity.wire_value()),
             uniform_air_drag: bit(ActorFlag::UsesUniformAirDrag.wire_value()),
         })

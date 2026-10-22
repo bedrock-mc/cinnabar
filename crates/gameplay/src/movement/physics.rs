@@ -23,6 +23,8 @@ mod fixed_ticks;
 mod input_requests;
 mod motion_ticks;
 mod posture;
+#[cfg(test)]
+pub(in crate::movement) use posture::LocalPose;
 pub(in crate::movement) use posture::SyncPose;
 mod timeline;
 mod visual_correction;
@@ -280,6 +282,8 @@ pub struct LocalPhysicsController {
     server_control_flags: Option<ServerControlFlags>,
     /// Accepted server posture newer than the latest completed sample.
     live_posture: ServerControlFlags,
+    /// Server pose flags that disagreed with local state, kept until a local transition.
+    server_pose: posture::ServerPoseFlags,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
@@ -325,6 +329,7 @@ impl Default for LocalPhysicsController {
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             live_posture: Default::default(),
+            server_pose: Default::default(),
             riptide_pending: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
@@ -385,6 +390,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
+        self.server_pose = Default::default();
         self.riptide_pending = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -450,6 +456,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();
+        self.server_pose = Default::default();
         self.riptide_pending = None;
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
@@ -824,6 +831,14 @@ impl LocalPhysicsController {
                     }
                     while self.sample_history.len() >= self.history_capacity {
                         self.sample_history.pop_front();
+                    }
+                    if let (Some(previous), Some(completed)) =
+                        (self.sample_history.back(), frame.samples.last())
+                    {
+                        self.server_pose.yield_to_local(
+                            posture::LocalPose::of(&previous.processed),
+                            posture::LocalPose::of(&completed.processed),
+                        );
                     }
                     self.sample_history.push_back(
                         frame

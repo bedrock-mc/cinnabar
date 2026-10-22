@@ -279,6 +279,7 @@ impl LocalPhysicsController {
             TimelineSlot::Rewind(tick) => Some(tick),
             TimelineSlot::Stale => self.history.oldest_tick(),
         };
+        self.note_server_pose(rewind, &flags);
         let Some(tick) = rewind else {
             self.adopt_live_flags(flags);
             return None;
