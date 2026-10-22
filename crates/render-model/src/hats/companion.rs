@@ -306,8 +306,7 @@ impl Follower {
                         if (!supported || movement.distance(requested) > 0.001)
                             && grounded
                             && self.hop_retry == 0.0
-                        {
-                            if let Some(hop) = navigation::hop(
+                            && let Some(hop) = navigation::hop(
                                 feet,
                                 target,
                                 direction,
@@ -315,11 +314,11 @@ impl Follower {
                                 &mut terrain,
                                 &mut clip,
                                 &mut clear,
-                            ) {
-                                self.hop = Some(hop);
-                                self.trick = None;
-                                break;
-                            }
+                            )
+                        {
+                            self.hop = Some(hop);
+                            self.trick = None;
+                            break;
                         }
                         if supported
                             && movement.length_squared() > 0.0000001
