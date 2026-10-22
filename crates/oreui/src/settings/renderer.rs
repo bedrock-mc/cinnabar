@@ -111,6 +111,11 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             },
         )?;
     }
+    // Only a shared label needs the kind to tell the entries apart.
+    let mut labels = std::collections::HashMap::<&str, usize>::new();
+    for name in view.shader_packs.iter() {
+        *labels.entry(pack_label(name)).or_default() += 1;
+    }
     for (index, name) in view.shader_packs.iter().enumerate() {
         let Ok(index) = u16::try_from(index) else {
             continue;
@@ -124,14 +129,7 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         } else if selected {
             chips.push(status);
         }
-        // Only a shared label needs the kind to tell the entries apart.
-        if view
-            .shader_packs
-            .iter()
-            .filter(|other| pack_label(other) == label)
-            .nth(1)
-            .is_some()
-        {
+        if labels.get(label).is_some_and(|count| *count > 1) {
             chips.push(if label.len() < name.len() {
                 Chip::Zip
             } else {
@@ -186,8 +184,15 @@ impl Chip {
         Ok(canvas.measure(self.label(), CAPTION)? + canvas.r(1.6))
     }
 
-    /// Draws the chip from its top-left corner.
-    fn draw(self, canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), PaintError> {
+    /// The chip's size within `limit`; a narrower chip wraps its label onto more lines.
+    fn size(self, canvas: &mut Canvas<'_>, limit: f32) -> Result<[f32; 2], PaintError> {
+        let width = self.width(canvas)?.min(limit.max(canvas.r(2.0)));
+        let label = canvas.measure_height(self.label(), width - canvas.r(1.6), CAPTION)?;
+        Ok([width, label.max(canvas.r(2.0))])
+    }
+
+    /// Draws the chip filling `bounds` from [`Self::size`].
+    fn draw(self, canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
         let [fill, text] = match self {
             Self::Active => [theme::PRIMARY_ROLE.fill, TEXT],
             Self::Failed => [theme::DESTRUCTIVE.fill, TEXT],
@@ -195,15 +200,21 @@ impl Chip {
                 [theme::NEUTRAL80.fill, TEXT_DIMMER]
             }
         };
-        let bounds = [
-            at[0],
-            at[1],
-            at[0] + self.width(canvas)?,
-            at[1] + canvas.r(2.0),
-        ];
         canvas.fill(bounds, fill)?;
         canvas.frame(bounds, EDGE, theme::BORDER)?;
-        canvas.text_centred(self.label(), bounds, CAPTION, text, false)
+        let width = bounds[2] - bounds[0] - canvas.r(1.6);
+        let height = canvas.measure_height(self.label(), width, CAPTION)?;
+        canvas.centered_wrapped_text(
+            self.label(),
+            [
+                bounds[0] + canvas.r(0.8),
+                (bounds[1] + bounds[3] - height) * 0.5,
+            ],
+            width,
+            CAPTION,
+            text,
+        )?;
+        Ok(())
     }
 }
 
@@ -256,7 +267,7 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
             .max(canvas.r(CAPTION.line)),
         None => 0.0,
     };
-    let chip_line = canvas.r(2.4);
+    let chip_gap = canvas.r(0.6);
     let widths = entry
         .chips
         .iter()
@@ -268,20 +279,22 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
     } else {
         text_left
     };
-    let chips_width = text_right - chips_left;
+    let chips_width = (text_right - chips_left).max(1.0);
     let mut chips = Vec::with_capacity(entry.chips.len());
-    let (mut x, mut row) = (0.0, 0.0);
-    for (chip, chip_width) in entry.chips.iter().zip(widths) {
+    let (mut x, mut row, mut row_height) = (0.0, canvas.r(0.4), 0.0_f32);
+    for chip in entry.chips {
+        let [chip_width, chip_height] = chip.size(canvas, chips_width)?;
         if x > 0.0 && x + chip_width > chips_width {
-            (x, row) = (0.0, row + chip_line);
+            (x, row, row_height) = (0.0, row + row_height + chip_gap, 0.0);
         }
-        chips.push((*chip, [x, row]));
-        x += chip_width + canvas.r(0.6);
+        chips.push((*chip, [x, row, x + chip_width, row + chip_height]));
+        x += chip_width + chip_gap;
+        row_height = row_height.max(chip_height);
     }
     let chip_height = if chips.is_empty() {
         0.0
     } else {
-        row + chip_line
+        row + row_height
     };
     let stack = title_height + caption_height + chip_height;
     let header = (stack + 2.0 * pad).max(tile + 2.0 * pad).max(canvas.r(4.8));
@@ -399,8 +412,8 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         canvas.text(caption, [text_left, y], width, CAPTION, TEXT_DIMMER, false)?;
         y += caption_height;
     }
-    for (chip, [x, row]) in chips {
-        chip.draw(canvas, [chips_left + x, y + row + canvas.r(0.4)])?;
+    for (chip, [x0, y0, x1, y1]) in chips {
+        chip.draw(canvas, [chips_left + x0, y + y0, chips_left + x1, y + y1])?;
     }
     if let Some(remove) = corner {
         widgets::icon_button(

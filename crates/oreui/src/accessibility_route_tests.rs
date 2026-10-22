@@ -254,7 +254,8 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
         return;
     }
     for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [240.0, 720.0], [400.0, 250.0]] {
-        for enabled in [0, 1] {
+        for (enabled, failed) in [(0, false), (0, true), (1, false), (1, true)] {
+            let chip = if failed { "Failed" } else { "Loading…" };
             let mut view =
                 crate::test_support::settings_view(SettingSection::Shaders.definition().name);
             view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
@@ -263,7 +264,11 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
             let selected = RendererChoice::ShaderPack(0, view.shader_packs_revision);
             view.renderer = Some(selected);
             view.shader_options_available = true;
-            view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+            if failed {
+                view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+            } else {
+                view.shader_pack_loading = true;
+            }
             Arc::make_mut(&mut view.storage).opens_folders = true;
             Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), enabled);
             let metrics = TextMetrics::for_viewport(
@@ -272,7 +277,7 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
                 Some(2),
             );
             let mut screen = OreUiScreen::default();
-            paint_with_scrolls(
+            let painted = paint_with_scrolls(
                 &mut screen,
                 &view,
                 metrics,
@@ -311,6 +316,50 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
                     "{size:?} xl={enabled}: {action:?} at {bounds:?} leaves {panel:?}"
                 );
             }
+            let ink = chip_ink(&painted.nodes, chip);
+            assert!(!ink.is_empty(), "{size:?} xl={enabled}: {chip} is drawn");
+            for [left, right] in ink {
+                assert!(
+                    left >= panel.min().x() && right <= panel.max().x(),
+                    "{size:?} xl={enabled}: {chip} glyph at {left}..{right} leaves {panel:?}"
+                );
+            }
         }
     }
+}
+
+/// The window-x extent of every glyph in text nodes reading `label`.
+fn chip_ink(nodes: &[UiNode], label: &str) -> Vec<[f32; 2]> {
+    let origin = |mut parent: Option<ui::UiNodeId>| {
+        let mut x = 0.0;
+        while let Some(node) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+            x += node.bounds().min().x();
+            parent = node.parent();
+        }
+        x
+    };
+    nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. }
+                if layout
+                    .glyphs()
+                    .iter()
+                    .zip(layout.glyph_source_indices())
+                    .filter(|(glyph, source)| source.is_some() && !glyph.codepoint.is_whitespace())
+                    .map(|(glyph, _)| glyph.codepoint)
+                    .eq(label.chars().filter(|codepoint| !codepoint.is_whitespace())) =>
+            {
+                let x = origin(node.parent()) + node.bounds().min().x();
+                Some(layout.glyphs().iter().map(move |glyph| {
+                    [
+                        x + glyph.bounds_64[0] as f32 / 64.0,
+                        x + glyph.bounds_64[2] as f32 / 64.0,
+                    ]
+                }))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
 }
