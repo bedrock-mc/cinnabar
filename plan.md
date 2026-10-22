@@ -615,6 +615,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
   feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested. Retired loads cancel between translation programs and GPU
+  batches; rapid selections share one load worker. The Shaders library lists Off and every
+  pack in one list ending in a drop zone; the selected pack's card shows its load state and
+  holds settings, reload and confirmed removal of imported copies and their saved settings.
+  Incomplete: matched shader-feature-off versus
   batches; rapid selections share one load worker. The Shaders library uses full-width pack
   rows with controls on the selected pack and confirmed removal of imported copies and their
   saved settings. Incomplete: matched shader-feature-off versus
