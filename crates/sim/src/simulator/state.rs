@@ -135,6 +135,9 @@ pub struct MovementEnvironment {
     pub in_cobweb: bool,
     pub in_powder_snow: bool,
     pub in_scaffolding: bool,
+    /// This tick's sneak descent through supported scaffolding.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub descending_through_scaffolding: bool,
     pub horizontal_speed_factor: f64,
     pub vertical_speed_factor: f64,
     pub surface_response: SurfaceResponse,
@@ -149,6 +152,7 @@ impl Default for MovementEnvironment {
             in_cobweb: false,
             in_powder_snow: false,
             in_scaffolding: false,
+            descending_through_scaffolding: false,
             horizontal_speed_factor: 1.0,
             vertical_speed_factor: 1.0,
             surface_response: SurfaceResponse::None,

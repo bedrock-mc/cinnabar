@@ -373,10 +373,16 @@ pub fn reconcile_timeline_rewind(
     }
     let mut candidate_physics = physics.clone();
     let mut candidate_ticker = ticker.clone();
-    if let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick() {
-        candidate_physics
-            .discard_riptide_release_after(tick, world)
-            .map_err(|_| PhysicsAuthorityFault::CorrectionReplayFailed)?;
+    if let Some(release_tick) = candidate_ticker.unconfirmed_riptide_release_tick()
+        && candidate_physics
+            .discard_riptide_release_after(release_tick, world)
+            .is_err()
+    {
+        // The edit's rewind was still due; only Cinnabar's preparatory replay failed.
+        if physics.retains_tick(tick) {
+            physics.prediction_sync.arm();
+        }
+        return Err(PhysicsAuthorityFault::CorrectionReplayFailed);
     }
     let plan = match candidate_physics.replay_retained_from(tick, world) {
         Ok(plan) => plan,
