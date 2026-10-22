@@ -763,9 +763,8 @@ fn enchanting_restatement_survives_a_later_count_response() {
         },
     )
     .unwrap();
-    // The server restates the predicted enchanted item before its count-only response.
     let replacement = NetworkItemStack {
-        network_id: 6,
+        network_id: 7,
         stack_network_id: 70,
         count: 1,
         nbt_digest: sha2::Sha256::digest(&extra).into(),
@@ -837,4 +836,55 @@ fn server_previewed_grindstone_result_can_be_taken() {
         assert_eq!(ledger.cursor_stack().unwrap().count, 1);
         assert!(ledger.target_stack(InventoryTarget::Craft(16)).is_none());
     }
+}
+
+/// An enchantment queued while its input's placement awaits acknowledgement is rebound when
+/// that acknowledgement arrives: it consumes the acknowledged stack and places its result into
+/// the slot that consume emptied.
+#[test]
+fn unsent_enchants_rebind_after_an_earlier_transfer_is_acknowledged() {
+    let mut ledger = ledger_with(&[(0, stack(60, 1))]);
+    open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
+    ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+        options: Arc::from([offer(3, (15, 2))]),
+    }));
+    let placement = ledger.begin_quick_move(InventoryTarget::Player(0)).unwrap();
+    assert!(ledger.mark_transport_enqueued(1));
+    assert!(ledger.target_stack(InventoryTarget::Craft(14)).is_some());
+    ledger.begin_enchant(3, true).unwrap();
+    assert_eq!(ledger.pending_request_count(), 2);
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id: placement,
+                status: protocol::StackResponseStatus::Accepted,
+                containers: Arc::from([protocol::StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(22),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([protocol::StackResponseSlot {
+                        slot: 14,
+                        hotbar_slot: 14,
+                        count: 1,
+                        item_stack_id: 61,
+                        custom_name: Arc::from(""),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: 0,
+                    }]),
+                }]),
+            }]),
+        },
+    ));
+    assert_eq!(ledger.pending_request_count(), 1);
+    let actions = &ledger.newest_request().unwrap().actions;
+    let Some(StackRequestAction::Consume { source, .. }) = actions.get(2) else {
+        panic!("the input is consumed: {actions:?}");
+    };
+    assert_eq!(source.stack_network_id, 61);
+    let Some(StackRequestAction::Place { destination, .. }) = actions.get(3) else {
+        panic!("the result is placed: {actions:?}");
+    };
+    assert_eq!((destination.slot, destination.stack_network_id), (14, 0));
 }

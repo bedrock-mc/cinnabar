@@ -154,6 +154,20 @@ impl PendingRequest {
         self.world_drop.is_some() && self.state == InventoryPendingState::AwaitingResponse
     }
 
+    /// The request predicts a created result derived from its inputs and the item facts, so
+    /// it cannot be replayed once either changes before it is sent.
+    pub(super) fn predicts_derived_result(&self) -> bool {
+        self.groups.iter().any(|group| {
+            matches!(
+                group,
+                DeltaGroup::Set {
+                    cell: Cell::CreatedOutput,
+                    ..
+                }
+            )
+        })
+    }
+
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
         self.groups.iter().flat_map(DeltaGroup::touched)
     }
@@ -585,8 +599,16 @@ impl PlayerInventoryLedger {
             .find(|consumed| consumed.cell == requested);
         let count = u16::from(correction.count)
             .saturating_sub(consumed.map_or(0, |consumed| consumed.amount));
-        let mut held = prediction
-            .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
+        // A derived result is only the client's estimate, so a restatement after submission
+        // supersedes it; other predictions keep their exact snapshot.
+        let restated = prediction
+            .filter(|prediction| !prediction.current && request.predicts_derived_result())
+            .and_then(|_| self.confirmed.get(cell));
+        let mut held = restated
+            .or_else(|| {
+                prediction
+                    .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
+            })
             .or_else(|| {
                 request
                     .mining

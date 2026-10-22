@@ -73,18 +73,36 @@ impl PlayerInventoryLedger {
                 for prediction in &request.predicted {
                     cells.set(prediction.cell, prediction.before.clone());
                 }
-                for slot in request
-                    .actions
-                    .iter_mut()
-                    .flat_map(crate::inventory_ledger::helpers::action_slots_mut)
-                {
-                    if slot.stack_network_id == request.request_id {
-                        continue;
+                // Rebinds in action order: a cell a consume has emptied is addressed as empty.
+                let mut emptied = Vec::new();
+                for action in &mut request.actions {
+                    let consumed = match action {
+                        protocol::StackRequestAction::Consume { amount, source } => {
+                            Some((*amount, *source))
+                        }
+                        _ => None,
+                    };
+                    for slot in crate::inventory_ledger::helpers::action_slots_mut(action) {
+                        if slot.stack_network_id == request.request_id {
+                            continue;
+                        }
+                        if let Some(cell) = self.request_cell(*slot) {
+                            slot.stack_network_id = if emptied.contains(&cell) {
+                                0
+                            } else {
+                                cells
+                                    .get(cell)
+                                    .map_or(0, |held| held.stack.stack_network_id)
+                            };
+                        }
                     }
-                    if let Some(cell) = self.request_cell(*slot) {
-                        slot.stack_network_id = cells
+                    if let Some((amount, source)) = consumed
+                        && let Some(cell) = self.request_cell(source)
+                        && cells
                             .get(cell)
-                            .map_or(0, |held| held.stack.stack_network_id);
+                            .is_some_and(|held| held.stack.count <= u16::from(amount))
+                    {
+                        emptied.push(cell);
                     }
                 }
                 let mut placements = Vec::new();
