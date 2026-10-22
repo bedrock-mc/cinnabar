@@ -309,8 +309,9 @@ impl LocalPhysicsController {
     }
 
     /// Applies a write stamped `tick` in the live slot: its difference from the
-    /// live word changes the live state. A stamp at the current tick also
-    /// queues it for the next frame's capture, and a future stamp, whose frame
+    /// live word changes the live state. A stamp at the current tick, or an
+    /// earlier one without a following frame, also queues it for the next
+    /// frame's capture, and a future stamp, whose frame
     /// does not exist, joins the current frame's corrections, so replay keeps
     /// it either way.
     pub(super) fn adopt_live_server_flags(&mut self, tick: u64, write: FlagWrite) {
@@ -352,14 +353,17 @@ impl LocalPhysicsController {
     /// Attaches a write stamped at retained `tick` to the following frame as
     /// the difference from that frame's capture, and applies it live. Like
     /// vanilla's flag correction, whose pending type is zero, it schedules no
-    /// replay; a later replay through the frame applies it. Returns whether
-    /// the frame changed.
+    /// replay; a later replay through the frame applies it. Without a
+    /// following frame, as when a stale stamp clamps to the only retained
+    /// tick, the write applies live and waits for the next capture. Returns
+    /// whether a retained frame changed.
     pub(super) fn retain_server_flags(&mut self, tick: u64, write: FlagWrite) -> bool {
         let Some(frame) = self
             .controller_history
             .iter_mut()
             .find(|frame| Some(frame.tick) == tick.checked_add(1))
         else {
+            self.adopt_live_server_flags(tick, write);
             return false;
         };
         let correction = FlagCorrection::against(write, frame.entry_flags);

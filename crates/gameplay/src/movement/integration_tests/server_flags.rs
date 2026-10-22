@@ -764,3 +764,15 @@ fn a_future_stamped_write_joins_the_current_frame() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, 103, &VersionedFloor(1)).unwrap();
     assert!(physics.state().unwrap().spin_attack_ticks.is_some());
 }
+
+/// A stale write whose clamped frame has no following frame yet applies live
+/// and waits for the next capture instead of being dropped.
+#[test]
+fn a_stale_write_without_a_following_frame_applies_live() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    physics.apply_server_movement_flags(50, write(false));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
