@@ -488,3 +488,50 @@ fn downloaded_bodies_stay_owned_by_the_host_and_draws_touch_them() {
     let touched = remote.1.lock().unwrap();
     assert!(urls.iter().take(2).all(|url| touched.contains(url)));
 }
+
+/// A download cache that can evict a body and later return a replacement for its URL.
+struct ReplacedImage(Mutex<Option<Arc<[u8]>>>);
+
+impl RemoteSource for ReplacedImage {
+    fn state(&self, _: &str) -> RemoteImage {
+        self.0
+            .lock()
+            .unwrap()
+            .clone()
+            .map_or(RemoteImage::Loading, RemoteImage::Ready)
+    }
+}
+
+#[test]
+fn a_redownload_uses_the_new_body_after_its_atlas_page_was_evicted() {
+    let url = "https://images.test/button.png";
+    for side in [2, 8] {
+        let remote = Arc::new(ReplacedImage(Mutex::new(Some(png(2, 2).into()))));
+        let files = vec![("textures/full.png".into(), png(PAGE_SIDE, PAGE_SIDE))];
+        let mut atlas = ServerAtlas::new(&files, None, 1)
+            .with_fallbacks(None, Some(remote.clone()))
+            .with_image_work(ImageWork::inline());
+        atlas.require([url]);
+        assert_eq!(atlas.placement(url).unwrap().rect[2..], [2, 2]);
+        *remote.0.lock().unwrap() = None;
+        atlas.require(["textures/full"]);
+        assert!(atlas.placement(url).is_none());
+
+        let mut bytes = Cursor::new(Vec::new());
+        let color = [90, 80, 70, 255];
+        image::RgbaImage::from_pixel(side, side, image::Rgba(color))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        *remote.0.lock().unwrap() = Some(bytes.into_inner().into());
+        atlas.require([url]);
+        let slot = atlas.placement(url).unwrap();
+        assert_eq!(slot.rect[2..], [side as u16; 2]);
+        assert_eq!(atlas.fallback_size(url), Some([f64::from(side); 2]));
+        let [x, y, _, _] = slot.rect.map(usize::from);
+        let offset = (y * PAGE_SIDE as usize + x) * 4;
+        assert_eq!(
+            &atlas.images()[usize::from(slot.page)].pixels()[offset..offset + 4],
+            &color
+        );
+    }
+}

@@ -17,7 +17,6 @@ impl ServerAtlas {
     /// Drops derived artwork and pending fallback work; declared pack sources stay indexed.
     pub(super) fn reset_fallback_artwork(&mut self) {
         self.extra.get_mut().clear();
-        self.remote_sizes.get_mut().clear();
         self.extra_sidecars.get_mut().clear();
         self.local_reads = Default::default();
         self.decodes = Default::default();

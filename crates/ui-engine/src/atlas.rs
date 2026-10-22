@@ -33,6 +33,7 @@ mod client_rasters;
 pub use client_rasters::LOCAL_PLAYER_HEAD;
 pub mod native_sheets;
 pub mod preread;
+mod remote;
 mod source_reads;
 mod source_reset;
 
@@ -272,9 +273,6 @@ impl Page {
     }
 }
 
-/// A downloaded body's address and length with its parsed pixel size.
-type RemoteSize = (usize, usize, [u32; 2]);
-
 /// The server pack's UI textures, packed on demand into a fixed number of
 /// reserved pages: a texture becomes resident when a rendered screen draws it,
 /// and a full atlas evicts its least recently drawn page.
@@ -290,9 +288,6 @@ pub struct ServerAtlas {
     pack: Option<PackTextures>,
     /// Vanilla images, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
-    /// Header sizes of downloaded URLs by body address and length. The bodies stay owned by the
-    /// host's download cache, which alone decides how long they stay resident.
-    remote_sizes: RefCell<BTreeMap<String, RemoteSize>>,
     local_reads: source_reads::SourceReads,
     /// Local vanilla sidecars inherit independently from the texture image.
     extra_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
@@ -390,6 +385,8 @@ impl Decodes {
     /// `key`'s pixels at `size`: cached, decoded inline, queued on a worker,
     /// or left for a later frame (`None` until then).
     fn get(&mut self, key: &str, source: &Source, decode_on: DecodeOn) -> Option<Arc<Vec<u8>>> {
+        let identity = remote::decode_key(key, &source.bytes);
+        let key = identity.as_ref();
         if let Some(pixels) = self.pixels.get(key) {
             return Some(Arc::clone(pixels));
         }
@@ -682,10 +679,7 @@ impl ServerAtlas {
     /// URL is asked of the host each time, which marks it in use.
     fn fallback(&self, key: &str) -> Option<Source> {
         if is_remote(key) {
-            return match self.remote.as_ref()?.state(key) {
-                RemoteImage::Ready(bytes) => self.remote_source(key, bytes),
-                RemoteImage::Failed | RemoteImage::Loading => None,
-            };
+            return self.remote_source(key);
         }
         if let Some(found) = self.extra.borrow().get(key) {
             return found.clone();
@@ -699,34 +693,6 @@ impl ServerAtlas {
             extra.insert(key.to_owned(), found.clone());
         }
         found
-    }
-
-    /// A downloaded body as a source, reusing its parsed header while the host keeps that body.
-    fn remote_source(&self, key: &str, bytes: std::sync::Arc<[u8]>) -> Option<Source> {
-        let body = (bytes.as_ptr() as usize, bytes.len());
-        let known = self
-            .remote_sizes
-            .borrow()
-            .get(key)
-            .filter(|(address, length, _)| (*address, *length) == body)
-            .map(|(_, _, size)| *size);
-        let size = match known {
-            Some(size) => size,
-            None => {
-                let size = source(std::sync::Arc::clone(&bytes))?.size;
-                let mut sizes = self.remote_sizes.borrow_mut();
-                if sizes.len() >= MAX_EXTRA {
-                    sizes.pop_first();
-                }
-                sizes.insert(key.to_owned(), (body.0, body.1, size));
-                size
-            }
-        };
-        Some(Source {
-            bytes,
-            size,
-            packed: fitted(size),
-        })
     }
 
     pub fn placement(&self, key: &str) -> Option<ServerTexture> {

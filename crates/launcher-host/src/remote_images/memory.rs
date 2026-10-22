@@ -12,7 +12,7 @@ use tokio::sync::mpsc::{Receiver, Sender, error::TrySendError};
 
 use super::{FORM_IMAGES, client, download};
 
-/// Most URLs remembered, loading ones included; the oldest settled entry goes first.
+/// Idle URLs remembered, loading ones included; an open form may keep more.
 const MAX_ENTRIES: usize = 64;
 /// Downloaded bytes kept at once; past it the oldest downloaded images go first and download
 /// again when asked. One image at the download limit still fits.
@@ -73,9 +73,9 @@ impl Entries {
             .is_some_and(|asked| now.saturating_duration_since(*asked) < OBSOLETE_AFTER)
     }
 
-    /// Evicts the oldest settled URLs, then the oldest loading ones, down to [`MAX_ENTRIES`], and
-    /// the oldest downloaded images no open screen uses down to [`MAX_READY_BYTES`]. Images in use
-    /// stay even past the byte budget, so an open form never re-downloads its own buttons.
+    /// Evicts unused settled URLs, then unused loading ones, down to [`MAX_ENTRIES`], and unused
+    /// downloaded images down to [`MAX_READY_BYTES`]. In-use images stay past either budget so an
+    /// open form never re-downloads its own buttons.
     fn trim(&mut self, now: Instant) {
         loop {
             let settled = |key: &String| self.states.get(key) != Some(&RemoteState::Loading);
@@ -83,17 +83,16 @@ impl Entries {
                 self.order
                     .iter()
                     .position(|key| settled(key) && !self.in_use(key, now))
-                    .or_else(|| self.order.iter().position(settled))
-                    .unwrap_or(0)
+                    .or_else(|| self.order.iter().position(|key| !self.in_use(key, now)))
             } else if self.ready_bytes > MAX_READY_BYTES {
-                let Some(position) = self.order.iter().position(|key| {
+                self.order.iter().position(|key| {
                     matches!(self.states.get(key), Some(RemoteState::Ready(_)))
                         && !self.in_use(key, now)
-                }) else {
-                    return;
-                };
-                position
+                })
             } else {
+                return;
+            };
+            let Some(position) = position else {
                 return;
             };
             if let Some(key) = self.order.remove(position) {
@@ -382,7 +381,11 @@ pub mod tests {
 
     #[test]
     fn review_download_completion_restores_the_cache_capacity() {
-        let remote = Remote::default();
+        let now = Instant::now();
+        let remote = Remote {
+            now: Arc::new(move || now),
+            ..Remote::default()
+        };
         let keys = (0..MAX_ENTRIES + 1)
             .map(|index| format!("fixture:{index}"))
             .collect::<Vec<_>>();
@@ -391,7 +394,7 @@ pub mod tests {
             for key in &keys {
                 entries.states.insert(key.clone(), RemoteState::Loading);
                 entries.order.push_back(key.clone());
-                entries.asked.insert(key.clone(), Instant::now());
+                entries.asked.insert(key.clone(), now - OBSOLETE_AFTER);
             }
         }
         for key in keys {
@@ -406,6 +409,32 @@ pub mod tests {
                 .keys()
                 .all(|key| entries.states.contains_key(key))
         );
+    }
+
+    #[test]
+    fn an_open_form_keeps_more_images_than_the_entry_budget() {
+        let now = Instant::now();
+        let images = RemoteImages::with_clock(move || now);
+        let count = MAX_ENTRIES + 8;
+        let (sender, _receiver) = tokio::sync::mpsc::channel(count);
+        *images.0.worker.lock().unwrap() = Some(sender);
+        let urls: Vec<_> = (0..count)
+            .map(|index| format!("https://images.test/{index}.png"))
+            .collect();
+        for url in &urls {
+            assert_eq!(images.state(url), RemoteState::Loading);
+            images.0.finish(url.clone(), Some(vec![7]));
+        }
+        for _ in 0..2 {
+            for url in &urls {
+                assert!(matches!(images.state(url), RemoteState::Ready(_)));
+            }
+        }
+        let mut entries = images.0.entries.lock().unwrap();
+        entries.trim(now + OBSOLETE_AFTER);
+        assert_eq!(entries.states.len(), MAX_ENTRIES);
+        assert_eq!(entries.ready_bytes, MAX_ENTRIES);
+        assert_eq!(entries.order.len(), entries.states.len());
     }
 
     // Large form images counted only toward the entry limit, so 64 of them could keep GiBs resident.
@@ -456,12 +485,13 @@ pub mod tests {
     #[test]
     fn loading_entries_stay_bounded_and_forgotten_urls_requeue() {
         let mut entries = Entries::default();
+        let now = Instant::now();
         for index in 0..MAX_ENTRIES + 8 {
             let key = format!("https://example.test/{index}.png");
             entries.states.insert(key.clone(), RemoteState::Loading);
             entries.order.push_back(key.clone());
-            entries.asked.insert(key, Instant::now());
-            entries.trim(Instant::now());
+            entries.asked.insert(key, now - OBSOLETE_AFTER);
+            entries.trim(now);
         }
         assert_eq!(entries.states.len(), MAX_ENTRIES);
         assert_eq!(entries.order.len(), MAX_ENTRIES);
