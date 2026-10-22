@@ -14,6 +14,8 @@ mod authored_models;
 mod straw_beds;
 #[path = "tests/barrel.rs"]
 pub(crate) mod barrel;
+#[path = "tests/beacon.rs"]
+mod beacon;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]
@@ -38,6 +40,8 @@ mod dragon_egg;
 mod end_rod;
 #[path = "tests/flowerbed.rs"]
 mod flowerbed;
+#[path = "tests/furnace.rs"]
+mod furnace;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]

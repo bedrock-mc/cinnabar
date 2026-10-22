@@ -19,6 +19,7 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+mod mouse_back_tests;
 mod npc_dismissal_tests;
 
 #[test]

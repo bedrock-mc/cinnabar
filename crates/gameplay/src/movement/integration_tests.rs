@@ -25,6 +25,7 @@ mod transport_tests;
 mod crouch_camera;
 mod input_lock_sources;
 mod riptide;
+mod sneak_sync;
 
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {

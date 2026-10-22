@@ -417,6 +417,20 @@ const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "dressing-room-cosmetics-locked",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: cosmetics::locked_cosmetics,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-locked-narrow",
+        size: [480, 1280],
+        gui_scale: GUI_SCALE,
+        fixture: cosmetics::locked_cosmetics,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "dressing-room-cosmetics-head",
         size: SIZE,
         gui_scale: GUI_SCALE,
