@@ -184,6 +184,7 @@ fn custom_lucky_block_with_odd_entries_and_absent_states_breaks_at_its_value() {
                 },
                 wear: None,
                 instant: false,
+                local_runtime_id: 1,
             };
             let motion = TickMotion {
                 on_ground: true,
