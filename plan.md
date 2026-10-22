@@ -713,8 +713,10 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
-Actor artwork prepares current demand immediately and prewarms unused pages within a
-per-frame budget. Artwork arrays allocate exactly their source layer count. Skin slots
+Actor artwork uploads page rows within a per-frame byte budget, prioritizes current
+demand and finishes pending uploads before prewarming more pages. Complete pages bind
+atomically; compatible old pages stay visible during replacement. Artwork arrays
+allocate exactly their source layer count. Skin slots
 keep geometric capacity. Each artwork slot retains its own unchanged texture and bindings.
 Worker rig-plan preparation and measured cold arrival latency remain open acceptance work.
 Hardware join and frame acceptance still needs the full capture matrix below.
