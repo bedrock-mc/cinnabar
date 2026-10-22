@@ -735,8 +735,9 @@ fn enchanting_restatement_survives_a_later_count_response() {
         },
     )
     .unwrap();
+    // The server restates the predicted enchanted item before its count-only response.
     let replacement = NetworkItemStack {
-        network_id: 7,
+        network_id: 6,
         stack_network_id: 70,
         count: 1,
         nbt_digest: sha2::Sha256::digest(&extra).into(),
