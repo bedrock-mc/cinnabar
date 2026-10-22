@@ -409,7 +409,7 @@ impl Simulator {
         let mut identity = sampled.identity.clone();
         let height = next.hitbox_height(input);
         let collision_box = next.collision_box(height);
-        // The move, its auto-step and the sneak edge share one contextual query.
+        // The move, its auto-step and the sneak edge share one mover context.
         let view = scaffolding::ScaffoldingView::new(world, collision_box, sampled.descend_through)
             .with_powder_snow(next.fall_distance, input.can_stand_on_snow);
         // Edge avoidance shortens only the move request; velocity keeps each
