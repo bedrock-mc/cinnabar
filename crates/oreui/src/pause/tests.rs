@@ -1,7 +1,7 @@
 //! Pause action geometry remains consistent and reachable across GUI scales.
 
 use super::*;
-use crate::review_tests::paint;
+use crate::{review_tests::paint, theme::GUI_PIXELS_PER_REM};
 use ui_engine::text_metrics::TextMetrics;
 
 #[test]

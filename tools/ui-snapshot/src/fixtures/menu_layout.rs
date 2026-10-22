@@ -49,4 +49,19 @@ pub(super) const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || menu(MenuScreen::Pause),
     },
+    State {
+        name: "home-buttons-square",
+        size: [240, 240],
+        gui_scale: 1,
+        fixture: || menu(MenuScreen::Home),
+    },
+    State {
+        name: "pause-buttons-compact",
+        size: [
+            ui::MIN_WINDOW_LOGICAL_SIZE[0] as u32,
+            ui::MIN_WINDOW_LOGICAL_SIZE[1] as u32,
+        ],
+        gui_scale: 1,
+        fixture: || menu(MenuScreen::Pause),
+    },
 ];

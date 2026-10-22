@@ -219,3 +219,39 @@ fn world_tab_snapshots_cover_the_shared_category_catalog() {
         assert_eq!(view.local.tab, tab);
     }
 }
+
+/// The complete capture path must paint the requested preview and omit it in compact layouts.
+#[test]
+fn pause_snapshots_paint_the_default_character_only_when_the_layout_has_a_preview() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
+    for (name, preview) in [("pause-buttons", true), ("pause-buttons-compact", false)] {
+        let state = fixtures::states().find(|state| state.name == name).unwrap();
+        let png = match render::png(state, &dir) {
+            Ok(png) => png,
+            Err(carriers::Error::Missing(message)) => {
+                eprintln!("skipping {name}: missing fixture {message}");
+                return;
+            }
+            Err(error) => panic!("{name}: {error:?}"),
+        };
+        let image = image::load_from_memory(&png).unwrap().to_rgba8();
+        // The default player's cyan clothing distinguishes its model from gray menu chrome
+        // and the red title, including the model painter's shaded faces.
+        let clothing = image
+            .enumerate_pixels()
+            .filter(|(x, _, pixel)| {
+                *x > image.width() * 3 / 5
+                    && u16::from(pixel[1]) > u16::from(pixel[0]) + 24
+                    && u16::from(pixel[2]) > u16::from(pixel[0]) + 24
+            })
+            .count();
+        if preview {
+            assert!(clothing > 32, "{name} omitted its default character");
+        } else {
+            assert_eq!(
+                clothing, 0,
+                "{name} painted a character over compact actions"
+            );
+        }
+    }
+}
