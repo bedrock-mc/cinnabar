@@ -169,7 +169,7 @@ not identify an installable file. Successful installs report their version on th
 Mods tab and clear the available-update notice. App updates take priority in the corner.
 
 Players can disable **Install mod updates automatically** in **Settings →
-General** while retaining notifications, or disable **Check for mod updates**
+Updates**, under **Mods**, while retaining notifications, or disable **Check for mod updates**
 to stop both checks and downloads. Both mod settings work independently of the
 app updater, including development builds. Mods without either declaration make
 no update requests.

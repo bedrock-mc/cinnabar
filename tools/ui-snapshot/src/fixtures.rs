@@ -880,11 +880,11 @@ const STATES: &[State] = &[
         fixture: || updates::settings(launcher::menu::updates::Status::Failed),
     },
     State {
-        name: "settings-general-mod-updates-passive",
+        name: "settings-updates-mod-updates-passive",
         size: [1280, 1200],
         gui_scale: GUI_SCALE,
         fixture: || {
-            let mut view = settings(SettingSection::General.definition().name);
+            let mut view = settings(SettingSection::Updates.definition().name);
             view.updates.active = false;
             Fixture::Menu(Box::new(view))
         },
