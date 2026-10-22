@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::{Cursor, Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
     sync::OnceLock,
@@ -19,11 +19,11 @@ use super::{
     world::{WorldError, failed},
 };
 
-const SOURCE_ARCHIVE: &str = "source.zip";
+const LEGACY_SOURCE_ARCHIVE: &str = "source.zip";
 /// Adds write, SIMD and regular barriers for the server's x86 memory ordering.
 const STRONG_MEMORY: &str = "3";
 
-/// Executable names and the translated runtime's immutable source archive.
+/// Executable names and the translated runtime's pinned guest library.
 #[derive(Deserialize)]
 pub(super) struct AndroidRuntime {
     pub local_server_library: String,
@@ -33,11 +33,11 @@ pub(super) struct AndroidRuntime {
 #[derive(Clone, Deserialize)]
 pub(super) struct TranslationPin {
     pub helper_library: String,
-    archive_base_url: String,
     revision: String,
-    archive_sha256: String,
-    archive_bytes: u64,
     guest_library: String,
+    guest_base_url: String,
+    guest_sha256: String,
+    guest_bytes: u64,
     native_runtime: NativeRuntime,
 }
 
@@ -64,30 +64,24 @@ pub(super) fn android_runtime() -> &'static AndroidRuntime {
 }
 
 impl TranslationPin {
-    /// The pinned upstream source archive; guest code is downloaded, never bundled.
-    fn archive_url(&self) -> String {
-        format!("{}{}", self.archive_base_url, self.revision)
+    /// The single guest library at the same pinned upstream revision as the translator.
+    fn library_url(&self) -> String {
+        format!(
+            "{}{}/x64lib/{}",
+            self.guest_base_url, self.revision, self.guest_library
+        )
     }
 
-    /// Validates the complete archive before reading its one required guest library.
-    fn guest_bytes(&self, archive: &[u8]) -> Result<Vec<u8>, WorldError> {
-        if archive.len() as u64 != self.archive_bytes
-            || format!("{:x}", Sha256::digest(archive)) != self.archive_sha256
+    /// Accepts only the exact guest library identified by the manifest's size and digest.
+    fn verify_library(&self, bytes: &[u8]) -> Result<(), WorldError> {
+        if bytes.len() as u64 != self.guest_bytes
+            || format!("{:x}", Sha256::digest(bytes)) != self.guest_sha256
         {
             return Err(failed(
-                "translated server runtime archive failed verification",
+                "translated server runtime library failed verification",
             ));
         }
-        let mut archive = zip::ZipArchive::new(Cursor::new(archive))
-            .map_err(|error| failed(format!("read translated runtime archive: {error}")))?;
-        let entry = format!("box64-{}/x64lib/{}", self.revision, self.guest_library);
-        let mut library = Vec::new();
-        archive
-            .by_name(&entry)
-            .map_err(|error| failed(format!("locate translated runtime library: {error}")))?
-            .read_to_end(&mut library)
-            .map_err(|error| failed(format!("read translated runtime library: {error}")))?;
-        Ok(library)
+        Ok(())
     }
 }
 
@@ -173,7 +167,7 @@ impl Translation {
         Ok(command)
     }
 
-    /// Revalidates cached guest code, acquiring the source archive only when necessary.
+    /// Reuses a verified guest library, downloading only its pinned bytes when missing or damaged.
     fn ensure_library(
         &self,
         pin: &TranslationPin,
@@ -184,47 +178,44 @@ impl Translation {
         if cancel.is_cancelled() {
             return Err(WorldError::Cancelled);
         }
-        let source = directory.join(SOURCE_ARCHIVE);
-        let cached =
-            if fs::metadata(&source).is_ok_and(|metadata| metadata.len() == pin.archive_bytes) {
-                Some(fs::read(&source).map_err(|error| failed(error.to_string()))?)
-                    .filter(|bytes| format!("{:x}", Sha256::digest(bytes)) == pin.archive_sha256)
+        let library = directory.join(&pin.guest_library);
+        let valid =
+            if fs::metadata(&library).is_ok_and(|metadata| metadata.len() == pin.guest_bytes) {
+                let bytes = fs::read(&library).map_err(|error| failed(error.to_string()))?;
+                pin.verify_library(&bytes).is_ok()
             } else {
-                None
+                false
             };
-        let archive = match cached {
-            Some(bytes) => bytes,
-            None => {
-                provisioner.set_op(Some(SetupState::Downloading), None, 0, 0);
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|error| failed(error.to_string()))?;
-                let bytes = runtime.block_on(fetch_archive(pin, provisioner, cancel))?;
-                pin.guest_bytes(&bytes)?;
-                publish(&source, &bytes, cancel)?;
-                bytes
-            }
-        };
-        let library = pin.guest_bytes(&archive)?;
-        publish(&directory.join(&pin.guest_library), &library, cancel)?;
+        if !valid {
+            provisioner.set_op(Some(SetupState::Downloading), None, 0, pin.guest_bytes);
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| failed(error.to_string()))?;
+            let bytes = runtime.block_on(fetch_library(pin, provisioner, cancel))?;
+            pin.verify_library(&bytes)?;
+            publish(&library, &bytes, cancel)?;
+        }
+        // Older installs kept the whole source archive. Drop it only after the library is valid.
+        let _ = fs::remove_file(directory.join(LEGACY_SOURCE_ARCHIVE));
         provisioner.set_op(None, None, 0, 0);
         Ok(())
     }
 }
 
-/// Downloads only the pinned HTTPS archive, checking cancellation and stalls between chunks.
-async fn fetch_archive(
+/// Downloads only the pinned guest library, checking cancellation, size and stalls between chunks.
+async fn fetch_library(
     pin: &TranslationPin,
     provisioner: &Provisioner,
     cancel: &Cancel,
 ) -> Result<Vec<u8>, WorldError> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .user_agent(super::download::AGENT)
         .build()
         .map_err(|error| failed(error.to_string()))?;
     let mut response = bounded(
-        client.get(pin.archive_url()).send(),
+        client.get(pin.library_url()).send(),
         provisioner.stall_timeout,
         cancel,
     )
@@ -232,22 +223,21 @@ async fn fetch_archive(
     .map_err(super::download::Fetch::into_error)?
     .and_then(reqwest::Response::error_for_status)
     .map_err(|error| failed(format!("download translated runtime: {error}")))?;
-    let total = response.content_length().unwrap_or(0);
     let mut bytes = Vec::new();
     while let Some(chunk) = bounded(response.chunk(), provisioner.stall_timeout, cancel)
         .await
         .map_err(super::download::Fetch::into_error)?
         .map_err(|error| failed(format!("read translated runtime download: {error}")))?
     {
-        if chunk.len() as u64 > pin.archive_bytes.saturating_sub(bytes.len() as u64) {
-            return Err(failed("translated runtime archive exceeds its pinned size"));
+        if chunk.len() as u64 > pin.guest_bytes.saturating_sub(bytes.len() as u64) {
+            return Err(failed("translated runtime library exceeds its pinned size"));
         }
         bytes.extend_from_slice(&chunk);
         provisioner.set_op(
             Some(SetupState::Downloading),
             None,
             bytes.len() as u64,
-            total,
+            pin.guest_bytes,
         );
     }
     Ok(bytes)

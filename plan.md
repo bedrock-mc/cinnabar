@@ -571,6 +571,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   startup aborts leave reliability acceptance open. Full APK, physical-device, offline lifecycle,
   performance and 4/16 KB compatibility acceptance remain incomplete.
   Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
+  The guest library is downloaded directly and hash-checked, with valid cached copies reused;
+  the source archive is needed only by the build toolchain.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.

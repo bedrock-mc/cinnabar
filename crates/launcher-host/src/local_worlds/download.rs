@@ -21,7 +21,7 @@ use super::{
 pub(super) const LINKS_API: &str =
     "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links";
 /// minecraft.net resets requests that do not name their downloader.
-const AGENT: &str = "Cinnabar-local-worlds";
+pub(super) const AGENT: &str = "Cinnabar-local-worlds";
 const MAX_ZIP_BYTES: u64 = 1 << 30;
 const MAX_LINKS_BYTES: usize = 1 << 20;
 const MAX_REDIRECTS: usize = 10;

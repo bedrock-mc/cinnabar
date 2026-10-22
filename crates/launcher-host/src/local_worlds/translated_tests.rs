@@ -3,21 +3,20 @@ use super::*;
 use crate::local_worlds::{bds::BdsRunner, process::Runner, provision::install_dir};
 use crate::local_worlds::{
     provision::RuntimeKind,
-    test_support::{build_zip, scratch},
+    test_support::{FakeMojang, scratch},
 };
 
-/// An original archive fixture with a single guest library and matching source pin.
-fn archive_fixture() -> (TranslationPin, Vec<u8>) {
+/// Original guest-library bytes with a matching immutable download pin.
+fn library_fixture() -> (TranslationPin, Vec<u8>) {
     let revision = "fixture".to_owned();
     let guest_library = "libguest.so".to_owned();
-    let entry = format!("box64-{revision}/x64lib/{guest_library}");
-    let archive = build_zip(&[(&entry, b"original guest library fixture")]);
+    let library = b"original guest library fixture".to_vec();
     let pin = TranslationPin {
         helper_library: "helper".to_owned(),
-        archive_base_url: "https://example.invalid/".to_owned(),
+        guest_base_url: "https://example.invalid/".to_owned(),
         revision,
-        archive_sha256: format!("{:x}", Sha256::digest(&archive)),
-        archive_bytes: archive.len() as u64,
+        guest_sha256: format!("{:x}", Sha256::digest(&library)),
+        guest_bytes: library.len() as u64,
         guest_library,
         native_runtime: NativeRuntime {
             libraries: vec![
@@ -32,18 +31,77 @@ fn archive_fixture() -> (TranslationPin, Vec<u8>) {
             ],
         },
     };
-    (pin, archive)
+    (pin, library)
 }
 
 #[test]
-fn guest_code_is_extracted_only_after_its_complete_archive_is_verified() {
-    let (pin, mut archive) = archive_fixture();
-    assert_eq!(
-        pin.guest_bytes(&archive).unwrap(),
-        b"original guest library fixture"
-    );
-    archive[0] ^= 1;
-    assert!(pin.guest_bytes(&archive).is_err());
+fn pinned_guest_library_is_verified_without_an_archive() {
+    let (pin, mut library) = library_fixture();
+    assert!(pin.verify_library(&library).is_ok());
+    library[0] ^= 1;
+    assert!(pin.verify_library(&library).is_err());
+    library.pop();
+    assert!(pin.verify_library(&library).is_err());
+}
+
+#[test]
+fn a_missing_guest_downloads_once_and_then_works_from_cache() {
+    let dir = scratch();
+    let (mut pin, library) = library_fixture();
+    let service = FakeMojang::start("unused", library.clone());
+    pin.guest_base_url = format!("{}/bin-linux/", service.base);
+    let translation = Translation {
+        helper: dir.path().join("unused"),
+        cache: dir.path().into(),
+        pin,
+    };
+    let provisioner = service.provisioner(dir.path());
+    for _ in 0..2 {
+        translation
+            .ensure_library(&translation.pin, dir.path(), &provisioner, &Cancel::never())
+            .unwrap();
+        assert_eq!(fs::read(dir.path().join("libguest.so")).unwrap(), library);
+    }
+    assert_eq!(service.hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn wrong_download_lengths_preserve_the_previous_library_and_legacy_archive() {
+    let (_, library) = library_fixture();
+    for bytes in [
+        library[..library.len() - 1].to_vec(),
+        [library.as_slice(), b"extra"].concat(),
+    ] {
+        let dir = scratch();
+        let (mut pin, _) = library_fixture();
+        let service = FakeMojang::start("unused", bytes);
+        pin.guest_base_url = format!("{}/bin-linux/", service.base);
+        let translation = Translation {
+            helper: dir.path().join("unused"),
+            cache: dir.path().into(),
+            pin,
+        };
+        fs::write(dir.path().join("libguest.so"), b"previous").unwrap();
+        fs::write(dir.path().join(LEGACY_SOURCE_ARCHIVE), b"legacy").unwrap();
+        assert!(
+            translation
+                .ensure_library(
+                    &translation.pin,
+                    dir.path(),
+                    &service.provisioner(dir.path()),
+                    &Cancel::never()
+                )
+                .is_err()
+        );
+        assert_eq!(
+            fs::read(dir.path().join("libguest.so")).unwrap(),
+            b"previous"
+        );
+        assert_eq!(
+            fs::read(dir.path().join(LEGACY_SOURCE_ARCHIVE)).unwrap(),
+            b"legacy"
+        );
+    }
 }
 
 #[test]
@@ -140,11 +198,14 @@ printf '%s' "$BOX64_DYNAREC_STRONGMEM" > "$0.memory"
         &loader,
         b"#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\nshift 5\nexec \"$@\"\n",
     );
-    let (pin, archive) = archive_fixture();
+    let (mut pin, library) = library_fixture();
+    let service = FakeMojang::start("unused", library.clone());
+    pin.guest_base_url = format!("{}/bin-linux/", service.base);
     let cache = dir.path().join("runtime");
     let guest_dir = cache.join(&pin.revision);
     fs::create_dir_all(&guest_dir).unwrap();
-    fs::write(guest_dir.join(SOURCE_ARCHIVE), archive).unwrap();
+    fs::write(guest_dir.join(&pin.guest_library), &library).unwrap();
+    fs::write(guest_dir.join(LEGACY_SOURCE_ARCHIVE), b"legacy archive").unwrap();
     let mut runner = BdsRunner::new(Arc::new(provisioner), String::new());
     runner.translation = Some(Translation {
         helper: helper.clone(),
@@ -200,13 +261,17 @@ printf '%s' "$BOX64_DYNAREC_STRONGMEM" > "$0.memory"
     assert!(fs::symlink_metadata(install.join("worlds").join(&world.world.id)).is_err());
     assert!(world.dir.join(super::super::store::LEVEL_DIR).is_dir());
 
-    // Cached archives restore modified guest files without another download.
+    assert!(!guest_dir.join(LEGACY_SOURCE_ARCHIVE).exists());
+    assert_eq!(service.hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    // A changed cached library is replaced only by the verified direct download.
     fs::write(guest_dir.join("libguest.so"), b"damaged").unwrap();
     let reopened = runner.start(&world, &Cancel::never()).unwrap();
     assert_eq!(
         fs::read(guest_dir.join("libguest.so")).unwrap(),
         b"original guest library fixture"
     );
+    assert_eq!(service.hits.load(std::sync::atomic::Ordering::SeqCst), 1);
     reopened.stop(test_time::DEFAULT_TIMEOUT).unwrap();
 }
 
@@ -224,12 +289,17 @@ fn runtime_setup_failure_removes_the_world_link_and_preserves_its_data() {
     let provisioner = installed_provisioner(dir.path(), platform, FAKE_BDS);
     provisioner.set_runtime(RuntimeInfo::translated());
     let server = provisioner.installed().unwrap().0;
-    let (mut pin, archive) = archive_fixture();
-    pin.guest_library = "missing-library".into();
+    let (mut pin, library) = library_fixture();
+    let service = FakeMojang::start("unused", vec![0; library.len()]);
+    pin.guest_base_url = format!("{}/bin-linux/", service.base);
     let cache = dir.path().join("runtime");
     let guest_dir = cache.join(&pin.revision);
     fs::create_dir_all(&guest_dir).unwrap();
-    fs::write(guest_dir.join(SOURCE_ARCHIVE), archive).unwrap();
+    fs::write(
+        guest_dir.join(&pin.guest_library),
+        b"previous invalid library",
+    )
+    .unwrap();
     let mut runner = BdsRunner::new(Arc::new(provisioner), String::new());
     runner.translation = Some(Translation {
         helper: dir.path().join("unused"),
@@ -238,6 +308,10 @@ fn runtime_setup_failure_removes_the_world_link_and_preserves_its_data() {
     });
     let world = spec(&dir.path().join("world"));
     assert!(runner.start(&world, &Cancel::never()).is_err());
+    assert_eq!(
+        fs::read(guest_dir.join("libguest.so")).unwrap(),
+        b"previous invalid library"
+    );
     let link = install_dir(&server)
         .unwrap()
         .join("worlds")

@@ -76,7 +76,9 @@ test. This runtime test does not establish acceptance of the complete client APK
 
 Starting a BDS world after accepting its EULA acquires the official
 Linux server and pinned guest runtime on first use. No server binaries or game assets ship in
-the APK. Dragonfly remains available as an alternative. Login, offline play, lifecycle and
+the APK. The guest runtime downloads only the required library, checks its size and SHA-256,
+and reuses verified cached copies. An older source-archive cache is removed after the library
+is verified. Dragonfly remains available as an alternative. Login, offline play, lifecycle and
 performance acceptance remain incomplete across supported Android versions, CPU vendors and
 4/16 KB page devices.
 The Android runtime supplies a route over the existing loopback interface so an installed world

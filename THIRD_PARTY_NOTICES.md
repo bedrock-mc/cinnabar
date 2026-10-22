@@ -35,8 +35,8 @@ To use a modified native runtime, build those sources with the Android adaptatio
 The packager uses the source filenames and APK filenames in the manifest's `libraries` list.
 This replaces the shared libraries without changing the client or translator sources.
 
-The translated backend downloads its x86 GNU runtime library directly from that pinned
-upstream archive on first use and caches it locally. It is not bundled in the APK. GNU
+The translated backend downloads only its required x86 GNU runtime library from the pinned
+upstream revision, verifies the file's size and SHA-256, and caches it locally. It is not bundled in the APK. GNU
 runtime libraries retain the GPL version 3 with the GCC Runtime Library Exception version 3.1;
 the corresponding license texts are in `assets/licenses/GCC-GPL-3.0.txt` and
 `assets/licenses/GCC-Runtime-Exception-3.1.txt`. Mojang's server remains a separate official download.
