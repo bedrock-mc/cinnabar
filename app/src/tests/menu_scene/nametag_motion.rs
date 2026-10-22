@@ -94,6 +94,7 @@ fn local_feed(position: Vec3) -> client_world::LocalPlayerFeed {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -126,6 +127,7 @@ fn remote_move(position: Vec3, teleported: bool) -> WorldEvent {
         head_yaw: None,
         on_ground: Some(true),
         teleported,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: protocol::ActorInterpolation {

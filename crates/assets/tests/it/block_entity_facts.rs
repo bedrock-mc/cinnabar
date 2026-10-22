@@ -112,6 +112,22 @@ fn block_entity_facts_separate_sign_mounts_and_spawner_handlers() {
 }
 
 #[test]
+fn chalkboard_block_entity_route_owns_only_its_declared_backing_states() {
+    let facts = BlockEntityFacts::pinned();
+    let entry = facts
+        .entry("ChalkboardBlock")
+        .expect("chalkboard model route");
+    assert_eq!(entry.renderer, BlockEntityRenderer::Chalkboard);
+    for record in records()
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:chalkboard")
+    {
+        assert_eq!(facts.get(record.sequential_id).unwrap().entity, entry);
+    }
+    assert_ne!(facts.by_block_identifier("minecraft:stone"), Some(entry));
+}
+
+#[test]
 fn block_entity_facts_reject_stale_registry_bindings_and_duplicate_states() {
     let bytes = include_bytes!("../../data/block-entities-v2193.json");
     let mut payload: serde_json::Value = serde_json::from_slice(bytes).unwrap();

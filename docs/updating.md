@@ -41,8 +41,10 @@ work has completed. Main-world updates alone cannot confirm startup or discard t
 - **macOS:** the helper replaces the complete signed app bundle from the DMG and preserves its
   signature and notarization ticket. The previous bundle remains beside it until the new client
   completes startup. A failed new start restores the previous bundle.
-- **Linux:** the same swap and startup rollback apply to AppImages. Unpacked installations use
-  the manual download action.
+- **Linux:** the same swap and startup rollback apply to AppImages and extracted AppDirs,
+  including installations made by `install.sh`. AppDirs are updated by extracting the verified
+  AppImage beside the installation, then replacing the complete directory and relaunching `AppRun`.
+  Other unpacked layouts use the manual download action.
 - **Windows:** the helper runs the verified MSI passively with existing rights and relaunches
   the client. The previous downloaded MSI remains in the update directory for manual repair.
 

@@ -15,8 +15,9 @@ pub struct CreateForm {
     pub generator: Generator,
     pub backend: Backend,
     pub difficulty: Difficulty,
-    /// Blank means random; digits are used as-is and other text is hashed.
+    /// Blank means random; digits are used as-is and other text uses a character hash.
     pub seed_text: String,
+    pub options: super::options::WorldOptions,
 }
 
 impl Default for CreateForm {
@@ -28,6 +29,7 @@ impl Default for CreateForm {
             backend: Backend::Bds,
             difficulty: Difficulty::Normal,
             seed_text: String::new(),
+            options: Default::default(),
         }
     }
 }
@@ -37,6 +39,7 @@ pub enum FormError {
     EmptyName,
     NameTooLong,
     ControlCharacters,
+    SeedTooLong,
 }
 
 impl FormError {
@@ -45,6 +48,7 @@ impl FormError {
             Self::EmptyName => "Enter a world name",
             Self::NameTooLong => "World name is too long",
             Self::ControlCharacters => "World name has invalid characters",
+            Self::SeedTooLong => "World seed is too long",
         }
     }
 }
@@ -64,7 +68,7 @@ pub fn validate_name(name: &str) -> Result<String, FormError> {
     Ok(name.to_owned())
 }
 
-/// Numeric text is the seed; other text is hashed (FNV-1a); blank is random.
+/// Numeric text is the seed; other text uses a signed 32-bit character hash; blank is random.
 pub fn seed_from_text(text: &str) -> Option<i64> {
     let text = text.trim();
     if text.is_empty() {
@@ -73,12 +77,10 @@ pub fn seed_from_text(text: &str) -> Option<i64> {
     if let Ok(seed) = text.parse::<i64>() {
         return Some(seed);
     }
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in text.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    Some(i64::from_ne_bytes(hash.to_ne_bytes()))
+    let hash = text.chars().fold(0i32, |hash, ch| {
+        hash.wrapping_mul(31).wrapping_add(ch as i32)
+    });
+    Some(i64::from(hash))
 }
 
 /// Editable settings of a saved world.
@@ -88,6 +90,9 @@ pub struct EditForm {
     pub name: String,
     pub game_mode: GameMode,
     pub difficulty: Difficulty,
+    pub options: super::options::WorldOptions,
+    /// The values shown when this form opened, used to isolate user edits.
+    pub(super) original_options: super::options::WorldOptions,
 }
 
 impl EditForm {
@@ -97,12 +102,17 @@ impl EditForm {
             name: world.name.clone(),
             game_mode: world.game_mode,
             difficulty: world.difficulty,
+            options: world.options.clone(),
+            original_options: world.options.clone(),
         }
     }
 }
 
 impl CreateForm {
     pub fn build(&self) -> Result<NewWorld, FormError> {
+        if self.seed_text.chars().count() > MAX_SEED_CHARS {
+            return Err(FormError::SeedTooLong);
+        }
         Ok(NewWorld {
             name: validate_name(&self.name)?,
             game_mode: self.game_mode,
@@ -110,12 +120,13 @@ impl CreateForm {
             difficulty: self.difficulty,
             backend: Some(self.backend),
             seed: seed_from_text(&self.seed_text),
+            options: self.options.clone(),
         })
     }
 }
 
 /// Terrain choices are independent of the server hosting them.
-pub const NORMAL_WORLD_LABEL: &str = "Normal (Vanilla)";
+pub const NORMAL_WORLD_LABEL: &str = "Infinite";
 pub const FLAT_WORLD_LABEL: &str = "Flat";
 
 pub fn backend_label(backend: Backend) -> &'static str {
@@ -222,6 +233,17 @@ mod tests {
     }
 
     #[test]
+    fn world_seed_limits_count_characters_and_preserve_unicode_hashing() {
+        let mut form = CreateForm {
+            seed_text: "\u{1f642}".repeat(MAX_SEED_CHARS),
+            ..Default::default()
+        };
+        assert!(form.build().is_ok());
+        form.seed_text.push('x');
+        assert_eq!(form.build(), Err(FormError::SeedTooLong));
+    }
+
+    #[test]
     fn name_is_trimmed_and_validated() {
         assert_eq!(validate_name("  Home  "), Ok("Home".to_owned()));
         assert_eq!(validate_name("   "), Err(FormError::EmptyName));
@@ -240,5 +262,7 @@ mod tests {
         assert!(hashed.is_some());
         assert_eq!(hashed, seed_from_text("glacier"));
         assert_ne!(hashed, seed_from_text("glacier2"));
+        assert_eq!(seed_from_text("abc"), Some(96354));
+        assert_eq!(seed_from_text("\u{1f642}"), Some(0x1f642));
     }
 }

@@ -7,12 +7,19 @@ use client_state::{ClientFrameSet, ShellFrameSet};
 pub struct ClientShellPlugin;
 impl Plugin for ClientShellPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<menu::MenuClipboard>()
+        app.init_resource::<crate::platform_text::KeyboardRequests>()
+            .init_resource::<menu::MenuClipboard>()
             .init_resource::<client_state::ScreenFocus>()
             .init_resource::<client_state::GameplayScreenControls>()
             .add_plugins(crate::local_worlds::LocalWorldsPlugin)
             .add_systems(Startup, settings_runtime::initialize_render_distance)
-            .add_systems(Last, menu::settings_options::flush_on_exit)
+            .add_systems(
+                Last,
+                (
+                    menu::settings_options::flush_on_exit,
+                    crate::platform_text::show_keyboard_requests,
+                ),
+            )
             .add_systems(
                 Update,
                 (

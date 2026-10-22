@@ -677,8 +677,9 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     })
 }
 
-/// Whether using a block with these components interacts with it: a crafting table, or custom
-/// components declaring a player-interact handler (version 1 components declare every handler).
+/// Whether using a block with these components interacts with it: a crafting table, an
+/// `on_interact` component, or custom components declaring a player-interact handler (version 1
+/// components declare every handler).
 /// The client applies the handler flag to the whole type; a permutation's table is treated alike.
 fn player_interact(components: Option<&Nbt>) -> bool {
     let Some(components) = components else {
@@ -696,6 +697,10 @@ fn player_interact(components: Option<&Nbt>) -> bool {
         Some(Nbt::Compound(_))
     ) || flag("hasPlayerInteract")
         || flag("isV1Component")
+        || matches!(
+            components.field("minecraft:on_interact"),
+            Some(Nbt::Compound(_))
+        )
 }
 
 /// Reads geometry, material instances, and transformation; odd values are

@@ -264,7 +264,9 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
     // model lit the same way, so the table's own glow lights it at night (provisional).
     if matches!(
         kind,
-        BlockEntityKind::Skull(_) | BlockEntityKind::EnchantTable { .. }
+        BlockEntityKind::Skull(_)
+            | BlockEntityKind::Chalkboard(_)
+            | BlockEntityKind::EnchantTable { .. }
     ) {
         BlockEntityLight::Actor { block, sky }
     } else {

@@ -3,9 +3,11 @@
 use super::*;
 
 impl Recovery {
-    /// Records an automatic backend crash without tying recovery to adapter identity.
+    /// Records a backend crash without tying recovery to adapter identity; an explicit crash
+    /// marks only that choice, leaving automatic order untouched.
     pub fn recover(&mut self, pending: &Attempt) {
         if pending.explicit {
+            self.crashed_choice = Some(pending.backend);
             return;
         }
         if !self.failed.contains(&pending.backend) {
@@ -25,16 +27,24 @@ impl Recovery {
         &self.failed
     }
 
+    /// The explicit API that stopped an earlier startup under the current settings revision.
+    pub fn crashed_choice(&self) -> Option<Backend> {
+        self.crashed_choice
+    }
+
     /// Starts a fresh recovery cycle while retaining the version and settings revision.
     pub fn reset(&mut self) {
         self.failed.clear();
         self.working = None;
+        self.crashed_choice = None;
     }
 
     /// Remembers a completed choice while retaining exclusions for other crashed APIs.
     pub(super) fn succeeded(&mut self, mut attempt: Attempt) {
         attempt.stage = Stage::Ready;
         self.failed.retain(|backend| *backend != attempt.backend);
+        self.crashed_choice
+            .take_if(|backend| *backend == attempt.backend);
         self.working = Some(attempt);
     }
 }

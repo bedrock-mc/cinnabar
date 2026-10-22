@@ -266,6 +266,7 @@ fn predicted_custom_boxes_match_live_interpolation_without_rotating() {
             head_yaw: None,
             on_ground: None,
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: protocol::ActorInterpolation {
