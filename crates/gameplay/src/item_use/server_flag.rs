@@ -118,6 +118,9 @@ impl ItemUseRuntime {
     /// use, dropping earlier server values; later ones reconcile as usual.
     pub fn stop_for_game_mode(&mut self) {
         self.stop_without_release();
+        // Movement already cleared the flag in packet order; a local write
+        // here would overwrite a later server start's flag.
+        self.local_using = None;
     }
 
     /// Notes whether gameplay has input focus. Vanilla's focus and chat

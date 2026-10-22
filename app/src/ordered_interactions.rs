@@ -139,6 +139,21 @@ pub(crate) fn held(
             )
 }
 
+/// Whether this frame's input still releases `action` after the consumed
+/// cursor, including a release followed by a re-press.
+pub(crate) fn released_later_in_frame(
+    runtime: Option<&InteractionRuntime>,
+    input: &SemanticInputSnapshot,
+    action: Action,
+) -> bool {
+    runtime
+        .zip(input.snapshot().and_then(|input| input.ordered.as_ref()))
+        .map_or_else(
+            || input.phase(action).released || !input.phase(action).held,
+            |(runtime, ordered)| ordered.releases_after(runtime.ingested, action),
+        )
+}
+
 /// Cancels unadmitted gestures without deleting gameplay-owned accepted carriers.
 fn cancel_pending_owners(world: &mut World) {
     world.resource_mut::<MeleeRuntime>().cancel();

@@ -107,6 +107,15 @@ impl OrderedActions {
         self.initial_buttons = buttons;
     }
 
+    /// Whether an event after the consumed prefix releases `action`.
+    pub fn releases_after(&self, consumed: usize, action: Action) -> bool {
+        self.events.get(consumed..).is_some_and(|events| {
+            events
+                .iter()
+                .any(|event| event.action == action && !event.pressed)
+        })
+    }
+
     /// Returns held state after the consumed prefix, clamping past the batch end.
     pub fn buttons_at(&self, consumed: usize) -> ActionButtons {
         self.events[..consumed.min(self.events.len())]

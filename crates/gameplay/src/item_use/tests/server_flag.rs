@@ -361,7 +361,8 @@ fn a_game_mode_stop_stops_the_use_and_later_starts_reconcile() {
     runtime.stop_for_game_mode();
     assert!(!runtime.is_using());
     assert!(!runtime.has_server_using_item());
-    assert_eq!(runtime.take_local_using_item(), Some(false));
+    // Movement cleared the flag itself, so no local write follows.
+    assert_eq!(runtime.take_local_using_item(), None);
     runtime.adopt_server_using_item(true);
     assert!(runtime.resolve_server_using_item(&bread(11, false)));
     assert!(runtime.is_using());
@@ -378,15 +379,15 @@ fn a_server_start_under_a_held_button_releases_on_button_up() {
     assert!(runtime.is_releasing(false));
 }
 
-/// A game-mode stop while a server start still awaits its movement tick also
-/// clears the item-use flag, which the start had set.
+/// A game-mode stop while a server start still awaits its movement tick drops
+/// the start; movement cleared the flag the start had set.
 #[test]
 fn a_game_mode_stop_clears_a_pending_start_flag() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(true);
     runtime.stop_for_game_mode();
     assert!(!runtime.has_server_using_item());
-    assert_eq!(runtime.take_local_using_item(), Some(false));
+    assert_eq!(runtime.take_local_using_item(), None);
 }
 
 /// Respawn forgets the use button's last state, so a server start before
@@ -437,4 +438,50 @@ fn a_count_change_refreshes_the_saved_stack_for_a_later_release() {
     runtime.observe_gameplay_focus(false);
     let outcome = runtime.step(&item_frame(12, false, three(), "minecraft:bread"));
     assert_eq!(kinds(&outcome), ["release"]);
+}
+
+/// A game-mode stop leaves no local flag write behind: movement applied the
+/// clear itself, so a later server start's flag must not be overwritten.
+#[test]
+fn a_game_mode_stop_publishes_no_local_flag_write() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&bread(10, false)));
+    runtime.stop_for_game_mode();
+    assert_eq!(runtime.take_local_using_item(), None);
+}
+
+/// Release validation compares the whole stack, as vanilla's does: the same
+/// item and count with other metadata stops the use without a release.
+#[test]
+fn a_release_with_changed_item_metadata_stops_without_a_transaction() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let bread_stack = stack(2, MENU_ITEM, 3);
+    assert_eq!(
+        kinds(&runtime.step(&item_frame(
+            10,
+            true,
+            bread_stack.clone(),
+            "minecraft:bread"
+        ))),
+        ["use"]
+    );
+    let extra_data: Arc<[u8]> = Arc::from([]);
+    let other = NetworkItemStack {
+        network_id: MENU_ITEM,
+        metadata: 1,
+        stack_network_id: 41,
+        count: 3,
+        nbt_digest: Sha256::digest(&extra_data).into(),
+        block_runtime_id: 0,
+        extra_data,
+    };
+    let changed = FrozenMiningSelection {
+        slot: 2,
+        item: VerifiedNetworkItemStack::try_new(other.clone(), other.nbt_digest).unwrap(),
+    };
+    let outcome = runtime.step(&item_frame(11, false, changed, "minecraft:bread"));
+    assert!(outcome.packets.is_empty());
+    assert!(!runtime.is_using());
 }

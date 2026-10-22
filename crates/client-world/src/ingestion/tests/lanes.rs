@@ -839,3 +839,24 @@ fn local_player_moves_keep_terrain_and_mutation_dependencies() {
         assert!(state.next_commit().is_none(), "{mode:?}");
     }
 }
+
+/// A local game-mode update commits an ordered control, so it waits behind an
+/// earlier control-lane event like any other control.
+#[test]
+fn a_game_mode_update_keeps_wire_order_with_control_events() {
+    let game_mode = WorldEvent::Ui(UiEvent::GameMode(protocol::GameModeEvent {
+        update: protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator),
+    }));
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, WorldEvent::NetworkStackLatency(7), false);
+    admit(&mut state, 2, game_mode, true);
+    assert!(state.next_commit().is_none());
+    state
+        .insert_ready(
+            1,
+            PreparedWorldEvent::Immediate(WorldEvent::NetworkStackLatency(7)),
+        )
+        .unwrap();
+    assert_eq!(commit_one(&mut state), Some(1));
+    assert_eq!(commit_one(&mut state), Some(2));
+}

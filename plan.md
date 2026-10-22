@@ -230,7 +230,8 @@ replay keeps the starting frame's capture, refreshes later ones and copies the r
 word back to the live state, keeping the live spin and glide counters, swim blend and
 camera eye blend. Item use reconciles with the word's item-use bit only on movement ticks:
 a set bit starts the selected item's use and reports `StartUsingItem` (an item without a held
-use completes on the next tick; an empty hand keeps the flag set), a clear bit stops the use
+use completes on the next tick, and whether vanilla slows that tick is unverified; an empty
+hand keeps the flag set), a clear bit stops the use
 without a release transaction, and a spectator game-mode change stops it in packet order.
 Each tick refreshes the in-use stack, count included, and replayed ticks keep the slowdown
 their live tick recorded. Still incomplete: pose flags as independent bits (vanilla's glide,

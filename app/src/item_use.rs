@@ -349,8 +349,9 @@ struct UseButton {
     admitted: bool,
     /// The admitted use button is down at the ordered input cursor.
     held: bool,
-    /// The button is down at the cursor and still down when this frame's input
-    /// ends, so a release queued behind earlier ordered edges counts as up.
+    /// The button is down at the cursor and this frame's input releases it no
+    /// later, so a release queued behind earlier ordered edges counts as up,
+    /// even when a re-press follows it.
     held_through_frame: bool,
 }
 
@@ -371,7 +372,12 @@ fn use_button(player_runtime: &client_state::PlayerRuntime, context: &ItemUseCon
         gameplay_focused,
         admitted,
         held,
-        held_through_frame: held && context.input.phase(Action::Use).held,
+        held_through_frame: held
+            && !crate::ordered_interactions::released_later_in_frame(
+                context.ordered.as_deref(),
+                &context.input,
+                Action::Use,
+            ),
     }
 }
 

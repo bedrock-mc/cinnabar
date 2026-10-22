@@ -349,9 +349,16 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         WorldEvent::ItemActor(ItemActorEvent::Registry(_)) => {
             Footprint::session(C::ACTORS.with(C::INVENTORY))
         }
+        // A local game-mode update also commits an ordered item-use control.
+        WorldEvent::Ui(UiEvent::PlayerGameMode {
+            actor_unique_id, ..
+        }) if *actor_unique_id == context.local_unique_id => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
+        }
         WorldEvent::Ui(UiEvent::PlayerGameMode { .. } | UiEvent::DefaultGameMode(_)) => {
             Footprint::session(C::UI.with(C::ACTORS))
         }
+        WorldEvent::Ui(UiEvent::GameMode(_)) => Footprint::session(C::UI.with(C::CONTROLS)),
         WorldEvent::Ui(UiEvent::Boss(_)) => Footprint::session(C::UI.with(C::ACTORS)),
         WorldEvent::Ui(_) | WorldEvent::Experience(_) | WorldEvent::MapData(_) => {
             Footprint::session(C::UI)

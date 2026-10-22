@@ -674,16 +674,23 @@ impl ActiveUse {
         })
     }
 
-    /// Adds count admission for a fresh release while retaining held and retry policies.
+    /// Adds whole-stack admission for a fresh release while retaining held and
+    /// retry policies: vanilla's release validation compares count, auxiliary
+    /// value, user data and block with the in-use stack, ignoring only the
+    /// stack network id, which inventory updates rename.
     fn release_selection_changed(
         &self,
         selection: Option<&FrozenMiningSelection>,
         check_count: bool,
     ) -> bool {
-        self.selection_changed(selection)
-            || (check_count
-                && selection
-                    .is_some_and(|selection| selection.item.count() != self.selection.item.count()))
+        let stack_changed = |selection: &FrozenMiningSelection| {
+            let (current, saved) = (&selection.item, &self.selection.item);
+            current.count() != saved.count()
+                || current.metadata() != saved.metadata()
+                || current.nbt_digest() != saved.nbt_digest()
+                || current.block_runtime_id() != saved.block_runtime_id()
+        };
+        self.selection_changed(selection) || (check_count && selection.is_some_and(stack_changed))
     }
 
     /// Resolves launch eligibility from this charge and the facts observed at release.
