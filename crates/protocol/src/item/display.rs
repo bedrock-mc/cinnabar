@@ -121,9 +121,11 @@ pub fn item_has_enchantment_list(extra_data: &[u8]) -> bool {
 
 /// The key vanilla's UI binds as `#item_id_aux` for a stack: the network id in the high 16 bits,
 /// the auxiliary value in the low 16, with bit 15 set when the user data carries an `ench` list.
+/// Humanoid armour (`humanoid_armour`, a damageable vanilla armour item) uses the root integer
+/// `Damage` of its user data as the auxiliary value, or 0 without one, instead of the wire metadata.
 /// An empty stack reads as -1, which matches no item.
 #[must_use]
-pub fn item_id_aux(stack: &super::NetworkItemStack) -> i32 {
+pub fn item_id_aux(stack: &super::NetworkItemStack, humanoid_armour: bool) -> i32 {
     if stack.is_empty() {
         return -1;
     }
@@ -132,7 +134,13 @@ pub fn item_id_aux(stack: &super::NetworkItemStack) -> i32 {
     } else {
         0
     };
-    ((u32::from(stack.network_id as u16) << 16) | (stack.metadata & 0xffff) | enchanted) as i32
+    // The client widens the 16-bit auxiliary value with its sign before combining it.
+    let aux = if humanoid_armour {
+        super::item_extra_damage_value(&stack.extra_data).unwrap_or(0)
+    } else {
+        i32::from(stack.metadata as u16)
+    };
+    ((u32::from(stack.network_id as u16) << 16) as i32 | aux) | enchanted
 }
 
 /// Reads the `bundle_id` int that ties a bundle item to its dynamic container.
@@ -239,6 +247,28 @@ mod tests {
     }
 
     #[test]
+    fn damaged_humanoid_armour_keys_its_damage_instead_of_metadata() {
+        let mut stack = super::super::NetworkItemStack {
+            network_id: 350,
+            metadata: 0,
+            count: 1,
+            ..Default::default()
+        };
+        assert_eq!(item_id_aux(&stack, true), 350 << 16);
+        stack.extra_data = extra(|nbt| {
+            nbt.push(3);
+            nbt.extend(6_u16.to_le_bytes());
+            nbt.extend(b"Damage");
+            nbt.extend(7_i32.to_le_bytes());
+        })
+        .into();
+        assert_eq!(item_id_aux(&stack, true), (350 << 16) | 7);
+        stack.metadata = 2;
+        assert_eq!(item_id_aux(&stack, false), (350 << 16) | 2);
+        assert_eq!(item_id_aux(&stack, true), (350 << 16) | 7);
+    }
+
+    #[test]
     fn id_aux_packs_id_aux_and_enchantment_list() {
         let mut stack = super::super::NetworkItemStack {
             network_id: 448,
@@ -246,7 +276,7 @@ mod tests {
             count: 1,
             ..Default::default()
         };
-        assert_eq!(item_id_aux(&stack), (448 << 16) | 3);
+        assert_eq!(item_id_aux(&stack, false), (448 << 16) | 3);
         stack.extra_data = extra(|nbt| {
             nbt.push(TAG_LIST);
             nbt.extend(4_u16.to_le_bytes());
@@ -255,10 +285,13 @@ mod tests {
             nbt.extend(0_i32.to_le_bytes());
         })
         .into();
-        assert_eq!(item_id_aux(&stack), (448 << 16) | 0x8000 | 3);
+        assert_eq!(item_id_aux(&stack, false), (448 << 16) | 0x8000 | 3);
         stack.count = 0;
-        assert_eq!(item_id_aux(&stack), -1);
-        assert_eq!(item_id_aux(&super::super::NetworkItemStack::empty()), -1);
+        assert_eq!(item_id_aux(&stack, false), -1);
+        assert_eq!(
+            item_id_aux(&super::super::NetworkItemStack::empty(), false),
+            -1
+        );
     }
 
     #[test]

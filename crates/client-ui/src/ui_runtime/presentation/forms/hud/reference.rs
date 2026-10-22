@@ -21,6 +21,7 @@ pub(super) fn hud_model(
     let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
     let selected = player_runtime.selected_hotbar_slot();
     let survival = player_runtime.facts.survival_stats_visible();
+    let facts = player_runtime.inventory.ledger().item_facts();
     let mut slot = |stack: Option<&protocol::NetworkItemStack>,
                     icon: Option<IconRef>,
                     durability: Option<f32>,
@@ -31,7 +32,7 @@ pub(super) fn hud_model(
         });
         HudSlot {
             icon,
-            id_aux: stack.map(protocol::item_id_aux),
+            id_aux: stack.map(|stack| facts.id_aux(stack)),
             count: stack.map_or(0, |stack| u32::from(stack.count)),
             selected,
             durability: stack.and(durability).map(f64::from),

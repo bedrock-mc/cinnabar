@@ -155,6 +155,7 @@ pub fn book_data(
     }
     let first_icon = icons.len();
     let entries = source.book_entries();
+    let facts = source.player().inventory.ledger().item_facts();
     let total = entries.len() as f64;
     let items: Vec<_> = entries
         .iter()
@@ -168,26 +169,23 @@ pub fn book_data(
             }
             let stack = entry.stack();
             let count = stack.count;
-            item.with(
-                "#item_id_aux",
-                Scalar::Int(i64::from(protocol::item_id_aux(&stack))),
-            )
-            .with(
-                "#recipe_craftable_count",
-                Scalar::Text(if count > 1 && !creative {
-                    count.to_string()
-                } else {
-                    String::new()
-                }),
-            )
-            .with("#recipe_hover_text", Scalar::Text(String::new()))
-            .with("#is_creative_selected_slot", Scalar::Bool(false))
-            .with(
-                "#container_item_background_texture",
-                Scalar::Text(background(source, entry).to_owned()),
-            )
-            .with("#recipe_book_total_items", Scalar::Num(total))
-            .with("#container_item_modifier", Scalar::Int(modifier(entry)))
+            item.with("#item_id_aux", Scalar::Int(i64::from(facts.id_aux(&stack))))
+                .with(
+                    "#recipe_craftable_count",
+                    Scalar::Text(if count > 1 && !creative {
+                        count.to_string()
+                    } else {
+                        String::new()
+                    }),
+                )
+                .with("#recipe_hover_text", Scalar::Text(String::new()))
+                .with("#is_creative_selected_slot", Scalar::Bool(false))
+                .with(
+                    "#container_item_background_texture",
+                    Scalar::Text(background(source, entry).to_owned()),
+                )
+                .with("#recipe_book_total_items", Scalar::Num(total))
+                .with("#container_item_modifier", Scalar::Int(modifier(entry)))
         })
         .collect();
     let items = std::sync::Arc::from(items);
