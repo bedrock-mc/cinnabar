@@ -115,6 +115,10 @@ fn takes_touch_pointer(
 }
 
 /// Runs before Bevy's input systems, so the emitted button edge reaches `ButtonInput` this frame.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The Bevy system receives pointer messages, ownership and window input state separately."
+)]
 pub(crate) fn emulate_ui_pointer(
     mut touch_input: MessageReader<TouchInput>,
     mut buttons: ResMut<Messages<MouseButtonInput>>,
