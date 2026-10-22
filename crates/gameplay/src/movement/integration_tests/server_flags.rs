@@ -689,3 +689,32 @@ fn a_set_after_a_replay_clear_resumes_the_spin_counter() {
     physics.apply_server_movement_flags(0, write(true));
     assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
 }
+
+/// A spin a side collision ends keeps a counter of one until the next tick
+/// processes the clear, as vanilla's post-spin step counts the stopping tick,
+/// so a server set before that tick resumes from it.
+#[test]
+fn a_set_after_a_collision_stop_resumes_the_counted_stop() {
+    let origin = [0.5, 2.620_01, -1.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let wall = VersionedWall(1);
+    let advance = |physics: &mut LocalPhysicsController| {
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &wall,
+        )
+    };
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    physics.queue_server_motion([0.0, 0.0, -0.6], 0);
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    let state = physics.state().unwrap();
+    assert!(state.collisions.z);
+    assert_eq!(state.spin_attack_ticks, None);
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
+}

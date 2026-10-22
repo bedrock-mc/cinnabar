@@ -44,6 +44,11 @@ impl FlagWord {
     fn has(self, bit: u8) -> bool {
         self.0 & bit != 0
     }
+
+    /// Whether the word's Riptide spin flag is set.
+    pub(super) fn spinning(self) -> bool {
+        self.has(SPINNING)
+    }
 }
 
 /// The bits one server write carried, and their values.
@@ -206,6 +211,23 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
         state.spin_attack_ticks = Some(authority.cleared_spin_on(state.tick).unwrap_or(0));
     } else if let Some(ticks) = state.spin_attack_ticks.take() {
         authority.save_cleared_spin(state.tick, ticks);
+    }
+}
+
+/// Records the counter of a spin the tick that started from `entry` just
+/// ended by a side collision. Vanilla's post-spin step zeroes the counter and
+/// then counts the stopping tick, so it stays at one until the next tick
+/// processes the clear flag; a server set before then resumes from it.
+pub(super) fn note_spin_end(
+    authority: &mut ServerFlagAuthority,
+    entry: FlagWord,
+    state: &PlayerState,
+) {
+    if entry.spinning()
+        && state.spin_attack_ticks.is_none()
+        && (state.collisions.x || state.collisions.z)
+    {
+        authority.save_cleared_spin(state.tick, 1);
     }
 }
 
