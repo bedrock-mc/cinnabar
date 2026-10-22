@@ -23,7 +23,7 @@ pub(super) fn draw(
         canvas.frame(bounds, theme::EDGE, theme::NEUTRAL.border)?;
         return Ok(true);
     }
-    canvas.sprite(SETTINGS_ICONS[8], bounds, [255; 4])
+    canvas.sprite(SETTINGS_ICONS[7], bounds, [255; 4])
 }
 
 fn square_cover(mut icon: IconRef) -> IconRef {

@@ -60,6 +60,7 @@ impl SettingsOptions {
         settings.video.view_bobbing =
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
+        settings.video.show_custom_item_models = self.value(SettingId::ShowCustomItemModels) != 0;
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;
         settings.video.outline_selection = self.value(SettingId::ClassicBoxSelection) != 0;

@@ -28,6 +28,12 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_menu_view(&mut self, view: Option<MenuView>) {
+        if !view
+            .as_ref()
+            .is_some_and(|view| view.visible && view.touch_editor_open)
+        {
+            self.close_touch_editor();
+        }
         if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
             && current.as_ref() == incoming
         {

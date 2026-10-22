@@ -19,6 +19,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/pion/webrtc/v4"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
@@ -63,12 +64,23 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 			}}.New()
 			return &resolvedUpstreamTarget{
 				address: "http://" + target.Address,
-				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{Signaling: localSignaling{client}}, status: client},
+				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{
+					Signaling: localSignaling{client},
+					Dialer:    nethernet.Dialer{API: localNetherNetAPI()},
+				}, status: client},
 			}, nil
 		default:
 			return nil, fmt.Errorf("unsupported local transport %q", target.Transport)
 		}
 	}
+}
+
+// localNetherNetAPI includes same-device routes even when every external interface is down.
+// External candidates remain available for container port mappings.
+func localNetherNetAPI() *webrtc.API {
+	var settings webrtc.SettingEngine
+	settings.SetIncludeLoopbackCandidate(true)
+	return webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 }
 
 // errLocalServerNoRoute reports a local server that answered a join without any ICE candidate.

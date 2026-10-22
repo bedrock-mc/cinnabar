@@ -18,7 +18,10 @@ use crate::entity::compile_entity_assets;
 use pack_compile_input::source::read_bounded_source;
 mod pack;
 mod raster;
-pub use pack::{ActorPackCompilation, compile_actor_pack, compile_actor_pack_unless};
+pub use pack::{
+    ActorPackCompilation, compile_actor_pack, compile_actor_pack_unless,
+    compile_actor_pack_unless_with_equipment_priorities,
+};
 use raster::{SharedRaster, admit, prepare_rasters};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

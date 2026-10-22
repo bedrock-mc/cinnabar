@@ -78,32 +78,27 @@ domain!(TextureSelector {
     Torchflower
 });
 
-/// How a built-in block's world faces pick its authored face slots, by native block class.
+/// How a built-in block's world faces pick its authored face slots.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FaceSlots {
     /// The front on the cardinal face reads south, or east when lit; other sides read north.
     Furnace { lit: bool },
     /// The front on the cardinal face reads south, other sides north and both caps up.
     Pumpkin,
-    /// The north-authored block turned to its horizontal `direction`, caps flipped to match.
-    FaceDirectional,
 }
 
-/// The native face-slot class of a built-in block whose faces follow its facing state.
+/// Selects cardinal face-slot rules, deriving furnace membership from the registry policy.
 pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
-    Some(match identifier {
-        "minecraft:furnace" | "minecraft:blast_furnace" | "minecraft:smoker" => {
-            FaceSlots::Furnace { lit: false }
-        }
-        "minecraft:lit_furnace" | "minecraft:lit_blast_furnace" | "minecraft:lit_smoker" => {
-            FaceSlots::Furnace { lit: true }
-        }
-        "minecraft:pumpkin" | "minecraft:carved_pumpkin" | "minecraft:lit_pumpkin" => {
-            FaceSlots::Pumpkin
-        }
-        "minecraft:loom" => FaceSlots::FaceDirectional,
-        _ => return None,
-    })
+    match super::block_render_fact(identifier).kind {
+        super::BlockRenderKind::Furnace => Some(FaceSlots::Furnace { lit: false }),
+        super::BlockRenderKind::LitFurnace => Some(FaceSlots::Furnace { lit: true }),
+        _ => match identifier {
+            "minecraft:pumpkin" | "minecraft:carved_pumpkin" | "minecraft:lit_pumpkin" => {
+                Some(FaceSlots::Pumpkin)
+            }
+            _ => None,
+        },
+    }
 }
 
 /// Native material aliases whose names overlap actor and item identifiers.

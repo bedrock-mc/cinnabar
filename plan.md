@@ -72,8 +72,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
-  Furnace face slots follow cardinal direction and lit state; native visual comparison
-  and runtime replacement-pack acceptance remain open.
+  Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
+  native visual comparison and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
@@ -88,6 +88,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+  Entity-drawn blocks retain pack face materials for destruction and mining particles;
+  matched chest-particle presentation and custom destruction overrides remain incomplete.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
   use pack geometry in all four directions; sleeping and picking remain unqualified.
   Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
@@ -109,6 +111,10 @@ and resource qualification; they do not imply these systems need to be written.
   remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
+  faces (and the loom's top/bottom flips) from their facing; other mapped-face cubes such as
+  carved pumpkins, observers, dispensers and droppers, and the stonecutter's east/west saw
+  axis, still need checking against their native tessellation, plus native-server captures.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -254,6 +260,10 @@ Server sneak updates preserve local hold/toggle intent, and the next completed i
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
+Remote player presentation interpolates received positions along straight segments,
+which can cross a block corner between clear endpoints. Teleports discard that
+segment immediately. Behavioral coverage of these cases does not establish
+live-server movement acceptance.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
@@ -287,6 +297,11 @@ those definitions while preserving authored item conditions. Expression roots re
 the worn slot through owner placement; worn equipment counts exclude hands.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
+Server-pack attachables can supply worn and held models, with an optional item-icon
+fallback for held models. Script-based helmet inference is provisional and recognizes
+specific head/hand branch names. General slot inference and complete texture-budget
+and rendered qualification remain incomplete.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
@@ -318,6 +333,11 @@ Idle clips settle into a sit
 and optional tricks. Missing terrain freezes the follower; ordinary blockage never
 teleports it. Owner teleports reset only onto checked ground. Broader terrain acceptance, swimming,
 flight, animation-triggered effects and performance qualification remain open.
+Restricted catalog ground effects emit alternating distance-triggered stamps and one-shot
+landing bursts for equipped wearers, independently of body visibility. Local triggers use
+completed movement ticks; remote triggers use interpolated actor movement. Decals require
+continuous coplanar collision support and suppress effects at uneven terrain and ledges.
+Exact foot-pose timing and broader terrain and remote runtime acceptance remain incomplete.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
 and excluded from pointer and keyboard wear selection; production rollout
@@ -412,11 +432,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Hover reports and actor use share the attack's game-mode actor cap. The survival
+  block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
+  actor occlusion of the block outline remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Adventure mining and placement follow the held item's CanDestroy/CanPlaceOn list, or
+  PrivilegedBuilder with an empty hand, before the Build/Mine grant. The immutable-world
+  setting, the WorldBuilder bypass, allow/deny/border blocks, and the denied press's
+  DenyDestroyBlock action, Attack swing source and missed swing remain incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -526,6 +553,8 @@ archive's manifest names another identity; local imports and library selections 
 exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
+Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a
+small archive cannot inflate into an allocation abort; that memory bound is an unverified limit.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
@@ -543,7 +572,8 @@ hardcore, flat presets, Education Edition, operator status for a signed-out host
 acceptance of every option on supported platforms remain incomplete.
 hardcore, flat presets, Education Edition and live acceptance of every option on supported
 platforms remain incomplete.
-Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
+Local HTTP and LAN joins include client loopback ICE candidates. Full offline play of native
+BDS worlds is still a confirmed gap: without a non-loopback network interface BDS
 offers no NetherNet route, so the join fails with an explanation instead of connecting.
 
 See [local worlds](docs/local-worlds.md).
@@ -553,6 +583,14 @@ See [local worlds](docs/local-worlds.md).
 Qualify audio admission, spatial playback, music and lifecycle behavior on supported
 platforms. Missing source music/ambience requires lawful local input or the documented
 fallback; do not bundle game assets to fill gaps.
+Native audio follows changes to the system default output on its owner thread, retaining
+active and queued sounds across output replacement and retrying unavailable devices.
+Automated transport tests cover switching and recovery. The polling cadence is provisional;
+native switch timing and live Bluetooth/platform acceptance remain incomplete.
+
+Block sound materials resolve from pack entries, then base server components, then a
+stone fallback. Per-permutation sound components and matched native fallback
+qualification remain incomplete.
 
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
@@ -576,6 +614,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete.
+  Pipeline loading prepares single-sample coverage before switching to Performance.
+  The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
@@ -583,7 +623,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   chosen documents into app cache storage before importing them; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.

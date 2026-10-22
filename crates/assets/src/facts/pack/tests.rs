@@ -516,12 +516,14 @@ fn face_slot_members_carry_the_state_their_class_reads() {
         let Some(slots) = face_slots(&record.name) else {
             continue;
         };
-        let property = match slots {
-            FaceSlots::FaceDirectional => crate::facts::BlockProperty::Direction,
-            _ => crate::facts::BlockProperty::MinecraftCardinalDirection,
-        };
-        assert!(record.property(property).is_some(), "{}", record.name);
+        assert!(
+            record
+                .property(crate::facts::BlockProperty::MinecraftCardinalDirection)
+                .is_some(),
+            "{} ({slots:?})",
+            record.name
+        );
         members.insert(record.name.to_string());
     }
-    assert_eq!(members.len(), 10);
+    assert_eq!(members.len(), 9);
 }

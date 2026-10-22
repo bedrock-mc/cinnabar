@@ -151,7 +151,8 @@ struct VisualCompiler {
     sea_pickle_templates: BTreeMap<(u32, u8, bool), u32>,
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
-    barrel_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
+    barrel_templates: BTreeMap<([u32; 6], usize), u32>,
+    facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
@@ -228,10 +229,10 @@ impl VisualCompiler {
                 quads: &mut self.model_quads
             },
         ));
-        ordered_rule!(super::barrel::compile_loom_rule(
+        ordered_rule!(super::facing_cube::compile_rule(
             record,
             inputs,
-            &mut self.barrel_templates,
+            &mut self.facing_cube_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads

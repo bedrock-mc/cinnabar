@@ -192,6 +192,7 @@ pub struct UiRuntime {
     inventory_keys: interaction::InventoryKeys,
     screen: screen_state::ScreenState,
     furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
+    recipe_book_icons: Arc<std::sync::Mutex<presentation::forms::BookIconCache>>,
     emotes: emotes::EmoteState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
@@ -317,6 +318,7 @@ impl UiRuntime {
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
             furnace_projection: Arc::default(),
+            recipe_book_icons: Arc::default(),
             lang_catalog: None,
             active_lang: None,
             server_lang: None,
@@ -392,15 +394,14 @@ impl UiRuntime {
             .route_equipment(session_id, fifo_sequence, event)
     }
 
+    /// Retains the local player's own MobEquipment echo. Like vanilla, an offhand echo changes
+    /// nothing: the local offhand is only ever read from the inventory ledger.
     pub fn retain_local_selected_equipment(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         fifo_sequence: u64,
         event: EquipmentEvent,
     ) {
-        if self.gameplay_hud.apply_offhand_equipment(&event) {
-            return;
-        }
         player_runtime
             .inventory
             .retain_local_selected_equipment(fifo_sequence, event);
