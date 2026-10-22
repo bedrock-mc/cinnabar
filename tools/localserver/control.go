@@ -86,19 +86,6 @@ func readCommands(ctx context.Context, stdin io.Reader) (<-chan string, <-chan s
 	return lines, stopped
 }
 
-// startupContext cancels unfinished generation when its controller requests shutdown.
-func startupContext(ctx context.Context, stopped <-chan struct{}) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-stopped:
-			cancel()
-		}
-	}()
-	return ctx, cancel
-}
-
 // serveCommandLines applies queued commands until shutdown or cancellation.
 func serveCommandLines(ctx context.Context, lines <-chan string, cmds commands) {
 	for {
@@ -139,27 +126,17 @@ func setPaused(worlds []*world.World, paused bool) {
 	}
 }
 
-// pauseState pauses the worlds while the launcher asks or a hold such as the spawn warm-up keeps them still.
+// pauseState serialises pause and resume requests for all dimensions.
 type pauseState struct {
-	mu              sync.Mutex
-	worlds          []*world.World
-	requested, held bool
+	mu     sync.Mutex
+	worlds []*world.World
 }
 
-// request records the launcher's pause or resume.
+// request applies the launcher's pause or resume to every dimension.
 func (p *pauseState) request(paused bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.requested = paused
-	setPaused(p.worlds, p.requested || p.held)
-}
-
-// hold keeps the worlds paused whatever the launcher asks until released.
-func (p *pauseState) hold(held bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.held = held
-	setPaused(p.worlds, p.requested || p.held)
+	setPaused(p.worlds, paused)
 }
 
 // standbyFlag starts a server with no world that waits for a standbyStart line.

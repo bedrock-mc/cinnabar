@@ -567,7 +567,8 @@ compatibility. Existing catalog content is owned by the API repository.
 
 Local worlds use the Go server integration. Qualify creation, offline play, reload,
 import, persistence and hosting/session teardown. The accepted local-world scope does
-not establish full vanilla world-generation parity.
+not establish full vanilla world-generation parity. Dragonfly supports only flat terrain;
+natural terrain requires BDS.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
 catalog and generated server properties and level data. Pack and experiment configuration,
 hardcore, flat presets, Education Edition, operator status for a signed-out host and live
