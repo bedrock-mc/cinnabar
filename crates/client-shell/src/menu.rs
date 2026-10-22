@@ -145,6 +145,8 @@ pub struct MenuRuntime {
     shader_pack_status: shader_pack_status::ShaderPackStatusUi,
     /// Set by [`MenuRuntime::request_shader_pack_reload`] until the app takes it.
     shader_pack_reload: bool,
+    shader_pack_removing: Option<std::sync::Arc<str>>,
+    shader_pack_remove_request: Option<String>,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -693,6 +695,12 @@ impl MenuRuntime {
             MenuAction::AddBack => self.go_back(),
             MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
             MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::RemoveShaderPackDialog(index, revision) => {
+                self.remove_shader_pack_dialog(index, revision)
+            }
+            MenuAction::ConfirmRemoveShaderPack(index, revision) => {
+                self.confirm_remove_shader_pack(index, revision)
+            }
             MenuAction::SettingsShaders => self.activate_shaders_tab(),
             MenuAction::ToggleRenderMode => {
                 if render_model::ENHANCED_RENDERING_ENABLED {

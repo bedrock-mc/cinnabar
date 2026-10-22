@@ -81,7 +81,7 @@ fn custom_mining_filters_are_prepared_with_the_session_registries() {
                 0,
                 &|tag| tag == "test:tools",
             ),
-            Some(0.5)
+            0.5
         );
     }
     let replacement = prepare(registry_base(), false, &protocol::CustomBlocks::default());
@@ -93,7 +93,8 @@ fn custom_mining_filters_are_prepared_with_the_session_registries() {
             0,
             &|_| true,
         ),
-        None
+        4.0,
+        "a filter another session prepared matches no item"
     );
 }
 

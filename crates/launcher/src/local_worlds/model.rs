@@ -231,6 +231,8 @@ pub struct WorldsMenu {
     setup: Option<Setup>,
     unavailable: Option<UnavailableReason>,
     pending: Option<Pending>,
+    /// A Docker probe is in flight behind the modal, which offers only Cancel meanwhile.
+    checking: bool,
     eula_for: Option<String>,
 }
 
@@ -342,8 +344,11 @@ impl WorldsMenu {
         })
     }
 
-    /// Why the BDS backend cannot run on this machine.
+    /// Why the modal is up: a probe in flight, or why the BDS backend cannot run here.
     fn prompt_kind(&self) -> Option<PromptKind> {
+        if self.checking {
+            return Some(PromptKind::Checking);
+        }
         match self.unavailable? {
             UnavailableReason::DockerMissing => Some(PromptKind::DockerMissing),
             UnavailableReason::DockerNotRunning => Some(PromptKind::DockerNotRunning),
@@ -370,11 +375,20 @@ impl WorldsMenu {
                 .then_some(PromptFor::Play),
         };
         if blocking.is_some() && self.prompt_kind().is_some() {
+            // The verdict may predate installing or starting Docker, so probe again before asking.
             self.pending = Some(pending);
             self.screen = Screen::BackendPrompt;
-            return Vec::new();
+            return self.redetect();
         }
         self.proceed(pending)
+    }
+
+    fn redetect(&mut self) -> Vec<Effect> {
+        self.checking = true;
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true,
+        }]
     }
 
     fn proceed(&mut self, pending: Pending) -> Vec<Effect> {
@@ -421,7 +435,10 @@ impl WorldsMenu {
     }
 
     fn prompt_button(&mut self, button: PromptButton) -> Vec<Effect> {
-        if self.screen != Screen::BackendPrompt {
+        if !self
+            .prompt()
+            .is_some_and(|prompt| prompt.buttons().contains(&button))
+        {
             return Vec::new();
         }
         match button {
@@ -433,13 +450,7 @@ impl WorldsMenu {
                 _ => self.proceed(Pending::Create),
             },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
-            PromptButton::Retry => {
-                self.busy = true;
-                vec![Effect::SetPrefs {
-                    dismiss_docker_prompt: false,
-                    redetect: true,
-                }]
-            }
+            PromptButton::Retry => self.redetect(),
             PromptButton::Cancel => self.back(),
         }
     }
@@ -694,6 +705,7 @@ impl WorldsMenu {
     }
 
     fn back(&mut self) -> Vec<Effect> {
+        self.checking = false;
         match self.screen {
             Screen::Edit => {
                 self.play_after_update = false;
@@ -799,6 +811,7 @@ impl WorldsMenu {
                 self.apply_status(status)
             }
             Event::Prefs(_, status) => {
+                self.checking = false;
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
                 // The Docker probe outlives startup; keep reading until it reports a verdict.
