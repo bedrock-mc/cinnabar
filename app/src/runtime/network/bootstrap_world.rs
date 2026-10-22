@@ -131,7 +131,11 @@ pub(super) fn build(
     client_world.pack_entities = packs.entities.clone();
     client_world.terrain_resource_identity = packs.terrain_identity;
     if let Some(mut artwork) = actor_artwork {
-        install_prepared_artwork(&mut artwork.0, packs.prepared_actor_artwork.as_deref());
+        install_prepared_artwork(
+            &mut artwork.0,
+            packs.prepared_actor_artwork.as_deref(),
+            packs.entity_artwork.as_deref(),
+        );
     }
     client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
     client_world.session_items = Some(Arc::new(
@@ -151,11 +155,15 @@ pub(super) fn build(
 
 /// Publishes the artwork the join prepared its actor resources over, which a reload during the
 /// join may have replaced, so the first world frame reuses them instead of rebuilding them.
+/// Only a base with the joined stack's own artwork identity is installed: one captured from a
+/// retired server is never republished, and its prepared resources are rebuilt instead.
 fn install_prepared_artwork(
     current: &mut render_model::ActorArtworkPages,
     prepared: Option<&client_presentation::prepared_actor_artwork::PreparedActorArtwork>,
+    stack: Option<&render_model::ActorArtworkPages>,
 ) {
-    if let Some(prepared) = prepared
+    if let (Some(prepared), Some(stack)) = (prepared, stack)
+        && prepared.base().identity() == stack.identity()
         && !prepared.base().shares_storage_with(current)
     {
         *current = prepared.base().clone();
@@ -190,7 +198,7 @@ mod tests {
             let prepared = PreparedActorArtwork::new_with_block_entity_artwork(base, None, None);
             let mut current = ActorArtworkPages::default();
             assert!(!prepared.matches_sources(&current, None, None));
-            install_prepared_artwork(&mut current, Some(&prepared));
+            install_prepared_artwork(&mut current, Some(&prepared), Some(&stack));
             assert!(prepared.matches_sources(&current, None, None));
             assert_eq!(current.identity(), stack.identity());
         }
@@ -202,7 +210,36 @@ mod tests {
         let current = stack_artwork(3);
         let prepared = PreparedActorArtwork::new_with_block_entity_artwork(&current, None, None);
         let mut live = current.clone();
-        install_prepared_artwork(&mut live, Some(&prepared));
+        install_prepared_artwork(&mut live, Some(&prepared), Some(&current));
         assert!(live.shares_storage_with(&current));
+    }
+
+    /// A transfer that captured the retired server's artwork, to a destination without stack
+    /// artwork, keeps the startup artwork the leave reload restored instead of reinstalling the
+    /// retired server's textures.
+    #[test]
+    fn packless_transfer_never_reinstalls_the_retired_servers_artwork() {
+        let retired = stack_artwork(1);
+        let base = super::super::resource_packs::entity_artwork_base(&retired, None);
+        let prepared = PreparedActorArtwork::new_with_block_entity_artwork(base, None, None);
+        let startup = ActorArtworkPages::default();
+        let mut current = startup.clone();
+        install_prepared_artwork(&mut current, Some(&prepared), None);
+        assert!(current.shares_storage_with(&startup));
+        assert_ne!(current.identity(), retired.identity());
+    }
+
+    /// Stack artwork with the same identity as the captured snapshot, as on a transfer between
+    /// servers sharing one pack stack, still installs so the frame reuses the join's resources.
+    #[test]
+    fn same_stack_transfer_installs_the_prepared_base() {
+        let captured = stack_artwork(4);
+        let stack = stack_artwork(4);
+        let base = super::super::resource_packs::entity_artwork_base(&captured, Some(&stack));
+        let prepared = PreparedActorArtwork::new_with_block_entity_artwork(base, None, None);
+        let mut current = ActorArtworkPages::default();
+        install_prepared_artwork(&mut current, Some(&prepared), Some(&stack));
+        assert!(prepared.matches_sources(&current, None, None));
+        assert_eq!(current.identity(), stack.identity());
     }
 }
