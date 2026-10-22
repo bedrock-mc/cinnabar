@@ -181,7 +181,9 @@ pub(crate) fn refresh_cave_visibility(
         .1
         .video
         .chunk_occlusion_culling;
-    if let Some(mut preference) = preference {
+    if let Some(mut preference) = preference
+        && preference.0 != enabled
+    {
         preference.0 = enabled;
     }
     if !enabled {

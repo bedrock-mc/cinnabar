@@ -2,7 +2,7 @@
 
 use std::sync::{
     Arc,
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicU8, AtomicU64, Ordering},
 };
 
 use bevy::prelude::*;
@@ -63,16 +63,30 @@ struct Sample {
     slots: u32,
 }
 
+/// The previous prepared cull and the storage whose visibility history it updates.
+struct PreparedHistory {
+    view: Entity,
+    frame: u64,
+    decisions: wgpu::Buffer,
+    slots: u32,
+    needs_followup: bool,
+}
+
 #[derive(Resource, Default)]
 pub(super) struct GpuCullFeedback {
     admission: Admission,
     sample: Option<Sample>,
     next_sample: u64,
+    prepared: Option<PreparedHistory>,
+    encoded_frame: AtomicU64,
 }
 
 impl GpuCullFeedback {
     /// Consumes completed samples for future submission choices without waiting.
     pub(super) fn select(&mut self, view: Option<Entity>) -> bool {
+        if self.admission.view != view {
+            self.next_sample = 0;
+        }
         let selected = self.admission.select(view);
         if let Some(sample) = &self.sample {
             match sample.state.load(Ordering::Acquire) {
@@ -95,11 +109,38 @@ impl GpuCullFeedback {
             }
         }
         selected
+            || self.prepared.as_ref().is_some_and(|previous| {
+                Some(previous.view) == view
+                    && previous.frame + 1 == self.admission.frame
+                    && previous.needs_followup
+            })
     }
 
     /// Reserves storage only for occasional selected frames, retaining it between samples.
-    pub(super) fn prepare(&mut self, device: &RenderDevice, view: Entity, slots: u32) {
-        if slots == 0 || self.admission.frame < self.next_sample {
+    pub(super) fn prepare(
+        &mut self,
+        device: &RenderDevice,
+        view: Entity,
+        slots: u32,
+        decisions: &wgpu::Buffer,
+    ) {
+        let frame = self.admission.frame;
+        let warm = self.prepared.as_ref().is_some_and(|previous| {
+            previous.view == view
+                && previous.frame + 1 == frame
+                && previous.slots != 0
+                && previous.decisions == *decisions
+                && self.encoded_frame.load(Ordering::Acquire) == previous.frame
+        });
+        let due = slots != 0 && frame >= self.next_sample;
+        self.prepared = Some(PreparedHistory {
+            view,
+            frame,
+            slots,
+            decisions: decisions.clone(),
+            needs_followup: slots != 0 && !warm,
+        });
+        if !due || !warm {
             return;
         }
         if self
@@ -133,11 +174,12 @@ impl GpuCullFeedback {
         sample.frame = self.admission.frame;
         sample.slots = slots;
         sample.state.store(RECORDING, Ordering::Release);
-        self.next_sample = self.admission.frame.saturating_add(PROBE_INTERVAL);
     }
 
     /// Copies decisions after the late cull; draw stream bits remain independent of feedback.
     pub(super) fn encode(&self, encoder: &mut wgpu::CommandEncoder, decisions: &wgpu::Buffer) {
+        self.encoded_frame
+            .store(self.admission.frame, Ordering::Release);
         let Some(sample) = &self.sample else { return };
         if sample.state.load(Ordering::Acquire) == RECORDING {
             encoder.copy_buffer_to_buffer(
@@ -150,30 +192,41 @@ impl GpuCullFeedback {
             sample.state.store(ENCODED, Ordering::Release);
         }
     }
+
+    /// Maps copied decisions, or retries a reserved sample whose late pass did not run.
+    fn finish_frame(&mut self) {
+        let Some(sample) = &self.sample else {
+            return;
+        };
+        match sample.state.load(Ordering::Acquire) {
+            ENCODED => {
+                self.next_sample = sample.frame.saturating_add(PROBE_INTERVAL);
+                sample.state.store(PENDING, Ordering::Release);
+                let state = sample.state.clone();
+                sample
+                    .buffer
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |result| {
+                        state.store(
+                            if result.is_ok() { MAPPED } else { FAILED },
+                            Ordering::Release,
+                        );
+                    });
+            }
+            RECORDING => {
+                sample.state.store(IDLE, Ordering::Release);
+                if let Some(prepared) = &mut self.prepared {
+                    prepared.needs_followup = true;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Requests the map after render submission, without an additional poll or submission.
-pub(super) fn submit_feedback(feedback: Res<GpuCullFeedback>) {
-    let Some(sample) = &feedback.sample else {
-        return;
-    };
-    match sample.state.load(Ordering::Acquire) {
-        ENCODED => {
-            sample.state.store(PENDING, Ordering::Release);
-            let state = sample.state.clone();
-            sample
-                .buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |result| {
-                    state.store(
-                        if result.is_ok() { MAPPED } else { FAILED },
-                        Ordering::Release,
-                    );
-                });
-        }
-        RECORDING => sample.state.store(IDLE, Ordering::Release),
-        _ => {}
-    }
+pub(super) fn submit_feedback(mut feedback: ResMut<GpuCullFeedback>) {
+    feedback.finish_frame();
 }
 
 /// Counts only live, enabled, frustum-visible candidates and their current-depth rejections.
@@ -190,46 +243,5 @@ fn rejection_counts(decisions: &[u32]) -> (usize, usize) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::model::DECISION_DRAWS;
-    use super::*;
-
-    #[test]
-    fn feedback_counts_candidates_independently_of_early_and_late_draws() {
-        assert_eq!(
-            rejection_counts(&[
-                DECISION_CANDIDATE | DECISION_HIDDEN,
-                DECISION_CANDIDATE | DECISION_DRAWS,
-                DECISION_CANDIDATE,
-                0,
-            ]),
-            (3, 1)
-        );
-    }
-
-    #[test]
-    fn low_rejection_skips_work_until_a_fresh_probe_and_view_changes_reset_it() {
-        let mut world = World::new();
-        let a = world.spawn_empty().id();
-        let b = world.spawn_empty().id();
-        let mut admission = Admission::default();
-        assert!(admission.select(Some(a)));
-        admission.observe(a, 1, 128, 2);
-        assert!(admission.select(Some(a)));
-        assert!(!admission.select(Some(a)));
-        admission.frame += PROBE_INTERVAL;
-        assert!(admission.select(Some(a)));
-        admission.observe(a, admission.frame, 128, 100);
-        assert!(admission.select(Some(a)));
-        assert!(!admission.select(None));
-        assert!(admission.select(Some(b)));
-        admission.observe(a, admission.frame, 128, 0);
-        assert!(admission.select(Some(b)));
-        assert!(admission.select(Some(a)));
-        admission.observe(a, 1, 128, 0);
-        assert!(
-            admission.select(Some(a)),
-            "feedback from a previous view selection must be ignored"
-        );
-    }
-}
+#[path = "feedback_tests.rs"]
+mod tests;

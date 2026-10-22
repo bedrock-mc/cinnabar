@@ -19,7 +19,7 @@ type ChunkViewQuery = (
     Read<bevy::render::camera::ExtractedCamera>,
 );
 
-/// Each indirect draw path's batches, kept while their view stays on the CPU-planned path.
+/// Each indirect draw path's batches, retained across GPU occlusion probes.
 type IndirectBatches = (
     ResMut<'static, ChunkIndirectBatches>,
     ResMut<'static, ChunkModelIndirectBatches>,
@@ -263,6 +263,8 @@ pub(in crate::chunk) fn queue_chunks(
         };
 
         if gpu_cull_view == Some(view_entity) {
+            // Retain CPU commands and their buffer offsets without queueing their draws.
+            indirect_views.push(view_entity);
             let pipelines = [
                 solid_pipeline_id,
                 pipeline_id,

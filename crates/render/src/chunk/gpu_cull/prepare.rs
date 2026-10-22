@@ -244,7 +244,12 @@ pub(super) fn prepare_gpu_cull(
         cull.bound_pyramid = pyramid_id;
     }
     cull.prepared_view = Some(view.entity);
-    feedback.prepare(&device, view.entity, cull.slot_count());
+    feedback.prepare(
+        &device,
+        view.entity,
+        cull.slot_count(),
+        &storage.record_draws,
+    );
 }
 
 /// Grows storage when the slot watermark passes it, then writes dirty records and bits.

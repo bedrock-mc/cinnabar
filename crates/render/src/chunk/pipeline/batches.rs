@@ -323,8 +323,8 @@ pub(in crate::chunk) fn track_terrain_batch_changes(
     }
 }
 
-/// Drops the batches of views not queued through CPU-planned indirect draws this frame;
-/// returns whether any were dropped.
+/// Drops batches whose views no longer retain CPU-planned commands, including across GPU probes.
+/// Returns whether any were dropped.
 pub(in crate::chunk) fn retain_indirect_views<T>(
     batches: &mut HashMap<Entity, T>,
     views: &[Entity],

@@ -328,3 +328,25 @@ fn latency_cadence_terrain_preparation_can_qualify_for_one() {
         assert!(world.resource::<GpuCull>().bind_groups.is_some());
     });
 }
+
+/// Creates another isolated render target for a fixture camera.
+pub(in crate::chunk) fn spawn_camera(app: &mut App, transform: Transform, order: isize) -> Entity {
+    let image = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            64,
+            48,
+            TextureFormat::Rgba8Unorm,
+            None,
+        ));
+    app.world_mut()
+        .spawn((
+            Camera3d::default(),
+            Camera { order, ..default() },
+            RenderTarget::Image(image.into()),
+            Msaa::Off,
+            transform,
+        ))
+        .id()
+}
