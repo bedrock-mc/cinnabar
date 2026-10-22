@@ -1,7 +1,12 @@
 //! Screenshots and recordings. A fixed-clock recording steps game time exactly 1/fps per
 //! rendered frame and captures every frame, so the video is smooth however slow rendering is.
+//! The shared readback observer never waits on the encoder, so screenshots answer however far
+//! a recording falls behind: a real-time capture the encoder has no room for is dropped (the
+//! video repeats the previous frame), and a fixed-clock one is parked until the next update,
+//! which waits for room before the game advances.
 
 use std::{
+    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -36,14 +41,13 @@ struct AudioCapture {
 #[derive(Resource)]
 pub(super) struct Recording {
     recorder: Option<Recorder>,
-    sink: FrameSink,
+    delivery: Delivery,
     fps: u32,
     fixed_clock: bool,
     pacer: RealTimePacer,
     started: Instant,
     next_index: u64,
     outstanding: Arc<AtomicU64>,
-    failure: Arc<Mutex<Option<String>>>,
     audio: Option<AudioCapture>,
     stopping: Option<(Reply, Instant)>,
     /// A fixed clock lifted the frame-rate cadence, which stopping restores.
@@ -52,12 +56,42 @@ pub(super) struct Recording {
 }
 
 impl Recording {
+    fn new(
+        recorder: Recorder,
+        fps: u32,
+        fixed_clock: bool,
+        audio: Option<AudioCapture>,
+        previous_max_delta: Duration,
+    ) -> Self {
+        Self {
+            delivery: Delivery {
+                sink: recorder.sink(),
+                fixed_clock,
+                parked: Arc::default(),
+                dropped: Arc::default(),
+                failure: Arc::default(),
+            },
+            recorder: Some(recorder),
+            fps,
+            fixed_clock,
+            pacer: RealTimePacer::new(fps),
+            started: Instant::now(),
+            next_index: 0,
+            outstanding: Arc::default(),
+            audio,
+            stopping: None,
+            lifted_cadence: false,
+            previous_max_delta,
+        }
+    }
+
     pub(super) fn summary(&self) -> Value {
         json!({
             "path": self.recorder.as_ref().map(|recorder| recorder.settings().path.clone()),
             "fps": self.fps,
             "fixed_clock": self.fixed_clock,
             "frames": self.next_index,
+            "dropped_frames": self.delivery.dropped.load(Ordering::Relaxed),
             "audio": self.audio.is_some(),
             "stopping": self.stopping.is_some(),
         })
@@ -151,21 +185,16 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
     if let Some(clock) = clock {
         world.insert_resource(FixedClock(clock));
     }
-    world.insert_resource(Recording {
-        sink: recorder.sink(),
-        recorder: Some(recorder),
-        fps: settings.fps,
+    let previous_max_delta = world.resource::<Time<Virtual>>().max_delta();
+    let mut recording = Recording::new(
+        recorder,
+        settings.fps,
         fixed_clock,
-        pacer: RealTimePacer::new(settings.fps),
-        started: Instant::now(),
-        next_index: 0,
-        outstanding: Arc::default(),
-        failure: Arc::default(),
         audio,
-        stopping: None,
-        lifted_cadence,
-        previous_max_delta: world.resource::<Time<Virtual>>().max_delta(),
-    });
+        previous_max_delta,
+    );
+    recording.lifted_cadence = lifted_cadence;
+    world.insert_resource(recording);
     Ok(summary)
 }
 
@@ -193,6 +222,8 @@ fn record_frame(world: &mut World) {
         return;
     }
     let copies = if recording.fixed_clock {
+        // Fixed-clock backpressure: the game advances only once the encoder has room.
+        recording.delivery.flush_parked();
         1
     } else {
         recording.pacer.frames_for(recording.started.elapsed())
@@ -210,17 +241,65 @@ fn capture_frame(world: &mut World, recording: &mut Recording, copies: u64) {
     let first = recording.next_index;
     recording.next_index += copies;
     let pending = InFlight::new(&recording.outstanding);
-    let (sink, failure) = (recording.sink.clone(), Arc::clone(&recording.failure));
+    let delivery = recording.delivery.clone();
     world.resource_mut::<FrameCapture>().request(move |image| {
-        let pushed = frames(image, first, copies)
-            .and_then(|frames| frames.into_iter().try_for_each(|frame| sink.push(frame)));
-        if let Err(error) = pushed
-            && let Ok(mut failure) = failure.lock()
-        {
-            failure.get_or_insert(error);
-        }
+        delivery.deliver(frame(image, first, copies));
         drop(pending);
     });
+}
+
+/// Hands readbacks to the encoder from the shared capture observer without ever waiting.
+#[derive(Clone)]
+struct Delivery {
+    sink: FrameSink,
+    fixed_clock: bool,
+    /// Fixed-clock captures the encoder had no room for, flushed by the next update.
+    parked: Arc<Mutex<VecDeque<Frame>>>,
+    /// Real-time video slots dropped while the encoder was behind.
+    dropped: Arc<AtomicU64>,
+    failure: Arc<Mutex<Option<String>>>,
+}
+
+impl Delivery {
+    fn deliver(&self, frame: Result<Frame, String>) {
+        match frame.and_then(|frame| self.sink.try_push(frame)) {
+            Ok(None) => {}
+            Ok(Some(frame)) if self.fixed_clock => {
+                if let Ok(mut parked) = self.parked.lock() {
+                    parked.push_back(frame);
+                }
+            }
+            Ok(Some(frame)) => {
+                if self.dropped.fetch_add(frame.copies, Ordering::Relaxed) == 0 {
+                    warn!("developer recording: the encoder is behind; dropping real-time frames");
+                }
+            }
+            Err(error) => self.fail(error),
+        }
+    }
+
+    /// Waits for the encoder to accept every parked capture, in capture order.
+    fn flush_parked(&self) {
+        loop {
+            let Some(frame) = self
+                .parked
+                .lock()
+                .ok()
+                .and_then(|mut parked| parked.pop_front())
+            else {
+                return;
+            };
+            if let Err(error) = self.sink.push(frame) {
+                self.fail(error);
+            }
+        }
+    }
+
+    fn fail(&self, error: String) {
+        if let Ok(mut failure) = self.failure.lock() {
+            failure.get_or_insert(error);
+        }
+    }
 }
 
 /// Counts a requested readback until it is served or dropped unserved.
@@ -239,8 +318,9 @@ impl Drop for InFlight {
     }
 }
 
-/// `copies` consecutive frames from one capture; real-time pacing repeats a slow frame.
-fn frames(image: &Image, first: u64, copies: u64) -> Result<Vec<Frame>, String> {
+/// One capture filling `copies` consecutive video slots; real-time pacing repeats a slow frame
+/// without copying its pixels again.
+fn frame(image: &Image, index: u64, copies: u64) -> Result<Frame, String> {
     let layout = match image.texture_descriptor.format {
         TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => PixelLayout::Bgra,
         TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => PixelLayout::Rgba,
@@ -248,14 +328,13 @@ fn frames(image: &Image, first: u64, copies: u64) -> Result<Vec<Frame>, String> 
     };
     let size = [image.width(), image.height()];
     let data = image.data.as_ref().ok_or("the capture has no pixel data")?;
-    Ok((first..first + copies)
-        .map(|index| Frame {
-            index,
-            size,
-            layout,
-            data: data.clone(),
-        })
-        .collect())
+    Ok(Frame {
+        index,
+        copies,
+        size,
+        layout,
+        data: Arc::from(data.as_slice()),
+    })
 }
 
 fn pull_audio(audio: &mut AudioCapture, fps: u32, copies: u64) {
@@ -303,7 +382,8 @@ fn finish(world: &mut World, mut recording: Recording) {
 impl Recording {
     /// Closes the stream, finishes the WAV and the MP4, and muxes them.
     fn finalize(&mut self) -> Result<Value, String> {
-        let failure = self.failure.lock().ok().and_then(|mut f| f.take());
+        self.delivery.flush_parked();
+        let failure = self.delivery.failure.lock().ok().and_then(|mut f| f.take());
         let audio = self
             .audio
             .take()
@@ -321,11 +401,21 @@ impl Recording {
                 .ok_or_else(|| "the recording had no encoder".to_owned())?
                 .finish(wav)
         })?;
+        let dropped = self.delivery.dropped.load(Ordering::Relaxed);
+        if dropped > 0 || summary.filled > 0 {
+            warn!(
+                dropped,
+                filled = summary.filled,
+                "developer recording: the encoder fell behind; missing frames repeat the previous one"
+            );
+        }
         Ok(json!({
             "path": summary.path,
             "frames": summary.frames,
             "size": summary.size,
             "fixed_clock": self.fixed_clock,
+            "dropped_frames": dropped,
+            "filled_frames": summary.filled,
             "audio": wav,
         }))
     }
@@ -426,6 +516,131 @@ mod tests {
             assert!(std::path::Path::new(saved["path"].as_str().unwrap()).is_file());
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn red_image() -> Image {
+        Image::new_fill(
+            bevy::render::render_resource::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            bevy::render::render_resource::TextureDimension::D2,
+            &[255, 0, 0, 255],
+            TextureFormat::Rgba8UnormSrgb,
+            default(),
+        )
+    }
+
+    #[test]
+    fn a_long_real_time_stall_keeps_one_image() {
+        let frame = super::frame(&red_image(), 7, 100_000).unwrap();
+        assert_eq!((frame.index, frame.copies), (7, 100_000));
+        assert_eq!(
+            frame.data.len(),
+            2 * 2 * 4,
+            "the repeated slots share one image"
+        );
+    }
+
+    /// Captures `rounds` frames while the encoder is stalled, requesting a screenshot with the
+    /// last; yields the screenshot's outcome receiver once requested and, after the encoder is
+    /// released, the recording's final reply and parked count. Runs on its own thread, so an
+    /// observer blocked on the encoder fails the test's bounded waits instead of hanging it.
+    fn screenshot_during_stalled_recording(
+        fixed_clock: bool,
+        rounds: u64,
+    ) -> (
+        crossbeam_channel::Receiver<crossbeam_channel::Receiver<Result<serde_json::Value, String>>>,
+        crossbeam_channel::Receiver<(Result<serde_json::Value, String>, usize)>,
+    ) {
+        let (shot_tx, shot_rx) = crossbeam_channel::bounded(1);
+        let (done_tx, done_rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let (release, gate) = crossbeam_channel::bounded::<()>(0);
+            let recorder = developer_control::recorder::Recorder::with_encoder(
+                developer_control::recorder::VideoSettings {
+                    path: std::path::PathBuf::from("stalled.mp4"),
+                    fps: 10,
+                    codec: developer_control::recorder::Codec::H264,
+                },
+                move |settings, frames| {
+                    let _ = gate.recv();
+                    Ok(developer_control::recorder::Summary {
+                        path: settings.path.clone(),
+                        frames: frames.iter().map(|frame| frame.copies).sum(),
+                        size: None,
+                        filled: 0,
+                    })
+                },
+            )
+            .unwrap();
+            let mut recording =
+                super::Recording::new(recorder, 10, fixed_clock, None, Duration::ZERO);
+            let mut app = App::new();
+            crate::hud_tools::configure_frame_capture(&mut app);
+            let dir = std::env::temp_dir()
+                .join(format!("cinnabar-stalled-capture-{}", std::process::id()));
+            for round in 0..rounds {
+                super::capture_frame(app.world_mut(), &mut recording, 1);
+                if round + 1 == rounds {
+                    let (reply, outcome) = developer_control::server::Reply::channel();
+                    super::screenshot(app.world_mut(), dir.join("stalled.png"), reply);
+                    let _ = shot_tx.send(outcome);
+                }
+                app.update();
+                let mut shots = app.world_mut().query_filtered::<Entity, With<Screenshot>>();
+                let entity = shots.single(app.world()).unwrap();
+                app.world_mut().trigger(ScreenshotCaptured {
+                    entity,
+                    image: red_image(),
+                });
+                app.world_mut().entity_mut(entity).despawn();
+            }
+            let parked = recording.delivery.parked.lock().unwrap().len();
+            drop(release);
+            let reply = recording.finalize();
+            let _ = done_tx.send((reply, parked));
+            let _ = std::fs::remove_dir_all(dir);
+        });
+        (shot_rx, done_rx)
+    }
+
+    #[test]
+    fn a_screenshot_answers_while_a_real_time_recording_is_stalled() {
+        let rounds = 40;
+        let (shot, done) = screenshot_during_stalled_recording(false, rounds);
+        shot.recv_timeout(test_time::DEFAULT_TIMEOUT)
+            .expect("capture blocked before the screenshot was requested")
+            .recv_timeout(test_time::DEFAULT_TIMEOUT)
+            .expect("the screenshot waited behind the stalled encoder")
+            .unwrap();
+        let (reply, parked) = done.recv_timeout(test_time::DEFAULT_TIMEOUT).unwrap();
+        let reply = reply.unwrap();
+        assert_eq!(parked, 0);
+        let dropped = reply["dropped_frames"].as_u64().unwrap();
+        assert!(dropped > 0, "{reply}");
+        assert_eq!(reply["frames"].as_u64().unwrap() + dropped, rounds);
+    }
+
+    #[test]
+    fn a_fixed_clock_recording_parks_frames_instead_of_blocking_the_observer() {
+        let rounds = 40;
+        let (shot, done) = screenshot_during_stalled_recording(true, rounds);
+        shot.recv_timeout(test_time::DEFAULT_TIMEOUT)
+            .expect("capture blocked before the screenshot was requested")
+            .recv_timeout(test_time::DEFAULT_TIMEOUT)
+            .expect("the screenshot waited behind the stalled encoder")
+            .unwrap();
+        let (reply, parked) = done.recv_timeout(test_time::DEFAULT_TIMEOUT).unwrap();
+        let reply = reply.unwrap();
+        assert!(parked > 0, "the stalled encoder left no frame parked");
+        assert_eq!(reply["dropped_frames"].as_u64(), Some(0));
+        assert_eq!(
+            reply["frames"].as_u64(),
+            Some(rounds),
+            "fixed clock keeps every frame"
+        );
     }
 
     #[test]
