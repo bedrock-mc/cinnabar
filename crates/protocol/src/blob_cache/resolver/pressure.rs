@@ -7,14 +7,33 @@ impl BlobCacheResolver {
         !self.immediate_ready.is_empty()
     }
 
-    /// Abandons only cached transactions that block retained ordinary work.
+    /// Abandons the cached transactions that block retained ordinary work, including those
+    /// that block it through a reconstructed cached packet naming another column. Returns
+    /// whether anything was abandoned; a lane that cannot be unblocked is counted once.
     pub fn unblock_ordinary_lane(&mut self) -> Result<bool, BlobCacheError> {
-        let blocked_columns = self
+        let mut blocked_columns = self
             .immediate_ready
             .values()
             .flat_map(|ready| ready.columns.iter())
             .copied()
             .collect::<HashSet<_>>();
+        // A reconstructed cached packet that still waits holds back every column it names, so
+        // whatever blocks it, even on another column, also blocks the ordinary work behind it.
+        loop {
+            let before = blocked_columns.len();
+            for ready in self.ready.values() {
+                if ready
+                    .columns
+                    .iter()
+                    .any(|column| blocked_columns.contains(column))
+                {
+                    blocked_columns.extend(ready.columns.iter().copied());
+                }
+            }
+            if blocked_columns.len() == before {
+                break;
+            }
+        }
         let blockers = self
             .pending
             .iter()
@@ -28,6 +47,20 @@ impl BlobCacheResolver {
             .collect::<Vec<_>>();
         for sequence in &blockers {
             self.abandon_pending_transaction(*sequence)?;
+        }
+        if blockers.is_empty() {
+            if !std::mem::replace(&mut self.ordinary_lane_stalled, true) {
+                self.stats.ordinary_lane_stalls = self.stats.ordinary_lane_stalls.saturating_add(1);
+                tracing::warn!(
+                    target: "cinnabar::blob_cache",
+                    immediate = self.immediate_ready.len(),
+                    ready = self.ready.len(),
+                    pending = self.pending.len(),
+                    "retained ordinary world events have no abandonable cached blocker"
+                );
+            }
+        } else {
+            self.ordinary_lane_stalled = false;
         }
         self.refresh_pending_accounting()?;
         Ok(!blockers.is_empty())
