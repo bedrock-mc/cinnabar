@@ -333,3 +333,50 @@ fn world_entry_loading_ignores_the_server_progress_screen_policy() {
     assert!(dimension.steals_mouse());
     assert!(dimension.input_targets().contains(&Scene::Gameplay));
 }
+
+/// A server menu built from a container answers a form only when the container is a menu.
+#[test]
+fn forms_open_over_containers_that_are_not_menus() {
+    for (showing_menu, admitted) in [(None, false), (Some(true), false), (Some(false), true)] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut table = HashMap::new();
+        if let Some(flag) = showing_menu {
+            table.insert(
+                "crafting.inventory_screen",
+                settings(json!({ "is_showing_menu": flag })),
+            );
+        }
+        let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+        runtime.toggle_inventory(&mut player_runtime, None);
+        assert!(runtime.inventory_open());
+        runtime
+            .apply(
+                &mut player_runtime,
+                crate::ui_runtime::SequencedUiEvent {
+                    session_id: runtime.session_id(),
+                    fifo_sequence: 1,
+                    local_millis: 1,
+                    server_tick: None,
+                    event: protocol::UiEvent::Form(protocol::FormRequestEvent {
+                        form_id: 3,
+                        kind: protocol::FormKind::Menu,
+                        title: None,
+                        json: "{}".into(),
+                        model: protocol::ServerFormModel::Unsupported(
+                            protocol::UnsupportedForm::Family,
+                        ),
+                    }),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            runtime.server_forms().active().is_some(),
+            admitted,
+            "is_showing_menu {showing_menu:?}"
+        );
+        assert_eq!(
+            runtime.server_forms().queued_busy_count(),
+            usize::from(!admitted)
+        );
+    }
+}

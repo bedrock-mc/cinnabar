@@ -131,12 +131,9 @@ impl UiRuntime {
                     title = ?event.title,
                     "form received"
                 );
-                self.forms.admit(
-                    event,
-                    envelope.fifo_sequence,
-                    self.session_id,
-                    self.chat_focused || self.inventory_open,
-                );
+                let busy = self.chat_focused || self.container_shows_menu(player_runtime);
+                self.forms
+                    .admit(event, envelope.fifo_sequence, self.session_id, busy);
                 UiApplyOutcome::Applied
             }
         };
