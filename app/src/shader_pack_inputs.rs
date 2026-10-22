@@ -4,8 +4,8 @@
 
 use bevy::{
     prelude::{
-        App, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res, ResMut, Resource,
-        Time, Transform, Update, Vec3, With,
+        App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
+        ResMut, Resource, Time, Transform, Update, Vec3, With,
     },
     time::Real,
 };
@@ -524,6 +524,17 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "shaderpacks"))]
+    #[test]
+    fn builds_without_shaderpacks_install_no_shader_inputs() {
+        let mut app = App::new();
+        app.add_plugins(ShaderPackInputsPlugin);
+        app.update();
+        assert!(!app.world().contains_resource::<ShaderPackFrameInputs>());
+        assert!(!app.world().contains_resource::<ShaderPackIdMaps>());
+        assert!(!app.world().contains_resource::<ShaderPackActorIds>());
+    }
 
     /// Shader-only sampling follows the request, including before a pack becomes ready.
     #[test]

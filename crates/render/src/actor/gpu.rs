@@ -214,6 +214,47 @@ mod tests {
     use render_model::{ActorRenderIdentity, ActorRigRoute};
     use render_scene::ActorPresentationGate;
 
+    #[test]
+    fn artwork_raw_view_formats_require_the_feature_and_camera_demand() {
+        assert!(ArtworkRawViews::default().view_formats().is_empty());
+        let formats = ArtworkRawViews(true).view_formats();
+        if cfg!(feature = "shaderpacks") {
+            assert_eq!(formats, [wgpu::TextureFormat::Rgba8Unorm]);
+        } else {
+            assert!(formats.is_empty());
+        }
+    }
+
+    #[cfg(feature = "shaderpacks")]
+    #[test]
+    fn artwork_raw_views_follow_the_last_pack_camera() {
+        use bevy::{ecs::system::RunSystemOnce, prelude::*, render::MainWorld};
+        use render_scene::shaderpack::ShaderPackRendering;
+
+        let mut main = MainWorld::default();
+        let first = main.spawn_empty().id();
+        let second = main.spawn_empty().id();
+        let mut render = World::new();
+        render.insert_resource(main);
+        render.init_resource::<ArtworkRawViews>();
+        for (camera, enabled, expected) in [
+            (first, false, false),
+            (first, true, true),
+            (second, true, true),
+            (first, false, true),
+            (second, false, false),
+        ] {
+            let mut main = render.resource_mut::<MainWorld>();
+            if enabled {
+                main.entity_mut(camera).insert(ShaderPackRendering);
+            } else {
+                main.entity_mut(camera).remove::<ShaderPackRendering>();
+            }
+            render.run_system_once(extract_artwork_raw_views).unwrap();
+            assert_eq!(render.resource::<ArtworkRawViews>().0, expected);
+        }
+    }
+
     /// An exact single-instance frame for receipt and GPU-completion regressions.
     fn draw(generation: u64) -> ActorDrawFrame {
         ActorDrawFrame {

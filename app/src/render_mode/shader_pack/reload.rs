@@ -1,6 +1,6 @@
-//! Shader-pack reloads, Iris's R key: re-list the pack folder, then load the selected pack
-//! again from disk under a new [`ShaderPackRequest::revision`]. The render host keeps
-//! drawing the shown pack until the reloaded one is ready.
+//! Reloads the selected pack from disk under a new [`ShaderPackRequest::revision`]. Menu
+//! reloads also refresh the pack list; the gameplay key leaves discovery off the frame.
+//! The render host keeps drawing the shown pack until the reloaded one is ready.
 
 use std::sync::Arc;
 

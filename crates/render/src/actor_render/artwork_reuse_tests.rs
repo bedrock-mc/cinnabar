@@ -120,15 +120,19 @@ fn artwork_allows_raw_views_only_while_a_pack_draws() {
     assert!(gpu.prepare(&pages, &device, &queue));
     let raw = |gpu: &GpuArtwork| {
         let page = gpu.page(0).unwrap();
-        assert_eq!(
-            permits_raw_view(device.wgpu_device(), &page._texture),
-            page.raw_texture().is_some()
-        );
-        [
+        let allowed = [
+            &page._texture,
+            &gpu.glint.texture.as_ref().unwrap().0,
+            &gpu.item_glint.texture.as_ref().unwrap().0,
+        ]
+        .map(|texture| permits_raw_view(device.wgpu_device(), texture));
+        let exposed = [
             page.raw_texture().is_some(),
             gpu.glint.raw_texture().is_some(),
             gpu.item_glint.raw_texture().is_some(),
-        ]
+        ];
+        assert_eq!(allowed, exposed);
+        allowed
     };
     assert_eq!(
         raw(&gpu),

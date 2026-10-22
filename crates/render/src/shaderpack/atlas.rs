@@ -209,10 +209,12 @@ struct BuildToken {
 }
 
 impl BuildToken {
+    /// Requests that the worker return at its next cancellation checkpoint.
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
+    /// Whether the atlas owner has withdrawn this build's request.
     fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }

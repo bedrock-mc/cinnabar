@@ -797,6 +797,43 @@ fn standalone_geometry_can_request_its_shaderpack_atlas() {
     assert!(!world.run_system_once(atlas_requested).unwrap());
 }
 
+#[test]
+fn atlas_build_cancels_between_sprites() {
+    use std::cell::Cell;
+
+    fixture().with_inputs(None, |inputs| {
+        let plan = plan_atlas(inputs, 4096).unwrap();
+        assert!(plan.contents.len() > 1);
+        let checked = Cell::new(0);
+        let images = build_images(inputs, &plan, &|| {
+            checked.set(checked.get() + 1);
+            checked.get() == 2
+        });
+        assert!(images.is_none(), "cancellation discards partial pixel work");
+        assert_eq!(checked.get(), 2, "no remaining sprites are assembled");
+        assert!(build_images(inputs, &plan, &|| false).is_some());
+    });
+}
+
+#[test]
+fn atlas_build_cancels_between_texture_uploads() {
+    use std::cell::Cell;
+
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    fixture().with_inputs(None, |inputs| {
+        let plan = plan_atlas(inputs, 4096).unwrap();
+        let images = build_images(inputs, &plan, &|| false).unwrap();
+        let checked = Cell::new(0);
+        let uploaded = upload::upload_atlas(&device, &queue, &plan, &images, &|| {
+            checked.set(checked.get() + 1);
+            checked.get() == 2
+        });
+        assert!(uploaded.is_none(), "cancellation discards partial GPU work");
+        assert_eq!(checked.get(), 2, "no remaining textures are uploaded");
+        assert!(upload::upload_atlas(&device, &queue, &plan, &images, &|| false).is_some());
+    });
+}
+
 /// A render world with a no-op device whose builds report each stage and hold the first
 /// one to reach `hold` until the returned sender releases it.
 fn held_build_world(

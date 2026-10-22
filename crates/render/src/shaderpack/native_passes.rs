@@ -31,6 +31,7 @@ pub(super) fn install(schedule: &mut bevy::ecs::schedule::Schedule) {
     );
     schedule.add_systems(
         screen_overlay
+            .run_if(super::plugin::pack_loaded)
             .after(Core3dSystems::PostProcess)
             .after(crate::nametag_render::overlay::NametagOverlay)
             .before(crate::ui_render::UiOverlayLabel)
