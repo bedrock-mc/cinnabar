@@ -142,7 +142,7 @@ fn fixture_with_network(
             }]),
         )
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "synthetic terrain decode", || {
+    test_time::eventually("synthetic terrain decode", || {
         stream.poll(position, 0);
         stream.committed_sequence() >= 2
     });
@@ -550,7 +550,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
         stream
             .submit(3, protocol::WorldEvent::BlockUpdates(floor))
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "fixture floor commit", || {
+        test_time::eventually("fixture floor commit", || {
             stream.poll(start, 0);
             stream.committed_sequence() >= 3
         });
