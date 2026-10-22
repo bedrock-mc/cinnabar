@@ -34,6 +34,27 @@ fn equipment(actor: u64, stack: NetworkItemStack) -> EquipmentEvent {
         handedness: Some(ActorHandedness::Left),
     }
 }
+/// States the local offhand through inventory authority, the only offhand source vanilla reads.
+fn set_offhand(
+    runtime: &mut UiRuntime,
+    player_runtime: &mut PlayerRuntime,
+    sequence: u64,
+    stack: NetworkItemStack,
+) {
+    runtime
+        .enqueue_inventory_event(
+            player_runtime,
+            runtime.session_id(),
+            sequence,
+            InventoryEvent::Content(InventoryContentEvent {
+                container: container(119),
+                slots: vec![stack].into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(player_runtime);
+}
 fn route(
     player_runtime: &mut PlayerRuntime,
     runtime: &mut UiRuntime,
@@ -52,38 +73,32 @@ fn route(
     }
 }
 
+/// Vanilla ignores the local player's own offhand MobEquipment, so only inventory authority
+/// decides whether the hand-path offhand is known, present or empty.
 #[test]
-fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes() {
+fn offhand_empty_provider_reads_inventory_authority_not_local_echoes() {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut runtime = UiRuntime::new(1);
     runtime
         .publish_local_runtime_id(&mut player_runtime, 1, 7)
         .unwrap();
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), None);
     route(
         &mut player_runtime,
         &mut runtime,
         1,
         equipment(8, NetworkItemStack::empty()),
     );
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), None);
     let mut present = NetworkItemStack::empty();
     present.count = 1;
     present.network_id = 1;
     route(&mut player_runtime, &mut runtime, 2, equipment(7, present));
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(false));
-    assert!(runtime.gameplay_hud().offhand_stack().is_some());
-    route(
-        &mut player_runtime,
-        &mut runtime,
-        3,
-        equipment(7, NetworkItemStack::empty()),
-    );
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
-    assert!(runtime.gameplay_hud().offhand_stack().is_none());
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), None);
+    assert!(runtime.local_offhand_stack(&player_runtime).is_none());
     client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 2);
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), None);
     runtime
         .enqueue_inventory_event(
             &mut player_runtime,
@@ -97,7 +112,7 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
         )
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), Some(true));
     runtime
         .enqueue_inventory_event(
             &mut player_runtime,
@@ -119,9 +134,9 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
         )
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), Some(true));
     client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 3);
-    assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), None);
 }
 
 #[test]
@@ -452,11 +467,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         Some(HandFallback::ItemsUnknownOrHeld)
     );
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.retain_local_selected_equipment(
-            player_runtime,
-            2,
-            equipment(1, NetworkItemStack::empty()),
-        );
+        set_offhand(runtime, player_runtime, 2, NetworkItemStack::empty());
     });
     app.world_mut().run_system_once(observe).unwrap();
     assert_eq!(
@@ -539,7 +550,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
     held.count = 1;
     held.network_id = 1;
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.retain_local_selected_equipment(player_runtime, 3, equipment(1, held));
+        set_offhand(runtime, player_runtime, 3, held);
     });
     app.world_mut().run_system_once(observe).unwrap();
     assert_eq!(
@@ -573,11 +584,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
                 handedness: Some(ActorHandedness::Right),
             },
         );
-        runtime.retain_local_selected_equipment(
-            player_runtime,
-            2,
-            equipment(99, NetworkItemStack::empty()),
-        );
+        set_offhand(runtime, player_runtime, 2, NetworkItemStack::empty());
     });
     app.world_mut().run_system_once(observe).unwrap();
     assert_eq!(
@@ -602,11 +609,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
                 handedness: Some(ActorHandedness::Right),
             },
         );
-        runtime.retain_local_selected_equipment(
-            player_runtime,
-            2,
-            equipment(1, NetworkItemStack::empty()),
-        );
+        set_offhand(runtime, player_runtime, 2, NetworkItemStack::empty());
     });
     app.world_mut().run_system_once(observe).unwrap();
     assert_eq!(

@@ -183,8 +183,8 @@ impl UiRuntime {
         }
     }
 
-    /// Applies every queued authoritative inventory event to the retained
-    /// hotbar/offhand mirror. Runs once per frame before presentation; the
+    /// Applies every queued authoritative inventory event to the inventory
+    /// ledger and HUD diagnostics. Runs once per frame before presentation; the
     /// queue would otherwise grow without a consumer until the container store
     /// takes over this drain.
     pub fn drain_pending_inventory(&mut self, player_runtime: &mut player_state::PlayerState) {
@@ -224,8 +224,7 @@ impl UiRuntime {
                 self.chat_focused = false;
             }
             self.observe_inventory_window(player_runtime);
-            self.gameplay_hud
-                .apply_inventory(&event, player_runtime.inventory.ledger());
+            self.gameplay_hud.apply_inventory(&event);
             self.observe_use_on_identity(
                 player_runtime,
                 sequenced.session_generation,
@@ -360,6 +359,47 @@ impl UiRuntime {
             chestplate,
             leggings,
             boots,
+        }
+    }
+
+    /// The local offhand as the inventory presents it, `None` while unobserved or empty. The
+    /// offhand cell, its tooltip, the HUD frame and the hand all read this one cell.
+    pub fn local_offhand_stack<'a>(
+        &self,
+        player_runtime: &'a player_state::PlayerState,
+    ) -> Option<&'a protocol::NetworkItemStack> {
+        self.inventory_ledger(player_runtime)
+            .target_stack(inventory::inventory_ledger::InventoryTarget::Offhand)
+            .filter(|stack| !stack.is_empty())
+    }
+
+    /// The server-confirmed local offhand without pending screen moves, for item-use checks that
+    /// read backing inventory cells; `None` while unobserved or empty.
+    pub fn local_backing_offhand_stack<'a>(
+        &self,
+        player_runtime: &'a player_state::PlayerState,
+    ) -> Option<&'a protocol::NetworkItemStack> {
+        match self
+            .inventory_ledger(player_runtime)
+            .authoritative_gear_slot_state(inventory::inventory_ledger::InventoryTarget::Offhand)?
+        {
+            inventory::PlayerInventorySlot::Present(stack) if !stack.is_empty() => Some(stack),
+            _ => None,
+        }
+    }
+
+    /// Whether the presented local offhand is empty; `None` until the server has stated it.
+    pub fn local_offhand_is_empty(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<bool> {
+        match self
+            .inventory_ledger(player_runtime)
+            .gear_slot_state(inventory::inventory_ledger::InventoryTarget::Offhand)?
+        {
+            inventory::PlayerInventorySlot::Unknown => None,
+            inventory::PlayerInventorySlot::Empty => Some(true),
+            inventory::PlayerInventorySlot::Present(stack) => Some(stack.is_empty()),
         }
     }
 

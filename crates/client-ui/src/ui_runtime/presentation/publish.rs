@@ -176,10 +176,7 @@ pub fn hovered_stack(
                 ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Armor(row)),
                 None,
             ),
-            Hit::Offhand => (
-                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
-                None,
-            ),
+            Hit::Offhand => (runtime.local_offhand_stack(player_runtime), None),
             Hit::CraftOutput if ledger.window_kind() == Some(protocol::WindowKind::Anvil) => {
                 return runtime
                     .anvil_output(player_runtime)
