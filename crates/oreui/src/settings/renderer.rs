@@ -1,9 +1,9 @@
-//! Renderer and shader-pack settings share segmented choices and keep separate tabs.
+//! Video renderer choices and the shader-pack library use separate settings tabs.
 
 use super::super::widgets;
 use super::Content;
 use launcher::menu::{
-    MenuAction, MenuView, RendererChoice,
+    MenuAction, RendererChoice,
     settings_storage::{StorageAction, StorageFolder},
     shader_pack_status::pack_label,
 };
@@ -41,10 +41,9 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         )?;
     }
     if render_model::SHADER_PACKS_ENABLED {
-        let selected = content
-            .view
-            .shader_pack
-            .as_deref()
+        let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
+            .then_some(content.view.shader_pack.as_deref())
+            .flatten()
             .map_or("Off", pack_label);
         super::services::action_row(
             content,
@@ -57,81 +56,201 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
-/// Draws the pack picker, feedback, options, reload and folder import controls.
+/// Draws a vertical pack library with import guidance and controls on the selected pack.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    use super::super::{theme, widgets::Variant};
+    use super::resources::{actions, caption, empty, note};
+
     if !render_model::SHADER_PACKS_ENABLED {
         return Ok(());
     }
-    content.heading("Shaders", "")?;
     let view = content.view;
-    let description = if let Some(failure) = view.renderer_failure.as_deref() {
-        failure
-    } else if view.shader_packs.is_empty() {
-        "Java shader packs (zips or folders) in the shaderpacks data folder appear here."
-    } else {
-        "Java shader packs are experimental; a pack that fails to load draws Vanilla."
-    };
-    let selected = if view.render_mode == ui::RenderMode::ShaderPack {
-        view.renderer
-    } else {
-        Some(RendererChoice::Vanilla)
-    };
-    picker(
-        content,
-        "Shader packs",
-        description,
-        choices(view),
-        selected,
-    )?;
-    if view.shader_options_available {
-        super::services::action_row(
-            content,
-            "options.cinnabar.shaderOptions",
-            "options.cinnabar.shaderOptions.description",
-            "options.cinnabar.shaderOptions.buttonLabel",
-            Some(MenuAction::ShaderOptions(Action::Open)),
-        )?;
-    }
-    super::services::action_row(
-        content,
-        "Reload shaders",
-        "",
-        "Reload",
-        Some(MenuAction::ReloadShaders),
+    content.heading(
+        "Shaders",
+        "Change your world's lighting with Java shader packs.",
     )?;
     if view.storage.opens_folders {
-        super::services::action_row(
+        actions(
             content,
-            "options.cinnabar.shaderPacksFolder",
-            "options.cinnabar.shaderPacksFolder.description",
-            "options.cinnabar.openFolder.buttonLabel",
-            Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
-                StorageFolder::ShaderPacks,
-            ))),
+            &[(
+                "Open shader packs folder",
+                Variant::Secondary,
+                Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
+                    StorageFolder::ShaderPacks,
+                ))),
+            )],
+        )?;
+        content.y += content.canvas.r(1.2);
+    }
+    caption(
+        content,
+        "Drop a shader pack .zip or folder onto this page to add it. Selecting a pack applies it immediately.",
+    )?;
+    if let Some(name) = view.shader_pack_removing.as_deref() {
+        caption(content, &format!("Removing {name}…"))?;
+    }
+    if let Some(failure) = view.renderer_failure.as_deref() {
+        note(content, failure, theme::NEUTRAL80.fill)?;
+    }
+    let selected = view.render_mode == ui::RenderMode::ShaderPack;
+    pack_row(
+        content,
+        "Off",
+        "Use Vanilla rendering without a shader pack.",
+        !selected,
+        Some(MenuAction::SelectRenderer(RendererChoice::Vanilla)),
+        None,
+    )?;
+    if selected && view.renderer.is_none() {
+        let name = view.shader_pack.as_deref().unwrap_or("Selected pack");
+        pack_row(
+            content,
+            pack_label(name),
+            "Selected pack is outside this list or is no longer available.",
+            true,
+            None,
+            None,
+        )?;
+        selected_controls(content)?;
+    }
+    content.heading(
+        &format!("My shader packs ({})", view.shader_packs.len()),
+        "",
+    )?;
+    if view.shader_packs.is_empty() {
+        empty(
+            content,
+            "No shader packs added",
+            "Add a Java shader pack .zip or folder to get started.",
         )?;
     }
-    Ok(())
-}
-
-/// The discovered packs and Off choice, preserving the list revision in every action.
-fn choices(view: &MenuView) -> impl Iterator<Item = (RendererChoice, &str)> + Clone {
-    std::iter::once((RendererChoice::Vanilla, "Off")).chain(
-        view.shader_packs
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                Some((
-                    RendererChoice::ShaderPack(
-                        u16::try_from(index).ok()?,
-                        view.shader_packs_revision,
-                    ),
-                    pack_label(name),
-                ))
-            }),
+    for (index, name) in view.shader_packs.iter().enumerate() {
+        let Ok(index) = u16::try_from(index) else {
+            continue;
+        };
+        let choice = RendererChoice::ShaderPack(index, view.shader_packs_revision);
+        let active = selected && view.renderer == Some(choice);
+        let subtitle = if active {
+            format!("Selected · {name}")
+        } else {
+            name.to_owned()
+        };
+        pack_row(
+            content,
+            pack_label(name),
+            &subtitle,
+            active,
+            (view.shader_pack_removing.as_deref() != Some(name.as_str()))
+                .then_some(MenuAction::SelectRenderer(choice)),
+            Some((index, view.shader_packs_revision)),
+        )?;
+        if active {
+            selected_controls(content)?;
+        }
+    }
+    caption(
+        content,
+        "Shader packs are experimental. If a pack cannot load, the game uses Vanilla rendering.",
     )
 }
 
-/// Draws a segmented picker with the same sizing and focus behavior in either settings tab.
+/// Draws wrapping pack text and independent selection and deletion targets on one row.
+fn pack_row(
+    content: &mut Content<'_, '_>,
+    title: &str,
+    subtitle: &str,
+    selected: bool,
+    action: Option<MenuAction>,
+    entry: Option<(u16, u64)>,
+) -> Result<(), PaintError> {
+    use super::super::theme::{BODY, CAPTION, TEXT, TEXT_DIMMER};
+    let [left, right] = content.inset();
+    let pad = content.canvas.r(1.2);
+    let select_right = if entry.is_some() {
+        right - content.canvas.r(5.2)
+    } else {
+        right
+    };
+    let text_left = left + content.canvas.r(5.2);
+    let width = (select_right - text_left - pad).max(1.0);
+    let title_height = content.canvas.measure_height(title, width, BODY)?;
+    let subtitle_height = content.canvas.measure_height(subtitle, width, CAPTION)?;
+    let height = (title_height + subtitle_height + 2.0 * pad).max(content.canvas.r(7.2));
+    let bounds = [left, content.y, select_right, content.y + height];
+    widgets::row(content.canvas, content.view, bounds, selected, action)?;
+    if let Some((index, revision)) = entry {
+        let remove = content
+            .view
+            .shader_pack_removing
+            .is_none()
+            .then_some(MenuAction::RemoveShaderPackDialog(index, revision));
+        let target = [select_right, bounds[1], right, bounds[3]];
+        widgets::row(content.canvas, content.view, target, selected, remove)?;
+        let icon = super::super::icons::Icon::Trash;
+        let [icon_width, icon_height] = icon
+            .texels()
+            .map(|size| content.canvas.r(size as f32 * super::super::theme::EDGE));
+        super::super::icons::draw(
+            content.canvas,
+            icon,
+            [
+                (target[0] + target[2] - icon_width) * 0.5,
+                (target[1] + target[3] - icon_height) * 0.5,
+            ],
+            if remove.is_some() { TEXT } else { TEXT_DIMMER },
+        )?;
+    }
+    let state = content.canvas.interaction(content.view, action);
+    super::super::radio::draw(
+        content.canvas,
+        [left + content.canvas.r(2.6), (bounds[1] + bounds[3]) * 0.5],
+        selected,
+        state,
+        action.is_some(),
+    )?;
+    content.canvas.text(
+        title,
+        [text_left, content.y + pad],
+        width,
+        BODY,
+        TEXT,
+        false,
+    )?;
+    content.canvas.text(
+        subtitle,
+        [text_left, content.y + pad + title_height],
+        width,
+        CAPTION,
+        TEXT_DIMMER,
+        false,
+    )?;
+    content.y = bounds[3] + content.canvas.r(0.8);
+    Ok(())
+}
+
+/// Keeps settings and reload controls beneath the selected pack.
+fn selected_controls(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    use super::super::widgets::Variant;
+    let mut buttons = Vec::new();
+    let enabled = content.view.shader_pack_removing.is_none();
+    if content.view.shader_options_available {
+        buttons.push((
+            "Shader pack settings…",
+            Variant::Secondary,
+            enabled.then_some(MenuAction::ShaderOptions(Action::Open)),
+        ));
+    }
+    buttons.push((
+        "Reload",
+        Variant::Secondary,
+        enabled.then_some(MenuAction::ReloadShaders),
+    ));
+    super::resources::actions(content, &buttons)?;
+    content.y += content.canvas.r(1.2);
+    Ok(())
+}
+
+/// Draws the Video renderer choices with the shared segmented-control focus behavior.
 fn picker<'a>(
     content: &mut Content<'_, '_>,
     title: &str,

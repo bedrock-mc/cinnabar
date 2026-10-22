@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-platform-specific = ["macos"]
+platform-specific = ["macos", "windows"]
 
 [lib]
 doctest = false

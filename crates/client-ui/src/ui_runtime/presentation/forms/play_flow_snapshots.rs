@@ -345,7 +345,7 @@ fn snapshot_local_worlds() {
     use launcher::local_worlds::world::{
         Difficulty, Generator, Prefs, Setup, SetupState, UnavailableReason, World, WorldStatus,
     };
-    use launcher::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
+    use launcher::local_worlds::{Event, Input, Tab, WorldsMenu};
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
     std::fs::create_dir_all(&dir).unwrap();
     let mut base = fixture_view(&dir);
@@ -424,16 +424,22 @@ fn snapshot_local_worlds() {
         Prefs::default(),
         status(
             WorldState::Idle,
-            Some(download),
+            Some(download.clone()),
             Some(UnavailableReason::DockerMissing),
         ),
     ));
     menu.update(Input::BeginCreate);
     menu.update(Input::SetBackend(Backend::Bds));
     menu.update(Input::SubmitCreate);
+    menu.apply(Event::Prefs(
+        Prefs::default(),
+        status(
+            WorldState::Idle,
+            Some(download),
+            Some(UnavailableReason::DockerMissing),
+        ),
+    ));
     shot(&menu, "local-docker-missing");
-    menu.update(Input::Prompt(PromptButton::UseDragonfly));
-    shot(&menu, "local-create-flat-only");
 }
 
 #[test]

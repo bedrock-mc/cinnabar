@@ -145,6 +145,8 @@ impl MenuRuntime {
             shader_pack_request: None,
             shader_pack_status: Default::default(),
             shader_pack_reload: false,
+            shader_pack_removing: None,
+            shader_pack_remove_request: None,
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),

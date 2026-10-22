@@ -35,6 +35,14 @@ impl<'a> Reader<'a> {
         self.offset = end;
         Ok(value)
     }
+    /// The read offset, for [`Self::since`].
+    pub(super) const fn position(&self) -> usize {
+        self.offset
+    }
+    /// The bytes read since `start`, a prior [`Self::position`].
+    pub(super) fn since(&self, start: usize) -> &'a [u8] {
+        &self.bytes[start..self.offset]
+    }
     pub(super) fn byte(&mut self) -> ReadResult<u8> {
         Ok(self.take(1)?[0])
     }
