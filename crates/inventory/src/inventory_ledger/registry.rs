@@ -76,7 +76,10 @@ impl PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                self.placement_admission_changes(pending, &facts)
+                // Item facts feed derived results, so any unsent one is recomputed by a new take.
+                (pending.state == super::InventoryPendingState::AwaitingTransport
+                    && pending.predicts_derived_result())
+                    || self.placement_admission_changes(pending, &facts)
                     || pending
                         .predicted
                         .iter()

@@ -1175,3 +1175,33 @@ fn unmaterialized_recipe_results_only_fill_empty_cells() {
         );
     }
 }
+
+/// A registry update can change the facts a derived result was predicted from, so it drops an
+/// unsent take rather than send that result.
+#[test]
+fn registry_updates_drop_unsent_derived_takes() {
+    let mut ledger = ledger_with(&[]);
+    open(&mut ledger, 7, protocol::WINDOW_TYPE_GRINDSTONE);
+    let top = protocol::ui_slot_container_name(16).unwrap();
+    ledger.apply(&slot_update(named(124, top), 16, worn(50, 90, 1)));
+    ledger
+        .begin_screen_output(&ScreenCraft::Grindstone {
+            recipe_network_id: 50,
+            repair_cost: 0,
+            output: Some(worn(0, 90, 0)),
+        })
+        .unwrap();
+    assert_eq!(ledger.pending_request_count(), 1);
+    ledger.apply_registry(&protocol::test_support::items::component_item_registry(
+        "minecraft:apple",
+        6,
+        32,
+        0,
+    ));
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(
+        ledger.target_stack(InventoryTarget::Craft(16)),
+        Some(&worn(50, 90, 1))
+    );
+}

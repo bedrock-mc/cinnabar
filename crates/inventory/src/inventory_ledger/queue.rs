@@ -154,6 +154,20 @@ impl PendingRequest {
         self.world_drop.is_some() && self.state == InventoryPendingState::AwaitingResponse
     }
 
+    /// The request predicts a created result derived from its inputs and the item facts, so
+    /// it cannot be replayed once either changes before it is sent.
+    pub(super) fn predicts_derived_result(&self) -> bool {
+        self.groups.iter().any(|group| {
+            matches!(
+                group,
+                DeltaGroup::Set {
+                    cell: Cell::CreatedOutput,
+                    ..
+                }
+            )
+        })
+    }
+
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
         self.groups.iter().flat_map(DeltaGroup::touched)
     }
