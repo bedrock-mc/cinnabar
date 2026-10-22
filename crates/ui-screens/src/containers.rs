@@ -729,27 +729,23 @@ pub fn screen_data(
                 2
             };
             let first = layout.craft_slot();
-            let icon = |index: usize| frame.crafting_icons.get(index).copied().flatten();
-            let mut ghosted = false;
+            let icon = |index: usize| frame.crafting.icons.get(index).copied().flatten();
             let grid = (0..width * width)
                 .map(|index| {
                     let slot = first + index as u8;
                     match ledger.target_stack(InventoryTarget::Craft(slot)) {
                         Some(stack) => cells.cell(Some(stack), icon(index), None),
                         None => match ledger.crafting_ghost_stack(slot) {
-                            Some(ghost) => {
-                                ghosted = true;
-                                ghost_cell(cells.cell(Some(ghost), icon(index), None))
-                            }
+                            Some(ghost) => ghost_cell(cells.cell(Some(ghost), icon(index), None)),
                             None => cells.cell(None, icon(index), None),
                         },
                     }
                 })
                 .collect();
             data.set_collection("crafting_input_items", grid);
-            let output = match frame.crafting_output {
+            let output = match frame.crafting.output.as_ref() {
                 // An unfilled recipe-book selection shows its result as a ghost too.
-                Some((icon, stack)) if ghosted && ledger.crafting_ghost_output() == Some(stack) => {
+                Some((icon, stack)) if frame.crafting.output_is_ghost => {
                     ghost_cell(cells.cell(Some(stack), *icon, None))
                 }
                 Some((icon, stack)) => cells.cell(Some(stack), *icon, None),

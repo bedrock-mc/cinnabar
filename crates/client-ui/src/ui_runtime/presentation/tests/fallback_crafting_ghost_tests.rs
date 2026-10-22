@@ -3,14 +3,18 @@ use crate::ui_runtime::presentation::{
     forms::snapshot, inventory_pointer::InventoryScreen, screens,
 };
 use protocol::test_support::recipes::{
-    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture, UnlockingFixture,
+    recipe_unlock_event,
 };
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent, NetworkItemStack,
 };
 
 /// Opens an acknowledged crafting screen with one real input and one missing ingredient.
-fn selected_recipe(workbench: bool) -> (player_state::PlayerState, UiRuntime) {
+fn selected_recipe(
+    workbench: bool,
+    ordinary_result: bool,
+) -> (player_state::PlayerState, UiRuntime) {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
     player
@@ -52,6 +56,10 @@ fn selected_recipe(workbench: bool) -> (player_state::PlayerState, UiRuntime) {
     missing.count = 2;
     let recipe = RecipeFixture {
         net_id: 77,
+        unlocking: Some(UnlockingFixture {
+            context: 1,
+            ..Default::default()
+        }),
         ..RecipeFixture::shaped(
             "test:fallback_ghosts",
             2,
@@ -60,15 +68,31 @@ fn selected_recipe(workbench: bool) -> (player_state::PlayerState, UiRuntime) {
             vec![OutputFixture::new(output, 4)],
         )
     };
+    let mut recipes = vec![recipe];
+    if ordinary_result {
+        recipes.push(RecipeFixture {
+            net_id: 78,
+            ..RecipeFixture::shaped(
+                "test:ordinary_result",
+                1,
+                1,
+                vec![IngredientFixture::named("minecraft:oak_log", 0)],
+                vec![OutputFixture::new(output, 4)],
+            )
+        });
+    }
     runtime
         .enqueue_inventory_event(
             &mut player,
             1,
             1,
-            InventoryEvent::Recipes(CraftingDataFixture::clearing(vec![recipe]).update()),
+            InventoryEvent::Recipes(CraftingDataFixture::clearing(recipes).update()),
         )
         .unwrap();
-    runtime.synchronize_crafting_frontier(&mut player, 1, Some((1, 0, Some(1))));
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 2, recipe_unlock_event(0, &[]))
+        .unwrap();
+    runtime.synchronize_crafting_frontier(&mut player, 1, Some((1, 0, Some(2))));
     runtime.drain_pending_inventory(&mut player);
     let window_type = if workbench {
         protocol::WINDOW_TYPE_WORKBENCH
@@ -85,7 +109,7 @@ fn selected_recipe(workbench: bool) -> (player_state::PlayerState, UiRuntime) {
         .enqueue_inventory_event(
             &mut player,
             1,
-            2,
+            3,
             InventoryEvent::Open(ContainerOpenEvent {
                 container: ContainerIdentity::window(7),
                 window_type,
@@ -94,10 +118,18 @@ fn selected_recipe(workbench: bool) -> (player_state::PlayerState, UiRuntime) {
             }),
         )
         .unwrap();
-    runtime.synchronize_crafting_frontier(&mut player, 1, Some((1, 0, Some(2))));
+    runtime.synchronize_crafting_frontier(&mut player, 1, Some((1, 0, Some(3))));
     runtime.drain_pending_inventory(&mut player);
     let recipe = runtime.book_recipes(&player, 0, 1).pop().unwrap().recipe;
+    assert_eq!(recipe.network_id(), 77);
     player.inventory.begin_book_placement(&recipe).unwrap();
+    assert_eq!(
+        matches!(
+            player.inventory.crafting_match(),
+            inventory::CraftGridMatch::Unique(_)
+        ),
+        ordinary_result
+    );
     (player, runtime)
 }
 
@@ -145,9 +177,55 @@ fn presentation() -> UiPresentationRuntime {
         .unwrap()
 }
 
+/// Reads the engine's result-cell background through its public collection binding.
+fn assert_engine_result(
+    player: &player_state::PlayerState,
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+    workbench: bool,
+    ordinary_result: bool,
+) {
+    use crate::ui_runtime::presentation::forms::containers::{ContainerAuthority, container_frame};
+    use json_ui::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
+    use serde_json::json;
+    use ui_screens::containers::{ScreenLayout, screen_data};
+    let source = ContainerAuthority::new(player, runtime);
+    let layout = if workbench {
+        ScreenLayout::Workbench { book: false }
+    } else {
+        ScreenLayout::Personal { book: false }
+    };
+    let data = screen_data(
+        &source,
+        &container_frame(frame),
+        layout,
+        "Crafting",
+        &mut Vec::new(),
+        (&mut None, &mut None),
+    );
+    let control = Arc::new(ResolvedControl {
+        name: "result".into(), control_type: Some("panel".into()), base: None, unresolved_base: None,
+        factory: None, children: Vec::new(),
+        properties: [
+            ("collection_name".into(), json!("crafting_output_items")),
+            ("collection_index".into(), json!(0)),
+            ("bindings".into(), json!([{
+                "binding_type": "collection", "binding_collection_name": "crafting_output_items",
+                "binding_name": "#container_item_background"
+            }])),
+        ].into(),
+    });
+    let (bound, notes) = bind_stateful(&control, &data, &EmptyLibrary, &mut BindState::new());
+    assert!(notes.is_empty(), "{notes:?}");
+    assert_eq!(
+        bound.properties["#container_item_background"],
+        json!(if ordinary_result { 0 } else { 3 })
+    );
+}
+
 /// Checks ghost cell art, item icons and real input preservation in one fallback screen.
-fn assert_ghost_cells(workbench: bool) {
-    let (player, runtime) = selected_recipe(workbench);
+fn assert_ghost_cells(workbench: bool, ordinary_result: bool) {
+    let (player, runtime) = selected_recipe(workbench, ordinary_result);
     let ledger = player.inventory.ledger();
     let first = ledger.crafting_grid().slots().next().unwrap();
     let real = ledger
@@ -157,13 +235,76 @@ fn assert_ghost_cells(workbench: bool) {
     let output = ledger.crafting_ghost_output().unwrap();
     assert_eq!(missing.count, 1);
     let mut presentation = presentation();
-    for (index, name) in [(0, "minecraft:oak_log"), (1, "minecraft:diamond")] {
-        presentation.hud_frame_mut().crafting.icons[index] = presentation.item_icon(name, 0);
+    let contents = ui_screens::inventory_capture::capture_contents(
+        ledger,
+        true,
+        || player.inventory.crafting_match(),
+        |stack, _| {
+            ledger
+                .negotiated_item_entry(stack.network_id)
+                .and_then(|entry| presentation.item_icon(&entry.identifier, stack.metadata))
+        },
+        |_| None,
+    );
+    assert_eq!(
+        &contents.crafting.output.as_ref().unwrap().1,
+        output,
+        "the ordinary and ghost results have exactly the same stack identity"
+    );
+    use ui_screens::inventory_capture::cache::{
+        InventoryProjectionCache, ProjectionInput, ProjectionRefresh,
+    };
+    let mut cache = InventoryProjectionCache::default();
+    // A recipe refresh must publish an origin change even when the result bytes are identical.
+    for real in if ordinary_result {
+        vec![false, true, false, true]
+    } else {
+        vec![false]
+    } {
+        let update = cache.capture(
+            ProjectionInput {
+                ledger,
+                inventory_open: true,
+                refresh: ProjectionRefresh {
+                    recipes: true,
+                    ..Default::default()
+                },
+                animation: Default::default(),
+            },
+            || {
+                if real {
+                    player.inventory.crafting_match()
+                } else {
+                    inventory::CraftGridMatch::NoMatch
+                }
+            },
+            |stack, _| ui_screens::inventory_capture::cache::ProjectedIcon {
+                icon: ledger
+                    .negotiated_item_entry(stack.network_id)
+                    .and_then(|entry| presentation.item_icon(&entry.identifier, stack.metadata)),
+                dial: None,
+            },
+            |_, _| None,
+            |_| None,
+        );
+        let cached = update
+            .contents
+            .expect("a changed result origin must be published")
+            .crafting;
+        assert_eq!(cached.output, contents.crafting.output);
+        assert_eq!(cached.output_is_ghost, !real);
+        if real == ordinary_result {
+            assert_eq!(cached, contents.crafting);
+        }
     }
-    presentation.hud_frame_mut().crafting.output = Some((
-        presentation.item_icon("minecraft:oak_planks", 0),
-        output.clone(),
-    ));
+    presentation.hud_frame_mut().crafting = contents.crafting;
+    assert_engine_result(
+        &player,
+        &runtime,
+        presentation.hud_frame(),
+        workbench,
+        ordinary_result,
+    );
     let size = [1280, 720];
     let input = presentation
         .build(&player, &runtime, 500, size, DpiScale::new(1.0).unwrap())
@@ -171,11 +312,11 @@ fn assert_ghost_cells(workbench: bool) {
     assert!(presentation.engine_container_frame().is_none());
     snapshot::write(
         &input,
-        if workbench {
-            "fallback-ghost-workbench"
-        } else {
-            "fallback-ghost-personal"
-        },
+        &format!(
+            "fallback-{}-{}",
+            if ordinary_result { "ordinary" } else { "ghost" },
+            if workbench { "workbench" } else { "personal" }
+        ),
     );
     let raster = snapshot::rasterize(&input);
     let geometry = HudGeometry::new(
@@ -209,8 +350,12 @@ fn assert_ghost_cells(workbench: bool) {
     );
     assert_eq!(
         pixel([result[0] + 2.0, result[1] + 2.0]),
-        ghost_background,
-        "ghost result uses the missing-input cell art"
+        if ordinary_result {
+            real_background
+        } else {
+            ghost_background
+        },
+        "result cell art retains the output's real or ghost origin"
     );
     assert_ne!(
         pixel([grid[0] + 26.0, grid[1] + 8.0]),
@@ -223,28 +368,24 @@ fn assert_ghost_cells(workbench: bool) {
         "the real input remains painted"
     );
     assert_eq!(real.count, 1);
-    presentation.hud_frame_mut().crafting.output =
-        Some((presentation.item_icon("minecraft:oak_log", 0), real.clone()));
-    let normal = presentation
-        .build(&player, &runtime, 500, size, DpiScale::new(1.0).unwrap())
-        .unwrap();
-    let normal = snapshot::rasterize(&normal);
-    let result_background = normal.get_pixel(
-        ((origin[0] + result[0] + 2.0) * geometry.scale) as u32,
-        ((origin[1] + result[1] + 2.0) * geometry.scale) as u32,
-    );
-    assert_eq!(
-        *result_background, real_background,
-        "an ordinary result keeps its normal cell art"
-    );
 }
 
 #[test]
 fn fallback_crafting_draws_personal_ghosts() {
-    assert_ghost_cells(false);
+    assert_ghost_cells(false, false);
 }
 
 #[test]
 fn fallback_crafting_draws_workbench_ghosts() {
-    assert_ghost_cells(true);
+    assert_ghost_cells(true, false);
+}
+
+#[test]
+fn fallback_crafting_draws_identical_real_personal_result_normally() {
+    assert_ghost_cells(false, true);
+}
+
+#[test]
+fn fallback_crafting_draws_identical_real_workbench_result_normally() {
+    assert_ghost_cells(true, true);
 }
