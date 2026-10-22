@@ -9,7 +9,8 @@ use std::collections::HashSet;
 use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
     prelude::{
-        App, BevyError, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet, error,
+        App, BevyError, Has, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet,
+        error,
     },
     render::{
         Render, RenderApp, RenderSystems,
@@ -27,6 +28,7 @@ pub(crate) struct WarmView {
     pub msaa: Msaa,
     pub hdr: bool,
     pub enhanced: bool,
+    pub shader_pack: bool,
     /// The surface or image format the view finally writes; absent until its target exists.
     pub output: Option<TextureFormat>,
 }
@@ -128,16 +130,18 @@ fn collect_views(
         &Msaa,
         Option<&ViewTarget>,
         Option<&render_scene::EnhancedRendering>,
+        Has<render_scene::shaderpack::ShaderPackRendering>,
     )>,
     mut registry: ResMut<WarmupRegistry>,
 ) {
     registry.views.clear();
     registry.pending = false;
-    for (camera, msaa, target, enhanced) in &views {
+    for (camera, msaa, target, enhanced, shader_pack) in &views {
         let key = WarmView {
             msaa: *msaa,
             hdr: camera.hdr,
             enhanced: enhanced.is_some(),
+            shader_pack,
             output: target.and_then(ViewTarget::out_texture_view_format),
         };
         if !registry.views.contains(&key) {

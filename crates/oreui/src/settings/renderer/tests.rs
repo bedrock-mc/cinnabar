@@ -223,10 +223,7 @@ fn shaders_offer_reload_and_folder_import_when_the_host_opens_folders() {
             actions.contains(&open),
             opens_folders && render_model::SHADER_PACKS_ENABLED
         );
-        assert_eq!(
-            actions.contains(&MenuAction::ReloadShaders),
-            render_model::SHADER_PACKS_ENABLED
-        );
+        assert!(!actions.contains(&MenuAction::ReloadShaders));
     }
 }
 
@@ -262,4 +259,64 @@ fn pack_failure_details_appear_only_in_shaders() {
             .any(|text| text.contains("unknown bloomTint")),
         render_model::SHADER_PACKS_ENABLED
     );
+}
+
+#[test]
+fn video_shortcut_shows_off_for_a_remembered_but_disabled_pack() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    view.shader_pack = Some("Dusk.zip".to_owned());
+    let labels = controls(&view).1;
+    assert!(!labels.iter().any(|text| text == "Shaders: Dusk"));
+    assert_eq!(
+        labels.iter().any(|text| text == "Shaders: Off"),
+        render_model::SHADER_PACKS_ENABLED
+    );
+}
+
+#[test]
+fn shader_pack_rows_stack_at_wide_and_narrow_sizes() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen.zip".to_owned()]);
+    for width in [800.0, 1280.0, 1920.0] {
+        let (_, hits, _) = crate::review_tests::paint(Default::default(), |canvas| {
+            crate::settings::draw(
+                canvas,
+                &view,
+                [width, 1600.0],
+                &|_| None,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap();
+        });
+        let packs: Vec<_> = hits
+            .iter()
+            .filter_map(|(action, bounds)| {
+                matches!(
+                    action,
+                    MenuAction::SelectRenderer(RendererChoice::ShaderPack(..))
+                )
+                .then_some(bounds)
+            })
+            .collect();
+        assert_eq!(packs.len(), 2);
+        assert!(packs[0].max().y() <= packs[1].min().y());
+        assert_eq!(packs[0].min().x(), packs[1].min().x());
+        assert_eq!(packs[0].max().x(), packs[1].max().x());
+    }
+}
+
+#[test]
+fn long_shader_libraries_remain_scrollable_and_selectable() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = (0..24)
+        .map(|i| format!("Shader pack {i} with a long descriptive release name.zip"))
+        .collect();
+    assert_eq!(renderer_choices(&view).len(), view.shader_packs.len() + 1);
 }

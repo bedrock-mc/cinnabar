@@ -251,7 +251,9 @@ fn seed_render_mode(
             shader_pack: saved.and_then(|saved| saved.shader_pack),
         },
     );
-    if let Some(menu) = menu.as_deref_mut() {
+    if mode == RenderMode::ShaderPack
+        && let Some(menu) = menu.as_deref_mut()
+    {
         shader_pack::refresh(&mut config, menu);
     }
 }
