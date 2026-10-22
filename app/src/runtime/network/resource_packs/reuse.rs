@@ -17,9 +17,50 @@ use pack_runtime::reload_diff::Changes;
 /// A lobby and the game it transfers to.
 const KEPT_STACKS: usize = 2;
 
-/// Archive bytes past which leaving for the menu releases the newest stack instead of keeping it
-/// for a rejoin; its compiled outputs scale with them.
-const REJOIN_KEPT_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
+/// Bytes the newest stack may retain after leaving for the menu: a sixteenth of physical memory,
+/// 512 MiB on an 8 GiB device. A larger stack is released and a rejoin compiles it again.
+#[cfg(not(target_arch = "wasm32"))]
+fn rejoin_budget() -> usize {
+    usize::try_from(launcher_host::memory::physical_bytes() / 16).unwrap_or(usize::MAX)
+}
+
+/// Browsers report no physical memory; keep what a small device could afford.
+#[cfg(target_arch = "wasm32")]
+fn rejoin_budget() -> usize {
+    128 * 1024 * 1024
+}
+
+/// Archive bytes plus each distinct pixel allocation the compiled outputs hold, which dominate
+/// what keeping an application costs; startup pages they share are counted too.
+fn retained_bytes(application: &PackApplication) -> usize {
+    let archives = match &application.admission {
+        PackAdmission::Validated(stack) => stack
+            .packs()
+            .iter()
+            .map(|pack| pack.archive_bytes().len())
+            .sum(),
+        PackAdmission::None => 0,
+    };
+    let entity_pixels = application
+        .entities
+        .iter()
+        .flat_map(|pack| pack.textures.iter().map(|texture| &texture.rgba8));
+    let page_pixels = application
+        .entity_artwork
+        .iter()
+        .flat_map(|pages| pages.pages.iter().map(|page| &page.rgba8))
+        .chain(
+            application
+                .prepared_actor_artwork
+                .iter()
+                .flat_map(|prepared| prepared.page_pixels()),
+        );
+    let mut seen = std::collections::HashSet::new();
+    entity_pixels
+        .chain(page_pixels)
+        .filter(|pixels| seen.insert(Arc::as_ptr(pixels).cast::<u8>()))
+        .fold(archives, |total, pixels| total.saturating_add(pixels.len()))
+}
 
 /// Process tables a compile reads besides the stack and StartGame facts.
 #[derive(Clone, Debug)]
@@ -233,25 +274,19 @@ impl CompiledStacks {
         client_runtime::session::release_off_frame(released);
     }
 
-    /// Keeps only the newest stack, for a rejoin from the menu to reuse, unless its archives
-    /// exceed the rejoin budget; the rest are freed off the calling frame.
+    /// Keeps only the newest stack, for a rejoin from the menu to reuse, unless what it retains
+    /// exceeds the rejoin budget; the rest are freed off the calling frame.
     pub(crate) fn keep_for_rejoin(&self) {
-        self.keep_newest_within(REJOIN_KEPT_ARCHIVE_BYTES);
+        self.keep_newest_within(rejoin_budget());
     }
 
-    /// [`Self::keep_for_rejoin`] under an explicit archive budget.
-    fn keep_newest_within(&self, archive_bytes: usize) {
+    /// [`Self::keep_for_rejoin`] under an explicit byte budget.
+    fn keep_newest_within(&self, budget: usize) {
         let released: Vec<Kept> = {
             let mut kept = self.lock();
-            let keep = kept.front().is_some_and(|newest| {
-                newest
-                    .stack
-                    .packs()
-                    .iter()
-                    .map(|pack| pack.archive_bytes().len())
-                    .sum::<usize>()
-                    <= archive_bytes
-            });
+            let keep = kept
+                .front()
+                .is_some_and(|newest| retained_bytes(&newest.application) <= budget);
             kept.drain(usize::from(keep)..).collect()
         };
         #[cfg(not(target_arch = "wasm32"))]

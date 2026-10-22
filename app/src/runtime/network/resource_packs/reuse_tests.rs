@@ -633,7 +633,7 @@ fn a_rejoin_from_the_menu_reuses_the_prepared_ui_catalog() {
     ));
 }
 
-// Leaving keeps only the newest stack, and only while its archives fit the rejoin budget.
+// Leaving keeps only the newest stack, and only while what it retains fits the rejoin budget.
 #[test]
 fn leaving_keeps_only_the_newest_stack_within_the_rejoin_budget() {
     let _cache = overlay_cache();
@@ -645,14 +645,10 @@ fn leaving_keeps_only_the_newest_stack_within_the_rejoin_budget() {
     assert_eq!(kept.len(), 1);
     let environment = CompileEnvironment::current();
     assert!(kept.matching(stack(&game), &environment).is_some());
-    let archive_bytes = stack(&game)
-        .packs()
-        .iter()
-        .map(|pack| pack.archive_bytes().len())
-        .sum::<usize>();
-    kept.keep_newest_within(archive_bytes);
+    let retained = super::retained_bytes(&game);
+    kept.keep_newest_within(retained);
     assert_eq!(kept.len(), 1, "a stack exactly at the budget stays");
-    kept.keep_newest_within(archive_bytes - 1);
+    kept.keep_newest_within(retained - 1);
     assert_eq!(kept.len(), 0);
 }
 
@@ -668,4 +664,44 @@ fn taking_the_kept_stacks_releases_them() {
     drop(kept.take());
     assert!(archives.upgrade().is_none());
     assert_eq!(kept.len(), 0);
+}
+
+// Leaving kept a stack by its archive size alone, so GiBs of compiled entity rasters stayed
+// resident in the menu.
+#[test]
+fn the_rejoin_budget_counts_each_compiled_pixel_allocation_once() {
+    let _cache = overlay_cache();
+    let (_, _, entity_assets) = crate::tests::actor_rest_presentation::compiled_fixture(
+        "1.0",
+        1,
+        assets::ActorPoseMode::CompiledLiteral,
+    );
+    let rgba8: Arc<[u8]> = Arc::from(vec![7u8; 64 * 64 * 4]);
+    let texture = |source| assets::ActorTexture {
+        source,
+        width: 64,
+        height: 64,
+        pixel_sha256: [0; 32],
+        rgba8: Arc::clone(&rgba8),
+    };
+    let entities = Arc::new(assets::SessionEntityPack {
+        assets: entity_assets,
+        textures: vec![texture(0), texture(1)].into(),
+        bindings: Arc::from(Vec::new()),
+        equipment: None,
+    });
+    let application = PackApplication {
+        admission: PackAdmission::Validated(admitted(&every_subscriber_archive(50, b"a=b"))),
+        entities: Some(entities),
+        ..Default::default()
+    };
+    let archives = super::retained_bytes(&PackApplication {
+        entities: None,
+        ..application.clone()
+    });
+    assert_eq!(super::retained_bytes(&application), archives + rgba8.len());
+    let kept = CompiledStacks::new();
+    kept.remember(CompileEnvironment::current(), &application, None, &|| false);
+    kept.keep_newest_within(archives + rgba8.len() - 1);
+    assert_eq!(kept.len(), 0, "compiled pixels count toward the budget");
 }

@@ -181,6 +181,11 @@ impl PreparedActorArtwork {
         )
     }
 
+    /// Pixel allocations of every page this preparation publishes, startup pages included.
+    pub fn page_pixels(&self) -> impl Iterator<Item = &Arc<[u8]>> {
+        self.resources.pages.pages.iter().map(|page| &page.rgba8)
+    }
+
     /// Returns shared pages only while both immutable inputs are still the same snapshots.
     pub fn pages_for(
         &self,
