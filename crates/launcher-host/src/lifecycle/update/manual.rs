@@ -42,10 +42,11 @@ impl Running {
     }
 
     /// Reauthenticates the downloaded image and stages it for the older installed AppDir.
-    pub(super) fn offer(
+    fn offer(
         &self,
         user_data: &Path,
         keys: &TrustedKeys,
+        requested: Option<Channel>,
         platform: &str,
         writer: &update_installer::lease::Lease,
         now: OffsetDateTime,
@@ -64,6 +65,9 @@ impl Running {
         let manifest = update_manifest::verify(&envelope, keys, now)?;
         let channel =
             Channel::parse(&manifest.channel).context("unknown downloaded update channel")?;
+        if requested.is_some_and(|requested| requested != channel) {
+            return Ok(None);
+        }
         let selected = stage::Selection::verify(
             &envelope,
             keys,
@@ -104,10 +108,29 @@ impl Running {
         ready.target = Some(target);
         Ok(Some(ready))
     }
+
+    /// Recovers only this channel's valid local offer; misses leave network checks available.
+    pub(super) fn recover(
+        &self,
+        user_data: &Path,
+        keys: &TrustedKeys,
+        channel: Channel,
+        platform: &str,
+        writer: &update_installer::lease::Lease,
+        now: OffsetDateTime,
+    ) -> Option<Ready> {
+        match self.offer(user_data, keys, Some(channel), platform, writer, now) {
+            Ok(ready) => ready,
+            Err(error) => {
+                tracing::debug!("manual update recovery unavailable: {error:#}");
+                None
+            }
+        }
+    }
 }
 
 /// Follows the installer's single-component pointer, refusing paths outside its AppDir root.
-fn installed_appdir(user_data: &Path) -> Result<PathBuf> {
+pub(super) fn installed_appdir(user_data: &Path) -> Result<PathBuf> {
     let names = update_manifest::platforms::linux_install();
     let root = fs::canonicalize(user_data.join(&names.app_dir))?;
     let pointer = fs::read_to_string(root.join(&names.current))?;

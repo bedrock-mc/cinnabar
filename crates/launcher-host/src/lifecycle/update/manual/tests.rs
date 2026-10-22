@@ -90,6 +90,7 @@ impl Fixture {
         running.offer(
             &self.data,
             &self.keys,
+            None,
             &self.platform,
             &writer,
             OffsetDateTime::UNIX_EPOCH,
@@ -185,5 +186,48 @@ fn a_manual_copy_takes_over_promptly_after_the_installed_client_closes() {
     assert!(!state.tick(&fixture.update, 10));
     assert!(state.tick(&fixture.update, 11));
     state.ready = fixture.offer().unwrap();
-    assert!(!state.tick(&fixture.update, 10 + super::super::CHECK_INTERVAL.as_secs()));
+    assert!(state.tick(&fixture.update, 10 + super::super::CHECK_INTERVAL.as_secs()));
+}
+
+#[test]
+fn optional_recovery_ignores_other_channels_and_expiry() {
+    let fixture = Fixture::new();
+    let running = Running::open(&fixture.update, &fixture.image).unwrap();
+    let writer = update_installer::lease::Lease::acquire(&fixture.update).unwrap();
+    assert!(
+        running
+            .recover(
+                &fixture.data,
+                &fixture.keys,
+                Channel::Nightly,
+                &fixture.platform,
+                &writer,
+                OffsetDateTime::UNIX_EPOCH
+            )
+            .is_none()
+    );
+    assert!(
+        running
+            .recover(
+                &fixture.data,
+                &fixture.keys,
+                Channel::Beta,
+                &fixture.platform,
+                &writer,
+                OffsetDateTime::UNIX_EPOCH + time::Duration::days(2)
+            )
+            .is_none()
+    );
+    assert!(
+        running
+            .recover(
+                &fixture.data,
+                &fixture.keys,
+                Channel::Beta,
+                &fixture.platform,
+                &writer,
+                OffsetDateTime::UNIX_EPOCH
+            )
+            .is_some()
+    );
 }

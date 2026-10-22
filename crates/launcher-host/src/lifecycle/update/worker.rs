@@ -199,15 +199,24 @@ fn run(
     // The updater's worker and offline helper share this transaction lease.
     let lease =
         update_installer::lease::Lease::acquire(&root).context("lock the update directory")?;
+    let installation = installation(layout);
+    let running_build = update_manifest::build::Build::current();
+    let current = installation
+        .as_ref()
+        .map(|(_, build)| build)
+        .unwrap_or(&running_build);
     #[cfg(target_os = "linux")]
-    if let Some(running) = MANUAL.get() {
-        let ready = running.offer(
+    if let Some(running) = MANUAL.get()
+        && STATE.lock().is_ok_and(|state| state.ready.is_none())
+    {
+        let ready = running.recover(
             &layout.user_data_root,
             &keys,
+            preferences.channel,
             &platform,
             &lease,
             OffsetDateTime::now_utc(),
-        )?;
+        );
         if let Some(ready) = ready {
             if let Ok(mut state) = STATE.lock() {
                 state.offer(ready, generation);
@@ -216,15 +225,20 @@ fn run(
                     state.message = Some("This downloaded update is running temporarily. Choose Restart and update to replace the installed copy.".into());
                 }
             }
-            return Ok(());
         }
     }
     let check = Check {
         channel: preferences.channel.name(),
         platform: &platform,
-        current: env!("CARGO_PKG_VERSION"),
-        current_build: update_manifest::build_number(),
+        current: &current.version,
+        current_build: current.number,
         switch_now,
+    };
+    // Polling stamps belong to this process's build, even while it repairs an older installation.
+    let stamp_check = Check {
+        current: &running_build.version,
+        current_build: running_build.number,
+        ..check
     };
     let stable = Check {
         channel: Channel::Stable.name(),
@@ -261,7 +275,14 @@ fn run(
     {
         staged = Some(selected.manifest.clone());
         let (directory, reader) = stage::retain(&destination, &lease, &selected)?;
-        publish(directory, reader, selected, switch_now, generation);
+        publish(
+            directory,
+            reader,
+            selected,
+            check,
+            installation.as_ref().map(|(target, _)| target.clone()),
+            generation,
+        );
     }
     if (!preferences.checks && !switch_now && mode != FetchMode::Manual) || !active(generation) {
         return Ok(());
@@ -335,12 +356,12 @@ fn run(
                 check.current_build,
             )?
         {
-            record(&stamp_path, check, now_secs())?;
+            record(&stamp_path, stamp_check, now_secs())?;
             set_status(generation, Status::UpToDate);
             return Ok(());
         }
         if !supersedes(&selected.manifest, staged.as_ref(), switch_now)? {
-            record(&stamp_path, check, now_secs())?;
+            record(&stamp_path, stamp_check, now_secs())?;
             set_status(generation, Status::UpToDate);
             return Ok(());
         }
@@ -428,8 +449,15 @@ fn run(
         );
         let selected = stage::verify(&directory, &keys, check, OffsetDateTime::now_utc())?;
         let (directory, reader) = stage::retain(&directory, &lease, &selected)?;
-        publish(directory, reader, selected, switch_now, generation);
-        record(&stamp_path, check, now_secs())
+        publish(
+            directory,
+            reader,
+            selected,
+            check,
+            installation.as_ref().map(|(target, _)| target.clone()),
+            generation,
+        );
+        record(&stamp_path, stamp_check, now_secs())
     })
 }
 
@@ -555,23 +583,47 @@ pub(super) fn offer_switch(state: &mut State) {
 }
 
 /// Publishes a verified artifact with the platform's supported installation path.
-fn publish(stage: PathBuf, reader: File, selected: Selection, switch_now: bool, generation: u64) {
+fn publish(
+    stage: PathBuf,
+    reader: File,
+    selected: Selection,
+    check: Check<'_>,
+    target: Option<PathBuf>,
+    generation: u64,
+) {
     let newer = update_manifest::select::newer_build(
         &selected.manifest.version,
         selected.manifest.build_number,
-        env!("CARGO_PKG_VERSION"),
-        update_manifest::build_number(),
+        check.current,
+        check.current_build,
     )
     .unwrap_or(false);
     let writable = newer
-        && handoff::installed_target()
+        && target
+            .clone()
+            .map_or_else(handoff::installed_target, Ok)
             .and_then(|target| update_installer::target::access(&target))
             .is_ok_and(update_installer::target::Access::permits_update);
     if let Ok(mut state) = STATE.lock() {
-        state.offer(
-            Ready::new(stage, reader, selected, switch_now, writable),
-            generation,
-        );
+        let mut ready = Ready::new(stage, reader, selected, check.switch_now, writable);
+        ready.target = target;
+        state.offer(ready, generation);
+    }
+}
+
+/// Compares manual-copy checks with the actual installation while preserving portable behavior.
+fn installation(layout: &InstallLayout) -> Option<(PathBuf, update_manifest::build::Build)> {
+    #[cfg(target_os = "linux")]
+    {
+        MANUAL.get()?;
+        let target = manual::installed_appdir(&layout.user_data_root).ok()?;
+        let build = update_installer::target::installed_build(&target).ok()?;
+        Some((target, build))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = layout;
+        None
     }
 }
 

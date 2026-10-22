@@ -138,10 +138,6 @@ impl State {
             }
         }
         self.updater.is_some()
-            && !self
-                .ready
-                .as_ref()
-                .is_some_and(|ready| ready.target.is_some())
             && self.preferences.checks
             && due(worker::last_check(root, self.preferences.channel), now)
     }
