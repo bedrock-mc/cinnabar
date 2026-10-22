@@ -218,6 +218,11 @@ impl<F: PartialEq> MenuScrolls<F> {
         }
     }
 
+    /// Returns one list to its start and cancels its pending wheel interpolation.
+    pub fn scroll_to_start(&mut self, key: &str) {
+        self.set(key, 0.0);
+    }
+
     /// Direct edge scrolling during a captured drag follows the pointer without wheel easing.
     pub fn scroll_by(&mut self, key: &str, pixels: f32) {
         if let Some(area) = self.areas.iter().find(|area| area.key == key) {
@@ -356,6 +361,18 @@ mod tests {
 
     pub(super) fn point(x: f32, y: f32) -> UiPoint {
         UiPoint::new(x, y).unwrap()
+    }
+
+    #[test]
+    fn returning_to_start_cancels_an_active_wheel_tween() {
+        let mut scrolls = MenuScrolls::<u8>::default();
+        scrolls.set_areas(vec![area()]);
+        scrolls.configure_motion(true, 0.0);
+        assert!(scrolls.wheel(UiPoint::new(15.0, 25.0).unwrap(), -1.0, false));
+        scrolls.scroll_to_start("list");
+        scrolls.configure_motion(true, 1.0);
+        assert_eq!(scrolls.offsets().get("list"), Some(&0.0));
+        assert!(!scrolls.active());
     }
 
     // Wheel, track press and thumb drag each move the view under the pointer,

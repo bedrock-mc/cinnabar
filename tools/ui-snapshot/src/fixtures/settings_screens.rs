@@ -51,3 +51,13 @@ pub(super) fn settings_keyboard_layout(observed: bool) -> Fixture {
     }
     Fixture::Menu(Box::new(view))
 }
+
+/// Shows editable matches from outside the selected settings category.
+pub(super) fn settings_search(query: &str) -> Fixture {
+    let mut view = settings("accessibility_forced_index");
+    view.settings_query = query.to_owned();
+    view.field = Some(launcher::menu::MenuField::SettingsQuery);
+    view.focused_action = Some(MenuAction::SearchSettings);
+    view.caret.byte = query.len();
+    Fixture::Menu(Box::new(view))
+}

@@ -122,6 +122,7 @@ impl MenuRuntime {
             port: field_editor(MenuField::Port),
             skin_name: field_editor(MenuField::SkinName),
             friend_query: field_editor(MenuField::FriendQuery),
+            settings_query: field_editor(MenuField::SettingsQuery),
             macro_commands: macro_editors(&settings_options),
             message,
             gui_scale_preference: gui_scale

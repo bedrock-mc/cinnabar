@@ -33,6 +33,17 @@ impl MenuRuntime {
             self.go_back();
             return;
         }
+        if self.screen == launcher::menu::MenuScreen::Settings
+            && self.dialog.is_none()
+            && !self.settings_query.as_str().is_empty()
+            && self.settings.slider_selected.is_none()
+            && self.settings.key_remap.is_none()
+            && self.settings.dropdown.is_none()
+            && !self.settings.scale_picker
+        {
+            self.activate(MenuAction::ClearSettingsSearch);
+            return;
+        }
         if self.clear_settings_slider_selection() {
             return;
         }

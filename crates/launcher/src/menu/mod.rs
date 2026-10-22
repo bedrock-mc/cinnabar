@@ -95,6 +95,8 @@ pub enum MenuDialog {
 pub enum MenuField {
     /// Filters the friends drawer by gamertag.
     FriendQuery,
+    /// Searches options across settings categories.
+    SettingsQuery,
     Name,
     Address,
     Port,
@@ -157,6 +159,10 @@ pub enum MenuAction {
     AddPort,
     EditSkinName,
     SearchFriends,
+    SearchSettings,
+    ClearSettingsSearch,
+    /// Opens a matching category and clears its search query.
+    SettingsSearchSection(u8),
     AddSave,
     AddSaveConnect,
     AddBack,
@@ -239,6 +245,7 @@ impl MenuAction {
             Self::AddPort => Some(MenuField::Port),
             Self::EditSkinName => Some(MenuField::SkinName),
             Self::SearchFriends => Some(MenuField::FriendQuery),
+            Self::SearchSettings => Some(MenuField::SettingsQuery),
             Self::LocalWorld(action) => action.field(),
             _ => None,
         }

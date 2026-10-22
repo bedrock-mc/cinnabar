@@ -600,7 +600,7 @@ settings! {
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
-        [], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),

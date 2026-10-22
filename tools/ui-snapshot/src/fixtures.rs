@@ -772,6 +772,18 @@ const STATES: &[State] = &[
         },
     },
     State {
+        name: "settings-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_search("vsync"),
+    },
+    State {
+        name: "settings-search-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_search("no-such-setting"),
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
