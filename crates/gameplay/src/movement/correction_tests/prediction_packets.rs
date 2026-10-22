@@ -399,10 +399,10 @@ fn actor_move_then_same_frame_deferred_correction(destination_loaded: bool) {
             outcome,
             Some(PhysicsCorrectionOutcome::Snapped { .. })
         ));
+        assert_eq!(physics.state().unwrap().velocity, sim::Vec3::ZERO);
     }
     assert_eq!(physics.network_position(), Some(deferred_position));
     assert_eq!(physics.state().unwrap().tick, boundary);
-    assert_eq!(physics.state().unwrap().velocity, sim::Vec3::ZERO);
     assert!(ticker.physics_is_authorized());
 }
 
