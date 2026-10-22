@@ -108,6 +108,7 @@ fn geometry(
             kind: BlockEntityKind::ItemFrame(ItemFrameModel {
                 glow: case.glow,
                 outward,
+                full_face: false,
                 map: None,
             }),
         }],

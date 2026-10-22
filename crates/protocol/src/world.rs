@@ -52,6 +52,7 @@ pub use self::clocks::{
     OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent,
 };
+pub(crate) use self::custom_blocks::VANILLA_NAMESPACE;
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockMining, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks,
     CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance, CustomMiningItem,

@@ -839,9 +839,7 @@ fn offhand_hud_follows_admitted_inventory_routing() {
         );
         assert_eq!(
             runtime
-                .gameplay_hud()
-                .offhand_stack()
-                .filter(|stack| !stack.is_empty())
+                .local_offhand_stack(&player)
                 .map(|stack| stack.network_id),
             offhand
         );

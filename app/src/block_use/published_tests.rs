@@ -71,6 +71,9 @@ mod drop_inventory_tests;
 #[path = "published_tests/repeat_clock.rs"]
 mod repeat_clock_tests;
 
+#[path = "published_tests/touch.rs"]
+mod touch_tests;
+
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
     let mut payload = vec![1, 2];
