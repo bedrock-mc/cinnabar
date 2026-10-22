@@ -6,7 +6,7 @@ use super::{
 };
 use launcher::local_worlds::{
     options::{Control, Storage, WorldOption as O},
-    world::{Generator, World},
+    world::World,
 };
 use std::{
     fs,
@@ -41,17 +41,18 @@ pub(super) fn read(path: &Path) -> io::Result<LevelData> {
     })
 }
 
-/// Prepares new level data or replaces only owned fields in an existing world; leaves an
-/// oversized file untouched for BDS to read itself.
-pub(super) fn configure(world: &World, dir: &Path) -> Result<(), WorldError> {
+/// Replaces only owned fields in level data BDS created; `fresh` level data from its first start
+/// also takes the creation-only settings. Never writes level data BDS has not created, and leaves
+/// an oversized file untouched for BDS to read itself.
+pub(super) fn configure(world: &World, dir: &Path, fresh: bool) -> Result<(), WorldError> {
     let path = dir.join("level.dat");
     let bytes = match read(&path) {
-        Ok(LevelData::Missing) => Vec::new(),
         Ok(LevelData::Read(bytes)) => bytes,
-        Ok(LevelData::Oversized) => return Ok(()),
+        Ok(LevelData::Missing | LevelData::Oversized) => return Ok(()),
         Err(error) => return Err(failed(format!("read world settings: {error}"))),
     };
-    let data = configured(world, &bytes).ok_or_else(|| failed("invalid world level data"))?;
+    let data =
+        configured(world, &bytes, fresh).ok_or_else(|| failed("invalid world level data"))?;
     let temporary = dir.join("level.dat.cinnabar");
     write_private(&temporary, &data)
         .and_then(|()| fs::rename(&temporary, &path))
@@ -59,57 +60,20 @@ pub(super) fn configure(world: &World, dir: &Path) -> Result<(), WorldError> {
 }
 
 /// Produces a complete level-data file while preserving unowned tags and the file version.
-fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
-    let new = bytes.is_empty();
-    let (version, mut fields) = if new {
-        (10u32.to_le_bytes(), Vec::new())
-    } else {
-        let version = bytes.get(..4)?.try_into().ok()?;
-        let size = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?) as usize;
-        let body = bytes.get(8..)?;
-        if body.len() != size {
-            return None;
-        }
-        (version, read_fields(body)?)
-    };
-    if new {
-        put(&mut fields, "StorageVersion", 3, &10i32.to_le_bytes());
-        put(&mut fields, "RandomSeed", 4, &world.seed.to_le_bytes());
-        put(
-            &mut fields,
-            "Generator",
-            3,
-            &(if world.generator == Generator::Flat {
-                2i32
-            } else {
-                1
-            })
-            .to_le_bytes(),
-        );
-        let game_mode: i32 = match world.game_mode {
-            bridge::GameMode::Survival => 0,
-            bridge::GameMode::Creative => 1,
-            bridge::GameMode::Adventure => 2,
-        };
-        put(&mut fields, "GameType", 3, &game_mode.to_le_bytes());
-        let difficulty: i32 = match world.difficulty {
-            launcher::local_worlds::world::Difficulty::Peaceful => 0,
-            launcher::local_worlds::world::Difficulty::Easy => 1,
-            launcher::local_worlds::world::Difficulty::Normal => 2,
-            launcher::local_worlds::world::Difficulty::Hard => 3,
-        };
-        put(&mut fields, "Difficulty", 3, &difficulty.to_le_bytes());
-        // BDS turns LAN broadcast on only for worlds it creates itself, and refuses the local
-        // offline join while it is off.
-        put(&mut fields, "LANBroadcast", 1, &[1]);
-        put(&mut fields, "LANBroadcastIntent", 1, &[1]);
+fn configured(world: &World, bytes: &[u8], fresh: bool) -> Option<Vec<u8>> {
+    let version: [u8; 4] = bytes.get(..4)?.try_into().ok()?;
+    let size = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?) as usize;
+    let body = bytes.get(8..)?;
+    if body.len() != size {
+        return None;
     }
+    let mut fields = read_fields(body)?;
     put(&mut fields, "LevelName", 8, &string(&world.name));
     let was_always_day = scalar(&fields, "daylightCycle") == Some(1);
     let options = &world.options;
     for &id in O::ALL {
         let definition = id.definition();
-        if definition.creation_only && !new {
+        if definition.creation_only && !fresh {
             continue;
         }
         let key = match definition.storage {

@@ -863,14 +863,15 @@ fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
         .unwrap()
         .join(super::super::store::LEVEL_DIR);
     std::fs::create_dir_all(&level).unwrap();
-    super::super::level_dat::configure(&world, &level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&world, &level, true).unwrap();
     manager.open(&world.id, None).unwrap();
     wait_for(manager, WorldState::Running);
     manager.close();
     manager.open(&world.id, None).unwrap();
     let mut final_save = world.clone();
     final_save.options.set(O::RandomTickSpeed, 42);
-    super::super::level_dat::configure(&final_save, &level).unwrap();
+    super::super::level_dat::configure(&final_save, &level, false).unwrap();
     drop(save);
     wait_for(manager, WorldState::Running);
     assert_eq!(

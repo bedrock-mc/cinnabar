@@ -435,11 +435,12 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
     let original = store.create(&new).unwrap();
     let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
-    super::super::level_dat::configure(&original, &level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&original, &level, true).unwrap();
     store.touch(&original.id, &Default::default()).unwrap();
     let mut played = original.clone();
     played.options.set(O::RandomTickSpeed, 42);
-    super::super::level_dat::configure(&played, &level).unwrap();
+    super::super::level_dat::configure(&played, &level, false).unwrap();
     let reopened = store.get(&original.id).unwrap();
     assert_eq!(reopened.options.get(O::RandomTickSpeed), 42);
     let baseline = reopened.options.clone();
@@ -465,7 +466,7 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
         .unwrap();
     let (pending, applied) = store.snapshot(&original.id).unwrap();
     assert_eq!(pending.options.get(O::RandomTickSpeed), 7);
-    super::super::level_dat::configure(&pending, &level).unwrap();
+    super::super::level_dat::configure(&pending, &level, false).unwrap();
     store.touch(&original.id, &applied).unwrap();
     assert_eq!(
         store
@@ -489,7 +490,8 @@ fn world_options_inactive_preferences_survive_configuration_and_reload() {
     let world = store.create(&new).unwrap();
     let level = store.dir(&world.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
-    super::super::level_dat::configure(&world, &level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&world, &level, true).unwrap();
     store.touch(&world.id, &Default::default()).unwrap();
     let loaded = store.get(&world.id).unwrap();
     assert_eq!(loaded.options.get(O::SleepPercentage), 35);
@@ -498,7 +500,7 @@ fn world_options_inactive_preferences_survive_configuration_and_reload() {
     let mut server = loaded;
     server.options.set(O::Multiplayer, 1);
     server.options.set(O::FireSpreads, 0);
-    super::super::level_dat::configure(&server, &level).unwrap();
+    super::super::level_dat::configure(&server, &level, false).unwrap();
     let loaded = store.get(&world.id).unwrap();
     assert!(!loaded.options.enabled(O::Multiplayer));
     assert!(!loaded.options.enabled(O::FireSpreads));
@@ -514,13 +516,14 @@ fn world_options_menu_deltas_preserve_rules_changed_after_the_cached_list() {
     let original = store.create(&new).unwrap();
     let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
-    super::super::level_dat::configure(&original, &level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&original, &level, true).unwrap();
     store.touch(&original.id, &Default::default()).unwrap();
     let mut menu = WorldsMenu::default();
     menu.apply(Event::Listed(vec![original.clone()]));
     let mut played = original.clone();
     played.options.set(O::RandomTickSpeed, 42);
-    super::super::level_dat::configure(&played, &level).unwrap();
+    super::super::level_dat::configure(&played, &level, false).unwrap();
     menu.update(Input::BeginEdit(0));
     menu.update(Input::SetOption(O::ShowCoordinates, 1));
     let effects = menu.update(Input::SubmitEdit);
@@ -548,7 +551,8 @@ fn oversized_level_data_marks_options_unavailable_and_stays_untouched() {
     let world = store.create(&new).unwrap();
     let level = store.dir(&world.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
-    super::super::level_dat::configure(&world, &level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&world, &level, true).unwrap();
     assert!(!store.get(&world.id).unwrap().options_unavailable);
     let path = level.join("level.dat");
     let oversized = crate::local_worlds::test_support::padded_level_dat(
@@ -559,7 +563,7 @@ fn oversized_level_data_marks_options_unavailable_and_stays_untouched() {
     let opened = store.get(&world.id).unwrap();
     assert!(opened.options_unavailable);
     assert!(opened.options.enabled(O::ShowCoordinates));
-    super::super::level_dat::configure(&opened, &level).unwrap();
+    super::super::level_dat::configure(&opened, &level, false).unwrap();
     assert!(fs::read(&path).unwrap() == oversized);
 }
 
@@ -574,7 +578,8 @@ fn world_options_edits_saved_during_a_start_stay_pending() {
     let original = store.create(&new).unwrap();
     let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
     fs::create_dir_all(&level).unwrap();
-    super::super::level_dat::configure(&original, &level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&original, &level, true).unwrap();
     let edit = |value: i32| {
         let baseline = store.get(&original.id).unwrap().options;
         let mut edited = baseline.clone();
@@ -591,7 +596,7 @@ fn world_options_edits_saved_during_a_start_stay_pending() {
     };
     edit(7);
     let (starting, applied) = store.snapshot(&original.id).unwrap();
-    super::super::level_dat::configure(&starting, &level).unwrap();
+    super::super::level_dat::configure(&starting, &level, false).unwrap();
     edit(9);
     store.touch(&original.id, &applied).unwrap();
     assert_eq!(

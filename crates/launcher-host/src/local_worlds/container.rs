@@ -18,7 +18,7 @@ use launcher::local_worlds::world::{SetupState, UnavailableReason};
 use super::{
     Cancel,
     bds::{
-        BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, level_type, option_properties,
+        BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, create_world, level_type, option_properties,
         sanitize_property, view_and_tick, world_player_limit,
     },
     create_private_dir,
@@ -28,7 +28,7 @@ use super::{
         BDS_CONTAINER_HTTP_PORT, BDS_CONTAINER_UDP_PORT, LAN_DISCOVERY_PORT, LOCAL_SERVER_HOST,
         bds_udp_mapping, check_bds_lan_port, free_bds_port, lan_address, loopback, udp_port_range,
     },
-    process::{Instance, Launch, Process, StartSpec, launch},
+    process::{Instance, Launch, Process, SAVE_BUDGET, StartSpec, launch},
     provision::{RuntimeInfo, install_dir},
     store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
@@ -246,45 +246,52 @@ impl BdsRunner {
             };
             check_bds_lan_port(port, max_players, lan_port)?;
         }
-        super::level_dat::configure(&spec.world, &spec.dir.join(LEVEL_DIR))?;
-        let mut command = self.docker();
-        command.args(container_args(&ContainerArgs {
-            spec,
-            image: &self.image,
-            version: &version,
-            install,
-            host_port: port,
-            max_players,
-            lan_visible: self.lan_visible,
-            lan_host_port: self.lan_host_port,
-        }));
-        let launched = launch(
-            command,
-            Launch {
-                address: loopback(port),
-                timeout: self.start_timeout.unwrap_or(CONTAINER_START_TIMEOUT),
-                can_pause: false,
-                ready: |line| line.contains(BDS_READY_MARKER),
-                label: format!("bds-container {}", spec.world.id),
-            },
-            cancel,
-        );
-        let process = match launched {
-            Ok(process) => process,
-            Err(error) => {
-                self.docker_succeeds(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT);
-                return Err(error);
+        let run = |label: &str| {
+            let mut command = self.docker();
+            command.args(container_args(&ContainerArgs {
+                spec,
+                image: &self.image,
+                version: &version,
+                install,
+                host_port: port,
+                max_players,
+                lan_visible: self.lan_visible,
+                lan_host_port: self.lan_host_port,
+            }));
+            let launched = launch(
+                command,
+                Launch {
+                    address: loopback(port),
+                    timeout: self.start_timeout.unwrap_or(CONTAINER_START_TIMEOUT),
+                    can_pause: false,
+                    ready: |line| line.contains(BDS_READY_MARKER),
+                    label: format!("{label} {}", spec.world.id),
+                },
+                cancel,
+            );
+            match launched {
+                Ok(process) => Ok(ContainerInstance {
+                    process,
+                    docker: self.docker.clone(),
+                    env: self.env.clone(),
+                    name: name.clone(),
+                    removed: Once::new(),
+                    max_players,
+                    lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
+                }),
+                Err(error) => {
+                    self.docker_succeeds(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT);
+                    Err(error)
+                }
             }
         };
-        let instance = Arc::new(ContainerInstance {
-            process,
-            docker: self.docker.clone(),
-            env: self.env.clone(),
-            name,
-            removed: Once::new(),
-            max_players,
-            lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
-        });
+        let world_dir = spec.dir.join(LEVEL_DIR);
+        let fresh = create_world(&world_dir, || {
+            let instance = run("bds-container create")?;
+            Ok(move || instance.stop(SAVE_BUDGET))
+        })?;
+        super::level_dat::configure(&spec.world, &world_dir, fresh)?;
+        let instance = Arc::new(run("bds-container")?);
         let watched = Arc::clone(&instance);
         thread::spawn(move || {
             let _ = watched.process.exited().recv();

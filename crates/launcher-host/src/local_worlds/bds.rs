@@ -88,7 +88,6 @@ impl Runner for BdsRunner {
         let world_dir = spec.dir.join(LEVEL_DIR);
         create_private_dir(&world_dir)
             .map_err(|error| failed(format!("create world folder: {error}")))?;
-        super::level_dat::configure(&spec.world, &world_dir)?;
         let link = install.join("worlds").join(&spec.world.id);
         link_world(&link, &world_dir)?;
         let properties = server_properties(spec, port, max_players, self.lan_visible);
@@ -97,22 +96,35 @@ impl Runner for BdsRunner {
             unlink_world(&link);
             return Err(failed(format!("write server.properties: {error}")));
         }
-        let mut command = Command::new(binary.as_os_str());
-        command
-            .current_dir(install)
-            .env("LD_LIBRARY_PATH", ".")
-            .envs(self.env.iter().map(|(key, value)| (key, value)));
-        let launched = launch(
-            command,
-            Launch {
-                address: loopback(port),
-                timeout: self.start_timeout.unwrap_or(BDS_START_TIMEOUT),
-                can_pause: false,
-                ready: |line| line.contains(BDS_READY_MARKER),
-                label: format!("bds {}", spec.world.id),
-            },
-            cancel,
-        );
+        let run = |label: &str| {
+            let mut command = Command::new(binary.as_os_str());
+            command
+                .current_dir(&install)
+                .env("LD_LIBRARY_PATH", ".")
+                .envs(self.env.iter().map(|(key, value)| (key, value)));
+            launch(
+                command,
+                Launch {
+                    address: loopback(port),
+                    timeout: self.start_timeout.unwrap_or(BDS_START_TIMEOUT),
+                    can_pause: false,
+                    ready: |line| line.contains(BDS_READY_MARKER),
+                    label: format!("{label} {}", spec.world.id),
+                },
+                cancel,
+            )
+        };
+        let created = create_world(&world_dir, || {
+            let process = run("bds create")?;
+            Ok(move || process.stop(super::process::SAVE_BUDGET))
+        });
+        if let Err(error) =
+            created.and_then(|fresh| super::level_dat::configure(&spec.world, &world_dir, fresh))
+        {
+            unlink_world(&link);
+            return Err(error);
+        }
+        let launched = run("bds");
         let process = match launched {
             Ok(process) => process,
             Err(error) => {
@@ -188,6 +200,30 @@ impl Instance for BdsInstance {
     fn lan_address(&self) -> Option<&str> {
         self.lan_address.as_deref()
     }
+}
+
+/// Lets BDS create a world that has no level data yet, so its own new-world setup (spawn search,
+/// world version, flat layers) runs before owned fields change; true when it did. `start` runs a
+/// server on the world, which is not yet reported running, and returns how to stop it.
+pub(crate) fn create_world<S: FnOnce() -> Result<(), String>>(
+    world_dir: &Path,
+    start: impl FnOnce() -> Result<S, WorldError>,
+) -> Result<bool, WorldError> {
+    let level = world_dir.join("level.dat");
+    if fs::exists(&level).map_err(|error| failed(format!("read world settings: {error}")))? {
+        return Ok(false);
+    }
+    let stop = start().map_err(|error| match error {
+        WorldError::Cancelled => error,
+        error => failed(format!("create the new world: {error}")),
+    })?;
+    stop().map_err(|error| failed(format!("save the new world: {error}")))?;
+    if !fs::exists(&level).unwrap_or(false) {
+        return Err(failed(
+            "the new world has no level data after its first start",
+        ));
+    }
+    Ok(true)
 }
 
 /// The view distance BDS gets, and the tick distance that follows from it.

@@ -59,6 +59,12 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     let spec = spec(&world_dir);
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
     assert!(!instance.can_pause(), "container BDS cannot pause");
+    let level = fs::read(world_dir.join(LEVEL_DIR).join("level.dat")).expect("level data");
+    let has = |tag: &[u8]| level.windows(tag.len()).any(|window| window == tag);
+    assert!(
+        has(b"Created") && has(b"showcoordinates"),
+        "BDS creates the world before owned fields are patched"
+    );
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     let calls = docker_log(&log);
     let name = container_name(&spec.world.id);

@@ -107,6 +107,12 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
     let world_dir = dir.path().join("world");
     let spec = spec(&world_dir);
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    let level = fs::read(world_dir.join(LEVEL_DIR).join("level.dat")).expect("level data");
+    let has = |tag: &[u8]| level.windows(tag.len()).any(|window| window == tag);
+    assert!(
+        has(b"Created") && has(b"showcoordinates"),
+        "BDS creates the world before owned fields are patched"
+    );
     let properties = fs::read_to_string(install.join("server.properties")).expect("properties");
     assert!(properties.contains("online-mode=false"), "{properties}");
     let link = install.join("worlds").join(&spec.world.id);
@@ -128,6 +134,23 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         world_dir.join(LEVEL_DIR).is_dir(),
         "world data must survive the stop"
     );
+}
+
+/// A first start that saves no world fails clearly instead of writing level data itself.
+#[cfg(unix)]
+#[test]
+fn a_new_world_bds_did_not_save_fails_without_writing_level_data() {
+    let dir = scratch();
+    let server = b"#!/bin/sh\nprintf '[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*) exit 0 ;; esac\ndone\n";
+    let provisioner = installed_provisioner(dir.path(), LINUX, server);
+    let runner = BdsRunner::new(Arc::new(provisioner), String::new());
+    let world_dir = dir.path().join("world");
+    let error = runner
+        .start(&spec(&world_dir), &Cancel::never())
+        .err()
+        .expect("no world was saved");
+    assert!(error.to_string().contains("no level data"), "{error}");
+    assert!(!world_dir.join(LEVEL_DIR).join("level.dat").exists());
 }
 
 #[cfg(unix)]

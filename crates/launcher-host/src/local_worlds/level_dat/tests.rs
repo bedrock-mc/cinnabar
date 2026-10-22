@@ -33,7 +33,7 @@ fn world_options_generate_every_level_setting_and_rule() {
             }
         };
         world.options.set(id, value);
-        let bytes = configured(&world, &[]).unwrap();
+        let bytes = configured(&world, &test_support::created_level_dat(), true).unwrap();
         let fields = read_fields(&bytes[8..]).unwrap();
         if let Storage::Rule(key) | Storage::Level(key) = definition.storage {
             let (kind, got) = payload(&fields, key);
@@ -52,7 +52,7 @@ fn world_options_compose_sleep_cheats_and_always_day() {
     let mut world = test_support::world();
     world.options.set(O::SleepSkipNight, 0);
     world.options.set(O::AlwaysDay, 1);
-    let bytes = configured(&world, &[]).unwrap();
+    let bytes = configured(&world, &test_support::created_level_dat(), true).unwrap();
     let fields = read_fields(&bytes[8..]).unwrap();
     assert_eq!(
         payload(&fields, "playerssleepingpercentage"),
@@ -62,7 +62,7 @@ fn world_options_compose_sleep_cheats_and_always_day() {
     assert_eq!(payload(&fields, "Time"), (4, &6000i64.to_le_bytes()[..]));
     assert_eq!(payload(&fields, "cheatsEnabled"), (1, &[1][..]));
     world.options.set(O::ActivateCheats, 0);
-    let saved = configured(&world, &bytes).unwrap();
+    let saved = configured(&world, &bytes, false).unwrap();
     let fields = read_fields(&saved[8..]).unwrap();
     assert_eq!(payload(&fields, "cheatsEnabled"), (1, &[0][..]));
     assert_eq!(payload(&fields, "hasBeenLoadedInCreative"), (1, &[1][..]));
@@ -72,7 +72,7 @@ fn world_options_compose_sleep_cheats_and_always_day() {
 fn world_options_preserve_unknown_tags_and_creation_only_settings_on_reload() {
     let mut world = test_support::world();
     world.options.set(O::BonusChest, 1);
-    let bytes = configured(&world, &[]).unwrap();
+    let bytes = configured(&world, &test_support::created_level_dat(), true).unwrap();
     let mut fields = read_fields(&bytes[8..]).unwrap();
     let opaque = [10, 1, 0, b'x', 1, 2, 0, b'a', b'b', 7, 0];
     fields.push((b"x".to_vec(), opaque.to_vec()));
@@ -86,7 +86,7 @@ fn world_options_preserve_unknown_tags_and_creation_only_settings_on_reload() {
     old.extend(body);
     world.options.set(O::BonusChest, 0);
     world.options.set(O::ShowCoordinates, 1);
-    let new = configured(&world, &old).unwrap();
+    let new = configured(&world, &old, false).unwrap();
     assert_eq!(&new[..4], &old[..4]);
     let fields = read_fields(&new[8..]).unwrap();
     assert_eq!(
@@ -95,7 +95,7 @@ fn world_options_preserve_unknown_tags_and_creation_only_settings_on_reload() {
     );
     assert_eq!(payload(&fields, "bonusChestEnabled"), (1, &[1][..]));
     assert_eq!(payload(&fields, "showcoordinates"), (1, &[1][..]));
-    assert!(configured(&world, &new[..new.len() - 1]).is_none());
+    assert!(configured(&world, &new[..new.len() - 1], false).is_none());
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn world_options_reload_and_preserve_deep_unknown_compounds() {
     world.options.set(O::ShowCoordinates, 1);
     world.options.set(O::AlwaysDay, 1);
     world.options.set(O::SleepSkipNight, 0);
-    let bytes = configured(&world, &[]).unwrap();
+    let bytes = configured(&world, &test_support::created_level_dat(), true).unwrap();
     let dir = test_support::scratch();
     fs::write(dir.path().join("level.dat"), &bytes).unwrap();
     let loaded = read_options(&dir.path().join("level.dat"));
@@ -120,8 +120,8 @@ fn world_options_reload_and_preserve_deep_unknown_compounds() {
     let mut deep = bytes[..4].to_vec();
     deep.extend((body.len() as u32).to_le_bytes());
     deep.extend(body);
-    assert!(configured(&world, &deep).is_some());
-    assert!(configured(&world, &deep[..deep.len() - 1]).is_none());
+    assert!(configured(&world, &deep, false).is_some());
+    assert!(configured(&world, &deep[..deep.len() - 1], false).is_none());
 }
 
 /// Replaces a fixture's clock while preserving its other level settings.
@@ -143,18 +143,18 @@ fn clock(bytes: &[u8], time: i64) -> Vec<u8> {
 fn world_options_always_day_preserves_existing_days_and_saved_clock() {
     let mut world = test_support::world();
     world.options.set(O::AlwaysDay, 1);
-    let initial = configured(&world, &[]).unwrap();
+    let initial = configured(&world, &test_support::created_level_dat(), true).unwrap();
     let saved = clock(&initial, 246_100);
-    let reopened = configured(&world, &saved).unwrap();
+    let reopened = configured(&world, &saved, false).unwrap();
     assert_eq!(
         scalar(&read_fields(&reopened[8..]).unwrap(), "Time"),
         Some(246_100)
     );
     world.options.set(O::AlwaysDay, 0);
     world.options.set(O::DaylightCycle, 1);
-    let cycling = configured(&world, &clock(&initial, 244_000)).unwrap();
+    let cycling = configured(&world, &clock(&initial, 244_000), false).unwrap();
     world.options.set(O::AlwaysDay, 1);
-    let enabled = configured(&world, &cycling).unwrap();
+    let enabled = configured(&world, &cycling, false).unwrap();
     assert_eq!(
         scalar(&read_fields(&enabled[8..]).unwrap(), "Time"),
         Some(246_000)
@@ -164,7 +164,7 @@ fn world_options_always_day_preserves_existing_days_and_saved_clock() {
 #[test]
 fn world_options_player_permissions_preserve_the_separate_command_permission() {
     let world = test_support::world();
-    let bytes = configured(&world, &[]).unwrap();
+    let bytes = configured(&world, &test_support::created_level_dat(), true).unwrap();
     let mut fields = read_fields(&bytes[8..]).unwrap();
     put(&mut fields, "permissionsLevel", 3, &1i32.to_le_bytes());
     put(
@@ -189,7 +189,7 @@ fn world_options_player_permissions_preserve_the_separate_command_permission() {
     );
     let mut changed = world;
     changed.options.set(O::PlayerPermissions, 2);
-    let updated = configured(&changed, &fixture).unwrap();
+    let updated = configured(&changed, &fixture, false).unwrap();
     let fields = read_fields(&updated[8..]).unwrap();
     assert_eq!(scalar(&fields, "permissionsLevel"), Some(1));
     assert_eq!(scalar(&fields, "playerPermissionsLevel"), Some(2));
@@ -198,7 +198,12 @@ fn world_options_player_permissions_preserve_the_separate_command_permission() {
 /// A world BDS created before saved options existed keeps multiplayer although BDS records no intent.
 #[test]
 fn world_options_read_multiplayer_from_the_effective_flags_bds_saves() {
-    let bytes = configured(&test_support::world(), &[]).unwrap();
+    let bytes = configured(
+        &test_support::world(),
+        &test_support::created_level_dat(),
+        true,
+    )
+    .unwrap();
     let mut fields = read_fields(&bytes[8..]).unwrap();
     put(&mut fields, "MultiplayerGame", 1, &[1]);
     put(&mut fields, "MultiplayerGameIntent", 1, &[0]);
@@ -221,10 +226,10 @@ fn world_options_read_multiplayer_from_the_effective_flags_bds_saves() {
 fn world_options_leave_level_data_beyond_the_read_bound_untouched() {
     let mut world = test_support::world();
     world.options.set(O::ShowCoordinates, 1);
-    let bytes = configured(&world, &[]).unwrap();
+    let bytes = configured(&world, &test_support::created_level_dat(), true).unwrap();
     let oversized = test_support::padded_level_dat(&bytes, MAX_LEVEL_DAT_BYTES as usize);
     assert!(
-        configured(&world, &oversized).is_some(),
+        configured(&world, &oversized, false).is_some(),
         "the fixture is valid"
     );
     let dir = test_support::scratch();
@@ -232,32 +237,26 @@ fn world_options_leave_level_data_beyond_the_read_bound_untouched() {
     fs::write(&path, &oversized).unwrap();
     assert!(try_read_options(&path).is_none());
     world.options.set(O::ShowCoordinates, 0);
-    configure(&world, dir.path()).unwrap();
+    configure(&world, dir.path(), false).unwrap();
     assert!(fs::read(&path).unwrap() == oversized);
     fs::write(&path, &bytes).unwrap();
     assert!(try_read_options(&path).unwrap().enabled(O::ShowCoordinates));
 }
 
-/// New level data keeps LAN broadcast on, which BDS needs for the local offline join; existing
-/// files keep whatever BDS saved.
+/// Level data is only ever patched: BDS creates it first, so its new-world setup runs.
 #[test]
-fn world_options_new_level_data_keeps_lan_broadcast_on() {
-    let world = test_support::world();
-    let bytes = configured(&world, &[]).unwrap();
-    let fields = read_fields(&bytes[8..]).unwrap();
+fn world_options_never_write_level_data_bds_has_not_created() {
+    let dir = test_support::scratch();
+    configure(&test_support::world(), dir.path(), true).unwrap();
+    assert!(!dir.path().join("level.dat").exists());
+    test_support::write_created_level_dat(dir.path());
+    configure(&test_support::world(), dir.path(), true).unwrap();
+    let fields = read_fields(&fs::read(dir.path().join("level.dat")).unwrap()[8..]).unwrap();
+    assert_eq!(
+        scalar(&fields, "WorldVersion"),
+        Some(1),
+        "BDS's own tags stay"
+    );
+    assert_eq!(scalar(&fields, "SpawnY"), Some(32767));
     assert_eq!(scalar(&fields, "LANBroadcast"), Some(1));
-    assert_eq!(scalar(&fields, "LANBroadcastIntent"), Some(1));
-    let mut saved = fields;
-    put(&mut saved, "LANBroadcastIntent", 1, &[0]);
-    let mut body = vec![10, 0, 0];
-    for (_, tag) in saved {
-        body.extend(tag);
-    }
-    body.push(0);
-    let mut existing = bytes[..4].to_vec();
-    existing.extend((body.len() as u32).to_le_bytes());
-    existing.extend(body);
-    let reopened = configured(&world, &existing).unwrap();
-    let fields = read_fields(&reopened[8..]).unwrap();
-    assert_eq!(scalar(&fields, "LANBroadcastIntent"), Some(0));
 }
