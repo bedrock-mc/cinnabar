@@ -254,7 +254,9 @@ performance qualification remains open.
 
 Body-slot equipment retains its replicated identity and selects authored attachable
 geometry, artwork and owner-root placement. Startup harness definitions are completed
-from tagged items and present pack resources; worn equipment counts exclude hands.
+from tagged items and present pack resources. Resource-only session overrides reuse
+those definitions while preserving authored item conditions. Expression roots retain
+the worn slot through owner placement; worn equipment counts exclude hands.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven

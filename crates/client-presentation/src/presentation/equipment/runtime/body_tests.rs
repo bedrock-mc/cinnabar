@@ -253,3 +253,73 @@ fn body_slot_controller_reads_the_worn_stack_enchantment() {
         }
     }
 }
+
+#[test]
+fn body_slot_expression_binding_retains_worn_context_through_selection_and_placement() {
+    let mut source = files();
+    for (path, bytes) in &mut source {
+        let mut value: serde_json::Value = match serde_json::from_slice(bytes) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if path.as_ref() == "models/entity/body.json" {
+            let root = &mut value["minecraft:geometry"][0]["bones"][0];
+            root["name"] = serde_json::json!("anchor");
+            root["binding"] = serde_json::json!("query.item_slot_to_bone_name(context.item_slot)");
+        } else if path.as_ref() == "attachables/a.json" {
+            value["minecraft:attachable"]["description"]["item"] =
+                serde_json::json!({"fixture:a":"context.item_slot == 'body'"});
+        }
+        *bytes = serde_json::to_vec(&value).unwrap();
+    }
+    for startup in [false, true] {
+        for hands in [false, true] {
+            let (mut runtime, _) = if startup {
+                super::startup_runtime(source.clone())
+            } else {
+                pack_runtime(source.clone())
+            };
+            let mut body = player_body(&mut runtime);
+            let names = if hands {
+                vec![
+                    "root",
+                    "body",
+                    "head",
+                    "rightArm",
+                    "leftArm",
+                    "rightItem",
+                    "leftItem",
+                ]
+            } else {
+                vec!["root", "body"]
+            };
+            runtime.register_skin_rig(
+                body.input.rig,
+                names.iter().map(|name| Box::from(*name)).collect(),
+            );
+            let mut poses = vec![body.input.current_bones[0]; names.len()];
+            poses[1].translation_scale[0] = 2.0;
+            if hands {
+                poses[5].translation_scale[0] = 7.0;
+                poses[6].translation_scale[0] = -7.0;
+            }
+            body.input.previous_bones = poses.clone().into();
+            body.input.current_bones = poses.into();
+            let input = ActorEquipmentInput {
+                body: Some(item("a")),
+                ..Default::default()
+            };
+            let drawn = layers(&mut runtime, &body, &owner(), &input, 1);
+            assert_eq!(drawn.len(), 1, "startup={startup}, hands={hands}");
+            let root = drawn[0].submission.input.current_bones[0];
+            assert!(
+                root.translation_scale[3] > 0.0,
+                "the body controller stays visible"
+            );
+            assert!(
+                (root.translation_scale[0] - 2.0).abs() < 1e-6,
+                "the expression root must follow the body, startup={startup}, hands={hands}"
+            );
+        }
+    }
+}

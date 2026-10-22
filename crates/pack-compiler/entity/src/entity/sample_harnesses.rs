@@ -1,4 +1,4 @@
-//! Completes omitted startup bindings using the pack's harness artwork and controller.
+//! Completes omitted harness bindings using the pack's artwork and controller.
 
 use super::*;
 
@@ -15,22 +15,48 @@ pub(super) fn complete_bindings(
     symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     geometries: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
 ) -> Result<usize, AssetError> {
-    if ![MODEL, CONTROLLERS]
+    let authored = payloads
         .iter()
-        .all(|path| payloads.contains_key(*path))
-    {
-        return Ok(0);
+        .filter(|(path, _)| path.starts_with("attachables/"))
+        .map(|(path, bytes)| parse_unique_json(&root.join(path.as_ref()), bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    let missing = missing_harness_bindings(|path| payloads.contains_key(path), authored.iter())?;
+    let mut size = 0;
+    for (source, value) in missing {
+        let bytes = serde_json::to_vec(&value)
+            .map_err(|_| invalid("harness binding could not be encoded"))?;
+        parse_source(
+            &source,
+            &root.join(source.as_ref()),
+            &bytes,
+            symbols,
+            geometries,
+        )?;
+        sources.push(EntityAssetSource {
+            path: source.clone(),
+            source_bytes: bytes.len() as u32,
+            source_sha256: Sha256::digest(&bytes).into(),
+        });
+        size += bytes.len();
+        payloads.insert(source, bytes.into());
+    }
+    Ok(size)
+}
+
+/// Supplies omitted harness definitions from present resources without replacing authored items.
+pub fn missing_harness_bindings<'a>(
+    has_source: impl Fn(&str) -> bool,
+    authored: impl IntoIterator<Item = &'a Value>,
+) -> Result<Vec<(Box<str>, Value)>, AssetError> {
+    if ![MODEL, CONTROLLERS].iter().all(|path| has_source(path)) {
+        return Ok(Vec::new());
     }
     let facts =
         assets::facts::ItemFacts::builtin().map_err(|_| invalid("item facts are unavailable"))?;
     let Some(tag) = facts.tag(assets::facts::HARNESS_TAG) else {
-        return Ok(0);
+        return Ok(Vec::new());
     };
-    let authored: BTreeSet<Box<str>> = payloads
-        .iter()
-        .filter(|(path, _)| path.starts_with("attachables/"))
-        .map(|(path, bytes)| parse_unique_json(&root.join(path.as_ref()), bytes))
-        .collect::<Result<Vec<_>, _>>()?
+    let authored: BTreeSet<Box<str>> = authored
         .into_iter()
         .flat_map(|value| {
             let description = &value["minecraft:attachable"]["description"];
@@ -48,7 +74,7 @@ pub(super) fn complete_bindings(
             }
         })
         .collect();
-    let mut size = 0;
+    let mut missing = Vec::new();
     for record in &facts.payload().records {
         if !record.fact.tags.contains(tag) {
             continue;
@@ -63,7 +89,7 @@ pub(super) fn complete_bindings(
         let texture = format!("textures/entity/harness/harness_{color}");
         if !["png", "tga"]
             .iter()
-            .any(|extension| payloads.contains_key(format!("{texture}.{extension}").as_str()))
+            .any(|extension| has_source(&format!("{texture}.{extension}")))
             || authored.contains(&record.identifier)
         {
             continue;
@@ -82,18 +108,9 @@ pub(super) fn complete_bindings(
                 "render_controllers":[CONTROLLER]
             }}
         });
-        let bytes = serde_json::to_vec(&value)
-            .map_err(|_| invalid("harness binding could not be encoded"))?;
-        parse_source(&source, &root.join(&source), &bytes, symbols, geometries)?;
-        sources.push(EntityAssetSource {
-            path: source.clone().into(),
-            source_bytes: bytes.len() as u32,
-            source_sha256: Sha256::digest(&bytes).into(),
-        });
-        size += bytes.len();
-        payloads.insert(source.into(), bytes.into());
+        missing.push((source.into(), value));
     }
-    Ok(size)
+    Ok(missing)
 }
 
 #[cfg(test)]
