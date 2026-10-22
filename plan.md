@@ -428,6 +428,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Hover reports and actor use share the attack's game-mode actor cap. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
+  Desktop input retains every transition in a complete arrival batch, including
+  repeated attack taps. Refused interaction admission and comparative combat
+  animation/audio latency acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
@@ -578,6 +581,9 @@ Native audio follows changes to the system default output on its owner thread, r
 active and queued sounds across output replacement and retrying unavailable devices.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+Startup sound prewarming prioritizes routed attack and player-hurt samples, including
+their finite alternatives within the prewarm byte budget. Comparative combat sound
+latency, server-pack prewarming and physical output latency remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
 stone fallback. Per-permutation sound components and matched native fallback

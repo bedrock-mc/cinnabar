@@ -448,6 +448,13 @@ impl SoundEventTables {
     pub fn individual(&self, event: &str) -> Option<&SoundRoute> {
         self.individual.get(event).and_then(Option::as_ref)
     }
+
+    /// Iterates audible individual event routes, omitting explicit silence.
+    pub fn individual_events(&self) -> impl Iterator<Item = (&str, &SoundRoute)> {
+        self.individual
+            .iter()
+            .filter_map(|(event, route)| Some((event.as_ref(), route.as_ref()?)))
+    }
 }
 
 #[cfg(test)]
