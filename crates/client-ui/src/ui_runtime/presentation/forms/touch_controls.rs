@@ -38,6 +38,8 @@ const CONTROLS: &[(&str, u16)] = &[
 pub(in super::super) struct TouchControls {
     enabled: bool,
     editor: Option<mod_ui::HudEditor>,
+    /// Geometry last installed in the editor, independent of ordinary HUD paints.
+    editor_viewport: Option<([f32; 2], f32, ui::SafeArea)>,
     pub(super) saved: launcher::menu::settings_options::touch_layout::TouchLayout,
     base: Option<EngineFrame>,
     base_viewport: Option<([f32; 2], f32, ui::SafeArea)>,

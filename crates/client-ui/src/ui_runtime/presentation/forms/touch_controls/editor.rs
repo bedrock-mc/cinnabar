@@ -79,7 +79,7 @@ impl UiPresentationRuntime {
         // Measure factory geometry even on a desktop host without gameplay touch controls.
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         if self.screens.touch.editor.is_none()
-            || self.screens.touch.base_viewport != Some((content, px, self.safe_area))
+            || self.screens.touch.editor_viewport != Some((content, px, self.safe_area))
         {
             let enabled = self.screens.touch.enabled;
             self.screens.touch.enabled = true;
@@ -131,9 +131,12 @@ impl UiPresentationRuntime {
                         position: view.settings_options.touch_layout().position(name),
                         background_opacity: 0.,
                         background_radius: 0.,
-                        width: hit.rect.w as f32,
+                        // Fixed host previews retain their measured bounds independently from
+                        // the bounded content-cell schema used by extension-authored cards.
+                        editor_size: Some([hit.rect.w as f32, hit.rect.h as f32]),
+                        width: 1.,
                         cells: vec![Cell {
-                            rect: [0., 0., hit.rect.w as f32, hit.rect.h as f32],
+                            rect: [0., 0., 1., 1.],
                             ..Cell::default()
                         }],
                         ..Card::default()
@@ -154,6 +157,7 @@ impl UiPresentationRuntime {
                     .expect("measured touch controls form a valid layout"),
                 );
             }
+            self.screens.touch.editor_viewport = Some((content, px, self.safe_area));
         }
         let translate = |key: &str| runtime.translation(key);
         let editor = self.screens.touch.editor.as_mut().expect("opened");
@@ -250,6 +254,7 @@ impl UiPresentationRuntime {
     /// Drops an abandoned settings surface and all retained input geometry.
     pub fn close_touch_editor(&mut self) {
         self.screens.touch.editor = None;
+        self.screens.touch.editor_viewport = None;
     }
     /// A completed transaction: Save returns its layout; Cancel returns no replacement.
     pub fn take_touch_editor_result(&mut self) -> Option<Option<TouchLayout>> {

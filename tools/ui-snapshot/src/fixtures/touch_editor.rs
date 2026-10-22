@@ -5,6 +5,13 @@ use super::*;
 pub(super) const STATES: &[State] = &[
     #[cfg(feature = "test-support")]
     State {
+        name: "touch-editor-default-tall",
+        size: [720, 1600],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchEditor { phase: 0 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "touch-editor-default-narrow",
         size: [854, 480],
         gui_scale: GUI_SCALE,

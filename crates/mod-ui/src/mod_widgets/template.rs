@@ -471,6 +471,9 @@ pub(super) fn card_data(
 
 /// Shared card geometry for gameplay publication and native layout editing.
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
+    if let Some(size) = card.editor_size {
+        return size.map(|side| f64::from(side) * f64::from(card.scale));
+    }
     if card.crosshair.is_some() {
         return [f64::from(card.width * card.scale); 2];
     }

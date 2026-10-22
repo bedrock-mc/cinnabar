@@ -34,6 +34,20 @@ fn paint(p: &mut UiPresentationRuntime, runtime: &UiRuntime, size: [u32; 2]) {
     )
     .unwrap();
 }
+/// Repaints the gameplay overlay before Settings, as an in-world HUD may do on resize.
+fn paint_overlay(p: &mut UiPresentationRuntime, runtime: &UiRuntime, size: [u32; 2]) {
+    p.enable_touch_controls(true);
+    let metrics = TextMetrics::for_viewport(size, ui::DpiScale::new(1.).unwrap(), None);
+    p.append_touch_controls(
+        runtime,
+        &mut Vec::new(),
+        &mut 0,
+        metrics,
+        size.map(|side| side as f32),
+    )
+    .unwrap();
+}
+
 /// Sends a complete gesture through the shared editor's retained hit regions.
 fn drag(p: &mut UiPresentationRuntime, name: &str, delta: [f32; 2], release: bool) {
     let [x, y, w, h] = p.touch_editor_bounds(name).unwrap();
@@ -200,6 +214,7 @@ fn touch_editor_alignment_history_and_reset_keep_factory_layout_available() {
         },
     );
     assert!(p.touch_editor_bounds("jump").unwrap()[0] < original[0] - 100.);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
     paint(&mut p, &runtime, [1280, 720]);
     let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
     p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
@@ -219,6 +234,7 @@ fn touch_editor_factory_layout_matches_fresh_geometry_after_scale_changing_resiz
     let Some((mut p, runtime, _)) = setup([1366, 768]) else {
         return;
     };
+    paint_overlay(&mut p, &runtime, [1280, 720]);
     paint(&mut p, &runtime, [1280, 720]);
     let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
     p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
@@ -264,6 +280,7 @@ fn touch_editor_resize_reflows_defaults_without_losing_custom_history() {
     paint(&mut p, &runtime, [1280, 720]);
     let moved = p.touch_editor_bounds("jump").unwrap();
     let position = [moved[0] / (1280. - moved[2]), moved[1] / (720. - moved[3])];
+    paint_overlay(&mut p, &runtime, [854, 480]);
     paint(&mut p, &runtime, [854, 480]);
     let actual = p.touch_editor_bounds("jump").unwrap();
     assert!((actual[2] - 480. * 0.1375).abs() < 0.1);
@@ -282,4 +299,27 @@ fn touch_editor_resize_reflows_defaults_without_losing_custom_history() {
     paint(&mut p, &runtime, [854, 480]);
     assert_eq!(p.touch_editor_bounds("jump").unwrap(), actual);
     assert!(original[0] > moved[0]);
+}
+
+/// Native preview bounds preserve the complete control even beyond extension cell-size limits.
+#[test]
+fn touch_editor_opens_and_resizes_with_tall_desktop_geometry() {
+    for initial in [[720, 1600], [1280, 720]] {
+        let Some((mut p, runtime, _)) = setup(initial) else {
+            return;
+        };
+        paint_overlay(&mut p, &runtime, [720, 1600]);
+        paint(&mut p, &runtime, [720, 1600]);
+        let actual = p.touch_editor_bounds("joystick").unwrap();
+        assert!((actual[2] - 1600. / 3.).abs() < 0.1);
+        assert!((actual[3] - actual[2]).abs() < 0.1);
+        p.screens
+            .touch
+            .editor
+            .as_ref()
+            .unwrap()
+            .draft()
+            .validate()
+            .unwrap();
+    }
 }
