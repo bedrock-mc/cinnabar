@@ -266,8 +266,6 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
     if state.spin_attack_ticks.is_some() == spinning {
         return;
     }
-    // The spin now follows the server, not a local launch.
-    authority.launched_spin = None;
     if spinning {
         state.spin_attack_ticks = Some(authority.cleared_spin_on(state.tick).unwrap_or(0));
     } else if let Some(ticks) = state.spin_attack_ticks.take() {
@@ -311,6 +309,9 @@ fn apply_live_correction(
     let word = correction.apply(live);
     apply_pose(word, correction.mask, modes, state);
     if correction.mask & SPINNING != 0 {
+        // The spin now follows the server, not a local launch, even when the
+        // write matches the live spin.
+        authority.launched_spin = None;
         write_live_spin(state, authority, word.has(SPINNING));
     }
 }

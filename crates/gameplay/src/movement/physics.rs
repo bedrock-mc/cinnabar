@@ -722,8 +722,10 @@ impl LocalPhysicsController {
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
-                    let spun = entry_flags.spinning() || input.riptide.is_some();
-                    let launched = input.riptide.is_some();
+                    let launched = input.riptide.is_some()
+                        && input.mode != sim::MovementMode::Riding
+                        && !input.spectator;
+                    let spun = entry_flags.spinning() || launched;
                     server_flags::note_spin_end(&mut self.server_flags, spun, launched, state);
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
