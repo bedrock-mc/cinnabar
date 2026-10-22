@@ -1,4 +1,4 @@
-//! Flat category rows and group dividers in the independently scrolling settings sidebar.
+﻿//! Flat category rows and group dividers in the independently scrolling settings sidebar.
 
 use super::super::focus;
 use super::super::motion::Kind;

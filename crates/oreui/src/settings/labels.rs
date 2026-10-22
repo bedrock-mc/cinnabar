@@ -1,4 +1,4 @@
-//! Displayed option labels and help text shared by category rows and search.
+﻿//! Displayed option labels and help text shared by category rows and search.
 
 use super::Content;
 use launcher::menu::settings_options::SettingId;
