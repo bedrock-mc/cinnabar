@@ -82,6 +82,10 @@ pub(super) fn press(
         });
         return true;
     }
+    // A slider owns its track for the whole gesture, including diagonal movement.
+    if region.is_some_and(|region| region.enabled && region.kind == HitKind::Slider) {
+        return true;
+    }
     // The view maps `button.menu_select` to its touch button: a press anywhere in it.
     let touched = frame.hits.iter().rev().find(|view| {
         view.kind == HitKind::ScrollView

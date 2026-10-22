@@ -59,6 +59,11 @@ impl UiPresentationRuntime {
         Ok(true)
     }
 
+    /// Whether the visible chat history owns a finger's initial contact.
+    pub fn chat_history_contains(&self, point: UiPoint) -> bool {
+        self.screens.chat.history_contains(point)
+    }
+
     /// Returns a displayed web target from the last chat frame.
     pub fn chat_link(&self, index: usize) -> Option<&str> {
         self.screens.chat.link(index)

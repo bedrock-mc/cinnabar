@@ -76,6 +76,31 @@ fn only_chat_history_background_follows_opacity_on_rebind() {
     }
 }
 
+/// Only an uncovered, painted history viewport may capture a scrolling finger.
+#[test]
+fn history_touch_capture_excludes_popups_and_other_controls() {
+    let point = ui::UiPoint::new(20.0, 20.0).unwrap();
+    let mut chat = ChatScreen {
+        history_bounds: Some(
+            ui::UiRect::new(
+                ui::UiPoint::new(0.0, 0.0).unwrap(),
+                ui::UiPoint::new(100.0, 100.0).unwrap(),
+            )
+            .unwrap(),
+        ),
+        ..Default::default()
+    };
+    assert!(chat.history_contains(point));
+    assert!(!chat.history_contains(ui::UiPoint::new(200.0, 20.0).unwrap()));
+    chat.settings.set_open(true);
+    assert!(!chat.history_contains(point));
+    chat.settings.set_open(false);
+    chat.pending_link = Some("https://example.test".into());
+    assert!(!chat.history_contains(point));
+    chat.close();
+    assert!(!chat.history_contains(point));
+}
+
 #[test]
 fn review_chat_settings_own_wheel_input() {
     let mut chat = ChatScreen {

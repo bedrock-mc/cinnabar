@@ -42,6 +42,7 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
                 &mut runtime,
                 &frame,
                 EngineInput {
+                    touch: false,
                     cursor: Some(cursor),
                     keys: &[],
                     pointer: PointerButtons {
@@ -134,6 +135,12 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
 
 #[test]
 fn a_toggle_mapped_to_submit_answers_with_its_changed_value_on_release() {
+    toggle_submit(false);
+    toggle_submit(true);
+}
+
+/// Touch toggles defer changes until release, while mouse toggles retain their press behavior.
+fn toggle_submit(touch: bool) {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
         &mut player,
@@ -180,6 +187,7 @@ fn a_toggle_mapped_to_submit_answers_with_its_changed_value_on_release() {
             &mut runtime,
             &frame,
             EngineInput {
+                touch,
                 cursor: Some(cursor),
                 keys: &[],
                 pointer: PointerButtons {
@@ -194,6 +202,12 @@ fn a_toggle_mapped_to_submit_answers_with_its_changed_value_on_release() {
                 animator: None,
             },
         );
+        if down && touch {
+            assert_eq!(
+                runtime.server_forms().engine().values,
+                [FormValue::Toggle(false)]
+            );
+        }
     }
     let mut sent = Vec::new();
     assert!(
@@ -335,6 +349,7 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
         &mut runtime,
         &frame,
         EngineInput {
+            touch: false,
             cursor: Some(UiPoint::new(gui[0], gui[1]).unwrap()),
             keys: &[],
             pointer: PointerButtons {
@@ -385,6 +400,7 @@ fn review_ui_release_applies_the_final_control_drag_position() {
             &mut runtime,
             &frame,
             EngineInput {
+                touch: false,
                 cursor: Some(cursor),
                 keys: &[],
                 pointer: PointerButtons {
@@ -441,6 +457,7 @@ fn review_ui_release_applies_the_final_scrollbar_position() {
         &mut runtime,
         &frame,
         EngineInput {
+            touch: false,
             cursor: Some(
                 UiPoint::new(frame.origin[0], frame.origin[1] + 30.0 * frame.scale).unwrap(),
             ),
