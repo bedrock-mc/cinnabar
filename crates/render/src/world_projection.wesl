@@ -11,12 +11,9 @@ fn section_camera_offset(section_origin: vec3<i32>, local: vec3<f32>, camera: ve
 
 /// Clip position of a point `offset` from `camera`.
 /// Declare position outputs invariant to preserve matching arithmetic across world passes.
+/// Absolute positions pass `world - camera` so overlays align with camera-relative terrain.
+/// Pass a matrix read from its binding. Startup crashes in an Adreno Vulkan shader compiler
+/// coincided with forwarding a matrix parameter to another function, so avoid that pattern.
 fn camera_offset_clip(clip_from_world: mat4x4<f32>, camera: vec3<f32>, offset: vec3<f32>) -> vec4<f32> {
     return clip_from_world * vec4(offset, 0.0) + clip_from_world * vec4(camera, 1.0);
-}
-
-/// Projects an absolute world position through its exact difference from a nearby camera.
-/// This keeps overlays aligned with camera-relative terrain.
-fn world_clip(clip_from_world: mat4x4<f32>, camera: vec3<f32>, world: vec3<f32>) -> vec4<f32> {
-    return camera_offset_clip(clip_from_world, camera, world - camera);
 }

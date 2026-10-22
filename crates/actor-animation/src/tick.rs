@@ -99,6 +99,8 @@ pub struct ActorTickContext {
     pub camera_position: [f32; 3],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
     pub armor: [Option<WornArmor>; 5],
+    /// Nonempty worn slots, including stacks whose item identity is not yet resolved.
+    pub equipment_count: u8,
     /// The player's skin carries a cape image.
     pub has_cape: bool,
     /// The player's skin model inputs, when it may name its own geometry.

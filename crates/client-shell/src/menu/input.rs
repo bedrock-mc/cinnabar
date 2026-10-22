@@ -697,6 +697,7 @@ pub fn drive_menu_input(
         caret_press = pointer.zip(action.text_field());
     }
     if touches.any_just_pressed() {
+        menu.touch_available = true;
         menu.input_mode = MenuInputMode::Touch;
     }
     for touch in touches.iter_just_pressed() {
