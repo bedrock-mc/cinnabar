@@ -74,7 +74,7 @@ pub struct Definition {
 macro_rules! options {
     ($($id:ident: $label:literal, $tab:ident, $default:expr, $control:expr, $cheats:expr, $storage:expr, $creation:expr;)*) => {
         /// Stable identities shared by the form, saved metadata and BDS configuration.
-        #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
         #[serde(rename_all = "snake_case")]
         pub enum WorldOption { $($id,)* }
         impl WorldOption {
