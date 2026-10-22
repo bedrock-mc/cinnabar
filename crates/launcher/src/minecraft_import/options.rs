@@ -139,12 +139,6 @@ pub const MAPPINGS: &[Mapping] = &[
         category: Category::Controls,
     },
     Mapping {
-        source: "ctrl_autojump",
-        destination: SettingId::KeyboardMouseAutojump,
-        encoding: Encoding::Toggle,
-        category: Category::Controls,
-    },
-    Mapping {
         source: "audio_main",
         destination: SettingId::MainVolume,
         encoding: Encoding::Fraction,
@@ -201,12 +195,6 @@ pub const MAPPINGS: &[Mapping] = &[
     Mapping {
         source: "audio_weather",
         destination: SettingId::WeatherVolume,
-        encoding: Encoding::Fraction,
-        category: Category::Audio,
-    },
-    Mapping {
-        source: "audio_texttospeech",
-        destination: SettingId::TexttospeechVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },

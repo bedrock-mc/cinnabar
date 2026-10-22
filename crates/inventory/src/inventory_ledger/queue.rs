@@ -440,9 +440,7 @@ impl PlayerInventoryLedger {
                 }
                 self.require_rollback_recovery(cell);
             }
-            if self.confirmed.set(cell, backing) && !rejected && cell == Cell::Offhand {
-                self.offhand_written = true;
-            }
+            self.confirmed.set(cell, backing);
             if rejected
                 && to.is_none()
                 && let Some(previous) = self.queue.iter_mut().rev().find(|previous| {

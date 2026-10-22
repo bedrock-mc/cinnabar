@@ -17,6 +17,8 @@ use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryL
 
 mod allocation;
 mod inputs;
+mod materials;
+pub(crate) use materials::AutoCraftMaterials;
 
 #[cfg(test)]
 thread_local! {

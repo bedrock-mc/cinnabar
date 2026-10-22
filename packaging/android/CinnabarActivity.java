@@ -1,6 +1,7 @@
 package @APPLICATION_ID@;
 
 import android.app.NativeActivity;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,6 +19,7 @@ public final class CinnabarActivity extends NativeActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        FilePicker.attach(this);
         startup = new StartupScreen(this);
         addContentView(startup, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
@@ -38,6 +40,12 @@ public final class CinnabarActivity extends NativeActivity {
         startupActive = true;
         super.onResume();
         immersiveMode.restore();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (!FilePicker.onResult(requestCode, resultCode, data)) {
+            super.onActivityResult(requestCode, resultCode, data);
+        }
     }
 
     @Override protected void onPause() {

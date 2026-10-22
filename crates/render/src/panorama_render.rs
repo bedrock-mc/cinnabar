@@ -131,10 +131,15 @@ struct PanoramaGpu {
     _texture: Texture,
     texture_view: TextureView,
     faces_revision: Option<u64>,
+    /// Frames to wait before retrying faces the device had no memory for.
+    upload_backoff: u8,
     visible: bool,
     bind_group: Option<BindGroup>,
     pipelines: BTreeMap<Entity, CachedRenderPipelineId>,
 }
+
+const FACES_LABEL: &str = "menu panorama faces";
+const UPLOAD_RETRY_FRAMES: u8 = 60;
 
 fn texture_array(
     device: &RenderDevice,
@@ -145,7 +150,7 @@ fn texture_array(
     let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
-            label: Some("menu panorama faces"),
+            label: Some(FACES_LABEL),
             size: Extent3d {
                 width: side,
                 height: side,
@@ -190,6 +195,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
         _texture: texture,
         texture_view,
         faces_revision: None,
+        upload_backoff: 0,
         visible: false,
         bind_group: None,
         pipelines: BTreeMap::new(),
@@ -202,19 +208,30 @@ fn prepare_panorama(
     queue: Res<RenderQueue>,
     mut gpu: ResMut<PanoramaGpu>,
 ) {
-    if gpu.faces_revision != Some(scene.faces_revision) {
-        let (texture, view) = match &scene.faces {
+    gpu.upload_backoff = gpu.upload_backoff.saturating_sub(1);
+    if gpu.faces_revision != Some(scene.faces_revision) && gpu.upload_backoff == 0 {
+        let uploaded = match &scene.faces {
             Some(faces) => {
-                let uploaded = texture_array(&device, &queue, faces.side(), faces.layer_major());
-                scene.mark_uploaded(scene.faces_revision);
+                let bytes = faces.layer_major().len() as u64;
+                let uploaded = crate::gpu_allocation::checked(&device, FACES_LABEL, bytes, || {
+                    texture_array(&device, &queue, faces.side(), faces.layer_major())
+                });
+                if uploaded.is_some() {
+                    scene.mark_uploaded(scene.faces_revision);
+                }
                 uploaded
             }
-            None => texture_array(&device, &queue, 1, &[0; 24]),
+            None => Some(texture_array(&device, &queue, 1, &[0; 24])),
         };
-        gpu._texture = texture;
-        gpu.texture_view = view;
-        gpu.faces_revision = Some(scene.faces_revision);
-        gpu.bind_group = None;
+        if let Some((texture, view)) = uploaded {
+            gpu._texture = texture;
+            gpu.texture_view = view;
+            gpu.faces_revision = Some(scene.faces_revision);
+            gpu.bind_group = None;
+        } else {
+            // Out of memory keeps the previous faces and retries after a short wait.
+            gpu.upload_backoff = UPLOAD_RETRY_FRAMES;
+        }
     }
     let Some(view) = scene.view.filter(|_| scene.has_faces()).or_else(|| {
         // Missing faces still need an opaque cover while startup renders underneath.
@@ -519,6 +536,34 @@ mod review_tests {
         app.world_mut().resource_mut::<PanoramaScene>().show(None);
         app.world_mut().run_system_once(queue_panorama).unwrap();
         assert!(app.world().resource::<PanoramaGpu>().pipelines.is_empty());
+    }
+
+    /// Out of memory keeps the previous faces, leaves the pixels for a retry and then uploads.
+    #[test]
+    fn faces_the_device_cannot_hold_retry_later() {
+        let (mut app, _) = fixture::app();
+        app.init_resource::<PanoramaScene>();
+        app.world_mut().run_system_once(init_gpu).unwrap();
+        let initial = app.world().resource::<PanoramaGpu>().texture_view.id();
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .set_faces(Some(std::sync::Arc::new(
+                render_model::PanoramaFaces::new(1, std::array::from_fn(|_| vec![255; 4])).unwrap(),
+            )));
+        {
+            let _failure = crate::gpu_allocation::inject(|label, _| label == FACES_LABEL);
+            app.world_mut().run_system_once(prepare_panorama).unwrap();
+        }
+        let gpu = app.world().resource::<PanoramaGpu>();
+        assert_eq!(gpu.texture_view.id(), initial);
+        assert_eq!(gpu.faces_revision, None);
+        for _ in 0..UPLOAD_RETRY_FRAMES {
+            app.world_mut().run_system_once(prepare_panorama).unwrap();
+        }
+        let revision = app.world().resource::<PanoramaScene>().faces_revision;
+        let gpu = app.world().resource::<PanoramaGpu>();
+        assert_ne!(gpu.texture_view.id(), initial);
+        assert_eq!(gpu.faces_revision, Some(revision));
     }
 
     #[test]

@@ -25,13 +25,15 @@ const MAX_BONE_VISIBILITY: usize = 256;
 /// Collision primitives one custom block may contribute before extras are ignored.
 const MAX_COLLISION_BOXES: usize = 256;
 /// The namespace of vanilla's own blocks.
-const VANILLA_NAMESPACE: &str = "minecraft";
+pub(crate) const VANILLA_NAMESPACE: &str = "minecraft";
 
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
     /// Mining values shared by every state unless a permutation replaces them.
     pub mining: Arc<CustomBlockMining>,
+    /// `minecraft:sound` material declared by the block's base component set.
+    pub sound: Option<Arc<str>>,
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
@@ -475,6 +477,7 @@ impl CustomBlocks {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
                         mining: definition.mining,
+                        sound: definition.sound,
                         name: Arc::from(name),
                         tags: definition.tags,
                         state_count: definition.state_count,
@@ -532,6 +535,7 @@ impl CustomBlocks {
 
 struct Definition {
     mining: Arc<CustomBlockMining>,
+    sound: Option<Arc<str>>,
     tags: Arc<[Arc<str>]>,
     skipped: usize,
     state_count: u32,
@@ -640,6 +644,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         );
     Some(Definition {
         mining: mining.unwrap_or_default(),
+        sound: sound_component(components),
         tags,
         skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
         state_count: states.count,
@@ -675,6 +680,17 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             materialization_disabled: false,
         },
     })
+}
+
+/// Reads a nonempty material from a scalar or compound sound component.
+fn sound_component(components: Option<&Nbt>) -> Option<Arc<str>> {
+    let component = components?.field("minecraft:sound")?;
+    let sound = component
+        .field("sound")
+        .and_then(Nbt::as_str)
+        .or_else(|| component.as_str())
+        .filter(|sound| !sound.is_empty())?;
+    Some(sound.into())
 }
 
 /// Whether using a block with these components interacts with it: a crafting table, an

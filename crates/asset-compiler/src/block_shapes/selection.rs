@@ -98,6 +98,10 @@ pub(super) fn shape(record: &RegistryRecord, shapes: ShapeTraits) -> Option<Shap
     if record.traits.contains(BlockTraits::TORCH) {
         return torch_shape(record);
     }
+    if assets::facts::block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::EndRod
+    {
+        return end_rod_shape(record);
+    }
     let (inset, height, edge): (f32, f32, f32) = match () {
         _ if shapes.contains(ShapeTraits::GRASS) => (0.1, 0.8, 0.9),
         _ if shapes.contains(ShapeTraits::SHORT_DRY_GRASS) => (0.125, 0.625, 0.875),
@@ -173,6 +177,22 @@ fn torch_shape(record: &RegistryRecord) -> Option<ShapeBox> {
         "south" => ([0.35, 0.2, 0.7], [0.65, 0.8, 1.0]),
         _ => ([0.4, 0.0, 0.4], [0.6, 0.6, 0.6]),
     };
+    Some(bounds(min, max))
+}
+
+/// End rods use a 4/16 square stem and stretch the native box to one block on their axis.
+fn end_rod_shape(record: &RegistryRecord) -> Option<ShapeBox> {
+    let facing = super::state::State::read(record)?.number(BlockProperty::FacingDirection)?;
+    let axis = match facing {
+        0 | 1 => 1,
+        2 | 3 => 2,
+        4 | 5 => 0,
+        _ => return None,
+    };
+    let mut min = [0.375; 3];
+    let mut max = [0.625; 3];
+    min[axis] = 0.0;
+    max[axis] = 1.0;
     Some(bounds(min, max))
 }
 
