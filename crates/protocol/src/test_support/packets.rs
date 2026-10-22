@@ -346,3 +346,23 @@ pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
         },
     )
 }
+
+/// Normalizes an original map row through its BGRA wire encoding and the real decoder.
+pub fn map_pixel_row(map_id: i64, rgba: &[[u8; 4]]) -> WorldEvent {
+    let packet = round_trip(packets::ClientboundMapItemData {
+        map_id: ActorUniqueID(map_id),
+        width: Some(wire::ZigZag32(rgba.len().try_into().unwrap())),
+        height: Some(wire::ZigZag32(1)),
+        start_x: Some(wire::ZigZag32(0)),
+        start_y: Some(wire::ZigZag32(0)),
+        pixels: Some(
+            rgba.iter()
+                .map(|&[red, green, blue, alpha]| {
+                    wire::U32LE(u32::from_le_bytes([blue, green, red, alpha]))
+                })
+                .collect(),
+        ),
+        ..Default::default()
+    });
+    into_world_event(Packet::new(packet), 0).unwrap().unwrap()
+}

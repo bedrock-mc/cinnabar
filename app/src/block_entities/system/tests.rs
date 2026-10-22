@@ -106,3 +106,22 @@ fn session_change_drops_runtime_id_keyed_caches() {
     assert!(runtime.blocks.is_empty() && runtime.shapes.is_empty());
     assert!(runtime.bell_rings.is_empty());
 }
+
+#[test]
+fn framed_map_wire_colors_reach_the_rgba_canvas() {
+    let expected = [
+        [0x80, 0x80, 0x50, 0xff],
+        [0x11, 0x22, 0x33, 0x44],
+        [0x12, 0x34, 0x56, 0],
+    ];
+    let protocol::WorldEvent::MapData(event) =
+        protocol::test_support::packets::map_pixel_row(266, &expected)
+    else {
+        panic!("valid map pixels must reach the frame");
+    };
+    assert_eq!(
+        map_canvas(&event.pixels),
+        expected.concat(),
+        "framed map must preserve wire colors and alpha"
+    );
+}

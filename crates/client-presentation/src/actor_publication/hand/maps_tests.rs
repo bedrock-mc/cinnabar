@@ -269,3 +269,26 @@ fn equipped_map_is_visible_and_the_equip_dip_moves_it_below_the_view() {
     assert!((held.y - lowered.y - 1.2).abs() < 1e-5);
     assert!(lowered.y < -1.0);
 }
+
+#[test]
+fn held_map_wire_colors_reach_the_rgba_atlas() {
+    let (mut stream, _, _, _) = fixture(None);
+    let expected = [
+        [0x80, 0x80, 0x50, 0xff],
+        [0x11, 0x22, 0x33, 0x44],
+        [0x12, 0x34, 0x56, 0],
+    ];
+    stream
+        .submit(
+            stream.committed_sequence() + 1,
+            protocol::test_support::packets::map_pixel_row(266, &expected),
+        )
+        .unwrap();
+    let mut cache = MapCache::default();
+    let atlas = cache.image(&stream, 0, Some(266)).unwrap();
+    assert_eq!(
+        &atlas.rgba8[..expected.len() * 4],
+        expected.concat(),
+        "held map must preserve wire colors and alpha"
+    );
+}
