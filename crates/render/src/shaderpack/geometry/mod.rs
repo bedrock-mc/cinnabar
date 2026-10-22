@@ -117,6 +117,10 @@ impl Plugin for ShaderpackGeometryPlugin {
         render_app
             .init_resource::<ShaderpackGeometrySettings>()
             .add_systems(
+                bevy::render::ExtractSchedule,
+                super::kernels::extract_shared_shaders,
+            )
+            .add_systems(
                 Render,
                 super::kernels::prepare_kernels.before(RenderSystems::PrepareViews),
             )

@@ -11,6 +11,7 @@ use render_scene::shaderpack::ShaderPackRendering;
 #[derive(Resource)]
 pub(super) struct Kernels {
     pub cache: PipelineCache,
+    shared_loaded: bool,
 }
 
 impl Kernels {
@@ -20,7 +21,41 @@ impl Kernels {
         super::actors::load_shaders(&mut cache);
         super::geometry::load_shaders(&mut cache);
         super::atlas::load_shaders(&mut cache);
-        Self { cache }
+        Self {
+            cache,
+            shared_loaded: false,
+        }
+    }
+}
+
+/// Supplies native modules and later asset changes only while an optional cache exists.
+pub(super) fn extract_shared_shaders(
+    kernels: Option<ResMut<Kernels>>,
+    shaders: bevy::render::Extract<Res<Assets<Shader>>>,
+    mut events: bevy::render::Extract<MessageReader<AssetEvent<Shader>>>,
+) {
+    let Some(mut kernels) = kernels else {
+        events.clear();
+        return;
+    };
+    if !kernels.shared_loaded {
+        for (id, shader) in shaders.iter() {
+            kernels.cache.set_shader(id, shader.clone());
+        }
+        kernels.shared_loaded = true;
+        events.clear();
+        return;
+    }
+    for event in events.read() {
+        match event {
+            AssetEvent::Added { id } | AssetEvent::Modified { id } => {
+                if let Some(shader) = shaders.get(*id) {
+                    kernels.cache.set_shader(*id, shader.clone());
+                }
+            }
+            AssetEvent::Removed { id } => kernels.cache.remove_shader(*id),
+            AssetEvent::Unused { .. } | AssetEvent::LoadedWithDependencies { .. } => {}
+        }
     }
 }
 

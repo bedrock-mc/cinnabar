@@ -210,3 +210,53 @@ impl FromWorld for ExpansionPipelines {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shaderpack::kernels::Kernels;
+    use bevy::{
+        app::SubApp,
+        prelude::*,
+        render::{ExtractSchedule, MainWorld, Render, RenderApp},
+    };
+
+    #[test]
+    fn production_expansion_kernels_resolve_native_imports_after_each_activation() {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let mut app = App::new();
+        app.init_resource::<Assets<Shader>>()
+            .init_resource::<Messages<AssetEvent<Shader>>>();
+        let mut render = SubApp::new();
+        render.add_schedule(Render::base_schedule());
+        render.add_schedule(Schedule::new(ExtractSchedule));
+        app.insert_sub_app(RenderApp, render);
+        crate::chunk::plugin::load_shaders(&mut app);
+        app.add_plugins(super::super::ShaderpackGeometryPlugin);
+        let mut render = app.remove_sub_app(RenderApp).unwrap();
+        render
+            .world_mut()
+            .insert_resource(MainWorld(std::mem::take(app.world_mut())));
+        let (device, _) = wgpu::Device::noop(&Default::default());
+        let device = bevy::render::renderer::RenderDevice::from(device);
+        for _ in 0..2 {
+            render
+                .world_mut()
+                .insert_resource(Kernels::new(device.clone(), true));
+            render.world_mut().init_resource::<ExpansionPipelines>();
+            render.world_mut().run_schedule(ExtractSchedule);
+            let ids = render.world().resource::<ExpansionPipelines>().pipelines;
+            let mut kernels = render.world_mut().resource_mut::<Kernels>();
+            kernels.cache.process_queue();
+            for id in ids {
+                assert!(
+                    kernels.cache.get_compute_pipeline(id).is_some(),
+                    "{:?}",
+                    kernels.cache.get_compute_pipeline_state(id)
+                );
+            }
+            render.world_mut().remove_resource::<ExpansionPipelines>();
+            render.world_mut().remove_resource::<Kernels>();
+        }
+    }
+}
