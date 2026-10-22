@@ -83,7 +83,8 @@ impl PlayerInventoryLedger {
                     .and_then(|ingredient| self.ghost_item(ingredient))
             })
             .collect();
-        let allocation = self.recipe_allocation(&layout);
+        let inputs = self.auto_craft_inputs();
+        let allocation = inputs.allocation(&layout);
         let plan = (1..=u8::MAX)
             .rev()
             .find_map(|crafts| allocation.plan(crafts, true))

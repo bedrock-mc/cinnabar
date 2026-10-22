@@ -133,19 +133,7 @@ fn shift_craft_names_and_consumes_only_one_plank_variant_per_ingredient() {
         count: 2,
         ..IngredientFixture::tagged("test:wood")
     }]);
-    let mut ledger = stocked(&[(9, PLANKS, 101, 3), (10, LOG, 102, 2)]);
-    let mut entries = registry().entries.to_vec();
-    for entry in &mut entries {
-        if entry.network_id == LOG {
-            entry.identifier = Arc::from("minecraft:birch_planks");
-        }
-        if matches!(entry.network_id, LOG | PLANKS) {
-            entry.item_tags = Arc::from([Arc::from("test:wood")]);
-        }
-    }
-    ledger.apply_registry(&ItemRegistryEvent {
-        entries: entries.into(),
-    });
+    let mut ledger = plank_ledger(&[(9, PLANKS, 101, 3), (10, BIRCH_PLANKS, 102, 2)]);
     ledger.begin_auto_craft(&recipe, true).unwrap();
     let Some(StackRequestAction::AutoCraft {
         crafts,

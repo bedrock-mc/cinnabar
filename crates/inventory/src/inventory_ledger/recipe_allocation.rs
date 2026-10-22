@@ -1,54 +1,89 @@
 //! Exact recipe allocation shared by availability, grid placement and auto-craft requests.
 
-use protocol::{NetworkItemStack, RecipeIngredientView};
+use protocol::{ItemRegistryEntry, NetworkItemStack, RecipeHandle, RecipeIngredientView};
 
 use super::PlayerInventoryLedger;
-use super::auto_craft::IngredientSources;
+use super::cells::Cell;
+
+/// One ingredient's `(cell, amount, stack id)` sources.
+pub(super) type IngredientSources = Vec<(Cell, u16, i32)>;
 use super::registry::entry_capacity;
 
 /// One stack-compatible variant, with its source cells in their original order.
-struct Variant {
-    stack: NetworkItemStack,
+struct Variant<'a> {
+    stack: &'a NetworkItemStack,
+    entry: &'a ItemRegistryEntry,
     capacity: u16,
     sources: IngredientSources,
     total: u32,
 }
 
+/// Validated source variants shared by every candidate in a recipe-book projection.
+pub(crate) struct RecipeInputs<'a> {
+    variants: Vec<Variant<'a>>,
+}
+
 /// At most nine ingredient cells and the concrete variants each accepts.
-pub(super) struct RecipeAllocation {
-    variants: Vec<Variant>,
+pub(super) struct RecipeAllocation<'a> {
+    variants: &'a [Variant<'a>],
     counts: Vec<u16>,
     accepts: Vec<Vec<usize>>,
 }
 
-impl PlayerInventoryLedger {
+impl<'a> RecipeInputs<'a> {
     /// Groups usable grid and player stacks once, preserving source order and item data.
-    pub(super) fn recipe_allocation(
-        &self,
-        layout: &[Option<RecipeIngredientView>],
-    ) -> RecipeAllocation {
-        let mut variants: Vec<Variant> = Vec::new();
-        for cell in self.recipe_source_cells() {
-            let Some((stack, entry)) = self.auto_craft_stack(cell) else {
+    pub(super) fn new(ledger: &'a PlayerInventoryLedger) -> Self {
+        let mut variants: Vec<Variant<'a>> = Vec::new();
+        for cell in ledger.recipe_source_cells() {
+            let Some((stack, entry)) = ledger.auto_craft_stack(cell) else {
                 continue;
             };
             let source = (cell, stack.count, stack.stack_network_id);
             match variants
                 .iter_mut()
-                .find(|variant| Self::same_item(&variant.stack, stack))
+                .find(|variant| PlayerInventoryLedger::same_item(variant.stack, stack))
             {
                 Some(variant) => {
                     variant.sources.push(source);
                     variant.total += u32::from(stack.count);
                 }
                 None => variants.push(Variant {
-                    stack: stack.clone(),
+                    stack,
+                    entry,
                     capacity: entry_capacity(entry).map_or(0, u16::from),
                     sources: vec![source],
                     total: u32::from(stack.count),
                 }),
             }
         }
+        Self { variants }
+    }
+
+    /// Whether the admitted sources can supply one complete craft of this candidate.
+    pub(crate) fn can_craft(&self, recipe: &RecipeHandle) -> bool {
+        self.allocation(&recipe.ingredient_views())
+            .plan(1, false)
+            .is_some()
+    }
+
+    /// Whether any admitted variant matches an ingredient, without revalidating source bytes.
+    pub(crate) fn holds_any(&self, recipe: &RecipeHandle) -> bool {
+        recipe
+            .ingredient_views()
+            .iter()
+            .flatten()
+            .any(|ingredient| {
+                self.variants
+                    .iter()
+                    .any(|variant| variant.accepts(ingredient))
+            })
+    }
+
+    /// Binds a recipe's ingredient rows to already validated source variants.
+    pub(super) fn allocation(
+        &self,
+        layout: &[Option<RecipeIngredientView>],
+    ) -> RecipeAllocation<'_> {
         RecipeAllocation {
             counts: layout
                 .iter()
@@ -57,23 +92,35 @@ impl PlayerInventoryLedger {
             accepts: layout
                 .iter()
                 .map(|view| {
-                    variants
+                    self.variants
                         .iter()
                         .enumerate()
                         .filter_map(|(index, variant)| {
                             view.as_ref()
-                                .filter(|view| self.source_accepts(variant.sources[0].0, view))
+                                .filter(|view| variant.accepts(view))
                                 .map(|_| index)
                         })
                         .collect()
                 })
                 .collect(),
-            variants,
+            variants: &self.variants,
         }
     }
 }
 
-impl RecipeAllocation {
+impl Variant<'_> {
+    /// Matches an ingredient against the variant's retained registry binding and metadata.
+    fn accepts(&self, ingredient: &RecipeIngredientView) -> bool {
+        crate::ingredient_accepts(
+            ingredient,
+            &self.entry.identifier,
+            self.stack.metadata,
+            &self.entry.item_tags,
+        )
+    }
+}
+
+impl RecipeAllocation<'_> {
     /// Assigns every ingredient to one variant. Only physical grid cells need a stack limit;
     /// an auto-craft may consume several stacks of that variant in one request.
     pub(super) fn plan(&self, crafts: u8, in_grid: bool) -> Option<Vec<IngredientSources>> {
@@ -137,7 +184,7 @@ impl RecipeAllocation {
 
 /// Mutable state for one exact search; each failed branch restores its quantities and choices.
 struct Search<'a> {
-    allocation: &'a RecipeAllocation,
+    allocation: &'a RecipeAllocation<'a>,
     demands: Vec<u16>,
     in_grid: bool,
     remaining: Vec<u32>,

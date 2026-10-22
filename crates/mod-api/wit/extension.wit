@@ -218,6 +218,9 @@ interface input {
         keys-held: option<list<string>>,
         events: bool,
     }
+    /// Retained attack/use press caps, each 1–100 per second; none restores ordinary input.
+    /// Only removes excess presses; never generates input. Requires controls authority.
+    set-click-limits: func(attack: option<u32>, item-use: option<u32>) -> result<_, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     read-controls: func() -> result<controls, string>;
@@ -236,6 +239,9 @@ interface input {
 
 /// Local presentation only; no world mutation or outbound packets.
 interface environment {
+    /// Local visual weather target; none restores tracked server weather.
+    enum weather { clear, rain, thunder }
+    set-weather-override: func(value: option<weather>) -> result<_, string>;
     /// Fixes visual time to 0–23999 ticks; none restores the tracked server clock.
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
     /// Retained local lighting override; requires the separate fullbright grant.

@@ -13,11 +13,20 @@ use super::crafting::{ExtraDestination, OutputPlanner, action_amounts, created_s
 use super::gesture::Submission;
 use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
+use super::recipe_allocation::{IngredientSources, RecipeInputs};
 use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
-/// One ingredient's `(cell, amount, stack id)` sources.
-pub(super) type IngredientSources = Vec<(Cell, u16, i32)>;
+#[cfg(test)]
+thread_local! {
+    static SOURCE_VALIDATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Takes the current thread's count of ingredient source byte validations.
+#[cfg(test)]
+pub(crate) fn take_source_validations() -> usize {
+    SOURCE_VALIDATIONS.with(|count| count.replace(0))
+}
 
 impl PlayerInventoryLedger {
     /// Cells recipe-book availability, placement and crafting draw from, in order: the open
@@ -37,6 +46,8 @@ impl PlayerInventoryLedger {
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
         let held = self.view().get(cell)?;
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
+        #[cfg(test)]
+        SOURCE_VALIDATIONS.with(|count| count.set(count.get() + 1));
         (recipe_input_valid(&held.stack)
             && !crate::item_permissions::special_removal_locked(&held.stack.extra_data)
             && !self.awaiting_identity(held))
@@ -58,13 +69,12 @@ impl PlayerInventoryLedger {
     /// Whether the grid or inventory holds any of `recipe`'s ingredients.
     #[must_use]
     pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
-        let views = recipe.ingredient_views();
-        self.recipe_source_cells().into_iter().any(|cell| {
-            views
-                .iter()
-                .flatten()
-                .any(|ingredient| self.source_accepts(cell, ingredient))
-        })
+        self.auto_craft_inputs().holds_any(recipe)
+    }
+
+    /// Admits source stacks once for all candidates in one recipe-book projection.
+    pub(crate) fn auto_craft_inputs(&self) -> RecipeInputs<'_> {
+        RecipeInputs::new(self)
     }
 
     /// Whether the grid and inventory together hold every ingredient of `recipe`.
@@ -81,7 +91,10 @@ impl PlayerInventoryLedger {
         crafts: u8,
     ) -> Option<Vec<IngredientSources>> {
         let views = recipe.ingredient_views();
-        let sources = self.recipe_allocation(&views).plan(crafts, false)?;
+        let sources = self
+            .auto_craft_inputs()
+            .allocation(&views)
+            .plan(crafts, false)?;
         Some(
             views
                 .iter()
@@ -116,7 +129,8 @@ impl PlayerInventoryLedger {
 
     /// The highest repeat count one output stack and one variant per ingredient can supply.
     fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
-        let allocation = self.recipe_allocation(&recipe.ingredient_views());
+        let inputs = self.auto_craft_inputs();
+        let allocation = inputs.allocation(&recipe.ingredient_views());
         (1..=self.crafts_per_request(recipe).unwrap_or(0))
             .rev()
             .find(|crafts| allocation.plan(*crafts, false).is_some())

@@ -43,6 +43,7 @@ pub(in crate::compiler) mod honey;
 pub(in crate::compiler) mod kelp;
 pub(in crate::compiler) mod ladders;
 pub(in crate::compiler) mod lantern;
+pub(in crate::compiler) mod leaf_litter;
 pub(in crate::compiler) mod lever;
 pub(in crate::compiler) mod lightning_rod;
 pub(in crate::compiler) mod lily_pad;
