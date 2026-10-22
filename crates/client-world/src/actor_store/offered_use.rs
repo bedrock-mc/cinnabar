@@ -16,7 +16,7 @@ impl ActorStore {
         if actor.entity_fact.actor_use_resolver != ActorUseResolver::Components {
             return OfferedUse::Unresolved;
         }
-        let Some(item_identifier) = self.items.retail_throwable_identifier(item.network_id())
+        let Some(item_identifier) = self.items.native_throwable_identifier(item.network_id())
         else {
             return OfferedUse::Unresolved;
         };

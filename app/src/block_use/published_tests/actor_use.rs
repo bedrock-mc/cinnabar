@@ -174,6 +174,16 @@ fn throw_at_entity(
     offered_use: assets::entity::offered_use::EntityUseAdmission,
     interact_text: &str,
 ) -> Vec<&'static str> {
+    throw_at_entity_in_session(identifier, offered_use, interact_text, false)
+}
+
+/// Replays negotiated native startup and an optional empty live registry before selecting a stack.
+fn throw_at_entity_in_session(
+    identifier: &str,
+    offered_use: assets::entity::offered_use::EntityUseAdmission,
+    interact_text: &str,
+    native_startup_then_empty: bool,
+) -> Vec<&'static str> {
     let mut compiled =
         assets::carriers::startup::test_carriers::synthetic_interaction_assets(identifier);
     let mut sources = compiled.sources.into_vec();
@@ -208,7 +218,56 @@ fn throw_at_entity(
         NetworkHandle::<PackApplication>::stub_capturing_packets(),
         Some(entities),
     );
-    super::item_use_tests::hold_snowball(&mut world);
+    if native_startup_then_empty {
+        let mut entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:snowball")
+            .unwrap()
+            .clone();
+        entry.component_based = true;
+        entry.version = protocol::ItemRegistryVersion::None;
+        entry.components = None;
+        entry.canonical_empty_component_data = true;
+        assert!(entry.component_based);
+        assert_eq!(entry.version, protocol::ItemRegistryVersion::None);
+        assert!(entry.canonical_empty_component_data);
+        assert!(entry.components.is_none());
+        assert!(entry.item_tags.is_empty());
+        let network_id = entry.network_id;
+        let startup = protocol::ItemRegistryEvent {
+            entries: [entry].into(),
+        };
+        let live = protocol::ItemRegistryEvent { entries: [].into() };
+        {
+            let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+            let stream = client.stream.as_mut().unwrap();
+            assert!(stream.seed_item_registry(startup.clone()));
+            let sequence = stream.committed_sequence() + 1;
+            stream
+                .submit(
+                    sequence,
+                    protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(
+                        live.clone(),
+                    )),
+                )
+                .unwrap();
+            test_time::eventually_within(
+                Duration::from_secs(5),
+                "empty live item registry",
+                || {
+                    stream.poll([4.5, 2.620_01, 8.5], 0);
+                    stream.committed_sequence() >= sequence
+                },
+            );
+        }
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        player.inventory.ledger_mut().apply_registry(&startup);
+        player.inventory.ledger_mut().apply_registry(&live);
+        drop(player);
+        super::item_use_tests::hold_air_stack(&mut world, network_id, 16, [].into());
+    } else {
+        super::item_use_tests::hold_snowball(&mut world);
+    }
     spawn_kind(
         &mut world,
         7.5,
@@ -331,4 +390,12 @@ fn possible_ride_feed_equipment_and_offhand_offerings_consume_the_actor_press() 
             "{component}"
         );
     }
+}
+
+#[test]
+fn native_startup_then_empty_live_registry_still_throws_after_actor_interact() {
+    assert_eq!(
+        throw_at_entity_in_session("minecraft:zombie", no_component_offering(), "", true),
+        ["interact", "use"]
+    );
 }

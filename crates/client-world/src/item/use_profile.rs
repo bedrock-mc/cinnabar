@@ -96,11 +96,10 @@ pub fn resolve_item_use(
 }
 
 impl ItemStateStore {
-    /// Returns an unchanged retail throwable identity; server component behavior stays unresolved.
-    pub(crate) fn retail_throwable_identifier(&self, network_id: i32) -> Option<&str> {
+    /// Returns a compiled native throwable identity admitted without a component payload override.
+    pub(crate) fn native_throwable_identifier(&self, network_id: i32) -> Option<&str> {
         let record = self.registry.get(&network_id)?;
-        (!record.component_based
-            && self.facts.retail_id(network_id).is_some()
+        (record.unmodified_throwable
             && self.item_use_profile(network_id).kind == Some(assets::item_use::ItemUseKind::Throw))
         .then_some(record.identifier.as_ref())
     }
@@ -192,6 +191,24 @@ impl ItemStateStore {
             .copied()
             .unwrap_or_default()
     }
+}
+
+/// Admits a checked native use profile only when the negotiated payload is canonically empty.
+pub(super) fn unmodified_throwable(
+    entry: &protocol::ItemRegistryEntry,
+    assets: Option<&assets::RuntimeEntityAssets>,
+) -> bool {
+    !matches!(entry.version, protocol::ItemRegistryVersion::Unknown(_))
+        && entry.canonical_empty_component_data
+        && assets.is_some_and(|assets| {
+            matches!(
+                assets.item_use_profile(&entry.identifier),
+                ItemUseProfile::Provisional {
+                    kind: ItemUseKind::Throw,
+                    ..
+                }
+            )
+        })
 }
 
 /// Converts parsed wire evidence once before applying the common authored overlay.

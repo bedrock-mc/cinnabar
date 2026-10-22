@@ -28,18 +28,38 @@ pub(super) fn hold_air_item(
         }]
         .into(),
     };
-    let scope = {
+    {
         let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
-        let stream = client_world.stream.as_mut().unwrap();
-        assert!(stream.seed_item_registry(registry.clone()));
-        (
-            stream.authority().actor_session_id(),
-            stream.authority().current_dimension(),
-        )
+        assert!(
+            client_world
+                .stream
+                .as_mut()
+                .unwrap()
+                .seed_item_registry(registry.clone())
+        );
+    }
+    world
+        .resource_mut::<client_state::PlayerRuntime>()
+        .inventory
+        .ledger_mut()
+        .apply_registry(&registry);
+    hold_air_stack(world, network_id, count, extra_data)
+}
+
+/// Publishes an authoritative stack after the fixture has admitted its registry events.
+pub(super) fn hold_air_stack(
+    world: &mut World,
+    network_id: i32,
+    count: u8,
+    extra_data: std::sync::Arc<[u8]>,
+) -> (u64, i32) {
+    let scope = {
+        let client = world.resource::<crate::runtime::world::ClientWorld>();
+        let authority = client.stream.as_ref().unwrap().authority();
+        (authority.actor_session_id(), authority.current_dimension())
     };
     world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
-        player.inventory.ledger_mut().apply_registry(&registry);
         ui.inventory_ledger_mut(&mut player)
             .apply(&InventoryEvent::Slot(InventorySlotEvent {
                 identity: SlotIdentity {

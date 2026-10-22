@@ -60,6 +60,8 @@ pub struct CanonicalItemStack {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemRegistryRecord {
+    /// Checked native throwable use with no registry component payload override.
+    pub(crate) unmodified_throwable: bool,
     /// Descriptor after the current component payload has been admitted.
     pub grip: assets::item::grip::ItemGrip,
     /// Intrinsic shine resolved for the current numeric registry generation.
@@ -734,6 +736,7 @@ fn registry_record(
     assets: Option<&RuntimeEntityAssets>,
 ) -> CanonicalItemRegistryRecord {
     CanonicalItemRegistryRecord {
+        unmodified_throwable: use_profile::unmodified_throwable(entry, assets),
         grip: grip::resolve(entry, assets),
         glint: glint::resolve(entry, assets),
         identifier: Arc::clone(&entry.identifier),

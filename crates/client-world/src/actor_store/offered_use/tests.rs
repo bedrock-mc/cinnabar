@@ -128,7 +128,7 @@ fn matching_feed_or_unknown_group_state_cannot_become_an_absence_proof() {
 }
 
 #[test]
-fn a_server_component_override_cannot_inherit_the_retail_absence_proof() {
+fn a_nonempty_server_component_override_cannot_inherit_the_retail_absence_proof() {
     let mut store = fixture("minecraft:zombie", no_offering());
     let stack = stack("minecraft:snowball");
     let mut entry = protocol::vanilla_item_registry()
@@ -137,6 +137,7 @@ fn a_server_component_override_cannot_inherit_the_retail_absence_proof() {
         .unwrap()
         .clone();
     entry.component_based = true;
+    entry.canonical_empty_component_data = false;
     assert!(store.items.apply_registry(protocol::ItemRegistryEvent {
         entries: Arc::from([entry])
     }));
@@ -163,6 +164,93 @@ fn a_custom_actor_cannot_inherit_a_verified_base_resolver() {
     );
     assert_eq!(
         store.offered_throwable_use(actor, &stack("minecraft:snowball")),
+        OfferedUse::Unresolved
+    );
+}
+
+/// Recreates the native definition carried by a negotiated startup registry.
+fn component_native_snowball() -> protocol::ItemRegistryEntry {
+    let mut entry = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:snowball")
+        .unwrap()
+        .clone();
+    entry.component_based = true;
+    entry.version = protocol::ItemRegistryVersion::None;
+    entry.components = None;
+    entry.canonical_empty_component_data = true;
+    entry
+}
+
+#[test]
+fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
+    let mut store = fixture("minecraft:zombie", no_offering());
+    let entry = component_native_snowball();
+    assert!(entry.component_based);
+    assert_eq!(entry.version, protocol::ItemRegistryVersion::None);
+    assert!(entry.canonical_empty_component_data);
+    assert!(entry.components.is_none());
+    assert!(entry.item_tags.is_empty());
+    assert!(store.items.apply_registry(protocol::ItemRegistryEvent {
+        entries: Arc::from([entry.clone()])
+    }));
+    assert_eq!(
+        store.items.item_use_profile(entry.network_id).kind,
+        Some(assets::item_use::ItemUseKind::Throw)
+    );
+    assert_eq!(
+        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        OfferedUse::Absent
+    );
+    let mut data_driven = entry.clone();
+    data_driven.version = protocol::ItemRegistryVersion::DataDriven;
+    assert!(store.items.apply_registry(protocol::ItemRegistryEvent {
+        entries: Arc::from([data_driven])
+    }));
+    assert_eq!(
+        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        OfferedUse::Absent
+    );
+    for mutation in 0..4 {
+        let mut entry = entry.clone();
+        match mutation {
+            0 => entry.version = protocol::ItemRegistryVersion::Unknown(42),
+            1 => entry.canonical_empty_component_data = false,
+            2 => {
+                entry.canonical_empty_component_data = false;
+                entry.components = Some(Arc::new(protocol::ItemComponents::default()));
+            }
+            _ => entry.identifier = "fixture:custom_snowball".into(),
+        }
+        assert!(store.items.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry])
+        }));
+        assert_eq!(
+            store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
+#[test]
+fn an_empty_live_registry_uses_only_the_effective_builtin_throwable_record() {
+    let mut store = fixture("minecraft:zombie", no_offering());
+    assert!(store.items.apply_registry(protocol::ItemRegistryEvent {
+        entries: Arc::from([component_native_snowball()])
+    }));
+    store.apply_item_actor(
+        1,
+        2,
+        protocol::ItemActorEvent::Registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([]),
+        }),
+    );
+    assert_eq!(
+        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        OfferedUse::Absent
+    );
+    assert_eq!(
+        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:name_tag")),
         OfferedUse::Unresolved
     );
 }
