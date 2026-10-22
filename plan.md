@@ -220,9 +220,10 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
 The block climber's scaffolding and climbable-block flags are rewritten locally after
-each move and reported in the sync; ticks over unreadable terrain keep the previous
-contact. Spectators keep the server's flags, and contact before the first measured tick
-is measured at that tick's start; both are incomplete, untraced policies. Confirmed gaps: powder snow has no contextual collision
+each move and reported in the sync. Cells without usable facts count as empty, ticks
+whose movement origin is unavailable keep the previous contact, spectators keep the
+server's flags, and contact before the first measured tick is measured at that tick's
+start; these recovery policies are untraced and incomplete. Confirmed gaps: powder snow has no contextual collision
 for a snow-standing wearer (standing on its top, the fall-into shape), the simulator keeps
 no fall distance for the climber to reset, and the descent request reads sneak in every
 input mode. Whether powder snow holds a sneaking climber is untraced, so it is incomplete.

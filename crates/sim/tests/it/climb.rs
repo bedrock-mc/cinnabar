@@ -383,36 +383,59 @@ fn the_climber_scans_the_resolved_collision_box() {
     assert!(!tick.environment.over_scaffolding);
 }
 
+/// An initialized player entering a scaffold whose support cannot be read
+/// still measures the scaffold at its feet and climbs it next tick.
+#[test]
+fn entering_a_scaffold_over_an_unreadable_support_still_measures_it() {
+    let world = UnknownSupport(ScaffoldWorld {
+        scaffolds: vec![[0, 1, 0]],
+        solids: Vec::new(),
+    });
+    let mut state = PlayerState::new(Vec3::new(5.5, 1.75, 0.5));
+    let jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let outside = Simulator::default().tick(&mut state, jump, &world).unwrap();
+    assert!(!outside.environment.in_scaffolding);
+    state.set_position(Vec3::new(0.5, 1.75, 0.5));
+    let entered = Simulator::default().tick(&mut state, jump, &world).unwrap();
+    assert!(entered.environment.in_scaffolding);
+    assert!(!entered.environment.in_ascending_block);
+    let climbing = Simulator::default().tick(&mut state, jump, &world).unwrap();
+    assert_eq!(climbing.movement.y as f32, 0.15_f32);
+}
+
+/// Scaffolding whose support cell has no physics metadata.
+struct UnknownSupport(ScaffoldWorld);
+
+impl CollisionWorld for UnknownSupport {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        self.0.collision_boxes(query)
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        self.0.collision_boxes_with_provenance(query)
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        if block == [0, 0, 0] {
+            return Err(WorldQueryError::UnknownRuntimeId {
+                runtime_id: 7,
+                block,
+            });
+        }
+        self.0.block_physics(block)
+    }
+}
+
 /// Without retained contact, an unreadable block under the feet-layer scaffold
 /// leaves the ascent available instead of failing the tick.
 #[test]
 fn an_unreadable_support_does_not_block_the_scaffold_ascent() {
-    struct UnknownSupport(ScaffoldWorld);
-    impl CollisionWorld for UnknownSupport {
-        fn collision_boxes(
-            &self,
-            query: Aabb,
-        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
-            self.0.collision_boxes(query)
-        }
-
-        fn collision_boxes_with_provenance(
-            &self,
-            query: Aabb,
-        ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
-            self.0.collision_boxes_with_provenance(query)
-        }
-
-        fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
-            if block == [0, 0, 0] {
-                return Err(WorldQueryError::UnknownRuntimeId {
-                    runtime_id: 7,
-                    block,
-                });
-            }
-            self.0.block_physics(block)
-        }
-    }
     let world = UnknownSupport(ScaffoldWorld {
         scaffolds: vec![[0, 1, 0]],
         solids: Vec::new(),

@@ -57,10 +57,10 @@ pub fn descends_through_block(input: &MovementInput, over_descending_block: bool
 /// Runs the block climber after the tick's move, as vanilla does, and retains
 /// its contact for the next tick's descent action, climb jump and gravity.
 /// `start` is the contact the tick began with; an immobile tick's descent
-/// action reads it. The flags feed only reporting and the next tick, so an
-/// unavailable movement origin or unreadable terrain publishes the retained
-/// contact, which vanilla's flags would still hold, instead of failing the
-/// tick. A spectator, or such a tick without retained contact, is unsampled.
+/// action reads it. Cells without usable facts count as neither scaffolding
+/// nor support. As an untraced recovery policy, an unavailable movement origin
+/// or a failed scan publishes the retained contact instead of failing the
+/// tick; a spectator, or such a tick without retained contact, is unsampled.
 pub(super) fn finish_tick(
     world: &(impl CollisionWorld + ?Sized),
     state: &mut PlayerState,
@@ -126,7 +126,8 @@ fn layers(player: Aabb) -> (i32, i32) {
 /// Scans the footprint at the feet layer and the layer below it, as the block
 /// climber does every tick. A climbable block is scaffolding that rests on a
 /// block other than air or water, or powder snow for a wearer who can stand on
-/// it. Fresh reads merge into the tick identity.
+/// it. A cell without usable facts counts as neither; fresh reads merge into
+/// the tick identity, and identity conflicts fail the scan.
 pub(super) fn sample_climber(
     world: &(impl CollisionWorld + ?Sized),
     player: Aabb,
@@ -169,7 +170,10 @@ fn scan_layer(
     let mut contact = LayerContact::default();
     for x in floor(player.min.x)..=floor(player.max.x) {
         for z in floor(player.min.z)..=floor(player.max.z) {
-            let flags = primary(world, sampled, [x, y, z])?.flags;
+            let Some(facts) = readable(primary(world, sampled, [x, y, z]))? else {
+                continue;
+            };
+            let flags = facts.flags;
             let scaffolding = flags.contains(BlockPhysicsFlags::SCAFFOLDING);
             contact.scaffolding |= scaffolding;
             if let Some(can_stand_on_snow) = climber
@@ -177,7 +181,9 @@ fn scan_layer(
             {
                 contact.climbable = (can_stand_on_snow
                     && flags.contains(BlockPhysicsFlags::POWDER_SNOW))
-                    || (scaffolding && rests_on_support(world, sampled, [x, y - 1, z])?);
+                    || (scaffolding
+                        && readable(rests_on_support(world, sampled, [x, y - 1, z]))?
+                            .unwrap_or(false));
             }
             if contact.scaffolding && (contact.climbable || climber.is_none()) {
                 return Ok(contact);
@@ -185,6 +191,18 @@ fn scan_layer(
         }
     }
     Ok(contact)
+}
+
+/// Treats a cell without usable facts (an unknown runtime ID or an unloaded
+/// chunk) as absent; identity conflicts and other failures still propagate.
+fn readable<T>(result: Result<T, WorldQueryError>) -> Result<Option<T>, WorldQueryError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(WorldQueryError::UnknownRuntimeId { .. } | WorldQueryError::UnloadedChunk(_)) => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Reads a primary block through this tick's cache, merging a fresh read's identity.
