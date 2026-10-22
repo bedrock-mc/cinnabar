@@ -235,6 +235,7 @@ fn source_with_equipment(
 }
 
 /// Supplies optional map identity and received pixels while retaining missing-image controls.
+#[allow(clippy::too_many_arguments)] // Retain the existing hand inputs beside explicit map state.
 fn source_with_equipment_and_map(
     identifier: Option<&str>,
     with_artwork: bool,
