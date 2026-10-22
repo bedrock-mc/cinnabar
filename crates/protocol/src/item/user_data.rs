@@ -16,6 +16,53 @@ pub fn item_user_data_equal(left: &[u8], right: &[u8]) -> Option<bool> {
     Some(left.0.reflexive && right.0.reflexive && left == right)
 }
 
+/// One of the two block-restriction lists that trail an item's user-data compound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemBlockList {
+    /// `canPlaceOn`: blocks an adventure player may place this item against.
+    CanPlaceOn,
+    /// `canBreak` (CanDestroy): blocks an adventure player may destroy holding this item.
+    CanDestroy,
+}
+
+/// The block names in one restriction list of an item's user data, as spelled on the wire.
+///
+/// Empty user data has empty lists. Malformed data, a non-UTF-8 name, or a list larger than
+/// the remaining bytes returns `None`.
+#[must_use]
+pub fn item_block_list(extra: &[u8], list: ItemBlockList) -> Option<Vec<&str>> {
+    if extra.len() > crate::MAX_ITEM_NBT_BYTES {
+        return None;
+    }
+    let extra: &[u8] = if extra.is_empty() {
+        &super::nbt_edit::EMPTY_USER_DATA
+    } else {
+        extra
+    };
+    let marker = i16::from_le_bytes(extra.get(..2)?.try_into().ok()?);
+    let mut cursor = extra.get(2..)?;
+    match marker {
+        0 => {}
+        -1 => {
+            if read_u8(&mut cursor)? != 1 || read_u8(&mut cursor)? != 10 {
+                return None;
+            }
+            skip_le_string(&mut cursor)?;
+            skip_le_payload(&mut cursor, 10, 0)?;
+        }
+        _ => return None,
+    }
+    let place = read_restrictions(&mut cursor)?;
+    let names = match list {
+        ItemBlockList::CanPlaceOn => place,
+        ItemBlockList::CanDestroy => read_restrictions(&mut cursor)?,
+    };
+    names
+        .into_iter()
+        .map(|name| std::str::from_utf8(name).ok())
+        .collect()
+}
+
 /// A compact typed fingerprint; NaN-containing data never compares equal.
 #[derive(Debug, Eq, PartialEq)]
 struct Identity {

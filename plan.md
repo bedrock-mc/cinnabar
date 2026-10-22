@@ -355,6 +355,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Adventure mining and placement follow the held item's CanDestroy/CanPlaceOn list, or
+  PrivilegedBuilder with an empty hand, before the Build/Mine grant. The immutable-world
+  setting, the WorldBuilder bypass, allow/deny/border blocks, and the denied press's
+  DenyDestroyBlock action, Attack swing source and missed swing remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests

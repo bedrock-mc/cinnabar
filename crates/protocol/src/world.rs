@@ -57,7 +57,7 @@ pub use self::custom_blocks::{
     CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance, CustomMiningItem,
     CustomMiningSpeed, CustomPermutation, CustomPhysicalComponents, CustomPlacement,
     CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
-    CustomVisualComponents, block_name_sort_key, block_state_network_hash,
+    CustomVisualComponents, VANILLA_NAMESPACE, block_name_sort_key, block_state_network_hash,
 };
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
 pub use self::environment::WorldEnvironmentBootstrap;

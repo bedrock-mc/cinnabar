@@ -208,6 +208,33 @@ impl WorldAuthority {
     pub fn block_name_revision(&self) -> u64 {
         self.block_names.revision()
     }
+
+    /// What vanilla's adventure block-permission check sees in the hand for one edit of
+    /// the block with store id `block`: an empty hand, or whether the held item's
+    /// CanPlaceOn or CanDestroy `list` names that block. Names without a namespace are
+    /// `minecraft:` blocks; a malformed list names nothing.
+    pub fn held_edit_item(
+        &self,
+        item: &protocol::VerifiedNetworkItemStack,
+        list: protocol::ItemBlockList,
+        block: u32,
+    ) -> crate::game_mode_capabilities::HeldEditItem {
+        use crate::game_mode_capabilities::HeldEditItem;
+        if item.is_empty() {
+            return HeldEditItem::EmptyHand;
+        }
+        let lists_block = protocol::item_block_list(item.extra_data(), list).is_some_and(|names| {
+            names.into_iter().any(|name| {
+                let ids = if name.contains(':') {
+                    self.block_ids_for_name(name)
+                } else {
+                    self.block_ids_for_name(&format!("{}:{name}", protocol::VANILLA_NAMESPACE))
+                };
+                ids.contains(&block)
+            })
+        });
+        HeldEditItem::Item { lists_block }
+    }
 }
 
 #[cfg(test)]
@@ -332,5 +359,71 @@ mod tests {
             assert_eq!(identities.get(&hash), Some(&id));
             assert_eq!(names.get("example:prepared").unwrap(), &[id]);
         }
+    }
+
+    /// A held stack whose user data carries `can_destroy` and an empty CanPlaceOn list.
+    fn stack_listing(can_destroy: &[&str]) -> protocol::VerifiedNetworkItemStack {
+        use sha2::Digest as _;
+        let mut extra = 0_i16.to_le_bytes().to_vec();
+        extra.extend_from_slice(&0_i32.to_le_bytes());
+        extra.extend_from_slice(&(can_destroy.len() as i32).to_le_bytes());
+        for name in can_destroy {
+            extra.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            extra.extend_from_slice(name.as_bytes());
+        }
+        let extra_data: Arc<[u8]> = Arc::from(extra);
+        let stack = protocol::NetworkItemStack {
+            network_id: 5,
+            stack_network_id: 41,
+            count: 1,
+            nbt_digest: sha2::Sha256::digest(&extra_data).into(),
+            extra_data,
+            ..protocol::NetworkItemStack::empty()
+        };
+        protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap()
+    }
+
+    #[test]
+    fn held_edit_item_reads_whether_the_item_list_names_the_block() {
+        use crate::game_mode_capabilities::HeldEditItem;
+        let definitions =
+            CustomBlocks::from_definitions([("example:listed", b"\x0a\x00\x00".as_slice())]);
+        let mut world = authority(NetworkIdMode::Sequential);
+        world.set_custom_block_ids(10..11);
+        world.install_custom_block_identities(PreparedBlockIdentities::new(
+            &definitions,
+            NetworkIdMode::Sequential,
+            10..11,
+        ));
+        let destroy = protocol::ItemBlockList::CanDestroy;
+        assert_eq!(
+            world.held_edit_item(&stack_listing(&["example:listed"]), destroy, 10),
+            HeldEditItem::Item { lists_block: true }
+        );
+        assert_eq!(
+            world.held_edit_item(&stack_listing(&["example:listed"]), destroy, 11),
+            HeldEditItem::Item { lists_block: false }
+        );
+        assert_eq!(
+            world.held_edit_item(&stack_listing(&[]), destroy, 10),
+            HeldEditItem::Item { lists_block: false }
+        );
+        assert_eq!(
+            world.held_edit_item(
+                &stack_listing(&["example:listed"]),
+                protocol::ItemBlockList::CanPlaceOn,
+                10
+            ),
+            HeldEditItem::Item { lists_block: false }
+        );
+        let empty = protocol::VerifiedNetworkItemStack::try_new(
+            protocol::NetworkItemStack::empty(),
+            protocol::NetworkItemStack::empty().nbt_digest,
+        )
+        .unwrap();
+        assert_eq!(
+            world.held_edit_item(&empty, destroy, 10),
+            HeldEditItem::EmptyHand
+        );
     }
 }
