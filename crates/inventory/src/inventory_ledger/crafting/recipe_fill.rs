@@ -43,6 +43,13 @@ impl PlayerInventoryLedger {
             return Err(InventoryGestureError::InvalidRequest);
         }
         self.gesture_preflight(true)?;
+        // Returning the grid needs every player cell known, or it could drop what would fit.
+        if self.known[..self.confirmed.player_len()]
+            .iter()
+            .any(|known| !known)
+        {
+            return Err(InventoryGestureError::ResyncRequired);
+        }
         let mut staged = self.clone();
         let last = staged.place_recipe(recipe)?;
         *self = staged;
@@ -76,20 +83,37 @@ impl PlayerInventoryLedger {
                     .and_then(|ingredient| self.ghost_item(ingredient))
             })
             .collect();
+        // The allocation that found `crafts` reserves each ingredient's sources, so a tag
+        // cell never takes the only item an exact cell needs. An uncraftable recipe has none
+        // and places what each cell finds.
+        let mut planned = self
+            .auto_craft_sources(recipe, crafts)
+            .map(IntoIterator::into_iter);
         for (index, ingredient) in layout.iter().enumerate() {
             let Some(ingredient) = ingredient else {
                 continue;
             };
             let cell = Cell::Craft(slots[index]);
+            let sources: Vec<(u8, u16)> = match planned.as_mut().and_then(Iterator::next) {
+                Some(sources) => sources
+                    .into_iter()
+                    .map(|(slot, amount, _)| (slot, amount))
+                    .collect(),
+                None => self
+                    .cell_sources(ingredient, crafts)
+                    .into_iter()
+                    .map(|slot| (slot, u16::MAX))
+                    .collect(),
+            };
             let mut remaining = u16::from(ingredient.count) * u16::from(crafts);
-            for slot in self.cell_sources(ingredient, crafts) {
+            for (slot, reserved) in sources {
                 if remaining == 0 {
                     break;
                 }
                 let Some(held) = self.view().get(Cell::Inventory(slot)).cloned() else {
                     continue;
                 };
-                let amount = remaining.min(held.stack.count);
+                let amount = remaining.min(reserved).min(held.stack.count);
                 if let Some(request) = self.place_into_grid(slot, &held, cell, amount)? {
                     remaining -= amount;
                     last = request;

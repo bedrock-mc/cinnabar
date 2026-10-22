@@ -239,3 +239,47 @@ fn a_ghost_names_the_held_item_an_earlier_cell_used_up() {
         Some(COBBLE)
     );
 }
+
+/// Returning the grid while a player cell is unknown could drop items that would fit there.
+#[test]
+fn placement_waits_until_every_player_cell_is_known() {
+    let mut ledger = stocked(PERSONAL_INVENTORY_WINDOW_TYPE, &[(0, LOG, 100, 3)]);
+    ledger.apply(&craft_slot(28, stack(COBBLE, 300, 4)));
+    ledger.known[20] = false;
+    let pending = ledger.pending_request_count();
+    assert_eq!(
+        ledger.begin_recipe_placement(&fixture(1)),
+        Err(InventoryGestureError::ResyncRequired)
+    );
+    assert_eq!(ledger.pending_request_count(), pending);
+    assert_eq!(grid_count(&ledger, 28), Some((COBBLE, 4)));
+}
+
+/// A tag cell leaves the only exact item to the cell that names it.
+#[test]
+fn placement_reserves_items_for_later_exact_ingredients() {
+    let recipe = shaped(
+        2,
+        1,
+        vec![
+            IngredientFixture::tagged("test:wood"),
+            IngredientFixture::named("minecraft:oak_log", 0),
+        ],
+    );
+    let mut ledger = stocked(
+        PERSONAL_INVENTORY_WINDOW_TYPE,
+        &[(9, LOG, 100, 1), (10, PLANKS, 101, 1)],
+    );
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        if entry.network_id == LOG || entry.network_id == PLANKS {
+            entry.item_tags = Arc::from([Arc::from("test:wood")]);
+        }
+    }
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    ledger.begin_recipe_placement(&recipe).unwrap();
+    assert_eq!(grid_count(&ledger, 28), Some((PLANKS, 1)));
+    assert_eq!(grid_count(&ledger, 29), Some((LOG, 1)));
+}
