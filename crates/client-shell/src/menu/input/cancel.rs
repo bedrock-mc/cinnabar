@@ -41,7 +41,7 @@ impl MenuRuntime {
             && self.settings.dropdown.is_none()
             && !self.settings.scale_picker
         {
-            self.activate(MenuAction::ClearSettingsSearch);
+            self.activate(launcher::menu::MenuAction::ClearSettingsSearch);
             return;
         }
         if self.clear_settings_slider_selection() {
