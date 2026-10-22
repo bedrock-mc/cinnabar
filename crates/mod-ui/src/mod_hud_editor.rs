@@ -1,6 +1,7 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
 mod actions;
+mod caption;
 mod data;
 mod feedback;
 mod history;
@@ -39,7 +40,12 @@ use ui_engine::{
 
 const SCREEN: &str = "cinnabar_hud_editor.layout";
 const GUIDE_WIDTH: f64 = 0.75;
-const MEASUREMENT_PILL: [f64; 2] = [36., 12.];
+/// Distance pill height and horizontal text padding, in GUI pixels.
+const MEASUREMENT_PILL_HEIGHT: f64 = 9.;
+const MEASUREMENT_PILL_PADDING: f64 = 4.;
+/// Distance label font scale (about 3.5 px glyphs) and a digit advance that covers it.
+const MEASUREMENT_FONT_SCALE: f64 = 0.45;
+const MEASUREMENT_DIGIT_ADVANCE: f64 = 3.;
 const AXIS_SNAP_DISTANCE: f64 = 6.;
 const GEOMETRY_EPSILON: f64 = 0.001;
 const EDITOR_MARGIN: f64 = 8.;
@@ -65,6 +71,8 @@ pub(super) struct HudEditor {
     icons: Vec<IconRef>,
     keep_out: Vec<[f64; 4]>,
     selected: Option<usize>,
+    /// Card whose bounds or resize handle was under the pointer at its last event.
+    hovered: Option<usize>,
     pub(super) drag: Option<input::Drag>,
     slider: Option<slider::Gesture>,
     /// `(control index, fill)` for every guest slider, as last published.
@@ -73,6 +81,9 @@ pub(super) struct HudEditor {
     result: Option<EditorResult>,
     viewport: [f64; 2],
     inspector: inspector::Placement,
+    caption_width: f64,
+    caption_scale_width: f64,
+    caption_bounds: Option<[f64; 4]>,
     catalog: Option<Arc<Catalog>>,
     screen: CachedScreen,
     data: Arc<DataSource>,
@@ -129,6 +140,7 @@ impl ModUi {
             icons: Vec::new(),
             keep_out: Vec::new(),
             selected: None,
+            hovered: None,
             drag: None,
             slider: None,
             control_fills: Vec::new(),
@@ -136,6 +148,9 @@ impl ModUi {
             result: None,
             viewport: [0.; 2],
             inspector: Default::default(),
+            caption_width: 64.,
+            caption_scale_width: 22.,
+            caption_bounds: None,
             catalog: None,
             screen: CachedScreen::default(),
             data: Arc::new(DataSource::new()),
@@ -344,9 +359,12 @@ impl ModUi {
             |env, root| {
                 let previous = editor.pending_measurement_size();
                 let measured = crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text);
+                let caption_measured = editor.measure_caption(env.text);
                 editor.finish_measurement(previous);
-                if measured {
-                    editor.catalog = None;
+                if measured || caption_measured {
+                    if measured {
+                        editor.catalog = None;
+                    }
                     let mut data = Arc::clone(&editor.data);
                     let values = Arc::make_mut(&mut data);
                     for (n, card) in editor.draft.cards.iter().enumerate() {

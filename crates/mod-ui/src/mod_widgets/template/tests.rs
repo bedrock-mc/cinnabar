@@ -339,3 +339,38 @@ fn anchored_edge_offset_survives_viewport_change() {
         }
     }
 }
+
+/// The painted card background carries its scaled radius, and a radius change rebuilds.
+#[test]
+fn card_background_radius_scales_with_the_card_and_invalidates_the_template() {
+    let env = json_ui::LayoutEnv {
+        text: &CountArt,
+        textures: &CountArt,
+    };
+    let mut hud: Hud = serde_json::from_value(json!({"cards": [{
+        "id": "chip", "scale": 2, "background_radius": 6, "rows": [{"label": "A", "value": "1"}]
+    }]}))
+    .unwrap();
+    hud.validate().unwrap();
+    let catalog = catalog(&hud).unwrap();
+    let root = json_ui::resolve(
+        &catalog,
+        "cinnabar_personal_hud.cards",
+        &json_ui::Context::default(),
+    )
+    .control
+    .unwrap();
+    let bound = json_ui::bind(&root, &data(&hud, [800., 450.]), &json_ui::EmptyLibrary);
+    let laid = json_ui::layout(&bound, [800., 450.], &env);
+    let radii: Vec<_> = json_ui::emit(&laid, &env)
+        .into_iter()
+        .filter_map(|node| match node.draw {
+            json_ui::Draw::Custom { data, .. } => data.get("radius").and_then(Value::as_f64),
+            _ => None,
+        })
+        .collect();
+    assert!(radii.contains(&12.), "radii {radii:?}");
+    let before = hud.clone();
+    hud.cards[0].background_radius = 0.;
+    assert!(!same_shape(&before, &hud));
+}

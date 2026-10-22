@@ -431,3 +431,15 @@ fn potion_component_names_take_precedence_in_tooltip_and_hud() {
         );
     }
 }
+
+#[test]
+fn creative_group_tooltips_are_not_italic() {
+    let runtime = UiRuntime::new(1);
+    let lines = inventory_tooltip::tooltip_lines_plain_name(
+        &runtime,
+        &NetworkItemStack::empty(),
+        None,
+        Some("Stairs"),
+    );
+    assert_eq!(lines[0].text, "Stairs§r");
+}

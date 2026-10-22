@@ -1,5 +1,5 @@
 //! The OreUI canvas: fills, one-texel edges, speculars and bevels, scaled text,
-//! and original sprites from the installed bundle.
+//! and shipped original sprites.
 
 use std::collections::HashMap;
 use std::sync::Arc;

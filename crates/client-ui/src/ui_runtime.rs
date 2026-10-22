@@ -174,6 +174,7 @@ pub struct UiRuntime {
     in_flight_chat_sends: usize,
     chat_source_name: Arc<str>,
     chat_xuid: Arc<str>,
+    local_player_display_name: Arc<str>,
     dropped_unsent_chat_messages: u64,
     block_cracks: crate::block_cracks::BlockCracks,
     gameplay_hud: GameplayHudState,
@@ -197,6 +198,8 @@ pub struct UiRuntime {
     /// Last known life state also retains the dead-to-alive reason retirement history.
     last_known_local_player_alive: Option<bool>,
     local_player_health_available: bool,
+    local_player_respawn_ready: bool,
+    local_player_death_generation: u64,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
@@ -282,6 +285,7 @@ impl UiRuntime {
             in_flight_chat_sends: 0,
             chat_source_name: Arc::from(""),
             chat_xuid: Arc::from(""),
+            local_player_display_name: Arc::from(""),
             dropped_unsent_chat_messages: 0,
             block_cracks: crate::block_cracks::BlockCracks::default(),
             gameplay_hud: GameplayHudState::default(),
@@ -302,6 +306,8 @@ impl UiRuntime {
             local_actor_damage: None,
             last_known_local_player_alive: None,
             local_player_health_available: false,
+            local_player_respawn_ready: false,
+            local_player_death_generation: 0,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
@@ -658,6 +664,7 @@ impl UiRuntime {
         self.presentation_tick_anchor = None;
         self.chat_source_name = Arc::from("");
         self.chat_xuid = Arc::from("");
+        self.local_player_display_name = Arc::from("");
         self.chat_focused = false;
         self.inventory_open = false;
         self.score_owner_names.clear();
@@ -701,6 +708,8 @@ impl UiRuntime {
         self.local_actor_damage = None;
         self.last_known_local_player_alive = None;
         self.local_player_health_available = false;
+        self.local_player_respawn_ready = false;
+        self.local_player_death_generation = 0;
         self.hurt_pending = false;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;

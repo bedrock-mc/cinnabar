@@ -55,6 +55,7 @@ impl HudEditor {
             );
         }
         let style = self.draft.editor_style.unwrap_or_default();
+        let hovered = self.hovered_card();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
             data.set_global(format!("#card_{index}_visible"), Scalar::Bool(visible));
@@ -85,8 +86,10 @@ impl HudEditor {
                 format!("#bounds_{index}_color"),
                 Scalar::Json(serde_json::json!(if self.selected == Some(index) {
                     style.selected
-                } else {
+                } else if hovered == Some(index) {
                     style.outline
+                } else {
+                    [0_f32; 4]
                 })),
             );
         }
@@ -108,7 +111,33 @@ impl HudEditor {
                     cards::dimensions(&self.draft.cards[index]),
                 )
             });
-        feedback::measurements(data, self.viewport, rect);
+        let mut obstacles: Vec<_> = self
+            .draft
+            .cards
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| !self.hidden.contains(&card.id))
+            .map(|(index, card)| {
+                let at = self.card_origin(index);
+                let size = cards::dimensions(card);
+                [at[0], at[1], size[0], size[1]]
+            })
+            .collect();
+        obstacles.extend(self.caption_bounds);
+        if style.top_clearance > 0. {
+            obstacles.push([0., 0., self.viewport[0], f64::from(style.top_clearance)]);
+        }
+        if rect.is_some()
+            && let Some(size) = self.draft.inspector_size
+        {
+            obstacles.push([
+                self.inspector.at[0],
+                self.inspector.at[1],
+                f64::from(size[0]),
+                f64::from(size[1]),
+            ]);
+        }
+        feedback::measurements(data, self.viewport, rect, &obstacles);
     }
 
     /// Publishes inspector values from the same displayed rectangle used by pointer bounds.
@@ -164,13 +193,14 @@ impl HudEditor {
         );
         data.set_global("#hud_selected_size_text", Scalar::Text(size_text));
         data.set_global("#hud_selected_position_text", Scalar::Text(position_text));
+        let selection = selected
+            .filter(|_| card.is_some_and(|card| !self.hidden.contains(&card.id)))
+            .map(|_| [at[0], at[1], size[0], size[1]]);
+        let avoidance = self.write_caption(data, selection);
         // Moving the inspector mid-gesture would move the slider under the pointer.
         if !self.scaling() {
-            self.inspector.update(
-                selected.map(|_| [at[0], at[1], size[0], size[1]]),
-                self.viewport,
-                self.draft.inspector_size,
-            );
+            self.inspector
+                .update(avoidance, self.viewport, self.draft.inspector_size);
         }
         for (name, value) in [
             ("#hud_inspector_x", self.inspector.at[0]),
@@ -180,29 +210,14 @@ impl HudEditor {
         }
     }
 
+    /// Hovered card index, independent of the retained frame so rebuilds keep the outline.
+    fn hovered_card(&self) -> Option<usize> {
+        self.hovered.filter(|index| *index < self.draft.cards.len())
+    }
+
     /// Names the hovered widget or current selection without placing labels over nearby cards.
     fn editor_label(&self) -> &str {
-        let hovered = self.frame.as_ref().and_then(|frame| {
-            let key = self.view.hovered.as_ref()?;
-            let action = frame
-                .hits
-                .iter()
-                .find(|hit| &hit.key == key)?
-                .pressed
-                .as_deref()?;
-            action
-                .strip_prefix("hud.card:")
-                .and_then(|index| index.parse().ok())
-                .or_else(|| {
-                    action
-                        .strip_prefix("hud.resize:")?
-                        .split_once(':')?
-                        .0
-                        .parse()
-                        .ok()
-                })
-        });
-        hovered
+        self.hovered_card()
             .or(self.selected)
             .and_then(|index| self.draft.cards.get(index))
             .map(ui::mod_hud::Card::editor_name)

@@ -48,7 +48,7 @@ pub(crate) fn drain_committed_ui_before_authority(
     };
     let authority = stream.authority();
     if let Some(name) = authority.actor_display_name(authority.local_player_unique_id()) {
-        ui_runtime.set_chat_source_name(name);
+        ui_runtime.set_local_player_display_name(name);
     }
     ui_runtime.note_stream_dimension(stream.current_dimension());
     let current_dimension = stream.current_dimension();
@@ -269,6 +269,9 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 local_millis,
             ),
+            CommittedUiEvent::LocalRespawnReady { sequence } => {
+                ui_runtime.apply_respawn_ready(clock.session_generation(), sequence, local_millis)
+            }
         };
         if let Err(error) = result {
             player_runtime.facts.clear_local_abilities();

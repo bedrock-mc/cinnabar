@@ -278,6 +278,7 @@ impl LocomotionState {
                         sprint_down: controlled.sprint_down,
                         sneak_down: input.sneaking,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
+                        server_sneaking: server.and_then(|flags| flags.sneaking),
                     },
                 },
                 world,

@@ -9,7 +9,7 @@ use std::thread::JoinHandle;
 use crossbeam_channel::{Receiver, Sender};
 use discord_presence::{Client, Event, event_handler::EventCallbackHandle, models::EventData};
 
-use crate::{Publication, State, Target, join, launch, unix_seconds};
+use crate::{PresenceSettings, Publication, State, Target, join, launch, unix_seconds};
 
 /// A Discord user asking to join the player's game from their card.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,6 +35,7 @@ pub struct Presence {
     commander: Option<JoinHandle<()>>,
     joins: Receiver<String>,
     requests: Receiver<JoinRequest>,
+    joins_enabled: Arc<AtomicBool>,
     publication: Publication,
     /// Launch time, shown in the menus and while joining.
     started_at: u64,
@@ -47,6 +48,9 @@ impl Presence {
         let (commands, queued) = crossbeam_channel::unbounded();
         let (accepted, joins) = crossbeam_channel::unbounded();
         let (asked, requests) = crossbeam_channel::unbounded();
+        let joins_enabled = Arc::new(AtomicBool::new(true));
+        let join_gate = Arc::clone(&joins_enabled);
+        let request_gate = Arc::clone(&joins_enabled);
         let epoch = Arc::clone(&connection);
         let resubscribe = commands.clone();
         let unreachable = Arc::new(AtomicBool::new(false));
@@ -70,6 +74,7 @@ impl Presence {
             client.on_activity_join(move |context| {
                 if let EventData::ActivityJoin(event) = context.event
                     && let Some(address) = event.secret.as_deref().and_then(join::join_address)
+                    && join_gate.load(Ordering::Relaxed)
                 {
                     let _ = accepted.send(address.to_owned());
                 }
@@ -82,6 +87,7 @@ impl Presence {
                             name: user.username.unwrap_or_default(),
                         })
                     })
+                    && request_gate.load(Ordering::Relaxed)
                 {
                     let _ = asked.send(request);
                 }
@@ -102,6 +108,7 @@ impl Presence {
             commander,
             joins,
             requests,
+            joins_enabled,
             publication: Publication::default(),
             started_at: unix_seconds(),
         }
@@ -109,32 +116,58 @@ impl Presence {
 
     /// `players` is how many are in the session now, for the party size.
     pub fn update(&mut self, state: State, target: Option<&Target>, players: Option<u32>) {
-        if self.publication.changed(
+        self.update_with_settings(state, target, players, PresenceSettings::default());
+    }
+
+    /// Publishes the latest activity using the current Discord settings.
+    pub fn update_with_settings(
+        &mut self,
+        state: State,
+        target: Option<&Target>,
+        players: Option<u32>,
+        settings: PresenceSettings,
+    ) {
+        self.joins_enabled
+            .store(settings.allow_joins, Ordering::Relaxed);
+        if self.publication.changed_with_settings(
             state,
             self.connection.load(Ordering::Relaxed),
             target,
             players,
             unix_seconds(),
+            settings,
         ) && let Some(client) = self.client.as_mut()
         {
             let started_at = self.publication.playing_since.unwrap_or(self.started_at);
-            client.queue_activity(|_| state.activity(started_at, target, players));
+            client.queue_activity(|_| {
+                state.activity_with_settings(started_at, target, players, settings)
+            });
         }
     }
 
     /// The address of the most recent invite the player accepted in Discord.
     pub fn take_join(&self) -> Option<String> {
+        if !self.joins_enabled.load(Ordering::Relaxed) {
+            self.joins.try_iter().for_each(drop);
+            return None;
+        }
         self.joins.try_iter().last()
     }
 
     /// The next Discord user asking to join, in arrival order.
     pub fn take_join_request(&self) -> Option<JoinRequest> {
+        if !self.joins_enabled.load(Ordering::Relaxed) {
+            self.requests.try_iter().for_each(drop);
+            return None;
+        }
         self.requests.try_recv().ok()
     }
 
     /// Answers a join request: accepting sends the requester an invite to the current game.
     pub fn reply(&self, user_id: u64, accept: bool) {
-        if let Some(commands) = &self.commands {
+        if self.joins_enabled.load(Ordering::Relaxed)
+            && let Some(commands) = &self.commands
+        {
             let _ = commands.send(Command::Reply { user_id, accept });
         }
     }
