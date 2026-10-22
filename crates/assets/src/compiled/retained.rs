@@ -85,15 +85,18 @@ impl RetainedBuffers for crate::ActorTexture {
 
 impl RetainedBuffers for crate::SessionEntityPack {
     fn visit_buffers(&self, visit: &mut BufferVisitor<'_>) {
-        // Entity definitions and geometry sources are small beside their rasters; the meshes
-        // built from them are reported by the prepared artwork that owns them.
         let Self {
-            assets: _,
+            assets,
             textures,
-            bindings: _,
+            bindings,
             equipment,
         } = self;
+        assets.visit_buffers(visit);
         textures.visit_buffers(visit);
+        visit_slice(bindings, visit);
+        for binding in bindings.iter() {
+            visit_slice(binding.material.as_bytes(), visit);
+        }
         equipment.visit_buffers(visit);
     }
 }

@@ -17,17 +17,30 @@ use pack_runtime::reload_diff::Changes;
 /// A lobby and the game it transfers to.
 const KEPT_STACKS: usize = 2;
 
+/// Cache allowance when the platform cannot report installed memory.
+const FALLBACK_REJOIN_BYTES: usize = 128 * 1024 * 1024;
+
 /// Bytes the newest stack may retain after leaving for the menu: a sixteenth of physical memory,
 /// 512 MiB on an 8 GiB device. A larger stack is released and a rejoin compiles it again.
 #[cfg(not(target_arch = "wasm32"))]
 fn rejoin_budget() -> usize {
-    usize::try_from(launcher_host::memory::physical_bytes() / 16).unwrap_or(usize::MAX)
+    budget_for_memory(launcher_host::memory::physical_bytes())
+}
+
+/// Converts an installed-memory reading into the cache's byte allowance.
+#[cfg(any(not(target_arch = "wasm32"), test))]
+fn budget_for_memory(physical_bytes: u64) -> usize {
+    if physical_bytes == 0 {
+        FALLBACK_REJOIN_BYTES
+    } else {
+        usize::try_from(physical_bytes / 16).unwrap_or(usize::MAX)
+    }
 }
 
 /// Browsers report no physical memory; keep what a small device could afford.
 #[cfg(target_arch = "wasm32")]
 fn rejoin_budget() -> usize {
-    128 * 1024 * 1024
+    FALLBACK_REJOIN_BYTES
 }
 
 /// Bytes keeping `application` costs: its archives plus every distinct large buffer its compiled

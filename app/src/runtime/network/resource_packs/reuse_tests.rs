@@ -10,6 +10,20 @@ use crate::runtime::network::resource_packs::{
 };
 use pack_runtime::PackInputs;
 
+#[test]
+fn an_unavailable_memory_probe_still_allows_rejoin_reuse() {
+    let unknown = super::budget_for_memory(0);
+    assert!(
+        unknown > 0,
+        "missing memory data must not disable the cache"
+    );
+    assert!(unknown <= super::budget_for_memory(8 * 1024 * 1024 * 1024));
+    assert_eq!(
+        super::budget_for_memory(8 * 1024 * 1024 * 1024),
+        512 * 1024 * 1024
+    );
+}
+
 /// A copy of `archive`, as a later join receives its own bytes for the same pack.
 fn copy(archive: &ResourcePackArchive) -> ResourcePackArchive {
     ResourcePackArchive::unencrypted(
@@ -692,6 +706,7 @@ fn the_rejoin_budget_counts_each_compiled_buffer_once() {
         bindings: Arc::from(Vec::new()),
         equipment: None,
     });
+    let entity_bytes = assets::compiled::retained_bytes(&[&entities]);
     let icons = client_ui::ui_runtime::presentation::SessionIcons {
         icons: vec![client_ui::ui_runtime::presentation::SessionIcon {
             identifier: "test:icon".into(),
@@ -720,7 +735,7 @@ fn the_rejoin_budget_counts_each_compiled_buffer_once() {
         },
         &[],
     );
-    let compiled = rgba8.len() + 8 * 8 * 4 + 4 * 4 * 4;
+    let compiled = entity_bytes + 8 * 8 * 4 + 4 * 4 * 4;
     assert_eq!(
         super::retained_bytes(&application, &[]),
         archives + compiled

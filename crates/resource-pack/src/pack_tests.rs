@@ -438,7 +438,10 @@ fn compile_identity_tracks_admitted_paths_and_is_stable_across_admissions() {
 fn released_reads_free_their_payloads_and_inflate_again_with_the_same_hash() {
     let pack = admit(zip_files(&[("a.txt", b"aaaa")]), "", None);
     assert_eq!(pack.read_file("a.txt").unwrap().unwrap().as_ref(), b"aaaa");
-    assert!(pack.reads.retained_bytes() >= 4, "the read and manifest stay resident");
+    assert!(
+        pack.reads.retained_bytes() >= 4,
+        "the read and manifest stay resident"
+    );
     pack.release_cached_reads();
     assert_eq!(pack.reads.retained_bytes(), 0);
     let reads = &pack.entry("a.txt").unwrap().cached.reads;
