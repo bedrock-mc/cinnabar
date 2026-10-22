@@ -36,6 +36,8 @@ mod crops;
 mod dragon_egg;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
+#[path = "tests/entity_particles.rs"]
+mod entity_particles;
 #[path = "tests/facing_cube.rs"]
 mod facing_cube;
 #[path = "tests/flowerbed.rs"]

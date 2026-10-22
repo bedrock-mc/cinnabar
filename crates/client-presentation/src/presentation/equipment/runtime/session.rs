@@ -10,6 +10,7 @@ use crate::session_assets::SessionItems;
 const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 
 /// A session's icon sprites packed for the artwork pages, before placement on them.
+#[derive(Clone)]
 pub struct StagedSessionIcons {
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
@@ -23,7 +24,11 @@ impl StagedSessionIcons {
     /// Packs the pack's item icons and custom block material sheets; `None` when the session has
     /// none.
     pub fn stage(items: Option<&SessionItems>) -> Option<Self> {
-        let icons = items?.icons.as_deref()?;
+        Self::stage_icons(items?.icons.as_deref()?)
+    }
+
+    /// Packs `icons` without the item components, so a pack worker can stage them.
+    pub fn stage_icons(icons: &client_ui::ui_runtime::presentation::SessionIcons) -> Option<Self> {
         let mut sprites = Vec::new();
         let mut by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>> = BTreeMap::new();
         let mut block_sheets = BTreeMap::new();

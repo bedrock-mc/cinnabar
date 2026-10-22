@@ -182,23 +182,18 @@ fn a_missing_binary_fails_the_start() {
     assert!(missing.start(&spec(dir.path()), &Cancel::never()).is_err());
 }
 
-/// The server gets the saved generator and the signed seed.
+/// The server gets flat terrain and the saved game mode.
 #[cfg(unix)]
 #[test]
-fn the_generator_and_signed_seed_reach_the_server() {
+fn flat_terrain_and_game_mode_reach_the_server() {
     let dir = scratch();
-    let mut spec = spec(dir.path());
-    spec.world.generator = Generator::Normal;
+    let spec = spec(dir.path());
     let instance = runner(dir.path(), FAKE_SERVER)
         .start(&spec, &Cancel::never())
         .expect("start");
     let args = std::fs::read_to_string(dir.path().join("server.args")).expect("argument log");
     let args: Vec<&str> = args.lines().collect();
-    for (flag, value) in [
-        ("-generator", "normal"),
-        ("-seed", "-7"),
-        ("-game-mode", "survival"),
-    ] {
+    for (flag, value) in [("-generator", "flat"), ("-game-mode", "survival")] {
         let at = args.iter().position(|arg| *arg == flag).expect(flag);
         assert_eq!(args.get(at + 1), Some(&value), "{flag} in {args:?}");
     }
@@ -230,8 +225,6 @@ fn a_prepared_standby_server_takes_the_next_world() {
             .expect("JSON arguments");
     let addr = args.iter().position(|arg| arg == "-addr").expect("-addr");
     assert_eq!(args[addr + 1], instance.address());
-    let seed = args.iter().position(|arg| arg == "-seed").expect("-seed");
-    assert_eq!(args[seed + 1], "-7");
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
 
     // The standby is used once; the next start launches its own server.
@@ -361,4 +354,22 @@ fn a_cancellation_does_not_hide_a_crash() {
     }
     assert_eq!(ending(None, true), Ending::Failed);
     assert_eq!(ending(Some(ExitStatus::from_raw(0)), true), Ending::Clean);
+}
+
+/// Natural saves must not be extended with flat terrain by the built-in server.
+#[cfg(unix)]
+#[test]
+fn natural_terrain_is_rejected_before_starting_a_process() {
+    let dir = scratch();
+    let mut spec = spec(dir.path());
+    spec.world.generator = Generator::Normal;
+    let error = runner(dir.path(), FAKE_SERVER)
+        .start(&spec, &Cancel::never())
+        .err()
+        .expect("natural terrain is unavailable");
+    assert_eq!(
+        error.public_message(),
+        format!("invalid world settings: {NATURAL_TERRAIN_REQUIRES_BDS}")
+    );
+    assert!(!dir.path().join("server.args").exists());
 }

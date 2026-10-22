@@ -240,6 +240,7 @@ mod tests {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 tags: Default::default(),
                 visual: std::sync::Arc::default(),
             }]),

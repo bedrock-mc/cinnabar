@@ -12,7 +12,7 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
-use launcher::local_worlds::world::World;
+use launcher::local_worlds::world::{NATURAL_TERRAIN_REQUIRES_BDS, World};
 
 use crate::lifecycle::children::{self, Spawned};
 
@@ -99,7 +99,7 @@ pub(crate) trait Runner: Send + Sync {
 
 /// Hosts each Dragonfly world in `bedrock-local-server`, which prints `ready` once listening and
 /// reads `pause`, `resume` and `stop` lines; stdin EOF also stops it, so it cannot outlive us.
-/// Started with `-standby`, it warms its world generation and waits for a `start <JSON args>` line.
+/// Started with `-standby`, it waits for a `start <JSON args>` line.
 pub(crate) struct ProcessRunner {
     pub binary: PathBuf,
     /// Added to the inherited environment.
@@ -146,8 +146,11 @@ fn ready_line(line: &str) -> bool {
 
 impl Runner for ProcessRunner {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
-        let address = loopback(free_loopback_port()?);
         let world = &spec.world;
+        if !world.generator.supports_backend(bridge::Backend::Dragonfly) {
+            return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
+        }
+        let address = loopback(free_loopback_port()?);
         let mut args: Vec<OsString> = vec!["-dir".into(), spec.dir.clone().into()];
         for (flag, value) in [
             ("-addr", address.clone()),
@@ -155,7 +158,6 @@ impl Runner for ProcessRunner {
             ("-game-mode", wire_name(world.game_mode)),
             ("-difficulty", wire_name(world.difficulty)),
             ("-generator", wire_name(world.generator)),
-            ("-seed", world.seed.to_string()),
         ] {
             args.extend([flag.into(), value.into()]);
         }

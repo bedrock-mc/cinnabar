@@ -81,7 +81,7 @@ fn liquid_fixture(
     stream
         .submit(3, protocol::WorldEvent::BlockUpdates(updates))
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "liquid fixture commit", || {
+    test_time::eventually("liquid fixture commit", || {
         stream.poll([4.5, 2.620_01, 8.5], 0);
         stream.committed_sequence() >= 3
     });

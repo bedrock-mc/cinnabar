@@ -302,6 +302,16 @@ pub(super) fn world_create(tab: usize) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows validation when natural terrain is requested on the built-in server.
+pub(super) fn world_create_dragonfly_natural() -> Fixture {
+    let Fixture::Menu(mut view) = world_create(0) else {
+        unreachable!()
+    };
+    view.local.create.backend = bridge::Backend::Dragonfly;
+    view.local.form_error = view.local.create.build().err().map(|error| error.message());
+    Fixture::Menu(view)
+}
+
 /// Shows saved BDS generation settings beside editable advanced rules.
 pub(super) fn world_edit_advanced() -> Fixture {
     use launcher::local_worlds::{
@@ -333,6 +343,12 @@ pub(super) fn world_edit_advanced() -> Fixture {
 
 /// Create and edit world-form states, one per tab plus the tall full-advanced view.
 pub(super) const WORLD_FORM_STATES: &[State] = &[
+    State {
+        name: "world-create-dragonfly-natural",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: world_create_dragonfly_natural,
+    },
     State {
         name: "world-create-general",
         size: SIZE,

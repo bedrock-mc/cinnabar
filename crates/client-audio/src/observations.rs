@@ -28,6 +28,10 @@ pub trait CollisionLookup {
     fn registry(&self, mode: NetworkIdMode) -> &CollisionRegistry;
     /// Resolves a runtime block ID without mutating gameplay state.
     fn block_identifier(&self, mode: NetworkIdMode, runtime_id: u32) -> Option<&str>;
+    /// Resolves a custom block's `minecraft:sound` component, when one was advertised.
+    fn block_sound_material(&self, _mode: NetworkIdMode, _runtime_id: u32) -> Option<&str> {
+        None
+    }
 }
 
 /// Mining target observations used only to schedule local sound cues.

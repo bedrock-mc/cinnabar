@@ -52,12 +52,15 @@ the on-screen controls. A hardware keyboard and mouse also drive gameplay.
 Import buttons for resource packs, mods, skins and capes open Android's document picker.
 A skin PNG imports without its separate geometry JSON; import a skin pack to keep custom geometry.
 
-Launcher text fields, including server addresses and the People drawer, request the on-screen
-keyboard. People search filters friends currently playing; it does not search Xbox users.
+Launcher text fields, including server addresses and the People drawer, and the in-game chat
+request the on-screen keyboard; tap the chat draft to reopen it after dismissing it. People
+search filters friends currently playing; it does not search Xbox users. The Back gesture or
+button closes chat, inventories and other game screens and goes back in menus, like a mouse's
+Back button.
 
 ## Local worlds
 
-Dragonfly is bundled for local worlds, with Normal or Flat terrain. The server runs from the
+Dragonfly is bundled for local worlds with Flat terrain. The server runs from the
 APK's native-library directory and saves worlds in private app storage. Android creation,
 reopening, offline play and suspend/resume still need device acceptance.
 
@@ -117,11 +120,11 @@ and does not require Minecraft assets or a server download.
 
 ## Not supported yet
 
-Typing chat, commands or sign text still needs a hardware keyboard. Featured servers need only
+Typing sign or book text still needs a hardware keyboard. Featured servers need only
 sign-in, whose code you enter on another device.
 These stay keyboard, mouse or controller only: dropping the held item from the hotbar, pick
 block, the emote wheel, the player list, perspective, and mod or server Experience key
-bindings. Also missing are the Back gesture, clipboard, opening links, Microsoft
+bindings. Also missing are Back during gameplay, clipboard, opening links, Microsoft
 sign-in while the app is in the background, touch scrolling in forms and menus outside Settings,
 and the native touch layouts, remapping and control customization. Device performance, audio
 and suspend/resume are untested. See

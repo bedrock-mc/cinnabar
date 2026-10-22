@@ -8,15 +8,17 @@ mod commit;
 mod companions;
 mod flames;
 mod geometry;
+mod ground_effects;
 mod hand_frame;
 mod hats;
+pub use ground_effects::{GroundEffectWearer, GroundEffectWearers};
 pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
 mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;
 mod views;
-use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
+use geometry::{SessionGeometryReady, SessionIconInput, apply_session_pack, register_geometries};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;
@@ -145,6 +147,7 @@ pub struct ActorFramePublication<'w, 's> {
     partial_tick: ResMut<'w, ActorFramePartialTick>,
     flames: Option<ResMut<'w, WorldActorFlames>>,
     cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
+    ground_effects: Option<ResMut<'w, GroundEffectWearers>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -159,6 +162,9 @@ pub fn prepare_actor_render_frame(
     let Some(input) = state.input.take() else {
         if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
             placements.0.clear();
+        }
+        if let Some(wearers) = params.ground_effects.as_deref_mut() {
+            wearers.0.clear();
         }
         return;
     };
@@ -186,6 +192,9 @@ pub fn prepare_actor_render_frame(
         view.camera_rotation(),
     );
     let stream = client_world.stream.as_deref();
+    if let Some(wearers) = params.ground_effects.as_deref_mut() {
+        wearers.capture(&input, stream);
+    }
     let authoritative_subject_eye = authoritative_local_actor_eye(
         input.predicted_eye,
         stream.map(|stream| stream.resolved_server_position().position),
