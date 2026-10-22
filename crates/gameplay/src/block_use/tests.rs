@@ -519,6 +519,52 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
     );
 }
 
+/// Any hand repeats a block's own use while held, swinging and predicting success like the
+/// press; other non-block uses and buckets still do not repeat.
+#[test]
+fn held_block_uses_repeat_for_any_hand() {
+    let empty = verified(NetworkItemStack::empty());
+    let tool = verified(network_item(2, 0));
+    let block = verified(network_item(2, 77));
+    for item in [&empty, &tool] {
+        assert!(super::repeats_while_held(item, false, LocalUse::Interact));
+        assert!(!super::repeats_while_held(item, true, LocalUse::Interact));
+        assert!(!super::repeats_while_held(item, false, LocalUse::Nothing));
+    }
+    assert!(super::repeats_while_held(&block, false, LocalUse::Nothing));
+    let observed =
+        crate::interaction_authority::FrozenBlockObservation::fixture([2, 63, 0], 3, empty);
+    let packets = use_packets(
+        (&observed, 9),
+        [2.5, 65.62, 0.5],
+        ItemUseTrigger::SimulationTick,
+        LocalUse::Interact,
+        None,
+        None,
+        42,
+        |_| true,
+        5,
+    );
+    assert_eq!(packets.len(), 2);
+    assert_eq!(format!("{:?}", packets[0].kind()), "AnimatePacket");
+    let transaction = protocol::test_support::transactions::observe_transaction(&packets[1])
+        .and_then(|transaction| transaction.item_use().cloned())
+        .unwrap();
+    assert_eq!(
+        transaction.action,
+        protocol::test_support::transactions::ItemUseAction::ClickBlock
+    );
+    assert_eq!(transaction.trigger, Some(ItemUseTrigger::SimulationTick));
+    assert!(transaction.predicted_success);
+    assert_eq!(
+        (transaction.position, transaction.face, transaction.slot),
+        ([2, 63, 0], 3, 2)
+    );
+    assert_eq!(transaction.item.network_id, 0);
+    assert_eq!(transaction.target_block_id, 9);
+    assert_eq!(transaction.click_position, [0.5, 1.0, 0.5]);
+}
+
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {
