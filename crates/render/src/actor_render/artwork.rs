@@ -100,7 +100,10 @@ pub(super) struct GpuArtwork {
     /// The held-item glint, sampled when an instance selects the item raster.
     pub item_glint: GpuGlint,
     source_hasher: RandomState,
+    /// Device limits reject the publication until its identity changes.
     rejected: bool,
+    /// A demanded page that could not allocate retries after a bounded backoff.
+    allocation: gpu_allocation::UploadRetry,
 }
 
 impl GpuArtwork {
@@ -144,6 +147,7 @@ impl GpuArtwork {
         if changed {
             self.identity = Some(identity);
             self.rejected = false;
+            self.allocation = gpu_allocation::UploadRetry::default();
             let actor_changed = self.glint.prepare(
                 pages.actor_glint.as_ref(),
                 &self.source_hasher,
@@ -194,6 +198,13 @@ impl GpuArtwork {
         }
         if self.rejected {
             return false;
+        }
+        if self.allocation.failed() {
+            if !self.allocation.take_ready() {
+                return false;
+            }
+            self.pages.resize_with(pages.pages.len(), || None);
+            self.prewarm_cursor = 0;
         }
         let mut prepared = 0;
         let mut bytes = 0;
@@ -251,11 +262,16 @@ impl GpuArtwork {
                 if background {
                     continue;
                 }
+                // Releasing every page gives the retry the most memory.
+                let released = self.pages.iter().any(Option::is_some);
                 self.pages.clear();
-                self.rejected = true;
+                self.allocation.record(false, released.then_some(queue));
                 return false;
             };
             self.pages[index] = Some(gpu);
+        }
+        if self.allocation.failed() {
+            self.allocation.record(true, None);
         }
         true
     }

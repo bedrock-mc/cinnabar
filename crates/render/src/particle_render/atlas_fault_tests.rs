@@ -2,6 +2,18 @@ use super::*;
 use bevy::{ecs::system::RunSystemOnce, render::render_resource::PollType};
 use particles::AtlasPatch;
 
+/// The real particle owner on any native GPU, with the renderer's raised storage limits.
+fn app() -> Option<App> {
+    crate::render_test_support::fixture_owner_app(
+        "particle atlas faults",
+        wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ParticleRenderPlugin,
+    )
+}
+
 /// Publishes a new atlas base and runs one preparation.
 fn publish(world: &mut World, side: u32, value: u8) {
     world.insert_resource(ParticleGpuFrame {
@@ -15,7 +27,7 @@ fn publish(world: &mut World, side: u32, value: u8) {
 // A failed replacement drops the stale atlas, keeps running, and retries once it retires.
 #[test]
 fn particle_atlas_out_of_memory_releases_the_stale_atlas_and_retries_after_it_retires() {
-    let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
+    let Some(mut app) = app() else {
         return;
     };
     let world = app.sub_app_mut(RenderApp).world_mut();
@@ -50,7 +62,7 @@ fn particle_atlas_out_of_memory_releases_the_stale_atlas_and_retries_after_it_re
 // Without a previous atlas to release, an atlas that cannot fit is reduced, tiles included.
 #[test]
 fn a_particle_atlas_that_cannot_fit_is_reduced_instead_of_dropped() {
-    let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
+    let Some(mut app) = app() else {
         return;
     };
     let world = app.sub_app_mut(RenderApp).world_mut();
@@ -88,7 +100,7 @@ fn a_particle_atlas_that_cannot_fit_is_reduced_instead_of_dropped() {
 // Real out-of-memory leaves an invalid texture, so a failed creation must not be written or viewed.
 #[test]
 fn a_failed_particle_atlas_creation_is_never_written_and_recovers_after_backoff() {
-    let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
+    let Some(mut app) = app() else {
         return;
     };
     let world = app.sub_app_mut(RenderApp).world_mut();

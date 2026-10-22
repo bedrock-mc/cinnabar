@@ -19,7 +19,7 @@ mod page_budget;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
-use page_budget::{push_group, within_page_budget};
+use page_budget::push_group;
 #[path = "artwork/pixel_cache.rs"]
 mod pixel_cache;
 #[cfg(test)]
@@ -234,37 +234,37 @@ impl ActorArtworkPages {
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = player_page_bytes();
         for ((width, height, color_mask, multitexture), indices) in groups {
-            let placed = push_group(
+            push_group(
                 &mut pages,
                 &mut gpu_bytes,
                 &indices,
                 [width, height],
                 multitexture,
-                |indices| ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
-                    color_mask,
-                    multitexture,
+                |indices| {
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
+                        color_mask,
+                        multitexture,
+                    };
+                    (page, ())
+                },
+                |indices, page, (), _| {
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations.insert(
+                            *index as u32,
+                            ActorArtworkLocation {
+                                page,
+                                layer: layer as u32,
+                                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                                multitexture: None,
+                            },
+                        );
+                    }
                 },
             );
-            for (indices, page) in placed {
-                let Some(page) = page else {
-                    continue;
-                };
-                for (layer, index) in indices.iter().enumerate() {
-                    locations.insert(
-                        *index as u32,
-                        ActorArtworkLocation {
-                            page,
-                            layer: layer as u32,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
-                    );
-                }
-            }
         }
         let routes: BTreeMap<_, _> = catalog
             .bindings()
@@ -398,8 +398,7 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height, color_mask), indices) in groups {
-            let mut built = Vec::new();
-            let placed = push_group(
+            push_group(
                 &mut pages,
                 &mut gpu_bytes,
                 &indices,
@@ -420,35 +419,31 @@ impl ActorArtworkPages {
                         indices.iter().map(|index| &rasters[*index].rgba8),
                         &mut hasher,
                     );
-                    built.push((key, Arc::clone(&pixels)));
-                    ActorTexturePage {
+                    let page = ActorTexturePage {
                         width,
                         height,
                         layers: indices.len() as u32,
                         rgba8: pixels,
                         color_mask,
                         multitexture: false,
+                    };
+                    (page, key)
+                },
+                |indices, page, key, kept| {
+                    if kept {
+                        shared.push((key, usize::from(page) - 1));
+                    }
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations[*index] = Some(ActorArtworkLocation {
+                            page,
+                            layer: layer as u32,
+                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                            multitexture: None,
+                        });
+                        equipment.insert((page, layer as u32));
                     }
                 },
             );
-            for ((indices, page), (key, pixels)) in placed.into_iter().zip(built) {
-                let Some(page) = page else {
-                    continue;
-                };
-                let index = usize::from(page) - 1;
-                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
-                    shared.push((key, index));
-                }
-                for (layer, index) in indices.iter().enumerate() {
-                    locations[*index] = Some(ActorArtworkLocation {
-                        page,
-                        layer: layer as u32,
-                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                        multitexture: None,
-                    });
-                    equipment.insert((page, layer as u32));
-                }
-            }
         }
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
@@ -481,8 +476,7 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
-            let mut built = Vec::new();
-            let placed = push_group(
+            push_group(
                 &mut pages,
                 &mut gpu_bytes,
                 &indices,
@@ -503,37 +497,33 @@ impl ActorArtworkPages {
                         indices.iter().map(|index| &textures[*index].rgba8),
                         &mut hasher,
                     );
-                    built.push((key, Arc::clone(&pixels)));
-                    ActorTexturePage {
+                    let page = ActorTexturePage {
                         width,
                         height,
                         layers: indices.len() as u32,
                         rgba8: pixels,
                         color_mask: false,
                         multitexture: false,
+                    };
+                    (page, key)
+                },
+                |indices, page, key, kept| {
+                    if kept {
+                        shared.push((key, usize::from(page) - 1));
+                    }
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations.insert(
+                            *index as u32,
+                            ActorArtworkLocation {
+                                page,
+                                layer: layer as u32,
+                                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                                multitexture: None,
+                            },
+                        );
                     }
                 },
             );
-            for ((indices, page), (key, pixels)) in placed.into_iter().zip(built) {
-                let Some(page) = page else {
-                    continue;
-                };
-                let index = usize::from(page) - 1;
-                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
-                    shared.push((key, index));
-                }
-                for (layer, index) in indices.iter().enumerate() {
-                    locations.insert(
-                        *index as u32,
-                        ActorArtworkLocation {
-                            page,
-                            layer: layer as u32,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
-                    );
-                }
-            }
         }
         let pack_source_locations: BTreeMap<u32, ActorArtworkLocation> = textures
             .iter()
@@ -678,6 +668,7 @@ impl ActorArtworkPages {
 
 #[cfg(test)]
 mod tests {
+    use super::page_budget::within_page_budget;
     use super::*;
     use crate::MAX_RENDERED_PLAYERS;
 

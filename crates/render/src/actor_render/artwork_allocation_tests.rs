@@ -249,6 +249,23 @@ fn exhausting_all_page_sizes_skips_generic_artwork_without_repeating_allocations
     assert_eq!(work_tests::upload_count(), uploads);
 }
 
+// A demanded page that ran out of memory retries after a bounded backoff, not never.
+#[test]
+fn a_page_rejected_for_memory_retries_after_backoff() {
+    let (device, queue) = device();
+    let mut gpu = GpuArtwork::default();
+    let pages = publication(1, 2);
+    {
+        let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
+        assert!(!gpu.prepare(&pages, &device, &queue));
+    }
+    for _ in 1..gpu_allocation::MIN_RETRY_FRAMES {
+        assert!(!gpu.prepare(&pages, &device, &queue));
+    }
+    assert!(gpu.prepare(&pages, &device, &queue));
+    assert_eq!(gpu.page(0).unwrap()._texture.depth_or_array_layers(), 2);
+}
+
 #[test]
 fn incompatible_old_layer_count_uses_coarse_new_data_instead() {
     let (device, queue) = device();

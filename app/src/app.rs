@@ -69,7 +69,7 @@ use {
         runtime::{
             network::receive_network_events,
             shutdown::{
-                TerminalCause, exit_on_device_loss, exit_on_fatal_runtime_error,
+                TerminalCause, exit_on_fatal_runtime_error, exit_on_gpu_failure,
                 exit_on_window_close_requested,
             },
             telemetry::{
@@ -249,7 +249,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             Update,
             (
                 exit_on_window_close_requested,
-                exit_on_device_loss,
+                exit_on_gpu_failure,
                 flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
