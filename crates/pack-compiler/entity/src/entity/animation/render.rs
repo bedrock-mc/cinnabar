@@ -134,7 +134,7 @@ pub(super) fn compile_render(
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
     let mut geometry_parents = None;
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
         let entity = &symbols[rig.entity_symbol as usize];
         debug_assert!(matches!(

@@ -1034,6 +1034,47 @@ fn identical_duplicate_definitions_keep_the_rig() {
 }
 
 #[test]
+fn duplicate_geometry_inheritance_compares_resolved_parents() {
+    for duplicate_origin in [0, 4] {
+        let pack = animation_pack(false);
+        for (path, origin) in [
+            ("models/entity/test.geo.json", 0),
+            ("models/entity/copy.geo.json", duplicate_origin),
+        ] {
+            let geometry = serde_json::json!({
+                "format_version": "1.8.0",
+                "geometry.base": {
+                    "bones": [
+                        {"name": "root", "cubes": [
+                            {"origin": [origin, 0, 0], "size": [1, 1, 1], "uv": [0, 0]}
+                        ]},
+                        {"name": "arm", "parent": "root"}
+                    ]
+                },
+                "geometry.test:geometry.base": {
+                    "bones": [{"name": "arm", "parent": "root"}]
+                }
+            });
+            write(pack.path(), path, &serde_json::to_vec(&geometry).unwrap());
+        }
+        let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+        assert_eq!(compiled.assets.geometries.len(), 4);
+        let ambiguous = duplicate_origin != 0;
+        assert_eq!(compiled.assets.rig_bindings.len(), usize::from(!ambiguous));
+        assert_eq!(
+            compiled.reference_outcomes.iter().any(|outcome| matches!(
+                outcome,
+                pack_entity_compiler::CompileReferenceOutcome::RequiredRigRejected {
+                    reason: pack_entity_compiler::RejectReason::AmbiguousGeometryReference,
+                    ..
+                }
+            )),
+            ambiguous
+        );
+    }
+}
+
+#[test]
 fn differing_duplicate_controllers_reject_the_ambiguous_rig() {
     let pack = animation_pack(false);
     // The controller is reachable only through the legacy controller list.

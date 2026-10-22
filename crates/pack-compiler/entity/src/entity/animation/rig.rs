@@ -157,7 +157,7 @@ pub(super) fn compile_rigs(
         controllers,
         geometry_selections,
     } = inputs;
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     let controller_names = controllers
         .iter()
         .map(|controller| {

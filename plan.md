@@ -277,8 +277,9 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
-  Identical definitions repeated across pack files resolve as one. Differing duplicates (the
-  turtle's two `move` controllers) still reject the rig: native file load order is unverified.
+  Geometry with matching resolved inheritance chains and identical animation or controller
+  definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
+  controllers) still reject the rig: native file load order is unverified.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.

@@ -46,7 +46,7 @@ pub(super) fn collect(
     symbols: &[EntityAssetSymbol],
     geometries: &[EntityGeometry],
 ) -> Result<Vec<EntityEnvironment>, AssetError> {
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     let mut environments = Vec::new();
     for (entity_symbol, entity) in symbols.iter().enumerate().filter(|(_, symbol)| {
         matches!(
@@ -128,7 +128,7 @@ pub(super) fn compile_geometry_selections(
     environments: &[EntityEnvironment],
     molang: &mut MolangCompiler,
 ) -> Result<GeometrySelections, AssetError> {
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     let mut selections = BTreeMap::new();
     for source in sources
         .iter()
@@ -234,24 +234,27 @@ pub(super) fn selection_for<'a>(
         .find_map(|controller| selections.get(&(controller.clone(), environment.entity_symbol)))
 }
 
+/// Keeps duplicate identifiers unambiguous only when their resolved inheritance chains match.
 pub(super) fn unique_geometry_indices(
     geometries: &[EntityGeometry],
-) -> BTreeMap<Box<str>, Option<u32>> {
-    unique_by_definition(
+) -> Result<BTreeMap<Box<str>, Option<u32>>, AssetError> {
+    let parents = validate_entity_geometry_inheritance(geometries)?;
+    let chain = |start: usize| {
+        std::iter::successors(Some(start), |&index| parents[index]).map(|index| {
+            // Source files choose parents, but are not part of each resolved model.
+            EntityGeometry {
+                source_index: 0,
+                ..geometries[index].clone()
+            }
+        })
+    };
+    Ok(unique_by_definition(
         geometries
             .iter()
             .enumerate()
             .map(|(index, geometry)| (geometry.identifier.clone(), index as u32)),
-        |&first, &other| {
-            let (first, other) = (&geometries[first as usize], &geometries[other as usize]);
-            // The defining file is provenance, not part of the model.
-            *first
-                == EntityGeometry {
-                    source_index: first.source_index,
-                    ..other.clone()
-                }
-        },
-    )
+        |&first, &other| chain(first as usize).eq(chain(other as usize)),
+    ))
 }
 
 /// Maps each key to its first entry, or `None` once another entry under it is not `same`;
