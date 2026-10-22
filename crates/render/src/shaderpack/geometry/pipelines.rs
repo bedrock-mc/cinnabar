@@ -234,9 +234,9 @@ mod tests {
         crate::chunk::plugin::load_shaders(&mut app);
         app.add_plugins(super::super::ShaderpackGeometryPlugin);
         let mut render = app.remove_sub_app(RenderApp).unwrap();
-        render
-            .world_mut()
-            .insert_resource(MainWorld(std::mem::take(app.world_mut())));
+        let mut main = MainWorld::default();
+        *main = std::mem::take(app.world_mut());
+        render.world_mut().insert_resource(main);
         let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
             required_limits: wgpu::Limits {
                 max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
