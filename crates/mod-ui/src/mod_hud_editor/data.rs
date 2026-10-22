@@ -67,6 +67,25 @@ impl HudEditor {
         });
         if let Some(layout) = &host_layout {
             self.handle_page = self.handle_page.min(layout.pages - 1);
+            self.toolbar_page = self.toolbar_page.min(layout.toolbar_pages - 1);
+            for index in 0..template::host::ACTIONS.len() {
+                data.set_global(
+                    format!("#hud_action_{index}_visible"),
+                    Scalar::Bool(
+                        layout.usable && index / layout.toolbar_page_size == self.toolbar_page,
+                    ),
+                );
+            }
+            for (name, enabled) in [
+                ("prev", self.toolbar_page > 0),
+                ("next", self.toolbar_page + 1 < layout.toolbar_pages),
+            ] {
+                data.set_global(format!("#hud_toolbar_{name}"), Scalar::Bool(enabled));
+                data.set_global(
+                    format!("#hud_toolbar_{name}_alpha"),
+                    Scalar::Num(if enabled { 1. } else { 0.35 }),
+                );
+            }
             data.set_global(
                 "#hud_handles_title",
                 Scalar::Text(if layout.pages > 1 {
@@ -93,9 +112,9 @@ impl HudEditor {
                 format!("#hud_handle_{index}_visible"),
                 Scalar::Bool(
                     visible
-                        && host_layout
-                            .as_ref()
-                            .is_some_and(|layout| index / layout.page_size == self.handle_page),
+                        && host_layout.as_ref().is_some_and(|layout| {
+                            layout.usable && index / layout.page_size == self.handle_page
+                        }),
                 ),
             );
             data.set_global(format!("#hud_card_{index}_visible"), Scalar::Bool(visible));

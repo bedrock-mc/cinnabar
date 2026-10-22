@@ -317,11 +317,12 @@ fn touch_editor_chrome_and_alternate_drag_handles_remain_usable_at_small_scales(
 /// Paging retains a reachable drag target for every control, separate from Save and Cancel.
 #[test]
 fn touch_editor_narrow_high_dpi_handles_never_dispatch_transaction_actions() {
-    for safe in [
-        ui::SafeArea::default(),
-        ui::SafeArea::new(12., 8., 14., 6.).unwrap(),
+    for (size, safe) in [
+        ([854, 480], ui::SafeArea::default()),
+        ([854, 480], ui::SafeArea::new(12., 8., 14., 6.).unwrap()),
+        ([854, 480], ui::SafeArea::new(24., 32., 24., 32.).unwrap()),
+        ([720, 360], ui::SafeArea::default()),
     ] {
-        let size = [854, 480];
         let Some((mut p, runtime, _)) = setup(size) else {
             return;
         };
@@ -366,6 +367,20 @@ fn touch_editor_narrow_high_dpi_handles_never_dispatch_transaction_actions() {
                 .touch_editor_handle_bounds(name)
                 .expect("reachable handle page");
             assert!(w >= 48. && h >= 48.);
+            assert!(
+                x >= safe.left()
+                    && y >= safe.top()
+                    && x + w <= size[0] as f32 / 2. - safe.right() + 0.1
+                    && y + h <= size[1] as f32 / 2. - safe.bottom() + 0.1
+            );
+            for action in ["hud.save", "hud.cancel"] {
+                if let Some([a, b, c, d]) = p.touch_editor_action_bounds(action) {
+                    assert!(
+                        x + w <= a || a + c <= x || y + h <= b || b + d <= y,
+                        "{name} overlaps {action}"
+                    );
+                }
+            }
             let at = [x + w / 2., y + h / 2.];
             assert_eq!(
                 p.touch_editor_action_at(at),
@@ -390,4 +405,76 @@ fn touch_editor_narrow_high_dpi_handles_never_dispatch_transaction_actions() {
                 .is_none()
         );
     }
+}
+
+/// A viewport that cannot fit two finger-sized rows explains the shortage and only offers Cancel.
+#[test]
+fn touch_editor_insufficient_safe_height_never_exposes_selection_or_save_targets() {
+    let Some((mut p, runtime, _)) = setup([720, 360]) else {
+        return;
+    };
+    p.set_safe_area(ui::SafeArea::new(0., 64., 0., 48.).unwrap());
+    p.build(
+        &player_state::PlayerState::new(1),
+        &runtime,
+        1000,
+        [720, 360],
+        ui::DpiScale::new(2.).unwrap(),
+    )
+    .unwrap();
+    assert!(p.touch_editor_handle_bounds("joystick").is_none());
+    assert!(p.touch_editor_action_bounds("hud.save").is_none());
+    let [x, y, w, h] = p.touch_editor_action_bounds("hud.cancel").unwrap();
+    let at = [x + w / 2., y + h / 2.];
+    assert_eq!(p.touch_editor_action_at(at).as_deref(), Some("hud.cancel"));
+    p.touch_editor_pointer(at, true, false);
+    assert!(p.take_touch_editor_result().unwrap().is_none());
+}
+
+/// Compact action navigation exposes every command without changing the draft or its history.
+#[test]
+fn touch_editor_compact_action_pages_preserve_placements() {
+    let Some((mut p, runtime, _)) = setup([854, 480]) else {
+        return;
+    };
+    p.set_safe_area(ui::SafeArea::new(24., 32., 24., 32.).unwrap());
+    let paint = |p: &mut UiPresentationRuntime| {
+        p.build(
+            &player_state::PlayerState::new(1),
+            &runtime,
+            1000,
+            [854, 480],
+            ui::DpiScale::new(2.).unwrap(),
+        )
+        .unwrap();
+    };
+    paint(&mut p);
+    let original = p.screens.touch.editor.as_ref().unwrap().draft().clone();
+    for action in ["save", "cancel", "undo", "redo", "reset", "grid", "snap"] {
+        while p
+            .touch_editor_action_bounds(&format!("hud.{action}"))
+            .is_none()
+        {
+            let [x, y, w, h] = p.touch_editor_action_bounds("hud.toolbar_next").unwrap();
+            let at = [x + w / 2., y + h / 2.];
+            assert_eq!(
+                p.touch_editor_action_at(at).as_deref(),
+                Some("hud.toolbar_next")
+            );
+            p.touch_editor_pointer(at, true, false);
+            paint(&mut p);
+        }
+        let [x, y, w, h] = p
+            .touch_editor_action_bounds(&format!("hud.{action}"))
+            .unwrap();
+        assert!(w >= 48. && h >= 48.);
+        assert!(x >= 24. && y >= 32. && x + w <= 403.1 && y + h <= 208.1);
+        assert_eq!(p.screens.touch.editor.as_ref().unwrap().draft(), &original);
+        assert!(p.take_touch_editor_result().is_none());
+    }
+    p.touch_editor_key("Enter", Default::default());
+    assert_eq!(
+        p.take_touch_editor_result().unwrap().unwrap(),
+        TouchLayout::default()
+    );
 }

@@ -18,10 +18,13 @@ pub(super) fn png(state: &State, dir: &Path, phase: u8, seconds: f64) -> Result<
         presentation.enable_oreui_originals(images)?;
     }
     presentation.set_gui_scale_preference(Some(state.gui_scale));
+    if phase == 5 {
+        presentation.set_safe_area(ui::SafeArea::new(24., 32., 24., 32.).unwrap());
+    }
     let mut runtime = UiRuntime::new(1);
     runtime.set_lang_catalog(Arc::new(carriers.lang));
     let player = player_state::PlayerState::new(1);
-    let dpi = ui::DpiScale::new(if phase == 4 { 2. } else { 1. }).unwrap();
+    let dpi = ui::DpiScale::new(if phase >= 4 { 2. } else { 1. }).unwrap();
     let mut view = MenuView::new(true, "Player".into());
     view.screen = MenuScreen::Settings;
     view.touch_available = true;
@@ -32,7 +35,52 @@ pub(super) fn png(state: &State, dir: &Path, phase: u8, seconds: f64) -> Result<
             .map_err(|e| Error::Invalid(e.to_string()))
     };
     draw(&mut presentation)?;
-    if phase == 4 {
+    if phase >= 4 {
+        if phase == 5 {
+            for action in ["save", "cancel", "undo", "redo", "reset", "grid", "snap"] {
+                while presentation
+                    .touch_editor_action_bounds(&format!("hud.{action}"))
+                    .is_none()
+                {
+                    let [x, y, w, h] = presentation
+                        .touch_editor_action_bounds("hud.toolbar_next")
+                        .ok_or_else(|| Error::Invalid("compact action pager missing".into()))?;
+                    if presentation
+                        .touch_editor_action_at([x + w / 2., y + h / 2.])
+                        .as_deref()
+                        != Some("hud.toolbar_next")
+                    {
+                        return Err(Error::Invalid("compact action is unreachable".into()));
+                    }
+                    presentation.touch_editor_pointer([x + w / 2., y + h / 2.], true, false);
+                    draw(&mut presentation)?;
+                }
+            }
+            while presentation
+                .touch_editor_action_bounds("hud.save")
+                .is_none()
+            {
+                let [x, y, w, h] = presentation
+                    .touch_editor_action_bounds("hud.toolbar_prev")
+                    .ok_or_else(|| Error::Invalid("compact return action missing".into()))?;
+                if presentation
+                    .touch_editor_action_at([x + w / 2., y + h / 2.])
+                    .as_deref()
+                    != Some("hud.toolbar_prev")
+                {
+                    return Err(Error::Invalid(
+                        "compact return action is unreachable".into(),
+                    ));
+                }
+                presentation.touch_editor_pointer([x + w / 2., y + h / 2.], true, false);
+                draw(&mut presentation)?;
+            }
+            if presentation.take_touch_editor_result().is_some() {
+                return Err(Error::Invalid(
+                    "paging unexpectedly closed the draft".into(),
+                ));
+            }
+        }
         // Reach the final compact page through the same actions used by a finger.
         while presentation.touch_editor_handle_bounds("menu").is_none() {
             let [x, y, w, h] = presentation

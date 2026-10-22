@@ -28,6 +28,7 @@ impl HudEditor {
             history_buttons: true,
             chrome_scale: 1.,
             handle_page: 0,
+            toolbar_page: 0,
             grid: false,
             snap: false,
             bypass_snap: false,
