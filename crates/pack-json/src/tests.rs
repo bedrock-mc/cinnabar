@@ -1,4 +1,7 @@
-use super::{decode_text, normalize_jsonc, parse_jsonc, prepare_jsonc};
+use super::{
+    MAX_PARSED_BYTES, PARSED_BYTES_PER_VALUE, decode_text, fits_parse_budget, normalize_jsonc,
+    parse_jsonc, prepare_jsonc,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::cell::Cell;
@@ -182,4 +185,26 @@ fn malformed_syntax_is_rejected_and_comments_separate_tokens() {
     }
     let error = parse_jsonc::<Value>(b"{/* first\nsecond */\n\"a\":}\n").unwrap_err();
     assert_eq!(error.line(), 3);
+}
+
+// A pack entry inflating to a dense array must be refused before its value tree can exhaust memory.
+#[test]
+fn a_document_whose_tree_could_exhaust_memory_is_refused_before_parsing() {
+    let values = MAX_PARSED_BYTES / PARSED_BYTES_PER_VALUE;
+    let mut dense = Vec::with_capacity(2 * values + 2);
+    dense.push(b'[');
+    for _ in 0..values {
+        dense.extend_from_slice(b"0,");
+    }
+    dense.extend_from_slice(b"0]");
+    let error = parse_jsonc::<Value>(&dense).unwrap_err();
+    assert!(error.to_string().contains("too large"), "{error}");
+}
+
+#[test]
+fn the_parse_budget_counts_values_outside_strings() {
+    let budget = 64 + 5 * PARSED_BYTES_PER_VALUE;
+    assert!(fits_parse_budget(br#"[0,1,2,3]"#, budget));
+    assert!(!fits_parse_budget(br#"[0,1,2,3,4,5,6,7,8]"#, budget));
+    assert!(fits_parse_budget(br#"["0,1,2,3,4,5,6,\",7,8"]"#, budget));
 }

@@ -31,9 +31,48 @@ pub fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
     }
 }
 
+/// Bytes a parsed document may need at most. A pack can inflate one entry to hundreds of MiB, and
+/// a dense value tree costs far more than its text, so larger trees are refused before parsing
+/// rather than aborting the process on allocation failure.
+const MAX_PARSED_BYTES: usize = 1 << 30;
+
+/// Worst-case parsed cost of one value: its tree node plus a map key or container slot.
+const PARSED_BYTES_PER_VALUE: usize = 2 * size_of::<serde_json::Value>();
+
+/// Whether a document's value tree, bounded by the separators and openers outside its strings,
+/// fits `budget` bytes.
+fn fits_parse_budget(bytes: &[u8], budget: usize) -> bool {
+    let (mut values, mut in_string, mut escaped) = (1usize, false, false);
+    for &byte in bytes {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if matches!(byte, b',' | b':' | b'[' | b'{') {
+            values += 1;
+        }
+    }
+    values
+        .checked_mul(PARSED_BYTES_PER_VALUE)
+        .and_then(|tree| tree.checked_add(bytes.len()))
+        .is_some_and(|parsed| parsed <= budget)
+}
+
 /// Parses one complete pack document, accepting comments, a BOM and trailing
 /// commas. The requested type keeps its own shape and duplicate-key validation.
+/// A document whose value tree could exceed [`MAX_PARSED_BYTES`] is an error.
 pub fn parse_jsonc<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
+    if !fits_parse_budget(bytes, MAX_PARSED_BYTES) {
+        return Err(<serde_json::Error as serde::de::Error>::custom(
+            "document is too large to parse",
+        ));
+    }
     // Byte-oriented deserializers can accept invalid UTF-8 without decode_text's conversion.
     if let Ok(text) = std::str::from_utf8(bytes)
         && let Ok(value) = serde_json::from_str(text)
