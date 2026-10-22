@@ -478,3 +478,39 @@ fn touch_editor_compact_action_pages_preserve_placements() {
         TouchLayout::default()
     );
 }
+
+/// Opaque editing chrome covers artwork that lies beneath it on a cramped viewport.
+#[test]
+fn touch_editor_toolbar_paints_above_overlapping_artwork() {
+    let Some((mut p, runtime, _)) = setup([854, 480]) else {
+        return;
+    };
+    let frame = p
+        .build(
+            &player_state::PlayerState::new(1),
+            &runtime,
+            1000,
+            [854, 480],
+            ui::DpiScale::new(2.).unwrap(),
+        )
+        .unwrap();
+    let [x, y, w, h] = p.touch_editor_bounds("joystick").unwrap();
+    let point = [x + w / 2., y + h / 2.];
+    let [a, b, c, d] = p.touch_editor_action_bounds("hud.blocked").unwrap();
+    assert!(point[0] > a && point[0] < a + c && point[1] > b && point[1] < b + d);
+    let pixels = super::super::snapshot::rasterize(&frame);
+    let covered = pixels.get_pixel(
+        (point[0] * 2.).round() as u32,
+        (point[1] * 2.).round() as u32,
+    );
+    let background = pixels.get_pixel(
+        ((a + 1.) * 2.).round() as u32,
+        ((b + 1.) * 2.).round() as u32,
+    );
+    for channel in 0..3 {
+        assert!(
+            covered[channel].abs_diff(background[channel]) <= 5,
+            "toolbar must occlude the joystick: {covered:?} vs {background:?}"
+        );
+    }
+}
