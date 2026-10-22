@@ -11,13 +11,20 @@ Each world records the backend that created it (`world.json`) and always reopens
 | Backend | Where | Notes |
 | --- | --- | --- |
 | `bds` native | Windows and Linux x86-64 | Official Bedrock Dedicated Server: vanilla terrain and mobs. |
-| `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
+| `bds` container | Desktop hosts without a native build, with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
+| `bds` translated | Android ARM64 with the bundled runtime | Linux BDS; device and performance acceptance remain incomplete. |
 | `dragonfly` | built-in local server on every supported host | Flat terrain through Dragonfly's built-in generators; mob behavior has parity gaps. |
 
 New worlds use BDS and offer Infinite or Flat terrain. If BDS is unavailable, creation shows
 its runtime warning and the Docker setup prompt. Existing Dragonfly worlds keep their backend.
 Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
+Android bundles Dragonfly and a translated BDS runtime, with BDS the default for new worlds.
+The BDS runtime starts, saves and reopens worlds in an Android 15 test-app sandbox, including
+production protocol login and spawn with every external interface down. BDS acquires the Linux server archive and pinned guest
+runtime on first use. Android does not probe for Docker or offer a container installer. Full client,
+physical-device, offline, lifecycle and performance acceptance remain incomplete; see
+[Android](android.md).
 
 ## World options
 
@@ -34,8 +41,10 @@ respawn radius and daylight settings use level data. Server properties apply che
 distance and default player permissions to both native and container servers.
 Like a vanilla world owner, the signed-in host is an operator through the install's
 `permissions.json`, keyed by XUID; friends and other joiners get the default permission. A start
-made while the account's profile loads waits for its XUID. A signed-out host has no XUID, so it
-keeps the default too.
+made while the account's profile loads starts native or translated BDS immediately, then waits
+for the host's operator grant before allowing a join. The existing profile-load deadline runs
+alongside server startup; container servers still resolve the host before launching.
+A signed-out host has no XUID, so it keeps the default too.
 Turning multiplayer off limits the server to its host and withdraws friend hosting.
 LAN visibility is not offered: both runtimes bind and advertise loopback only, so discovery stays off.
 A new world's first start lets BDS create it from server.properties and stops it once ready, so its
@@ -116,13 +125,20 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
-  because `online-mode=false`. Player-data persistence needs a stable client identity.
+  because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account
+  services fail before the transport opens or the server reports missing account verification keys.
+  Other server rejections and transferred or external servers never trigger this retry.
+  The local retry has no account XUID or operator grant; player-data continuity between account-backed
+  and local identities still needs acceptance. Player-data persistence needs a stable client identity.
 - **Offline:** the client includes loopback ICE candidates for both local HTTP and LAN joins, so
   its transport can use same-device routes with external interfaces down. This does not create a
   missing server route: native BDS gathers ICE candidates only from non-loopback interfaces and has no other
   transport, so on a device with no network its SDP answer carries no candidate. The core fails such
   a join at once with `cinnabar.disconnect.localWorldOffline` rather than waiting for a candidate.
-  Joining a BDS world offline remains unsupported.
+  The Android translator supplies an additional route over the existing loopback interface and
+  passes offline transport, signed-out login and spawn in the emulator sandbox. This does not
+  change native desktop BDS. Initial Android server/runtime downloads require a connection;
+  full-APK and physical-phone offline acceptance remain open.
 
 ## Core route
 

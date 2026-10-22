@@ -212,115 +212,6 @@ fn live_changes_stay_pending_after_an_unclean_stop() {
     assert_eq!(pending_after_live_edit(false, true).get(O::Pvp), Some(0));
 }
 
-/// Each start hosts the account signed in at that moment, and a malformed XUID grants nobody.
-#[test]
-fn starts_carry_the_signed_in_host() {
-    let runner = Arc::new(FakeRunner::default());
-    let (fixture, world) = bds_world(&runner);
-    let manager = &fixture.manager;
-    for host in ["2535400000000001", "2535 OR 1", ""] {
-        manager.set_host(if host.is_empty() {
-            Host::SignedOut
-        } else {
-            Host::Xuid(host.to_owned())
-        });
-        manager.open(&world.id, None).expect("open");
-        wait_for(manager, WorldState::Running);
-        manager.close();
-        wait_for(manager, WorldState::Idle);
-    }
-    assert_eq!(
-        *lock(&runner.hosts),
-        [Some("2535400000000001".to_owned()), None, None]
-    );
-}
-
-/// An open made while a new sign-in's XUID loads waits for it, so the host still becomes operator.
-#[test]
-fn a_start_waits_for_a_loading_host() {
-    let runner = Arc::new(FakeRunner::default());
-    let (fixture, world) = bds_world(&runner);
-    let manager = &fixture.manager;
-    manager.set_host(Host::Loading);
-    manager.open(&world.id, None).expect("open");
-    waiting_on_host(manager);
-    manager.set_host(Host::Xuid("2535400000000001".to_owned()));
-    wait_for(manager, WorldState::Running);
-    assert_eq!(*lock(&runner.hosts), [Some("2535400000000001".to_owned())]);
-}
-
-/// Closing a world whose start waits on the host cancels it before any server starts.
-#[test]
-fn closing_ends_a_wait_for_the_host() {
-    let runner = Arc::new(FakeRunner::default());
-    let (fixture, world) = bds_world(&runner);
-    let manager = &fixture.manager;
-    manager.set_host(Host::Loading);
-    manager.open(&world.id, None).expect("open");
-    waiting_on_host(manager);
-    manager.close();
-    wait_for(manager, WorldState::Idle);
-    assert!(lock(&runner.hosts).is_empty(), "a server started");
-}
-
-/// Dragonfly grants no operator, so its starts never wait on a loading host.
-#[test]
-fn dragonfly_starts_do_not_wait_for_the_host() {
-    let runner = Arc::new(FakeRunner::default());
-    let runner_dyn: Arc<dyn Runner> = runner.clone();
-    let fixture = fixture(|parts, _| {
-        parts.runners.dragonfly = Some(runner_dyn);
-        parts.host_wait = Duration::from_secs(3600);
-    });
-    let manager = &fixture.manager;
-    let world = manager
-        .create(&NewWorld {
-            backend: Some(Backend::Dragonfly),
-            ..flat("w")
-        })
-        .expect("create");
-    manager.set_host(Host::Loading);
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Running);
-    assert_eq!(*lock(&runner.hosts), [None]);
-}
-
-/// Waits until a start is blocked on a [`Host::Loading`] host.
-#[track_caller]
-fn waiting_on_host(manager: &Manager) {
-    test_time::eventually("the start waits on the host", || {
-        manager
-            .inner
-            .host_waits
-            .load(std::sync::atomic::Ordering::SeqCst)
-            == 1
-    });
-}
-
-/// An XUID that never arrives delays the start only by the host wait, then grants nobody.
-#[test]
-fn a_host_that_never_loads_starts_without_an_operator() {
-    let runner = Arc::new(FakeRunner::default());
-    let runner_dyn: Arc<dyn Runner> = runner.clone();
-    let fixture = fixture(|parts, dir| {
-        parts.runners.bds = Some(runner_dyn);
-        parts.setup = Some(provisioner(dir, LINUX));
-        parts.host_wait = Duration::ZERO;
-    });
-    let manager = &fixture.manager;
-    manager.accept_eula().expect("accept");
-    let world = manager
-        .create(&NewWorld {
-            backend: Some(Backend::Bds),
-            ..flat("w")
-        })
-        .expect("create");
-    manager.set_host(Host::Loading);
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Running);
-    assert_eq!(*lock(&runner.hosts), [None]);
-}
-
 /// Reopening a world that still saves starts its server only once the old one has exited.
 #[test]
 fn reopening_while_the_last_server_saves_waits_for_it() {
@@ -1108,3 +999,6 @@ fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
         42
     );
 }
+
+#[path = "manager_host_tests.rs"]
+mod host;

@@ -1,7 +1,7 @@
 use std::{
     sync::{Arc, Condvar, Mutex, TryLockError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
@@ -19,7 +19,7 @@ use crate::lifecycle::children::{self, ExitHookGuard};
 
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
-    process::{Instance, Runner, SAVE_BUDGET, StartSpec},
+    process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
     provision::{Provisioner, RuntimeInfo, RuntimeKind},
     store::Store,
     world::{WorldError, validate_name},
@@ -28,7 +28,8 @@ use super::{
 const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
 /// Outlasts the Docker probe's own timeout.
 const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
-/// Covers a first sign-in's profile load; a start then proceeds without an operator.
+/// Covers a first sign-in's profile load, counted from before the server launches; a start then
+/// proceeds without an operator.
 const DEFAULT_HOST_WAIT: Duration = Duration::from_secs(30);
 /// How often a start waiting on the host rechecks its cancel.
 const HOST_POLL: Duration = Duration::from_millis(50);
@@ -38,7 +39,7 @@ const HOST_POLL: Duration = Duration::from_millis(50);
 pub enum Host {
     #[default]
     SignedOut,
-    /// Signed in with the XUID still loading; starts wait for it.
+    /// Signed in with the XUID still loading; BDS starts wait for it before reporting running.
     Loading,
     Xuid(String),
 }
@@ -61,6 +62,14 @@ impl Runners {
             .ok_or(WorldError::BackendUnavailable)?
             .start(spec, cancel)
     }
+
+    /// When `backend`'s runner applies the host grant; Dragonfly and a missing runner grant nobody.
+    fn host_grant(&self, backend: Backend) -> HostGrant {
+        match (backend, &self.bds) {
+            (Backend::Bds, Some(runner)) => runner.host_grant(),
+            (Backend::Bds, None) | (Backend::Dragonfly, _) => HostGrant::None,
+        }
+    }
 }
 
 /// What a [`Manager`] is built from.
@@ -76,7 +85,7 @@ pub(crate) struct Parts {
     pub stop_timeout: Duration,
     /// How long a create waits for a runtime detection in flight.
     pub runtime_wait: Duration,
-    /// How long a start waits for a [`Host::Loading`] host.
+    /// How long a BDS start waits for a [`Host::Loading`] host, counted from before its launch.
     pub host_wait: Duration,
 }
 
@@ -95,10 +104,10 @@ impl Parts {
     }
 }
 
-/// BDS when it can run natively or in a container, else Dragonfly.
+/// Prefer the dedicated server wherever a complete runtime is available.
 pub(crate) fn default_backend(runtime: &RuntimeInfo) -> Backend {
     match runtime.kind {
-        RuntimeKind::Native | RuntimeKind::Container => Backend::Bds,
+        RuntimeKind::Native | RuntimeKind::Container | RuntimeKind::Translated => Backend::Bds,
         RuntimeKind::None => Backend::Dragonfly,
     }
 }
@@ -435,44 +444,6 @@ impl Manager {
         }
     }
 
-    /// Names the account that later starts make an operator; a malformed XUID grants nobody.
-    pub fn set_host(&self, host: Host) {
-        let host = match host {
-            Host::Xuid(xuid) if !bridge::valid_cinnabar_xuid(&xuid) => Host::SignedOut,
-            host => host,
-        };
-        *lock(&self.inner.host) = host;
-        self.inner.host_changed.notify_all();
-    }
-
-    /// The host's XUID once it is no longer loading, the wait expires or `cancel` fires.
-    fn host_xuid(&self, cancel: &Cancel) -> Option<String> {
-        let deadline = std::time::Instant::now() + self.inner.host_wait;
-        let mut host = lock(&self.inner.host);
-        #[cfg(test)]
-        if *host == Host::Loading {
-            self.inner
-                .host_waits
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }
-        while *host == Host::Loading && !cancel.is_cancelled() {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            host = self
-                .inner
-                .host_changed
-                .wait_timeout(host, left.min(HOST_POLL))
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .0;
-        }
-        match &*host {
-            Host::Xuid(xuid) => Some(xuid.clone()),
-            Host::SignedOut | Host::Loading => None,
-        }
-    }
-
     /// Begins starting a world and returns at once; poll [`Self::status`] for readiness.
     /// Reopening the world that is already starting or running does nothing, and an open while
     /// the last world still saves starts its server once that one has exited.
@@ -551,10 +522,14 @@ impl Manager {
                 break;
             }
         }
-        // Only BDS grants the host operator.
-        let host_xuid = (spec.world.backend == Backend::Bds)
-            .then(|| self.host_xuid(cancel))
-            .flatten();
+        let grant = self.inner.runners.host_grant(spec.world.backend);
+        // Set before launch, so a new world's creation run counts against the host's wait.
+        let host_deadline = Instant::now() + self.inner.host_wait;
+        let host_xuid = match grant {
+            HostGrant::None => None,
+            HostGrant::AtLaunch => self.await_host(host_deadline, cancel, "before launch", None),
+            HostGrant::WhenReady => self.known_host(),
+        };
         let mut fresh_world = None;
         let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
@@ -568,7 +543,7 @@ impl Manager {
                         dir: spec.dir.clone(),
                         view_distance: spec.view_distance,
                         options_unapplied,
-                        host_xuid,
+                        host_xuid: host_xuid.clone(),
                     };
                     let started = self.inner.runners.start(&fresh, cancel);
                     fresh_world = Some(fresh.world);
@@ -576,8 +551,18 @@ impl Manager {
                 },
             )
         };
+        let (started, host_guard) = match started {
+            Ok(instance) if grant == HostGrant::WhenReady && !cancel.is_cancelled() => {
+                match self.grant_when_ready(instance, host_xuid.as_deref(), host_deadline, cancel) {
+                    Ok((instance, host)) => (Ok(instance), Some(host)),
+                    Err(error) => (Err(error), None),
+                }
+            }
+            started => (started, None),
+        };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
+            drop(host_guard);
             drop(life);
             if let Ok(instance) = started {
                 self.stop_instance(instance.as_ref());
@@ -601,6 +586,7 @@ impl Manager {
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
+        drop(host_guard);
         drop(life);
         if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
@@ -874,6 +860,9 @@ impl Manager {
         }
     }
 }
+
+#[path = "manager_host.rs"]
+mod host;
 
 /// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
 /// LAN advertisement when the server publishes one.

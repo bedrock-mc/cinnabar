@@ -20,8 +20,9 @@ use url::Url;
 
 use super::{
     Cancel, lock,
-    process::{Instance, Runner, StartSpec},
+    process::{HostGrant, Instance, Runner, StartSpec},
     provision::{Platform, Provisioner},
+    unpack::INSTALL_MANIFEST,
     world::WorldError,
 };
 
@@ -269,7 +270,7 @@ pub(crate) fn installed_provisioner(root: &Path, platform: Platform, binary: &[u
     provisioner.platform = platform;
     let dir = provisioner.root.join(VERSION);
     std::fs::create_dir_all(&dir).expect("install folder");
-    std::fs::write(dir.join("manifest.json"), b"{}").expect("manifest");
+    std::fs::write(dir.join(INSTALL_MANIFEST), b"{}").expect("manifest");
     write_script(&dir.join("bedrock_server"), binary);
     provisioner.accept_eula().expect("accept EULA");
     provisioner
@@ -295,7 +296,7 @@ pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\
 #[cfg(unix)]
 pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) for arg; do case \"$arg\" in *:/data/worlds/*) world=\"${arg%%:/data/worlds/*}\" ;; esac; done\n    echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done; rm -f \"$log.stop\"\n    [ -z \"$world\" ] || [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\"; exit \"${FAKE_DOCKER_EXIT:-0}\" ;;\nesac\n";
 
-/// Records every pause request; exits once stopped.
+/// Records every pause request and host grant; exits once stopped.
 pub(crate) struct FakeInstance {
     pub paused: Mutex<Vec<bool>>,
     /// Every console command sent, in order.
@@ -304,6 +305,12 @@ pub(crate) struct FakeInstance {
     pub console_fails: bool,
     /// The stop ends without a successful exit, as a crash or a kill does.
     pub unclean: bool,
+    /// Each [`Instance::grant_host`] call, recorded as it begins.
+    pub grants: Mutex<Vec<Option<String>>>,
+    /// Holds each grant, once recorded, until disconnected.
+    grant_gate: Option<Receiver<()>>,
+    /// Fails each grant.
+    grant_error: Option<fn() -> WorldError>,
     exit: Mutex<Option<Sender<()>>>,
     exited: Receiver<()>,
     pub can_pause: bool,
@@ -323,6 +330,9 @@ impl FakeInstance {
             console: Mutex::default(),
             console_fails: false,
             unclean: false,
+            grants: Mutex::default(),
+            grant_gate: None,
+            grant_error: None,
             exit: Mutex::new(Some(exit)),
             exited,
             can_pause,
@@ -401,6 +411,17 @@ impl Instance for FakeInstance {
     fn exited_cleanly(&self) -> bool {
         self.stopped() && !self.unclean
     }
+
+    fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError> {
+        lock(&self.grants).push(xuid.map(str::to_owned));
+        if let Some(gate) = &self.grant_gate {
+            crossbeam_channel::select! {
+                recv(gate) -> _ => {},
+                recv(cancel.receiver()) -> _ => return Err(WorldError::Cancelled),
+            }
+        }
+        self.grant_error.map_or(Ok(()), |error| Err(error()))
+    }
 }
 
 /// Starts [`FakeInstance`]s, optionally held until `release` or failing with `error`.
@@ -410,10 +431,18 @@ pub(crate) struct FakeRunner {
     pub error: Option<fn() -> WorldError>,
     pub can_pause: Option<bool>,
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
+    /// Starts begun, counted before any gate.
+    pub entered: AtomicUsize,
     /// The effective world passed to each started server.
     pub started: Mutex<Vec<World>>,
     /// The host XUID passed to each started server.
     pub hosts: Mutex<Vec<Option<String>>>,
+    /// When starts apply the host grant; `None` grants once ready, as native BDS does.
+    pub host_grant: Option<HostGrant>,
+    /// Passed to each instance as its grant gate.
+    pub grant_gate: Option<Receiver<()>>,
+    /// Passed to each instance as its grant failure.
+    pub grant_error: Option<fn() -> WorldError>,
     /// Passed to each instance as its save.
     pub save: Option<Receiver<()>>,
     /// Passed to each instance as its cleanup.
@@ -465,6 +494,18 @@ impl FakeRunner {
         )
     }
 
+    /// A runner whose instances' grants wait until the returned sender is dropped.
+    pub(crate) fn granting() -> (Self, Sender<()>) {
+        let (release, grant_gate) = crossbeam_channel::bounded(0);
+        (
+            Self {
+                grant_gate: Some(grant_gate),
+                ..Self::default()
+            },
+            release,
+        )
+    }
+
     pub(crate) fn last(&self) -> Arc<FakeInstance> {
         Arc::clone(lock(&self.made).last().expect("a started instance"))
     }
@@ -472,6 +513,7 @@ impl FakeRunner {
 
 impl Runner for FakeRunner {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
+        self.entered.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.gate {
             crossbeam_channel::select! {
                 recv(gate) -> _ => {}
@@ -493,12 +535,18 @@ impl Runner for FakeRunner {
             cleanup: self.cleanup.clone(),
             console_fails: self.console_fails,
             unclean: self.unclean,
+            grant_gate: self.grant_gate.clone(),
+            grant_error: self.grant_error,
             ..FakeInstance::new(self.can_pause.unwrap_or(true))
         });
         made.push(Arc::clone(&instance));
         drop(made);
         let instance: Arc<dyn Instance> = instance;
         Ok(instance)
+    }
+
+    fn host_grant(&self) -> HostGrant {
+        self.host_grant.unwrap_or(HostGrant::WhenReady)
     }
 
     fn prepare(&self) {
