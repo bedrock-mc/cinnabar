@@ -34,6 +34,8 @@ respawn radius and daylight settings use level data. Server properties apply che
 distance and default player permissions to both native and container servers.
 Turning multiplayer off limits the server to its host and withdraws friend hosting.
 LAN visibility is not offered: both runtimes bind and advertise loopback only, so discovery stays off.
+New level data still records LAN broadcast on, as BDS's own new worlds do; BDS refuses the local
+offline join without it.
 Reopening waits for the prior server to finish saving before it reloads rules and applies pending edits.
 Seed and terrain apply during creation; starting map and bonus chest are also fixed after creation.
 The edit screen exposes the remaining options.

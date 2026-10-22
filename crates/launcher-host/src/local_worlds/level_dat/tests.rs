@@ -237,3 +237,27 @@ fn world_options_leave_level_data_beyond_the_read_bound_untouched() {
     fs::write(&path, &bytes).unwrap();
     assert!(try_read_options(&path).unwrap().enabled(O::ShowCoordinates));
 }
+
+/// New level data keeps LAN broadcast on, which BDS needs for the local offline join; existing
+/// files keep whatever BDS saved.
+#[test]
+fn world_options_new_level_data_keeps_lan_broadcast_on() {
+    let world = test_support::world();
+    let bytes = configured(&world, &[]).unwrap();
+    let fields = read_fields(&bytes[8..]).unwrap();
+    assert_eq!(scalar(&fields, "LANBroadcast"), Some(1));
+    assert_eq!(scalar(&fields, "LANBroadcastIntent"), Some(1));
+    let mut saved = fields;
+    put(&mut saved, "LANBroadcastIntent", 1, &[0]);
+    let mut body = vec![10, 0, 0];
+    for (_, tag) in saved {
+        body.extend(tag);
+    }
+    body.push(0);
+    let mut existing = bytes[..4].to_vec();
+    existing.extend((body.len() as u32).to_le_bytes());
+    existing.extend(body);
+    let reopened = configured(&world, &existing).unwrap();
+    let fields = read_fields(&reopened[8..]).unwrap();
+    assert_eq!(scalar(&fields, "LANBroadcastIntent"), Some(0));
+}

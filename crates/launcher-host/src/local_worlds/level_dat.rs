@@ -99,6 +99,10 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
             launcher::local_worlds::world::Difficulty::Hard => 3,
         };
         put(&mut fields, "Difficulty", 3, &difficulty.to_le_bytes());
+        // BDS turns LAN broadcast on only for worlds it creates itself, and refuses the local
+        // offline join while it is off.
+        put(&mut fields, "LANBroadcast", 1, &[1]);
+        put(&mut fields, "LANBroadcastIntent", 1, &[1]);
     }
     put(&mut fields, "LevelName", 8, &string(&world.name));
     let was_always_day = scalar(&fields, "daylightCycle") == Some(1);
