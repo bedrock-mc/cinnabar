@@ -519,3 +519,43 @@ fn a_failed_riptide_preparation_keeps_the_prediction_sync() {
     );
     assert!(scheduled(&physics));
 }
+
+/// A rewind starts its first frame from the eye that frame started with live,
+/// not from an earlier replay's rebuilt eye for the frame before it, so the
+/// liquid attach height the frame used survives.
+#[test]
+fn a_later_rewind_starts_from_the_frame_entry_eye() {
+    let world = Pool(false);
+    let origin = [0.0, PLAYER_NETWORK_OFFSET + 0.1, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let step = |physics: &mut LocalPhysicsController| {
+        assert_eq!(
+            physics
+                .advance(
+                    simulation_clock::TICK_DURATION,
+                    MovementInput::default(),
+                    &world
+                )
+                .samples
+                .len(),
+            1
+        );
+    };
+    for _ in 0..3 {
+        step(&mut physics);
+    }
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(101, spin);
+    physics.replay_retained_from(101, &world).unwrap();
+    step(&mut physics);
+    let live = physics.history.input_at(104).unwrap().liquid_attach_height;
+    physics.replay_retained_from(103, &world).unwrap();
+    assert_eq!(
+        physics.history.input_at(104).unwrap().liquid_attach_height,
+        live
+    );
+}

@@ -277,6 +277,18 @@ impl LocalPhysicsController {
                             .expect("controller and prediction histories retain the same ticks")
                             .finish_eye(&mut eye, state);
                     }
+                    // Vanilla restores the starting frame's eye from its snapshot and
+                    // refreshes later frames' from the replayed state.
+                    if let Some(frame) = controller_frames
+                        .iter_mut()
+                        .find(|frame| frame.tick == state.tick + 1)
+                    {
+                        if frame.tick == tick + 1 {
+                            eye = frame.entry_eye;
+                        } else {
+                            frame.entry_eye = eye;
+                        }
+                    }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
                     let frame = controller_frames

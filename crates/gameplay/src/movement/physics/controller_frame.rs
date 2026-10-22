@@ -35,6 +35,9 @@ pub(super) struct ControllerFrame {
     /// Counters this tick started with; replay restores those of the frame it
     /// starts from and refreshes later ones.
     pub entry_counters: server_flags::EntryCounters,
+    /// The camera eye this tick started with, which replay restores for the
+    /// frame it starts from and refreshes for later ones.
+    pub entry_eye: eye::LocalEyeOffset,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,

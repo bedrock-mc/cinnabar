@@ -224,6 +224,9 @@ pub(super) struct ServerFlagAuthority {
     /// A correction stamped at the current or a future tick, attached to the
     /// frame of the given tick when that frame is captured.
     queued: Option<(u64, FlagCorrection)>,
+    /// The tick of the local Riptide launch that started the current spin;
+    /// a server spin write or the spin's end clears it.
+    launched_spin: Option<u64>,
     /// A spin counter a live clear removed, with the tick it was cleared on.
     /// Vanilla's counter outlives its flag until a tick processes the clear.
     cleared_spin: Option<(u64, u8)>,
@@ -244,10 +247,16 @@ impl ServerFlagAuthority {
         self.cleared_spin = Some((tick, ticks));
     }
 
+    /// The tick of the local launch that started the current spin.
+    pub(super) const fn launched_spin(&self) -> Option<u64> {
+        self.launched_spin
+    }
+
     /// Drops writes that belong to discarded frames.
     pub(super) fn reset_history(&mut self) {
         self.queued = None;
         self.cleared_spin = None;
+        self.launched_spin = None;
     }
 }
 
@@ -257,6 +266,8 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
     if state.spin_attack_ticks.is_some() == spinning {
         return;
     }
+    // The spin now follows the server, not a local launch.
+    authority.launched_spin = None;
     if spinning {
         state.spin_attack_ticks = Some(authority.cleared_spin_on(state.tick).unwrap_or(0));
     } else if let Some(ticks) = state.spin_attack_ticks.take() {
@@ -269,10 +280,21 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
 /// tick ended by a side collision. Vanilla's post-spin step zeroes the counter
 /// and then counts the stopping tick, so it stays at one until the next tick
 /// processes the clear flag; a server set before then resumes from it.
-pub(super) fn note_spin_end(authority: &mut ServerFlagAuthority, spun: bool, state: &PlayerState) {
+pub(super) fn note_spin_end(
+    authority: &mut ServerFlagAuthority,
+    spun: bool,
+    launched: bool,
+    state: &PlayerState,
+) {
     let dormant = dormant_spin(spun, state);
     if dormant > 0 {
         authority.save_cleared_spin(state.tick, dormant);
+    }
+    // A tick's own launch starts the spin it ends with; an ended spin has none.
+    if state.spin_attack_ticks.is_none() {
+        authority.launched_spin = None;
+    } else if launched {
+        authority.launched_spin = Some(state.tick);
     }
 }
 

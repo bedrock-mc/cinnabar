@@ -723,7 +723,8 @@ impl LocalPhysicsController {
                     let result = output.tick_result;
                     self.last_environment = result.environment;
                     let spun = entry_flags.spinning() || input.riptide.is_some();
-                    server_flags::note_spin_end(&mut self.server_flags, spun, state);
+                    let launched = input.riptide.is_some();
+                    server_flags::note_spin_end(&mut self.server_flags, spun, launched, state);
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
@@ -742,6 +743,7 @@ impl LocalPhysicsController {
                         entry_flags,
                         flag_correction,
                         entry_counters,
+                        entry_eye: self.eye_offset,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,

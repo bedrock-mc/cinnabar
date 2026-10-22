@@ -3,16 +3,16 @@
 use super::*;
 
 impl LocalPhysicsController {
-    /// Whether a retained tick after `tick` launched a Riptide spin.
+    /// Whether the current spin is the one a local launch after `tick`
+    /// started, tracked beyond the retained rewind window.
     pub(in crate::movement) fn launched_riptide_after(&self, tick: u64) -> bool {
-        let Some(current) = self.state.as_ref().map(|state| state.tick) else {
-            return false;
-        };
-        (tick.saturating_add(1)..=current).any(|tick| {
-            self.history
-                .input_at(tick)
-                .is_some_and(|input| input.riptide.is_some())
-        })
+        self.state
+            .as_ref()
+            .is_some_and(|state| state.spin_attack_ticks.is_some())
+            && self
+                .server_flags
+                .launched_spin()
+                .is_some_and(|launch| launch > tick)
     }
 
     /// Ends the spin of a predicted launch whose unsent release a snap

@@ -345,3 +345,61 @@ fn a_snap_ends_the_spin_of_a_cancelled_unsent_launch() {
     assert!(!ticker.has_held_release());
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
 }
+
+/// A cancelled launch's spin ends with its snap only while it is still that
+/// launch's spin: a later server spin survives, and the launch is tracked even
+/// after its input leaves a short rewind window.
+#[test]
+fn a_snap_ends_only_the_cancelled_launch_spin() {
+    for (history, server_restart) in [(12, true), (1, false)] {
+        let origin = [0.0, 65.620_01, 0.0];
+        let mut physics = LocalPhysicsController::default();
+        physics.set_rewind_history_size(history);
+        physics.reanchor_network_position(origin, 100, false);
+        let mut ticker = MovementTicker::default();
+        ticker.reset(7, 100, origin);
+        ticker.set_source(MovementSource::Physics);
+        let advance = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+            let sample = physics
+                .advance(
+                    simulation_clock::TICK_DURATION,
+                    MovementInput::default(),
+                    &VersionedFloor(1),
+                )
+                .samples
+                .remove(0);
+            ticker.enqueue_completed_physics(sample).unwrap();
+        };
+        advance(&mut physics, &mut ticker);
+        ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+        ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+        advance(&mut physics, &mut ticker);
+        let spin = |value| client_world::MovementFlagUpdate {
+            spinning: Some(value),
+            ..Default::default()
+        };
+        if server_restart {
+            physics.apply_server_movement_flags(0, spin(false));
+            advance(&mut physics, &mut ticker);
+            physics.apply_server_movement_flags(0, spin(true));
+        } else {
+            advance(&mut physics, &mut ticker);
+        }
+        let tick = physics.state().unwrap().tick;
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            origin,
+            tick,
+            false,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        )
+        .unwrap();
+        assert_eq!(
+            physics.state().unwrap().spin_attack_ticks.is_some(),
+            server_restart,
+            "history {history}"
+        );
+    }
+}
