@@ -10,11 +10,11 @@ const UPPER: [i32; 3] = [8, 9, 8];
 fn put(store: &mut ChunkStore, mode: NetworkIdMode, position: [i32; 3], block: u32) {
     store
         .update_block(
-            SubChunkKey::new(0, 0, 0, 0),
+            SubChunkKey::new(0, position[0] >> 4, position[1] >> 4, position[2] >> 4),
             BlockUpdate::new(
-                position[0] as u8,
-                position[1] as u8,
-                position[2] as u8,
+                (position[0] & 15) as u8,
+                (position[1] & 15) as u8,
+                (position[2] & 15) as u8,
                 0,
                 block,
             ),
@@ -135,5 +135,71 @@ fn single_cell_switch_toggle_keeps_the_clicked_position() {
             crate::block_use::predicted_toggle(registries, mode, &world, LOWER, source),
             Some((LOWER, expected)),
         );
+    }
+}
+
+#[test]
+fn door_toggle_reads_the_partner_across_a_subchunk_boundary_and_moves_both_shapes() {
+    let registries = &fixtures().1;
+    let lower_position = [8, 15, 8];
+    let upper_position = [8, 16, 8];
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let lower = id(
+            record(
+                "minecraft:wooden_door",
+                &[
+                    (P::UpperBlockBit.name(), 0.into()),
+                    (P::OpenBit.name(), 0.into()),
+                ],
+            ),
+            mode,
+        );
+        let upper = id(
+            record(
+                "minecraft:wooden_door",
+                &[(P::UpperBlockBit.name(), 1.into())],
+            ),
+            mode,
+        );
+        let mut store = store(mode);
+        put(&mut store, mode, lower_position, lower);
+        let predict = |store: &ChunkStore| {
+            let world =
+                sim::PaletteWorld::new(store, registries.registry(mode), 0, Default::default());
+            crate::block_use::predicted_toggle(registries, mode, &world, lower_position, lower)
+        };
+        assert_eq!(predict(&store), None, "unloaded upper cell");
+        store
+            .mark_sub_chunk_loaded(SubChunkKey::new(0, 0, 1, 0))
+            .unwrap();
+        put(&mut store, mode, upper_position, upper);
+        let query = sim::Aabb::new(
+            sim::Vec3::new(8.0, 15.0, 8.0),
+            sim::Vec3::new(9.0, 17.0, 9.0),
+        );
+        let boxes = |store: &ChunkStore| {
+            sim::PaletteWorld::new(store, registries.registry(mode), 0, Default::default())
+                .collision_boxes(query)
+                .unwrap()
+                .value
+        };
+        let before = boxes(&store);
+        let (position, predicted) = predict(&store).expect("loaded matching pair");
+        assert_eq!(position, lower_position);
+        put(&mut store, mode, position, predicted);
+        let after = boxes(&store);
+        assert_eq!((before.len(), after.len()), (2, 2));
+        for (before, after) in before.iter().zip(&after) {
+            assert_ne!(before, after, "both halves rotate after the lower update");
+        }
+        assert_eq!(
+            sim::PaletteWorld::new(&store, registries.registry(mode), 0, Default::default())
+                .primary_runtime_id(upper_position)
+                .unwrap(),
+            upper,
+        );
+        // An authoritative state restores both shapes without changing the upper field.
+        put(&mut store, mode, lower_position, lower);
+        assert_eq!(boxes(&store), before);
     }
 }
