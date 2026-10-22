@@ -22,10 +22,12 @@ use {
 mod locator;
 pub use locator::actor_emitter_transform;
 mod admission;
+mod boat;
 pub use admission::within_actor_candidate_cube;
 pub(crate) use admission::{
     actor_is_render_candidate, admit_frame_bounds, rig_may_replace_geometry, sample_candidate_scale,
 };
+use boat::boat_hurt_tilted;
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -389,7 +391,7 @@ pub(crate) fn sampled_rig_placement(
     let rows = glide_tilted(
         death_tilted(
             scaled_axes(
-                rig_world_from_actor(position, yaw, scale),
+                boat_hurt_tilted(rig_world_from_actor(position, yaw, scale), actor, alpha),
                 [authored[1], authored[2], authored[3]],
             ),
             actor.death_rotation_progress(alpha),
