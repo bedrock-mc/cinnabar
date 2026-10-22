@@ -151,6 +151,38 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
     );
 }
 
+/// The host is the only operator, and a later start without one drops the earlier grant.
+#[cfg(unix)]
+#[test]
+fn the_native_runner_makes_only_the_host_an_operator() {
+    let dir = scratch();
+    let provisioner = installed_provisioner(dir.path(), LINUX, FAKE_BDS);
+    let install = provisioner.root.join(VERSION);
+    let runner = BdsRunner::new(Arc::new(provisioner), String::new());
+    let world_dir = dir.path().join("world");
+    let operators = || {
+        let file = fs::read(install.join(PERMISSIONS_FILE)).expect("permissions");
+        serde_json::from_slice::<serde_json::Value>(&file).expect("permissions JSON")
+    };
+    let mut spec = spec(&world_dir);
+    spec.host_xuid = Some("2535400000000001".to_owned());
+    let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    assert_eq!(
+        operators(),
+        serde_json::json!([{ "permission": "operator", "xuid": "2535400000000001" }])
+    );
+    let properties = fs::read_to_string(install.join("server.properties")).expect("properties");
+    assert!(
+        properties.contains("default-player-permission-level=member"),
+        "other players keep the world's default: {properties}"
+    );
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+    spec.host_xuid = None;
+    let instance = runner.start(&spec, &Cancel::never()).expect("restart");
+    assert_eq!(operators(), serde_json::json!([]));
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+}
+
 /// A first start that saves no world fails clearly instead of writing level data itself.
 #[cfg(unix)]
 #[test]

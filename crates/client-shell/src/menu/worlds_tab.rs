@@ -18,8 +18,9 @@ use {
     },
 };
 
-use launcher::menu::worlds_tab::LocalWorldAction;
 use launcher::menu::worlds_tab::world_card;
+use launcher::menu::{auth::AuthState, view::MenuProfile, worlds_tab::LocalWorldAction};
+use launcher_host::local_worlds::Host;
 
 /// The menu's side of the local-world screens: the mirrored view, queued presses and the
 /// name and seed fields' editors.
@@ -140,6 +141,7 @@ impl MenuRuntime {
     /// Mirror the module's worlds and screens, forward presses and typed text, join a world
     /// that finished opening, and track whether a local-world session is live.
     pub fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
+        worlds.set_host(self.local_world_host());
         self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
         let on_worlds = self.showing_worlds();
@@ -427,6 +429,15 @@ impl MenuRuntime {
         self.show_connecting();
     }
 
+    /// The account that hosts local worlds, from the menu's account state.
+    fn local_world_host(&self) -> Host {
+        let state = self.auth_process.as_ref().map(|process| process.state());
+        local_world_host(
+            &self.feeds.profile,
+            matches!(state, Some(AuthState::Checking | AuthState::Authenticated)),
+        )
+    }
+
     /// The open world is hosted for Xbox friends under the signed-in account.
     pub(super) fn hosting_world(&self) -> bool {
         self.local_ui.hosted && !self.feeds.profile.xuid.is_empty()
@@ -447,6 +458,18 @@ impl MenuRuntime {
     /// The hosted world's player limit, for the Discord card's party size.
     pub fn hosted_world_max_players(&self) -> Option<u32> {
         self.local_ui.max_players.filter(|_| self.hosting_world())
+    }
+}
+
+/// The loaded profile's XUID; a signed-in account whose profile has not loaded yet is loading, and
+/// an unavailable profile grants nobody.
+fn local_world_host(profile: &MenuProfile, signed_in: bool) -> Host {
+    if profile.loaded && !profile.xuid.is_empty() {
+        Host::Xuid(profile.xuid.clone())
+    } else if signed_in && !profile.loaded {
+        Host::Loading
+    } else {
+        Host::SignedOut
     }
 }
 
@@ -508,6 +531,24 @@ mod tests {
         menu.local_ui.actions.clear();
         menu.queue_local_action(LocalWorldAction::Prompt(PromptButton::UseDragonfly));
         assert!(!menu.gameplay_return_pending());
+    }
+
+    /// Starts wait for a signed-in account's profile, and a failed profile load grants nobody.
+    #[test]
+    fn the_local_world_host_follows_the_account() {
+        let mut profile = MenuProfile::default();
+        assert_eq!(local_world_host(&profile, false), Host::SignedOut);
+        assert_eq!(local_world_host(&profile, true), Host::Loading);
+        assert_eq!(
+            local_world_host(&MenuProfile::unavailable(), true),
+            Host::SignedOut
+        );
+        profile.loaded = true;
+        profile.xuid = "2535400000000002".to_owned();
+        assert_eq!(
+            local_world_host(&profile, true),
+            Host::Xuid("2535400000000002".to_owned())
+        );
     }
 
     #[test]

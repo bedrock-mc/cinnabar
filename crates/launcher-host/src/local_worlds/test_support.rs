@@ -59,6 +59,7 @@ pub(crate) fn spec(dir: &Path) -> StartSpec {
         dir: dir.to_path_buf(),
         view_distance: None,
         options_unapplied: false,
+        host_xuid: None,
     }
 }
 
@@ -390,6 +391,8 @@ pub(crate) struct FakeRunner {
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
     /// The effective world passed to each started server.
     pub started: Mutex<Vec<World>>,
+    /// The host XUID passed to each started server.
+    pub hosts: Mutex<Vec<Option<String>>>,
     /// Passed to each instance as its save.
     pub save: Option<Receiver<()>>,
     /// Passed to each instance as its cleanup.
@@ -454,6 +457,7 @@ impl Runner for FakeRunner {
             return Err(error());
         }
         lock(&self.started).push(spec.world.clone());
+        lock(&self.hosts).push(spec.host_xuid.clone());
         let mut made = lock(&self.made);
         if made.iter().any(|instance| !instance.finished()) {
             self.overlapped
