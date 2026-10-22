@@ -95,6 +95,7 @@ fn local_health_feed() -> crate::LocalPlayerFeed {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -809,7 +810,7 @@ fn sequential_block_names_include_admitted_states_with_unnamed_properties() {
         CustomBlocks::from_definitions([("example:incomplete", definition.as_slice())]);
     assert_eq!(definitions.blocks.len(), 1);
     assert_eq!(definitions.blocks[0].state_count, 2);
-    assert!(definitions.blocks[0].hashed_states().is_empty());
+    assert_eq!(definitions.blocks[0].hashed_states().len(), 2);
     let mut authority = custom_identity_authority(NetworkIdMode::Sequential);
     authority.set_custom_block_ids(100_000..100_002);
     authority.set_custom_block_identities(&definitions);

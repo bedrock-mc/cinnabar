@@ -10,6 +10,7 @@ pub mod chat_coordinates;
 pub mod chat_links;
 pub mod chat_position;
 pub mod chat_screen;
+mod chat_submission;
 pub mod container_actions;
 pub mod container_data;
 pub mod container_kinds;

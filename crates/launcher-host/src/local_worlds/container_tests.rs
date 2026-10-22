@@ -59,6 +59,12 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     let spec = spec(&world_dir);
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
     assert!(!instance.can_pause(), "container BDS cannot pause");
+    let level = fs::read(world_dir.join(LEVEL_DIR).join("level.dat")).expect("level data");
+    let has = |tag: &[u8]| level.windows(tag.len()).any(|window| window == tag);
+    assert!(
+        has(b"Created") && has(b"showcoordinates"),
+        "BDS creates the world before owned fields are patched"
+    );
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     let calls = docker_log(&log);
     let name = container_name(&spec.world.id);
@@ -107,6 +113,24 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
         calls.trim_end().lines().last(),
         Some(format!("rm -f {name}").as_str()),
         "cleanup is the last Docker call"
+    );
+}
+
+/// A crashed run's container still holds its ports, so it goes before ports are reserved.
+#[cfg(unix)]
+#[test]
+fn a_leftover_container_is_removed_before_ports_are_reserved() {
+    let dir = scratch();
+    let (mut runner, log) = container_runner(dir.path(), IMAGE, false);
+    let held = std::net::TcpListener::bind((super::super::ports::LOCAL_SERVER_HOST, 0)).unwrap();
+    runner.host_port = held.local_addr().unwrap().port();
+    let spec = spec(&dir.path().join("world"));
+    assert!(runner.start(&spec, &Cancel::never()).is_err());
+    let name = container_name(&spec.world.id);
+    assert!(
+        docker_log(&log).contains(&format!("rm -f {name}")),
+        "{}",
+        docker_log(&log)
     );
 }
 

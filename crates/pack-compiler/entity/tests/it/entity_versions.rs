@@ -222,6 +222,38 @@ fn legacy_bed_geometry_is_retained_without_overriding_modern_actor_geometry() {
 }
 
 #[test]
+fn legacy_chalkboard_models_retain_supplied_geometry_for_every_size() {
+    use assets::block_entity_geometry::chalkboard::ChalkboardSize;
+    let pack = pack(
+        json!([1, 20, 0]),
+        &[("entity/horse.json", Value::Null, "geometry.fixture")],
+    );
+    let mut catalog = json!({"format_version":"1.8.0"});
+    for size in ChalkboardSize::ALL {
+        catalog[size.geometry()] = json!({
+            "texturewidth":32,"textureheight":32,
+            "bones":[{"name":"body","cubes":[{
+                "origin":[-3,7,1],"size":[6,9,3],"uv":[0,0]
+            }]}]
+        });
+    }
+    write(pack.path(), assets::LEGACY_ENTITY_GEOMETRY_PATH, catalog);
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let runtime = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    for size in ChalkboardSize::ALL {
+        let geometry = runtime
+            .geometries()
+            .iter()
+            .find(|geometry| geometry.identifier.as_ref() == size.geometry())
+            .expect("the active pack's chalkboard model must reach its block renderer");
+        assert_eq!(
+            geometry.bones[0].cubes[0].size.map(|value| value.get()),
+            [6.0, 9.0, 3.0]
+        );
+    }
+}
+
+#[test]
 fn horse_uses_the_highest_compatible_definition_instead_of_the_first_filename() {
     let pack = pack(
         json!([1, 20, 0]),

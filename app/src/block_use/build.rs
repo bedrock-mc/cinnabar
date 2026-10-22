@@ -128,9 +128,17 @@ fn prepare(
             });
         let predicted = predicted.or_else(|| {
             (local_use == LocalUse::Interact)
-                .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
+                .then(|| {
+                    predicted_toggle(
+                        &context.collisions,
+                        stream,
+                        world,
+                        observed.target.position,
+                        observed.target.runtime_id,
+                    )
+                })
                 .flatten()
-                .map(|block| vec![(observed.target.position, 0, block)])
+                .map(|(position, block)| vec![(position, 0, block)])
         });
         for (position, _, _) in predicted.iter().flatten() {
             world.primary_runtime_id(*position).ok()?;
