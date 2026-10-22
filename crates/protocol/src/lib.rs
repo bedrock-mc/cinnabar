@@ -50,9 +50,8 @@ pub use experience::{
 };
 
 pub use credits::{ShowCreditsEvent, credits_finished_packet};
-pub use emote::emote_packet;
-
 pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_screen_packet};
+pub use emote::emote_packet;
 
 pub use actor::{
     ACTOR_DATA_ID_FLAGS_THIRD, ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent,
@@ -105,10 +104,11 @@ pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
-    click_air_packet, click_block_packet, click_block_transaction_packet, destroy_block_packet,
-    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
-    start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
-    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    click_air_packet, click_block_packet, click_block_transaction_packet,
+    creative_destroy_block_packet, destroy_block_packet, entity_hover_packet,
+    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
+    stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet, swing_arm_packet,
+    use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
     BrewingItem, BrewingMix, BrewingMixItem, BrewingRecipe, MAX_RECIPE_INGREDIENTS, MultiRecipe,
