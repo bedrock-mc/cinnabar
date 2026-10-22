@@ -310,6 +310,42 @@ fn a_host_change_during_startup_grants_the_current_account() {
     }
 }
 
+/// Account changes during the console acknowledgement replace the pending grant before Running.
+#[test]
+fn a_host_change_during_a_pending_grant_is_reconciled() {
+    for (later, expected) in [
+        (Host::SignedOut, None),
+        (
+            Host::Xuid("2535400000000002".to_owned()),
+            Some("2535400000000002"),
+        ),
+    ] {
+        let (runner, release) = FakeRunner::granting();
+        let runner = Arc::new(runner);
+        let (fixture, world) = bds_world(&runner);
+        let manager = &fixture.manager;
+        manager.set_host(Host::Loading);
+        manager.open(&world.id, None).expect("open");
+        waiting_on_host(manager);
+        let instance = runner.last();
+        manager.set_host(Host::Xuid("2535400000000001".to_owned()));
+        test_time::eventually("the first grant is pending", || {
+            !lock(&instance.grants).is_empty()
+        });
+        manager.set_host(later);
+        drop(release);
+        wait_for(manager, WorldState::Running);
+        assert_eq!(
+            *lock(&instance.grants),
+            [
+                Some("2535400000000001".to_owned()),
+                expected.map(str::to_owned)
+            ],
+            "the obsolete grant must be replaced before Running"
+        );
+    }
+}
+
 /// A grant the server cannot apply stops it gracefully and fails the world.
 #[test]
 fn a_failed_grant_stops_the_server_and_fails_the_world() {

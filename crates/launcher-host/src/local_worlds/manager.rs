@@ -386,119 +386,6 @@ impl Manager {
         }
     }
 
-    /// Names the account that later starts make an operator; a malformed XUID grants nobody.
-    pub fn set_host(&self, host: Host) {
-        let host = match host {
-            Host::Xuid(xuid) if !bridge::valid_cinnabar_xuid(&xuid) => Host::SignedOut,
-            host => host,
-        };
-        *lock(&self.inner.host) = host;
-        self.inner.host_changed.notify_all();
-    }
-
-    /// The host's XUID now, without waiting for one that is loading.
-    fn known_host(&self) -> Option<String> {
-        match &*lock(&self.inner.host) {
-            Host::Xuid(xuid) => Some(xuid.clone()),
-            Host::SignedOut | Host::Loading => None,
-        }
-    }
-
-    /// The host's XUID once it is no longer loading, `deadline` passes or `cancel` fires; logs how
-    /// the wait ended, without the XUID.
-    fn await_host(
-        &self,
-        deadline: Instant,
-        cancel: &Cancel,
-        stage: &str,
-        exited: Option<&Receiver<()>>,
-    ) -> Option<String> {
-        let waiting = Instant::now();
-        let mut host = lock(&self.inner.host);
-        let loading = *host == Host::Loading;
-        #[cfg(test)]
-        if loading {
-            self.inner
-                .host_waits
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }
-        while *host == Host::Loading && !cancel.is_cancelled() {
-            if exited.is_some_and(|exit| {
-                matches!(
-                    exit.try_recv(),
-                    Err(crossbeam_channel::TryRecvError::Disconnected)
-                )
-            }) {
-                break;
-            }
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            host = self
-                .inner
-                .host_changed
-                .wait_timeout(host, left.min(HOST_POLL))
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .0;
-        }
-        let (xuid, outcome) = match (&*host, loading) {
-            (Host::Xuid(xuid), false) => (Some(xuid.clone()), "already signed in"),
-            (Host::Xuid(xuid), true) => (Some(xuid.clone()), "signed in while loading"),
-            (Host::SignedOut, false) => (None, "signed out"),
-            (Host::SignedOut, true) => (None, "signed out while loading"),
-            (Host::Loading, _) if cancel.is_cancelled() => (None, "cancelled while loading"),
-            (Host::Loading, _)
-                if exited.is_some_and(|exit| {
-                    matches!(
-                        exit.try_recv(),
-                        Err(crossbeam_channel::TryRecvError::Disconnected)
-                    )
-                }) =>
-            {
-                (None, "server exited while loading")
-            }
-            (Host::Loading, _) => (None, "still loading at the deadline"),
-        };
-        drop(host);
-        let waited = waiting.elapsed().as_millis();
-        tracing::info!("local world host {stage}: {outcome} after {waited} ms");
-        xuid
-    }
-
-    /// Grants `instance` the host once it stops loading or `deadline` passes, unless it launched
-    /// with that host. A cancelled wait returns the instance for the caller to stop; a failed grant
-    /// stops the server gracefully and fails the start.
-    fn grant_when_ready(
-        &self,
-        instance: Arc<dyn Instance>,
-        launched_with: Option<&str>,
-        deadline: Instant,
-        cancel: &Cancel,
-    ) -> Result<Arc<dyn Instance>, WorldError> {
-        let exited = instance.exited();
-        let host = self.await_host(deadline, cancel, "after launch", Some(&exited));
-        if matches!(
-            exited.try_recv(),
-            Err(crossbeam_channel::TryRecvError::Disconnected)
-        ) {
-            self.stop_instance(instance.as_ref());
-            return Err(super::world::failed(
-                "local server exited while waiting for the host",
-            ));
-        }
-        if cancel.is_cancelled() || host.as_deref() == launched_with {
-            return Ok(instance);
-        }
-        match instance.grant_host(host.as_deref(), cancel) {
-            Ok(()) => Ok(instance),
-            Err(error) => {
-                self.stop_instance(instance.as_ref());
-                Err(error)
-            }
-        }
-    }
-
     /// Begins starting a world and returns at once; poll [`Self::status`] for readiness.
     /// Reopening the world that is already starting or running does nothing, and an open while
     /// the last world still saves starts its server once that one has exited.
@@ -606,14 +493,18 @@ impl Manager {
                 },
             )
         };
-        let started = match started {
+        let (started, host_guard) = match started {
             Ok(instance) if grant == HostGrant::WhenReady && !cancel.is_cancelled() => {
-                self.grant_when_ready(instance, host_xuid.as_deref(), host_deadline, cancel)
+                match self.grant_when_ready(instance, host_xuid.as_deref(), host_deadline, cancel) {
+                    Ok((instance, host)) => (Ok(instance), Some(host)),
+                    Err(error) => (Err(error), None),
+                }
             }
-            started => started,
+            started => (started, None),
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
+            drop(host_guard);
             drop(life);
             if let Ok(instance) = started {
                 self.stop_instance(instance.as_ref());
@@ -637,6 +528,7 @@ impl Manager {
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
+        drop(host_guard);
         drop(life);
         if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
@@ -889,6 +781,9 @@ impl Manager {
         }
     }
 }
+
+#[path = "manager_host.rs"]
+mod host;
 
 /// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
 /// LAN advertisement when the server publishes one.

@@ -1,4 +1,4 @@
-//! Small startup observations that separate server CPU work from elapsed time.
+//! Small startup observations that compare child process CPU usage with elapsed time.
 
 use std::time::Instant;
 
