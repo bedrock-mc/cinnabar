@@ -99,8 +99,8 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// A projectile use swung the arm; its swing packet precedes `packets`.
-    pub swung: bool,
+    /// Why a projectile or rocket use swung the arm; its swing packet precedes `packets`.
+    pub swung: Option<protocol::SwingSource>,
     used: bool,
     released: bool,
 }
@@ -511,7 +511,7 @@ impl ItemUseRuntime {
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
-        let mut swung = false;
+        let mut swung = None;
         match air_use {
             Some(AirUse::Hold {
                 max_ticks,
@@ -534,7 +534,7 @@ impl ItemUseRuntime {
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
-                swung = true;
+                swung = Some(protocol::SwingSource::ThrowItem);
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
@@ -549,7 +549,9 @@ impl ItemUseRuntime {
                     });
                 }
             }
-            Some(AirUse::GlideRocket) if frame.ready => swung = true,
+            Some(AirUse::GlideRocket) if frame.ready => {
+                swung = Some(protocol::SwingSource::UseItem)
+            }
             _ => {}
         }
         let inventory_change = change.as_ref().and_then(|change| {
@@ -563,13 +565,13 @@ impl ItemUseRuntime {
             outcome.started = active_use.is_some();
             self.active = active_use;
             outcome.swung = swung;
-            if (outcome.started || swung)
+            if (outcome.started || swung.is_some())
                 && let Some(Cooldown { category, ticks }) = cooldown
             {
                 self.cooldowns
                     .push((category, frame.tick.saturating_add(u64::from(ticks))));
             }
-            self.rocket_boost |= swung && matches!(air_use, Some(AirUse::GlideRocket));
+            self.rocket_boost |= swung.is_some() && matches!(air_use, Some(AirUse::GlideRocket));
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
             }

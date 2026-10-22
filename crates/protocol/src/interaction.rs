@@ -552,6 +552,8 @@ pub enum SwingSource {
     Mine,
     Interact,
     Attack,
+    /// A held item's own use, such as a rocket boost while gliding.
+    UseItem,
     ThrowItem,
     DropItem,
 }
@@ -565,6 +567,7 @@ impl SwingSource {
             Self::Mine => "mine",
             Self::Interact => "interact",
             Self::Attack => "attack",
+            Self::UseItem => "useitem",
             Self::ThrowItem => "throwitem",
             Self::DropItem => "dropitem",
         }
