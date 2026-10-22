@@ -6,9 +6,11 @@
 //! bits that differ from that frame's capture, applied to the live state at
 //! once and again whenever replay passes the frame. Replay keeps the capture of
 //! the frame it starts from and refreshes every later capture from the replayed
-//! state before re-applying that frame's corrections. A write stamped at the
-//! current or a future tick is queued for the next frame's capture; an
-//! unstamped write only changes the live word. The local systems then read the
+//! state before re-applying that frame's corrections, and afterwards keeps
+//! only the bits whose replayed value differs from the original. A write stamped at the current tick
+//! is queued for the next frame's capture, one stamped at a future tick joins
+//! the current frame's corrections, and an unstamped write only changes the
+//! live word. The local systems then read the
 //! word each tick: pose rules continue or end a pose, the spin runs its
 //! lifetime, and item use reconciles with the word before the tick simulates.
 //! Flag writes are not start or stop actions, so each input reports edges
@@ -106,11 +108,6 @@ impl FlagCorrection {
         }
     }
 
-    /// Whether this correction writes the item-use bit.
-    pub(super) fn writes_using_item(self) -> bool {
-        self.mask & USING_ITEM != 0
-    }
-
     /// `word` with this correction applied.
     pub(super) fn apply(self, word: FlagWord) -> FlagWord {
         FlagWord((word.0 & !self.mask) | self.value)
@@ -159,6 +156,28 @@ pub(super) fn impose(word: FlagWord, modes: &mut ModeTracker, state: &mut Player
     set_spin(state, word.has(SPINNING));
 }
 
+/// Merges a replay's pose and spin back into the live state it rebuilt. A
+/// bit whose replayed value (`replayed`) differs from the value the last
+/// tick originally ended with (`ended`) keeps the replayed value; the others
+/// return to the live word from before the replay (`live`, whose spin counter
+/// was `live_spin`), so writes between ticks that the replay never touched
+/// survive it.
+pub(super) fn merge_replayed(
+    replayed: FlagWord,
+    ended: FlagWord,
+    live: FlagWord,
+    live_spin: Option<u8>,
+    modes: &mut ModeTracker,
+    state: &mut PlayerState,
+) {
+    let changed = (replayed.0 ^ ended.0) & !USING_ITEM;
+    let merged = FlagWord((replayed.0 & changed) | (live.0 & !changed));
+    apply_pose(merged, 0b111, modes);
+    if changed & SPINNING == 0 && state.spin_attack_ticks.is_some() != live.has(SPINNING) {
+        state.spin_attack_ticks = live_spin;
+    }
+}
+
 /// Server flag state outside the retained frames.
 #[derive(Debug, Clone, Default)]
 pub(super) struct ServerFlagAuthority {
@@ -168,6 +187,9 @@ pub(super) struct ServerFlagAuthority {
     /// Item-use bit a server write left in the live word, for the item-use
     /// owner to reconcile with on its next tick.
     pending_using_item: Option<bool>,
+    /// The live word's item-use bit: the last of the tick's capture, a local
+    /// start or end, and a server write.
+    live_using_item: bool,
     /// A spin counter a live clear removed, with the tick it was cleared on.
     /// Vanilla's counter outlives its flag until a tick processes the clear.
     cleared_spin: Option<(u64, u8)>,
@@ -230,6 +252,7 @@ pub(super) fn capture_tick(
     using_item: bool,
 ) -> (FlagWord, FlagCorrection) {
     let entry = FlagWord::capture(modes.mode(), state.spin_attack_ticks.is_some(), using_item);
+    authority.live_using_item = using_item;
     let next = state.tick.checked_add(1);
     authority.queued = authority.queued.filter(|(tick, _)| Some(*tick) >= next);
     let correction = authority
@@ -243,28 +266,37 @@ pub(super) fn capture_tick(
 
 impl LocalPhysicsController {
     /// The live flag word, including server writes not yet reconciled.
-    fn live_flag_word(&self) -> FlagWord {
-        let using = self.server_flags.pending_using_item.unwrap_or_else(|| {
-            self.controller_history
-                .back()
-                .is_some_and(|frame| frame.entry_flags.using_item())
-        });
+    pub(super) fn live_flag_word(&self) -> FlagWord {
         FlagWord::capture(
             self.modes.mode(),
             self.state
                 .as_ref()
                 .is_some_and(|state| state.spin_attack_ticks.is_some()),
-            using,
+            self.server_flags.live_using_item,
         )
+    }
+
+    /// Records a local item-use start (`true`) or end (`false`) in the live
+    /// word, as vanilla's start and stop write the flag. Later server writes
+    /// compare with it.
+    pub fn write_local_using_item(&mut self, using: bool) {
+        self.server_flags.live_using_item = using;
+    }
+
+    /// Writes the item-use bit to the live word and hands it to the item-use
+    /// owner.
+    fn write_server_using_item(&mut self, using: bool) {
+        self.server_flags.live_using_item = using;
+        self.server_flags.pending_using_item = Some(using);
     }
 
     /// Applies `correction` to the live state and hands its item-use bit to
     /// the item-use owner.
     fn correct_live(&mut self, correction: FlagCorrection) {
-        if correction.mask & USING_ITEM != 0 {
-            self.server_flags.pending_using_item = Some(correction.value & USING_ITEM != 0);
-        }
         let live = self.live_flag_word();
+        if correction.mask & USING_ITEM != 0 {
+            self.write_server_using_item(correction.value & USING_ITEM != 0);
+        }
         if let Some(state) = self.state.as_mut() {
             apply_live_correction(
                 correction,
@@ -277,13 +309,15 @@ impl LocalPhysicsController {
     }
 
     /// Applies a write stamped `tick` in the live slot: its difference from the
-    /// live word changes the live state, and a nonzero stamp also queues it
-    /// for the next frame's capture so replay keeps it.
+    /// live word changes the live state. A stamp at the current tick also
+    /// queues it for the next frame's capture, and a future stamp, whose frame
+    /// does not exist, joins the current frame's corrections, so replay keeps
+    /// it either way.
     pub(super) fn adopt_live_server_flags(&mut self, tick: u64, write: FlagWrite) {
         let correction = FlagCorrection::against(write, self.live_flag_word());
         // The item-use owner compares a live item-use write with its own use.
         if write.present & USING_ITEM != 0 {
-            self.server_flags.pending_using_item = Some(write.value & USING_ITEM != 0);
+            self.write_server_using_item(write.value & USING_ITEM != 0);
         }
         if correction.is_empty() {
             return;
@@ -292,11 +326,20 @@ impl LocalPhysicsController {
         if tick == 0 {
             return;
         }
-        let Some(next) = self
-            .state
-            .as_ref()
-            .and_then(|state| state.tick.checked_add(1))
-        else {
+        let Some(current) = self.state.as_ref().map(|state| state.tick) else {
+            return;
+        };
+        if tick > current {
+            if let Some(frame) = self
+                .controller_history
+                .iter_mut()
+                .find(|frame| frame.tick == current)
+            {
+                frame.flag_correction = frame.flag_correction.then(correction);
+            }
+            return;
+        }
+        let Some(next) = current.checked_add(1) else {
             return;
         };
         let queued = match self.server_flags.queued {
@@ -331,8 +374,8 @@ impl LocalPhysicsController {
     /// Hands the item-use bit replay left in the flag word to the item-use
     /// owner, which reconciles with it on the next movement tick.
     pub(super) fn adopt_replayed_using_item(&mut self, using: Option<bool>) {
-        if using.is_some() {
-            self.server_flags.pending_using_item = using;
+        if let Some(using) = using {
+            self.write_server_using_item(using);
         }
     }
 

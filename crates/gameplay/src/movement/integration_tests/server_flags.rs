@@ -703,3 +703,64 @@ fn replay_hands_the_final_item_use_to_the_owner() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(false));
 }
+
+/// Replay merges back only the flag bits it changes, so a live spin a
+/// current-stamped write started survives a replay whose ticks never spin.
+#[test]
+fn replay_keeps_a_live_flag_it_never_changed() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(104, spin), None);
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+}
+
+/// A current-stamped item-use write compares with a local release made
+/// after the last capture, so its correction is retained and a replay
+/// through the next frame restores it.
+#[test]
+fn a_stamped_item_use_write_compares_with_a_local_release() {
+    let (mut physics, mut ticker) = airborne();
+    let using = MovementInput {
+        item_use_movement_modifier: Some(0.35),
+        ..MovementInput::default()
+    };
+    tick_with(
+        &mut physics,
+        &mut ticker,
+        using,
+        PhysicsSampleContext::default(),
+    );
+    physics.write_local_using_item(false);
+    let write = |value| flags(|flags| flags.using_item = Some(value));
+    physics.apply_server_movement_flags(101, write(true));
+    physics.apply_server_movement_flags(0, write(false));
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    physics.take_server_using_item();
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.take_server_using_item(), Some(true));
+}
+
+/// A write stamped past the current tick, whose frame does not exist yet,
+/// joins the current frame's corrections, so a replay through that frame
+/// applies it after a later unstamped clear.
+#[test]
+fn a_future_stamped_write_joins_the_current_frame() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(105, write(true));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.queue_server_motion([0.0; 3], 103);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 103, &VersionedFloor(1)).unwrap();
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}

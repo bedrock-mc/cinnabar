@@ -160,6 +160,9 @@ pub struct ItemUseRuntime {
     riptide_release: Option<RiptideRelease>,
     /// Server `UsingItem` value awaiting a movement tick to reconcile with.
     server_using: Option<bool>,
+    /// The item-use flag a local start or end last wrote, until movement's
+    /// live flag word takes it.
+    local_using: Option<bool>,
     /// Gameplay had input focus on the last observed frame.
     gameplay_focused: bool,
 }
@@ -200,6 +203,7 @@ impl ItemUseRuntime {
             self.riptide_release = None;
             self.release_pending = false;
             self.server_using = None;
+            self.local_using = Some(false);
         }
     }
 
@@ -329,6 +333,7 @@ impl ItemUseRuntime {
         self.riptide_launch = None;
         self.riptide_release = None;
         self.server_using = None;
+        self.local_using = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -417,6 +422,7 @@ impl ItemUseRuntime {
         if ended || outcome.started {
             // A local start or end writes the item-use flag after any server write.
             self.server_using = None;
+            self.local_using = Some(self.active.is_some());
         }
         outcome
     }

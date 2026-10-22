@@ -223,6 +223,21 @@ impl LocalPhysicsController {
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
+        // Replay keeps only the flag bits whose result it changes.
+        let live_flags = self.live_flag_word();
+        let live_spin = self
+            .state
+            .as_ref()
+            .and_then(|state| state.spin_attack_ticks);
+        let ended_flags = self.state.as_ref().and_then(|state| {
+            let input = self.history.input_at(state.tick)?;
+            let ended = self.history.state_at(state.tick)?;
+            Some(server_flags::FlagWord::capture(
+                input.mode,
+                ended.spin_attack_ticks.is_some(),
+                false,
+            ))
+        });
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let mut using_carry = None;
@@ -265,7 +280,9 @@ impl LocalPhysicsController {
                     }
                     let word = frame.flag_correction.apply(frame.entry_flags);
                     using_carry = (word.using_item() != captured_using).then(|| word.using_item());
-                    if replayed_using.is_some() || frame.flag_correction.writes_using_item() {
+                    if replayed_using.is_some()
+                        || word.using_item() != frame.entry_flags.using_item()
+                    {
                         replayed_using = Some(word.using_item());
                     }
                     server_flags::impose(word, &mut modes, state);
@@ -412,6 +429,18 @@ impl LocalPhysicsController {
             replayed_samples.push(retained.clone());
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
+        if let Some(ended) = ended_flags {
+            let state = self
+                .state
+                .as_mut()
+                .expect("successful replay retains state");
+            let replayed = server_flags::FlagWord::capture(
+                modes.mode(),
+                state.spin_attack_ticks.is_some(),
+                false,
+            );
+            server_flags::merge_replayed(replayed, ended, live_flags, live_spin, &mut modes, state);
+        }
         self.modes = modes;
         self.adopt_replayed_using_item(replayed_using);
         eye.preserve_interpolation_hold(self.eye_offset);

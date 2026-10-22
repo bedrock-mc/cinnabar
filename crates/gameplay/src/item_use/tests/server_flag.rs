@@ -200,3 +200,18 @@ fn a_replacement_use_supersedes_a_pending_server_clear() {
     assert!(!runtime.resolve_server_using_item(&bread(21, true)));
     assert!(runtime.is_using());
 }
+
+/// Local starts and ends write the item-use flag for movement's live word,
+/// which later server writes compare with.
+#[test]
+fn local_starts_and_ends_write_the_item_use_flag() {
+    let mut runtime = ItemUseRuntime::default();
+    assert_eq!(runtime.take_local_using_item(), None);
+    runtime.observe_press(true);
+    assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
+    assert_eq!(runtime.take_local_using_item(), Some(true));
+    runtime.step(&frame(11, true));
+    assert_eq!(runtime.take_local_using_item(), None);
+    assert_eq!(kinds(&runtime.step(&frame(12, false))), ["release"]);
+    assert_eq!(runtime.take_local_using_item(), Some(false));
+}

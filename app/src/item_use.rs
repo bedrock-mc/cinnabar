@@ -105,6 +105,7 @@ pub(crate) fn adopt_server_item_use(
     }) {
         return;
     }
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     if let Some(using) = context
         .physics
         .as_deref_mut()
@@ -215,6 +216,7 @@ fn produce_use(
         runtime.cancel_for_respawn();
         return;
     }
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     // The latest server write waits in the owner, where a local start or end
     // supersedes it before the next movement tick reconciles.
     if let Some(using) = context
@@ -335,6 +337,20 @@ fn produce_use(
         &mut view,
         &frozen,
     );
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
+/// Writes the item-use flag of a local start or end into movement's live flag
+/// word, which later server writes compare with.
+fn publish_local_using_item(
+    runtime: &mut ItemUseRuntime,
+    physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
+) {
+    if let Some(using) = runtime.take_local_using_item()
+        && let Some(physics) = physics
+    {
+        physics.write_local_using_item(using);
+    }
 }
 
 /// Admits use on its logical clock and fences releases behind their captured action facing.

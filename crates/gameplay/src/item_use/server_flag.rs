@@ -23,6 +23,12 @@ impl ItemUseRuntime {
         }
     }
 
+    /// Takes the item-use flag the latest local start (`true`) or end
+    /// (`false`) wrote, for movement's live flag word.
+    pub fn take_local_using_item(&mut self) -> Option<bool> {
+        self.local_using.take()
+    }
+
     /// Whether a server `UsingItem` value still awaits a movement tick.
     pub const fn has_server_using_item(&self) -> bool {
         self.server_using.is_some()
