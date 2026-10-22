@@ -86,6 +86,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+- [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
+  use pack geometry in all four directions; sleeping and picking remain unqualified.
   Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
   bottom offset rounds to the model grid; matched world and replacement-pack
   captures, carried-item presentation and finer coordinate precision remain open.
@@ -372,6 +374,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
+  Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
+  explicit server fuel declarations keep priority. Named station responses retain
+  accepted stacks at their window indices. Broader custom-fuel and matched server
+  acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
@@ -382,6 +388,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server settings retain drafts across tabs and submit their final values when
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.
+  NPC dialogue actions expose command/URL labels and pointer hit targets through
+  their JSON-UI collection. Actor portraits, matched acceptance for larger action
+  lists and touch/console behavior remain incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
@@ -410,6 +419,10 @@ and pending retries independently of a later health refresh, in UI packet order;
 authoritative life-to-death transition opens a fresh route. Regression coverage does not
 close live server, loading-screen or other-device acceptance. Keep native input state
 independent of custom emote playback and presentation-only changes.
+
+Chat message Send controls resolve command text from an overlapping sibling editor.
+Missing, disabled or ambiguous message editors cannot submit the main chat draft.
+Live acceptance of name clicks, inventory opening, typing and history together remains open.
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.

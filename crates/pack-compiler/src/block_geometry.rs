@@ -214,11 +214,17 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
         Value::Object(faces) => FACE_NAMES.map(|name| {
             let face = faces.get(name)?;
             let uv = face["uv"].as_array()?;
-            let uv = [number(uv.first()?)?, number(uv.get(1)?)?];
-            let size = face["uv_size"]
+            let mut uv = [number(uv.first()?)?, number(uv.get(1)?)?];
+            let mut size = face["uv_size"]
                 .as_array()
                 .and_then(|size| Some([number(size.first()?)?, number(size.get(1)?)?]))
                 .unwrap_or([0.0, 0.0]);
+            if number(&face["uv_rotation"]) == Some(180.0) {
+                for axis in 0..2 {
+                    uv[axis] += size[axis];
+                    size[axis] = -size[axis];
+                }
+            }
             Some(FaceUv {
                 uv,
                 size,

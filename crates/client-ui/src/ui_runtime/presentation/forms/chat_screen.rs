@@ -64,6 +64,11 @@ impl UiPresentationRuntime {
         self.screens.chat.link(index)
     }
 
+    /// Returns the command carried by a clicked message's Send control.
+    pub fn chat_submission(&self, index: usize) -> Option<&str> {
+        self.screens.chat.submission(index)
+    }
+
     /// Forget the open chat's scroll and hover once the screen closes.
     pub(in super::super) fn close_chat_screen(&mut self) {
         self.screens.chat.close();
