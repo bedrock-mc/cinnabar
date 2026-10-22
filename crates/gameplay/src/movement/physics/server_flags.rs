@@ -194,8 +194,9 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
     }
 }
 
-/// Applies a correction to the live state whose word is `live`; vanilla
-/// writes the same bits into the live actor before deciding any replay.
+/// Applies a correction's pose and spin bits to the live state whose word is
+/// `live`; vanilla writes the same bits into the live actor before deciding
+/// any replay. Its item-use bit reaches the item-use owner when written.
 fn apply_live_correction(
     correction: FlagCorrection,
     live: FlagWord,
@@ -208,41 +209,35 @@ fn apply_live_correction(
     if correction.mask & SPINNING != 0 {
         write_live_spin(state, authority, word.has(SPINNING));
     }
-    if correction.mask & USING_ITEM != 0 {
-        authority.pending_using_item = Some(word.using_item());
-    }
 }
 
-/// Captures the live word a fixed tick starts with, then attaches and applies
-/// a correction queued for it. With a preceding sample (`flags.1`), the pose
-/// and spin the tick starts from become its action baseline. `flags.0` is the
-/// tick's item use. Returns the capture and the attached correction.
+/// Captures the live word a fixed tick starts with (`using_item` is the
+/// tick's item use), then attaches and applies a correction queued for it; the
+/// queue keeps it until a later tick, so a failed tick retries with it. The
+/// pose and spin the tick starts from become its action baseline. Returns the
+/// capture and the attached correction.
 pub(super) fn capture_tick(
     authority: &mut ServerFlagAuthority,
     modes: &mut ModeTracker,
     state: &mut PlayerState,
     input: &mut super::super::TickInput,
-    (using_item, baseline): (bool, bool),
+    using_item: bool,
 ) -> (FlagWord, FlagCorrection) {
     let entry = FlagWord::capture(modes.mode(), state.spin_attack_ticks.is_some(), using_item);
     let next = state.tick.checked_add(1);
-    let correction = match authority.queued.take() {
-        Some((tick, correction)) if Some(tick) == next => correction,
-        other => {
-            authority.queued = other.filter(|(tick, _)| Some(*tick) > next);
-            FlagCorrection::default()
-        }
-    };
+    authority.queued = authority.queued.filter(|(tick, _)| Some(*tick) >= next);
+    let correction = authority
+        .queued
+        .filter(|(tick, _)| Some(*tick) == next)
+        .map_or_else(FlagCorrection::default, |(_, correction)| correction);
     let live = FlagWord::capture(
         modes.mode(),
         state.spin_attack_ticks.is_some(),
         authority.pending_using_item.unwrap_or(using_item),
     );
     apply_live_correction(correction, live, modes, state, authority);
-    if baseline {
-        input.server_mode = Some(modes.mode());
-        input.server_spinning = Some(state.spin_attack_ticks.is_some());
-    }
+    input.server_mode = Some(modes.mode());
+    input.server_spinning = Some(state.spin_attack_ticks.is_some());
     (entry, correction)
 }
 
@@ -263,8 +258,12 @@ impl LocalPhysicsController {
         )
     }
 
-    /// Applies `correction` to the live state.
+    /// Applies `correction` to the live state and hands its item-use bit to
+    /// the item-use owner.
     fn correct_live(&mut self, correction: FlagCorrection) {
+        if correction.mask & USING_ITEM != 0 {
+            self.server_flags.pending_using_item = Some(correction.value & USING_ITEM != 0);
+        }
         let live = self.live_flag_word();
         if let Some(state) = self.state.as_mut() {
             apply_live_correction(
@@ -281,6 +280,10 @@ impl LocalPhysicsController {
     /// live word changes the live state, and a nonzero stamp also queues it
     /// for the next frame's capture so replay keeps it.
     pub(super) fn adopt_live_server_flags(&mut self, tick: u64, write: FlagWrite) {
+        // The item-use owner compares a live item-use write with its own use.
+        if write.present & USING_ITEM != 0 {
+            self.server_flags.pending_using_item = Some(write.value & USING_ITEM != 0);
+        }
         let correction = FlagCorrection::against(write, self.live_flag_word());
         if correction.is_empty() {
             return;
@@ -332,7 +335,16 @@ impl LocalPhysicsController {
         if let Some((tick, correction)) = self.server_flags.queued
             && Some(tick) == next
         {
-            self.correct_live(correction);
+            let live = self.live_flag_word();
+            if let Some(state) = self.state.as_mut() {
+                apply_live_correction(
+                    correction,
+                    live,
+                    &mut self.modes,
+                    state,
+                    &mut self.server_flags,
+                );
+            }
         }
     }
 

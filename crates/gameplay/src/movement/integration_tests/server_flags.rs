@@ -185,8 +185,9 @@ fn a_retained_server_spin_start_replays_from_its_stamp() {
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
 }
 
-/// A `UsingItem` write reaches the item-use owner when it differs from the
-/// live word (unstamped) or from the following frame's capture (stamped).
+/// An unstamped `UsingItem` write always reaches the item-use owner, which
+/// compares it with its use; a stamped one only when it differs from the
+/// following frame's capture.
 #[test]
 fn server_item_use_follows_the_local_use_at_its_stamp() {
     let (mut physics, mut ticker) = airborne();
@@ -209,7 +210,7 @@ fn server_item_use_follows_the_local_use_at_its_stamp() {
         (102, true, None),
         (101, false, Some(false)),
         (102, false, Some(false)),
-        (0, true, None),
+        (0, true, Some(true)),
         (0, false, Some(false)),
     ] {
         physics.apply_server_movement_flags(tick, using(value));
@@ -574,4 +575,89 @@ fn respawn_retires_pending_server_spin_baselines() {
     physics.reanchor_network_position([0.0, 65.620_01, 0.0], tick_now, false);
     tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// A current-stamped item-use write reaches the item-use owner once; the
+/// tick that captures it does not hand it over again.
+#[test]
+fn a_queued_item_use_write_reaches_the_owner_once() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let using = flags(|flags| flags.using_item = Some(true));
+    physics.apply_server_movement_flags(101, using);
+    assert_eq!(physics.take_server_using_item(), Some(true));
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert_eq!(physics.take_server_using_item(), None);
+}
+
+/// An unstamped item-use write always reaches the item-use owner, which
+/// compares it with the use it actually holds.
+#[test]
+fn an_unstamped_item_use_write_always_reaches_the_owner() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let using = flags(|flags| flags.using_item = Some(false));
+    physics.apply_server_movement_flags(0, using);
+    assert_eq!(physics.take_server_using_item(), Some(false));
+}
+
+/// A tick that fails keeps a queued correction for its retry, so a later
+/// rewind through that frame still applies it.
+#[test]
+fn a_failed_tick_keeps_its_queued_correction() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(102, spin), None);
+    let failed = physics.advance_with_context(
+        simulation_clock::TICK_DURATION,
+        MovementInput::default(),
+        PhysicsSampleContext::default(),
+        &UnavailableWorld,
+    );
+    assert!(failed.samples.is_empty());
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let expected = physics.state().unwrap().spin_attack_ticks;
+    assert!(expected.is_some());
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, expected);
+}
+
+/// The first tick after a reanchor also starts from the word server writes
+/// left, so a server glide start reports no start action.
+#[test]
+fn the_first_tick_after_a_reanchor_reports_no_server_start() {
+    let (mut physics, mut ticker) = airborne();
+    let start = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(0, start), None);
+    let sample = tick(&mut physics, &mut ticker, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Gliding);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+}
+
+/// Replay refreshes later frames' item-use captures with a corrected item-use
+/// bit, so a later stamped clear compares with the use the correction began.
+#[test]
+fn replay_carries_a_corrected_item_use_into_later_captures() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let using = |value| flags(|flags| flags.using_item = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(101, using(true)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.take_server_using_item(), Some(true));
+    assert_eq!(
+        physics.apply_server_movement_flags(102, using(false)),
+        Some(102)
+    );
+    assert_eq!(physics.take_server_using_item(), Some(false));
 }

@@ -172,3 +172,17 @@ fn a_pending_server_start_follows_a_reselection() {
     assert!(!runtime.resolve_server_using_item(&snowball));
     assert!(!runtime.is_using());
 }
+
+/// A local release after a server clear and set supersedes them, as the
+/// release clears vanilla's flag, so the next tick starts nothing.
+#[test]
+fn a_local_release_supersedes_pending_server_writes() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
+    runtime.adopt_server_using_item(false);
+    runtime.adopt_server_using_item(true);
+    assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
+    assert!(!runtime.resolve_server_using_item(&frame(12, false)));
+    assert!(!runtime.is_using());
+}

@@ -199,6 +199,7 @@ impl ItemUseRuntime {
             self.active = None;
             self.riptide_release = None;
             self.release_pending = false;
+            self.server_using = None;
         }
     }
 
@@ -386,6 +387,7 @@ impl ItemUseRuntime {
             frame.riptide_facing,
         );
         self.last_frame_tick = Some(frame.tick);
+        let was_using = self.active.is_some();
         self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.pending.latched_press);
@@ -410,6 +412,10 @@ impl ItemUseRuntime {
         }
         if !frame.held {
             self.repeat_armed = false;
+        }
+        if was_using != self.active.is_some() {
+            // A local start or end writes the item-use flag after any server write.
+            self.server_using = None;
         }
         outcome
     }

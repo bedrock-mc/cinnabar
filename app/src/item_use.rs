@@ -105,18 +105,18 @@ pub(crate) fn adopt_server_item_use(
     }) {
         return;
     }
-    let ticks = context.physics.as_deref().is_some_and(|physics| {
-        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
-    });
-    if !ticks {
-        return;
-    }
     if let Some(using) = context
         .physics
         .as_deref_mut()
         .and_then(|physics| physics.take_server_using_item())
     {
         runtime.adopt_server_using_item(using);
+    }
+    let ticks = context.physics.as_deref().is_some_and(|physics| {
+        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+    });
+    if !ticks {
+        return;
     }
     let Some(position) = context
         .physics
@@ -214,6 +214,15 @@ fn produce_use(
     if context.client_world.respawn.input_held() {
         runtime.cancel_for_respawn();
         return;
+    }
+    // The latest server write waits in the owner, where a local start or end
+    // supersedes it before the next movement tick reconciles.
+    if let Some(using) = context
+        .physics
+        .as_deref_mut()
+        .and_then(|physics| physics.take_server_using_item())
+    {
+        runtime.adopt_server_using_item(using);
     }
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
