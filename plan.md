@@ -228,24 +228,17 @@ stamped write becomes a correction of the following frame where it differs from 
 capture without scheduling a replay itself (a future stamp joins the current frame), and
 replay keeps the starting frame's capture, refreshes later ones and copies the replayed
 word back to the live state, keeping the live spin and glide counters, swim blend and
-camera eye blend.
-Still incomplete: server `UsingItem` writes, which vanilla keeps in the same word and
-reconciles with local item use on movement ticks; pose flags as independent bits (vanilla's
-glide, swim and crawl triggers each keep their own bit and report actions only from their own
+camera eye blend. Item use reconciles with the word's item-use bit only on movement ticks:
+a set bit starts the selected item's use and reports `StartUsingItem` (an item without a held
+use completes on the next tick; an empty hand keeps the flag set), a clear bit stops the use
+without a release transaction, and a spectator game-mode change stops it in packet order.
+Each tick refreshes the in-use stack, count included, and replayed ticks keep the slowdown
+their live tick recorded. Still incomplete: pose flags as independent bits (vanilla's glide,
+swim and crawl triggers each keep their own bit and report actions only from their own
 requests, while the locomotion mode keeps one pose); the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.
-word back to the live state, keeping the live spin and glide counters and swim blend.
-Item use reconciles with the word's item-use bit only on movement ticks: a set bit starts
-the selected held use and reports `StartUsingItem`, and a clear bit stops the use without
-a release transaction. Still incomplete: a server start for an item without a held use,
-item-use slowdown on ticks replayed after a stamped start or stop, refreshing the in-use
-stack after a count-only update, ordering game-mode changes against server item-use writes
-(item use observes the game mode once per frame), writes setting several pose flags (the locomotion mode
-keeps one pose), the Riptide spin's entity-hit end, block-climber flags, keeping the live
-camera eye-height blend through replay (vanilla's copy-back leaves it live; Cinnabar
-rebuilds it) and live-server evidence for these adoptions.
 Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
