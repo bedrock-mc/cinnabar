@@ -237,13 +237,13 @@ fn run(
             &lease,
             OffsetDateTime::now_utc(),
         );
-        if let Some(ready) = ready {
-            if let Ok(mut state) = STATE.lock() {
-                state.offer(ready, generation);
-                if state.accepts_worker(generation) {
-                    state.status = Status::Idle;
-                    state.message = Some("This downloaded update is running temporarily. Choose Restart and update to replace the installed copy.".into());
-                }
+        if let Some(ready) = ready
+            && let Ok(mut state) = STATE.lock()
+        {
+            state.offer(ready, generation);
+            if state.accepts_worker(generation) {
+                state.status = Status::Idle;
+                state.message = Some("This downloaded update is running temporarily. Choose Restart and update to replace the installed copy.".into());
             }
         }
     }
