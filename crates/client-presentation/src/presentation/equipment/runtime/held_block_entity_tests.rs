@@ -261,6 +261,16 @@ fn held_block_entity_models_keep_cutout_alpha_and_block_grips() {
     item.enchanted = true;
     let span = [0.125, 0.0625];
     let expected_glint = render_model::ActorGlint::item(0.0, span);
+    let heads = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .into_vec()
+    .into_iter()
+    .filter(|block| SkullKind::from_block_identifier(&block.name).is_some())
+    .map(|block| block.name.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
     for (index, identifier) in [
         "minecraft:chest",
         "minecraft:red_shulker_box",
@@ -268,10 +278,12 @@ fn held_block_entity_models_keep_cutout_alpha_and_block_grips() {
         "minecraft:conduit",
     ]
     .into_iter()
+    .map(String::from)
+    .chain(heads)
     .enumerate()
     {
-        item.identifier = Arc::from(identifier);
-        let kind = HeldBlockEntity::from_item(identifier).unwrap();
+        item.identifier = Arc::from(identifier.as_str());
+        let kind = HeldBlockEntity::from_item(&identifier).unwrap();
         let rig = equipment_rig_id(index as u32);
         runtime
             .held_block_entities

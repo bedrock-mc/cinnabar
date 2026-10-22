@@ -1,4 +1,4 @@
-//! Anonymous Chat section states rendered by the production settings painter.
+//! Anonymous Social settings states rendered by the production settings painter.
 
 use super::{
     Arc, Fixture, GUI_SCALE, MenuAction, SIZE, SettingId, SettingSection, State, settings,
@@ -58,6 +58,16 @@ pub(super) fn minimum() -> Fixture {
 }
 
 pub(super) const STATES: &[State] = &[
+    State {
+        name: "settings-discord",
+        size: [1280, 900],
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::Menu(Box::new(settings(
+                SettingSection::Discord.definition().name,
+            )))
+        },
+    },
     State {
         name: "settings-chat",
         size: [1280, 1360],

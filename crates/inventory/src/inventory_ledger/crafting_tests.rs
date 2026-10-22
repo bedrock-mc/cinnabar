@@ -18,6 +18,7 @@ mod auto_allocation;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
 mod item_data;
+mod output_identity;
 
 const LOG: i32 = 6;
 const PLANKS: i32 = 7;

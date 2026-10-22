@@ -20,6 +20,7 @@ pub(super) struct StaticTexture {
 #[derive(Clone, Debug, Default)]
 pub struct BlockEntityArtworkPreparer {
     textures: Arc<[StaticTexture]>,
+    heads: super::heads::HeadModels,
 }
 
 /// Appended pixels, placements and identity; publication shares the pixel allocation.
@@ -39,6 +40,17 @@ impl PreparedBlockEntityArtwork {
     pub fn atlas(&self) -> &BlockEntityAtlas {
         &self.atlas
     }
+
+    /// Refreshes held head geometry while sharing the already prepared static pixels.
+    pub(super) fn with_heads(&self, heads: &super::heads::HeadModels) -> Self {
+        Self {
+            atlas: self.atlas.clone(),
+            held: Arc::new(super::held::PreparedHeldBlockModels::with_heads(
+                &self.atlas,
+                heads,
+            )),
+        }
+    }
 }
 
 impl BlockEntityArtworkPreparer {
@@ -46,7 +58,14 @@ impl BlockEntityArtworkPreparer {
     pub(super) fn new(textures: &[StaticTexture]) -> Self {
         Self {
             textures: textures.into(),
+            heads: Default::default(),
         }
+    }
+
+    /// Snapshots placed-head geometry before preparation moves onto a worker.
+    pub(super) fn with_heads(mut self, heads: super::heads::HeadModels) -> Self {
+        self.heads = heads;
+        self
     }
 
     /// Admits carrier dimensions only when static textures, maps and every text page also fit.
@@ -70,7 +89,10 @@ impl BlockEntityArtworkPreparer {
         }
         let mut atlas = BlockEntityAtlas::from_assets(assets);
         atlas.append_textures(&self.textures);
-        let held = Arc::new(super::held::PreparedHeldBlockModels::new(&atlas));
+        let held = Arc::new(super::held::PreparedHeldBlockModels::with_heads(
+            &atlas,
+            &self.heads,
+        ));
         Some(PreparedBlockEntityArtwork { atlas, held })
     }
 }
