@@ -247,7 +247,7 @@ fn embedded_selection_omits_identity_and_preserves_contents() {
     }
 }
 
-/// Requires action identities and the legacy slot request to survive selected-item omission.
+/// Action items carry no stack network id; the legacy request and slot list name the change.
 fn assert_change(
     packet: protocol::Packet,
     from: &VerifiedNetworkItemStack,
@@ -275,17 +275,14 @@ fn assert_change(
     assert_eq!(action.slot.0, 2);
     assert_contents(&action.from_item, from);
     assert_contents(&action.to_item, to);
-    assert_eq!(
-        action.from_item.net_id_variant,
-        Some(wire::ZigZag32(from.stack_network_id()))
-    );
-    assert_eq!(action.to_item.net_id_variant, Some(wire::ZigZag32(-6)));
+    assert_eq!(action.from_item.net_id_variant, None);
+    assert_eq!(action.to_item.net_id_variant, None);
     assert_contents(&transaction.item, from);
     assert_eq!(transaction.item.net_id_variant, None);
 }
 
 #[test]
-fn selected_omission_preserves_throw_and_placement_action_identities() {
+fn transaction_actions_omit_stack_ids_for_throws_and_placements() {
     for id in [57, -4] {
         let from = stack(id);
         let to = from.less_one(-6);

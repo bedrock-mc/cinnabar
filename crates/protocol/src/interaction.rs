@@ -372,8 +372,8 @@ fn slot_change_parts(
                 bit_flags: None,
             },
             slot: wire::VarUInt(u32::from(slot)),
-            from_item: change.from.into_vendor_item()?,
-            to_item: change.to.into_vendor_item()?,
+            from_item: change.from.into_transaction_vendor_item()?,
+            to_item: change.to.into_transaction_vendor_item()?,
         });
     }
     Ok(SlotChangeParts {
