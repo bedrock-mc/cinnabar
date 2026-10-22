@@ -99,7 +99,7 @@ impl Runner for BdsRunner {
         let run = |label: &str| {
             let mut command = Command::new(binary.as_os_str());
             command
-                .current_dir(&install)
+                .current_dir(install)
                 .env("LD_LIBRARY_PATH", ".")
                 .envs(self.env.iter().map(|(key, value)| (key, value)));
             launch(
