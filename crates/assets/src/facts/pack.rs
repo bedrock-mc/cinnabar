@@ -90,6 +90,9 @@ pub fn furnace_lit(identifier: &str) -> Option<bool> {
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
+    /// A vanilla material the pinned pack names but does not define; its definition is
+    /// unverified, so its texture alpha rounds at 0.5.
+    Provisional,
     UnmaskedArmor,
     AlphaTestNoCull,
     AlphaTest,
@@ -145,6 +148,24 @@ pub struct PackRules {
     pub minerals: Vec<MineralRule>,
     item_visuals: BTreeMap<String, ItemVisualKind>,
     empty_hand: PackBlock,
+    /// Render controllers vanilla entities reference but the pinned samples omit, each mapped
+    /// to the pack controller it is completed from.
+    omitted_render_controllers: BTreeMap<String, String>,
+}
+
+/// The pinned vanilla pack's names by domain (`material`, `actor`, `terrain_texture`, ...).
+fn vocabulary() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
+    static VOCABULARY: OnceLock<BTreeMap<&str, BTreeSet<&str>>> = OnceLock::new();
+    VOCABULARY.get_or_init(|| {
+        let mut vocabulary = BTreeMap::<&str, BTreeSet<&str>>::new();
+        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+            let (domain, name) = row
+                .split_once('\t')
+                .expect("pack vocabulary rows are tabbed");
+            vocabulary.entry(domain).or_default().insert(name);
+        }
+        vocabulary
+    })
 }
 
 /// Loads the compiler's embedded pack contracts once for asset admission.
@@ -225,9 +246,16 @@ impl PackRules {
             .iter()
             .any(|slot| self.textures[slot] == key)
     }
-    /// Resolves a native material alias without reclassifying it as an actor.
+    /// Resolves a native material alias without reclassifying it as an actor; every other
+    /// material the pinned vanilla pack names is [`MaterialKind::Provisional`].
     pub fn material(&self, name: &str) -> Option<MaterialKind> {
-        self.materials.get(name).copied()
+        self.materials.get(name).copied().or_else(|| {
+            vocabulary()
+                .get("material")?
+                .iter()
+                .any(|known| *known == name || known.strip_suffix(".skinning") == Some(name))
+                .then_some(MaterialKind::Provisional)
+        })
     }
     /// Selects the shader contract for exact authored native material targets.
     pub fn raster(&self, name: &str) -> EntityRenderMaterial {
@@ -288,6 +316,12 @@ impl PackRules {
         } else {
             self.item_visuals.get(identifier).copied()
         }
+    }
+    /// Each omitted render controller and the pack controller that completes it.
+    pub fn omitted_render_controllers(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.omitted_render_controllers
+            .iter()
+            .map(|(name, template)| (name.as_str(), template.as_str()))
     }
     /// Returns the canonical empty-hand item identity for constructing its route.
     pub fn empty_hand(&self) -> &str {

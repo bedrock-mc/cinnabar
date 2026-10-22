@@ -6983,6 +6983,9 @@
       "flattened_tnt_side": "textures/blocks/tnt_side",
       "flattened_tnt_top": "textures/blocks/tnt_top"
     },
-    "empty_hand": "Air"
+    "empty_hand": "Air",
+    "omitted_render_controllers": {
+      "controller.render.iron_golem": "controller.render.default"
+    }
   }
 }

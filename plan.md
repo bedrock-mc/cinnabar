@@ -323,6 +323,14 @@ Camera distance controls server render limits and score range; passenger mounts 
 their name without a score line. Depth testing honors sneaking and the nameplate flag.
 Matched rendered-frame qualification remains open.
 
+Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
+lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
+materials but do not define them, so all but the verified kinds in `registry-policy.json`
+are provisional with that rounding; their definitions (alpha test, blend, emissive) remain
+unverified. Each rig geometry routes to the texture its own selection draws, else the
+default branch. The samples omit the iron golem's body controller; it is completed from
+the pack's default controller until a pinned pack defines it.
+
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,
