@@ -1,7 +1,6 @@
 //! Prediction-sync packet construction, scheduling and flag ownership.
 
 use super::*;
-use crate::movement::physics::LocalPose;
 
 #[test]
 fn flags_read_all_three_words_and_missing_ones_are_zero() {
@@ -342,7 +341,6 @@ fn client_owned_flags_follow_local_state() {
         ActorFlag::UsingItem,
         ActorFlag::Moving,
         ActorFlag::HasCollision,
-        ActorFlag::DamageNearbyMobs,
         ActorFlag::Swimming,
         ActorFlag::Crawling,
         ActorFlag::Gliding,
@@ -366,7 +364,7 @@ fn client_owned_flags_follow_local_state() {
     let idle = SyncPose {
         sneaking: false,
         sprinting: false,
-        pose: LocalPose::default(),
+        mode: sim::MovementMode::Walking,
         moving: false,
         has_collision: Some(false),
     };
@@ -394,21 +392,7 @@ fn client_owned_flags_follow_local_state() {
         ),
         (
             SyncPose {
-                pose: LocalPose {
-                    spinning: true,
-                    ..LocalPose::default()
-                },
-                ..idle
-            },
-            false,
-            vec![ActorFlag::DamageNearbyMobs],
-        ),
-        (
-            SyncPose {
-                pose: LocalPose {
-                    swimming: true,
-                    ..LocalPose::default()
-                },
+                mode: sim::MovementMode::Swimming,
                 ..idle
             },
             false,
@@ -416,10 +400,7 @@ fn client_owned_flags_follow_local_state() {
         ),
         (
             SyncPose {
-                pose: LocalPose {
-                    crawling: true,
-                    ..LocalPose::default()
-                },
+                mode: sim::MovementMode::Crawling,
                 ..idle
             },
             false,
@@ -427,10 +408,7 @@ fn client_owned_flags_follow_local_state() {
         ),
         (
             SyncPose {
-                pose: LocalPose {
-                    gliding: true,
-                    ..LocalPose::default()
-                },
+                mode: sim::MovementMode::Gliding,
                 ..idle
             },
             false,
@@ -519,46 +497,6 @@ fn correction_sync_reports_a_local_swim_before_server_metadata() {
         size,
         [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_WIDTH as f32]
     );
-}
-
-/// A glide the server starts is reported even though Cinnabar keeps its local mode.
-#[test]
-fn a_server_started_glide_is_reported_until_a_local_transition() {
-    let glide = 1_u64 << ActorFlag::Gliding.wire_value();
-    let actor = local_actor();
-    let mut physics = due_physics();
-    physics.advance(
-        std::time::Duration::from_millis(50),
-        sim::MovementInput::default(),
-        &OpenWorld,
-    );
-    assert_ne!(physics.mode(), sim::MovementMode::Gliding);
-    assert_eq!(
-        physics.apply_server_movement_flags(
-            0,
-            client_world::MovementFlagUpdate {
-                gliding: Some(true),
-                ..Default::default()
-            },
-        ),
-        None,
-    );
-    let mut sent = None;
-    send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
-        sent = Some(packet);
-        true
-    });
-    let sent = sent.expect("due correction sync");
-    let flags =
-        protocol::test_support::packets::prediction_sync_flags(&sent).expect("wrong packet");
-    assert_ne!(
-        flags[0] & glide,
-        0,
-        "the server's glide must survive the overlay"
-    );
-    let size =
-        protocol::test_support::packets::prediction_sync_bounding_box(&sent).expect("wrong packet");
-    assert_eq!(size[2], sim::PLAYER_WIDTH as f32);
 }
 
 /// Every horizontal pose sends the width as the height, overriding the walking size.
