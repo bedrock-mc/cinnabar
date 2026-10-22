@@ -864,6 +864,9 @@ pub fn drive_menu_input(
 mod gui_scale_drag_tests;
 
 #[cfg(test)]
+mod settings_search_tests;
+
+#[cfg(test)]
 mod settings_slider_tests;
 
 #[cfg(test)]

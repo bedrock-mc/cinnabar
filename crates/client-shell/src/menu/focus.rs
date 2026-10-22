@@ -37,6 +37,9 @@ impl MenuRuntime {
             }
         }) {
             self.focused = index;
+            if self.field == Some(MenuField::SettingsQuery) && action.text_field().is_none() {
+                self.field = None;
+            }
             self.navigation_focus.record_input(Some(action));
             self.settings_input.geometry.reset_anchor();
             self.settings_input.geometry.remember(action);
