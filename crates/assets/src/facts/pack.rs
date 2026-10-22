@@ -315,6 +315,30 @@ pub fn leather_sprite(path: &str) -> bool {
         .is_some_and(|fact| fact.is_leather())
 }
 
+/// How a built-in block's native class picks its terrain texture array entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureVariant {
+    /// One entry for every state of the block.
+    Fixed(usize),
+    /// Entry one while the boolean state is set, else entry zero.
+    Flag(super::BlockProperty),
+}
+
+/// The class-selected terrain array entry of a built-in block; entries past an array draw its first.
+pub fn texture_variant(identifier: &str) -> Option<TextureVariant> {
+    use TextureVariant::{Fixed, Flag};
+    Some(match identifier {
+        "minecraft:carved_pumpkin" | "minecraft:cave_vines" => Fixed(0),
+        "minecraft:lit_pumpkin"
+        | "minecraft:cave_vines_body_with_berries"
+        | "minecraft:cave_vines_head_with_berries" => Fixed(1),
+        "minecraft:pumpkin" => Fixed(2),
+        "minecraft:pale_hanging_moss" => Flag(super::BlockProperty::Tip),
+        "minecraft:mangrove_propagule" => Flag(super::BlockProperty::Hanging),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests;
 /// Resolves the candle paired with a registered composite cake route.

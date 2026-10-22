@@ -124,6 +124,10 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close crop comparison, sub-unit sprite geometry, atlas-edge UV calibration and
   torchflower positional variation. Earlier bounded artwork fixes do not close this scope.
 - [ ] Verify nether-wart geometry and selector acceptance independently of other crops.
+- [ ] Select terrain-array entries for the remaining block classes. Pumpkins, cave vines,
+  pale hanging moss and mangrove propagules follow their native class; the families in the
+  input crate's open-array check (candles, copper bulbs, cocoa, eggs, nether wart and others)
+  still draw entry zero until each class's variant source is verified.
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
   faults from geometry; do not mask them with speculative renderer changes.
