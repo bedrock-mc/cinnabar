@@ -11,10 +11,12 @@ import android.view.WindowManager;
 /** Hosts the client, whose JSON-UI engine draws every game screen. */
 public final class CinnabarActivity extends NativeActivity {
     private volatile int bottomObstruction;
+    private ImmersiveMode immersiveMode;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        immersiveMode = new ImmersiveMode(getWindow());
         final View decor = getWindow().getDecorView();
         decor.setOnApplyWindowInsetsListener((view, insets) -> {
             updateKeyboardGeometry(decor, insets);
@@ -25,18 +27,25 @@ public final class CinnabarActivity extends NativeActivity {
         decor.requestApplyInsets();
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        immersiveMode.restore();
+    }
+
     /** Publishes the keyboard overlap while leaving the Vulkan surface at full size. */
     private void updateKeyboardGeometry(View decor, WindowInsets insets) {
         if (insets == null) return;
         if (Build.VERSION.SDK_INT >= 30) {
             bottomObstruction = insets.getInsets(
                     WindowInsets.Type.ime() | WindowInsets.Type.systemBars()).bottom;
+            immersiveMode.keyboardVisibilityChanged(insets.isVisible(WindowInsets.Type.ime()));
         } else {
             Rect visible = new Rect();
             int[] location = new int[2];
             decor.getWindowVisibleDisplayFrame(visible);
             decor.getLocationOnScreen(location);
             bottomObstruction = Math.max(0, location[1] + decor.getHeight() - visible.bottom);
+            immersiveMode.keyboardVisibilityChanged(bottomObstruction > insets.getStableInsetBottom());
         }
     }
 

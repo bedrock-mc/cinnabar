@@ -547,6 +547,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete.
+  Android restores immersive system bars on resume, window focus and keyboard dismissal,
+  while preserving keyboard control. Device-window regression coverage does not close
+  physical-phone navigation, cutout or gameplay acceptance.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
