@@ -97,11 +97,7 @@ fn stalled_client_fixture() {
         },
         Some(&command),
     );
-    let started = std::time::Instant::now();
-    let connected = wait_for_connection(test_time::DEFAULT_TIMEOUT);
-    eprintln!("DIAG connected={connected} after {:?}", started.elapsed());
-    assert!(connected);
-    eprintln!("DIAG aborting");
+    assert!(wait_for_connection(test_time::DEFAULT_TIMEOUT));
     std::process::abort();
 }
 
@@ -117,37 +113,13 @@ fn nonresponsive_monitor_cannot_freeze_native_crash_capture() {
         ])
         .env(FIXTURE, root.path())
         .stdout(Stdio::null())
-        .stderr(std::fs::File::create(root.path().join("client-stderr")).unwrap())
+        .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let started = std::time::Instant::now();
     let exited = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
         client.try_wait().unwrap().is_some()
     });
-    eprintln!("DIAG exited={exited} after {:?}", started.elapsed());
     if !exited {
-        for (program, args) in [
-            (
-                "/bin/ps",
-                vec!["-axo".to_owned(), "pid,ppid,stat,etime,command".to_owned()],
-            ),
-            (
-                "/usr/bin/sample",
-                vec![client.id().to_string(), "2".to_owned()],
-            ),
-        ] {
-            if let Ok(output) = Command::new(program).args(&args).output() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                for line in text.lines().filter(|line| {
-                    program != "/bin/ps" || line.contains("stalled_") || line.contains("PID")
-                }) {
-                    eprintln!("DIAG {program}: {line}");
-                }
-            }
-        }
-        for entry in walk(root.path()) {
-            eprintln!("DIAG file {}", entry.display());
-        }
         // This handle belongs to the disposable client spawned immediately above.
         client.kill().unwrap();
     }
@@ -156,10 +128,6 @@ fn nonresponsive_monitor_cannot_freeze_native_crash_capture() {
         .path()
         .join(DONE)
         .exists()));
-    eprintln!(
-        "DIAG client stderr: {}",
-        std::fs::read_to_string(root.path().join("client-stderr")).unwrap_or_default()
-    );
     assert!(
         exited,
         "crash handling blocked on a nonresponsive monitor (fixture pid {})",
@@ -169,16 +137,4 @@ fn nonresponsive_monitor_cannot_freeze_native_crash_capture() {
     assert_eq!(folders.len(), 1, "the in-process fallback report");
     let report = crash_report::folder::read(&folders[0]).unwrap();
     assert_eq!(report.kind, crash_report::report::Kind::Native);
-}
-
-fn walk(path: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            found.extend(walk(&path));
-        }
-        found.push(path);
-    }
-    found
 }
