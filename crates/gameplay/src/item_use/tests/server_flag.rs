@@ -161,3 +161,31 @@ fn a_clear_before_the_start_tick_withdraws_start_using_item() {
         0
     );
 }
+
+/// Holding the use button during a server-started use lets button-up release
+/// it even before held-use maintenance resumes.
+#[test]
+fn the_use_button_owns_a_server_start_outside_maintenance() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.observe_use_button(true);
+    assert!(runtime.is_releasing(false));
+}
+
+/// A server clear and set before a tick processes the clear keep the
+/// established use, with its start tick, instead of restarting it.
+#[test]
+fn a_clear_and_set_before_a_tick_keep_the_use() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&bread(10, false)));
+    runtime.step(&bread(11, false));
+    runtime.adopt_server_using_item(false);
+    assert!(!runtime.resolve_server_using_item(&bread(12, false)));
+    assert!(!runtime.is_using());
+    runtime.adopt_server_using_item(true);
+    assert!(!runtime.resolve_server_using_item(&bread(12, false)));
+    assert_eq!(runtime.active_timing(), Some((10, 32)));
+    assert_eq!(runtime.take_withdrawn_start(), None);
+}

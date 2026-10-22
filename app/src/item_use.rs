@@ -241,6 +241,7 @@ fn produce_use(
             &context.input,
             Action::Use,
         );
+    runtime.observe_use_button(held);
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context

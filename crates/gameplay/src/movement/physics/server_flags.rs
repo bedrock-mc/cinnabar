@@ -196,9 +196,13 @@ impl LocalPhysicsController {
         };
         let (mode, spinning) = (self.modes.mode(), state.spin_attack_ticks.is_some());
         self.server_flags.apply_before(&mut self.modes, state);
+        let mode = (self.modes.mode() != mode).then_some(self.modes.mode());
+        let spinning = (state.spin_attack_ticks.is_some() != spinning).then_some(!spinning);
         let pending = self.server_control_flags.get_or_insert_default();
-        pending.mode = (self.modes.mode() != mode).then_some(self.modes.mode());
-        pending.spinning = (state.spin_attack_ticks.is_some() != spinning).then_some(!spinning);
+        pending.mode = mode;
+        pending.spinning = spinning;
+        // Baselines an earlier tickless frame already took are rebuilt too.
+        self.input_edges.replace_server_pose(mode, spinning);
     }
 
     /// Writes before the tick after retained `tick`, created on demand.

@@ -390,3 +390,36 @@ fn a_glide_clear_and_set_before_a_tick_keep_the_glide_counter() {
     let sample = tick_with(&mut physics, &mut ticker, jump(true), elytra(true));
     assert_eq!(sample.processed.mode, sim::MovementMode::Walking);
 }
+
+/// A replay that rebuilds the live spin also replaces the baseline a tickless
+/// frame already took, so a server clear after a set reports no stop action.
+#[test]
+fn a_replay_rebuilds_baselines_a_tickless_frame_took() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    let server = physics.take_server_control_flags();
+    let tickless = PhysicsSampleContext {
+        input: super::super::TickInput {
+            server_spinning: server.and_then(|flags| flags.spinning),
+            ..Default::default()
+        },
+        ..PhysicsSampleContext::default()
+    };
+    let frame = physics.advance_with_context(
+        Duration::ZERO,
+        MovementInput::default(),
+        tickless,
+        &VersionedFloor(1),
+    );
+    assert!(frame.samples.is_empty());
+    physics.apply_server_movement_flags(0, write(false));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}

@@ -57,6 +57,17 @@ impl PendingInputEdges {
         self.server_spinning = input.server_spinning.or(self.server_spinning);
     }
 
+    /// Replaces the retained server pose and spin baselines, as a replay that
+    /// rebuilt the live state does.
+    pub(super) fn replace_server_pose(
+        &mut self,
+        mode: Option<sim::MovementMode>,
+        spinning: Option<bool>,
+    ) {
+        self.server_mode = mode;
+        self.server_spinning = spinning;
+    }
+
     /// Combines retained updates with the latest held requests for a simulation attempt.
     pub(super) fn sample(self, mut input: TickInput) -> TickInput {
         input.jump.pressed = self.jump.pressed;

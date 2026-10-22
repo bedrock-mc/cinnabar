@@ -13,6 +13,14 @@ impl ItemUseRuntime {
         self.server_using = Some(using);
     }
 
+    /// Notes the use button outside tick-gated maintenance: holding it lets
+    /// button-up release a use the server started.
+    pub fn observe_use_button(&mut self, held: bool) {
+        if held && let Some(active) = self.active.as_mut() {
+            active.button_owned = true;
+        }
+    }
+
     /// Whether a server `UsingItem` value still awaits a tick.
     pub const fn has_server_using_item(&self) -> bool {
         self.server_using.is_some()
@@ -64,11 +72,23 @@ impl ItemUseRuntime {
                     if !active.button_owned && active.started_tick >= frame.tick {
                         self.withdrawn_start = Some(active.started_tick);
                     }
+                    self.cleared_use = Some((frame.tick, active));
                 }
                 self.riptide_release = None;
             }
             Some(true) if self.active.is_some() => self.server_using = None,
             Some(true) => {
+                // A set before any tick processed the clear keeps the use as it was.
+                if let Some((_, active)) = self
+                    .cleared_use
+                    .take()
+                    .filter(|(tick, _)| *tick == frame.tick)
+                {
+                    self.server_using = None;
+                    outcome.started = active.started_tick >= frame.tick;
+                    self.active = Some(active);
+                    return;
+                }
                 if frame.selection.is_none() {
                     return;
                 }

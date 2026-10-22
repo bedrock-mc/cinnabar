@@ -164,6 +164,9 @@ pub struct ItemUseRuntime {
     gameplay_focused: bool,
     /// A server-started use's tick whose start a later clear withdrew before it ran.
     withdrawn_start: Option<u64>,
+    /// A use a server clear stopped, with the tick it applied to; a set before
+    /// that tick runs restores it, as vanilla's per-tick check never saw the clear.
+    cleared_use: Option<(u64, ActiveUse)>,
 }
 
 impl ItemUseRuntime {
@@ -330,6 +333,7 @@ impl ItemUseRuntime {
         self.riptide_launch = None;
         self.riptide_release = None;
         self.server_using = None;
+        self.cleared_use = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
