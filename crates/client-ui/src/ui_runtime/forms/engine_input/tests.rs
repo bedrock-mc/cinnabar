@@ -762,7 +762,7 @@ fn unchecked_dropdown_options_leave_toggle_answers_unchanged() {
 
 #[test]
 fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
-    for (offset, delta) in [(150.0, -40.0), (0.0, 40.0)] {
+    for (offset, delta) in [(150.0, -5.0), (0.0, 5.0)] {
         let mut player = player_state::PlayerState::new(1);
         let mut runtime = pack_harness::action_form(&mut player, "Scrollable", &["Action"]);
         let metrics = json_ui::ScrollMetrics {
@@ -786,14 +786,16 @@ fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
             edit_texts: Vec::new(),
             top: Vec::new(),
         };
-        let point = [50.0, 50.0 + delta];
+        let point = [50.0, 50.0 + delta * 20.0];
         let engine = runtime.server_forms_mut().engine_mut();
         engine.view.scroll.insert("list".into(), offset);
         engine.view.begin_scroll_touch("list", &metrics);
-        engine
-            .view
-            .scroll_touch_moved("list", &metrics, [0.0, delta]);
-        engine.view.step_scrolls(&frame.report, 1.0 / 60.0);
+        for _ in 0..20 {
+            engine
+                .view
+                .scroll_touch_moved("list", &metrics, [0.0, delta]);
+            engine.view.step_scrolls(&frame.report, 1.0 / 60.0);
+        }
         engine.scroll_touch = Some(("list".into(), point));
         engine.view.pressed = Some("action".into());
         drive(
