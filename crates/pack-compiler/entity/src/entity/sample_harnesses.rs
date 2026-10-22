@@ -79,11 +79,7 @@ pub fn missing_harness_bindings<'a>(
         if !record.fact.tags.contains(tag) {
             continue;
         }
-        let Some(color) = record
-            .identifier
-            .strip_prefix("minecraft:")
-            .and_then(|name| name.strip_suffix("_harness"))
-        else {
+        let Some(color) = assets::facts::harness_color(&record.identifier) else {
             continue;
         };
         let texture = format!("textures/entity/harness/harness_{color}");
