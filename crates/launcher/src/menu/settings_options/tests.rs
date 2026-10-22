@@ -790,11 +790,11 @@ fn frame_rate_slider_stops_cover_every_cap_and_unlimited() {
         let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(limit(&reloaded), expected);
         settings.reset_group(SettingsGroup::Video);
-        assert_eq!(limit(&settings), Unlimited);
+        assert_eq!(limit(&settings), render_api::FrameRateLimit::default());
     }
 }
 
-/// Tearing is not a player setting; a stray stored key is ignored, never an error.
+/// An unregistered standalone tearing key does not override the VSync choice.
 #[test]
 fn an_unknown_tearing_key_is_ignored() {
     let settings =

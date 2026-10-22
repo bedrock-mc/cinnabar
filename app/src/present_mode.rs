@@ -1,5 +1,5 @@
 use bevy::{
-    prelude::{Entity, Query, Res, ResMut, Resource, With},
+    prelude::{DetectChangesMut, Entity, Query, Res, ResMut, Resource, With},
     window::{PresentMode, PrimaryWindow, Window},
 };
 use render::{PresentModePolicy, PresentModePreference, PresentModeRemedy, window_present_mode};
@@ -184,7 +184,12 @@ pub(crate) fn apply_present_mode(
     runtime
         .policy
         .publish_selection(runtime.policy.capabilities().map(|_| selected));
-    set_present_mode_if_changed(&mut window, window_present_mode(selected));
+    if set_present_mode_if_changed(
+        window.bypass_change_detection(),
+        window_present_mode(selected),
+    ) {
+        window.set_changed();
+    }
     // Fixed queue depth: adaptive depth changes reconfigured the surface and flickered on Windows.
     let latency = Some(render::frame_latency_for_vsync(
         runtime.intent() == PresentationIntent::Synchronized,
@@ -194,6 +199,7 @@ pub(crate) fn apply_present_mode(
     }
 }
 
+/// Reports a real mode change so the caller only notifies window consumers when needed.
 fn set_present_mode_if_changed(window: &mut Window, present_mode: PresentMode) -> bool {
     if window.present_mode == present_mode {
         false
