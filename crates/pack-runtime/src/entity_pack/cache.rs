@@ -173,9 +173,12 @@ impl EntityCache {
     /// Shares unchanged rasters before another owner or disk writer retains the new catalog.
     fn reuse_pixels(&self, next: Option<Arc<SessionEntityPack>>) -> Option<Arc<SessionEntityPack>> {
         let previous = self.lock().front().and_then(|(_, pack, _)| pack.clone());
-        next.map(|next| match previous {
-            Some(previous) => pixel_reuse::reuse(&previous, next),
-            None => next,
+        next.map(|next| {
+            let next = match previous {
+                Some(previous) => pixel_reuse::reuse(&previous, next),
+                None => next,
+            };
+            next.with_shared_equipment_pixels()
         })
     }
 
