@@ -1110,3 +1110,34 @@ fn a_stamped_crawl_clear_lets_the_tunnel_restart_the_crawl() {
     );
     assert_eq!(next.processed.mode, MovementMode::Crawling);
 }
+
+/// Replay through a retained server swim start leaves the live swim blend,
+/// which vanilla keeps in its own component that replay copy-back omits.
+#[test]
+fn replaying_a_server_swim_start_keeps_the_live_swim_blend() {
+    let world = PoolFloor(std::cell::Cell::new(true));
+    let mut physics = grounded_controller();
+    let forward = MovementInput {
+        forward: 1.0,
+        ..MovementInput::default()
+    };
+    let samples: Vec<_> = (0..12)
+        .map(|_| step(&mut physics, forward, ModeIntent::default(), &world))
+        .collect();
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, samples[0].tick - 1, samples[0].position);
+    ticker.set_source(MovementSource::Physics);
+    for sample in samples.clone() {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let blend = physics.state().unwrap().swim_amount;
+    let swim = client_world::MovementFlagUpdate {
+        swimming: Some(true),
+        ..Default::default()
+    };
+    let stamp = samples[0].tick;
+    assert_eq!(physics.apply_server_movement_flags(stamp, swim), None);
+    physics.queue_server_motion([0.0; 3], stamp);
+    super::reconcile_timeline_rewind(&mut ticker, &mut physics, stamp, &world).unwrap();
+    assert_eq!(physics.state().unwrap().swim_amount, blend);
+}

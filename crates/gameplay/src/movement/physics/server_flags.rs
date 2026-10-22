@@ -183,6 +183,12 @@ impl ServerFlagAuthority {
             .map(|(_, ticks)| ticks)
     }
 
+    /// Saves the counter of a spin whose flag was cleared on `tick`, for a set
+    /// on the same tick to resume.
+    pub(super) fn save_cleared_spin(&mut self, tick: u64, ticks: u8) {
+        self.cleared_spin = Some((tick, ticks));
+    }
+
     /// Drops writes that belong to discarded frames.
     pub(super) fn reset_history(&mut self) {
         self.queued = None;
@@ -199,8 +205,9 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
     if spinning {
         state.spin_attack_ticks = Some(authority.cleared_spin_on(state.tick).unwrap_or(0));
     } else {
-        authority.cleared_spin = state.spin_attack_ticks.map(|ticks| (state.tick, ticks));
-        state.spin_attack_ticks = None;
+        if let Some(ticks) = state.spin_attack_ticks.take() {
+            authority.save_cleared_spin(state.tick, ticks);
+        }
     }
 }
 

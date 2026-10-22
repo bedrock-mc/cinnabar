@@ -223,13 +223,14 @@ impl LocalPhysicsController {
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
-        // Replay copies the spin flag back but not its counter, which a clear
-        // on the current tick has not reset yet.
+        // Replay copies the flags back but not the spin counter, which a clear
+        // on the current tick has not reset yet, nor the swim blend.
         let live_spin = self.state.as_ref().and_then(|state| {
             state
                 .spin_attack_ticks
                 .or_else(|| self.server_flags.cleared_spin_on(state.tick))
         });
+        let live_swim_amount = self.state.as_ref().map(|state| state.swim_amount);
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
         let (replay, replayed_ticks) = self
@@ -410,12 +411,23 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         // Vanilla copies every client-owned flag of the replayed word back to
-        // the live actor, so the replayed pose and spin stand. The
-        // spin counter lives in its own component, which copy-back leaves
-        // live; a spin the live state lacked counts from zero.
+        // the live actor, so the replayed pose and spin stand. The spin and
+        // glide counters and the swim blend live in their own components,
+        // which copy-back leaves live; a spin the live state lacked counts
+        // from zero, and one copy-back clears keeps its counter until a tick
+        // processes the clear.
         if let Some(state) = self.state.as_mut() {
+            if state.spin_attack_ticks.is_none()
+                && let Some(ticks) = live_spin
+            {
+                self.server_flags.save_cleared_spin(state.tick, ticks);
+            }
             state.spin_attack_ticks = state.spin_attack_ticks.map(|_| live_spin.unwrap_or(0));
+            if let Some(amount) = live_swim_amount {
+                state.swim_amount = amount;
+            }
         }
+        modes.keep_live_glide_counter(&self.modes);
         self.modes = modes;
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;

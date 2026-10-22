@@ -645,3 +645,47 @@ fn replay_after_a_same_tick_clear_keeps_the_saved_spin_counter() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
 }
+
+/// Replay through a retained server glide start leaves the live glide
+/// counter, which vanilla keeps in its own component, so a fresh jump right
+/// after does not end the glide the write just began.
+#[test]
+fn replaying_a_server_glide_start_keeps_the_live_glide_counter() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..13 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let glide = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, glide), None);
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let sample = tick_with(&mut physics, &mut ticker, jump, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Gliding);
+}
+
+/// A replay that clears a running spin saves its counter, so a server set on
+/// the same tick resumes it instead of restarting the spin.
+#[test]
+fn a_set_after_a_replay_clear_resumes_the_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}
