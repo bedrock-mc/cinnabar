@@ -517,6 +517,10 @@ Complete clean-install, first-run asset preparation, update/install recovery, st
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 
+Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
+installations, with verified extraction and startup rollback. Packaged Linux update and
+rollback acceptance on a desktop remains incomplete.
+
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 
