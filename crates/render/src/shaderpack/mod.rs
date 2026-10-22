@@ -46,6 +46,7 @@ pub(crate) mod geometry;
 mod host_pipelines;
 #[cfg(feature = "shaderpacks")]
 mod ids;
+#[cfg(feature = "shaderpacks")]
 mod kernels;
 #[cfg(feature = "shaderpacks")]
 mod lightmap;
