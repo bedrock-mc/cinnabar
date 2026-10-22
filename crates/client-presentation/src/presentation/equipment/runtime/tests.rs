@@ -1,5 +1,8 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "map_mesh_tests.rs"]
+mod map_mesh_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 

@@ -7,7 +7,7 @@ use crate::session_assets::SessionItems;
 
 /// Session icons get their own mesh id range above the startup item meshes: one per registry
 /// item, so no server item goes without its mesh.
-const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
+pub(super) const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 
 /// A session's icon sprites packed for the artwork pages, before placement on them.
 pub struct StagedSessionIcons {

@@ -31,8 +31,11 @@ impl EquipmentRuntime {
             return meshes;
         }
         let meshes = std::array::from_fn(|index| {
-            let id = item_mesh_rig_id(self.next_mesh);
-            self.next_mesh += 1;
+            let id = item_mesh_rig_id(
+                (MAX_ITEM_MESHES + session::MAX_SESSION_MESHES + index)
+                    .try_into()
+                    .expect("reserved map mesh IDs fit u32"),
+            );
             let (min, max, z) = if index == 0 {
                 (-7.0, 135.0, 0.0)
             } else {
