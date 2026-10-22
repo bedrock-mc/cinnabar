@@ -173,7 +173,7 @@ fn take_result(ledger: &mut PlayerInventoryLedger) -> i32 {
     ledger
         .begin_screen_output(&ScreenCraft::Anvil {
             rename: None,
-            multi_recipe_id: 4766,
+            recipe_network_id: 4766,
             output: Some(stack(SWORD, 0, 1)),
             material_used: 1,
         })
