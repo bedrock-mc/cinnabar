@@ -12,6 +12,7 @@ use super::geometry::{
     GeometryCategory, ShaderpackBlockIds, ShaderpackGeometry, ShaderpackGeometryPlugin,
     ShaderpackGeometrySettings, ShadowFrustum, UNASSIGNED_BLOCK_ID, device_geometry_budget,
 };
+use super::load_failures::{ViewFailures, receive_view_failures};
 use super::loader::{PackGpu, load};
 use super::passes::{DrawContext, FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
@@ -111,6 +112,7 @@ fn drive_loader(
     mut loader: ResMut<Loader>,
     gpu: MainWorldGpu,
     atmosphere: Option<Res<render_scene::AtmosphereTextureAssets>>,
+    compiler: Option<Res<render_scene::shaderpack::ShaderPackCompilerExecutable>>,
 ) {
     let wanted = loader_key(&request, inputs.dimension);
     if loader.job.is_some() && (wanted != loader.key || loader.retiring) {
@@ -169,6 +171,7 @@ fn drive_loader(
         }
         let cache_dir = request.cache_dir.clone();
         let options = request.options.clone();
+        let compiler = compiler.as_deref().map(|compiler| compiler.0.clone());
         let vanilla = atmosphere
             .as_deref()
             .map(VanillaTextures::from_atmosphere)
@@ -187,6 +190,7 @@ fn drive_loader(
                     &gpu,
                     &vanilla,
                     &worker_progress,
+                    compiler.as_deref(),
                 );
                 let _ = send.send(outcome);
             });
@@ -430,6 +434,7 @@ fn prepare_views(
     effect_textures: Option<Res<ShaderpackEffectTextures>>,
     hand: Option<Res<render_scene::HandRigScene>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    failures: Option<Res<ViewFailures>>,
 ) {
     let _timer = profiler
         .as_deref()
@@ -477,6 +482,9 @@ fn prepare_views(
                     states.remove(&entity);
                     failed.insert(entity, (Arc::clone(&pack), screen));
                     warn!(pack = %pack.name, "shader pack view could not be prepared: {error}");
+                    if let Some(failures) = &failures {
+                        failures.record(Arc::clone(&pack), error);
+                    }
                     continue;
                 }
             }
@@ -845,6 +853,7 @@ pub(super) fn build(app: &mut App) {
         .init_resource::<ShaderPackActorIds>()
         .init_resource::<LoadedShaderPack>()
         .init_resource::<Loader>()
+        .init_resource::<ViewFailures>()
         .add_plugins((
             ExtractComponentPlugin::<ShaderPackRendering>::default(),
             ExtractResourcePlugin::<LoadedShaderPack>::default(),
@@ -854,7 +863,10 @@ pub(super) fn build(app: &mut App) {
             ShaderpackGeometryPlugin,
             ShaderpackAtlasPlugin,
         ))
-        .add_systems(Update, (drive_loader, publish_id_maps).chain())
+        .add_systems(
+            Update,
+            (drive_loader, receive_view_failures, publish_id_maps).chain(),
+        )
         .add_systems(PostUpdate, admit_cameras);
 }
 
@@ -871,10 +883,13 @@ fn prepare_actor_pipelines(
 }
 
 pub(super) fn finish(app: &mut App) {
+    app.init_resource::<ViewFailures>();
+    let failures = app.world().resource::<ViewFailures>().clone();
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     render_app
+        .insert_resource(failures)
         .init_resource::<ShaderPackViews>()
         .init_resource::<ShaderPackEffects>()
         .init_resource::<ShaderpackEffectTextures>()
@@ -925,4 +940,4 @@ mod camera_tests;
 
 #[cfg(test)]
 #[path = "plugin_native_tests.rs"]
-mod native_tests;
+pub(super) mod native_tests;

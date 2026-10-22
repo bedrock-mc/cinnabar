@@ -28,3 +28,6 @@ serde_json = "1"
 
 [lints]
 workspace = true
+
+[features]
+shaderpacks = ["cinnabar/shaderpacks"]

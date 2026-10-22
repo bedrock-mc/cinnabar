@@ -4,7 +4,7 @@ use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
 /// Builds an empty, ready pack with compiled actor kernels and no game carriers.
-pub(super) fn ready_world() -> World {
+pub(in crate::shaderpack) fn ready_world() -> World {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {

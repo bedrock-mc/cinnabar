@@ -49,6 +49,8 @@ mod ids;
 #[cfg(feature = "shaderpacks")]
 mod lightmap;
 #[cfg(feature = "shaderpacks")]
+mod load_failures;
+#[cfg(feature = "shaderpacks")]
 mod loader;
 #[cfg(feature = "shaderpacks")]
 mod native_passes;

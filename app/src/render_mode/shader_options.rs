@@ -3,12 +3,14 @@
 //! pack and reloads it, as Iris applies them.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, mpsc};
+use std::sync::Mutex;
+use std::time::Instant;
 
 use bevy::prelude::*;
 use launcher::shader_options::{Action, Editor, Status, View};
 
 mod writer;
+#[cfg(test)]
 use shaderpack::{OptionSession, OptionValues, ShaderPack};
 use writer::{Request, Writer};
 
@@ -46,29 +48,35 @@ struct Progress {
 }
 
 enum State {
-    Loading(Mutex<mpsc::Receiver<Result<OptionSession, String>>>),
+    Loading(Mutex<shaderpack::worker::Running>, Instant),
     Ready(Box<Editor>),
     Failed(String),
 }
 
 impl Open {
-    /// Starts reading `pack` on a worker.
-    fn start(pack: SelectedPack) -> Open {
-        let (send, receive) = mpsc::channel();
-        let (path, file) = (pack.path, pack.options.clone());
-        let spawned = std::thread::Builder::new()
-            .name("shader pack options".into())
-            .spawn(move || {
-                let _ = send.send(read_session(&path, file.as_deref()));
+    /// Starts a bounded options compiler; closing the screen kills and reaps that child.
+    fn start(pack: SelectedPack, compiler: Option<&Path>) -> Open {
+        let state = compiler
+            .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
+            .and_then(|compiler| {
+                shaderpack::worker::Running::start(
+                    compiler,
+                    &shaderpack::worker::Request {
+                        pack: pack.path,
+                        options: pack.options.clone(),
+                        dimension: String::new(),
+                        environment: shaderpack::Environment::default(),
+                        purpose: shaderpack::worker::Purpose::Options,
+                    },
+                )
             });
-        let state = match spawned {
-            Ok(_) => State::Loading(Mutex::new(receive)),
-            Err(error) => State::Failed(error.to_string()),
-        };
         Open {
             name: pack.name,
             file: pack.options,
-            state,
+            state: match state {
+                Ok(worker) => State::Loading(Mutex::new(worker), Instant::now()),
+                Err(error) => State::Failed(error),
+            },
             saving: None,
             save_error: None,
         }
@@ -77,7 +85,7 @@ impl Open {
     /// The screen to show.
     fn view(&self) -> View {
         let mut view = match &self.state {
-            State::Loading(_) => View::loading(&self.name),
+            State::Loading(..) => View::loading(&self.name),
             State::Ready(editor) => editor.view(),
             State::Failed(reason) => View::failed(&self.name, reason.clone()),
         };
@@ -97,20 +105,19 @@ impl Open {
                 .and_then(Writer::poll)
                 .map_or_else(Progress::default, |result| self.finish_save(result));
         }
-        let State::Loading(receive) = &mut self.state else {
+        let State::Loading(worker, started) = &mut self.state else {
             return Progress::default();
         };
-        let received = receive
+        let Some(result) = worker
             .get_mut()
-            .unwrap_or_else(|e| e.into_inner())
-            .try_recv();
-        self.state = match received {
-            Ok(Ok(session)) => State::Ready(Box::new(Editor::new(session, &self.name))),
-            Ok(Err(reason)) => State::Failed(reason),
-            Err(mpsc::TryRecvError::Empty) => return Progress::default(),
-            Err(mpsc::TryRecvError::Disconnected) => {
-                State::Failed("the options reader stopped".to_owned())
-            }
+            .unwrap_or_else(|error| error.into_inner())
+            .poll(started.elapsed(), false)
+        else {
+            return Progress::default();
+        };
+        self.state = match result.and_then(shaderpack::worker::Response::into_options) {
+            Ok(session) => State::Ready(Box::new(Editor::new(session, &self.name))),
+            Err(reason) => State::Failed(reason),
         };
         Progress {
             changed: true,
@@ -199,17 +206,6 @@ impl Open {
     }
 }
 
-/// Opens the pack at `path` with the values saved in `file`.
-fn read_session(path: &Path, file: Option<&Path>) -> Result<OptionSession, String> {
-    let pack = ShaderPack::open(path).map_err(|error| error.to_string())?;
-    let saved = match file {
-        Some(file) => shaderpack::read_option_file(file)
-            .map_err(|error| format!("{}: {error}", file.display()))?,
-        None => OptionValues::new(),
-    };
-    Ok(OptionSession::new(&pack, &saved))
-}
-
 /// Runs the screen's commands, saving and reloading the pack when values are applied, and
 /// publishes the screen whenever it changes.
 pub(super) fn drive_shader_options(
@@ -217,6 +213,7 @@ pub(super) fn drive_shader_options(
     settings: Res<RuntimeSettings>,
     menu: Option<ResMut<MenuRuntime>>,
     mut host: ResMut<ShaderOptionsHost>,
+    compiler: Option<Res<render_scene::shaderpack::ShaderPackCompilerExecutable>>,
 ) {
     let Some(mut menu) = menu else {
         return;
@@ -227,8 +224,15 @@ pub(super) fn drive_shader_options(
         changed = true;
         if action == Action::Open {
             if open.as_ref().is_none_or(|open| open.saving.is_none()) {
-                *open = selected_pack(&config, &settings.user_settings_update().1.video)
-                    .map(Open::start);
+                // Reap the previous reader before starting its replacement.
+                *open = None;
+                *open =
+                    selected_pack(&config, &settings.user_settings_update().1.video).map(|pack| {
+                        Open::start(
+                            pack,
+                            compiler.as_deref().map(|compiler| compiler.0.as_path()),
+                        )
+                    });
             }
             continue;
         }

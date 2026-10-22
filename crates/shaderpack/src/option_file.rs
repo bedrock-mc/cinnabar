@@ -19,7 +19,7 @@ pub fn option_file(pack: &Path) -> Option<PathBuf> {
 
 /// Reads saved values; a missing file holds none. Values are not checked against the pack.
 pub fn read_option_file(path: &Path) -> io::Result<OptionValues> {
-    match std::fs::read(path) {
+    match crate::source::read_file_bounded(path, crate::source::MAX_TEXT_FILE_BYTES) {
         Ok(bytes) => Ok(parse_option_file(&bytes)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(OptionValues::new()),
         Err(error) => Err(error),
@@ -97,6 +97,20 @@ fn escape(text: &str, key: bool, out: &mut String) {
 mod tests {
     use super::*;
     use crate::options::OptionKind;
+
+    #[test]
+    fn oversized_saved_options_fail_before_parsing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Pack.zip.txt");
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(crate::source::MAX_TEXT_FILE_BYTES as u64 + 1)
+            .unwrap();
+        let Err(error) = read_option_file(&path) else {
+            panic!("oversized options must fail");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
+    }
 
     fn option(name: &str, kind: OptionKind) -> PackOption {
         PackOption {

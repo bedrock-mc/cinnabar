@@ -13,7 +13,7 @@ const MAX_TREE_DEPTH: u32 = 256;
 const MAX_NESTING: u32 = 64;
 
 /// A parsed expression.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum Expr {
     /// A floating literal, or a number in standard condition syntax.
     Number(f64),
@@ -34,7 +34,7 @@ pub enum Expr {
 }
 
 /// Prefix operators. A prefix `+` is accepted by the parser and leaves no node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     /// Arithmetic negation `-x`.
     Neg,
@@ -43,7 +43,7 @@ pub enum UnaryOp {
 }
 
 /// Infix operators, from `*` (binds tightest) to `||` (binds loosest).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     /// `*`
     Mul,
@@ -74,7 +74,7 @@ pub enum BinaryOp {
 }
 
 /// A parse or evaluation failure with a human-readable message.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExprError {
     /// What went wrong, suitable for a pack diagnostic.
     pub message: String,

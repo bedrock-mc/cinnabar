@@ -24,7 +24,7 @@ use std::path::Path;
 const SHADER_EXTENSIONS: &[&str] = &["glsl", "vsh", "fsh", "gsh", "csh", "tcs", "tes", "inc", "h"];
 
 /// What to translate and with which settings.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TranslateConfig {
     /// Program folder, e.g. `world0`; see [`ShaderPack::dimension_folder`]. A folder the pack
     /// lacks selects its base program set, as in [`ShaderPack::programs`].
@@ -51,7 +51,7 @@ impl Default for TranslateConfig {
 }
 
 /// A whole-pack translation result.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PackTranslation {
     /// `shaders.properties` evaluated with the configured options.
     pub properties: ShaderProperties,
@@ -62,7 +62,7 @@ pub struct PackTranslation {
 }
 
 /// A shader pack opened from a folder or zip, with its options discovered.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ShaderPack {
     source: PackSource,
     options: Vec<PackOption>,

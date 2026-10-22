@@ -18,7 +18,8 @@ POWERSHELL ?= powershell
 NO_VSYNC ?= 0
 TRACY ?= 0
 SHADERPACKS ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
+SHADERPACK_FEATURES = $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
+CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(SHADERPACK_FEATURES)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -58,7 +59,7 @@ LOCAL_ASSET_DIR ?= .local/assets/compiled
 PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2193.bin
 CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
-ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin assetc --
+ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin assetc $(SHADERPACK_FEATURES) --
 VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --accept-eula
 # One in-process parallel pass over the carrier table; carriers whose fingerprint is unchanged are skipped.
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")

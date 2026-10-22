@@ -652,8 +652,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
-  passes skip frames without a loaded pack. Retired loads cancel between translation programs
-  and GPU batches; rapid selections share one load worker. Atlas builds cancel between
+  passes skip frames without a loaded pack. CPU translation runs in an owned child process
+  with a 2 GiB Rust heap limit, a 60-second CPU and elapsed-time limit, and bounded input/output.
+  Cancellation kills and reaps that child; parser crashes fail the selected pack. Saved option
+  files and generated helper copies have storage limits, and input files must be regular files.
+  Option-menu reads use the same compiler limits; closing the menu reaps its reader.
+  Render-view admission failures reach the pack picker and restore the native renderer.
+  Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas builds cancel between
   source, pixel and upload stages, and one cancelled build retires before its replacement
   starts. Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
