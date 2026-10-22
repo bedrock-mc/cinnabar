@@ -118,12 +118,16 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
         render_app
             .insert_resource(shared)
             .init_resource::<WarmupRegistry>()
+            // Bevy's upscaling blocks on its blit pipeline in `Prepare`, and that wait starts
+            // every queued pipeline first; their tasks share one shader-cache lock. Queuing
+            // after it lets the blit compile alone, and this frame's `Render` set still starts
+            // the warm-up.
             .configure_sets(
                 Render,
                 (WarmupSet::Views, WarmupSet::Owners)
                     .chain()
-                    .after(RenderSystems::PrepareViews)
-                    .before(RenderSystems::Queue),
+                    .after(RenderSystems::Prepare)
+                    .before(RenderSystems::Render),
             )
             .add_systems(Render, collect_views.in_set(WarmupSet::Views))
             .add_systems(Render, publish_readiness.in_set(RenderSystems::Cleanup));

@@ -306,7 +306,11 @@ fn copy_on_write_plan_keeps_old_extent_out_of_free_lists_and_growth_copy() {
     )
     .unwrap();
     assert_eq!(plan.geometry_stream_start, 32);
-    assert_eq!(plan.free_geometry_stream_words, vec![30..32]);
+    assert!(
+        plan.free_geometry_stream_words
+            .iter()
+            .eq(std::iter::once(30..32))
+    );
     assert!(plan.geometry_stream_len > old.geometry_stream_capacity as usize);
     assert_eq!(
         plan_arena_growth(1, plan.geometry_stream_len, 4, 128)
@@ -342,7 +346,7 @@ fn retired_range_is_fence_delayed_then_coalesced_for_eventual_reuse() {
     let mut retirement = RetiredArenaAllocation::geometry_only(entity, &old).unwrap();
     retirement.release_epoch = Some(2);
     let mut len = 60;
-    let mut free = Vec::new();
+    let mut free = FreeRanges::default();
     assert!(!retirement.can_release(1));
     assert_eq!(allocate_quad_range(&mut len, &mut free, 30, 90), Some(60));
     release_quad_range(&mut len, &mut free, 60..90);

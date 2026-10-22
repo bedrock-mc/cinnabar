@@ -182,3 +182,39 @@ fn no_view_never_releases_loading() {
     ));
     assert!(!PipelineWarmupReadiness::default().is_ready());
 }
+
+/// Upscaling's blocking blit wait in `Prepare` starts every queued pipeline, so warm-up must
+/// queue after it and still before `Render` starts this frame's queue.
+#[test]
+fn warmup_queues_after_the_blocking_blit_and_before_render() {
+    #[derive(Resource, Default)]
+    struct Queued(Vec<usize>);
+    fn probe(registry: Res<WarmupRegistry>, mut queued: ResMut<Queued>) {
+        queued.0.push(registry.ids.len());
+    }
+    let mut app = App::new();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register::<TwoModes>(&mut app);
+    let render = app.sub_app_mut(RenderApp);
+    render
+        .insert_resource(cache())
+        .insert_resource(TwoModes {
+            shader: Handle::default(),
+            calls: 0,
+        })
+        .init_resource::<Queued>()
+        .add_systems(
+            Render,
+            (
+                probe.in_set(RenderSystems::Prepare),
+                probe.in_set(RenderSystems::Render),
+            ),
+        );
+    render
+        .world_mut()
+        .spawn((crate::render_test_support::camera(false), Msaa::Off));
+    render.world_mut().run_schedule(Render);
+    assert_eq!(render.world().resource::<Queued>().0, [0, 2]);
+}

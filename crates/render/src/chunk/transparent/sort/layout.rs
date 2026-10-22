@@ -206,7 +206,7 @@ fn patch_slot(
     upload_cap: usize,
     sorted_refs: usize,
 ) -> Option<TransparentSortOutput> {
-    let mut free = base.layout.free.to_vec();
+    let mut free = base.layout.free.iter().cloned().collect::<FreeRanges>();
     let mut used = base.refs.len();
     for range in released {
         release_quad_range(&mut used, &mut free, range);
@@ -271,7 +271,7 @@ fn patch_slot(
         layout: TransparentSnapshotLayout {
             groups: groups.into(),
             classes: classes.into(),
-            free: free.into(),
+            free: free.iter().collect(),
         },
         patch: Some(patch),
         sorted_refs,
