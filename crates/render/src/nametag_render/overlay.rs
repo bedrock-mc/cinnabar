@@ -106,7 +106,17 @@ pub(super) fn prepare(
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         };
-        let layer = device.create_texture(&descriptor);
+        let size = target.main_texture().size();
+        let bytes = u64::from(size.width) * u64::from(size.height) * 4 * u64::from(msaa.samples());
+        // Labels are content, so a view without its overlay retries every frame.
+        let Some(layer) =
+            crate::gpu_allocation::checked(&device, "nametag encoded overlay", bytes, || {
+                device.create_texture(&descriptor)
+            })
+        else {
+            commands.entity(entity).remove::<Overlay>();
+            continue;
+        };
         let view = layer.create_view(&default());
         let shader = device
             .wgpu_device()

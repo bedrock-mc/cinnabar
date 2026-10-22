@@ -90,6 +90,42 @@ pub(crate) fn buffer_with_data(
     Some(buffer)
 }
 
+/// Per-view requests whose allocation failed. A view retries only once its request changes,
+/// such as a resize or a setting, instead of every frame.
+pub(crate) struct FailedRequests<K>(bevy::platform::collections::HashMap<bevy::prelude::Entity, K>);
+
+impl<K> Default for FailedRequests<K> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<K: PartialEq> FailedRequests<K> {
+    /// Runs `allocate` unless `view` already failed with this `request`, remembering a failure.
+    pub(crate) fn attempt<T>(
+        &mut self,
+        view: bevy::prelude::Entity,
+        request: K,
+        allocate: impl FnOnce() -> Option<T>,
+    ) -> Option<T> {
+        if self.0.get(&view) == Some(&request) {
+            return None;
+        }
+        let allocated = allocate();
+        if allocated.is_some() {
+            self.0.remove(&view);
+        } else {
+            self.0.insert(view, request);
+        }
+        allocated
+    }
+
+    /// Forgets views that no longer exist.
+    pub(crate) fn retain(&mut self, mut live: impl FnMut(bevy::prelude::Entity) -> bool) {
+        self.0.retain(|view, _| live(*view));
+    }
+}
+
 #[cfg(test)]
 type FailureHook = Box<dyn FnMut(&str, u64) -> bool>;
 #[cfg(test)]

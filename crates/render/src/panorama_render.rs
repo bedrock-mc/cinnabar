@@ -424,6 +424,9 @@ type PanoramaQuery = (
 /// Draws over completed world geometry while leaving the later screen UI untouched.
 fn draw_panorama(world: &World, query: ViewQuery<PanoramaQuery>, mut context: RenderContext) {
     let entity = query.entity();
+    if crate::scene_target::unavailable(world, entity) {
+        return;
+    }
     let (camera, target, scene, depth, resolution) = query.into_inner();
     let Some(gpu) = world
         .get_resource::<PanoramaGpu>()

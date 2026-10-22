@@ -248,27 +248,37 @@ pub(super) fn prepare(params: PrepareViewmodel) {
     {
         // Drop the old declared allocation before constructing its replacement.
         gpu.depth = None;
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("bounded private hand reverse-Z depth"),
-            size: Extent3d {
-                width: token.viewport[0],
-                height: token.viewport[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: token.samples,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Depth32Float,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
+        // The hand is content: without depth its pass skips, and this retries every frame.
+        let [width, height] = token.viewport;
+        let bytes = u64::from(width) * u64::from(height) * 4 * u64::from(token.samples);
+        let label = "bounded private hand reverse-Z depth";
+        let texture = crate::gpu_allocation::checked(&device, label, bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some(label),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: token.samples,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Depth32Float,
+                usage: TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
         });
-        let view = texture.create_view(&TextureViewDescriptor::default());
-        gpu.depth = Some(DepthGpu {
+        gpu.depth = texture.map(|texture| DepthGpu {
+            view: texture.create_view(&TextureViewDescriptor::default()),
             _texture: texture,
-            view,
             size: token.viewport,
             samples: token.samples,
         });
+        if gpu.depth.is_none() {
+            gate.reject(token);
+            gpu.token = None;
+            return;
+        }
     }
     queue.profiled_write_buffer(
         &gpu.projection,

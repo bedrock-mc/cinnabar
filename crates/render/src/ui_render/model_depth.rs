@@ -16,12 +16,14 @@ pub(super) struct UiModelDepth {
 pub(super) struct UiModelDepths {
     device: Option<wgpu::Device>,
     pub(super) views: std::collections::BTreeMap<Entity, UiModelDepth>,
+    failed: crate::gpu_allocation::FailedRequests<(Extent3d, u32)>,
 }
 
 impl UiModelDepths {
     pub(super) fn synchronize_device(&mut self, device: &RenderDevice) {
         if self.device.as_ref() != Some(device.wgpu_device()) {
             self.views.clear();
+            self.failed = Default::default();
             self.device = Some(device.wgpu_device().clone());
         }
     }
@@ -52,16 +54,25 @@ impl UiModelDepths {
         {
             return;
         }
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("reusable isolated JSON-UI model reverse-Z depth"),
-            size,
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: TextureDimension::D2,
-            format: CORE_3D_DEPTH_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        // Without depth, `compatible` is `None` and models draw without depth testing.
+        self.views.remove(&owner);
+        let bytes = u64::from(size.width) * u64::from(size.height) * 4 * u64::from(samples);
+        let Some(texture) = self.failed.attempt(owner, (size, samples), || {
+            crate::gpu_allocation::checked(device, "JSON-UI model depth", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("reusable isolated JSON-UI model reverse-Z depth"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: TextureDimension::D2,
+                    format: CORE_3D_DEPTH_FORMAT,
+                    usage: TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+            })
+        }) else {
+            return;
+        };
         let view = texture.create_view(&TextureViewDescriptor::default());
         self.views.insert(
             owner,

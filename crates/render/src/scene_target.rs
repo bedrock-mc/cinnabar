@@ -32,36 +32,49 @@ pub(crate) struct SceneTarget {
 
 impl SceneTarget {
     /// Allocates only renderable samples; the single-sample path permits its final raw transfer.
-    fn new(device: &RenderDevice, size: Extent3d, format: TextureFormat, samples: u32) -> Self {
+    /// `None` when the device is out of memory.
+    fn new(
+        device: &RenderDevice,
+        size: Extent3d,
+        format: TextureFormat,
+        samples: u32,
+    ) -> Option<Self> {
         let encoded_format = format.remove_srgb_suffix();
         let view_formats = (format != encoded_format).then_some([format]);
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("shared main-pass colour"),
-            size,
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: TextureDimension::D2,
-            format: encoded_format,
-            usage: TextureUsages::RENDER_ATTACHMENT
-                | if samples == 1 {
-                    TextureUsages::COPY_SRC | TextureUsages::COPY_DST
-                } else {
-                    TextureUsages::empty()
-                },
-            view_formats: view_formats.as_ref().map_or(&[], |formats| formats),
-        });
+        let bytes = u64::from(size.width)
+            * u64::from(size.height)
+            * u64::from(samples)
+            * u64::from(encoded_format.block_copy_size(None).unwrap_or(8));
+        let texture =
+            crate::gpu_allocation::checked(device, "shared main-pass colour", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("shared main-pass colour"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: TextureDimension::D2,
+                    format: encoded_format,
+                    usage: TextureUsages::RENDER_ATTACHMENT
+                        | if samples == 1 {
+                            TextureUsages::COPY_SRC | TextureUsages::COPY_DST
+                        } else {
+                            TextureUsages::empty()
+                        },
+                    view_formats: view_formats.as_ref().map_or(&[], |formats| formats),
+                })
+            })?;
         let encoded = texture.create_view(&TextureViewDescriptor::default());
         let linear = texture.create_view(&TextureViewDescriptor {
             format: Some(format),
             ..default()
         });
-        Self {
+        Some(Self {
             texture,
             encoded,
             linear,
             format,
             resolved: AtomicBool::new(false),
-        }
+        })
     }
 
     /// Reuses the attachment until its dimensions, colour format or sample count changes.
@@ -197,6 +210,7 @@ pub(crate) fn install(app: &mut App) {
     install_formats(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<WithheldSamples>()
+        .init_resource::<MultisampleFallback>()
         .add_systems(Render, render_systems());
 }
 
@@ -226,6 +240,7 @@ pub(crate) fn install_formats(render_app: &mut SubApp) {
 fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     use bevy::render::view::prepare_view_targets;
     (
+        apply_multisample_fallback.in_set(RenderSystems::CreateViews),
         withhold_view_samples
             .in_set(RenderSystems::PrepareViews)
             .before(prepare_view_targets),
@@ -292,26 +307,83 @@ fn admit_copy_destination(mut cameras: Query<&mut CameraMainTextureUsages, With<
     }
 }
 
+/// A view whose scene colour could not be allocated at this size, format and sample count.
+/// Its world passes skip until the request changes, instead of drawing into mismatched targets.
+#[derive(Component, PartialEq)]
+pub(crate) struct SceneTargetUnavailable(Extent3d, TextureFormat, u32);
+
+/// Whether a view's world passes must skip because its scene colour is unavailable.
+pub(crate) fn unavailable(world: &World, view: Entity) -> bool {
+    world.get::<SceneTargetUnavailable>(view).is_some()
+}
+
+/// Target sizes whose multisampled scene colour ran out of memory; those views render
+/// single-sampled until their size changes.
+#[derive(Resource, Default)]
+pub(crate) struct MultisampleFallback(bevy::platform::collections::HashMap<Entity, UVec2>);
+
+/// Runs before specialization, so pipelines, depth and scene colour all see the same samples.
+fn apply_multisample_fallback(
+    mut fallback: ResMut<MultisampleFallback>,
+    mut views: Query<(&ExtractedCamera, &mut Msaa)>,
+) {
+    fallback
+        .0
+        .retain(|entity, size| match views.get_mut(*entity) {
+            Ok((camera, mut msaa)) if camera.physical_target_size == Some(*size) => {
+                *msaa = Msaa::Off;
+                true
+            }
+            _ => false,
+        });
+}
+
+type SceneTargetView<'a> = (
+    Entity,
+    &'a ViewTarget,
+    Option<&'a ExtractedCamera>,
+    &'a Msaa,
+    Option<&'a SceneTarget>,
+    Option<&'a SceneTargetUnavailable>,
+);
+
 /// Keeps one bounded colour allocation per camera and drops stale camera resources.
 pub(crate) fn prepare_scene_targets(
     mut commands: Commands,
     device: Res<RenderDevice>,
-    views: Query<(Entity, &ViewTarget, &Msaa, Option<&SceneTarget>), With<Camera3d>>,
+    mut fallback: ResMut<MultisampleFallback>,
+    views: Query<SceneTargetView, With<Camera3d>>,
     removed: Query<Entity, (With<SceneTarget>, Without<ViewTarget>)>,
 ) {
     for entity in &removed {
         commands.entity(entity).remove::<SceneTarget>();
     }
-    for (entity, target, msaa, previous) in &views {
+    for (entity, target, camera, msaa, previous, unavailable) in &views {
         let size = target.main_texture().size();
         let format = target.main_texture_format();
-        if previous.is_some_and(|scene| scene.matches(size, format, msaa.samples())) {
+        let samples = msaa.samples();
+        if previous.is_some_and(|scene| scene.matches(size, format, samples)) {
             previous.unwrap().begin_frame();
             continue;
         }
-        commands
-            .entity(entity)
-            .insert(SceneTarget::new(&device, size, format, msaa.samples()));
+        let request = SceneTargetUnavailable(size, format, samples);
+        if unavailable == Some(&request) {
+            continue;
+        }
+        let mut view = commands.entity(entity);
+        match SceneTarget::new(&device, size, format, samples) {
+            Some(scene) => {
+                view.insert(scene).remove::<SceneTargetUnavailable>();
+            }
+            None => {
+                view.remove::<SceneTarget>().insert(request);
+                if samples > 1
+                    && let Some(size) = camera.and_then(|camera| camera.physical_target_size)
+                {
+                    fallback.0.insert(entity, size);
+                }
+            }
+        }
     }
 }
 

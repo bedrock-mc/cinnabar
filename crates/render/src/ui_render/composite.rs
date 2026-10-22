@@ -34,7 +34,7 @@ pub(crate) const UI_COMPOSITE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f5b1f3c2-7a0e-4d0c-9c5e-3a8a4b1e6d21");
 /// The UI layer's format: raw bytes, so blending happens on sRGB-encoded values.
 pub(crate) const UI_LAYER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
-const UI_LAYER_BYTES_PER_TEXEL: u64 = {
+pub(super) const UI_LAYER_BYTES_PER_TEXEL: u64 = {
     assert!(matches!(UI_LAYER_FORMAT, TextureFormat::Rgba8Unorm));
     4
 };
@@ -337,6 +337,11 @@ pub(crate) fn prepare_ui_layers(
         let count = retained_segment_count(requested.max(1), size);
         let layers = store.views.entry(entity).or_default();
         synchronize_layers(layers, &device, size, count);
+        if layers.is_empty() {
+            // Out of memory: the UI skips this frame and allocates again on the next.
+            commands.entity(entity).remove::<UiLayerTexture>();
+            continue;
+        }
         if requested == 0 {
             for layer in layers.iter() {
                 *layer.held.lock().expect("UI layer content lock") = None;
@@ -385,6 +390,7 @@ fn retained_segment_count(requested: usize, size: Extent3d) -> usize {
 }
 
 /// Drops removed rasters and every old extent before allocating the required bounded set.
+/// Out of memory falls back to the single-layer replay, or to no layer at all.
 fn synchronize_layers(
     layers: &mut Vec<RetainedLayer>,
     device: &RenderDevice,
@@ -399,7 +405,11 @@ fn synchronize_layers(
     }
     layers.truncate(count);
     while layers.len() < count {
-        layers.push(retained_layer(device, size));
+        let Some(layer) = retained_layer(device, size) else {
+            layers.truncate(1);
+            return;
+        };
+        layers.push(layer);
     }
 }
 
@@ -420,25 +430,30 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
     }
 }
 
-/// Allocates one gamma-space raster on the current view/device lifetime.
-fn retained_layer(device: &RenderDevice, size: Extent3d) -> RetainedLayer {
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("retained gamma-space UI layer"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: UI_LAYER_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
+/// Allocates one gamma-space raster on the current view/device lifetime; `None` when out of
+/// memory.
+fn retained_layer(device: &RenderDevice, size: Extent3d) -> Option<RetainedLayer> {
+    let bytes = u64::from(size.width) * u64::from(size.height) * UI_LAYER_BYTES_PER_TEXEL;
+    let texture =
+        crate::gpu_allocation::checked(device, "retained gamma-space UI layer", bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some("retained gamma-space UI layer"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: UI_LAYER_FORMAT,
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        })?;
     let view = texture.create_view(&TextureViewDescriptor::default());
-    RetainedLayer {
+    Some(RetainedLayer {
         texture,
         view,
         held: Arc::default(),
         bindings: Arc::default(),
-    }
+    })
 }
 
 #[derive(Resource)]

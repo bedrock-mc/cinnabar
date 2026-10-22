@@ -37,6 +37,8 @@ pub(crate) struct BlurView {
     pub resolve_pipeline: CachedRenderPipelineId,
     pub(super) resolved: Option<super::resolve::ResolvedInputs>,
     pub(super) footprint: Option<super::footprint::Footprint>,
+    /// The main-texture extent whose targets ran out of memory; blur stays off until a resize.
+    unavailable_at: Option<Extent3d>,
     pub active: bool,
 }
 
@@ -137,6 +139,7 @@ pub(super) fn prepare_views(
                 resolve_pipeline,
                 resolved: None,
                 footprint: None,
+                unavailable_at: None,
                 active: false,
             };
             update(
@@ -235,6 +238,11 @@ fn update(
         .actors
         .as_ref()
         .map_or(neutral_motion, |actors| &actors.view);
+    let size = target.main_texture().size();
+    if state.unavailable_at == Some(size) {
+        state.active = false;
+        return;
+    }
     if super::resolve::ResolvedInputs::prepare(
         &mut state.resolved,
         device,
@@ -242,22 +250,33 @@ fn update(
         pipeline.resolve_layout(samples),
         &state.uniform,
         (crate::scene_sampling::view_depth(depth), motion),
-        target.main_texture().size(),
+        size,
     ) {
         state.bindings.clear();
     }
+    if let Some(resolved) = &state.resolved
+        && super::footprint::Footprint::prepare(
+            &mut state.footprint,
+            device,
+            cache,
+            pipeline.footprint_layouts(),
+            &state.uniform,
+            &resolved.motion,
+            size,
+        )
+    {
+        state.bindings.clear();
+    }
+    if state.resolved.is_none() || state.footprint.is_none() {
+        // Out of memory: the frame keeps its unblurred scene.
+        state.resolved = None;
+        state.footprint = None;
+        state.unavailable_at = Some(size);
+        state.active = false;
+        return;
+    }
+    state.unavailable_at = None;
     let resolved = state.resolved.as_ref().unwrap();
-    if super::footprint::Footprint::prepare(
-        &mut state.footprint,
-        device,
-        cache,
-        pipeline.footprint_layouts(),
-        &state.uniform,
-        &resolved.motion,
-        target.main_texture().size(),
-    ) {
-        state.bindings.clear();
-    }
     let footprint = &state.footprint.as_ref().unwrap().view;
     if state
         .bindings

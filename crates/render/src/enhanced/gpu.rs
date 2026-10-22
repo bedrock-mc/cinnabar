@@ -10,7 +10,9 @@ use bevy::{
         system::{SystemParamItem, lifetimeless::SRes},
     },
     math::{Mat4, UVec4, Vec4},
-    prelude::{Entity, FromWorld, Has, Query, Res, ResMut, Resource, Time, With, World, default},
+    prelude::{
+        Entity, FromWorld, Has, Local, Query, Res, ResMut, Resource, Time, With, World, default,
+    },
     render::{
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         render_resource::{
@@ -36,6 +38,7 @@ use {
     render_scene::EnhancedRendering,
 };
 use {
+    crate::gpu_allocation::{FailedRequests, checked},
     crate::scene_sampling::ResolvedDepth,
     render_scene::{AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets},
 };
@@ -339,22 +342,25 @@ pub(crate) struct ShadowTargets {
 }
 
 impl ShadowTargets {
-    /// Creates one independently rendered depth layer per cascade.
-    fn new(device: &RenderDevice, resolution: u32, cascades: u32) -> Self {
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("enhanced cascaded shadow map"),
-            size: Extent3d {
-                width: resolution,
-                height: resolution,
-                depth_or_array_layers: cascades,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: SHADOW_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+    /// Creates one independently rendered depth layer per cascade; `None` when out of memory.
+    fn new(device: &RenderDevice, resolution: u32, cascades: u32) -> Option<Self> {
+        let bytes = u64::from(resolution) * u64::from(resolution) * u64::from(cascades) * 4;
+        let texture = checked(device, "enhanced cascaded shadow map", bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some("enhanced cascaded shadow map"),
+                size: Extent3d {
+                    width: resolution,
+                    height: resolution,
+                    depth_or_array_layers: cascades,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: SHADOW_FORMAT,
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        })?;
         let array = texture.create_view(&TextureViewDescriptor {
             label: Some("enhanced shadow array view"),
             dimension: Some(TextureViewDimension::D2Array),
@@ -371,12 +377,12 @@ impl ShadowTargets {
                 })
             })
             .collect();
-        Self {
+        Some(Self {
             _texture: texture,
             array,
             layers,
             resolution,
-        }
+        })
     }
 }
 
@@ -516,15 +522,19 @@ pub(crate) fn prepare_enhanced_views(
         &ViewDepthStencilTexture,
         &EnhancedRendering,
     )>,
+    mut failed_depth: Local<FailedRequests<TextureViewId>>,
+    mut failed_shadows: Local<FailedRequests<(u32, u32)>>,
 ) {
     state.0.retain(|entity, _| views.contains(*entity));
+    failed_depth.retain(|view| views.contains(view));
+    failed_shadows.retain(|view| views.contains(view));
     let atmosphere = atmosphere.map(|frame| *frame).unwrap_or_default();
     let seconds = time.elapsed_secs_wrapped();
     let mut casters = [<CasterUniformGpu as bytemuck::Zeroable>::zeroed();
         render_scene::MAX_SHADOW_CASCADES as usize];
     for (entity, view, target, depth, settings) in &views {
         let inputs = view_inputs(view, seconds);
-        let (frame, fits) = build_frame(&inputs, settings, &atmosphere);
+        let (mut frame, fits) = build_frame(&inputs, settings, &atmosphere);
         let state = state
             .0
             .entry(entity)
@@ -534,18 +544,33 @@ pub(crate) fn prepare_enhanced_views(
             .as_ref()
             .is_none_or(|resolved| !resolved.matches(depth))
         {
-            state.resolved_depth = Some(ResolvedDepth::new(
-                &device,
-                depth,
-                render_scene::RuntimeStage::GpuPost,
-            ));
+            // Without a resolve the grade and reflections skip; the world stays visible.
+            let source = crate::scene_sampling::view_depth(depth).id();
+            state.resolved_depth = failed_depth.attempt(entity, source, || {
+                ResolvedDepth::new(&device, depth, render_scene::RuntimeStage::GpuPost)
+            });
         }
         if state
             .hand_layer
             .as_ref()
             .is_none_or(|layer| !layer.matches(target))
         {
-            state.hand_layer = Some(super::hand_layer::HandLayer::new(&device, target));
+            // The hand is content, so its layer retries every frame.
+            state.hand_layer = super::hand_layer::HandLayer::new(&device, target);
+        }
+        let resolution = frame.flags.z;
+        let cascades = frame.flags.y;
+        if frame.flags.x & super::frame::FEATURE_SHADOWS == 0 {
+            state.shadow = None;
+        } else if state.shadow.as_ref().is_none_or(|shadow| {
+            shadow.resolution != resolution || shadow.layers.len() as u32 != cascades
+        }) {
+            state.shadow = failed_shadows.attempt(entity, (resolution, cascades), || {
+                ShadowTargets::new(&device, resolution, cascades)
+            });
+        }
+        if state.shadow.is_none() {
+            frame.flags.x &= !super::frame::FEATURE_SHADOWS;
         }
         state.settings = *settings;
         state.cascades.clear();
@@ -565,16 +590,6 @@ pub(crate) fn prepare_enhanced_views(
             0,
             bytemuck::cast_slice(&casters[..fits.len()]),
         );
-
-        let resolution = frame.flags.z;
-        let cascades = frame.flags.y;
-        if frame.flags.x & super::frame::FEATURE_SHADOWS == 0 {
-            state.shadow = None;
-        } else if state.shadow.as_ref().is_none_or(|shadow| {
-            shadow.resolution != resolution || shadow.layers.len() as u32 != cascades
-        }) {
-            state.shadow = Some(ShadowTargets::new(&device, resolution, cascades));
-        }
 
         let size = inputs.viewport;
         let half = size.map(|value| value.div_ceil(2).max(1));
