@@ -6,6 +6,9 @@ use ui::IconRef;
 pub(super) const ROW_HEIGHT: f32 = 32.0;
 pub(super) const COLUMN_WIDTH: f32 = 150.0;
 pub(super) const LIVE_EVENT_HEIGHT: f32 = 26.0;
+pub(super) const CHARACTER_ANCHOR: f32 = 0.81;
+pub(super) const CHARACTER_WIDTH: f32 = 80.0;
+pub(super) const CHARACTER_GAP: f32 = 8.0;
 
 pub(super) struct Layout {
     pub scale: f32,
@@ -33,7 +36,9 @@ impl Layout {
         } else {
             0.0
         };
-        let compact = size[0] < size[1] || size[1] < gui * 230.0;
+        let character_fits = size[0] * (CHARACTER_ANCHOR - 0.5)
+            >= gui * ((COLUMN_WIDTH + CHARACTER_WIDTH) * 0.5 + CHARACTER_GAP);
+        let compact = size[0] < size[1] || size[1] < gui * 230.0 || !character_fits;
         let compact_footer = size[0] < super::footer::size(rem, false)[0] + gui * 16.0;
         let rows = (super::ACTIONS.len() + usize::from(compact)) as f32;
         let footer_size = super::footer::size(rem, compact_footer);

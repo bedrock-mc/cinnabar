@@ -223,6 +223,11 @@ fn pause_character_name_follows_the_current_account_and_profile() {
     ] {
         view.feeds.profile.gamertag = profile_name.into();
         let (_, _, nodes) = super::review_tests::paint(Default::default(), |canvas| {
+            canvas.title_artwork = Some(ui::IconRef {
+                page: 18,
+                uv: [0, 0, 400, 80],
+                glint: false,
+            });
             super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
         });
         let labels = nodes

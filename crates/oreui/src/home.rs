@@ -150,8 +150,8 @@ fn character(
     layout: &layout::Layout,
 ) -> Result<CharacterPreview, PaintError> {
     let gui = layout.gui;
-    let center = size[0] * 0.81;
-    let width = (80.0 * gui).min((size[0] - layout.actions[2]) * 0.8);
+    let center = size[0] * layout::CHARACTER_ANCHOR;
+    let width = (layout::CHARACTER_WIDTH * gui).min((size[0] - layout.actions[2]) * 0.8);
     let bottom = layout.actions[3].min(layout.footer[1] - gui * 28.0);
     let wardrobe = [
         center - width * 0.5,
@@ -168,7 +168,12 @@ fn character(
     )?;
     canvas.text_centred(
         launcher::menu::profile::current_name(view),
-        [wardrobe[0], top - gui * 12.0, wardrobe[2], top - gui * 2.0],
+        [
+            layout.actions[2] + gui * layout::CHARACTER_GAP,
+            top - gui * 12.0,
+            size[0] - gui * 4.0,
+            top - gui * 2.0,
+        ],
         CAPTION,
         TEXT,
         false,

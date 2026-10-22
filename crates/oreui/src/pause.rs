@@ -137,7 +137,12 @@ fn draw_layout(
     let right = center + width * 0.5;
     canvas.text_centred(
         launcher::menu::profile::current_name(view),
-        [x, top - gui * 12.0, right, top - gui * 2.0],
+        [
+            left + panel_width + gui * 8.0,
+            top - gui * 12.0,
+            size[0] - gui * 4.0,
+            top - gui * 2.0,
+        ],
         CAPTION,
         TEXT,
         false,

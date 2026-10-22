@@ -18,7 +18,7 @@ fn pause_actions_use_standard_height_and_separators() {
             c.rem = gui * GUI_PIXELS_PER_REM;
             draw(c, &MenuView::new(true, "Fixture".into()), size, &|_| None).unwrap();
         });
-        let mut previous = None;
+        let mut previous: Option<f32> = None;
         for action in [
             MenuAction::PauseResume,
             MenuAction::PauseSettings,

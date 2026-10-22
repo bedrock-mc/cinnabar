@@ -358,7 +358,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
-  full menu visual and hardware frame-work acceptance remains open.
+  full menu visual and hardware frame-work acceptance remains open. Home actions use a centered uniform column, and Pause separates its action column from the character area. Complete menu topology, artwork and device acceptance remain open.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
@@ -566,7 +566,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
-  Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes. Home actions use a centered uniform column, and Pause separates its action column from the character area. Complete menu topology, artwork and device acceptance remain open.
+  Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared

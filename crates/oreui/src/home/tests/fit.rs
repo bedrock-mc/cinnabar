@@ -6,7 +6,14 @@ use ui::DpiScale;
 use ui_engine::text_metrics::TextMetrics;
 
 /// Draws a complete fixture and checks visible, disjoint targets without carrier dependencies.
-fn assert_fits(size: [f32; 2], dpi: f32, preference: Option<u8>, event: bool, update: bool) {
+fn assert_fits(
+    size: [f32; 2],
+    dpi: f32,
+    preference: Option<u8>,
+    event: bool,
+    update: bool,
+    artwork: Option<IconRef>,
+) {
     let metrics = TextMetrics::for_viewport(
         size.map(|v| (v * dpi).round() as u32),
         DpiScale::new(dpi).unwrap(),
@@ -32,11 +39,7 @@ fn assert_fits(size: [f32; 2], dpi: f32, preference: Option<u8>, event: bool, up
         canvas.metrics = metrics;
         canvas.rem = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32 * GUI_PIXELS_PER_REM;
         let rem = canvas.rem;
-        canvas.title_artwork = Some(IconRef {
-            page: 18,
-            uv: [0, 0, 300, 100],
-            glint: false,
-        });
+        canvas.title_artwork = artwork;
         canvas.capture_focus = true;
         preview = draw(canvas, &view, size, None, &|_| None).unwrap();
         targets = canvas.focus_hits.clone();
@@ -96,7 +99,7 @@ fn main_actions_use_equal_full_width_rows() {
             canvas.rem = gui * GUI_PIXELS_PER_REM;
             draw(canvas, &view(), size, None, &|_| None).unwrap();
         });
-        let mut previous = None;
+        let mut previous: Option<f32> = None;
         for route in [
             MenuScreen::Play,
             MenuScreen::Settings,
@@ -139,9 +142,42 @@ fn all_actions_fit_small_portrait_and_desktop_windows_at_every_gui_choice() {
                     .choices()
                     .map(|choice| Some(choices.scale_for_offset(choice.offset))),
             ) {
-                assert_fits(size, dpi, preference, false, false);
-                assert_fits(size, dpi, preference, true, true);
+                assert_fits(size, dpi, preference, false, false, None);
+                assert_fits(
+                    size,
+                    dpi,
+                    preference,
+                    true,
+                    true,
+                    Some(IconRef {
+                        page: 18,
+                        uv: [0, 0, 300, 100],
+                        glint: false,
+                    }),
+                );
             }
+        }
+    }
+}
+
+#[test]
+fn narrow_square_home_keeps_servers_and_wardrobe_disjoint() {
+    for size in [
+        [240.0, 240.0],
+        [320.0, 240.0],
+        [396.0, 230.0],
+        [398.0, 230.0],
+        [400.0, 240.0],
+    ] {
+        for artwork in [
+            None,
+            Some(IconRef {
+                page: 18,
+                uv: [0, 0, 300, 100],
+                glint: false,
+            }),
+        ] {
+            assert_fits(size, 1.0, Some(1), false, false, artwork);
         }
     }
 }

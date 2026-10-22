@@ -44,10 +44,10 @@ and supported. Treatment toggles are true only when the service's treatment list
 
 | Screen | Route | Default | Cinnabar |
 | --- | --- | --- | --- |
-| Main menu | `/main-menu` | Vanilla: JSON-UI; owner-requested design extension | Shared title above OreUI action and character panels; compact utility buttons |
+| Main menu | `/main-menu` | Vanilla: JSON-UI; owner-requested design extension | Centered uniform OreUI action column; independent character and utility controls |
 | Play | `/play/:tab` | **OreUI** (selected and supported) | OreUI, drawn natively |
 | Add / edit server | server draft | Owner-requested design extension | OreUI modal, scrollable fields and fixed Save / Join actions |
-| Pause | game menu | Owner-requested design extension | Uniform world overlay, OreUI action panel and interactive character card with Dressing Room access |
+| Pause | game menu | Owner-requested design extension | Shaded left action column and separate character preview with Dressing Room access |
 | Connecting / loading | world-entry progress | Owner-requested design extension | OreUI progress card; existing stage, cancellation and download fraction semantics |
 | Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** (1.26.50: Create has no JSON-UI path) | OreUI; General and Advanced tabs only |
 | Death | `/gameplay/death` | JSON-UI through the OreUI entry point | Carrier `death.death_screen` |
@@ -76,13 +76,12 @@ Dressing Room uses a custom OreUI wardrobe with Steve, Alex and imported skins. 
 selection are independent and persist across launches; both reach the local character and network
 skin. Official Java cape textures download into the private runtime cache. Custom PNG skins and
 capes support rename and removal. The fitted preview has idle arm motion, drag rotation and mouse
-head tracking. Home and Pause fit the interactive character inside their own cards. Profile remains
+head tracking. Home and Pause place the interactive character beside their action columns. Profile remains
 a separate screen.
 
 Pause, server drafts and loading use an owner-requested OreUI design rather than vanilla's legacy
 dialogs. Server drafts close from the corner X; shared fields center visible glyphs inside an even
-inset border. Pause uses the current account name and server-pack title. Its caption and actions
-form a bottom-aligned group, with extra breathing room above the logo. Loading keeps
+inset border. Pause uses the current account name and server-pack title. Its title and full-width actions form a centered stack over a shaded left panel. Loading keeps
 the installed dimension backdrop beneath a dark tint and groups server branding with a compact
 status card. Terrain keeps its grey tint; dimension travel names the destination over its own
 full-resolution scenery, center-cropped to fill the viewport beneath a dark tint. The installed
@@ -96,12 +95,13 @@ stripe above its logo.
 Interface click sounds are disabled at the owner's request. Other authored interface feedback and
 gameplay sounds keep their existing playback path.
 
-The owner-requested home layout places the shipped logo above the Play and interactive character
-panels. Servers and Settings are secondary; Realms remains a quiet text action. Compact utility buttons group account, friends, inbox and quit below the panels.
-The footer names the app version, Minecraft version and protocol number from their shared sources.
-Compact screens retain Dressing Room access. Home scales its logo, panels, text and footer together
-when its actions would overflow, down to the client window minimum, without scrolling. Pause scales
-its actions and text together when needed. Layouts that already fit keep their existing geometry.
+Home centers Play, Settings, Realms and Servers in uniform full-width rows below the shipped logo.
+Account, friends, inbox and quit remain in the utility footer, which names the app, Minecraft and
+protocol versions from their shared sources. Compact screens place Dressing Room in the main
+column. Actions, labels and utilities share a fitted GUI scale when the full layout would overflow;
+the character area is omitted when it cannot fit beside the column. Pause uses taller full-width
+rows with smaller separators, retaining its supported actions. Complete menu topology, button
+artwork and physical-device acceptance remain incomplete.
 
 The owner-requested motion extension uses finite cubic easing: 85 ms for highlights,
 45 ms for depression, 80 ms for release/dialog exits and 120 ms for entrances. Segmented
