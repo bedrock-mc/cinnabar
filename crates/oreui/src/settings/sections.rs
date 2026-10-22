@@ -624,6 +624,10 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
         "options.oreuiDarkMode.description" => "Use dark surfaces for menus, settings and dialogs.",
+        "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Third-Person Self Visuals",
+        "options.f5SelfVisuals.description" => {
+            "Display nametag, score, badges, and status overhead on your own player in third-person view."
+        },
         "options.showExactServerPing.description" => {
             "Show server latency in milliseconds instead of Low, Medium or High ping."
         }

@@ -467,7 +467,9 @@ pub(crate) fn prepare_ui_runtime(
                 .totem_activations(authority.local_player_runtime_id())
                 .is_some_and(|count| count != 0)
         });
-    let show_self_tag = (tag_style.is_some_and(|style| style.show_self) || show_counter_self)
+    let show_self_tag = (tag_style.is_some_and(|style| style.show_self)
+        || show_counter_self
+        || settings.value(SettingId::F5SelfVisuals) != 0)
         && !tag_style.is_some_and(|style| style.hide_players)
         && !first_person;
     let names_with_hidden_hud = tag_style.is_some_and(|style| style.show_when_hud_hidden);
