@@ -377,8 +377,13 @@ fn build_translation(
         custom_uniforms: (custom_uniforms, errors),
         ids,
         block_ids,
+        options_warning,
     } = compiled;
     let pack = &pack;
+    if let Some(error) = options_warning {
+        bevy::log::warn!(target: "cinnabar::shaderpack", pack = name,
+            "shader pack options unreadable, using defaults: {error}");
+    }
     for error in errors {
         bevy::log::debug!(target: "cinnabar::shaderpack", pack = name, line = error.line,
             name = %error.name, "custom uniform dropped: {}", error.message);

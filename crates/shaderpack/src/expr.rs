@@ -8,7 +8,7 @@
 use std::fmt;
 
 /// Deepest expression tree accepted; bounds evaluation and drop recursion.
-const MAX_TREE_DEPTH: u32 = 256;
+pub(crate) const MAX_TREE_DEPTH: u32 = 256;
 /// Deepest parser recursion (parentheses, prefix operators, call arguments) accepted.
 const MAX_NESTING: u32 = 64;
 

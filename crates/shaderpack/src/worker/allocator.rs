@@ -2,12 +2,16 @@
 
 use std::{
     alloc::{GlobalAlloc, Layout},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
 };
+
+const STARTUP: u8 = 0;
+const WORKER: u8 = 1;
+const HOST: u8 = 2;
 
 /// Live-byte accounting shared by the compiler host's global allocator.
 struct Accounting {
-    active: AtomicBool,
+    mode: AtomicU8,
     installed: AtomicBool,
     bytes: AtomicUsize,
 }
@@ -16,21 +20,41 @@ impl Accounting {
     /// Starts accounting before a worker has enabled its admission limit.
     const fn new() -> Self {
         Self {
-            active: AtomicBool::new(false),
+            mode: AtomicU8::new(STARTUP),
             installed: AtomicBool::new(false),
             bytes: AtomicUsize::new(0),
         }
     }
 
-    /// Reserves bytes atomically, refusing growth beyond the enabled heap budget.
-    fn reserve(&self, bytes: usize) -> bool {
+    /// Returns whether a reservation was tracked, or refuses growth beyond the worker budget.
+    fn reserve(&self, bytes: usize) -> Option<bool> {
+        let mode = self.mode.load(Ordering::Relaxed);
+        match mode {
+            HOST => return Some(false),
+            STARTUP | WORKER => {}
+            _ => return None,
+        }
         self.installed.store(true, Ordering::Relaxed);
         self.bytes
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 let next = current.checked_add(bytes)?;
-                (!self.active.load(Ordering::Relaxed) || next <= super::MEMORY_LIMIT as usize)
-                    .then_some(next)
+                (mode != WORKER || next <= super::MEMORY_LIMIT as usize).then_some(next)
             })
+            .ok()
+            .map(|_| true)
+    }
+
+    /// Selects an ordinary host permanently; it can never later run an unbounded compiler.
+    fn host(&self) {
+        let _ = self
+            .mode
+            .compare_exchange(STARTUP, HOST, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    /// Enters bounded worker mode only before the host chose ordinary asset preparation.
+    fn worker(&self) -> bool {
+        self.mode
+            .compare_exchange(STARTUP, WORKER, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
     }
 
@@ -48,7 +72,9 @@ pub struct BudgetAllocator<A>(pub A);
 
 /// Enables the heap budget only in an executable that installed the accounting allocator.
 pub(super) fn enable() -> bool {
-    ACCOUNTING.active.store(true, Ordering::Relaxed);
+    if !ACCOUNTING.worker() {
+        return false;
+    }
     // Some runtimes enter main without allocating. Probe the global allocator explicitly.
     let layout = Layout::new::<u8>();
     // SAFETY: the probe uses a valid nonzero layout and is released with the same layout.
@@ -62,17 +88,23 @@ pub(super) fn enable() -> bool {
     ACCOUNTING.installed.load(Ordering::Relaxed)
 }
 
+/// Disables accounting during ordinary asset preparation, before the host starts its normal CLI.
+/// Startup allocations remain harmless credits; this process can no longer enter worker mode.
+pub fn disable_for_host() {
+    ACCOUNTING.host();
+}
+
 // SAFETY: every operation preserves the wrapped allocator's layouts and ownership. Refusing
 // growth returns null, as GlobalAlloc permits; failed requests return their reservation.
 unsafe impl<A: GlobalAlloc> GlobalAlloc for BudgetAllocator<A> {
     /// Reserves the requested bytes before forwarding the allocation.
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if !ACCOUNTING.reserve(layout.size()) {
+        let Some(tracked) = ACCOUNTING.reserve(layout.size()) else {
             return std::ptr::null_mut();
-        }
+        };
         // SAFETY: the caller supplies a valid allocation layout.
         let pointer = unsafe { self.0.alloc(layout) };
-        if pointer.is_null() {
+        if pointer.is_null() && tracked {
             ACCOUNTING.release(layout.size());
         }
         pointer
@@ -80,12 +112,12 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for BudgetAllocator<A> {
 
     /// Reserves zeroed storage under the same live-byte budget.
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        if !ACCOUNTING.reserve(layout.size()) {
+        let Some(tracked) = ACCOUNTING.reserve(layout.size()) else {
             return std::ptr::null_mut();
-        }
+        };
         // SAFETY: the caller supplies a valid allocation layout.
         let pointer = unsafe { self.0.alloc_zeroed(layout) };
-        if pointer.is_null() {
+        if pointer.is_null() && tracked {
             ACCOUNTING.release(layout.size());
         }
         pointer
@@ -94,15 +126,17 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for BudgetAllocator<A> {
     /// Charges only growth, and keeps the old reservation when reallocation fails.
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         let growth = size.saturating_sub(layout.size());
-        if !ACCOUNTING.reserve(growth) {
+        let Some(tracked) = ACCOUNTING.reserve(growth) else {
             return std::ptr::null_mut();
-        }
+        };
         // SAFETY: the caller owns this block with the supplied layout and valid new size.
         let result = unsafe { self.0.realloc(pointer, layout, size) };
-        if result.is_null() {
-            ACCOUNTING.release(growth);
-        } else if size < layout.size() {
-            ACCOUNTING.release(layout.size() - size);
+        if tracked {
+            if result.is_null() {
+                ACCOUNTING.release(growth);
+            } else if size < layout.size() {
+                ACCOUNTING.release(layout.size() - size);
+            }
         }
         result
     }
@@ -113,7 +147,9 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for BudgetAllocator<A> {
         unsafe {
             self.0.dealloc(pointer, layout);
         }
-        ACCOUNTING.release(layout.size());
+        if ACCOUNTING.mode.load(Ordering::Relaxed) != HOST {
+            ACCOUNTING.release(layout.size());
+        }
     }
 }
 
@@ -124,12 +160,34 @@ mod tests {
     #[test]
     fn live_heap_credit_cannot_exceed_the_enabled_budget() {
         let accounting = Accounting::new();
-        accounting.active.store(true, Ordering::Relaxed);
-        assert!(accounting.reserve(super::super::MEMORY_LIMIT as usize));
-        assert!(!accounting.reserve(1));
+        assert!(accounting.worker());
+        assert_eq!(
+            accounting.reserve(super::super::MEMORY_LIMIT as usize),
+            Some(true)
+        );
+        assert_eq!(accounting.reserve(1), None);
         accounting.release(17);
-        assert!(accounting.reserve(17));
-        assert!(!accounting.reserve(1));
+        assert_eq!(accounting.reserve(17), Some(true));
+        assert_eq!(accounting.reserve(1), None);
+    }
+
+    #[test]
+    fn ordinary_asset_preparation_bypasses_tracking_and_cannot_enable_a_worker() {
+        let accounting = Accounting::new();
+        accounting.host();
+        assert_eq!(
+            accounting.reserve(super::super::MEMORY_LIMIT as usize * 2),
+            Some(false)
+        );
+        assert_eq!(accounting.bytes.load(Ordering::Relaxed), 0);
+        assert!(!accounting.worker());
+        let worker = Accounting::new();
+        assert!(worker.worker());
+        worker.host();
+        assert_eq!(
+            worker.reserve(super::super::MEMORY_LIMIT as usize + 1),
+            None
+        );
     }
 
     /// Allocates real blocks but refuses every reallocation without releasing the old block.

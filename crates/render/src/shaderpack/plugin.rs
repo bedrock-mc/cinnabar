@@ -22,7 +22,6 @@ use super::targets::AtlasViews;
 use super::uniforms::{FAR_PLANE_SCALE, FrameClock, FrameUniforms, ViewCamera};
 use assets::facts::java_mapping::JavaDimension;
 use bevy::render::render_phase::TrackedRenderPass;
-use bevy::render::render_resource::PipelineCache;
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
@@ -436,6 +435,13 @@ fn prepare_views(
     profiler: Option<Res<RuntimeStageProfiler>>,
     failures: Option<Res<ViewFailures>>,
 ) {
+    let ShaderPackViews { states, failed } = &mut *views;
+    let states = states.get_mut().unwrap_or_else(|e| e.into_inner());
+    let (Some(pack), Some(inputs)) = (pack.and_then(|p| p.0.clone()), inputs) else {
+        states.clear();
+        failed.clear();
+        return;
+    };
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::ShaderpackUniforms));
@@ -445,13 +451,6 @@ fn prepare_views(
         .map_or(DEFAULT_HAND_FOV_DEGREES.to_radians(), |frame| {
             frame.fov_radians
         });
-    let ShaderPackViews { states, failed } = &mut *views;
-    let states = states.get_mut().unwrap_or_else(|e| e.into_inner());
-    let (Some(pack), Some(inputs)) = (pack.and_then(|p| p.0.clone()), inputs) else {
-        states.clear();
-        failed.clear();
-        return;
-    };
     states.retain(|entity, _| cameras.contains(*entity));
     let render_distance = inputs.render_distance;
     if let Some(geometry) = geometry.as_deref_mut() {
@@ -718,7 +717,11 @@ fn shaderpack_post(
     });
     let kernels = world
         .get_resource::<ActorSkinPipelines>()
-        .zip(world.get_resource::<PipelineCache>())
+        .zip(
+            world
+                .get_resource::<super::kernels::Kernels>()
+                .map(|kernels| &kernels.cache),
+        )
         .and_then(|(pipelines, cache)| pipelines.kernels(cache));
     let actors = ActorSources {
         kernels,
@@ -843,7 +846,6 @@ fn admit_cameras(
 }
 
 pub(super) fn build(app: &mut App) {
-    actors::load_shaders(app);
     app.init_resource::<ShaderPackRequest>()
         .init_resource::<ShaderPackStatus>()
         .init_resource::<ShaderPackLoadProgress>()
@@ -876,9 +878,14 @@ fn prepare_actor_pipelines(
     pack: Option<Res<LoadedShaderPack>>,
     cameras: Query<(), With<ShaderPackRendering>>,
     pipelines: Option<Res<ActorSkinPipelines>>,
+    kernels: Option<Res<super::kernels::Kernels>>,
 ) {
-    if pipelines.is_none() && pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty() {
-        commands.init_resource::<ActorSkinPipelines>();
+    if pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty() && kernels.is_some() {
+        if pipelines.is_none() {
+            commands.init_resource::<ActorSkinPipelines>();
+        }
+    } else if pipelines.is_some() {
+        commands.remove_resource::<ActorSkinPipelines>();
     }
 }
 
@@ -902,7 +909,9 @@ pub(super) fn finish(app: &mut App) {
         .add_systems(
             Render,
             (
-                prepare_actor_pipelines.before(prepare_views),
+                prepare_actor_pipelines
+                    .after(super::kernels::prepare_kernels)
+                    .before(prepare_views),
                 configure_geometry
                     .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue)

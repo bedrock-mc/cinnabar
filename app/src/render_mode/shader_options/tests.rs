@@ -74,6 +74,7 @@ fn apply_and_done_retain_edits_until_storage_accepts_them() {
                 save_error: None,
             }),
             writer: None,
+            ..Default::default()
         })
         .add_systems(Update, drive_shader_options);
         app.update();
@@ -139,4 +140,30 @@ fn apply_and_done_retain_edits_until_storage_accepts_them() {
             assert_eq!(open.view().status, Status::Ready);
         }
     }
+}
+
+#[test]
+fn leaving_the_options_screen_releases_its_queued_reader() {
+    let mut app = App::new();
+    app.insert_resource(RenderModeConfig {
+        cli: None,
+        attributable: false,
+        path: None,
+        cli_shader_pack: None,
+        shader_packs: None,
+        shader_pack_revision: 0,
+    })
+    .init_resource::<RuntimeSettings>()
+    .insert_resource(MenuRuntime::new(true, 2, "Player".into()))
+    .insert_resource(ShaderOptionsHost {
+        open: Some(Open::pending(SelectedPack {
+            name: "fixture".into(),
+            path: "not-opened".into(),
+            options: None,
+        })),
+        ..Default::default()
+    })
+    .add_systems(Update, drive_shader_options);
+    app.update();
+    assert!(app.world().resource::<ShaderOptionsHost>().open.is_none());
 }

@@ -11,7 +11,9 @@ use std::{
 };
 
 mod allocator;
-pub use allocator::BudgetAllocator;
+mod result;
+pub use allocator::{BudgetAllocator, disable_for_host};
+use result::Decoder;
 
 /// Internal compiler entry point; it starts no window, renderer or account services.
 pub const FLAG: &str = "--shaderpack-compiler-worker";
@@ -22,6 +24,8 @@ const MEMORY_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 /// Maximum serialized request and output sizes, checked before deserialization.
 const REQUEST_BYTES: usize = 1024 * 1024;
 const OUTPUT_BYTES: usize = 128 * 1024 * 1024;
+/// CBOR adds enum, tuple and collection containers around each accepted expression node.
+const RESULT_NESTING: usize = 4 * crate::expr::MAX_TREE_DEPTH as usize + 32;
 
 /// Inputs read only after the child has installed its resource limits.
 #[derive(Serialize, Deserialize)]
@@ -74,12 +78,14 @@ pub struct Output {
     pub custom_uniforms: (crate::CustomUniforms, Vec<crate::CustomUniformError>),
     pub ids: crate::IdMaps,
     pub block_ids: Option<Vec<i32>>,
+    pub options_warning: Option<String>,
 }
 
 /// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
 pub struct Running {
     child: Child,
     output: File,
+    decoder: Option<Decoder>,
     #[cfg(windows)]
     _job: windows::Job,
 }
@@ -118,6 +124,7 @@ impl Running {
         let mut running = Self {
             child,
             output,
+            decoder: None,
             #[cfg(windows)]
             _job: job,
         };
@@ -133,34 +140,44 @@ impl Running {
     /// Returns a completed translation, or kills and reaps this child on cancellation or expiry.
     /// The caller supplies elapsed time; polling itself never sleeps or reads a clock.
     pub fn poll(&mut self, elapsed: Duration, cancelled: bool) -> Option<Result<Response, String>> {
-        if cancelled || elapsed >= TIME_LIMIT {
+        let interruption = if cancelled {
+            Some("shader pack load cancelled")
+        } else if elapsed >= TIME_LIMIT {
+            Some("shader compiler exceeded its time limit")
+        } else {
+            None
+        };
+        if let Some(decoder) = &mut self.decoder {
+            if interruption.is_some() {
+                decoder.cancel();
+            }
+            let result = decoder.poll()?;
+            self.decoder = None;
+            return Some(interruption.map_or(result, |reason| Err(reason.into())));
+        }
+        if let Some(reason) = interruption {
             let _ = self.child.kill();
             let _ = self.child.wait();
-            return Some(Err(if cancelled {
-                "shader pack load cancelled".into()
-            } else {
-                "shader compiler exceeded its time limit".into()
-            }));
+            return Some(Err(reason.into()));
         }
         let status = match self.child.try_wait() {
             Ok(Some(status)) => status,
             Ok(None) => return None,
             Err(error) => return Some(Err(error.to_string())),
         };
-        Some((|| {
-            if !status.success() {
-                return Err(
-                    "shader compiler stopped before completing (invalid input or resource limit)"
-                        .into(),
-                );
-            }
-            self.output.rewind().map_err(|error| error.to_string())?;
-            let bytes =
-                read_limited(&mut self.output, OUTPUT_BYTES).map_err(|error| error.to_string())?;
-            let result: Result<Response, String> = ciborium::from_reader(bytes.as_slice())
-                .map_err(|error| format!("invalid shader compiler result: {error}"))?;
-            result
-        })())
+        if !status.success() {
+            return Some(Err(
+                "shader compiler stopped before completing (invalid input or resource limit)"
+                    .into(),
+            ));
+        }
+        let result = (|| {
+            let mut output = self.output.try_clone().map_err(|error| error.to_string())?;
+            output.rewind().map_err(|error| error.to_string())?;
+            self.decoder = Some(Decoder::start(output)?);
+            Ok(())
+        })();
+        result.err().map(Err)
     }
 }
 
@@ -215,9 +232,14 @@ fn translate(request: Request) -> Result<Response, String> {
         .options
         .as_deref()
         .map(crate::read_option_file)
-        .transpose()
-        .map_err(|error| error.to_string())?
-        .unwrap_or_else(OptionValues::new);
+        .transpose();
+    let (saved, options_warning) = match saved {
+        Ok(values) => (values.unwrap_or_default(), None),
+        Err(error) if matches!(request.purpose, Purpose::Render) => {
+            (OptionValues::new(), Some(error.to_string()))
+        }
+        Err(error) => return Err(error.to_string()),
+    };
     if matches!(request.purpose, Purpose::Options) {
         return Ok(Response::Options(Box::new(crate::OptionSession::new(
             &pack, &saved,
@@ -230,11 +252,9 @@ fn translate(request: Request) -> Result<Response, String> {
         ..Default::default()
     };
     let translation = pack.translate(&config);
-    Ok(Response::Render(Box::new(prepare_translation(
-        pack,
-        config,
-        translation,
-    ))))
+    let mut compiled = prepare_translation(pack, config, translation);
+    compiled.options_warning = options_warning;
+    Ok(Response::Render(Box::new(compiled)))
 }
 
 /// Finishes CPU preparation inside a bounded compiler or a trusted offline fixture.
@@ -255,6 +275,7 @@ pub fn prepare_translation(
         custom_uniforms,
         ids,
         block_ids,
+        options_warning: None,
     }
 }
 

@@ -32,15 +32,18 @@ fn start(request: &Request) -> Running {
 }
 
 /// Waits for a child result without imposing wall-clock assertions on translation.
-fn finish(worker: &mut Running) -> Result<shaderpack::worker::Output, String> {
+fn response(worker: &mut Running) -> Result<shaderpack::worker::Response, String> {
     let mut result = None;
     test_time::eventually("isolated shader compilation", || {
-        result = worker
-            .poll(Duration::ZERO, false)
-            .map(|result| result.and_then(shaderpack::worker::Response::into_translation));
+        result = worker.poll(Duration::ZERO, false);
         result.is_some()
     });
     result.unwrap()
+}
+
+/// Accepts only the render result a fixture requested.
+fn finish(worker: &mut Running) -> Result<shaderpack::worker::Output, String> {
+    response(worker).and_then(shaderpack::worker::Response::into_translation)
 }
 
 #[test]
@@ -159,4 +162,22 @@ fn loading_normalizes_options_without_writing_over_editor_saves() {
         );
         assert_eq!(std::fs::read_to_string(&file).unwrap(), saved);
     }
+}
+
+#[test]
+fn render_defaults_survive_unreadable_saved_settings_but_editor_reports_the_error() {
+    let (root, mut request) =
+        fixture("#version 330\nout vec4 color; void main() { color=vec4(1.0); }");
+    let directory = root.path().join("options.txt");
+    std::fs::create_dir(&directory).unwrap();
+    request.options = Some(directory);
+    let compiled = finish(&mut start(&request)).unwrap();
+    assert!(compiled.translation.programs[0].is_ok());
+    assert!(compiled.config.options.is_empty());
+    assert!(compiled.options_warning.is_some());
+    request.purpose = shaderpack::worker::Purpose::Options;
+    let Err(reason) = response(&mut start(&request)) else {
+        panic!("the editor must report its read error");
+    };
+    assert!(reason.contains("regular file"));
 }
