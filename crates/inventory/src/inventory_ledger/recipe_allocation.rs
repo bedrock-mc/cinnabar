@@ -207,18 +207,32 @@ impl Search<'_> {
     /// Rejects missing individual supply and insufficient total capacity before branching.
     fn remaining_capacity_fits(&self, first: usize, missing: usize) -> bool {
         let cells = &self.order[first..];
-        let impossible = cells.iter().filter(|cell| {
-            self.demands[**cell] > 0 && !self.allocation.accepts[**cell].iter().any(|variant| self.fits(**cell, *variant))
-        }).count();
+        let impossible = cells
+            .iter()
+            .filter(|cell| {
+                self.demands[**cell] > 0
+                    && !self.allocation.accepts[**cell]
+                        .iter()
+                        .any(|variant| self.fits(**cell, *variant))
+            })
+            .count();
         if impossible > missing {
             return false;
         }
         let mut demands: Vec<_> = cells.iter().map(|cell| self.demands[*cell]).collect();
         demands.sort_unstable_by(|a, b| b.cmp(a));
         let needed: u32 = demands.into_iter().skip(missing).map(u32::from).sum();
-        let available: u32 = self.remaining.iter().enumerate().filter(|(variant, _)| {
-            cells.iter().any(|cell| self.allocation.accepts[*cell].contains(variant) && self.fits(*cell, *variant))
-        }).map(|(_, count)| *count).sum();
+        let available: u32 = self
+            .remaining
+            .iter()
+            .enumerate()
+            .filter(|(variant, _)| {
+                cells.iter().any(|cell| {
+                    self.allocation.accepts[*cell].contains(variant) && self.fits(*cell, *variant)
+                })
+            })
+            .map(|(_, count)| *count)
+            .sum();
         available >= needed
     }
 
@@ -227,7 +241,9 @@ impl Search<'_> {
     fn assign(&mut self, first: usize, missing: usize) -> bool {
         #[cfg(test)]
         if let Some(budget) = &mut self.work_budget {
-            *budget = budget.checked_sub(1).expect("allocation work budget exceeded");
+            *budget = budget
+                .checked_sub(1)
+                .expect("allocation work budget exceeded");
         }
         if first == self.demands.len() {
             return true;
@@ -235,10 +251,15 @@ impl Search<'_> {
         if !self.remaining_capacity_fits(first, missing) {
             return false;
         }
-        let next = (first..self.order.len()).min_by_key(|index| {
-            let cell = self.order[*index];
-            self.allocation.accepts[cell].iter().filter(|variant| self.fits(cell, **variant)).count()
-        }).expect("remaining cell");
+        let next = (first..self.order.len())
+            .min_by_key(|index| {
+                let cell = self.order[*index];
+                self.allocation.accepts[cell]
+                    .iter()
+                    .filter(|variant| self.fits(cell, **variant))
+                    .count()
+            })
+            .expect("remaining cell");
         self.order.swap(first, next);
         let cell = self.order[first];
         let allocation = self.allocation;
