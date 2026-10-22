@@ -199,6 +199,13 @@ impl ItemUseRuntime {
     pub fn retire_reselected_use(&mut self, slot: u8) {
         self.observe_selected_slot(Some(slot));
         if self
+            .cleared_use
+            .as_ref()
+            .is_some_and(|(_, cleared)| cleared.selection.slot != slot)
+        {
+            self.cleared_use = None;
+        }
+        if self
             .active
             .as_ref()
             .is_some_and(|active| active.selection.slot != slot)

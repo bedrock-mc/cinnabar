@@ -423,3 +423,63 @@ fn a_replay_rebuilds_baselines_a_tickless_frame_took() {
     assert!(!sample.processed.spinning);
     assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
 }
+
+/// A hard anchor such as respawn discards a spin counter a clear saved, so a
+/// new life's spin counts from zero.
+#[test]
+fn a_reanchor_discards_a_saved_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let tick = physics.state().unwrap().tick;
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.reanchor_network_position([0.0, 65.620_01, 0.0], tick, false);
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+}
+
+/// After a replay applied a stamped spin start, a later write with the same
+/// stamp compares with the frame's capture, as vanilla's does, and leaves it.
+#[test]
+fn a_replayed_stamped_write_is_not_the_base_for_later_writes() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(true)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.apply_server_movement_flags(101, write(false)), None);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}
+
+/// A pending stamped set and clear keep the effective clear, so an earlier
+/// spin start replayed through that frame still ends there.
+#[test]
+fn a_withdrawn_stamped_spin_keeps_its_effective_clear() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(102, write(true)),
+        Some(102)
+    );
+    assert_eq!(
+        physics.apply_server_movement_flags(102, write(false)),
+        Some(102)
+    );
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(true)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}

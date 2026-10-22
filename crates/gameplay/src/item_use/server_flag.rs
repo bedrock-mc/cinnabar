@@ -14,11 +14,35 @@ impl ItemUseRuntime {
     }
 
     /// Notes the use button outside tick-gated maintenance: holding it lets
-    /// button-up release a use the server started.
-    pub fn observe_use_button(&mut self, held: bool) {
-        if held && let Some(active) = self.active.as_mut() {
-            active.button_owned = true;
+    /// button-up release a use the server started, and button-up still
+    /// releases a held use a server clear stopped for a tick after
+    /// `completed_tick`, which vanilla keeps until that tick.
+    pub fn observe_use_button(&mut self, held: bool, completed_tick: u64) {
+        if held {
+            if let Some(active) = self.active.as_mut() {
+                active.button_owned = true;
+            }
+        } else {
+            self.restore_cleared_use(completed_tick, true);
         }
+    }
+
+    /// Returns an established use a server clear stopped for a tick after
+    /// `completed_tick` to be released, as vanilla still holds it then; a start
+    /// whose tick never ran is not a use. `owned_only` limits it to uses the
+    /// button held.
+    fn restore_cleared_use(&mut self, completed_tick: u64, owned_only: bool) {
+        if self.active.is_some() {
+            return;
+        }
+        let Some((_, cleared)) = self.cleared_use.take_if(|(tick, cleared)| {
+            *tick > completed_tick
+                && cleared.started_tick < *tick
+                && (cleared.button_owned || !owned_only)
+        }) else {
+            return;
+        };
+        self.active = Some(cleared);
     }
 
     /// Whether a server `UsingItem` value still awaits a tick.
@@ -50,14 +74,7 @@ impl ItemUseRuntime {
     /// natively, so it returns to be released.
     pub fn observe_gameplay_focus(&mut self, focused: bool, completed_tick: u64) {
         if self.gameplay_focused && !focused {
-            if self.active.is_none()
-                && let Some((_, active)) = self
-                    .cleared_use
-                    .take()
-                    .filter(|(tick, _)| *tick > completed_tick)
-            {
-                self.active = Some(active);
-            }
+            self.restore_cleared_use(completed_tick, false);
             if let Some(active) = self.active.as_mut() {
                 active.button_owned = true;
             }
@@ -88,11 +105,9 @@ impl ItemUseRuntime {
             Some(true) if self.active.is_some() => self.server_using = None,
             Some(true) => {
                 // A set before any tick processed the clear keeps the use as it was.
-                if let Some((_, active)) = self
-                    .cleared_use
-                    .take()
-                    .filter(|(tick, _)| *tick == frame.tick)
-                {
+                if let Some((_, active)) = self.cleared_use.take().filter(|(tick, cleared)| {
+                    *tick == frame.tick && !cleared.selection_changed(frame.selection.as_ref())
+                }) {
                     self.server_using = None;
                     outcome.started = active.started_tick >= frame.tick;
                     self.active = Some(active);

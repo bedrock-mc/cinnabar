@@ -43,6 +43,17 @@ pub(crate) struct InteractionRuntime {
     overflowed_batches: u64,
 }
 
+impl InteractionRuntime {
+    /// Whether the next drain will invalidate world-owned work for this scope.
+    pub(crate) fn changes_world(
+        &self,
+        session: simulation_clock::identity::SessionGeneration,
+        dimension: i32,
+    ) -> bool {
+        self.frames.changes_world(session, dimension)
+    }
+}
+
 /// Picks and later edges wait for camera publication and movement admission.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DispatchPhase {

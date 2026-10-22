@@ -93,6 +93,18 @@ pub(crate) fn adopt_server_item_use(
     if context.client_world.respawn.input_held() {
         return;
     }
+    // A world change the ordered drain has yet to see would cancel the use; the
+    // pass after movement adopts the write once that drain has run.
+    let dimension = context
+        .client_world
+        .stream
+        .as_ref()
+        .map_or(0, |stream| stream.current_dimension());
+    if context.ordered.as_deref().is_some_and(|ordered| {
+        ordered.changes_world(movement.interaction_authority_identity().0, dimension)
+    }) {
+        return;
+    }
     if let Some(using) = context
         .physics
         .as_deref_mut()
@@ -249,7 +261,7 @@ fn produce_use(
             &context.input,
             Action::Use,
         );
-    runtime.observe_use_button(held);
+    runtime.observe_use_button(held, movement.completed_tick());
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context

@@ -94,6 +94,21 @@ struct FlagOverlay {
     pose: PoseWrite,
     spinning: Option<bool>,
     using_item: Option<bool>,
+    /// A stamped write here awaits a replay through this tick.
+    pending: bool,
+    /// A live write landed here, so it belongs to this tick's own capture.
+    live: bool,
+}
+
+/// What a later write stamped before an overlay's tick compares against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WriteBase {
+    /// The live state, while a stamped write there awaits replay.
+    Live,
+    /// The frame's own state including live writes made before it ran.
+    Captured,
+    /// The local state entering the tick, without replayed corrections.
+    Local,
 }
 
 /// Retained server flag writes and state awaiting adoption.
@@ -108,13 +123,37 @@ pub(super) struct ServerFlagAuthority {
 }
 
 impl ServerFlagAuthority {
-    /// Drops retained writes when their frames are discarded.
+    /// Drops retained writes and the cleared spin counter when their frames
+    /// and life are discarded.
     pub(super) fn clear_overlays(&mut self) {
         self.overlays.clear();
+        self.cleared_spin = None;
     }
 
     fn overlay(&self, tick: u64) -> Option<&FlagOverlay> {
         self.overlays.iter().find(|overlay| overlay.tick == tick)
+    }
+
+    /// The base for a write stamped before `tick`, as vanilla compares a write
+    /// with the live actor while a correction of that frame is pending and
+    /// with the frame's capture once replay applied it.
+    fn base(&self, tick: u64) -> WriteBase {
+        match self.overlay(tick) {
+            Some(overlay) if overlay.pending => WriteBase::Live,
+            Some(overlay) if overlay.live => WriteBase::Captured,
+            _ => WriteBase::Local,
+        }
+    }
+
+    /// Marks stamped writes up to `tick` as applied by a completed replay.
+    fn settle_through(&mut self, tick: u64) {
+        for overlay in self
+            .overlays
+            .iter_mut()
+            .filter(|overlay| overlay.tick <= tick)
+        {
+            overlay.pending = false;
+        }
     }
 
     /// Returns the writes before `tick`, pruning ones older than `oldest` and
@@ -143,6 +182,8 @@ impl ServerFlagAuthority {
                 pose: PoseWrite::default(),
                 spinning: None,
                 using_item: None,
+                pending: false,
+                live: false,
             },
         );
         &mut self.overlays[index]
@@ -179,6 +220,7 @@ impl LocalPhysicsController {
         self.server_control_flags.get_or_insert_default().mode = Some(self.modes.mode());
         if let Some(overlay) = self.live_overlay() {
             overlay.pose = differing.over(overlay.pose);
+            overlay.live = true;
         }
     }
 
@@ -194,6 +236,7 @@ impl LocalPhysicsController {
         let Some(state) = self.state.as_mut() else {
             return;
         };
+        self.server_flags.settle_through(state.tick);
         let (mode, spinning) = (self.modes.mode(), state.spin_attack_ticks.is_some());
         self.server_flags.apply_before(&mut self.modes, state);
         let mode = (self.modes.mode() != mode).then_some(self.modes.mode());
@@ -232,7 +275,11 @@ impl LocalPhysicsController {
             .overlay(after)
             .map(|overlay| overlay.pose)
             .unwrap_or_default();
-        let entering = earlier.resulting(anchor_mode);
+        let entering = match self.server_flags.base(after) {
+            WriteBase::Live => self.modes.mode(),
+            WriteBase::Captured => earlier.resulting(anchor_mode),
+            WriteBase::Local => anchor_mode,
+        };
         let differing = write.differing_from(entering);
         if differing.resulting(entering) == entering {
             return false;
@@ -242,6 +289,7 @@ impl LocalPhysicsController {
             return false;
         };
         overlay.pose = combined;
+        overlay.pending = true;
         let left = combined.resulting(anchor_mode);
         self.mark_server_change_after(tick, |input| {
             input.server_mode = (left != anchor_mode).then_some(left);
@@ -285,6 +333,7 @@ impl LocalPhysicsController {
             self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
             if let Some(overlay) = self.live_overlay() {
                 overlay.spinning = Some(spinning);
+                overlay.live = true;
             }
         }
     }
@@ -300,20 +349,32 @@ impl LocalPhysicsController {
             .history
             .state_at(tick)
             .is_some_and(|state| state.spin_attack_ticks.is_some());
-        let base = tick
-            .checked_add(1)
-            .and_then(|after| self.server_flags.overlay(after))
-            .and_then(|overlay| overlay.spinning)
-            .unwrap_or(local);
+        let Some(after) = tick.checked_add(1) else {
+            return false;
+        };
+        let written = self
+            .server_flags
+            .overlay(after)
+            .and_then(|overlay| overlay.spinning);
+        let base = match self.server_flags.base(after) {
+            WriteBase::Live => self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.spin_attack_ticks.is_some()),
+            WriteBase::Captured => written.unwrap_or(local),
+            WriteBase::Local => local,
+        };
         if spinning == base {
             return false;
         }
-        let written = (spinning != local).then_some(spinning);
         let Some(overlay) = self.retained_overlay(tick) else {
             return false;
         };
-        overlay.spinning = written;
-        self.mark_server_change_after(tick, |input| input.server_spinning = written);
+        // The effective write stays even when it matches the capture, so a
+        // replay through this frame reapplies it whatever arrives there.
+        overlay.spinning = Some(spinning);
+        overlay.pending = true;
+        self.mark_server_change_after(tick, |input| input.server_spinning = Some(spinning));
         if self.write_live_spin(spinning) {
             self.server_control_flags.get_or_insert_default().spinning = Some(spinning);
         }
@@ -350,19 +411,26 @@ impl LocalPhysicsController {
                 .iter()
                 .find(|frame| frame.tick == tick)
                 .map(|frame| frame.using_item);
-            let base = tick
-                .checked_add(1)
-                .and_then(|after| self.server_flags.overlay(after))
-                .and_then(|overlay| overlay.using_item)
-                .or(local);
+            let after = tick.saturating_add(1);
+            let written = self
+                .server_flags
+                .overlay(after)
+                .and_then(|overlay| overlay.using_item);
+            let base = match self.server_flags.base(after) {
+                WriteBase::Live => self.server_flags.pending_using_item.or(written).or(local),
+                WriteBase::Captured => written.or(local),
+                WriteBase::Local => local,
+            };
             if base == Some(using) {
                 return;
             }
             if let Some(overlay) = self.retained_overlay(tick) {
-                overlay.using_item = (local != Some(using)).then_some(using);
+                overlay.using_item = Some(using);
+                overlay.pending = true;
             }
         } else if let Some(overlay) = self.live_overlay() {
             overlay.using_item = Some(using);
+            overlay.live = true;
         }
         self.server_flags.pending_using_item = Some(using);
     }
