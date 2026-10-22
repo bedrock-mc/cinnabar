@@ -45,7 +45,7 @@ pub use nbt_edit::{
     item_custom_name, item_filtered_custom_name, item_has_trim, item_repair_cost,
 };
 pub use shooter::ItemShooter;
-pub use user_data::item_user_data_equal;
+pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 
 /// The single item shape 1.26.40 puts on the wire.
 ///

@@ -37,6 +37,7 @@ pub mod screen_overlay_portal;
 pub mod shaderpack;
 pub mod skybox;
 pub mod startup_presentation;
+pub mod terrain_culling;
 pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
@@ -135,6 +136,7 @@ pub use screen_overlay::{
     ScreenOverlayScene, ScreenOverlayTextures,
 };
 pub use skybox::SkyboxSettings;
+pub use terrain_culling::ChunkOcclusionCulling;
 pub use ui::{UiRenderSceneResource, UiRenderStatsResource};
 pub use ui_glint::{UiGlintSettings, UiItemGlintTexture};
 pub use viewmodel::{

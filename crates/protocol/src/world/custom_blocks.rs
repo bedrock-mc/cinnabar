@@ -25,7 +25,7 @@ const MAX_BONE_VISIBILITY: usize = 256;
 /// Collision primitives one custom block may contribute before extras are ignored.
 const MAX_COLLISION_BOXES: usize = 256;
 /// The namespace of vanilla's own blocks.
-const VANILLA_NAMESPACE: &str = "minecraft";
+pub(crate) const VANILLA_NAMESPACE: &str = "minecraft";
 
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]

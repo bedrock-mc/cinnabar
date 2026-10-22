@@ -44,7 +44,7 @@ PR titles become the changelog: use an imperative summary without a `type:` pref
 
 ## Worktrees, captures, and payloads
 
-Use one worktree per concurrent change; each gets its own Cargo `build-dir` outside the checkout (`.cargo/config.toml`) and its own `target` for final artifacts. Set per-build parallelism to fit available CPU and memory; do not use shared build locks, limiter wrappers, or reservation queues. Stop only processes you started, by PID; never use pattern-based kills. Remove a worktree's target directory after integration.
+Use one worktree per concurrent change; each gets its own Cargo `build-dir` outside the checkout (`.cargo/config.toml`) and its own `target` for final artifacts. Bound concurrent builds to the machine: use the build limiter your setup provides, never holding one build lock while waiting for another; without one, set per-build parallelism to fit available CPU and memory. Stop only processes you started, by PID; never use pattern-based kills. Remove a worktree's target directory after integration.
 
 Every PR that changes visible output attaches before/after screenshots with `gh pr create --attach` (or `gh pr edit --attach`) and a short "How to see it" note: where in the game and which setting or action shows it. Render isolated UI states offline with `cargo run -p ui-snapshot -- --state <name> --out <png>`, which agents may build even when they otherwise build nothing; use a headless client MCP session for in-world changes. Keep real account details and server addresses out of captures. Do not commit game assets, BDS binaries, credentials, recordings, traces, or `.local/` carriers. Delete raw captures and traces after the PR is open.
 
