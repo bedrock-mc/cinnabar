@@ -680,3 +680,30 @@ fn native_sample_aliases_reserve_rows_and_unique_card_identities() {
     );
     assert!(hud.validate().is_err());
 }
+
+/// Trusted host previews can exceed cell-content bounds without widening JSON admission.
+#[test]
+fn host_preview_size_is_validated_and_not_serialized() {
+    let mut hud = Hud {
+        cards: vec![Card {
+            id: "touch".into(),
+            width: 1.,
+            cells: vec![Cell {
+                rect: [0., 0., 1., 1.],
+                ..Default::default()
+            }],
+            editor_size: Some([2048., 1600.]),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(hud.validate().is_ok());
+    let encoded = serde_json::to_value(&hud).unwrap();
+    assert!(encoded["cards"][0].get("editor_size").is_none());
+    let decoded: Hud = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded.cards[0].editor_size, None);
+    for size in [[f32::NAN, 1.], [1., f32::INFINITY], [0., 1.], [-1., 1.]] {
+        hud.cards[0].editor_size = Some(size);
+        assert!(hud.validate().is_err());
+    }
+}

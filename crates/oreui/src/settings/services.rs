@@ -350,6 +350,13 @@ fn touch(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         for option in launcher::menu::settings_options::layout::SettingPanel::Touch.options() {
             content.option(option.id)?;
         }
+        action_row(
+            content,
+            "Control layout",
+            "Move touch controls and align them with guides.",
+            "Edit layout",
+            Some(MenuAction::EditTouchControls),
+        )?;
         content.label(
             "Touch controls",
             "Move with the left stick. Drag outside the buttons to look around.",
