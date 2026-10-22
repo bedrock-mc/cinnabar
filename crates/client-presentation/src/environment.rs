@@ -245,6 +245,7 @@ pub fn apply_environment_control(
             true
         }
         CommittedControlEvent::MovePlayer { .. }
+        | CommittedControlEvent::LocalActorMove { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }

@@ -93,6 +93,7 @@ fn the_edited_world_gets_atlas_space_from_play_and_storage() {
     let id = format!("{last_index:016x}");
     view.local.screen = Screen::Edit;
     view.local.edited = Some(World {
+        options: Default::default(),
         id: id.clone(),
         name: "Preview".into(),
         game_mode: bridge::GameMode::Survival,
@@ -102,6 +103,7 @@ fn the_edited_world_gets_atlas_space_from_play_and_storage() {
         seed: 0,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     });
     let mut presentation =

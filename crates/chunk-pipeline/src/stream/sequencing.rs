@@ -535,7 +535,7 @@ impl WorldStream {
                 self.block_entity_visuals.clear();
                 self.biome_records = None;
                 self.authority.reset_dimension(sequence, change.dimension);
-                let resolved = self.authority.resolve_position(change.position);
+                let resolved = self.authority.resolve_position(sequence, change.position);
                 self.local_player_chunk = None;
                 self.publisher
                     .reset_for_dimension(resolved.position.map(floor_to_i32));
@@ -563,7 +563,7 @@ impl WorldStream {
                 let resolved = if respawn.ready_to_spawn() {
                     self.authority
                         .push_committed_ui(CommittedUiEvent::LocalRespawnReady { sequence });
-                    let resolved = self.authority.resolve_position(respawn.position);
+                    let resolved = self.authority.resolve_position(sequence, respawn.position);
                     self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
                     self.reevaluate_chunk_retention();
@@ -589,7 +589,7 @@ impl WorldStream {
                     self.capture_source_columns();
                     self.publisher.source_capture_sequence = None;
                 }
-                let resolved = self.authority.resolve_position(movement.position);
+                let resolved = self.authority.resolve_position(sequence, movement.position);
                 // Unmarked moves reconcile like corrections against a past tick; only teleports recenter.
                 if movement.mode.is_teleport() {
                     self.local_player_chunk = None;
@@ -621,7 +621,9 @@ impl WorldStream {
                     return;
                 }
                 // A correction names a past tick; retention waits for physics to reconcile it.
-                let resolved = self.authority.resolve_position(correction.position);
+                let resolved = self
+                    .authority
+                    .resolve_position(sequence, correction.position);
                 self.authority.push_committed_control(
                     CommittedControlEvent::PlayerMovementCorrection {
                         sequence,

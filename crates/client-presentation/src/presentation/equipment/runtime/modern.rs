@@ -309,6 +309,12 @@ pub(super) fn parent_for_root(
                 .iter()
                 .position(|owner| owner.eq_ignore_ascii_case(name))?,
         ),
+        AttachableBoneParent::BindingExpression if input.worn => Some(
+            bones
+                .names
+                .iter()
+                .position(|owner| owner.eq_ignore_ascii_case(input.item_slot()))?,
+        ),
         AttachableBoneParent::BindingExpression => Some(if input.off_hand {
             bones.left_item?
         } else {

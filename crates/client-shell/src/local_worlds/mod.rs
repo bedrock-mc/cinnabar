@@ -181,6 +181,9 @@ impl LocalWorlds {
         self.playing = false;
         self.paused = false;
         self.dispatch(vec![Effect::Close]);
+        if self.client.is_some() {
+            self.input(Input::Refresh);
+        }
     }
 
     /// The pause menu is open over the world; single-player pauses the game behind it.
@@ -253,6 +256,14 @@ impl Plugin for LocalWorldsPlugin {
         app.add_message::<WindowFocused>()
             .init_resource::<LocalWorlds>()
             .add_systems(Update, (pump_local_worlds, pause_on_focus));
+    }
+}
+
+#[cfg(test)]
+impl LocalWorlds {
+    /// Delivers a core event without a core, dropping the effects it would send back.
+    pub(crate) fn apply(&mut self, event: model::Event) {
+        self.menu.apply(event);
     }
 }
 

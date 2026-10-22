@@ -23,6 +23,7 @@
     "manifest": "manifest.json"
   },
   "install_script": "install.sh",
+  "linux_install": { "app_dir": "app", "current": "current" },
   "update_payload_prefix": "update-payload-",
   "update_channels": {
     "beta": { "track": "tagged", "manifest": "update-beta.json" },

@@ -102,7 +102,12 @@ fn recipe_material_background_counts_ingredients_without_granting_recipe_selecti
             granted_sibling
         );
         if !granted_sibling {
-            assert!(player.inventory.begin_book_craft(&entry.recipe).is_err());
+            assert!(
+                player
+                    .inventory
+                    .begin_book_craft(&entry.recipe, false)
+                    .is_err()
+            );
             assert_eq!(player.inventory.ledger().pending_request_count(), 0);
         }
         player

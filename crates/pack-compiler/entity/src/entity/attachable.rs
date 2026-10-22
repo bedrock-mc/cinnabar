@@ -247,9 +247,13 @@ fn reference(identifier: Box<str>, catalog: &BTreeMap<&str, ()>) -> EquipmentRef
 }
 
 fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
-    let fact = assets::facts::ItemFacts::builtin()
-        .ok()
-        .and_then(|facts| facts.by_identifier(item_identifier));
+    let facts = assets::facts::ItemFacts::builtin().ok();
+    let fact = facts.and_then(|facts| facts.by_identifier(item_identifier));
+    if let Some(tag) = facts.and_then(|facts| facts.tag(assets::facts::HARNESS_TAG))
+        && fact.is_some_and(|fact| fact.tags.contains(tag))
+    {
+        return EquipmentCategory::Body;
+    }
     if fact.is_some_and(|fact| fact.traits.contains(assets::facts::ItemTraits::SHIELD))
         || geometry == "geometry.shield"
     {
