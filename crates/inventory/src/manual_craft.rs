@@ -127,6 +127,10 @@ impl ManualCraftPlan {
         let handle = catalog
             .recipe(recipe_id)
             .ok_or(ManualCraftError::Unavailable)?;
+        // This packet declares a single result.
+        if handle.extra_outputs().len() != 0 {
+            return Err(ManualCraftError::Unsupported);
+        }
         let grid = std::array::from_fn(|index| inputs[index].as_ref().map(|input| &input.stack));
         let (output, counts) = validate_grid(handle.recipe(), &grid, |id| binding(registry, id))?;
         let mut consume: [Option<(u8, u8, i32)>; 4] = [None; 4];

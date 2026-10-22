@@ -222,6 +222,7 @@ fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
                         msaa,
                         hdr,
                         enhanced: false,
+                        shader_pack: false,
                         output: None,
                     },
                     &mut ids,

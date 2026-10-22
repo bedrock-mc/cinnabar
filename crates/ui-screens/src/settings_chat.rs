@@ -3,7 +3,7 @@
 use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
-use json_ui::{CollectionItem, DataSource, HitRegion, HudModel, Scalar};
+use json_ui::{ChatText, CollectionItem, DataSource, HitRegion, HudModel, Scalar};
 
 use launcher::menu::{MenuAction, settings_options::SettingsOptions};
 
@@ -158,15 +158,24 @@ pub(crate) fn action(settings: &ChatSettings, region: &HitRegion) -> Option<Menu
     super::settings_controls::action_values(&settings.options, region)
 }
 
-/// Applies implemented chat visibility, background and notification-duration options.
+/// Applies implemented chat visibility, background, sizing and notification-duration options.
 pub fn apply_hud(settings: &SettingsOptions, model: &mut HudModel) {
     if settings.value(SettingId::HideChat) != 0 {
         model.chat_visible = false;
         model.chat.clear();
     }
     model.chat_background_opacity = background_opacity(settings);
+    model.chat_text = chat_text(settings);
     model.chat_lifetime = settings.chat_lifetime();
     model.chat_color = default_color(settings);
+}
+
+/// The saved font size and line spacing shared by closed-chat notifications and the open chat screen.
+pub fn chat_text(settings: &SettingsOptions) -> ChatText {
+    ChatText {
+        font_scale: settings.chat_font_scale(),
+        line_spacing: settings.chat_line_padding(),
+    }
 }
 
 /// The saved percentage shared by closed-chat notifications and the open chat screen.

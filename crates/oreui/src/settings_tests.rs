@@ -506,7 +506,7 @@ fn settings_choice_rows_select_their_own_values() {
         ("video_forced_index", "graphics_mode"),
         ("video_forced_index", "third_person"),
         ("accessibility_forced_index", "toast_notification_duration"),
-        ("accessibility_forced_index", "chat_message_duration"),
+        ("cinnabar_chat_index", "chat_message_duration"),
         ("creator_forced_index", "content_log_gui_level"),
     ] {
         let mut view = settings_view(section);

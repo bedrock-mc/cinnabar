@@ -18,6 +18,7 @@ mod auto_allocation;
 mod book_output;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
+mod extra_results;
 mod item_data;
 mod output_identity;
 

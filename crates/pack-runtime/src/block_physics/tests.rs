@@ -46,7 +46,7 @@ fn mining_only_states_do_not_consume_physics_reservation() {
 }
 
 #[test]
-fn mining_and_physics_reservations_are_independent_for_mixed_permutations() {
+fn mining_resolves_independently_of_the_physics_reservation() {
     let mut block = slab();
     Arc::make_mut(&mut block.visual).permutations[0]
         .physical
@@ -54,25 +54,20 @@ fn mining_and_physics_reservations_are_independent_for_mixed_permutations() {
         seconds_to_destroy: 0.5,
         ..Default::default()
     }));
-    for (physics_budget, mining_budget) in [(0, 4), (4, 0), (4, 4)] {
+    for physics_budget in [0, 4] {
         let mut blocks = CustomBlocks {
             blocks: [block.clone()].into(),
             ..Default::default()
         };
         resolve_bounded(&mut blocks, physics_budget);
-        crate::block_mining::resolve_bounded(&mut blocks, mining_budget);
+        crate::block_mining::resolve(&mut blocks);
         let block = &blocks.blocks[0];
         assert_eq!(block.state_physics_complete, physics_budget > 0);
         assert_eq!(
             block.physics_for_state(1).collision_boxes.as_ref().unwrap()[0].min[1],
             if physics_budget > 0 { 0.5 } else { 0.0 }
         );
-        assert_eq!(
-            block
-                .mining_for_state(1)
-                .map(|mining| mining.seconds_to_destroy),
-            (mining_budget > 0).then_some(0.5)
-        );
+        assert_eq!(block.mining_for_state(1).unwrap().seconds_to_destroy, 0.5);
     }
 }
 
@@ -108,17 +103,19 @@ fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
                 "mining cannot invalidate physical completeness"
             );
             for state in 0..block.state_count {
-                assert!(block.mining_for_state(state).is_none());
+                assert_eq!(
+                    block.mining_for_state(state).unwrap().seconds_to_destroy,
+                    0.0
+                );
             }
         }
     }
 }
 
 #[test]
-fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
+fn custom_mining_resolves_beside_incomplete_physics() {
     let mut block = slab();
     let visual = Arc::make_mut(&mut block.visual);
-    visual.mining_incomplete = true;
     visual.components_incomplete = true;
     visual.permutations = [protocol::CustomPermutation {
         condition: "1".into(),
@@ -142,7 +139,10 @@ fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
     assert!(block.state_physics.is_empty());
     assert!(!block.state_physics_complete);
     for state in 0..block.state_count {
-        assert!(block.mining_for_state(state).is_none());
+        assert_eq!(
+            block.mining_for_state(state).unwrap().seconds_to_destroy,
+            0.5
+        );
     }
 }
 
@@ -184,7 +184,7 @@ fn custom_mining_permutations_replace_the_whole_component() {
 }
 
 #[test]
-fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
+fn custom_mining_unevaluated_conditions_read_as_zero() {
     for condition in [
         "loop(1, { t.x = 1; }); return t.x;",
         "q.block_state('test:missing')",
@@ -211,7 +211,8 @@ fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
         crate::block_mining::resolve(&mut blocks);
         assert!(blocks.blocks[0].state_physics_complete);
         for state in 0..blocks.blocks[0].state_count {
-            assert!(blocks.blocks[0].mining_for_state(state).is_none());
+            let mining = blocks.blocks[0].mining_for_state(state).unwrap();
+            assert_eq!(mining.seconds_to_destroy, 0.0, "{condition} must not apply");
         }
     }
 }
@@ -790,4 +791,58 @@ fn connection_states_select_per_state_collision() {
     let (_, collision, selection) = state_physics(&block, 1);
     assert_eq!(collision.as_deref(), Some([north].as_slice()));
     assert_eq!(selection, CustomSelection::Box(north));
+}
+
+// A disabling mining override past the permutation bound cannot be read, so mining stays
+// unknown instead of allowing an instant break; a huge truncated definition does no mining work.
+#[test]
+fn custom_mining_truncated_definitions_stay_unknown_without_evaluation() {
+    for properties in [0_u32, 16] {
+        let permutations: u32 = 1025;
+        let mut encoded = named(10, "");
+        encoded.extend(named(9, "properties"));
+        encoded.push(10);
+        encoded.extend(varint(properties << 1));
+        for index in 0..properties {
+            encoded.extend(named(8, "name"));
+            encoded.extend(text(&format!("test:bit{index}")));
+            encoded.extend(named(9, "enum"));
+            encoded.extend([1, 4, 0, 1]);
+            encoded.push(0);
+        }
+        encoded.extend(named(9, "permutations"));
+        encoded.push(10);
+        encoded.extend(varint(permutations << 1));
+        for index in 0..permutations {
+            encoded.extend(named(8, "condition"));
+            encoded.extend(text("1"));
+            if index + 1 == permutations {
+                encoded.extend(named(10, "components"));
+                encoded.extend(named(10, "minecraft:destructible_by_mining"));
+                encoded.extend(named(5, "value"));
+                encoded.extend((-1.0_f32).to_le_bytes());
+                encoded.extend([0, 0]);
+            }
+            encoded.push(0);
+        }
+        encoded.push(0);
+        let mut blocks = CustomBlocks::from_definitions([("test:many", encoded.as_slice())]);
+        assert_eq!(blocks.blocks[0].state_count, 1 << properties);
+        resolve(&mut blocks);
+        crate::block_mining::resolve(&mut blocks);
+        let block = &blocks.blocks[0];
+        assert!(block.state_mining.is_empty(), "no state is evaluated");
+        assert!(block.mining_for_state(0).is_none());
+    }
+}
+
+/// Encodes an unsigned network VarInt.
+fn varint(mut value: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    while value >= 0x80 {
+        bytes.push((value as u8 & 0x7f) | 0x80);
+        value >>= 7;
+    }
+    bytes.push(value as u8);
+    bytes
 }

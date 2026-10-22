@@ -259,6 +259,14 @@ fn chat_membership_tracks_future_timestamps_settings_and_both_clock_directions()
     fixture.settings.set(SettingId::HideChat.index(), 0);
     fixture.settings.set(SettingId::ChatColor.index(), 2);
     assert!(fixture.check(&mut cache).chat);
+    fixture.settings.set(SettingId::ChatFontSize.index(), 15);
+    fixture.settings.set(SettingId::ChatLineSpacing.index(), 2);
+    assert!(fixture.check(&mut cache).chat);
+    assert_eq!(
+        cache.model.chat_text,
+        ui_screens::settings_chat::chat_text(&fixture.settings)
+    );
+    assert_ne!(cache.model.chat_text, json_ui::ChatText::default());
     fixture.runtime.chat_focused = true;
     fixture.check(&mut cache);
     assert!(!cache.model.chat_visible);
