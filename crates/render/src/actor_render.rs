@@ -142,6 +142,7 @@ fn install_actor_render(app: &mut App) {
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     crate::device_poll::install(app.sub_app_mut(RenderApp));
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)
@@ -160,7 +161,7 @@ fn install_actor_render(app: &mut App) {
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_actors
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame.in_set(crate::device_poll::FrameSubmissions),
             )

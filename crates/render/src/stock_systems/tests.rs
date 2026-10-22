@@ -1,0 +1,74 @@
+//! Replacing Bevy's post-processing group keeps the client's camera passes in one order.
+
+use super::StockSystemsPlugin;
+use bevy::{
+    asset::AssetPlugin,
+    camera::CameraPlugin,
+    core_pipeline::{Core3d, CorePipelinePlugin},
+    ecs::system::System,
+    image::ImagePlugin,
+    mesh::MeshPlugin,
+    post_process::PostProcessPlugin,
+    prelude::*,
+    render::{RenderApp, RenderStartup, render_resource::WgpuFeatures},
+    window::WindowPlugin,
+};
+use std::any::TypeId;
+
+/// The camera graph's systems in recording order after render startup, for the client's
+/// render plugins on a NOOP device with `post_processing` in place of Bevy's group.
+fn camera_passes(post_processing: impl Plugin) -> Vec<TypeId> {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(WindowPlugin {
+            primary_window: None,
+            ..default()
+        })
+        .add_plugins((AssetPlugin::default(), TransformPlugin))
+        .add_plugins(crate::chunk::noop_render_plugin(WgpuFeatures::empty()))
+        .add_plugins((
+            ImagePlugin::default(),
+            MeshPlugin,
+            CameraPlugin,
+            CorePipelinePlugin,
+        ))
+        .add_plugins(post_processing)
+        .add_plugins((
+            crate::ChunkRenderPlugin::default(),
+            crate::AtmospherePlugin,
+            crate::FarTerrainRenderPlugin,
+            crate::EntityShadowRenderPlugin,
+            crate::UiRenderPlugin,
+            crate::DepthSmaaPlugin,
+            crate::motion_blur::CameraMotionBlurPlugin,
+        ));
+    app.finish();
+    app.cleanup();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(RenderStartup);
+    world.schedule_scope(Core3d, |world, schedule| {
+        schedule.initialize(world).unwrap();
+        schedule
+            .systems()
+            .unwrap()
+            .map(|(_, system)| system.system_type())
+            .collect()
+    })
+}
+
+#[test]
+fn replacing_post_processing_keeps_the_remaining_camera_passes_in_order() {
+    let full = camera_passes(PostProcessPlugin);
+    let stock = camera_passes(StockSystemsPlugin);
+    let kept: Vec<_> = full
+        .iter()
+        .copied()
+        .filter(|pass| stock.contains(pass))
+        .collect();
+    assert_eq!(kept, stock, "a remaining camera pass changed position");
+    assert_eq!(
+        full.len(),
+        stock.len() + 3,
+        "only depth of field, the effect stack and Bevy's motion blur leave the camera graph"
+    );
+}

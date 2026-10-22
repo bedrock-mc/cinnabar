@@ -3,6 +3,7 @@
 use assets::carriers::startup::delivery::StartupCarriers;
 use bevy::{
     anti_alias::AntiAliasPlugin,
+    post_process::PostProcessPlugin,
     prelude::{App, DefaultPlugins, PluginGroup, Window, default},
     render::{RenderPlugin, settings::RenderCreation},
     window::WindowPlugin,
@@ -51,7 +52,9 @@ pub fn run(
                 render_creation: RenderCreation::Automatic(Box::new(settings)),
                 ..default()
             })
-            .disable::<AntiAliasPlugin>(),
+            .disable::<AntiAliasPlugin>()
+            .add_before::<PostProcessPlugin>(render::StockSystemsPlugin)
+            .disable::<PostProcessPlugin>(),
     );
     app.insert_non_send(commands)
         .insert_non_send(crate::browser_input::InputSource(input))

@@ -154,6 +154,7 @@ impl TerrainUnitBatches {
 
 /// Adds the unit resource, commands and preparation after current direct-occlusion results.
 pub(in crate::chunk) fn install(render_app: &mut SubApp) {
+    crate::world_passes::install(render_app);
     render_app
         .init_resource::<TerrainUnitBatches>()
         .add_systems(RenderStartup, configure_support)
@@ -165,7 +166,7 @@ pub(in crate::chunk) fn install(render_app: &mut SubApp) {
         .add_systems(
             Render,
             prepare::prepare_units
-                .run_if(render_scene::panorama::world_passes_enabled)
+                .in_set(crate::world_passes::WorldPassSystems)
                 .in_set(RenderSystems::PrepareResources)
                 .after(gpu_cull::direct::prepare_direct_occlusion),
         );

@@ -65,6 +65,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
         crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<WeatherPipeline>()
         .add_render_command::<Transparent3d, DrawWeatherCommands>()
@@ -75,7 +76,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
                 prepare_weather_records.in_set(RenderSystems::PrepareResources),
                 prepare_weather_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_weather
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );

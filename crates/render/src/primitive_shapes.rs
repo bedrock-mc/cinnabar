@@ -40,13 +40,14 @@ impl Plugin for PrimitiveShapesRenderPlugin {
             return;
         };
         crate::transparent_phase::install(render);
+        crate::world_passes::install(render);
         render.init_resource::<pipeline::ShapePipeline>()
             .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::DrawShapes>()
             .add_systems(RenderStartup, gpu::init)
             .add_systems(Render, (
                 gpu::prepare.in_set(RenderSystems::PrepareResources),
                 pipeline::prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
-                pipeline::queue.run_if(render_scene::panorama::world_passes_enabled).in_set(RenderSystems::Queue),
+                pipeline::queue.in_set(crate::world_passes::WorldPassSystems).in_set(RenderSystems::Queue),
             ));
     }
 }

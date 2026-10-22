@@ -179,6 +179,9 @@ mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
 pub mod startup_presentation;
+mod stock_systems;
+pub use stock_systems::StockSystemsPlugin;
+mod world_passes;
 
 #[cfg(test)]
 mod queue_review_support;

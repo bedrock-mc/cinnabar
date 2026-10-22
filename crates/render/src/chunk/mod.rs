@@ -19,7 +19,8 @@ use web_time::Instant;
 use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
 #[cfg(test)]
 use bevy::prelude::{
-    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
+    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, Transform, TransformPlugin,
+    UVec4, Vec3A,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset},
@@ -38,7 +39,7 @@ use bevy::{
         App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
         FromWorld, GlobalTransform, Has, InheritedVisibility, Last, Local, Mat4, Msaa, ParamSet,
         Plugin, Query, RemovedComponents, Res, ResMut, Resource, Result, Schedule, SubApp,
-        SystemSet, Time, Transform, Update, Vec3, Visibility, With, World, default,
+        SystemSet, Time, Update, Vec3, Visibility, With, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,

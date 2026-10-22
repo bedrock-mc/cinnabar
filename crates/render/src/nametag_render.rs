@@ -121,6 +121,7 @@ pub(crate) fn install_nametag_render(app: &mut App) {
         shader::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<NametagPipeline>()
         .add_render_command::<Transparent3d, DrawNametags>()
@@ -135,7 +136,7 @@ pub(crate) fn install_nametag_render(app: &mut App) {
                     .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                 prepare_nametag_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_nametags
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );

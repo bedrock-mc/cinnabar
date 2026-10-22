@@ -117,6 +117,7 @@ fn install(app: &mut App) {
     crate::pipeline_warmup::register::<BlockEntityPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(BlockEntityRenderInstalled)
         .init_resource::<BlockEntityPipeline>()
@@ -140,7 +141,7 @@ fn install(app: &mut App) {
                     queue_crack,
                     queue_additive,
                 )
-                    .distributive_run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );

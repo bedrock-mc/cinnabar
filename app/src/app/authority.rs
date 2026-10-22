@@ -2,6 +2,13 @@
 use super::*;
 use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_before_authority};
 
+/// UI readers that leave the whole frame's input to a server experience's consent prompt.
+///
+/// Consent ownership changes only before semantic sampling, so one set condition covers every
+/// reader in the authority chain.
+#[derive(bevy::prelude::SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct OrdinaryInputSet;
+
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
@@ -41,15 +48,13 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         Update,
         (
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
-            drive_sign_editor.run_if(client_extensions::server_experiences::input::ordinary_input),
-            drive_server_form_input
-                .run_if(client_extensions::server_experiences::input::ordinary_input),
+            drive_sign_editor.in_set(OrdinaryInputSet),
+            drive_server_form_input.in_set(OrdinaryInputSet),
             crate::ui_runtime::emotes::drive_emote_input,
-            drive_chat_ui_actions
-                .run_if(client_extensions::server_experiences::input::ordinary_input),
+            drive_chat_ui_actions.in_set(OrdinaryInputSet),
             drain_inventory_authority,
             drive_chat_keyboard_input
-                .run_if(client_extensions::server_experiences::input::ordinary_input)
+                .in_set(OrdinaryInputSet)
                 .before(client_state::ShellFrameSet::MenuInput),
             drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
             drive_menu_services,
@@ -57,11 +62,14 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
-            drive_world_inventory_keys
-                .run_if(client_extensions::server_experiences::input::ordinary_input),
+            drive_world_inventory_keys.in_set(OrdinaryInputSet),
         )
             .chain()
             .in_set(ClientFrameSet::UiAuthority),
+    )
+    .configure_sets(
+        Update,
+        OrdinaryInputSet.run_if(client_extensions::server_experiences::input::ordinary_input),
     )
     .add_systems(
         Update,

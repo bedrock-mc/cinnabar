@@ -88,6 +88,7 @@ impl Plugin for ParticleRenderPlugin {
             return;
         };
         crate::transparent_phase::install(render_app);
+        crate::world_passes::install(render_app);
         render_app
             .init_resource::<ParticlePipeline>()
             .init_resource::<ParticlePhase>()
@@ -101,7 +102,7 @@ impl Plugin for ParticleRenderPlugin {
                     prepare_particle_resources.in_set(RenderSystems::PrepareResources),
                     prepare_particle_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     queue_particles
-                        .run_if(render_scene::panorama::world_passes_enabled)
+                        .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
                 ),
             );

@@ -201,6 +201,7 @@ impl Plugin for ChunkRenderPlugin {
         render_app.edit_schedule(Render, configure_chunk_publication);
         render_app.edit_schedule(Render, configure_graphics_metadata_publication);
         crate::surface_capabilities::install(render_app);
+        crate::world_passes::install(render_app);
         render_app
             .add_systems(
                 RenderStartup,
@@ -221,7 +222,7 @@ impl Plugin for ChunkRenderPlugin {
                         .run_if(opaque_terrain_passes_enabled)
                         .in_set(RenderSystems::Queue),
                     queue_transparent_chunks
-                        .run_if(render_scene::panorama::world_passes_enabled)
+                        .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
