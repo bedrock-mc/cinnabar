@@ -144,7 +144,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	lines, _ := readCommands(ctx, stdin)
 	cfg.configureLocalPlayers(&conf)
 	var srv *server.Server
 	for i, listen := range conf.Listeners {
@@ -203,7 +202,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}()
 	fmt.Fprintln(stdout, "ready")
 
-	serveCommandLines(ctx, lines, cmds)
+	serveCommands(ctx, stdin, cmds)
 	closeErr := srv.Close()
 	<-accepting
 	if host != nil {

@@ -21,15 +21,13 @@ type commands struct {
 
 // serveCommands runs the stdin protocol until "stop", EOF or ctx ends.
 func serveCommands(ctx context.Context, stdin io.Reader, cmds commands) {
-	lines, _ := readCommands(ctx, stdin)
+	lines := readCommands(ctx, stdin)
 	serveCommandLines(ctx, lines, cmds)
 }
 
-// readCommands reports shutdown immediately while retaining earlier commands for startup.
-func readCommands(ctx context.Context, stdin io.Reader) (<-chan string, <-chan struct{}) {
+// readCommands reads controller lines until shutdown or cancellation.
+func readCommands(ctx context.Context, stdin io.Reader) <-chan string {
 	raw := make(chan string)
-	lines := make(chan string)
-	stopped := make(chan struct{})
 	go func() {
 		defer close(raw)
 		scanner := bufio.NewScanner(stdin)
@@ -45,45 +43,7 @@ func readCommands(ctx context.Context, stdin io.Reader) (<-chan string, <-chan s
 			}
 		}
 	}()
-	go func() {
-		defer close(lines)
-		stoppedOpen := true
-		defer func() {
-			if stoppedOpen {
-				close(stopped)
-			}
-		}()
-		var pending []string
-		for raw != nil || len(pending) > 0 {
-			var output chan string
-			var next string
-			if len(pending) > 0 {
-				output, next = lines, pending[0]
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case line, ok := <-raw:
-				if !ok {
-					if stoppedOpen {
-						close(stopped)
-						stoppedOpen = false
-					}
-					raw = nil
-				} else {
-					pending = append(pending, line)
-					if line == "stop" && stoppedOpen {
-						close(stopped)
-						stoppedOpen = false
-					}
-				}
-			case output <- next:
-				pending[0] = ""
-				pending = pending[1:]
-			}
-		}
-	}()
-	return lines, stopped
+	return raw
 }
 
 // serveCommandLines applies queued commands until shutdown or cancellation.
