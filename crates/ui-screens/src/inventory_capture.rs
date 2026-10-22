@@ -119,6 +119,12 @@ pub fn capture_contents(
                 (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
                     .filter_map(|slot| ledger.furnace_visual_stack(slot as u8)),
             )
+            .chain(ledger.crafting_grid().slots().filter_map(|slot| {
+                ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .or_else(|| ledger.crafting_ghost_stack(slot))
+            }))
+            .chain(crafting.output.as_ref().map(|(_, stack)| stack))
             .filter_map(|stack| {
                 let name = item_name(stack)?;
                 Some(((stack.network_id, stack.metadata), Arc::from(name)))

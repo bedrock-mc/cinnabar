@@ -52,6 +52,7 @@ mod queue;
 mod quick_move;
 #[cfg(test)]
 mod quick_move_role_tests;
+mod recipe_allocation;
 mod recovery;
 #[cfg(test)]
 mod recovery_tests;

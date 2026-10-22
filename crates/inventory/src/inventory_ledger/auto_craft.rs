@@ -16,14 +16,8 @@ use super::overlay::DeltaGroup;
 use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
-mod allocation;
-
 /// One ingredient's `(cell, amount, stack id)` sources.
 pub(super) type IngredientSources = Vec<(Cell, u16, i32)>;
-
-/// The most cells a recipe-book craft draws from: the largest grid and the player inventory.
-pub(super) const SOURCE_CELLS: usize =
-    (super::CraftingGrid::Workbench.width() as usize).pow(2) + PLAYER_INVENTORY_SLOT_COUNT;
 
 impl PlayerInventoryLedger {
     /// Cells recipe-book availability, placement and crafting draw from, in order: the open
@@ -61,37 +55,6 @@ impl PlayerInventoryLedger {
         })
     }
 
-    /// Source cells to draw `ingredient` from: `(cell, amount, stack id)`.
-    fn ingredient_sources(
-        &self,
-        ingredient: &RecipeIngredientView,
-        crafts: u8,
-        taken: &[(Cell, u16)],
-    ) -> Option<IngredientSources> {
-        let mut needed = u16::from(ingredient.count) * u16::from(crafts);
-        let mut sources = Vec::new();
-        for cell in self.recipe_source_cells() {
-            if needed == 0 {
-                break;
-            }
-            if !self.source_accepts(cell, ingredient) {
-                continue;
-            }
-            let stack = &self.view().get(cell).expect("accepted").stack;
-            let already: u16 = taken
-                .iter()
-                .filter(|(taken, _)| *taken == cell)
-                .map(|(_, amount)| *amount)
-                .sum();
-            let amount = needed.min(stack.count.saturating_sub(already));
-            if amount > 0 {
-                needed -= amount;
-                sources.push((cell, amount, stack.stack_network_id));
-            }
-        }
-        (needed == 0).then_some(sources)
-    }
-
     /// Whether the grid or inventory holds any of `recipe`'s ingredients.
     #[must_use]
     pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
@@ -117,20 +80,18 @@ impl PlayerInventoryLedger {
         recipe: &RecipeHandle,
         crafts: u8,
     ) -> Option<Vec<IngredientSources>> {
-        let mut taken: Vec<(Cell, u16)> = Vec::new();
-        let mut all = Vec::new();
-        let ingredients = recipe.ingredient_views();
-        for ingredient in ingredients.iter().flatten() {
-            let Some(sources) = self.ingredient_sources(ingredient, crafts, &taken) else {
-                return self.reassigned_sources(&ingredients, crafts);
-            };
-            taken.extend(sources.iter().map(|(cell, amount, _)| (*cell, *amount)));
-            all.push(sources);
-        }
-        Some(all)
+        let views = recipe.ingredient_views();
+        let sources = self.recipe_allocation(&views).plan(crafts, false)?;
+        Some(
+            views
+                .iter()
+                .zip(sources)
+                .filter_map(|(view, sources)| view.as_ref().map(|_| sources))
+                .collect(),
+        )
     }
 
-    /// Names `ingredient` as the request declares it: a tag by the item of its first source,
+    /// Names `ingredient` as the request declares it: a tag by its sources' shared item,
     /// since servers match consumed items against concrete names, anything else as listed.
     fn auto_craft_descriptor(
         &self,
@@ -153,61 +114,13 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Reassigns quantities only when the ordinary first-choice plan cannot satisfy every input.
-    fn reassigned_sources(
-        &self,
-        views: &[Option<RecipeIngredientView>],
-        crafts: u8,
-    ) -> Option<Vec<IngredientSources>> {
-        let ingredients: Vec<_> = views.iter().flatten().collect();
-        let demands: Vec<_> = ingredients
-            .iter()
-            .map(|ingredient| u16::from(ingredient.count) * u16::from(crafts))
-            .collect();
-        let cells = self.recipe_source_cells();
-        let mut counts = [0; SOURCE_CELLS];
-        let mut identities = [0; SOURCE_CELLS];
-        let mut accepts = [[false; SOURCE_CELLS]; protocol::MAX_RECIPE_INGREDIENTS];
-        for (index, cell) in cells.iter().enumerate() {
-            let Some((stack, _)) = self.auto_craft_stack(*cell) else {
-                continue;
-            };
-            counts[index] = stack.count;
-            identities[index] = stack.stack_network_id;
-            for (row, ingredient) in ingredients.iter().enumerate() {
-                accepts[row][index] = self.source_accepts(*cell, ingredient);
-            }
-        }
-        let assigned = allocation::plan(&demands, &counts, &accepts)?;
-        let sources = assigned
-            .iter()
-            .take(ingredients.len())
-            .map(|row| {
-                row.iter()
-                    .copied()
-                    .enumerate()
-                    .filter(|(_, amount)| *amount > 0)
-                    .map(|(index, amount)| (cells[index], amount, identities[index]))
-                    .collect()
-            })
-            .collect();
-        Some(sources)
-    }
-
-    /// How many times the inventory can craft `recipe` at once, capped so every result fits
-    /// one stack.
+    /// The highest repeat count one output stack and one variant per ingredient can supply.
     fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
-        let per_stack = self.crafts_per_request(recipe).unwrap_or(0);
-        let (mut low, mut high) = (0u8, per_stack);
-        while low < high {
-            let middle = low + (high - low).div_ceil(2);
-            if self.auto_craft_sources(recipe, middle).is_some() {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
-        }
-        low
+        let allocation = self.recipe_allocation(&recipe.ingredient_views());
+        (1..=self.crafts_per_request(recipe).unwrap_or(0))
+            .rev()
+            .find(|crafts| allocation.plan(*crafts, false).is_some())
+            .unwrap_or(0)
     }
 
     /// Crafts `recipe` from inventory ingredients once, or with `all` as many times as one

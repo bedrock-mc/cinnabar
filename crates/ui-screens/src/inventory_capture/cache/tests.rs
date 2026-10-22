@@ -151,6 +151,89 @@ fn open_input(ledger: &PlayerInventoryLedger) -> ProjectionInput<'_> {
     }
 }
 
+/// Ghost inputs and their result need names even when no real stack has that item.
+#[test]
+fn recipe_ghost_inputs_and_output_publish_hover_names_and_clear_them() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    let mut ledger = ledger();
+    let entries: Vec<_> = [(90, "test:missing"), (91, "test:result")]
+        .into_iter()
+        .map(|(id, name)| {
+            let mut entry = protocol::vanilla_item_registry()[0].clone();
+            entry.network_id = id;
+            entry.identifier = Arc::from(name);
+            entry
+        })
+        .collect();
+    ledger.apply_registry(&protocol::ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    ledger.apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: vec![NetworkItemStack::empty(); protocol::PLAYER_INVENTORY_SLOTS as usize].into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: inventory::inventory_ledger::WORKBENCH_WINDOW_TYPE,
+        position: [0; 3],
+        runtime_entity_id: -1,
+    }));
+    let mut fixture = RecipeFixture::shapeless(
+        "test:ghost",
+        vec![IngredientFixture::named("test:missing", 0)],
+        vec![OutputFixture::new(91, 1)],
+    );
+    fixture.net_id = 77;
+    let mut catalog = protocol::RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    let mut cache = InventoryProjectionCache::default();
+    let project =
+        |cache: &mut InventoryProjectionCache, ledger: &PlayerInventoryLedger, refresh| {
+            cache.capture(
+                ProjectionInput {
+                    refresh,
+                    ..open_input(ledger)
+                },
+                || inventory::CraftGridMatch::NoMatch,
+                |_, _| ProjectedIcon::default(),
+                |_, _| None,
+                |stack| Some(format!("Item {}", stack.network_id)),
+            )
+        };
+    project(&mut cache, &ledger, ProjectionRefresh::default());
+    ledger
+        .begin_recipe_placement(&catalog.recipe(77).unwrap())
+        .unwrap();
+    let update = project(&mut cache, &ledger, ProjectionRefresh::default());
+    let names = update.item_names.unwrap();
+    assert_eq!(names[&(90, 0)].as_ref(), "Item 90");
+    assert_eq!(names[&(91, 0)].as_ref(), "Item 91");
+    let uncached = capture_contents(
+        &ledger,
+        true,
+        || inventory::CraftGridMatch::NoMatch,
+        |_, _| None,
+        |stack| Some(format!("Item {}", stack.network_id)),
+    );
+    assert_eq!(uncached.item_names, names);
+    assert!(
+        project(&mut cache, &ledger, ProjectionRefresh::default())
+            .item_names
+            .is_none()
+    );
+    ledger.clear_recipe_selection();
+    assert!(
+        project(&mut cache, &ledger, ProjectionRefresh::default())
+            .item_names
+            .unwrap()
+            .is_empty()
+    );
+}
+
 #[test]
 fn large_server_menu_keeps_high_slot_artwork_names_and_updates() {
     let mut ledger = ledger();

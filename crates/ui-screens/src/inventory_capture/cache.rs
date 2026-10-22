@@ -258,6 +258,10 @@ impl InventoryProjectionCache {
                 animation.dials,
                 &mut resolve_icon,
             );
+            for slot in ledger.crafting_grid().slots() {
+                names_changed |= self.ui[usize::from(slot)].name(names, &mut item_name);
+            }
+            names_changed |= self.output.name(names, &mut item_name);
         }
         let crafting = if inventory_open {
             let mut crafting = CraftingFrame::default();
@@ -284,6 +288,13 @@ impl InventoryProjectionCache {
                 self.player
                     .iter()
                     .chain(&self.visual_storage)
+                    .chain(
+                        ledger
+                            .crafting_grid()
+                            .slots()
+                            .map(|slot| &self.ui[usize::from(slot)]),
+                    )
+                    .chain(std::iter::once(&self.output))
                     .filter_map(|cell| {
                         let stack = cell.stack.as_ref()?;
                         Some(((stack.network_id, stack.metadata), cell.name.clone()?))

@@ -391,6 +391,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
+  each ingredient draws from one concrete variant. Missing grid ingredients and their
+  result retain hover names. Broader crafting and container acceptance remains incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts

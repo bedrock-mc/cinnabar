@@ -348,3 +348,43 @@ fn a_book_craft_consumes_ingredients_from_the_grid() {
         Some(PLANKS)
     );
 }
+
+/// Filling the oak-only cell needs both earlier tag cells moved to birch.
+#[test]
+fn placement_reassigns_two_tag_cells_to_fill_a_larger_exact_demand() {
+    let recipe = shaped(
+        2,
+        2,
+        vec![
+            IngredientFixture::tagged("test:wood"),
+            IngredientFixture::tagged("test:wood"),
+            IngredientFixture {
+                count: 2,
+                ..IngredientFixture::named("minecraft:oak_planks", 0)
+            },
+            IngredientFixture::empty(),
+        ],
+    );
+    let mut ledger = stocked(
+        PERSONAL_INVENTORY_WINDOW_TYPE,
+        &[(9, PLANKS, 100, 2), (10, LOG, 101, 2)],
+    );
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        if entry.network_id == LOG {
+            entry.identifier = Arc::from("minecraft:birch_planks");
+        }
+        if matches!(entry.network_id, LOG | PLANKS) {
+            entry.item_tags = Arc::from([Arc::from("test:wood")]);
+        }
+    }
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    assert!(ledger.can_auto_craft(&recipe));
+    ledger.begin_recipe_placement(&recipe).unwrap();
+    assert_eq!(grid_count(&ledger, 28), Some((LOG, 1)));
+    assert_eq!(grid_count(&ledger, 29), Some((LOG, 1)));
+    assert_eq!(grid_count(&ledger, 30), Some((PLANKS, 2)));
+    assert!(ledger.crafting_ghost_stack(30).is_none());
+}
