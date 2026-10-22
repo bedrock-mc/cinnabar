@@ -183,13 +183,28 @@ fn prepare_join_with(
         if let PackAdmission::Validated(stack) = &packs.admission {
             packs.terrain_identity = terrain_identity(stack, &packs.dependencies);
         }
-        packs.prepare_actor_artwork(bases.actor_artwork, None);
+        let stack_artwork = packs.entity_artwork.clone();
+        let artwork = bases
+            .actor_artwork
+            .map(|current| entity_artwork_base(current, stack_artwork.as_deref()));
+        packs.prepare_actor_artwork(artwork, None);
         let source_ui = packs.server_ui.clone();
         packs.prepare_ui_catalog(bases.ui_catalog);
         let now = reuse::CompileEnvironment::current();
         kept.keep_join(environment, &now, &packs, source_ui, cancelled);
         packs
     }))
+}
+
+/// The actor artwork a stack publishes over `current`: its entity texture overrides when they
+/// change the identity, else `current` itself, so prepared resources keep sharing its storage.
+pub(super) fn entity_artwork_base<'a>(
+    current: &'a render_model::ActorArtworkPages,
+    stack: Option<&'a render_model::ActorArtworkPages>,
+) -> &'a render_model::ActorArtworkPages {
+    stack
+        .filter(|next| next.identity() != current.identity())
+        .unwrap_or(current)
 }
 
 /// The recently compiled stacks joins and the post-join reload share.

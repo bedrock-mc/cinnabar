@@ -157,6 +157,12 @@ impl PreparedActorArtwork {
         prepared
     }
 
+    /// The artwork snapshot these resources were prepared over; the frame publishes them only
+    /// while its live artwork shares this storage.
+    pub fn base(&self) -> &ActorArtworkPages {
+        &self.base
+    }
+
     /// Reuses held-block preparation only for the exact retained terrain carrier.
     pub fn block_items_for(
         &self,
