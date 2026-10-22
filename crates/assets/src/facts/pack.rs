@@ -46,9 +46,13 @@ domain!(PackTexture {
     GrassSide,
     MyceliumSide,
     ResinClump,
-    PowderSnow
+    PowderSnow,
+    StrawBed
 });
 domain!(PackBlock {
+    Beacon,
+    Obsidian,
+    Glass,
     BeeNest,
     Beehive,
     ChiseledBookshelf,
@@ -59,7 +63,8 @@ domain!(PackBlock {
     Dirt,
     CobblestoneWall,
     Air,
-    Stone
+    Stone,
+    StrawBed
 });
 domain!(TextureSelector {
     Door,
@@ -72,6 +77,15 @@ domain!(TextureSelector {
     CropStages,
     Torchflower
 });
+
+/// Identifies the built-in furnace pair and whether its front uses lit artwork.
+pub fn furnace_lit(identifier: &str) -> Option<bool> {
+    match identifier {
+        "minecraft:furnace" => Some(false),
+        "minecraft:lit_furnace" => Some(true),
+        _ => None,
+    }
+}
 
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -224,8 +238,12 @@ impl PackRules {
             _ => EntityRenderMaterial::Default,
         }
     }
-    /// Supplies the native fallback state only for aliases covered by the policy.
+    /// Resolves built-in material aliases before reading their policy state.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
+        let name = match name {
+            "harness" => "entity_alphatest",
+            _ => name,
+        };
         let mut state = EntityRenderMaterialState::default();
         match self.material(name)? {
             MaterialKind::AlphaTestNoCull => {

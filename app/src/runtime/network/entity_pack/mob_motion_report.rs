@@ -298,6 +298,7 @@ fn move_mobs(world: &mut WorldStream, tick: u32, travel: f32) {
                     head_yaw: None,
                     on_ground: Some(true),
                     teleported: false,
+                    force_local_move: false,
                     player_mode: None,
                     source_tick: Some(u64::from(tick)),
                     interpolation: Default::default(),

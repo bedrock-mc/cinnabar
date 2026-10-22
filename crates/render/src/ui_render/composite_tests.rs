@@ -127,6 +127,7 @@ fn held(input: Arc<UiRenderInput>) -> HeldLayer {
             model_depth: false,
         },
         encoded: true,
+        nonempty: true,
         publication: Some(input),
     }
 }
@@ -222,6 +223,7 @@ fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
                         msaa,
                         hdr,
                         enhanced: false,
+                        shader_pack: false,
                         output: None,
                     },
                     &mut ids,
@@ -377,7 +379,8 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
             segment: 0..1,
             inverted: None,
         };
-        frame_layer(&layers[0], false).hold_publication(Some((content, true)), Some(publication));
+        frame_layer(&layers[0], false)
+            .hold_publication(Some((content, true, true)), Some(publication));
         store.views.insert(owner, layers);
         assert!(weak.upgrade().is_some());
         if remove_device {
@@ -390,4 +393,45 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
         assert!(store.views.is_empty());
         assert!(weak.upgrade().is_none());
     }
+}
+
+/// Startup handoff needs complete content, and a retained raster is not a new presentation.
+#[test]
+fn destination_readiness_rejects_incomplete_segments_and_previous_frame_presentation() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let raster = retained_layer(
+        device,
+        Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+    );
+    let frame = frame_layer(&raster, true);
+    assert!(!frame.complete_content());
+    assert!(!frame.presented_complete_content());
+    frame.record_content_draw(true, true);
+    assert!(
+        frame.held.lock().unwrap().is_none(),
+        "scratch output need not be cached"
+    );
+    assert!(frame.complete_content());
+    assert!(
+        !frame.presented_complete_content(),
+        "encoding alone is not presentation"
+    );
+    frame.record_content_draw(false, true);
+    assert!(
+        !frame.complete_content(),
+        "partial encoding must keep feedback visible"
+    );
+    frame.record_content_draw(true, false);
+    assert!(
+        !frame.complete_content(),
+        "empty encoding must keep feedback visible"
+    );
+    frame.content_presented.store(true, Ordering::Relaxed);
+    assert!(frame.presented_complete_content());
+    assert!(!frame_layer(&raster, true).presented_complete_content());
 }

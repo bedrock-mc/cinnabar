@@ -12,7 +12,7 @@
         android:hasCode="true"
         android:allowBackup="false"
         android:extractNativeLibs="true"
-        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        android:theme="@style/StartupTheme">
         <activity
             android:name=".BootstrapActivity"
             android:exported="true"
@@ -25,6 +25,7 @@
         </activity>
         <activity
             android:name=".CinnabarActivity"
+            android:windowSoftInputMode="adjustNothing"
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"

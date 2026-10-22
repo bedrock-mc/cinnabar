@@ -18,7 +18,8 @@ use launcher::local_worlds::world::{SetupState, UnavailableReason};
 use super::{
     Cancel,
     bds::{
-        BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, level_type, sanitize_property, view_and_tick,
+        BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, create_world, level_type, option_properties,
+        sanitize_property, view_and_tick, world_player_limit, write_host_permissions,
     },
     create_private_dir,
     docker::{PROBE_TIMEOUT, docker_command, finishes, succeeds},
@@ -27,7 +28,7 @@ use super::{
         BDS_CONTAINER_HTTP_PORT, BDS_CONTAINER_UDP_PORT, LAN_DISCOVERY_PORT, LOCAL_SERVER_HOST,
         bds_udp_mapping, check_bds_lan_port, free_bds_port, lan_address, loopback, udp_port_range,
     },
-    process::{Instance, Launch, Process, StartSpec, launch},
+    process::{Instance, Launch, Process, SAVE_BUDGET, StartSpec, launch},
     provision::{RuntimeInfo, install_dir},
     store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
@@ -65,7 +66,7 @@ pub(crate) struct ContainerArgs<'a> {
 /// server's worlds directory, and the EULA acknowledged (callers check acceptance first).
 pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
     let world = &args.spec.world;
-    let (view, tick) = view_and_tick(args.spec);
+    let (view, _) = view_and_tick(args.spec);
     let players = args.max_players;
     let mut run = vec![
         "run".to_owned(),
@@ -117,7 +118,6 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         ("GAMEMODE", wire_name(world.game_mode)),
         ("FORCE_GAMEMODE", super::bds::FORCE_GAME_MODE.to_string()),
         ("DIFFICULTY", wire_name(world.difficulty)),
-        ("ALLOW_CHEATS", "false".to_owned()),
         ("MAX_PLAYERS", players.to_string()),
         ("ONLINE_MODE", "false".to_owned()),
         ("ALLOW_LIST", "false".to_owned()),
@@ -125,7 +125,6 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         ("LEVEL_SEED", world.seed.to_string()),
         ("LEVEL_TYPE", level_type(world.generator).to_owned()),
         ("VIEW_DISTANCE", view.to_string()),
-        ("TICK_DISTANCE", tick.to_string()),
         ("PLAYER_IDLE_TIMEOUT", "0".to_owned()),
         ("TRANSPORT", BDS_TRANSPORT.to_owned()),
         ("SERVER_PORT", BDS_CONTAINER_HTTP_PORT.to_string()),
@@ -140,6 +139,13 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
     ] {
         run.push("-e".to_owned());
         run.push(format!("{key}={value}"));
+    }
+    for (key, value) in option_properties(args.spec) {
+        run.push("-e".to_owned());
+        run.push(format!(
+            "{}={value}",
+            key.replace('-', "_").to_ascii_uppercase()
+        ));
     }
     run.push(args.image.to_owned());
     run
@@ -216,7 +222,7 @@ impl BdsRunner {
         if !self.image.contains("@sha256:") {
             return Err(WorldError::ImageNotPinned);
         }
-        let max_players = self.max_players.max(1);
+        let max_players = world_player_limit(spec, self.max_players);
         self.check_docker(cancel)?;
         self.ensure_image(cancel)?;
         let binary = provisioner.ensure(cancel)?;
@@ -226,8 +232,13 @@ impl BdsRunner {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         link_versioned_binary(&binary, &version)?;
+        // The image rewrites this list only when given its own operator variables.
+        write_host_permissions(install, spec)?;
         create_private_dir(&spec.dir.join(LEVEL_DIR))
             .map_err(|error| failed(format!("create world folder: {error}")))?;
+        let name = container_name(&spec.world.id);
+        // A leftover of an earlier crash would hold the name and its ports.
+        self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
         let port = free_bds_port(max_players, self.host_port)?;
         if self.lan_visible {
             let lan_port = if self.lan_host_port == 0 {
@@ -237,47 +248,52 @@ impl BdsRunner {
             };
             check_bds_lan_port(port, max_players, lan_port)?;
         }
-        let name = container_name(&spec.world.id);
-        // A leftover of an earlier crash would hold the name.
-        self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
-        let mut command = self.docker();
-        command.args(container_args(&ContainerArgs {
-            spec,
-            image: &self.image,
-            version: &version,
-            install,
-            host_port: port,
-            max_players,
-            lan_visible: self.lan_visible,
-            lan_host_port: self.lan_host_port,
-        }));
-        let launched = launch(
-            command,
-            Launch {
-                address: loopback(port),
-                timeout: self.start_timeout.unwrap_or(CONTAINER_START_TIMEOUT),
-                can_pause: false,
-                ready: |line| line.contains(BDS_READY_MARKER),
-                label: format!("bds-container {}", spec.world.id),
-            },
-            cancel,
-        );
-        let process = match launched {
-            Ok(process) => process,
-            Err(error) => {
-                self.docker_succeeds(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT);
-                return Err(error);
+        let run = |label: &str| {
+            let mut command = self.docker();
+            command.args(container_args(&ContainerArgs {
+                spec,
+                image: &self.image,
+                version: &version,
+                install,
+                host_port: port,
+                max_players,
+                lan_visible: self.lan_visible,
+                lan_host_port: self.lan_host_port,
+            }));
+            let launched = launch(
+                command,
+                Launch {
+                    address: loopback(port),
+                    timeout: self.start_timeout.unwrap_or(CONTAINER_START_TIMEOUT),
+                    can_pause: false,
+                    ready: |line| line.contains(BDS_READY_MARKER),
+                    label: format!("{label} {}", spec.world.id),
+                },
+                cancel,
+            );
+            match launched {
+                Ok(process) => Ok(ContainerInstance {
+                    process,
+                    docker: self.docker.clone(),
+                    env: self.env.clone(),
+                    name: name.clone(),
+                    removed: Once::new(),
+                    max_players,
+                    lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
+                }),
+                Err(error) => {
+                    self.docker_succeeds(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT);
+                    Err(error)
+                }
             }
         };
-        let instance = Arc::new(ContainerInstance {
-            process,
-            docker: self.docker.clone(),
-            env: self.env.clone(),
-            name,
-            removed: Once::new(),
-            max_players,
-            lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
-        });
+        let world_dir = spec.dir.join(LEVEL_DIR);
+        let fresh = create_world(&world_dir, || {
+            let instance = run("bds-container create")?;
+            Ok(move || instance.stop(SAVE_BUDGET))
+        })?;
+        super::level_dat::configure(&spec.world, &world_dir, fresh || spec.options_unapplied)?;
+        let instance = Arc::new(run("bds-container")?);
         let watched = Arc::clone(&instance);
         thread::spawn(move || {
             let _ = watched.process.exited().recv();

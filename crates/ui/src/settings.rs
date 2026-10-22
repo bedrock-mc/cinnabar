@@ -187,6 +187,7 @@ pub struct VideoSettings {
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
+    pub chunk_occlusion_culling: bool,
     pub brightness: f32,
     pub render_mode: RenderMode,
     /// File or folder name of the selected Java shader pack inside the shader-pack
@@ -224,6 +225,7 @@ impl Default for VideoSettings {
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
             render_distance_chunks: MIN_RENDER_DISTANCE_CHUNKS,
+            chunk_occlusion_culling: render_api::DEFAULT_CHUNK_OCCLUSION_CULLING,
             brightness: 0.5,
             render_mode: RenderMode::Vanilla,
             shader_pack: None,

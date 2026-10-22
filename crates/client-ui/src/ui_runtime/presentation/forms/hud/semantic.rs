@@ -370,6 +370,10 @@ impl SemanticHud {
             &mut self.model.chat_background_opacity,
             f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0,
         );
+        changed |= replace(
+            &mut self.model.chat_text,
+            ui_screens::settings_chat::chat_text(settings),
+        );
         changed
     }
 }

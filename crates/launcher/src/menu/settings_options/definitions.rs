@@ -358,9 +358,9 @@ settings! {
     ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),
         [(SettingPanel::CreatorContentLog, 3)], [], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
-        [(SettingPanel::AccessibilityUi, 4)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
-        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::Chat, 4)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 4)], [SettingsGroup::Chat], None, None;
     ControllerSensitivity => "controller_sensitivity", slider("options.sensitivity", 0, 100, 50),
         [(SettingPanel::Controller, 0)], [], None, Some("options.controller.sensitivity.name");
     SpyglassGamepadDampening => "spyglass_gamepad_dampening", slider("options.spyglassdampen", 0, 100, 50),
@@ -368,9 +368,9 @@ settings! {
     GamepadCursorSensitivity => "gamepad_cursor_sensitivity", slider("options.gamepadcursorsensitivity", 0, 100, 50),
         [], [], None, None;
     HudTextBackgroundOpacity => "hud_text_background_opacity", slider("options.hudTextBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatBackgroundOpacity => "chat_background_opacity", slider("options.chatBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 1), (SettingPanel::Chat, 1)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 1)], [SettingsGroup::Chat], None, None;
     ActionbarTextBackgroundOpacity => "actionbar_text_background_opacity", slider("options.actionBarTextBackgroundOpacity", 0, 100, 50),
         [(SettingPanel::AccessibilityUi, 0)], [SettingsGroup::Accessibility], None, None;
     Darkness => "darkness", slider("options.darknessEffectModifier", 0, 100, 100),
@@ -383,6 +383,8 @@ settings! {
         [(SettingPanel::AccessibilityGameplay, 8)], [SettingsGroup::Accessibility], None, None;
     RenderDistance => "render_distance", slider("options.renderDistance", ui::MIN_RENDER_DISTANCE_CHUNKS as i32, render_api::MAX_VIEW_RADIUS_CHUNKS, ui::MIN_RENDER_DISTANCE_CHUNKS as i32),
         [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
+    ChunkOcclusionCulling => "chunk_occlusion_culling", toggle("Chunk Occlusion Culling", render_api::DEFAULT_CHUNK_OCCLUSION_CULLING),
+        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
     MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
         [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;
     Msaa => "msaa", slider("options.msaa", ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32, ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32, ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32),
@@ -506,9 +508,9 @@ settings! {
     UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
         [(SettingPanel::Updates, 0)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
-        [(SettingPanel::GeneralNetwork, 4)], [], None, None;
+        [(SettingPanel::ModUpdates, 0)], [], None, None;
     ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),
-        [(SettingPanel::GeneralNetwork, 5)], [], None, None;
+        [(SettingPanel::ModUpdates, 1)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),
@@ -562,7 +564,7 @@ settings! {
     EnableDitheringMobs => "enable_dithering_mobs", toggle("options.enableDitheringMobs", false),
         [(SettingPanel::AccessibilityGameplay, 4)], [SettingsGroup::Accessibility], None, None;
     GuiAccessibilityScaling => "gui_accessibility_scaling", toggle("options.gui.accessibility.scaling", false),
-        [(SettingPanel::AccessibilityUi, 6), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
+        [(SettingPanel::AccessibilityUi, 4), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
@@ -598,11 +600,14 @@ settings! {
     FullScreen => "full_screen", host("options.fullscreen"),
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
-        [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
-        [], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 0)], [], None, None;
+
 }

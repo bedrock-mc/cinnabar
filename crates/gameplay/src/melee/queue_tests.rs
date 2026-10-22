@@ -421,6 +421,7 @@ impl Harness {
 fn target(id: u64) -> DestroyTarget {
     let stack = protocol::NetworkItemStack::empty();
     DestroyTarget {
+        local_runtime_id: 8,
         position: [id as i32, 2, 3],
         face: 1,
         runtime_id: 9,

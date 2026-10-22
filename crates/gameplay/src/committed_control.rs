@@ -65,6 +65,11 @@ impl CommittedGameplayState<'_> {
         world: &impl CollisionWorld,
         mut observe: impl FnMut(ControlObservation),
     ) -> ControlDisposition {
+        if let CommittedControlEvent::LocalActorMove { movement, .. } = control
+            && movement.dimension != self.dimension
+        {
+            return ControlDisposition::Handled;
+        }
         if let CommittedControlEvent::LocalHurt {
             source_direction, ..
         } = control
@@ -150,30 +155,16 @@ impl CommittedGameplayState<'_> {
         ) {
             return ControlDisposition::Environment;
         }
-        if let CommittedControlEvent::LocalMovementBoost { sequence, event } = control {
-            // Vanilla predicts a boost from the tick the server stamped, so it
-            // enters retained inputs and replays from there.
+        if let CommittedControlEvent::LocalMovementBoost { event, .. } = control {
+            // Vanilla applies a boost from the tick the server stamped, so
+            // retained ticks after it replay with the boost.
             if let Some(boost) = movement::MovementBoost::from_kind(event.kind) {
                 let span = movement::BoostSpan::from_wire(event.duration_ticks);
-                let mut remaining = Some(span);
-                if self.movement.physics_is_authorized() {
-                    let retime = self.physics.retime_movement_boost(boost, event.tick, span);
-                    remaining = retime.remaining;
-                    // A failed replay boosted no past tick: undo the history edit
-                    // so only the live span carries the boost.
-                    if let Some(rewind) = retime.rewind
-                        && !replay_timeline_edit(self.movement, self.physics, rewind, world)
-                    {
-                        self.physics.revert_movement_boost(retime);
-                        remaining = Some(span);
-                    }
+                if let Some(rewind) = self.physics.record_server_boost(boost, event.tick, span)
+                    && self.movement.physics_is_authorized()
+                {
+                    replay_timeline_edit(self.movement, self.physics, rewind, world);
                 }
-                self.effects.set_movement_boost(
-                    self.session_generation,
-                    sequence,
-                    boost,
-                    remaining,
-                );
             }
             return ControlDisposition::Handled;
         }
@@ -308,6 +299,15 @@ impl CommittedGameplayState<'_> {
                         correction.on_ground,
                     );
                 }
+                SpatialReset::Correction
+            }
+            CommittedControlEvent::LocalActorMove {
+                movement: correction,
+                resolved,
+                ..
+            } => {
+                self.physics
+                    .apply_server_actor_position(resolved.position, correction.on_ground);
                 SpatialReset::Correction
             }
             CommittedControlEvent::ChangeDimension { resolved, .. } => {

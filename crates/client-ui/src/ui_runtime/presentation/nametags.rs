@@ -200,7 +200,8 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     actor_animation::AnimatedActor::flag(actor, bit)
 }
 
-/// Keeps crouched labels at standing height and follows the live height for prone poses.
+/// Follows the published box height, as vanilla anchors every actor's label to its box, except
+/// that crouched and sleeping players keep the standing height before their Java-style drop.
 /// Raw metadata height and clearance each receive the render scale once.
 fn tag_height(actor: &ActorSnapshot) -> f32 {
     let player = matches!(actor.kind, ActorKind::Player { .. });
@@ -208,16 +209,6 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
         && [ActorFlag::Swimming, ActorFlag::Crawling, ActorFlag::Gliding]
             .into_iter()
             .any(|flag| actor_flag(actor, flag.wire_value()));
-    let height = if player && !prone {
-        DEFAULT_HEIGHT
-    } else {
-        match actor.metadata.get(&METADATA_HEIGHT) {
-            Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => {
-                *height
-            }
-            _ => DEFAULT_HEIGHT,
-        }
-    };
     let offset = if !player || prone {
         0.0
     } else if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
@@ -226,6 +217,12 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
         SLEEPING_LABEL_DROP
     } else {
         0.0
+    };
+    let height = match actor.metadata.get(&METADATA_HEIGHT) {
+        // The posed box has already shrunk; the Java drop applies to the standing height.
+        _ if offset != 0.0 => DEFAULT_HEIGHT,
+        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => *height,
+        _ => DEFAULT_HEIGHT,
     };
     (height + HEAD_CLEARANCE) * actor.render_scale() - offset
 }

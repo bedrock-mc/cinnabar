@@ -38,6 +38,8 @@ pub struct CosmeticEmitterPlacements(pub Vec<CosmeticEmitterPlacement>);
 /// Geometry and render-only skeletons sampled for the current attachment frame.
 #[derive(Default)]
 pub(super) struct AttachmentFrame<'a> {
+    pub collisions: Option<&'a dyn crate::observations::CollisionLookup>,
+    pub hidden_local: Option<&'a render_model::ActorRigSubmission>,
     pub geometries: &'a [render_model::ActorRigGeometry],
     pub equipment: Option<&'a crate::presentation::equipment::EquipmentRuntime>,
     pub local_emote: Option<&'a actor_animation::CustomEmotePose>,
@@ -81,6 +83,7 @@ fn emissive_material(body: ActorMaterial) -> ActorMaterial {
 
 #[derive(Default)]
 struct Attachment {
+    companion: super::companions::State,
     cloth: hats::cloth::ClothState,
     contacts: Option<Vec<hats::cloth::Collider>>,
     wind: hats::EarWind,
@@ -243,9 +246,15 @@ impl HatState {
             return;
         };
         let mut textures = HashMap::new();
-        let count = batch.submissions.len();
-        for index in 0..count {
-            let body = batch.submissions[index].clone();
+        let mut bodies: Vec<_> = batch
+            .submissions
+            .iter()
+            .map(|body| (body.clone(), false))
+            .collect();
+        if let Some(body) = frame.hidden_local {
+            bodies.push((body.clone(), true));
+        }
+        for (body, hidden) in bodies {
             let id = body.input.identity.runtime_id;
             if body.input.identity.layer != ACTOR_LAYER_BODY || body.route == ActorRigRoute::NoDraw
             {
@@ -267,6 +276,9 @@ impl HatState {
                     .collect()
             };
             for item in selected {
+                if hidden && hats::rig(item).companion().is_none() {
+                    continue;
+                }
                 let Some(rig) = stream.authority().actor_rig(id) else {
                     continue;
                 };
@@ -301,12 +313,35 @@ impl HatState {
                         (frame.geometries, frame.equipment),
                     ));
                 }
-                let Some((previous, current)) = attachment.pose(
-                    item,
-                    &body,
-                    (rig.bone_names, rig.attachments),
-                    (self.seconds, partial_tick),
-                ) else {
+                let companion = if hats::rig(item).companion().is_some() {
+                    let Some(collisions) = frame.collisions else {
+                        continue;
+                    };
+                    let Some(frame) = attachment.companion.advance(
+                        item,
+                        &body,
+                        actor.head_yaw,
+                        self.seconds,
+                        stream,
+                        collisions,
+                    ) else {
+                        continue;
+                    };
+                    Some(frame)
+                } else {
+                    None
+                };
+                let poses = if let Some(frame) = &companion {
+                    Some((Arc::clone(&frame.1), Arc::clone(&frame.1)))
+                } else {
+                    attachment.pose(
+                        item,
+                        &body,
+                        (rig.bone_names, rig.attachments),
+                        (self.seconds, partial_tick),
+                    )
+                };
+                let Some((previous, current)) = poses else {
                     continue;
                 };
                 let model = hats::rig(item);
@@ -326,7 +361,12 @@ impl HatState {
                 }
                 let mut submission = body.clone();
                 // The catalog slot index keeps layers unique for multiple attachments on one actor.
-                if model.has_cloth() {
+                if let Some((placement, _)) = &companion {
+                    submission.world_from_actor = *placement;
+                    submission.light = super::companions::lighting(*placement, |position| {
+                        stream.solved_light_at(position)
+                    });
+                } else if model.has_cloth() {
                     submission.world_from_actor = attachment
                         .cloth
                         .fitted_placement()
@@ -348,6 +388,18 @@ impl HatState {
         }
         self.attachments
             .retain(|_, attachment| attachment.seen == self.frame);
+    }
+
+    /// Identifies independently placed companions that remain visible beside a coverage-only owner.
+    pub(super) fn independent_layers(&self, batch: &ActorPresentationBatch) -> Vec<(u64, u8)> {
+        self.drawn
+            .iter()
+            .filter_map(|&(index, item)| {
+                hats::rig(item).companion()?;
+                let identity = batch.submissions.get(index)?.input.identity;
+                Some((identity.runtime_id, identity.layer))
+            })
+            .collect()
     }
 
     /// Replaces `placements` with the emitters of this frame's attachments that still draw after
