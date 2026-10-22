@@ -571,50 +571,131 @@ impl sim::CollisionWorld for ScaffoldColumn {
     }
 }
 
-/// A sync reports the local block-climber flags even when server metadata lacks
-/// them, and an immobile tick, which samples no terrain, keeps the earlier contact.
-#[test]
-fn correction_sync_reports_local_block_climber_flags() {
-    let climber = [
-        ActorFlag::InScaffolding,
-        ActorFlag::OverScaffolding,
-        ActorFlag::DescendThroughBlock,
-        ActorFlag::InAscendingBlock,
-        ActorFlag::OverDescendingBlock,
-    ];
-    for frozen in [false, true] {
-        let flags = climber_sync_flags(frozen);
-        for flag in climber {
-            assert!(
-                flag_set(&flags, flag),
-                "{flag:?} must come from the local tick (frozen: {frozen})"
-            );
-        }
+/// Terrain that cannot be read, so a stationary tick measures no climber contact.
+struct Unreadable;
+
+impl sim::CollisionWorld for Unreadable {
+    /// Leaves the frozen player unconstrained.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Fails every block read.
+    fn block_physics(
+        &self,
+        _block: [i32; 3],
+    ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        Err(sim::WorldQueryError::CoordinateOutOfRange)
     }
 }
 
-/// Sends a due sync after a sneaking tick in scaffolding, optionally followed by an immobile tick.
-fn climber_sync_flags(frozen: bool) -> [u64; 3] {
+/// How the player spends the ticks between the scaffold contact and the sync.
+#[derive(Debug, Clone, Copy)]
+enum Freeze {
+    None,
+    /// One immobile tick in the scaffolding, sneaking or not.
+    InPlace {
+        sneaking: bool,
+    },
+    /// Immobile ticks over unreadable terrain, outlasting the retained history.
+    Unreadable,
+}
+
+/// A sync reports the local block-climber flags even when server metadata lacks
+/// them. Immobile ticks keep measuring contact and the descent request in place,
+/// and unmeasured ones keep the last flags beyond the retained history.
+#[test]
+fn correction_sync_reports_local_block_climber_flags() {
+    let contact = [
+        ActorFlag::InScaffolding,
+        ActorFlag::OverScaffolding,
+        ActorFlag::InAscendingBlock,
+        ActorFlag::OverDescendingBlock,
+    ];
+    for (freeze, descending) in [
+        (Freeze::None, true),
+        (Freeze::InPlace { sneaking: true }, true),
+        (Freeze::InPlace { sneaking: false }, false),
+        (Freeze::Unreadable, true),
+    ] {
+        let flags = climber_sync_flags(freeze);
+        for flag in contact {
+            assert!(flag_set(&flags, flag), "{flag:?} after {freeze:?}");
+        }
+        assert_eq!(
+            flag_set(&flags, ActorFlag::DescendThroughBlock),
+            descending,
+            "{freeze:?}"
+        );
+    }
+}
+
+/// Measured ticks publish their own climber flags; unmeasured stationary ticks
+/// keep the previous ones and spectator ticks leave the server's.
+#[test]
+fn climber_flags_follow_measured_ticks_only() {
+    let previous = Some(ClimberFlags {
+        in_scaffolding: true,
+        ..ClimberFlags::default()
+    });
+    let measured = sim::MovementEnvironment {
+        over_scaffolding: true,
+        ..Default::default()
+    };
+    let unmeasured = sim::MovementEnvironment {
+        climber_unsampled: true,
+        ..Default::default()
+    };
+    let immobile = sim::MovementInput {
+        immobile: true,
+        ..Default::default()
+    };
+    let spectator = sim::MovementInput {
+        spectator: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        ClimberFlags::after_tick(&immobile, &measured, previous),
+        Some(ClimberFlags::from(&measured))
+    );
+    assert_eq!(
+        ClimberFlags::after_tick(&immobile, &unmeasured, previous),
+        previous
+    );
+    assert_eq!(
+        ClimberFlags::after_tick(&spectator, &unmeasured, previous),
+        None
+    );
+}
+
+/// Sends a due sync after a sneaking tick in scaffolding and the given freeze.
+fn climber_sync_flags(freeze: Freeze) -> [u64; 3] {
     let actor = local_actor();
     let mut physics = due_physics();
     let sneaking = sim::MovementInput {
         sneaking: true,
         ..Default::default()
     };
-    physics.advance(
-        std::time::Duration::from_millis(50),
+    let tick = std::time::Duration::from_millis(50);
+    physics.advance(tick, sneaking, &ScaffoldColumn);
+    let frozen = |sneaking| sim::MovementInput {
+        immobile: true,
         sneaking,
-        &ScaffoldColumn,
-    );
-    if frozen {
-        physics.advance(
-            std::time::Duration::from_millis(50),
-            sim::MovementInput {
-                immobile: true,
-                ..sneaking
-            },
-            &ScaffoldColumn,
-        );
+        ..Default::default()
+    };
+    match freeze {
+        Freeze::None => {}
+        Freeze::InPlace { sneaking } => {
+            physics.advance(tick, frozen(sneaking), &ScaffoldColumn);
+        }
+        Freeze::Unreadable => {
+            for _ in 0..=crate::movement::physics::LOCAL_PHYSICS_HISTORY_CAPACITY {
+                physics.advance(tick, frozen(true), &Unreadable);
+            }
+        }
     }
     let mut sent = None;
     send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {

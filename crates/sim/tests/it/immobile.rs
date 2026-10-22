@@ -17,8 +17,9 @@ impl CollisionWorld for Unqueried {
         panic!("an immobile tick must not read collision data")
     }
 
+    /// Unreadable terrain: an immobile tick's climber reads must not fail the tick.
     fn block_physics(&self, _: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
-        panic!("an immobile tick must not sample block physics")
+        Err(WorldQueryError::CoordinateOutOfRange)
     }
 
     fn liquid_current(&self, _: Aabb) -> Result<Option<CollisionQuery<Vec3>>, WorldQueryError> {
@@ -93,6 +94,7 @@ fn immobile_freezes_airborne_velocity_and_jump_without_rounding_or_terrain_reads
             assert_eq!(output.tick_result.movement, Vec3::ZERO);
             assert!(!output.jump_initiated);
             assert!(output.controls.move_vector.iter().all(|&axis| axis != 0.0));
+            assert!(output.tick_result.environment.climber_unsampled);
             assert!(output.tick_result.world_identity.chunks.is_empty());
             assert_eq!(
                 output.tick_result.world_identity.registry,

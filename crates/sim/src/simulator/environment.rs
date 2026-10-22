@@ -29,6 +29,22 @@ pub(super) struct SampledEnvironment {
 }
 
 impl SampledEnvironment {
+    /// An empty sample whose reads start from `identity`, for ticks that skip
+    /// the movement sampler.
+    pub(super) fn unsampled(identity: WorldCollisionIdentity) -> Self {
+        Self {
+            movement: MovementEnvironment::default(),
+            friction: DEFAULT_SURFACE_FRICTION,
+            identity,
+            block_samples: 0,
+            descend_through: false,
+            primaries: Vec::new(),
+            stuck: None,
+            friction_surface: SurfaceResponse::None,
+            honey_jump: false,
+        }
+    }
+
     /// Reads a primary block, reusing this tick's earlier reads before spending the
     /// shared budget. Returns the identity of a fresh read for the caller to merge.
     pub(super) fn primary(

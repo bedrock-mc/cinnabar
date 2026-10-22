@@ -300,11 +300,17 @@ impl LocalPhysicsController {
                 .expect("retained correction sample was checked"),
         );
         for output in replayed_ticks {
-            if let Some(frame) = controller_frames
-                .iter_mut()
-                .find(|frame| frame.tick == output.tick_result.tick)
+            let tick = output.tick_result.tick;
+            if let Some(index) = controller_frames
+                .iter()
+                .position(|frame| frame.tick == tick)
+                && let Some(input) = self.history.input_at(tick)
             {
+                // The oldest retained frame keeps its own flags as its predecessor's.
+                let previous = controller_frames[index.saturating_sub(1)].climber;
+                let frame = &mut controller_frames[index];
                 frame.environment = output.tick_result.environment;
+                frame.climber = ClimberFlags::after_tick(input, &frame.environment, previous);
             }
             let result = output.tick_result;
             let Some(retained) = self

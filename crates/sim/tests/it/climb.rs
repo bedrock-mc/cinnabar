@@ -211,6 +211,36 @@ fn sneaking_descends_a_supported_scaffold_column_at_a_fixed_speed() {
     }
 }
 
+/// An immobile tick still runs the block climber and the descent request in place.
+#[test]
+fn an_immobile_tick_still_reports_block_climber_contact() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 0, 0], [0, 1, 0]],
+        solids: vec![[0, -1, 0]],
+    };
+    for sneak in [false, true] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    immobile: true,
+                    sneaking: sneak,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        let environment = tick.environment;
+        assert!(!environment.climber_unsampled);
+        assert!(environment.in_scaffolding && environment.in_ascending_block);
+        assert!(environment.over_scaffolding && environment.over_descending_block);
+        assert_eq!(environment.descending_through_block, sneak);
+        assert_eq!(tick.position, Vec3::new(0.5, 1.0, 0.5));
+        assert_eq!(tick.velocity, Vec3::ZERO);
+    }
+}
+
 /// A tick with suppressed travel still starts the descent, without moving.
 #[test]
 fn skipped_travel_still_starts_the_scaffold_descent() {

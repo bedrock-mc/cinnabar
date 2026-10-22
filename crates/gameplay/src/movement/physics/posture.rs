@@ -12,10 +12,8 @@ pub(in crate::movement) struct SyncPose {
     pub moving: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
-    /// Block-climber flags of the latest retained tick that sampled terrain.
-    /// Immobile ticks stay in place and keep the earlier contact. Spectator
-    /// ticks sample no terrain, so they and an empty history leave the
-    /// server's flags.
+    /// Block-climber flags of the latest completed tick, absent when the
+    /// server's flags stand (see [`ClimberFlags::after_tick`]).
     pub climber: Option<ClimberFlags>,
 }
 
@@ -27,6 +25,26 @@ pub(in crate::movement) struct ClimberFlags {
     pub descending_through_block: bool,
     pub in_ascending_block: bool,
     pub over_descending_block: bool,
+}
+
+impl ClimberFlags {
+    /// Climber flags after one completed tick. A tick that measured contact
+    /// publishes its own. A stationary tick over unreadable terrain keeps
+    /// `previous`, the prior tick's flags; a spectator tick measures nothing,
+    /// so the server's flags stand.
+    pub(in crate::movement) fn after_tick(
+        input: &sim::MovementInput,
+        environment: &sim::MovementEnvironment,
+        previous: Option<Self>,
+    ) -> Option<Self> {
+        if !environment.climber_unsampled {
+            Some(Self::from(environment))
+        } else if input.spectator {
+            None
+        } else {
+            previous
+        }
+    }
 }
 
 impl From<&sim::MovementEnvironment> for ClimberFlags {
@@ -70,11 +88,8 @@ impl LocalPhysicsController {
                 .map(|frame| !frame.input.no_clip),
             climber: self
                 .controller_history
-                .iter()
-                .rev()
-                .find(|frame| !frame.input.immobile)
-                .filter(|frame| !frame.input.spectator)
-                .map(|frame| ClimberFlags::from(&frame.environment)),
+                .back()
+                .and_then(|frame| frame.climber),
         })
     }
 

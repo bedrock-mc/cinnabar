@@ -3,7 +3,7 @@ use crate::{
     ProvenancedCollider, WorldQueryError,
 };
 
-use super::environment::SampledEnvironment;
+use super::{MovementEnvironment, MovementInput, MovementMode, environment::SampledEnvironment};
 
 /// How far below a scaffolding top the feet may sit and still stand on it.
 const TOP_TOLERANCE: f32 = 1.0e-6;
@@ -23,6 +23,44 @@ pub(super) struct ClimberContact {
     /// A climbable block at the layer below the feet (`OverDescendingBlock`),
     /// which a descent request sinks through.
     pub over_descending: bool,
+}
+
+impl ClimberContact {
+    /// Whether the descent action sinks through the climbable block below:
+    /// the descent request over one, except while riding.
+    pub(super) fn descends(self, input: &MovementInput) -> bool {
+        input.mode != MovementMode::Riding && input.sneaking && self.over_descending
+    }
+
+    /// Publishes the climber flags and this tick's descent.
+    pub(super) fn publish(self, environment: &mut MovementEnvironment, descending: bool) {
+        environment.in_scaffolding = self.inside;
+        environment.over_scaffolding = self.over;
+        environment.in_ascending_block = self.ascending;
+        environment.over_descending_block = self.over_descending;
+        environment.descending_through_block = descending;
+        environment.climber_unsampled = false;
+    }
+}
+
+/// Runs the block climber and descent request for a tick that does not move.
+/// The flags feed only reporting, so unreadable terrain marks them unsampled
+/// instead of failing the tick; successful reads merge into `identity`.
+pub(super) fn sample_stationary(
+    world: &(impl CollisionWorld + ?Sized),
+    player: Aabb,
+    input: &MovementInput,
+    environment: &mut MovementEnvironment,
+    identity: &mut crate::WorldCollisionIdentity,
+) {
+    let mut sampled = SampledEnvironment::unsampled(identity.clone());
+    match sample_climber(world, player, input.can_stand_on_snow, &mut sampled) {
+        Ok(contact) => {
+            contact.publish(environment, contact.descends(input));
+            *identity = sampled.identity;
+        }
+        Err(_) => environment.climber_unsampled = true,
+    }
 }
 
 /// Scaffolding and climbable-block facts of one footprint layer.

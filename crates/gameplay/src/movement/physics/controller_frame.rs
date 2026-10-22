@@ -39,6 +39,8 @@ pub(super) struct ControllerFrame {
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
+    /// Block-climber flags reported by the prediction sync after this tick.
+    pub climber: Option<ClimberFlags>,
 }
 
 impl ControllerFrame {

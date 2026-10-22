@@ -54,7 +54,10 @@ pub(super) fn tick(
             movement: next.movement,
             collisions: next.collisions,
             on_ground: false,
-            environment: MovementEnvironment::default(),
+            environment: MovementEnvironment {
+                climber_unsampled: true,
+                ..MovementEnvironment::default()
+            },
             world_identity: WorldCollisionIdentity {
                 registry,
                 chunks: Box::default(),

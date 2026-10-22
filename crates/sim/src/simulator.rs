@@ -171,8 +171,18 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
-            let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
+            let mut output =
+                immobile::tick(state, input.mode, controls, world.registry_identity())?;
             riptide::launch(state, input, false);
+            // The block climber and descent request still run in place.
+            let result = &mut output.tick_result;
+            scaffolding::sample_stationary(
+                world,
+                Aabb::player_with_height_at(state.position, state.hitbox_height(input)),
+                &input,
+                &mut result.environment,
+                &mut result.world_identity,
+            );
             return Ok(output);
         }
         let mut next = state.clone();
@@ -265,15 +275,10 @@ impl Simulator {
             input.can_stand_on_snow,
             &mut sampled,
         )?;
-        sampled.movement.in_scaffolding = scaffold.inside;
-        sampled.movement.over_scaffolding = scaffold.over;
-        sampled.movement.in_ascending_block = scaffold.ascending;
-        sampled.movement.over_descending_block = scaffold.over_descending;
         // Sneaking over a climbable block descends through it at a fixed speed,
         // even on a tick whose travel is suppressed.
-        sampled.descend_through =
-            input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
-        sampled.movement.descending_through_block = sampled.descend_through;
+        sampled.descend_through = scaffold.descends(&input);
+        scaffold.publish(&mut sampled.movement, sampled.descend_through);
         if sampled.descend_through {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }

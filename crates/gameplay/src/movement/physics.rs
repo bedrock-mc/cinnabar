@@ -23,9 +23,7 @@ mod fixed_ticks;
 mod input_requests;
 mod motion_ticks;
 mod posture;
-#[cfg(test)]
-pub(in crate::movement) use posture::ClimberFlags;
-pub(in crate::movement) use posture::SyncPose;
+pub(in crate::movement) use posture::{ClimberFlags, SyncPose};
 mod timeline;
 mod visual_correction;
 
@@ -41,7 +39,7 @@ use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
 /// Retained prediction window until StartGame supplies `RewindHistorySize`.
-const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
+pub(in crate::movement) const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// Vanilla's ceiling on StartGame `RewindHistorySize`.
 const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
@@ -720,6 +718,8 @@ impl LocalPhysicsController {
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
+                    let previous = self.controller_history.back().and_then(|f| f.climber);
+                    let climber = ClimberFlags::after_tick(&input, &result.environment, previous);
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
@@ -747,6 +747,7 @@ impl LocalPhysicsController {
                         input,
                         modes: self.modes,
                         environment: result.environment,
+                        climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);
                     self.controller_history.push_back(controller);
