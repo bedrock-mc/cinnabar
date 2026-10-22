@@ -36,6 +36,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
+    weather: Option<Res<'w, super::VisualWeatherOverride>>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }
@@ -85,6 +86,7 @@ pub(crate) fn update_atmosphere_frame(
         .map(|menu| menu.settings_snapshot().0);
     #[cfg(target_arch = "wasm32")]
     let options = Some(std::sync::Arc::clone(&preferences.options.0));
+    let weather_override = preferences.weather.as_deref().and_then(|weather| weather.0);
     let clouds = preferences.clouds;
     let skybox = preferences.skybox;
     if let Some(mut clouds) = clouds {
@@ -110,13 +112,18 @@ pub(crate) fn update_atmosphere_frame(
     let (mut frame, mut route, mut lighting, mut weather_ticks, mut view_inputs) = outputs;
     let elapsed = time.elapsed_secs_f64();
     display.set_precipitation_count(context.precipitation_sample_count);
-    let shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
+    let server_shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
+    let shown = weather_override.map_or(server_shown, |levels| {
+        server_shown.with_visual_weather(levels)
+    });
+    let fog_level = weather_override.map_or_else(|| display.fog_level(), |levels| levels[0]);
     *view_inputs = render_scene::AtmosphereViewInputs {
         forward: cameras
             .single()
             .map_or([0.0; 3], |transform| transform.forward().to_array()),
-        fog_weather_level: display.fog_level(),
-        current_rain_level: display.current_rain_level(),
+        fog_weather_level: fog_level,
+        current_rain_level: weather_override
+            .map_or_else(|| display.current_rain_level(), |levels| levels[0]),
     };
     display.publish_ticks(&mut weather_ticks);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
@@ -132,7 +139,7 @@ pub(crate) fn update_atmosphere_frame(
             assets.fog_profiles(),
             atmosphere_assets.identity(),
             Some(submerged),
-            display.fog_level(),
+            fog_level,
         ),
         None => (
             derive_base_frame(clock, shown, elapsed, medium.0, &context),
@@ -142,7 +149,11 @@ pub(crate) fn update_atmosphere_frame(
     let next_frame = next_frame
         .with_camera_environment(*view_inputs)
         .with_cloud_renderer_ticks(renderer_ticks)
-        .with_lightning_flash(flash.level(elapsed))
+        .with_lightning_flash(if weather_override.is_some() {
+            0.
+        } else {
+            flash.level(elapsed)
+        })
         .with_vision_effects(
             vision.blindness,
             vision.darkness * darkness_scale,
@@ -164,7 +175,7 @@ pub(crate) fn update_atmosphere_frame(
         ambient_adjustment: true,
         sky_darken: render_model::lightmap_sky_darken(
             frame.celestial_angle(),
-            display.fog_level(),
+            fog_level,
             shown.lightning_level(),
         ),
         sunrise,

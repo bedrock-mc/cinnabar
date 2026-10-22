@@ -1,6 +1,8 @@
 //! Vendor-independent, renderer-independent semantic input primitives.
 
 mod action;
+mod click_limit;
+pub use click_limit::ClickLimiter;
 mod axes;
 mod binding;
 mod button_events;
