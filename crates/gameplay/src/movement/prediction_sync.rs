@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use protocol::{ActorMetadataValue, MovementPredictionSync, client_movement_prediction_sync};
 
 use super::LocalPhysicsController;
+use super::physics::SyncPose;
 
 /// Attribute names in wire order; undefined values are sent as zero.
 const ATTRIBUTE_NAMES: [&str; 6] = [
@@ -33,10 +34,12 @@ const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 /// Sends a due correction sync and clears its countdown only after admission.
 /// `air_drag_modifier` is the session's last accepted finite value, which
 /// outlives the replay history that dimension waits and hard corrections clear.
+/// `using_item` is the accepted local item use.
 pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
     air_drag_modifier: Option<f32>,
+    using_item: bool,
     send: impl FnOnce(protocol::Packet) -> bool,
 ) {
     if !physics.prediction_sync.due() {
@@ -54,11 +57,8 @@ pub fn send_movement_prediction_sync(
         },
         air_drag_modifier,
     );
-    let actor_flags = predicted_flag_words(
-        &actor.metadata,
-        physics.prediction_sync_posture(),
-        physics.prediction_sync_mode(),
-    );
+    let actor_flags =
+        predicted_flag_words(&actor.metadata, physics.prediction_sync_pose(), using_item);
     let sync = MovementPredictionSync {
         actor_flags,
         bounding_box: predicted_bounding_box(
@@ -75,28 +75,40 @@ pub fn send_movement_prediction_sync(
     }
 }
 
-/// Overlays current accepted posture while preserving flags owned by server metadata.
+/// Overlays the flags the client owns onto the server's flag words.
 ///
-/// Vanilla sends its own actor flag words, where the client sets sneaking,
-/// sprinting and the swimming, crawling and gliding poses as it predicts them.
+/// Vanilla sends its own actor flag words. The client itself sets sneaking,
+/// sprinting, item use, movement, collision, riptide spin and the swimming,
+/// crawling and gliding poses; every other flag is the server's.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
-    posture: Option<(bool, bool)>,
-    mode: Option<sim::MovementMode>,
+    pose: Option<SyncPose>,
+    using_item: bool,
 ) -> [u64; 3] {
     let mut words = flag_words(metadata);
-    if let Some((sneaking, sprinting)) = posture {
-        set_flag(&mut words, ActorFlag::Sneaking, sneaking);
-        set_flag(&mut words, ActorFlag::Sprinting, sprinting);
+    set_flag(&mut words, ActorFlag::UsingItem, using_item);
+    let Some(pose) = pose else {
+        return words;
+    };
+    for (flag, enabled) in [
+        (ActorFlag::Sneaking, pose.sneaking),
+        (ActorFlag::Sprinting, pose.sprinting),
+        (ActorFlag::Moving, pose.moving),
+        (ActorFlag::DamageNearbyMobs, pose.spinning),
+        (
+            ActorFlag::Swimming,
+            pose.mode == sim::MovementMode::Swimming,
+        ),
+        (
+            ActorFlag::Crawling,
+            pose.mode == sim::MovementMode::Crawling,
+        ),
+        (ActorFlag::Gliding, pose.mode == sim::MovementMode::Gliding),
+    ] {
+        set_flag(&mut words, flag, enabled);
     }
-    if let Some(mode) = mode {
-        for (flag, pose) in [
-            (ActorFlag::Swimming, sim::MovementMode::Swimming),
-            (ActorFlag::Crawling, sim::MovementMode::Crawling),
-            (ActorFlag::Gliding, sim::MovementMode::Gliding),
-        ] {
-            set_flag(&mut words, flag, mode == pose);
-        }
+    if let Some(has_collision) = pose.has_collision {
+        set_flag(&mut words, ActorFlag::HasCollision, has_collision);
     }
     words
 }
@@ -143,10 +155,11 @@ const HORIZONTAL_POSE_FLAGS: [ActorFlag; 4] = [
     ActorFlag::Crawling,
 ];
 
-/// Sizes the standard unscaled player model from the sent pose, as vanilla's
-/// player size update does: a horizontal pose uses the width as its height,
-/// otherwise the current accepted walking size applies once a sample exists.
-/// Other models retain their supplied metadata until their local contracts are available.
+/// Sizes the standard player model from the sent pose, as vanilla's player
+/// size update does: a horizontal pose uses the width as its height, otherwise
+/// the current accepted walking size applies once a sample exists. The sent
+/// size is unscaled, so any scale keeps the pose sizing. Other models retain
+/// their supplied metadata until their local contracts are available.
 fn predicted_bounding_box(
     metadata: &HashMap<u32, ActorMetadataValue>,
     walking_height: Option<f32>,
@@ -159,7 +172,7 @@ fn predicted_bounding_box(
         sim::MovementMode::Walking.hitbox_height(true) as f32,
         width,
     ];
-    if size[..2] != [1.0, width] || !pose_heights.contains(&size[2]) {
+    if size[1] != width || !pose_heights.contains(&size[2]) {
         return size;
     }
     if HORIZONTAL_POSE_FLAGS
@@ -258,17 +271,22 @@ mod tests {
             predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
             [standing[0], standing[1], crouching]
         );
-        for key in [
-            ActorDataKey::Scale,
-            ActorDataKey::Width,
-            ActorDataKey::Height,
-        ] {
+        for key in [ActorDataKey::Width, ActorDataKey::Height] {
             let metadata = HashMap::from([(key.wire_value(), ActorMetadataValue::Float(2.0))]);
             assert_eq!(
                 predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
                 bounding_box(&metadata)
             );
         }
+        // The synced size is unscaled, so a scaled player keeps its pose size.
+        let scaled = HashMap::from([(
+            ActorDataKey::Scale.wire_value(),
+            ActorMetadataValue::Float(2.0),
+        )]);
+        assert_eq!(
+            predicted_bounding_box(&scaled, Some(crouching), [0; 3]),
+            [2.0, standing[1], crouching]
+        );
     }
 
     #[test]
@@ -421,7 +439,7 @@ mod tests {
 
     fn sent_air_drag(physics: &mut LocalPhysicsController, accepted: Option<f32>) -> f32 {
         let mut sent = None;
-        send_movement_prediction_sync(physics, &local_actor(), accepted, |packet| {
+        send_movement_prediction_sync(physics, &local_actor(), accepted, false, |packet| {
             sent = Some(packet);
             true
         });
@@ -437,7 +455,7 @@ mod tests {
         let mut physics = due_physics();
         let mut attempts = Vec::new();
         for accepted in [false, true] {
-            send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+            send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
                 attempts.push(
                     protocol::test_support::packets::prediction_sync_attributes(&packet)
                         .expect("wrong packet"),
@@ -471,6 +489,9 @@ mod tests {
         let sneak = 1_u64 << ActorFlag::Sneaking.wire_value();
         let sprint = 1_u64 << ActorFlag::Sprinting.wire_value();
         let unrelated = 1_u64 << ActorFlag::AlwaysShowName.wire_value();
+        // Forward input on collidable terrain also owns the moving and collision flags.
+        let walking = (1_u64 << ActorFlag::Moving.wire_value())
+            | (1_u64 << ActorFlag::HasCollision.wire_value());
         for (sneaking, sprinting) in [(false, true), (true, false), (false, false)] {
             let mut actor = local_actor();
             let stale =
@@ -499,11 +520,13 @@ mod tests {
                 &OpenWorld,
             );
             assert_eq!(physics.latest_sneak_sprint(), Some((sneaking, sprinting)));
-            let expected_flags =
-                unrelated | if sneaking { sneak } else { 0 } | if sprinting { sprint } else { 0 };
+            let expected_flags = unrelated
+                | walking
+                | if sneaking { sneak } else { 0 }
+                | if sprinting { sprint } else { 0 };
             for accepted in [false, true] {
                 let mut sent = None;
-                send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+                send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
                     sent = Some(packet);
                     accepted
                 });
@@ -526,44 +549,120 @@ mod tests {
         }
     }
 
-    /// Pose flags follow the accepted local mode; without a completed sample the server words stand.
+    /// Client-owned flags follow local state; every other server bit is kept.
     #[test]
-    fn pose_flags_follow_the_local_mode() {
-        let bit = |flag: ActorFlag| {
-            let wire = flag.wire_value() as usize;
-            (wire / 64, 1_u64 << (wire % 64))
-        };
-        let (swim_word, swim) = bit(ActorFlag::Swimming);
-        let (crawl_word, crawl) = bit(ActorFlag::Crawling);
-        let (glide_word, glide) = bit(ActorFlag::Gliding);
-        let unrelated = 1_u64 << ActorFlag::AlwaysShowName.wire_value();
-        let mut server = [unrelated, 0, 0];
-        server[swim_word] |= swim;
-        let metadata = HashMap::from([
-            (
-                ActorDataKey::Flags.wire_value(),
-                ActorMetadataValue::Flags(server[0]),
-            ),
-            (
-                ActorDataKey::FlagsTwo.wire_value(),
-                ActorMetadataValue::FlagsExtended(server[1]),
-            ),
-        ]);
-        assert_eq!(predicted_flag_words(&metadata, None, None), server);
-        for (mode, expected) in [
-            (sim::MovementMode::Walking, None),
-            (sim::MovementMode::Swimming, Some((swim_word, swim))),
-            (sim::MovementMode::Crawling, Some((crawl_word, crawl))),
-            (sim::MovementMode::Gliding, Some((glide_word, glide))),
-        ] {
-            let mut words = [unrelated, 0, 0];
-            if let Some((word, mask)) = expected {
-                words[word] |= mask;
+    fn client_owned_flags_follow_local_state() {
+        let words_with = |flags: &[ActorFlag]| {
+            let mut words = [0; 3];
+            for flag in flags {
+                set_flag(&mut words, *flag, true);
             }
+            words
+        };
+        let owned = [
+            ActorFlag::Sneaking,
+            ActorFlag::Sprinting,
+            ActorFlag::UsingItem,
+            ActorFlag::Moving,
+            ActorFlag::HasCollision,
+            ActorFlag::DamageNearbyMobs,
+            ActorFlag::Swimming,
+            ActorFlag::Crawling,
+            ActorFlag::Gliding,
+        ];
+        let mut stale = owned.to_vec();
+        stale.push(ActorFlag::AlwaysShowName);
+        let server = words_with(&stale);
+        let metadata = [
+            ActorDataKey::Flags,
+            ActorDataKey::FlagsTwo,
+            ActorDataKey::FlagsThird,
+        ]
+        .into_iter()
+        .zip(server)
+        .map(|(key, bits)| (key.wire_value(), ActorMetadataValue::FlagsExtended(bits)))
+        .collect::<HashMap<_, _>>();
+        let mut without_item = server;
+        set_flag(&mut without_item, ActorFlag::UsingItem, false);
+        assert_eq!(predicted_flag_words(&metadata, None, false), without_item);
+
+        let idle = SyncPose {
+            sneaking: false,
+            sprinting: false,
+            mode: sim::MovementMode::Walking,
+            moving: false,
+            spinning: false,
+            has_collision: Some(false),
+        };
+        assert_eq!(
+            predicted_flag_words(&metadata, Some(idle), false),
+            words_with(&[ActorFlag::AlwaysShowName])
+        );
+        for (pose, using_item, flags) in [
+            (
+                SyncPose {
+                    sneaking: true,
+                    sprinting: true,
+                    moving: true,
+                    has_collision: Some(true),
+                    ..idle
+                },
+                true,
+                vec![
+                    ActorFlag::Sneaking,
+                    ActorFlag::Sprinting,
+                    ActorFlag::Moving,
+                    ActorFlag::HasCollision,
+                    ActorFlag::UsingItem,
+                ],
+            ),
+            (
+                SyncPose {
+                    spinning: true,
+                    ..idle
+                },
+                false,
+                vec![ActorFlag::DamageNearbyMobs],
+            ),
+            (
+                SyncPose {
+                    mode: sim::MovementMode::Swimming,
+                    ..idle
+                },
+                false,
+                vec![ActorFlag::Swimming],
+            ),
+            (
+                SyncPose {
+                    mode: sim::MovementMode::Crawling,
+                    ..idle
+                },
+                false,
+                vec![ActorFlag::Crawling],
+            ),
+            (
+                SyncPose {
+                    mode: sim::MovementMode::Gliding,
+                    ..idle
+                },
+                false,
+                vec![ActorFlag::Gliding],
+            ),
+            (
+                SyncPose {
+                    has_collision: None,
+                    ..idle
+                },
+                false,
+                vec![ActorFlag::HasCollision],
+            ),
+        ] {
+            let mut expected = flags;
+            expected.push(ActorFlag::AlwaysShowName);
             assert_eq!(
-                predicted_flag_words(&metadata, None, Some(mode)),
-                words,
-                "{mode:?}"
+                predicted_flag_words(&metadata, Some(pose), using_item),
+                words_with(&expected),
+                "{pose:?}"
             );
         }
     }
@@ -614,7 +713,7 @@ mod tests {
         }
         assert_eq!(physics.mode(), sim::MovementMode::Swimming);
         let mut sent = None;
-        send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+        send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
             sent = Some(packet);
             true
         });
@@ -708,6 +807,8 @@ mod tests {
         let sneak = 1_u64 << ActorFlag::Sneaking.wire_value();
         let sprint = 1_u64 << ActorFlag::Sprinting.wire_value();
         let unrelated = 1_u64 << ActorFlag::AlwaysShowName.wire_value();
+        let walking = (1_u64 << ActorFlag::Moving.wire_value())
+            | (1_u64 << ActorFlag::HasCollision.wire_value());
         for (sneaking, sprinting) in [(true, false), (false, true), (true, true), (false, false)] {
             for stamp in [0, 102, 103] {
                 let mut actor = local_actor();
@@ -722,7 +823,7 @@ mod tests {
                     physics.advance(std::time::Duration::from_millis(100), input, &OpenWorld);
                 assert_eq!(frame.completed_ticks, 2);
                 let completed = physics.latest_sneak_sprint().unwrap();
-                send_movement_prediction_sync(&mut physics, &actor, None, |_| false);
+                send_movement_prediction_sync(&mut physics, &actor, None, false, |_| false);
                 assert!(physics.prediction_sync.due());
 
                 let accepted = (!completed.0, !completed.1);
@@ -751,11 +852,11 @@ mod tests {
                 assert_eq!(physics.latest_sneak_sprint(), Some(completed));
 
                 for admitted in [false, true] {
-                    send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+                    send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
                         assert_eq!(
                             packet,
                             client_movement_prediction_sync(MovementPredictionSync {
-                                actor_flags: [expected_flags, 0, 0],
+                                actor_flags: [expected_flags | walking, 0, 0],
                                 bounding_box: [
                                     1.0,
                                     sim::PLAYER_WIDTH as f32,

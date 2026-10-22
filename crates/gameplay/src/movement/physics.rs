@@ -23,6 +23,7 @@ mod fixed_ticks;
 mod input_requests;
 mod motion_ticks;
 mod posture;
+pub(in crate::movement) use posture::SyncPose;
 mod timeline;
 mod visual_correction;
 

@@ -51,7 +51,7 @@ fn sync(
 ) -> protocol::Packet {
     let actor = LocalActor(authority.actor(1).unwrap().clone());
     let mut sent = None;
-    send_movement_prediction_sync(physics, &actor, None, |packet| {
+    send_movement_prediction_sync(physics, &actor, None, false, |packet| {
         sent = Some(packet);
         accepted
     });

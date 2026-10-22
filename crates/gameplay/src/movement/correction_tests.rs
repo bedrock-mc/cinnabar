@@ -1127,3 +1127,46 @@ fn a_correction_keeps_a_flag_latched_for_the_next_tick() {
         );
     }
 }
+
+/// Whether the 200-tick prediction-sync countdown is running.
+fn prediction_sync_scheduled(physics: &mut LocalPhysicsController) -> bool {
+    for _ in 0..400 {
+        if physics.prediction_sync.due() {
+            return true;
+        }
+        physics.prediction_sync.tick();
+    }
+    false
+}
+
+/// A server motion that rewinds retained frames schedules the sync, as any vanilla rewind does.
+#[test]
+fn a_timeline_rewind_schedules_the_prediction_sync() {
+    let world = VersionedWall(1);
+    let (mut physics, mut ticker) = three_predicted_ticks(&world);
+    let rewind = physics.queue_server_motion([0.6, 0.4, 0.0], 102).unwrap();
+    reconcile_timeline_rewind(&mut ticker, &mut physics, rewind, &world).unwrap();
+    assert!(prediction_sync_scheduled(&mut physics));
+}
+
+/// A retained correction still schedules the sync when the local replay fails and snaps.
+#[test]
+fn a_failed_replay_fallback_keeps_the_prediction_sync() {
+    let world = VersionedWall(1);
+    let (mut physics, mut ticker) = three_predicted_ticks(&world);
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [4.0, 2.620_01, 0.0],
+        102,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &EvictedWorld,
+    )
+    .unwrap();
+    assert!(
+        matches!(outcome, PhysicsCorrectionOutcome::Snapped { .. }),
+        "{outcome:?}"
+    );
+    assert!(prediction_sync_scheduled(&mut physics));
+}
