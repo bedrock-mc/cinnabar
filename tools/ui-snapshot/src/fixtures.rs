@@ -765,6 +765,18 @@ const STATES: &[State] = &[
         },
     },
     State {
+        name: "settings-video-culling-on",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_video_culling(true),
+    },
+    State {
+        name: "settings-video-culling-off",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_video_culling(false),
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,

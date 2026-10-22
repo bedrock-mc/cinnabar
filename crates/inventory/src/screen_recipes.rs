@@ -195,6 +195,7 @@ impl InventorySession {
         };
         let ledger = self.ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
+        let inputs = ledger.auto_craft_inputs();
         let mut listed: Vec<BookGroup> = Vec::new();
         let mut outputs: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
         for recipe in catalog.crafting_recipes().filter(|recipe| {
@@ -207,7 +208,7 @@ impl InventorySession {
                 }
         }) {
             let unlocked = self.crafting_authority.book_recipe_unlocked(recipe);
-            let craftable = ledger.can_auto_craft(recipe);
+            let craftable = inputs.can_craft(recipe);
             let held = craftable || ledger.holds_any_ingredient(recipe);
             let candidate = BookGroup::new(recipe, unlocked, craftable, held);
             let output = recipe.output();

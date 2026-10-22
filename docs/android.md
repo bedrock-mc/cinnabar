@@ -48,6 +48,9 @@ outside the inventory. Swipe Settings content or drag its scrollbar to scroll. T
 still activates it; a swipe does not. Settings > Touch adjusts look sensitivity and explains
 the on-screen controls. A hardware keyboard and mouse also drive gameplay.
 
+Import buttons for resource packs, mods, skins and capes open Android's document picker.
+A skin PNG imports without its separate geometry JSON; import a skin pack to keep custom geometry.
+
 Launcher text fields, including server addresses and the People drawer, request the on-screen
 keyboard. People search filters friends currently playing; it does not search Xbox users.
 

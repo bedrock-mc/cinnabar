@@ -1,6 +1,6 @@
 //! Import buttons open the platform file picker on their worker thread.
 use std::path::PathBuf;
-#[cfg(any(not(windows), test))]
+#[cfg(any(not(any(windows, target_os = "android")), test))]
 use std::process::Command;
 
 /// What one import dialog asks for.
@@ -10,6 +10,9 @@ pub struct Filter {
     pub extensions: &'static [&'static str],
     /// Appended to errors when no picker opens.
     pub unavailable_hint: &'static str,
+    /// The largest file the importer reads, or `None` without a size limit. Android copies picked
+    /// documents into app storage and refuses one that grows past this instead of filling storage.
+    pub max_bytes: Option<u64>,
 }
 
 /// Returns one selected filename, cancellation, or a visible picker error.
@@ -23,8 +26,8 @@ pub fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
 }
 
 /// Shares filters and fallback tools while preserving each caller's selection mode.
-// Windows compiles only its own branch, so that branch's early return is the tail.
-#[cfg_attr(windows, allow(clippy::needless_return))]
+// Windows and Android compile only their own branch, so its early return is the tail.
+#[cfg_attr(any(windows, target_os = "android"), allow(clippy::needless_return))]
 fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
     {
@@ -56,7 +59,13 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             }
         }
     }
-    #[cfg(not(windows))]
+    // Android has no picker tools; the Storage Access Framework copies picks into app storage.
+    #[cfg(target_os = "android")]
+    return super::android::pick_documents(multiple, filter.max_bytes)
+        .map_err(|error| format!("{error}."))?
+        .ok_or_else(|| unavailable("no document picker is available", filter))
+        .and_then(|paths| selected(filter, paths));
+    #[cfg(not(any(windows, target_os = "android")))]
     selected(
         filter,
         run_tools(
@@ -96,6 +105,7 @@ fn selected(filter: &Filter, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String
 }
 
 /// Derives every platform's filter from the selected import extensions.
+#[cfg(any(not(target_os = "android"), test))]
 fn patterns(filter: &Filter) -> Vec<String> {
     filter
         .extensions
@@ -111,7 +121,7 @@ fn windows_filter(filter: &Filter) -> String {
 }
 
 /// Runs the first picker tool that launches; a launched tool's failure counts as cancellation.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Vec<PathBuf>, String> {
     let mut launch_error = None;
     for mut command in commands {
@@ -124,14 +134,20 @@ fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Vec<PathBuf>, St
         }
     }
     let reason = launch_error.map_or_else(|| "no picker".to_owned(), |error| error.to_string());
-    Err(format!(
+    Err(unavailable(&reason, filter))
+}
+
+/// The visible error when no picker could open, followed by the caller's alternative.
+#[cfg(not(windows))]
+fn unavailable(reason: &str, filter: &Filter) -> String {
+    format!(
         "File picker unavailable: {reason}. {}",
         filter.unavailable_hint
-    ))
+    )
 }
 
 /// Reads one selected path per line, preserving spaces and ignoring empty output lines.
-#[cfg(any(not(windows), test))]
+#[cfg(any(not(any(windows, target_os = "android")), test))]
 fn output_paths(output: &[u8]) -> Vec<PathBuf> {
     String::from_utf8_lossy(output)
         .lines()
@@ -141,7 +157,7 @@ fn output_paths(output: &[u8]) -> Vec<PathBuf> {
 }
 
 /// Picker tools in fallback order; Linux reaches these only when the portal is unavailable.
-#[cfg(any(not(windows), test))]
+#[cfg(any(not(any(windows, target_os = "android")), test))]
 fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command> {
     let (title, name) = (filter.title, filter.name);
     if platform == "macos" {
@@ -195,6 +211,7 @@ mod tests {
         name: "Resource packs",
         extensions: &PACK_IMPORT_EXTENSIONS,
         unavailable_hint: "Drop a pack onto the window to import it.",
+        max_bytes: Some(resource_pack::MAX_ARCHIVE_BYTES as u64),
     };
 
     /// Returns a tool's arguments as strings for inspecting its dialog configuration.
@@ -298,7 +315,7 @@ mod tests {
         assert!(output_paths(b"").is_empty());
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "android")))]
     #[test]
     fn a_missing_tool_falls_through_and_a_cancelled_one_stops() {
         let shell = |script: &str| {

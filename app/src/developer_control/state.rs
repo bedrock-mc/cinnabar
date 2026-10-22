@@ -393,6 +393,13 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
     });
     // Keep added diagnostics outside the large snapshot macro's expansion budget.
+    snapshot["terrain_culling"] = json!({
+        "occlusion_enabled": world.get_resource::<render_scene::ChunkOcclusionCulling>().map(|preference| preference.0),
+        "sections": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>().map(|cache| json!({
+            "resident": cache.rendered.len(),
+            "cave_visible": cache.visible_rendered,
+        })),
+    });
     snapshot["chat"] = json!(world.get_resource::<UiRuntimeResource>().map(|ui| {
         let messages = ui.chat().messages();
         messages

@@ -23,6 +23,7 @@ mod components;
 mod display;
 mod equipment;
 mod facts;
+mod shooter;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
@@ -43,6 +44,7 @@ pub use nbt_edit::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
     item_custom_name, item_filtered_custom_name, item_has_trim, item_repair_cost,
 };
+pub use shooter::ItemShooter;
 pub use user_data::item_user_data_equal;
 
 /// The single item shape 1.26.40 puts on the wire.

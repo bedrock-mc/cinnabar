@@ -7,7 +7,7 @@ use std::io::{Cursor, Read};
 use std::path::{Component, PathBuf};
 use {super::*, launcher::install_layout::InstallLayout};
 
-const MAX_PNG_BYTES: u64 = resource_pack::MAX_PACK_TEXTURE_BYTES;
+pub(crate) const MAX_PNG_BYTES: u64 = resource_pack::MAX_PACK_TEXTURE_BYTES;
 const MAX_IMPORTED_ITEMS: usize = launcher::skin_import::MAX_IMPORTED_SKINS;
 const MAX_PREFERENCES_BYTES: u64 = 1024 * 1024;
 

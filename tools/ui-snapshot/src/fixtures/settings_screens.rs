@@ -139,3 +139,15 @@ fn settings_search(query: &str) -> Fixture {
     view.caret.byte = query.len();
     Fixture::Menu(Box::new(view))
 }
+
+/// Focuses the occlusion toggle at its saved value in the Video settings viewport.
+pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
+    let mut view = settings("video_forced_index");
+    Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::ChunkOcclusionCulling.index(), i32::from(enabled));
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::ChunkOcclusionCulling.index() as u16,
+        i32::from(!enabled),
+    ));
+    Fixture::Menu(Box::new(view))
+}
