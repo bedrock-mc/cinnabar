@@ -17,6 +17,8 @@ struct Source {
     count: u16,
     /// Compared by identity first, then by content, so restated stacks keep the listing.
     extra_data: Arc<[u8]>,
+    /// Source validity compares this digest with the bytes, so a digest-only update matters.
+    nbt_digest: [u8; 32],
     awaiting_identity: bool,
 }
 
@@ -27,6 +29,7 @@ impl PartialEq for Source {
             && self.count == other.count
             && (Arc::ptr_eq(&self.extra_data, &other.extra_data)
                 || self.extra_data == other.extra_data)
+            && self.nbt_digest == other.nbt_digest
             && self.awaiting_identity == other.awaiting_identity
     }
 }
@@ -48,6 +51,7 @@ impl PlayerInventoryLedger {
                 metadata: held.stack.metadata,
                 count: held.stack.count,
                 extra_data: Arc::clone(&held.stack.extra_data),
+                nbt_digest: held.stack.nbt_digest,
                 awaiting_identity: self.awaiting_identity(held),
             })
         }))

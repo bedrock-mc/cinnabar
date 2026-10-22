@@ -212,3 +212,41 @@ fn unchanged_book_inputs_reuse_one_listing_until_materials_change() {
         "a material change rebuilds the listing once"
     );
 }
+
+#[test]
+fn a_digest_only_update_rebuilds_the_book_listing() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    let held = |nbt_digest| {
+        InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(0),
+            storage_item: NetworkItemStack::empty(),
+            slots: Arc::from([NetworkItemStack {
+                network_id: planks,
+                count: 4,
+                stack_network_id: 1,
+                nbt_digest,
+                ..NetworkItemStack::empty()
+            }]),
+        })
+    };
+    let valid = NetworkItemStack::empty().nbt_digest;
+    session.ledger_mut().apply(&held(valid));
+    let first = session.book_recipes(false, false, 0, usize::MAX);
+    assert!(first.iter().any(|entry| entry.craftable));
+    // The same bytes under a digest that no longer matches them can no longer supply a craft.
+    session.ledger_mut().apply(&held([7; 32]));
+    let listed = session.book_recipes(false, false, 0, usize::MAX);
+    assert!(listed.iter().all(|entry| !entry.craftable));
+    for entry in &listed {
+        assert_eq!(
+            entry.craftable,
+            session.ledger().can_auto_craft(&entry.recipe),
+            "the book agrees with an immediate craftability check"
+        );
+    }
+}
