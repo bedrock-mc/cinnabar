@@ -25,7 +25,7 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
         ),
         (
             PresentModeRuntime::from_startup(false, true, false, false),
-            PresentModePreference::NoVsync,
+            PresentModePreference::AllowTearing,
             PresentMode::Fifo,
         ),
         (
@@ -40,16 +40,23 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
     }
 }
 
-/// Startup and runtime share one decision: a probed surface only changes which mode is chosen.
+/// The explicit diagnostic flag retains the player's lowest-latency presentation choice.
 #[test]
-fn startup_flag_and_runtime_setting_select_the_same_mode_once_probed() {
-    for supported in [METAL, MAILBOX_ONLY, SurfacePresentModes::FIFO_ONLY] {
+fn the_explicit_diagnostic_flag_matches_the_players_tearing_choice() {
+    for supported in [
+        METAL,
+        MAILBOX_ONLY,
+        MAILBOX_ONLY.with(PresentModeKind::Immediate),
+        SurfacePresentModes::FIFO_ONLY,
+    ] {
         let flag = PresentModeRuntime::from_startup(false, true, false, false);
         flag.policy.publish_capabilities(Some(supported));
 
         let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
         publish_capabilities(&app, supported);
-        publish_vsync(&mut app, false);
+        publish_video(&mut app, |video| {
+            video.vsync = render_api::VsyncMode::AllowTearing
+        });
         assert_eq!(primary_present_mode(&mut app), flag.window_present_mode());
     }
 }
@@ -396,10 +403,10 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
     let policy = app.world().resource::<PresentModeRuntime>().policy();
     assert_eq!(policy.selection(), None);
 
-    publish_capabilities(&app, MAILBOX_ONLY);
+    publish_capabilities(&app, MAILBOX_ONLY.with(PresentModeKind::Immediate));
     app.update();
-    assert_eq!(policy.selection(), Some(PresentModeKind::Mailbox));
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+    assert_eq!(policy.selection(), Some(PresentModeKind::Immediate));
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 }
 
 /// VSync off prefers Mailbox and retains universal FIFO as its last fallback.

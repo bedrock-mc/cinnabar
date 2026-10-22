@@ -40,7 +40,7 @@ impl PresentModeRuntime {
         hidden_surface: bool,
     ) -> Self {
         let preference = if no_vsync {
-            PresentModePreference::NoVsync
+            PresentModePreference::AllowTearing
         } else if force_vsync || attributable_evidence {
             PresentModePreference::Vsync
         } else if render_api::VsyncMode::DEFAULT.enabled() {
