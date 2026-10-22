@@ -125,7 +125,7 @@ pub(in crate::chunk) fn queue_chunks(
     let model_indirect_draw = draw_functions.id::<DrawModelIndirectCommands>();
     let depth_liquid_direct_draw = draw_functions.id::<DrawDepthLiquidCommands>();
     let depth_liquid_indirect_draw = draw_functions.id::<DrawDepthLiquidIndirectCommands>();
-    // Views keep their indirect batches only while queued through the CPU-planned path.
+    // Keep active views' indirect batches across CPU drawing and GPU occlusion probes.
     let mut indirect_views = Vec::new();
     if draw_mode == ChunkDrawMode::Unsupported {
         retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);

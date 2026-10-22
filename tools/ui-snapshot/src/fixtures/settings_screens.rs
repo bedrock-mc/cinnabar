@@ -1,6 +1,28 @@
-//! Keyboard and General settings screens at fixed, anonymous states.
+//! Settings screens at fixed, anonymous states.
 
 use super::*;
+
+/// Search results, an empty result and the compact settings viewport.
+pub(super) const SEARCH_STATES: &[State] = &[
+    State {
+        name: "settings-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_search("vsync"),
+    },
+    State {
+        name: "settings-search-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_search("no-such-setting"),
+    },
+    State {
+        name: "settings-search-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_search("vsync"),
+    },
+];
 
 /// Shows the keyboard options and command macro modifier without a live session.
 pub(super) fn settings_keyboard() -> Fixture {
@@ -49,6 +71,16 @@ pub(super) fn settings_keyboard_layout(observed: bool) -> Fixture {
     if observed {
         settings.set_key_label(0x14, "a");
     }
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows editable matches from outside the selected settings category.
+fn settings_search(query: &str) -> Fixture {
+    let mut view = settings("accessibility_forced_index");
+    view.settings_query = query.to_owned();
+    view.field = Some(launcher::menu::MenuField::SettingsQuery);
+    view.focused_action = Some(MenuAction::SearchSettings);
+    view.caret.byte = query.len();
     Fixture::Menu(Box::new(view))
 }
 

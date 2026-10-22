@@ -581,7 +581,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "682999ca2b24eebf71bfaaf72fae7036c8dd64dbab13d385ffce07bf8c46de5d",
+    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -661,6 +661,7 @@
       "minecraft:yellow_shulker_box"
     ],
     "unresolved": [
+      "minecraft:chalkboard",
       "minecraft:soul_soil",
       "minecraft:straw_bed"
     ]
@@ -4163,6 +4164,14 @@
         "minecraft:bamboo",
         "minecraft:bamboo_sapling"
       ]
+    },
+    {
+      "id": "chalkboard-render",
+      "fact": "render:EntityDrawn",
+      "status": "provisional",
+      "members": [
+        "minecraft:chalkboard"
+      ]
     }
   ],
   "item_rules": [
@@ -5790,7 +5799,8 @@
       "id": "offset-boat",
       "status": "provisional",
       "members": [
-        "minecraft:boat"
+        "minecraft:boat",
+        "minecraft:chest_boat"
       ],
       "facts": {
         "network_y_offset": 0.375
@@ -6354,6 +6364,19 @@
         "minecraft:vault"
       ],
       "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "ChalkboardBlock",
+        "route": "model",
+        "renderer": "chalkboard",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:chalkboard"
+      ],
+      "status": "provisional"
     }
   ],
   "visual_events": {
@@ -6681,6 +6704,8 @@
       "NetheriteBlock": "minecraft:netherite_block"
     },
     "VanillaEntity": {
+      "Boat": "minecraft:boat",
+      "ChestBoat": "minecraft:chest_boat",
       "Player": "minecraft:player"
     }
   },

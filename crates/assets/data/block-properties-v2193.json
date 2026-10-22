@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "source_sha256": "c0b6151f5f9a0c31ebe3c909dfc82d97f12473ed2c6e039aa7e22d667042026c",
+  "state_source_lock_sha256": "62824ba020f9c4d0eec51455a7b3398dc0e3d5d4ba964bc5770a65b2e4d478d4",
   "properties": [
     {
       "name": "active",
@@ -65,6 +66,43 @@
         },
         {
           "value": 15
+        }
+      ],
+      "block_domains": [
+        {
+          "values": [
+            0,
+            1,
+            2
+          ],
+          "blocks": [
+            "minecraft:cocoa"
+          ]
+        },
+        {
+          "values": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "blocks": [
+            "minecraft:frosted_ice",
+            "minecraft:nether_wart"
+          ]
+        },
+        {
+          "values": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "blocks": [
+            "minecraft:chorus_flower"
+          ]
         }
       ]
     },
@@ -926,6 +964,90 @@
         },
         {
           "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ],
+      "block_domains": [
+        {
+          "values": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "blocks": [
+            "minecraft:acacia_trapdoor",
+            "minecraft:bamboo_trapdoor",
+            "minecraft:bed",
+            "minecraft:bee_nest",
+            "minecraft:beehive",
+            "minecraft:bell",
+            "minecraft:birch_trapdoor",
+            "minecraft:cherry_trapdoor",
+            "minecraft:chiseled_bookshelf",
+            "minecraft:cocoa",
+            "minecraft:compound_creator",
+            "minecraft:copper_trapdoor",
+            "minecraft:crimson_trapdoor",
+            "minecraft:dark_oak_trapdoor",
+            "minecraft:decorated_pot",
+            "minecraft:element_constructor",
+            "minecraft:exposed_copper_trapdoor",
+            "minecraft:grindstone",
+            "minecraft:iron_trapdoor",
+            "minecraft:jungle_trapdoor",
+            "minecraft:lab_table",
+            "minecraft:loom",
+            "minecraft:mangrove_trapdoor",
+            "minecraft:material_reducer",
+            "minecraft:oxidized_copper_trapdoor",
+            "minecraft:pale_oak_trapdoor",
+            "minecraft:poplar_trapdoor",
+            "minecraft:spruce_trapdoor",
+            "minecraft:trapdoor",
+            "minecraft:tripwire_hook",
+            "minecraft:warped_trapdoor",
+            "minecraft:waxed_copper_trapdoor",
+            "minecraft:waxed_exposed_copper_trapdoor",
+            "minecraft:waxed_oxidized_copper_trapdoor",
+            "minecraft:waxed_weathered_copper_trapdoor",
+            "minecraft:weathered_copper_trapdoor"
+          ]
         }
       ]
     },
@@ -1313,6 +1435,17 @@
         },
         {
           "value": 7
+        }
+      ],
+      "block_domains": [
+        {
+          "values": [
+            0,
+            1
+          ],
+          "blocks": [
+            "minecraft:shelf_mushroom"
+          ]
         }
       ]
     },
@@ -2591,6 +2724,23 @@
         },
         {
           "value": 9
+        }
+      ],
+      "block_domains": [
+        {
+          "values": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "blocks": [
+            "minecraft:activator_rail",
+            "minecraft:detector_rail",
+            "minecraft:golden_rail"
+          ]
         }
       ]
     },

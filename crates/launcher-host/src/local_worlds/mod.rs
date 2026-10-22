@@ -8,6 +8,7 @@ mod docker;
 mod download;
 mod import;
 mod junction;
+mod level_dat;
 mod manager;
 mod ports;
 mod process;
@@ -20,7 +21,7 @@ mod world;
 
 pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
-pub use manager::Manager;
+pub use manager::{Host, Manager};
 pub use world::WorldError;
 
 use std::{

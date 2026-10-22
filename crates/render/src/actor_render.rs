@@ -516,6 +516,7 @@ fn prepare_actor_resources(
                     &gpu.spans,
                     &prepared.manifest,
                     &frame.mask_only_runtime_ids,
+                    frame.main_pass_instance_count,
                 );
                 let main_count = gpu
                     .spans

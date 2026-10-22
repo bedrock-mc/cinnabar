@@ -374,3 +374,10 @@ player's bones by name; the cape's rest turn, layer resampling and `cape_flap_am
 native parity verification. The entity compiler retains vanilla's `geometry.cape` from
 `models/mobs.json` in the geometry carrier and reference sidecar. Server-assigned local appearances
 survive unchanged client pose feeds and roster removal while the player actor remains alive.
+
+Boats and rafts: vanilla draws `minecraft:boat` and `minecraft:chest_boat` with a native model, so
+their client entities name no render controller. The entity compiler gives such entities the
+native hull, raft and chest models (authored `geometry.boat`-style geometry replaces them) and a
+controller that picks the wood texture and raft model from the actor variant. Streamed row times
+pose the paddles, and a struck boat rocks about its render origin. Missing: the bubble-column rock,
+the water cutout inside the hull, and client-predicted driving (see Riding).

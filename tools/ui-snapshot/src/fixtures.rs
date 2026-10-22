@@ -20,6 +20,7 @@ mod updates;
 
 use std::sync::Arc;
 
+use launcher::local_worlds::world::UnavailableReason;
 use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
@@ -92,6 +93,9 @@ pub enum Fixture {
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
+    /// Retained Add Server focus after a simulated keyboard reduces the visible height.
+    #[cfg(feature = "test-support")]
+    MenuKeyboard,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -248,6 +252,13 @@ const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "add-server-keyboard",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::MenuKeyboard,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "settings-draft-return",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -371,42 +382,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || chat::server_content(true),
-    },
-    State {
-        name: "home-update-compact",
-        size: [480, 640],
-        gui_scale: 3,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-signed-in-update",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::signed_in,
-    },
-    State {
-        name: "home-update-ready",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, false),
-    },
-    State {
-        name: "home-update-required",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(true, true),
-    },
-    State {
-        name: "home-update-download",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || updates::home(false, false),
-    },
-    State {
-        name: "home-update-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: || updates::home(true, false),
     },
     #[cfg(feature = "test-support")]
     State {
@@ -565,6 +540,12 @@ const STATES: &[State] = &[
         fixture: out_of_game::disconnect_device_clock,
     },
     State {
+        name: "disconnect-local-world-offline",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_local_world_offline,
+    },
+    State {
         name: "connect-failed",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -641,6 +622,18 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: out_of_game::play_worlds_importing,
+    },
+    State {
+        name: "local-docker-missing",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::docker_prompt(UnavailableReason::DockerMissing),
+    },
+    State {
+        name: "local-docker-not-running",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::docker_prompt(UnavailableReason::DockerNotRunning),
     },
     State {
         name: "world-edit-after-delete-back",
@@ -802,6 +795,24 @@ const STATES: &[State] = &[
         fixture: shader_pack::pack_picker,
     },
     State {
+        name: "settings-shaders-remove",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::removal_dialog,
+    },
+    State {
+        name: "settings-shaders-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library,
+    },
+    State {
+        name: "settings-shaders-narrow-library",
+        size: [800, 720],
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::long_library,
+    },
+    State {
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -838,11 +849,11 @@ const STATES: &[State] = &[
         fixture: || updates::settings(launcher::menu::updates::Status::Failed),
     },
     State {
-        name: "settings-general-mod-updates-passive",
+        name: "settings-updates-mod-updates-passive",
         size: [1280, 1200],
         gui_scale: GUI_SCALE,
         fixture: || {
-            let mut view = settings(SettingSection::General.definition().name);
+            let mut view = settings(SettingSection::Updates.definition().name);
             view.updates.active = false;
             Fixture::Menu(Box::new(view))
         },
@@ -943,36 +954,6 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: shader_options::rest,
     },
-    State {
-        name: "toast-shader-pack-loading",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::loading,
-    },
-    State {
-        name: "toast-shader-pack-loaded",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::loaded,
-    },
-    State {
-        name: "toast-shader-pack-failed",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::failed,
-    },
-    State {
-        name: "settings-shaders-selected",
-        size: SHADER_PACK_ROW_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || shader_pack::settings_shaders(false),
-    },
-    State {
-        name: "settings-shaders-failed",
-        size: SHADER_PACK_ROW_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || shader_pack::settings_shaders(true),
-    },
 ];
 
 /// Opens a settings category by its registered name rather than a copied index.
@@ -986,7 +967,13 @@ pub fn settings(section: &str) -> MenuView {
     view
 }
 
-/// Enumerates every fixture, including the independently owned Social settings states.
+/// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(social_settings::STATES)
+    STATES
+        .iter()
+        .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(updates::STATES)
+        .chain(shader_pack::STATES)
+        .chain(social_settings::STATES)
+        .chain(settings_screens::SEARCH_STATES)
 }

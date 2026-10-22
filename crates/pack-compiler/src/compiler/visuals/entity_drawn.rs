@@ -70,6 +70,7 @@ mod tests {
             "minecraft:ender_chest",
             "minecraft:waxed_exposed_copper_chest",
             "minecraft:bed",
+            "minecraft:chalkboard",
             "minecraft:standing_banner",
             "minecraft:wall_banner",
             "minecraft:skeleton_skull",

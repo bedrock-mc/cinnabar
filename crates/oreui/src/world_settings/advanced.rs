@@ -1,8 +1,5 @@
-//! Backend and terrain remain independent choices on the advanced world form.
+//! Terrain and advanced world options for a new BDS world.
 
-use bridge::Backend;
-use launcher::local_worlds::backend_label;
-use launcher::local_worlds::world::UnavailableReason;
 use {
     super::*,
     launcher::local_worlds::{WorldsView, world_type_label},
@@ -50,34 +47,7 @@ pub(super) fn draw(
         )
     })?;
     let y = sections::row(canvas, area, y, |canvas, area| {
-        let y = label(canvas, "Backend", area, area[1])?;
-        let options: Vec<_> = [Backend::Bds]
-            .into_iter()
-            .map(|backend| {
-                (
-                    backend_label(backend),
-                    local(A::Backend(backend)),
-                    form.backend == backend,
-                )
-            })
-            .collect();
-        let height = choice_height(canvas, area, &options)?;
-        segmented(canvas, view, [area[0], y, area[2], y + height], &options)?;
-        let description = match (form.backend, local_view.bds_unavailable) {
-            (Backend::Dragonfly, _) => "Built-in local server. No Docker required.",
-            (Backend::Bds, Some(UnavailableReason::DockerMissing)) => {
-                "BDS needs Docker on Mac. Install Docker to create worlds."
-            }
-            (Backend::Bds, Some(UnavailableReason::DockerNotRunning)) => {
-                "Docker is not running. Start Docker before creating a world."
-            }
-            (Backend::Bds, _) if !local_view.bds_can_run => "BDS is unavailable on this computer.",
-            (Backend::Bds, _) => "Official Bedrock Dedicated Server.",
-        };
-        caption(canvas, description, area, y + height + space(canvas, 2))
-    })?;
-    sections::row(canvas, area, y, |canvas, area| {
-        let y = label(canvas, "World generator", area, area[1])?;
+        let y = label(canvas, "World type", area, area[1])?;
         let options: Vec<_> = [Generator::Normal, Generator::Flat]
             .into_iter()
             .map(|generator| {
@@ -97,5 +67,27 @@ pub(super) fn draw(
             }
         };
         caption(canvas, description, area, y + height + space(canvas, 2))
-    })
+    })?;
+    options::draw(canvas, view, local_view, area, y, false)
+}
+
+/// Shows the saved seed and terrain without allowing generation settings to change.
+pub(super) fn edit(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    local_view: &WorldsView,
+    area: Bounds,
+) -> Result<f32, PaintError> {
+    let Some(world) = local_view.edited.as_ref() else {
+        return Ok(area[1]);
+    };
+    let y = sections::row(canvas, area, area[1], |canvas, inner| {
+        let y = label(canvas, "World seed", inner, inner[1])?;
+        caption(canvas, &world.seed.to_string(), inner, y)
+    })?;
+    let y = sections::row(canvas, area, y, |canvas, inner| {
+        let y = label(canvas, "World type", inner, inner[1])?;
+        caption(canvas, world_type_label(world.generator), inner, y)
+    })?;
+    options::draw(canvas, view, local_view, area, y, true)
 }

@@ -36,7 +36,7 @@ pub(crate) fn attachment_states(
         if !known_keys(canonical, &[P::TorchFacingDirection.name()]) {
             return None;
         }
-        crate::placement_state::valid_property(canonical, P::TorchFacingDirection)?;
+        crate::placement_state::valid_property(fact, canonical, P::TorchFacingDirection)?;
         let clicked_support = input.face ^ 1;
         let support = if input.face != 0 && supports[usize::from(clicked_support)]? {
             clicked_support
@@ -66,7 +66,7 @@ pub(crate) fn attachment_states(
     } else if fact.family == F::Lever {
         if !known_keys(canonical, &[P::LeverDirection.name(), P::OpenBit.name()])
             || state_bit(canonical, P::OpenBit.name()).is_none()
-            || crate::placement_state::valid_property(canonical, P::LeverDirection).is_none()
+            || crate::placement_state::valid_property(fact, canonical, P::LeverDirection).is_none()
             || !supports[usize::from(input.face ^ 1)]?
         {
             return None;

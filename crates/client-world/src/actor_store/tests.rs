@@ -251,11 +251,12 @@ fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
     assert!((store.get(42).unwrap().position[1] - (64.2 - PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
 }
 
+/// A boat's spawn position is its native origin, like movement; feet-origin moves are not.
 #[test]
-fn spawn_and_partial_positions_never_apply_network_offsets() {
+fn boat_spawns_apply_the_network_offset_and_feet_moves_do_not() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, entity_spawn(42, -7, "minecraft:boat", Arc::from([])));
-    assert_eq!(store.get(42).unwrap().position[1], 64.0);
+    assert_eq!(store.get(42).unwrap().position[1], 64.0 - 0.375);
 
     store.apply(
         1,
@@ -290,6 +291,7 @@ fn absolute_network_positions_use_supported_entity_kind_offsets() {
         ("minecraft:tnt_minecart", 0.5),
         ("minecraft:command_block_minecart", 0.5),
         ("minecraft:boat", 0.375),
+        ("minecraft:chest_boat", 0.375),
     ];
 
     for (index, (identifier, offset)) in cases.into_iter().enumerate() {

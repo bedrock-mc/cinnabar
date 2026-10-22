@@ -18,6 +18,7 @@ pub use error::UiRuntimeError;
 pub mod forms;
 pub mod gameplay_authority;
 pub mod gameplay_hud;
+pub mod grindstone;
 pub mod hud_adapter;
 pub mod interaction;
 pub mod inventory_actions;
@@ -140,6 +141,8 @@ pub struct UiRuntime {
     pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
+    /// The open window's position and the block entity id found there.
+    storage_block: Option<([i32; 3], Arc<str>)>,
     last_fifo_sequence: Option<u64>,
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
@@ -216,6 +219,7 @@ pub struct UiRuntime {
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
     anvil_cache: anvil::cache::PreviewCache,
+    grindstone_cache: grindstone::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -237,6 +241,7 @@ impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
         Self {
             item_fuel_catalog: None,
+            storage_block: None,
             session_id,
             #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
@@ -320,6 +325,7 @@ impl UiRuntime {
             food_catalog: None,
             stack_facts: Default::default(),
             anvil_cache: Default::default(),
+            grindstone_cache: Default::default(),
             item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
@@ -474,6 +480,9 @@ impl UiRuntime {
         let ledger = player_runtime.inventory_commands();
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
+        }
+        if let Some((position, block_entity)) = &self.storage_block {
+            ledger.name_storage_block(*position, Some(&**block_entity));
         }
         ledger
     }
@@ -649,6 +658,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        self.grindstone_cache = Default::default();
         #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;
