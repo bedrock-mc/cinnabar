@@ -124,16 +124,20 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
     Some(render_app)
 }
 
-fn collect_views(
-    views: Query<(
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-        Option<&ViewTarget>,
-        Option<&render_scene::EnhancedRendering>,
+/// The camera state that selects each view's pipeline variants.
+type ViewKeys<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static bevy::render::camera::ExtractedCamera,
+        &'static Msaa,
+        Option<&'static ViewTarget>,
+        Option<&'static render_scene::EnhancedRendering>,
         Has<render_scene::shaderpack::ShaderPackRendering>,
-    )>,
-    mut registry: ResMut<WarmupRegistry>,
-) {
+    ),
+>;
+
+fn collect_views(views: ViewKeys, mut registry: ResMut<WarmupRegistry>) {
     registry.views.clear();
     registry.pending = false;
     for (camera, msaa, target, enhanced, shader_pack) in &views {

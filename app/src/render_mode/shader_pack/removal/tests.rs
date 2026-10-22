@@ -336,3 +336,34 @@ fn failed_deletion_restores_controls_and_keeps_the_library_entry() {
         2
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn removing_the_target_of_a_selected_library_link_switches_off() {
+    let root = tempfile::tempdir().unwrap();
+    let packs = root.path().join("shaderpacks");
+    let mut app = fixture(root.path(), Some("Alias"));
+    std::fs::create_dir_all(packs.join("Actual/shaders")).unwrap();
+    std::os::unix::fs::symlink(packs.join("Actual"), packs.join("Alias")).unwrap();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .sync_shader_packs(vec!["Actual".into(), "Alias".into()]);
+    remove(&mut app, 0);
+    test_time::eventually("the confirmed shader pack removal", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .shader_pack_removing
+            .is_none()
+    });
+    assert!(!packs.join("Actual").exists());
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::Vanilla);
+    assert!(video.shader_pack.is_none());
+}

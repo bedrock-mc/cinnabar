@@ -135,16 +135,18 @@ fn finish_removal(
             removed: false,
         },
     };
-    let mut graphics = GraphicsSettings::of(&settings.user_settings_update().1.video);
+    let video = &settings.user_settings_update().1.video;
+    let mut graphics = GraphicsSettings::of(video);
+    // The worker resolved the selection that the deleted entry backs, including through
+    // links. That counts only while the same selection is current, so a newer pick survives.
+    let affected = outcome.selected_path.is_some()
+        && super::selected_pack(&config, video).map(|pack| pack.path) == outcome.selected_path;
+    let library = config.cli_shader_pack.is_none();
     let active = graphics.mode == ui::RenderMode::ShaderPack
-        && if let Some(selected) = config.cli_shader_pack.as_ref() {
-            outcome.selected_path.as_ref() == Some(selected)
-        } else {
-            graphics.shader_pack.as_deref() == Some(name.as_str())
-        };
+        && (affected || (library && graphics.shader_pack.as_deref() == Some(name.as_str())));
     let remembered = graphics.shader_pack.as_deref() == Some(name.as_str());
     if outcome.removed && (active || remembered) {
-        if remembered {
+        if remembered || (active && library) {
             graphics.shader_pack = None;
         }
         if active {
