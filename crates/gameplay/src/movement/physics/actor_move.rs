@@ -91,6 +91,25 @@ mod tests {
     }
 
     #[test]
+    fn actor_position_discards_all_axis_contacts_but_keeps_authoritative_ground_state() {
+        for previous_ground in [false, true] {
+            for ground in [None, Some(false), Some(true)] {
+                let mut physics = LocalPhysicsController::default();
+                physics.reanchor_network_position([0.0, 4.0, 0.0], 100, previous_ground);
+                physics.state.as_mut().unwrap().collisions = sim::AxisCollisions {
+                    x: true,
+                    y: true,
+                    z: true,
+                };
+                physics.apply_server_actor_position([1.0, 4.5, 2.0], ground);
+                let state = physics.state().unwrap();
+                assert_eq!(state.collisions, sim::AxisCollisions::default());
+                assert_eq!(state.on_ground, ground.unwrap_or(previous_ground));
+            }
+        }
+    }
+
+    #[test]
     fn actor_position_preserves_motion_input_and_fractional_tick_time() {
         let mut physics = LocalPhysicsController::default();
         physics.reanchor_network_position([0.0, 4.0, 0.0], 100, false);
