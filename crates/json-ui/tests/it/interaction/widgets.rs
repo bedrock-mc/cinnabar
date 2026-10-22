@@ -68,6 +68,55 @@ fn touch_release_over_a_different_toggle_cannot_change_it() {
     }
 }
 
+/// A consuming release ends all of that gesture's presses before the next finger begins.
+#[test]
+fn crossed_touch_gestures_cannot_reuse_an_earlier_down() {
+    let mut screen = Screen::new(page(vec![
+        toggle("a", json!({"toggle_default_state":false})),
+        toggle("b", json!({"toggle_default_state":false, "offset":[50,0]})),
+    ]));
+    let edges = [
+        (true, [5.0, 5.0]),
+        (false, [55.0, 5.0]),
+        (true, [55.0, 5.0]),
+        (false, [5.0, 5.0]),
+        (true, [5.0, 5.0]),
+        (false, [5.0, 5.0]),
+    ];
+    for (edge, (down, point)) in edges.into_iter().enumerate() {
+        let regions = screen.regions();
+        screen.dispatcher.pointer(
+            &regions,
+            &mut screen.view,
+            PointerInput {
+                point: Some(point),
+                held: down,
+                mode: InputMode::Touch,
+                now: 0.0,
+            },
+        );
+        let output = screen.dispatcher.button(
+            &regions,
+            &mut screen.view,
+            json_ui::ButtonInput {
+                id: "button.menu_select",
+                down,
+                point: Some(point),
+                mode: InputMode::Touch,
+                now: 0.0,
+            },
+        );
+        assert_eq!(
+            output
+                .events
+                .iter()
+                .any(|event| matches!(event, ScreenEvent::Toggle { checked: true, .. })),
+            edge == 5,
+            "edge={edge}"
+        );
+    }
+}
+
 // T3: selecting a radio member checks it and unchecks the rest of its group.
 #[test]
 fn radio_groups_stay_exclusive() {

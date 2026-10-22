@@ -3,7 +3,7 @@
 //! are visited top to bottom (inside the topmost modal panel), each fires its
 //! first eligible mapping for the button, and a consuming mapping stops the walk.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -48,6 +48,8 @@ pub struct Dispatch {
 pub struct Dispatcher {
     /// Last button state per (control key, mapping index).
     last: HashMap<(String, usize), bool>,
+    /// Controls pressed by the current touch gesture, grouped by input button.
+    touch_down: HashMap<String, HashSet<(String, usize)>>,
     /// Press count, time and position per (control key, button): `PressStats`.
     presses: HashMap<(String, String), (u32, f64, [f64; 2])>,
     /// Controls the pointer hovers, top first.
@@ -72,6 +74,9 @@ impl Dispatcher {
         view: &mut ViewState,
         input: ButtonInput<'_>,
     ) -> Dispatch {
+        if input.mode == InputMode::Touch && input.down {
+            self.finish_touch(input.id);
+        }
         let mut out = Dispatch::default();
         for region in reachable(regions).rev() {
             // `from_button_id: "any"` hands every button to the controller unmapped.
@@ -96,7 +101,18 @@ impl Dispatcher {
             let previous = self.last.insert((region.key.clone(), index), input.down);
             // Interaction edge: the press, or the release on touch.
             let interacted = if input.mode == InputMode::Touch {
-                !input.down && previous == Some(true)
+                let key = (region.key.clone(), index);
+                if input.down {
+                    self.touch_down
+                        .entry(input.id.to_owned())
+                        .or_default()
+                        .insert(key);
+                    false
+                } else {
+                    self.touch_down
+                        .get(input.id)
+                        .is_some_and(|pressed| pressed.contains(&key))
+                }
             } else {
                 input.down && previous != Some(true)
             };
@@ -133,6 +149,7 @@ impl Dispatcher {
             }
         }
         if !input.down {
+            self.finish_touch(input.id);
             if self.track_button.as_deref() == Some(input.id) {
                 self.track = None;
                 self.track_button = None;
@@ -439,6 +456,15 @@ impl Dispatcher {
         for (index, mapping) in region.input.mappings.iter().enumerate() {
             if mapping.from == id {
                 self.last.remove(&(region.key.clone(), index));
+            }
+        }
+    }
+
+    /// Expires a gesture even when another control consumed its release or its layout disappeared.
+    fn finish_touch(&mut self, id: &str) {
+        if let Some(pressed) = self.touch_down.remove(id) {
+            for key in pressed {
+                self.last.remove(&key);
             }
         }
     }
