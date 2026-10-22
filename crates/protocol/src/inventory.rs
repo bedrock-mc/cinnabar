@@ -454,8 +454,9 @@ impl VerifiedNetworkItemStack {
         })
     }
 
-    /// Preserves selected transaction item contents while omitting its optional stack identity.
-    pub(crate) fn into_selected_vendor_item(
+    /// The descriptor an item-use transaction writes, for its selected item and every action's
+    /// old and new item: full contents, never a stack network id.
+    pub(crate) fn into_transaction_vendor_item(
         self,
     ) -> Result<ItemStackDescriptor, InventoryPacketError> {
         let mut item = self.into_vendor_item()?;
