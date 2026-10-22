@@ -223,6 +223,15 @@ pub fn current_generation() -> u64 {
         .0
 }
 
+/// Drops the published pack, without a new publication, when `seen` is still the latest one; the
+/// pack owns every archive of the ended session's stack.
+pub(super) fn release_if_current(seen: u64) {
+    let mut mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());
+    if mailbox.0 == seen {
+        mailbox.1 = None;
+    }
+}
+
 /// The newly published server sounds since `seen`, if any; `Some(None)` means cleared.
 pub fn poll_server_sounds(seen: &mut u64) -> Option<Option<Arc<ServerSoundPack>>> {
     let mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());

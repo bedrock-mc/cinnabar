@@ -216,3 +216,29 @@ fn admitted_custom_sound_reaches_the_output_mixer() {
             .unwrap();
     }
 }
+
+// Leaving a server must not leave its sounds, and the archives they read, pinned by the mailbox.
+#[test]
+fn ending_the_session_releases_the_published_pack_but_not_a_newer_one() {
+    let _mailbox = super::SERVER_SOUNDS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let wav = super::tests::wav(1, 8000, &[1234, -1234]);
+    let pack = || {
+        Arc::new(ServerSoundPack::from_view(&view(&[("sounds/random/click.wav", &wav)])).unwrap())
+    };
+    let mut engine = crate::audio::AudioEngine::new(None);
+    let ended = pack();
+    let released = Arc::downgrade(&ended);
+    super::publish_server_sounds(Some(ended));
+    engine.poll_server();
+    engine.clear_server_if_current();
+    assert!(released.upgrade().is_none());
+
+    let next = pack();
+    let kept = Arc::downgrade(&next);
+    super::publish_server_sounds(Some(next));
+    engine.clear_server_if_current();
+    assert!(kept.upgrade().is_some(), "a newer session's pack survives");
+    super::publish_server_sounds(None);
+}
