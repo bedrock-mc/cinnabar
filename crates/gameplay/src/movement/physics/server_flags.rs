@@ -204,10 +204,8 @@ fn write_live_spin(state: &mut PlayerState, authority: &mut ServerFlagAuthority,
     }
     if spinning {
         state.spin_attack_ticks = Some(authority.cleared_spin_on(state.tick).unwrap_or(0));
-    } else {
-        if let Some(ticks) = state.spin_attack_ticks.take() {
-            authority.save_cleared_spin(state.tick, ticks);
-        }
+    } else if let Some(ticks) = state.spin_attack_ticks.take() {
+        authority.save_cleared_spin(state.tick, ticks);
     }
 }
 

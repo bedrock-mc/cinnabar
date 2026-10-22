@@ -330,10 +330,11 @@ impl ModeTracker {
             (MovementMode::Gliding, false)
         } else if swimming {
             (MovementMode::Swimming, false)
-        } else if observed.spinning {
+        } else if observed.spinning
+            || intent.no_clip
+            || pose_fits(world, observed.feet, MovementMode::Walking, false)?
+        {
             // Vanilla's sneak trigger stops crawling during a spin and forces no sneak.
-            (MovementMode::Walking, false)
-        } else if intent.no_clip || pose_fits(world, observed.feet, MovementMode::Walking, false)? {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
