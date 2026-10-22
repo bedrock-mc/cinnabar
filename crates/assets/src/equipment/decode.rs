@@ -165,3 +165,21 @@ fn field<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetEr
         .try_into()
         .map_err(|_| invalid("invalid equipment carrier field"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equipment_texture_decode_checks_pixel_budget_before_reading_raster() {
+        let identifier = b"textures/items/oversized";
+        let mut section = Vec::new();
+        section.extend_from_slice(&1u32.to_le_bytes());
+        section.extend_from_slice(&(identifier.len() as u16).to_le_bytes());
+        section.extend_from_slice(identifier);
+        section.extend_from_slice(&crate::MAX_ACTOR_TEXTURE_SIDE.to_le_bytes());
+        section.extend_from_slice(&crate::MAX_ACTOR_TEXTURE_SIDE.to_le_bytes());
+        let error = decode_textures(&section, &mut |_| None).unwrap_err();
+        assert!(error.to_string().contains("pixel budget"));
+    }
+}
