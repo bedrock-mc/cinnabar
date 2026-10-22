@@ -314,9 +314,9 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Maps one accepted-response correction address onto its retained ledger
-    /// cell: the same canonical projection the ingress paths use, bounded by
-    /// each surface's exact retention. `None` marks an unrouted identity.
+    /// Maps a request or response address onto a retained cell. Named open-window
+    /// addresses use full window indices, bounded by the named segment.
+    /// `None` marks an unrouted identity.
     pub(super) fn retained_response_cell(
         &self,
         container: &ContainerIdentity,
@@ -335,9 +335,14 @@ impl PlayerInventoryLedger {
             }
             CanonicalCell::WindowSlot { name, slot } => {
                 let storage = self.storage.as_ref()?;
-                let first = protocol::open_name_first_cell(storage.kind, name)?;
-                let cell = Cell::Storage(first.checked_add(u8::try_from(slot).ok()?)?);
-                self.confirmed.contains(cell).then_some(cell)
+                let slot = u8::try_from(slot).ok()?;
+                let (protocol::StackRequestContainer::OpenWindow { name: expected, .. }, _) =
+                    protocol::open_cell_request(storage.kind, slot, None, None)?
+                else {
+                    return None;
+                };
+                let cell = Cell::Storage(slot);
+                (name == expected && self.confirmed.contains(cell)).then_some(cell)
             }
             canonical => fixed_cell(canonical),
         }
@@ -410,6 +415,8 @@ impl PlayerInventoryLedger {
             data: std::collections::BTreeMap::new(),
             generation,
             identity: None,
+            block_container: None,
+            superseded_identity: None,
             resync_required: false,
             closing: false,
         });

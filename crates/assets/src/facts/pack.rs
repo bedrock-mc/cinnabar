@@ -46,7 +46,8 @@ domain!(PackTexture {
     GrassSide,
     MyceliumSide,
     ResinClump,
-    PowderSnow
+    PowderSnow,
+    StrawBed
 });
 domain!(PackBlock {
     Beacon,
@@ -62,7 +63,8 @@ domain!(PackBlock {
     Dirt,
     CobblestoneWall,
     Air,
-    Stone
+    Stone,
+    StrawBed
 });
 domain!(TextureSelector {
     Door,
@@ -236,8 +238,12 @@ impl PackRules {
             _ => EntityRenderMaterial::Default,
         }
     }
-    /// Supplies the native fallback state only for aliases covered by the policy.
+    /// Resolves built-in material aliases before reading their policy state.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
+        let name = match name {
+            "harness" => "entity_alphatest",
+            _ => name,
+        };
         let mut state = EntityRenderMaterialState::default();
         match self.material(name)? {
             MaterialKind::AlphaTestNoCull => {

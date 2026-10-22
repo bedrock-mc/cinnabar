@@ -151,6 +151,7 @@ fn review_short_world_settings_are_scrollable() {
     use launcher::local_worlds::world::{Difficulty, Generator, World};
     let mut worlds = launcher::local_worlds::WorldsMenu::default();
     worlds.apply(launcher::local_worlds::Event::Listed(vec![World {
+        options: Default::default(),
         id: "test".into(),
         name: "World".into(),
         game_mode: GameMode::Survival,
@@ -160,6 +161,7 @@ fn review_short_world_settings_are_scrollable() {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }]));
     worlds.update(launcher::local_worlds::Input::BeginEdit(0));

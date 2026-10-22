@@ -154,6 +154,8 @@ pub struct ActorMoveEvent {
     pub head_yaw: Option<f32>,
     pub on_ground: Option<bool>,
     pub teleported: bool,
+    /// Accept this move even when the actor is controlled by the local client.
+    pub force_local_move: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<u64>,
     pub interpolation: ActorInterpolation,
@@ -166,7 +168,17 @@ pub struct ActorInterpolation {
     pub force_completion: bool,
 }
 
+const MOVE_ON_GROUND: u8 = 1;
+const MOVE_TELEPORT: u8 = 1 << 1;
+const MOVE_FORCE_LOCAL: u8 = 1 << 2;
 const MOVE_FORCE_COMPLETION: u8 = 1 << 3;
+
+impl ActorMoveEvent {
+    /// Whether server actor movement may replace a locally controlled position.
+    pub const fn controls_local_actor(self) -> bool {
+        self.teleported || self.force_local_move
+    }
+}
 
 /// Coordinate space carried by an actor movement position.
 ///
@@ -450,8 +462,9 @@ pub(crate) fn normalize_move_entity(
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/packet/move_actor_absolute.go`:
         // `MoveFlagOnGround = 1 << iota`, `MoveFlagTeleport`.
-        on_ground: Some(move_data.header.0 & 1 != 0),
-        teleported: move_data.header.0 & 2 != 0,
+        on_ground: Some(move_data.header.0 & MOVE_ON_GROUND != 0),
+        teleported: move_data.header.0 & MOVE_TELEPORT != 0,
+        force_local_move: move_data.header.0 & MOVE_FORCE_LOCAL != 0,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
@@ -511,8 +524,9 @@ pub(crate) fn normalize_move_entity_body(
         pitch: Some(pitch),
         yaw: Some(yaw),
         head_yaw: Some(head_yaw),
-        on_ground: Some(flags & 1 != 0),
-        teleported: flags & 2 != 0,
+        on_ground: Some(flags & MOVE_ON_GROUND != 0),
+        teleported: flags & MOVE_TELEPORT != 0,
+        force_local_move: flags & MOVE_FORCE_LOCAL != 0,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
@@ -564,6 +578,7 @@ pub(crate) fn normalize_move_entity_delta(
         // whether the client should snap the entity to its new position without
         // interpolation."
         teleported: move_data.force_move,
+        force_local_move: move_data.force_move_local_entity,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {

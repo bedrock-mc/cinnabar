@@ -283,6 +283,36 @@ fn saved_schema_snapshot_keeps_active_setting_and_binding_keys() {
     }
 }
 
+/// Accessibility neither displays nor resets preferences owned by the Chat panel.
+#[test]
+fn accessibility_keeps_chat_preferences_in_the_chat_panel() {
+    let mut settings = SettingsOptions::default();
+    for option in SettingPanel::Chat.options() {
+        assert!(
+            option
+                .section
+                .iter()
+                .all(|(panel, _)| panel.section() != SettingSection::Accessibility)
+        );
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    settings.set(SettingId::ToastNotificationDuration.index(), 1);
+    let before = settings.clone();
+    assert!(settings.reset_group(SettingsGroup::Accessibility));
+    for option in SettingPanel::Chat.options() {
+        assert_eq!(settings.value(option.id), before.value(option.id));
+    }
+    assert_eq!(
+        settings.value(SettingId::ToastNotificationDuration),
+        SettingId::ToastNotificationDuration.definition().default
+    );
+}
+
 /// The dedicated Chat reset includes every displayed preference and preserves other panels.
 #[test]
 fn chat_panel_reset_restores_shared_values_and_persists_defaults() {

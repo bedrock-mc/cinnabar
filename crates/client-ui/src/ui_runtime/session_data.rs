@@ -340,7 +340,12 @@ fn build_recipes(
     let (mut recipes, mut skipped) = (Vec::new(), 0);
     for handle in catalog.crafting_recipes() {
         let recipe = handle.recipe();
-        let Some(stack) = output(&recipe.output()) else {
+        // Every result a craft creates, the main one first.
+        let Some(outputs) = std::iter::once(recipe.output())
+            .chain(recipe.extra_outputs())
+            .map(|result| output(&result))
+            .collect::<Option<Vec<_>>>()
+        else {
             skipped += 1;
             continue;
         };
@@ -361,7 +366,7 @@ fn build_recipes(
                 .into_iter()
                 .map(|cell| cell.map(|view| ingredient(&view.name, view.tag, view.aux, view.count)))
                 .collect(),
-            outputs: vec![stack],
+            outputs,
         });
     }
     for (kind, category) in [

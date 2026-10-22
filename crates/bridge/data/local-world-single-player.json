@@ -1,0 +1,10 @@
+{
+  "state": "starting",
+  "world": {
+    "id": "fixture",
+    "name": "Private",
+    "game_mode": "survival",
+    "backend": "bds",
+    "multiplayer_disabled": true
+  }
+}

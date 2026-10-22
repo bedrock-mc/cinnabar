@@ -2,6 +2,7 @@
 //! screen widgets, result cells and the creative catalog.
 
 use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
+use std::collections::HashMap;
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
@@ -18,6 +19,9 @@ use ui_screens::container_actions::{
 use ui_screens::recipe_book::BookEntry;
 
 type Outcome = Result<i32, InventoryGestureError>;
+
+/// The cartography table's map input slot.
+const CARTOGRAPHY_INPUT_SLOT: u8 = 12;
 
 /// The held stack and target stack a click starts from.
 struct PlaceSnapshot {
@@ -85,35 +89,56 @@ pub fn recipe_book_entries<'a>(
                 })
                 .collect();
         }
-        let mut entries = Vec::with_capacity(items.len());
-        let mut open: Option<u32> = None;
+        enum BookOrder<'a> {
+            Item(&'a CreativeItem),
+            Group(u32),
+        }
+
+        // Creative items are sorted by network id for lookup, not by group. Collect
+        // each named group before publishing rows so an interleaved catalog cannot
+        // emit the same group head once per network-id run.
+        let mut order = Vec::with_capacity(items.len());
+        let mut grouped = HashMap::<u32, Vec<&CreativeItem>>::new();
         for item in items.iter() {
             let group = catalog
                 .groups
                 .get(item.group as usize)
                 .filter(|group| !group.name.is_empty());
-            let Some(group) = group else {
-                open = None;
-                entries.push(BookEntry::Creative {
-                    item,
-                    grouped: false,
-                });
+            let Some(_) = group else {
+                order.push(BookOrder::Item(item));
                 continue;
             };
-            let expanded = state.creative_expanded.contains(&item.group);
-            if open != Some(item.group) {
-                open = Some(item.group);
-                entries.push(BookEntry::Group {
-                    index: item.group,
-                    group,
-                    expanded,
-                });
+            if !grouped.contains_key(&item.group) {
+                order.push(BookOrder::Group(item.group));
             }
-            if expanded {
-                entries.push(BookEntry::Creative {
+            grouped.entry(item.group).or_default().push(item);
+        }
+        let mut entries = Vec::with_capacity(items.len());
+        for entry in order {
+            match entry {
+                BookOrder::Item(item) => entries.push(BookEntry::Creative {
                     item,
-                    grouped: true,
-                });
+                    grouped: false,
+                }),
+                BookOrder::Group(index) => {
+                    let Some(group) = catalog.groups.get(index as usize) else {
+                        continue;
+                    };
+                    let expanded = state.creative_expanded.contains(&index);
+                    entries.push(BookEntry::Group {
+                        index,
+                        group,
+                        expanded,
+                    });
+                    if expanded {
+                        entries.extend(grouped.remove(&index).into_iter().flatten().map(|item| {
+                            BookEntry::Creative {
+                                item,
+                                grouped: true,
+                            }
+                        }));
+                    }
+                }
             }
         }
         return entries;
@@ -413,6 +438,10 @@ impl UiRuntime {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
         if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+            // A secondary click crafts once only with an empty cursor.
+            if player_runtime.inventory.ledger().cursor_stack().is_some() {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
             return self.activate_widget(player_runtime, widget);
         }
         let Some(target) = gesture_target(hit) else {
@@ -523,6 +552,9 @@ impl UiRuntime {
             InventoryCellHit::RecipeBook(index) => {
                 self.recipe_book_click(player_runtime, index, true, None)
             }
+            InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
+                self.book_widget_craft(player_runtime, index, true)
+            }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
                 self.activate_widget(player_runtime, Widget::Close)
@@ -545,12 +577,18 @@ impl UiRuntime {
     }
 
     /// Takes a result: the grid's recipe on the personal and crafting-table
-    /// screens, the derived or previewed output on the others.
+    /// screens, the derived or previewed output on the others. `all` spreads it
+    /// over the inventory, as a shift-click does.
     fn output_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         all: bool,
     ) -> Outcome {
+        let sink = if all {
+            CraftSink::Inventory
+        } else {
+            CraftSink::Cursor
+        };
         match player_runtime.inventory.ledger().window_kind() {
             None | Some(WindowKind::Workbench) => {
                 if all {
@@ -560,16 +598,16 @@ impl UiRuntime {
                 }
             }
             Some(WindowKind::Anvil) => {
-                let multi_recipe_id = self
-                    .screen_catalog(player_runtime)
-                    .and_then(|catalog| catalog.repair_multi_recipe_id())
-                    .unwrap_or(0);
-                let (rename, output, material_used) = if self
+                let (rename, output, material_used) = if let Some(created) = self
                     .inventory_ledger(player_runtime)
                     .created_output_stack()
-                    .is_some()
+                    .cloned()
                 {
-                    (self.anvil_rename(player_runtime), None, 0)
+                    (
+                        self.anvil_take_name(player_runtime, created.network_id, created.metadata),
+                        None,
+                        0,
+                    )
                 } else {
                     let preview = self
                         .anvil_preview(player_runtime)
@@ -577,32 +615,41 @@ impl UiRuntime {
                     if !self.anvil_affordable(player_runtime, &preview) {
                         return Err(InventoryGestureError::InvalidRequest);
                     }
-                    // Clearing a custom name sends empty text, so the server clears it too.
-                    let rename = preview
-                        .outcome
-                        .custom_name
-                        .clone()
-                        .map(|name| std::sync::Arc::from(name.unwrap_or_default()));
                     (
-                        rename,
+                        preview.take_name.clone(),
                         Some(preview.stack.clone()),
                         preview.outcome.material_used,
                     )
                 };
                 self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output(&ScreenCraft::Anvil {
-                        rename,
-                        multi_recipe_id,
-                        output,
-                        material_used,
-                    })
+                    .begin_screen_output_into(
+                        &ScreenCraft::Anvil {
+                            rename,
+                            recipe_network_id: 0,
+                            output,
+                            material_used,
+                        },
+                        sink,
+                    )
             }
-            Some(WindowKind::Grindstone) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_screen_output(&ScreenCraft::Grindstone {
-                    recipe_network_id: 0,
-                    repair_cost: 0,
-                }),
+            Some(WindowKind::Grindstone) => {
+                // A server-previewed result is taken as stated, even without a prediction.
+                let preview = self.grindstone_preview(player_runtime);
+                let server_output = self
+                    .inventory_ledger(player_runtime)
+                    .created_output_stack()
+                    .is_some();
+                if preview.is_none() && !server_output {
+                    return Err(InventoryGestureError::EmptyGesture);
+                }
+                let craft = ScreenCraft::Grindstone {
+                    recipe_network_id: preview.as_ref().map_or(0, |p| p.source_stack_id),
+                    repair_cost: preview.as_ref().map_or(0, |p| p.repair_cost),
+                    output: preview.filter(|_| !server_output).map(|p| p.stack),
+                };
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_screen_output_into(&craft, sink)
+            }
             Some(WindowKind::Loom) => {
                 let pattern = self
                     .screen_state()
@@ -610,22 +657,39 @@ impl UiRuntime {
                     .clone()
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output(&ScreenCraft::Loom { pattern })
+                    .begin_screen_output_into(&ScreenCraft::Loom { pattern }, sink)
             }
-            Some(WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography) => {
+            Some(
+                kind @ (WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography),
+            ) => {
                 let (recipe_network_id, output) = self
                     .active_screen_recipe(player_runtime)
                     .and_then(|recipe| Some((recipe.id, recipe.output?)))
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output(&ScreenCraft::Predicted {
+                let craft = if kind == WindowKind::Cartography {
+                    // Without a name box, restating the map's custom name keeps it.
+                    let name = self
+                        .inventory_ledger(player_runtime)
+                        .target_stack(InventoryTarget::Craft(CARTOGRAPHY_INPUT_SLOT))
+                        .and_then(|stack| protocol::item_custom_name(&stack.extra_data))
+                        .unwrap_or_else(|| std::sync::Arc::from(""));
+                    ScreenCraft::Cartography {
                         recipe_network_id,
                         output,
-                    })
+                        name,
+                    }
+                } else {
+                    ScreenCraft::Predicted {
+                        recipe_network_id,
+                        output,
+                    }
+                };
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_screen_output_into(&craft, sink)
             }
-            Some(WindowKind::Trade { .. }) => {
-                self.inventory_ledger_mut(player_runtime).begin_trade()
-            }
+            Some(WindowKind::Trade { .. }) => self
+                .inventory_ledger_mut(player_runtime)
+                .begin_trade_into(sink),
             Some(_) => Err(InventoryGestureError::InvalidRequest),
         }
     }
@@ -655,7 +719,10 @@ impl UiRuntime {
                     .and_then(|options| options.get(usize::from(index)))
                     .map(|option| option.network_id)
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime).begin_enchant(id)
+                let creative = player_runtime.facts.player_game_mode()
+                    == Some(protocol::PlayerGameMode::Creative);
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_enchant(id, creative)
             }
             Widget::BeaconEffect { id, secondary } => {
                 let state = self.screen_state_mut();
@@ -796,144 +863,11 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => {
-                let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
-                let recipe = self
-                    .book_recipes(player_runtime, skip, 1)
-                    .into_iter()
-                    .next()
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
-                player_runtime.inventory.begin_book_craft(&recipe.recipe)
-            }
+            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),
         }
-    }
-
-    /// A click on a recipe book entry: a creative item as on the catalog grid,
-    /// else auto-crafting the recipe into the cursor.
-    fn recipe_book_click(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        index: u16,
-        into_inventory: bool,
-        requested: Option<u8>,
-    ) -> Outcome {
-        if ui_screens::furnace_book::active(player_runtime) {
-            let recipe = super::presentation::forms::furnace_book::entries(player_runtime, self)
-                .get(usize::from(index))
-                .cloned()
-                .ok_or(InventoryGestureError::InvalidRequest)?;
-            return self
-                .inventory_ledger_mut(player_runtime)
-                .begin_furnace_recipe(&recipe);
-        }
-        let entry = recipe_book_entries(player_runtime, self)
-            .into_iter()
-            .nth(usize::from(index))
-            .map(|entry| match entry {
-                BookEntry::Creative { item, .. } => Clicked::Item(item.creative_network_id),
-                BookEntry::Group { index, .. } => Clicked::Group(index),
-                BookEntry::Recipe(recipe) => Clicked::Recipe(recipe.recipe),
-                BookEntry::Furnace(recipe) => Clicked::Furnace(recipe.clone()),
-            });
-        match entry {
-            Some(Clicked::Item(id)) => {
-                self.creative_take(player_runtime, id, into_inventory, requested)
-            }
-            // A head folds or unfolds its group; a held stack still deletes.
-            Some(Clicked::Group(_))
-                if player_runtime.inventory.ledger().cursor_stack().is_some() =>
-            {
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_destroy_cursor(requested)
-            }
-            Some(Clicked::Group(index)) => {
-                let expanded = &mut self.screen_state_mut().creative_expanded;
-                if !expanded.remove(&index) {
-                    expanded.insert(index);
-                }
-                Ok(0)
-            }
-            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
-            Some(Clicked::Furnace(recipe)) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_furnace_recipe(&recipe),
-            None if player_runtime.facts.player_game_mode()
-                == Some(protocol::PlayerGameMode::Creative)
-                && player_runtime.inventory.ledger().cursor_stack().is_some() =>
-            {
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_destroy_cursor(requested)
-            }
-            None => Err(InventoryGestureError::EmptyGesture),
-        }
-    }
-
-    /// A click on a catalog cell: take the item, or delete the held stack.
-    fn creative_click(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        index: u8,
-        into_inventory: bool,
-        requested: Option<u8>,
-    ) -> Outcome {
-        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
-            return Err(InventoryGestureError::InvalidRequest);
-        }
-        if player_runtime.inventory.ledger().cursor_stack().is_some() {
-            return self
-                .inventory_ledger_mut(player_runtime)
-                .begin_destroy_cursor(requested);
-        }
-        let id = {
-            let entries = visible_creative_entries(player_runtime, self);
-            let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
-            if usize::from(index) >= GRID_CELLS {
-                return Err(InventoryGestureError::InvalidRequest);
-            }
-            entries.get(position).map(|item| item.creative_network_id)
-        };
-        let id = id.ok_or(InventoryGestureError::EmptyGesture)?;
-        self.creative_take(player_runtime, id, into_inventory, requested)
-    }
-
-    /// Takes catalog item `id` to the cursor (or the first free inventory cell),
-    /// or deletes the held stack.
-    fn creative_take(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        id: u32,
-        into_inventory: bool,
-        requested: Option<u8>,
-    ) -> Outcome {
-        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
-            return Err(InventoryGestureError::InvalidRequest);
-        }
-        if player_runtime.inventory.ledger().cursor_stack().is_some() {
-            return self
-                .inventory_ledger_mut(player_runtime)
-                .begin_destroy_cursor(requested);
-        }
-        let destination = if into_inventory {
-            let ledger = player_runtime.inventory.ledger();
-            (0..protocol::PLAYER_INVENTORY_SLOTS)
-                .find(|slot| {
-                    ledger
-                        .target_stack(InventoryTarget::Player(*slot))
-                        .is_none()
-                        && matches!(
-                            ledger.slot_state(*slot),
-                            Some(inventory::inventory_ledger::PlayerInventorySlot::Empty)
-                        )
-                })
-                .map_or(CreativeDestination::Cursor, CreativeDestination::Player)
-        } else {
-            CreativeDestination::Cursor
-        };
-        self.inventory_ledger_mut(player_runtime)
-            .begin_creative_take(id, destination, requested)
     }
 
     /// Crafts the grid's recipe into hotbar `slot` while the pointer is over the result.
@@ -946,6 +880,7 @@ impl UiRuntime {
     }
 }
 
+mod catalog;
 #[cfg(test)]
 #[path = "inventory_actions/tests.rs"]
 mod tests;

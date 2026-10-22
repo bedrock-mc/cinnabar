@@ -19,6 +19,17 @@ pub(super) struct MenuCaretState {
 }
 
 impl UiPresentationRuntime {
+    /// Window-logical IME anchor below the last painted text field.
+    pub fn menu_ime_position(&self, field: MenuField) -> Option<[f32; 2]> {
+        self.screens
+            .menu_caret
+            .spots
+            .iter()
+            .rev()
+            .find(|spot| spot.field == field)
+            .map(|spot| [spot.left, spot.bounds.max().y()])
+    }
+
     /// Starts a menu frame: the view's blink phase from this frame's clock, and no
     /// text drawn yet.
     pub(super) fn begin_menu_caret(&mut self, view: &mut MenuView) {

@@ -75,6 +75,14 @@ impl NativeEntityClass {
     }
 }
 
+/// Boat and chest-boat texture aliases in actor-variant order; the variant indexes this list.
+pub const BOAT_WOOD_TEXTURES: [&str; 11] = [
+    "oak", "spruce", "birch", "jungle", "acacia", "darkoak", "mangrove", "bamboo", "cherry",
+    "paleoak", "poplar",
+];
+/// The boat variant drawn with the raft model rather than the hull.
+pub const BOAT_RAFT_VARIANT: usize = 7;
+
 /// A class's radius formula, with state inputs supplied by the actor.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ShadowRadius {

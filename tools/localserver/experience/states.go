@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"strings"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
@@ -77,7 +78,7 @@ func traitsOf(placement []PlacementState) []customblock.Trait {
 
 // stateAxes checks the states that a block of the Experience exp declares beside its placement
 // traits, and returns the axes of both, the traits' first, as the runtime orders them. Their
-// combinations number at most maxStateCombinations.
+// axes take at most maxStateBits state bits.
 func stateAxes(exp string, states []StateDef, traits []customblock.Trait) ([]axis, error) {
 	var axes []axis
 	for _, trait := range traits {
@@ -124,15 +125,21 @@ func stateAxes(exp string, states []StateDef, traits []customblock.Trait) ([]axi
 			return nil, fmt.Errorf("state %q has no values", state.Name)
 		}
 	}
-	combinations := 1
+	stateBitCount := 0
 	for _, a := range axes {
-		combinations *= len(a.values)
-		if combinations > maxStateCombinations {
-			return nil, fmt.Errorf("its states and placement traits make more than %d combinations",
-				maxStateCombinations)
-		}
+		stateBitCount += stateBits(len(a.values))
+	}
+	if stateBitCount > maxStateBits {
+		return nil, fmt.Errorf("its states and placement traits need more than %d state bits",
+			maxStateBits)
 	}
 	return axes, nil
+}
+
+// stateBits is the bits the client gives a state with the given number of values:
+// ceil(log2(values)), at least one.
+func stateBits(values int) int {
+	return max(1, bits.Len(uint(values-1)))
 }
 
 // isName reports whether name matches ^[a-z0-9_]{1,maxNameBytes}$.

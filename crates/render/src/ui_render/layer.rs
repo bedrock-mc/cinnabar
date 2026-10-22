@@ -84,6 +84,7 @@ pub(super) fn draw_ui_layer(
             None => {
                 return LayerDrawn {
                     encoded: false,
+                    nonempty: false,
                     complete: true,
                 };
             }
@@ -91,6 +92,7 @@ pub(super) fn draw_ui_layer(
         None => None,
     };
     let mut encoded = false;
+    let mut nonempty = false;
     let mut complete = true;
     let mut start = 0;
     while let Some((_, first, _)) = batches.get(start) {
@@ -160,7 +162,7 @@ pub(super) fn draw_ui_layer(
             }
         }
         pass.set_render_pipeline(pipeline);
-        draw_batches(
+        nonempty |= draw_batches(
             &mut pass,
             draw.gpu,
             draw.vertices,
@@ -188,10 +190,16 @@ pub(super) fn draw_ui_layer(
         }
         encoded = true;
     }
-    LayerDrawn { encoded, complete }
+    LayerDrawn {
+        encoded,
+        nonempty,
+        complete,
+    }
 }
 
 pub(super) struct LayerDrawn {
+    /// Whether at least one nonempty content command survived clipping and range removal.
+    pub(super) nonempty: bool,
     pub(super) encoded: bool,
     /// False when a still-compiling pipeline left a group out, so the layer must not be retained.
     pub(super) complete: bool,
@@ -210,21 +218,21 @@ pub(super) fn draw_batches<'w>(
     skip: Option<&Range<u32>>,
     damage: Option<UiScissor>,
     profile: Option<(&super::profile::UiProfile, render_scene::RuntimeStage)>,
-) {
+) -> bool {
+    let mut nonempty = false;
     if let Some((profile, stage)) = profile {
         profile.record_pass(stage);
     }
     if let Some(viewport) = viewport {
         let Some(viewport) = crate::render_bounds::viewport(viewport, extent) else {
-            return;
+            return false;
         };
         pass.set_camera_viewport(&viewport);
     }
     pass.set_vertex_buffer(0, vertices.slice(..));
     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
     for (_, batch, location) in batches {
-        let Some(scissor) = clipped_scissor(batch.scissor, damage)
-            .and_then(|rect| crate::render_bounds::scissor(rect, extent))
+        let Some((scissor, ranges)) = content_commands(batch, extent, skip, damage, viewport)
         else {
             continue;
         };
@@ -234,13 +242,49 @@ pub(super) fn draw_batches<'w>(
             .unwrap();
         pass.set_bind_group(0, binding, &[]);
         pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
-        for range in retained_batch_ranges(batch, skip).into_iter().flatten() {
+        for range in ranges.into_iter().flatten() {
             if let Some((profile, stage)) = profile {
                 profile.record_draw(stage, range.end - range.start);
             }
-            pass.draw_indexed(range, 0, location.layer..location.layer + 1);
+            if !range.is_empty() {
+                pass.draw_indexed(range, 0, location.layer..location.layer + 1);
+                nonempty = true;
+            }
         }
     }
+    nonempty
+}
+
+/// Produces content commands only for surviving attachment coverage and index ranges.
+fn content_commands(
+    batch: &UiRenderBatch,
+    extent: [u32; 2],
+    skip: Option<&Range<u32>>,
+    damage: Option<UiScissor>,
+    viewport: Option<&Viewport>,
+) -> Option<(UiScissor, [Option<Range<u32>>; 2])> {
+    let scissor = clipped_scissor(batch.scissor, damage)
+        .and_then(|rect| crate::render_bounds::scissor(rect, extent))?;
+    let scissor = if let Some(viewport) = viewport {
+        let viewport = crate::render_bounds::viewport(viewport, extent)?;
+        clipped_scissor(
+            scissor,
+            Some(UiScissor::new(
+                viewport.physical_position.x,
+                viewport.physical_position.y,
+                viewport.physical_size.x,
+                viewport.physical_size.y,
+            )),
+        )?
+    } else {
+        scissor
+    };
+    let ranges = retained_batch_ranges(batch, skip);
+    ranges
+        .iter()
+        .flatten()
+        .any(|range| !range.is_empty())
+        .then_some((scissor, ranges))
 }
 
 /// Partial replay needs an ordinary first pass and every pipeline ready before preserving pixels.

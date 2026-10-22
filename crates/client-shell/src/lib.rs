@@ -8,6 +8,8 @@ pub mod local_worlds;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod menu;
 pub mod physical_input;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod platform_text;
 pub mod player_skin;
 #[cfg(not(target_arch = "wasm32"))]
 mod plugin;
