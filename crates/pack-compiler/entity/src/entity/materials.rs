@@ -209,6 +209,7 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
     }
     let mut state = EntityRenderMaterialState::default();
     match name {
+        "harness" => return builtin("entity_alphatest"),
         "entity" => {}
         "entity_static" => state.disable_overlay = true,
         "entity_nocull" => state.cull = false,

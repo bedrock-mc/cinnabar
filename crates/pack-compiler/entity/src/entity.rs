@@ -34,6 +34,7 @@ mod native_held_items;
 mod pack;
 mod painting;
 mod policy_sources;
+mod sample_harnesses;
 mod sanitize;
 mod vanilla_refs;
 mod versions;
@@ -268,6 +269,13 @@ fn compile_with_behavior(
         &mut symbols,
         &mut geometries,
         None,
+    )?;
+    total_source_bytes += sample_harnesses::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
     )?;
     total_source_bytes = total_source_bytes
         .checked_add(native_binding_bytes)

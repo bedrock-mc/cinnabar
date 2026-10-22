@@ -21,6 +21,7 @@ use render_model::{
 mod alpha;
 mod attack;
 mod block_items;
+mod body;
 mod camera;
 mod combat;
 mod diagnostics;
@@ -531,6 +532,11 @@ impl EquipmentRuntime {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }
             }
+        }
+        if let Some(animation) = animation
+            && let Some(item) = &input.body
+        {
+            self.push_body(body, item, input, animation, layers);
         }
         wearing_elytra
     }

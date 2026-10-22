@@ -321,6 +321,10 @@ and exact native and platform comparison remain open.
 
 ## P4.3-RIGS
 
+Body-slot equipment retention, authored model selection and removal have original
+fixture coverage, alongside startup binding completion and raw worn-slot counting.
+Multi-pass body equipment and matched native visual qualification remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: local custom models; static imports reuse actor preparation. |

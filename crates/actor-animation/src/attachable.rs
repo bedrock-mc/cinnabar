@@ -44,6 +44,9 @@ pub struct AttachableAnimationInput<'a> {
 }
 
 impl AttachableAnimationInput<'_> {
+    /// Index of the separately replicated body slot in worn-item query context.
+    pub const BODY_SLOT: u8 = 4;
+
     /// Keeps owner item scaling independent of offhand and worn item models.
     pub fn main_hand_scale(self) -> f32 {
         if self.off_hand || self.worn {
@@ -91,7 +94,7 @@ impl AttachableQueryContext {
             match self.worn_slot {
                 0 => "head",
                 1 => "torso",
-                4 => "body",
+                AttachableAnimationInput::BODY_SLOT => "body",
                 _ => "",
             }
         } else if self.off_hand {

@@ -1,5 +1,7 @@
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
+/// Identifies harness items independently of their color and runtime network ID.
+pub const HARNESS_TAG: &str = "minecraft:harness";
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.
