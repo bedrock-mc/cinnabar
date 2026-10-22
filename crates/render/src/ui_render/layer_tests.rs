@@ -61,3 +61,20 @@ fn replay_scissors_never_expand_authored_clipping_or_dirty_coverage() {
         None
     );
 }
+
+#[test]
+fn publication_content_outside_a_resized_attachment_cannot_dismiss_loading() {
+    for blend in [render_model::UI_BLEND_ALPHA, render_model::UI_BLEND_INVERT] {
+        let mut batch = batch();
+        batch.blend_mode = blend;
+        batch.scissor = UiScissor::new(40, 40, 8, 8);
+        assert!(content_commands(&batch, [64; 2], None, None).is_some());
+        assert!(content_commands(&batch, [32; 2], None, None).is_none());
+        batch.scissor = UiScissor::new(24, 24, 16, 16);
+        let (scissor, _) = content_commands(&batch, [32; 2], None, None).unwrap();
+        assert_eq!(scissor, UiScissor::new(24, 24, 8, 8));
+        assert!(content_commands(&batch, [32; 2], Some(&(0..3)), None).is_none());
+        batch.index_count = 0;
+        assert!(content_commands(&batch, [32; 2], None, None).is_none());
+    }
+}

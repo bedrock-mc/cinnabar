@@ -47,14 +47,16 @@ public final class CinnabarActivity extends NativeActivity {
     }
 
     /** Native startup reports work on its own thread; only the activity thread owns views. */
-    public void startupProgress(String message) {
-        final long generation = startupGeneration;
+    public void startupProgress(String message, long generation) {
         final boolean active = startupActive;
         runOnUiThread(() -> {
             if (active && startupActive && generation == startupGeneration
                     && !isFinishing() && !isDestroyed() && startup != null) startup.update(message);
         });
     }
+
+    /** Lets native rendering invalidate readiness even when a pause preserves its surface. */
+    public long startupGeneration() { return startupGeneration; }
 
     /** Publishes the keyboard overlap while leaving the Vulkan surface at full size. */
     private void updateKeyboardGeometry(View decor, WindowInsets insets) {

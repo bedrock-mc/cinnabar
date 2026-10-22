@@ -127,6 +127,7 @@ fn held(input: Arc<UiRenderInput>) -> HeldLayer {
             model_depth: false,
         },
         encoded: true,
+        nonempty: true,
         publication: Some(input),
     }
 }
@@ -378,7 +379,8 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
             segment: 0..1,
             inverted: None,
         };
-        frame_layer(&layers[0], false).hold_publication(Some((content, true)), Some(publication));
+        frame_layer(&layers[0], false)
+            .hold_publication(Some((content, true, true)), Some(publication));
         store.views.insert(owner, layers);
         assert!(weak.upgrade().is_some());
         if remove_device {

@@ -453,6 +453,7 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
+    let pages_complete = screen_pages_complete(gpu);
     let batches = batches.filter(|(_, batch, _)| {
         gpu.textures
             .page_binding(batch.texture_page as usize)
@@ -513,7 +514,7 @@ pub(crate) fn ui_overlay(
     // crosshair) must see the scene, so the layer composites before it.
     let raster_count = plan.layer_count();
     let mut raster_index = 0;
-    let mut frame_complete = true;
+    let mut frame_complete = pages_complete;
     let mut frame_encoded = false;
     for segment in &plan.segments {
         let layered = &batches[segment.layered.clone()];
@@ -596,21 +597,22 @@ pub(crate) fn ui_overlay(
                 profile.record_damage(rect);
             }
         }
-        let (complete, encoded) = if layered.is_empty() {
-            (true, false)
+        let (complete, encoded, nonempty) = if layered.is_empty() {
+            (true, false, false)
         } else if damage == UiDamage::Unchanged {
             // Color reuse must still advance scope transitions before the next invert.
             for (_, batch, _) in layered {
                 model_lifetime.enter(batch.isolated_depth_scope);
             }
             let encoded = held.unwrap_or(!layered.is_empty());
+            let nonempty = raster.retained_nonempty();
             if held.is_none() {
                 raster.hold_publication(
-                    content.clone().map(|content| (content, encoded)),
+                    content.clone().map(|content| (content, encoded, nonempty)),
                     publication.clone(),
                 );
             }
-            (true, encoded)
+            (true, encoded, nonempty)
         } else {
             let drawn = super::filter::draw_layer(
                 context,
@@ -628,13 +630,13 @@ pub(crate) fn ui_overlay(
                 content
                     .clone()
                     .filter(|_| drawn.complete)
-                    .map(|content| (content, drawn.encoded)),
+                    .map(|content| (content, drawn.encoded, drawn.nonempty)),
                 publication.clone(),
             );
-            (drawn.complete, drawn.encoded)
+            (drawn.complete, drawn.encoded, drawn.nonempty)
         };
         frame_complete &= complete;
-        frame_encoded |= encoded;
+        frame_encoded |= nonempty;
         if encoded {
             if segment.present {
                 layer.defer_present();
@@ -697,9 +699,8 @@ pub(crate) fn ui_overlay(
             if scoped && needs_depth {
                 model_lifetime.encoded();
             }
-            frame_encoded = true;
             pass.set_render_pipeline(pipeline);
-            draw_batches(
+            frame_encoded |= draw_batches(
                 &mut pass,
                 gpu,
                 vertices,
@@ -832,4 +833,16 @@ mod review_tests {
             .unwrap();
         assert_eq!(descriptor.multisample.count, 1);
     }
+}
+
+/// Requires bindings only for screen-space pages referenced by the accepted publication.
+pub(super) fn screen_pages_complete(gpu: &UiGpu) -> bool {
+    gpu.batches
+        .iter()
+        .filter(|batch| batch.world_projection == 0 && batch.index_count != 0)
+        .all(|batch| {
+            gpu.textures
+                .page_binding(batch.texture_page as usize)
+                .is_some()
+        })
 }

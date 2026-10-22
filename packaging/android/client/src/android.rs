@@ -62,7 +62,7 @@ fn run_client() -> Result<()> {
         .internal_data_path()
         .context("Android reported no private files directory")?;
     configure_android(layout(&files_dir, &native_library_dir(app)?))?;
-    cinnabar::startup_feedback::observe(startup_progress);
+    cinnabar::startup_feedback::observe(startup_progress, startup_generation);
     if cinnabar::lifecycle::before_run(false)? {
         cinnabar::run(cinnabar::args::ClientArgs {
             force_vsync: true,
@@ -95,7 +95,7 @@ fn native_library_dir(app: &AndroidApp) -> Result<PathBuf> {
 }
 
 /// Posts work or content readiness without blocking the activity's UI thread.
-fn startup_progress(message: launcher::startup::Message) {
+fn startup_progress(message: launcher::startup::Message, generation: u64) {
     let report = (|| -> Result<()> {
         let app = ANDROID_APP
             .get()
@@ -107,12 +107,31 @@ fn startup_progress(message: launcher::startup::Message) {
         env.call_method(
             &activity,
             "startupProgress",
-            "(Ljava/lang/String;)V",
-            &[(&text).into()],
+            "(Ljava/lang/String;J)V",
+            &[
+                (&text).into(),
+                jni::objects::JValue::Long(generation as i64),
+            ],
         )?;
         Ok(())
     })();
     if let Err(error) = report {
         bevy::log::warn!("startup feedback unavailable: {error:#}");
     }
+}
+
+/// Samples the activity lifetime before validating the next destination frame.
+fn startup_generation() -> u64 {
+    let read = (|| -> Result<u64> {
+        let app = ANDROID_APP
+            .get()
+            .context("Android activity is unavailable")?;
+        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }?;
+        let mut env = vm.attach_current_thread()?;
+        let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+        Ok(env
+            .call_method(&activity, "startupGeneration", "()J", &[])?
+            .j()? as u64)
+    })();
+    read.unwrap_or_default()
 }

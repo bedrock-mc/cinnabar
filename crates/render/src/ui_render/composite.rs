@@ -99,22 +99,35 @@ impl UiLayerTexture {
             .map(|held| held.encoded)
     }
 
+    /// Preserves proven content when damage analysis permits reuse across publications.
+    pub(super) fn retained_nonempty(&self) -> bool {
+        self.held
+            .lock()
+            .expect("UI layer content lock")
+            .as_ref()
+            .is_some_and(|held| held.nonempty)
+    }
+
     /// Records test content without a publication available for partial replay.
     #[cfg(test)]
     pub(crate) fn hold(&self, content: Option<(UiLayerContent, bool)>) {
-        self.hold_publication(content, None);
+        self.hold_publication(
+            content.map(|(content, encoded)| (content, encoded, encoded)),
+            None,
+        );
     }
 
     /// Retains exactly the accepted publication that produced the completed layer.
     pub(super) fn hold_publication(
         &self,
-        content: Option<(UiLayerContent, bool)>,
+        content: Option<(UiLayerContent, bool, bool)>,
         publication: Option<Arc<UiRenderInput>>,
     ) {
         *self.held.lock().expect("UI layer content lock") =
-            content.map(|(content, encoded)| HeldLayer {
+            content.map(|(content, encoded, nonempty)| HeldLayer {
                 content,
                 encoded,
+                nonempty,
                 publication,
             });
     }
@@ -178,6 +191,7 @@ impl UiLayerTexture {
 struct HeldLayer {
     content: UiLayerContent,
     encoded: bool,
+    nonempty: bool,
     publication: Option<Arc<UiRenderInput>>,
 }
 
