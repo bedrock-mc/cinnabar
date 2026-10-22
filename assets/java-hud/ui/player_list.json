@@ -26,10 +26,44 @@
               "background": {
                 "type": "image",
                 "texture": "textures/ui/Black",
-                "alpha": 0.5,
+                "alpha": "$tab_bg_alpha",
                 "size": [
                   "100%",
                   "100%"
+                ]
+              }
+            },
+            {
+              "server_header": {
+                "type": "label",
+                "size": [
+                  "100% - 4px",
+                  11
+                ],
+                "offset": [
+                  0,
+                  2
+                ],
+                "anchor_from": "top_middle",
+                "anchor_to": "top_middle",
+                "text": "#server_header",
+                "text_alignment": "center",
+                "localize": false,
+                "color": [
+                  1.0,
+                  0.82,
+                  0.1
+                ],
+                "shadow": true,
+                "layer": 1,
+                "bindings": [
+                  {
+                    "binding_name": "#server_header"
+                  },
+                  {
+                    "binding_name": "#server_header_visible",
+                    "binding_name_override": "#visible"
+                  }
                 ]
               }
             },
@@ -42,7 +76,7 @@
                 ],
                 "offset": [
                   0,
-                  2
+                  "$title_top"
                 ],
                 "anchor_from": "top_middle",
                 "anchor_to": "top_middle",
@@ -181,6 +215,31 @@
         }
       },
       {
+        "ping": {
+          "type": "image",
+          "texture": "$ping_texture",
+          "size": [
+            10,
+            8
+          ],
+          "offset": [
+            -3,
+            0
+          ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "layer": 2,
+          "bindings": [
+            {
+              "binding_name": "#ping_visible",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#visible"
+            }
+          ]
+        }
+      },
+      {
         "cinnabar_badge": {
           "type": "image",
           "texture": "$cinnabar_badge_texture",
@@ -201,6 +260,12 @@
               "binding_type": "collection",
               "binding_collection_name": "online_players",
               "binding_name_override": "#visible"
+            },
+            {
+              "binding_name": "#badge_offset",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#offset"
             }
           ]
         }

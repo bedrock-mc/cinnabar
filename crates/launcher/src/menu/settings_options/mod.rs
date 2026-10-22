@@ -164,6 +164,10 @@ impl SettingsOptions {
         self.value(SettingId::OreuiDarkMode) != 0
     }
 
+    pub fn esthetic_tab(&self) -> bool {
+        self.value(SettingId::EstheticTab) != 0
+    }
+
     /// Whether launch and Settings layer debug levels for the net, session, core and packs
     /// log categories over the defaults. `CINNABAR_LOG` and `RUST_LOG` take precedence.
     pub fn verbose_logging(&self) -> bool {

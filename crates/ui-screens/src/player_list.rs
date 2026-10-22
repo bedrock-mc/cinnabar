@@ -44,7 +44,8 @@ pub struct PlayerList {
     total: usize,
     data: Arc<DataSource>,
     dimensions: [usize; 2],
-    geometry: Option<([f64; 2], f32, [usize; 3], bool)>,
+    esthetic: bool,
+    geometry: Option<([f64; 2], f32, [usize; 3], bool, bool)>,
     context: Context,
     portraits: BTreeMap<String, render_model::UiTexturePage>,
     heads: Vec<String>,
@@ -72,6 +73,7 @@ impl PlayerList {
             total: 0,
             data: Arc::default(),
             dimensions: [0, 0],
+            esthetic: false,
             geometry: None,
             context: Context::default(),
             portraits: BTreeMap::new(),
@@ -79,11 +81,16 @@ impl PlayerList {
         }
     }
 
+    #[cfg(test)]
     fn refresh(&mut self, players: &[RosterRow], rows: usize) -> [usize; 2] {
+        self.refresh_styled(players, rows, false, None)
+    }
+
+    fn refresh_styled(&mut self, players: &[RosterRow], rows: usize, esthetic: bool, server_header: Option<&str>) -> [usize; 2] {
         let shown = &players[..players.len().min(MAX_PLAYERS)];
         let columns = shown.len().div_ceil(rows).max(1);
         let rows = shown.len().div_ceil(columns).max(1);
-        if self.rows != shown || self.total != players.len() || self.dimensions != [columns, rows] {
+        if self.rows != shown || self.total != players.len() || self.dimensions != [columns, rows] || self.esthetic != esthetic {
             let mut portraits = BTreeMap::new();
             self.heads = shown
                 .iter()
@@ -111,14 +118,27 @@ impl PlayerList {
             self.rows = shown.to_vec();
             self.total = players.len();
             self.dimensions = [columns, rows];
+            self.esthetic = esthetic;
             self.geometry = None;
             let mut data = DataSource::new();
-            let title = if players.len() > MAX_PLAYERS {
-                format!("Online players: {} (first {MAX_PLAYERS})", players.len())
+            if esthetic {
+                let header = server_header.unwrap_or("- Motaz -");
+                data.set_global("#server_header", Scalar::Text(header.to_string()));
+                data.set_global("#server_header_visible", Scalar::Bool(true));
+                data.set_global(
+                    "#online_title",
+                    Scalar::Text(format!("§7Joueurs en ligne : §a{}§r", players.len())),
+                );
             } else {
-                format!("Online players: {}", players.len())
-            };
-            data.set_global("#online_title", Scalar::Text(title));
+                data.set_global("#server_header", Scalar::Text(String::new()));
+                data.set_global("#server_header_visible", Scalar::Bool(false));
+                let title = if players.len() > MAX_PLAYERS {
+                    format!("Online players: {} (first {MAX_PLAYERS})", players.len())
+                } else {
+                    format!("Online players: {}", players.len())
+                };
+                data.set_global("#online_title", Scalar::Text(title));
+            }
             data.set_grid_dimensions("#players_dimensions", [columns as u32, rows as u32]);
             self.data = Arc::new(data);
         }
@@ -128,6 +148,8 @@ impl PlayerList {
     /// Binds names and independently tinted counter runs after the measured column width is known.
     fn bind_rows(&mut self, width: f64, text: &dyn json_ui::TextMeasure) {
         let [columns, rows] = self.dimensions;
+        let esthetic = self.esthetic;
+        let ping_width = if esthetic { 13.0 } else { 0.0 };
         let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
         let entries = cells
             .map(|index| {
@@ -141,7 +163,8 @@ impl PlayerList {
                         BADGE_WIDTH
                     } else {
                         0.
-                    })
+                    }
+                    - ping_width)
                 .max(0.);
                 let count = count.min(inner);
                 let prefix = prefix.min(inner - count);
@@ -150,6 +173,7 @@ impl PlayerList {
                 let before = annotation.is_some_and(|annotation| annotation.before);
                 let name_x = 2. + HEAD_WIDTH + if before { prefix + count + space } else { 0. };
                 let prefix_x = 2. + HEAD_WIDTH + if before { 0. } else { name + space };
+                let badge_x = if esthetic { -15.0 } else { -6.0 };
                 let rgba = |color: [u8; 4]| {
                     Scalar::Json(serde_json::json!(color.map(|v| f64::from(v) / 255.)))
                 };
@@ -166,6 +190,14 @@ impl PlayerList {
                     .with(
                         "#cinnabar_badge",
                         Scalar::Bool(row.is_some_and(|row| row.badged)),
+                    )
+                    .with(
+                        "#badge_offset",
+                        Scalar::Json(serde_json::json!([badge_x, 0.])),
+                    )
+                    .with(
+                        "#ping_visible",
+                        Scalar::Bool(esthetic && row.is_some()),
                     )
                     .with(
                         "#name_offset",
@@ -244,19 +276,32 @@ impl PlayerList {
         players: &[RosterRow],
         frame: &mut PaintFrame<'_>,
     ) -> Result<(), PaintError> {
+        self.paint_styled(engine, players, frame, false, None)
+    }
+
+    /// Paints the roster with optional Lunar-style aesthetic decoration.
+    pub fn paint_styled(
+        &mut self,
+        engine: &FormEngine,
+        players: &[RosterRow],
+        frame: &mut PaintFrame<'_>,
+        esthetic: bool,
+        server_header: Option<&str>,
+    ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
-        let max_rows = ((f64::from(frame.content[1] / px) - 40.0) / ROW_HEIGHT)
+        let header_pad = if esthetic { 54.0 } else { 40.0 };
+        let max_rows = ((f64::from(frame.content[1] / px) - header_pad) / ROW_HEIGHT)
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
-        let [columns, rows] = self.refresh(players, max_rows);
+        let [columns, rows] = self.refresh_styled(players, max_rows, esthetic, server_header);
         engine
             .textures
             .lock()
             .set_client_rasters(PORTRAIT_RASTER_NAMESPACE, &self.portraits);
         engine.draw(ScreenArt::default(), frame, |env, root| {
             let badge = self.rows.iter().any(|row| row.badged);
-            let geometry = (root, px, language, badge);
+            let geometry = (root, px, language, badge, esthetic);
             if self.geometry != Some(geometry) {
                 let widest = self
                     .rows
@@ -264,29 +309,47 @@ impl PlayerList {
                     .map(|row| row_widths(row, env.text).iter().sum())
                     .fold(60.0, f64::max);
                 let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
-                let width = (widest + 8.0 + HEAD_WIDTH + badge_width)
+                let ping_width = if esthetic { 13.0 } else { 0.0 };
+                let width = (widest + 8.0 + HEAD_WIDTH + badge_width + ping_width)
                     .min((root[0] - 8.0).max(1.0) / columns as f64);
                 self.bind_rows(width, env.text);
-                let title = format!("Online players: {}", self.total);
+                let title = if esthetic {
+                    format!("Online: {}", self.total)
+                } else {
+                    format!("Online players: {}", self.total)
+                };
+                let header_title = if esthetic {
+                    server_header.unwrap_or("- Motaz -")
+                } else {
+                    ""
+                };
                 let panel_width = (width * columns as f64 + 4.0)
                     .max(env.text.extent(&title)[0] + 4.0)
+                    .max(env.text.extent(header_title)[0] + 16.0)
                     .min(root[0]);
+                let header_extra = if esthetic { 14.0 } else { 0.0 };
+                let bg_alpha = if esthetic { 0.78 } else { 0.5 };
+                let title_top = if esthetic { 13.0 } else { 2.0 };
+                let grid_top = if esthetic { ROW_HEIGHT + 16.0 } else { ROW_HEIGHT + 3.0 };
                 self.context = Context::default()
+                    .with_var("tab_bg_alpha", serde_json::json!(bg_alpha))
+                    .with_var("title_top", serde_json::json!(title_top))
+                    .with_var("grid_top", serde_json::json!(grid_top))
                     .with_var("row_height", serde_json::json!(ROW_HEIGHT))
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
-                    .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
                     .with_var("cell_width", serde_json::json!(width))
                     .with_var("head_size", serde_json::json!(HEAD_WIDTH - 1.0))
                     .with_var("name_offset", serde_json::json!(2.0 + HEAD_WIDTH))
                     .with_var(
                         "name_width",
-                        serde_json::json!(format!("100% - {}px", 8.0 + HEAD_WIDTH + badge_width)),
+                        serde_json::json!(format!("100% - {}px", 8.0 + HEAD_WIDTH + badge_width + ping_width)),
                     )
                     .with_var("cinnabar_badge_texture", serde_json::json!(CINNABAR_BADGE))
+                    .with_var("ping_texture", serde_json::json!("textures/ui/Ping_Green"))
                     .with_var("panel_width", serde_json::json!(panel_width))
                     .with_var(
                         "panel_height",
-                        serde_json::json!(ROW_HEIGHT + 5.0 + rows as f64 * ROW_HEIGHT),
+                        serde_json::json!(ROW_HEIGHT + 5.0 + header_extra + rows as f64 * ROW_HEIGHT),
                     );
                 self.geometry = Some(geometry);
             }

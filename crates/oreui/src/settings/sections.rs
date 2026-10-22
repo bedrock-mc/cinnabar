@@ -624,6 +624,10 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
         "options.oreuiDarkMode.description" => "Use dark surfaces for menus, settings and dialogs.",
+        "options.estheticTab" | "options.estheticTab.name" => "Esthetic Tab",
+        "options.estheticTab.description" => {
+            "Display an aesthetic Lunar-style player list overlay with server MOTD and latency indicators."
+        },
         "options.showExactServerPing.description" => {
             "Show server latency in milliseconds instead of Low, Medium or High ping."
         }
