@@ -345,6 +345,7 @@ fn settings_search_resets_result_scrolling_on_each_query_change() {
     view.field = Some(launcher::menu::MenuField::SettingsQuery);
     view.focused_action = Some(MenuAction::SearchSettings);
     let size = [1280.0, 720.0];
+    presentation.menu_scrolls.clear_areas();
     present(&mut presentation, &view, size);
     let field = presentation
         .menu_hit_targets
@@ -361,6 +362,7 @@ fn settings_search_resets_result_scrolling_on_each_query_change() {
     assert!(field.max().y() <= result.min().y());
     assert!(presentation.scroll_menu(centre(result), -1000.0, false));
     presentation.menu_seconds += 0.2;
+    presentation.menu_scrolls.clear_areas();
     present(&mut presentation, &view, size);
     assert!(
         presentation
@@ -371,6 +373,7 @@ fn settings_search_resets_result_scrolling_on_each_query_change() {
     );
     view.settings_query = "sound".to_owned();
     for _ in 0..2 {
+        presentation.menu_scrolls.clear_areas();
         present(&mut presentation, &view, size);
         assert!(
             presentation
