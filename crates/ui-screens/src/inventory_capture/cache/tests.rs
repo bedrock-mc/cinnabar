@@ -348,7 +348,8 @@ fn first_open_and_language_refresh_resolve_names_without_rebuilding_artwork() {
     capture(&mut cache, input(&ledger), 0);
     let (_, calls) = capture(&mut cache, open_input(&ledger), 0);
     assert!(calls.icons.is_empty() && calls.bars.is_empty());
-    assert_eq!(calls.names, [1, 2, 3]);
+    assert_eq!(calls.names, [1, 2, 3, 4]);
+    assert_eq!(cache.contents.item_names[&(4, 0)].as_ref(), "0:4:1");
     assert_eq!(calls.recipes, 1);
     assert!(cache.contents.crafting.icons[0].is_some());
     let (_, calls) = capture(&mut cache, open_input(&ledger), 0);
@@ -368,7 +369,9 @@ fn first_open_and_language_refresh_resolve_names_without_rebuilding_artwork() {
         |_, _| panic!("language cannot resolve bars"),
         |stack| name(stack, 1),
     );
-    assert_eq!(result.item_names.unwrap()[&(1, 0)].as_ref(), "1:1:5");
+    let names = result.item_names.unwrap();
+    assert_eq!(names[&(1, 0)].as_ref(), "1:1:5");
+    assert_eq!(names[&(4, 0)].as_ref(), "1:4:1");
     let result = cache.capture(
         input(&ledger),
         || panic!("closed"),
