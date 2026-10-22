@@ -274,7 +274,6 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
     let state = canvas.interaction(view, entry.select);
     if entry.selected {
         widgets::row(canvas, view, card, true, None)?;
-        canvas.frame(card, EDGE, theme::FIELD_CARET)?;
         if state.focused {
             let ring = canvas.r(0.4);
             canvas.frame(
