@@ -9,6 +9,21 @@ pub struct SettingChoice {
     pub label: &'static str,
 }
 
+/// Derives each VSync radio choice from the persisted mode contract.
+const fn vsync_choice(mode: render_api::VsyncMode) -> SettingChoice {
+    SettingChoice {
+        name: mode.binding(),
+        label: mode.label(),
+    }
+}
+
+pub const VSYNC_CHOICES: &[SettingChoice] = &[
+    vsync_choice(render_api::VsyncMode::ALL[0]),
+    vsync_choice(render_api::VsyncMode::ALL[1]),
+    vsync_choice(render_api::VsyncMode::ALL[2]),
+];
+const _: () = assert!(VSYNC_CHOICES.len() == render_api::VsyncMode::ALL.len());
+
 #[derive(Clone, Copy, Debug)]
 pub enum SettingKind {
     Toggle,
@@ -369,7 +384,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 5)], [SettingsGroup::Video], None, None;
     MotionBlur => "motion_blur", dropdown("Motion Blur", MOTION_BLUR_CHOICES, ui::MotionBlurQuality::Off.index()),
         [(SettingPanel::VideoGraphics, 6)], [SettingsGroup::Video], None, None;
-    Vsync => "vsync", toggle("options.vsync", true),
+    Vsync => "vsync", dropdown("options.vsync", VSYNC_CHOICES, render_api::VsyncMode::DEFAULT as i32),
         [(SettingPanel::VideoGraphics, 2)], [SettingsGroup::Video], None, None;
     Vrr => "vrr", dropdown("Variable Refresh Rate", VRR_CHOICES, render_api::VrrPreference::Automatic as i32),
         [(SettingPanel::VideoGraphics, 3)], [SettingsGroup::Video], None, None;

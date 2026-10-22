@@ -3,6 +3,7 @@
 mod display;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_display_link;
+mod power;
 
 use std::time::{Duration, Instant};
 
@@ -15,14 +16,20 @@ use bevy::{
 use render::FramePacing;
 use render_api::FrameRateLimit;
 use render_model::{
-    DisplayTiming, FrameRate, PresentationIntent, WindowActivity, effective_frame_rate,
-    frame_rate_target,
+    DisplayTiming, FrameRate, FrameRateContext, PresentationIntent, WindowActivity,
+    effective_frame_rate, frame_rate_target,
 };
 
 use crate::present_mode::{DisplayRefresh, PresentModeRuntime};
 
 /// Monitors can change refresh while a window stays put, so it is re-read this often.
 const DISPLAY_RECHECK: Duration = Duration::from_secs(1);
+
+/// Active desktop power source, refreshed alongside the display instead of every frame.
+#[derive(Resource, Default)]
+pub(crate) struct PowerSource {
+    on_battery: bool,
+}
 
 /// Session inputs to the cadence that the saved settings do not carry.
 #[derive(Resource, Debug)]
@@ -68,6 +75,7 @@ impl FramePacingRuntime {
         limit: FrameRateLimit,
         display: DisplayTiming,
         focused: bool,
+        context: FrameRateContext,
     ) -> FramePacing {
         let activity = if self.ignore_window_state {
             WindowActivity::Focused
@@ -78,7 +86,7 @@ impl FramePacingRuntime {
         } else {
             WindowActivity::Unfocused
         };
-        let requested = frame_rate_target(intent, limit, display);
+        let requested = frame_rate_target(intent, limit, display, context);
         let ordinary = (!self.suspended)
             .then(|| effective_frame_rate(requested, activity))
             .flatten();
@@ -129,6 +137,10 @@ pub(crate) fn update_frame_pacing(
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut occlusion: MessageReader<WindowOccluded>,
     mut pacing: ResMut<FramePacing>,
+    power: Res<PowerSource>,
+    world: Option<Res<crate::runtime::world::ClientWorld>>,
+    ui: Option<Res<client_shell::ui_resources::UiPresentationResource>>,
+    failure: Option<Res<crate::runtime::shutdown::FatalError>>,
 ) {
     let primary = windows.single().ok();
     for event in occlusion.read() {
@@ -137,6 +149,17 @@ pub(crate) fn update_frame_pacing(
         }
     }
     let focused = primary.is_none_or(|(_, window)| window.focused);
+    let context = if runtime.ignore_window_state
+        || (world.is_none_or(|world| world.stream.is_some())
+            && ui.is_none_or(|ui| ui.loading_stage().is_none())
+            && failure.is_none_or(|failure| failure.0.is_none()))
+    {
+        FrameRateContext::Gameplay {
+            on_battery: !runtime.ignore_window_state && power.on_battery,
+        }
+    } else {
+        FrameRateContext::Menus
+    };
     let next = runtime.pacing(
         presentation.intent(),
         presentation.window_present_mode(),
@@ -145,6 +168,7 @@ pub(crate) fn update_frame_pacing(
             .0
             .with_vrr_preference(settings.user_settings_update().1.video.vrr),
         focused,
+        context,
     );
     if *pacing != next {
         *pacing = next;
@@ -157,12 +181,14 @@ pub(crate) fn track_display_refresh(
     mut display: ResMut<DisplayRefresh>,
     mut checked: Local<Option<Instant>>,
     _main_thread: NonSendMarker,
+    mut power: ResMut<PowerSource>,
 ) {
     let now = Instant::now();
     if checked.is_some_and(|last| now.saturating_duration_since(last) < DISPLAY_RECHECK) {
         return;
     }
     *checked = Some(now);
+    power.on_battery = power::on_battery();
     let timing = windows.single().ok().and_then(|window| {
         WINIT_WINDOWS.with_borrow(|windows| {
             windows

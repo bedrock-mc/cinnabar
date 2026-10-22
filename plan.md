@@ -26,6 +26,9 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
+   Desktop presentation defaults to Mailbox where available, with an explicit tearing
+   choice; Android retains VSync. Menus use a display-refresh ceiling, and untouched
+   in-world limits use that ceiling on battery. Saved limits remain authoritative.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.

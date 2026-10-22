@@ -11,7 +11,10 @@ const MAILBOX_ONLY: SurfacePresentModes =
 fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
     let automatic = PresentModeRuntime::from_startup(false, false, false, false);
     assert!(!automatic.locked());
-    assert_eq!(automatic.policy.preference(), PresentModePreference::Auto);
+    assert_eq!(
+        automatic.policy.preference().intent() == PresentationIntent::Synchronized,
+        render_api::VsyncMode::DEFAULT.enabled()
+    );
     assert_eq!(automatic.window_present_mode(), PresentMode::Fifo);
 
     for (runtime, expected_preference, startup_mode) in [
@@ -57,6 +60,11 @@ fn vsync_app(runtime: PresentModeRuntime) -> App {
         .init_resource::<RuntimeSettings>()
         .insert_resource(runtime)
         .add_systems(bevy::prelude::Update, apply_present_mode);
+    let mut settings = ui::UserSettings::default();
+    settings.video.vsync = render_api::VsyncMode::On;
+    app.world_mut()
+        .resource_mut::<RuntimeSettings>()
+        .replace_user_settings(settings);
     spawn_primary_window(&mut app);
     app
 }
@@ -70,7 +78,7 @@ fn spawn_primary_window(app: &mut App) {
 }
 
 fn publish_vsync(app: &mut App, vsync: bool) {
-    publish_video(app, |video| video.vsync = vsync);
+    publish_video(app, |video| video.vsync = vsync.into());
 }
 
 fn publish_video(app: &mut App, edit: impl FnOnce(&mut ui::VideoSettings)) {
@@ -112,6 +120,20 @@ fn toggling_the_user_setting_switches_the_present_mode_live() {
 
     publish_vsync(&mut app, true);
     assert_eq!(preference(&app), PresentModePreference::Auto);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
+}
+
+#[test]
+fn tearing_is_an_explicit_player_choice_when_mailbox_is_available() {
+    let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
+    publish_capabilities(&app, MAILBOX_ONLY.with(PresentModeKind::Immediate));
+    publish_video(&mut app, |video| video.vsync = render_api::VsyncMode::Off);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+    publish_video(&mut app, |video| {
+        video.vsync = render_api::VsyncMode::AllowTearing
+    });
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    publish_video(&mut app, |video| video.vsync = render_api::VsyncMode::On);
     assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
@@ -256,7 +278,10 @@ fn a_setting_update_retries_until_the_primary_window_exists() {
 
     let runtime = app.world().resource::<PresentModeRuntime>();
     assert_eq!(runtime.observed_settings_generation(), 0);
-    assert_eq!(runtime.policy.preference(), PresentModePreference::Auto);
+    assert_eq!(
+        runtime.policy.preference().intent() == PresentationIntent::Synchronized,
+        render_api::VsyncMode::DEFAULT.enabled()
+    );
 
     spawn_primary_window(&mut app);
     app.update();

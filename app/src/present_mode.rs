@@ -43,8 +43,10 @@ impl PresentModeRuntime {
             PresentModePreference::NoVsync
         } else if force_vsync || attributable_evidence {
             PresentModePreference::Vsync
-        } else {
+        } else if render_api::VsyncMode::DEFAULT.enabled() {
             PresentModePreference::Auto
+        } else {
+            PresentModePreference::NoVsync
         };
         Self {
             policy: PresentModePolicy::new(preference),
@@ -147,10 +149,10 @@ pub(crate) fn apply_present_mode(
     if generation > runtime.observed_settings_generation {
         if !runtime.locked {
             // VSync on stays automatic so the driver remedy can still apply.
-            let preference = if user_settings.video.vsync {
-                PresentModePreference::Auto
-            } else {
-                PresentModePreference::NoVsync
+            let preference = match user_settings.video.vsync {
+                render_api::VsyncMode::On => PresentModePreference::Auto,
+                render_api::VsyncMode::Off => PresentModePreference::NoVsync,
+                render_api::VsyncMode::AllowTearing => PresentModePreference::AllowTearing,
             };
             if preference != runtime.policy.preference() {
                 runtime.remedy_adopted = None;

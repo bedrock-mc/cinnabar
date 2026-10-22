@@ -501,14 +501,22 @@ fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
 }
 
 #[test]
-fn vsync_defaults_on_and_persists_into_runtime_settings() {
-    let mut settings = SettingsOptions::default();
-    assert!(settings.user_settings().video.vsync);
-    settings.set(index("vsync"), 0);
-    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(!loaded.user_settings().video.vsync);
+fn vsync_defaults_and_saved_toggle_values_survive_loading() {
+    use render_api::VsyncMode;
+    assert_eq!(
+        SettingsOptions::default().user_settings().video.vsync,
+        VsyncMode::DEFAULT
+    );
     let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
-    assert!(legacy.user_settings().video.vsync);
+    assert_eq!(legacy.user_settings().video.vsync, VsyncMode::DEFAULT);
+    for mode in VsyncMode::ALL {
+        let bytes =
+            serde_json::to_vec(&serde_json::json!({"values":{"vsync": mode as i32}})).unwrap();
+        let loaded = SettingsOptions::decode(&bytes).unwrap();
+        assert_eq!(loaded.user_settings().video.vsync, mode);
+        let saved = SettingsOptions::decode(&serde_json::to_vec(&loaded).unwrap()).unwrap();
+        assert_eq!(saved.user_settings().video.vsync, mode);
+    }
 }
 
 #[test]
@@ -709,10 +717,10 @@ fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
 
 /// Missing and unsupported FPS values use the default without becoming a one-FPS cap.
 #[test]
-fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
-    use render_api::FrameRateLimit::Unlimited;
+fn frame_rate_missing_and_invalid_values_keep_the_automatic_default() {
+    use render_api::FrameRateLimit::Automatic;
 
-    assert_eq!(limit(&SettingsOptions::default()), Unlimited);
+    assert_eq!(limit(&SettingsOptions::default()), Automatic);
     for schema in [None, Some(SETTINGS_SCHEMA)] {
         for value in [None, Some(0), Some(-1), Some(i32::MIN), Some(i32::MAX)] {
             let mut saved = serde_json::json!({ "values": {} });
@@ -723,7 +731,7 @@ fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
                 saved["values"]["max_framerate"] = value.into();
             }
             let settings = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
-            assert_eq!(limit(&settings), Unlimited, "{saved}");
+            assert_eq!(limit(&settings), Automatic, "{saved}");
             assert_eq!(
                 settings.value(SettingId::MaxFramerate),
                 FRAME_RATE_UNLIMITED,
@@ -731,9 +739,21 @@ fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
             );
             let reloaded =
                 SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert_eq!(limit(&reloaded), Unlimited, "{saved}");
+            assert_eq!(limit(&reloaded), Automatic, "{saved}");
         }
     }
+}
+
+#[test]
+fn explicitly_choosing_unlimited_survives_saves_and_video_reset_restores_automatic() {
+    use render_api::FrameRateLimit;
+    let mut settings = SettingsOptions::default();
+    assert!(settings.set(SettingId::MaxFramerate.index(), FRAME_RATE_UNLIMITED));
+    assert_eq!(limit(&settings), FrameRateLimit::Unlimited);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(limit(&loaded), FrameRateLimit::Unlimited);
+    loaded.reset_group(SettingsGroup::Video);
+    assert_eq!(limit(&loaded), FrameRateLimit::Automatic);
 }
 
 #[test]
@@ -779,7 +799,7 @@ fn frame_rate_slider_stops_cover_every_cap_and_unlimited() {
 fn an_unknown_tearing_key_is_ignored() {
     let settings =
         SettingsOptions::decode(br#"{"schema":1,"values":{"allow_tearing":1,"vsync":0}}"#).unwrap();
-    assert!(!settings.user_settings().video.vsync);
+    assert!(!settings.user_settings().video.vsync.enabled());
     let saved = String::from_utf8(serde_json::to_vec(&settings).unwrap()).unwrap();
     assert!(!saved.contains("allow_tearing"), "{saved}");
 }

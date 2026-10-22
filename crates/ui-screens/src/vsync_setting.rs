@@ -1,40 +1,36 @@
-//! Video-section VSync toggle.
+//! Video-section VSync choices.
 
 use json_ui::{Catalog, DataSource, Scalar};
 
 use launcher::menu::MenuView;
 
-/// Places the toggle beside the frame-rate limit in the advanced video options.
+/// Places the registry's VSync choices beside the frame-rate slider.
 pub fn install(catalog: &mut Catalog) {
-    catalog.overlay_text("ui/cinnabar_vsync.json", OVERLAY);
+    super::settings_controls::install_video_dropdown(
+        catalog,
+        launcher::menu::settings_options::SettingId::Vsync,
+        "max_framerate_slider",
+    );
 }
 
-/// Shows a launch-flag override as the effective, locked state.
+/// Shows a launch-flag override as the effective, locked dropdown state.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     if let Some(vsync) = view.vsync_override {
-        data.set_global("#vsync", Scalar::Bool(vsync));
-        data.set_global("#vsync_enabled", Scalar::Bool(false));
+        let selected = render_api::VsyncMode::from(vsync);
+        data.set_global("#vsync_dropdown_enabled", Scalar::Bool(false));
+        data.set_global("#vsync_dropdown", Scalar::Bool(false));
+        data.set_global(
+            "#vsync_dropdown_toggle_label",
+            Scalar::Text(selected.label().into()),
+        );
+        for choice in render_api::VsyncMode::ALL {
+            data.set_global(
+                format!("#{}", choice.binding()),
+                Scalar::Bool(choice == selected),
+            );
+        }
     }
 }
-
-const OVERLAY: &str = r##"{
-  "namespace": "general_section",
-  "advanced_graphics_options_section": {
-    "modifications": [{
-      "array_name": "controls",
-      "operation": "insert_after",
-      "control_name": "max_framerate_slider",
-      "value": [{
-        "vsync@settings_common.option_toggle": {
-          "$option_label": "options.vsync",
-          "$option_binding_name": "#vsync",
-          "$option_enabled_binding_name": "#vsync_enabled",
-          "$toggle_name": "vsync"
-        }
-      }]
-    }]
-  }
-}"##;
 
 #[cfg(test)]
 mod tests {
@@ -49,7 +45,7 @@ mod tests {
             || control.children.iter().any(|child| has_text(child, text))
     }
 
-    /// The toggle follows the frame-rate limit and is captioned by the vanilla lang key.
+    /// The selector follows the frame-rate limit and exposes every registered choice.
     #[test]
     fn video_options_show_vsync_with_the_vanilla_label_key() {
         let Some(carrier) = ui_engine::test_support::carrier() else {
@@ -76,6 +72,16 @@ mod tests {
             position("max_framerate_slider").map(|at| at + 1)
         );
         assert!(has_text(&section.children[vsync], "options.vsync"));
+        let content = json_ui::resolve(
+            &catalog,
+            "general_section.vsync_dropdown_content",
+            &json_ui::Context::retail(false),
+        )
+        .control
+        .expect("VSync choices");
+        for choice in launcher::menu::settings_options::VSYNC_CHOICES {
+            assert!(has_text(&content, choice.label));
+        }
     }
 
     #[test]
@@ -83,11 +89,20 @@ mod tests {
         let mut view = MenuView::new(true, "Steve".into());
         view.vsync_override = Some(false);
         let mut data = DataSource::default();
-        data.set_global("#vsync", Scalar::Bool(true));
         bind(&view, &mut data);
         let mut locked = DataSource::default();
-        locked.set_global("#vsync", Scalar::Bool(false));
-        locked.set_global("#vsync_enabled", Scalar::Bool(false));
+        locked.set_global("#vsync_dropdown_enabled", Scalar::Bool(false));
+        locked.set_global("#vsync_dropdown", Scalar::Bool(false));
+        locked.set_global(
+            "#vsync_dropdown_toggle_label",
+            Scalar::Text(render_api::VsyncMode::Off.label().into()),
+        );
+        for mode in render_api::VsyncMode::ALL {
+            locked.set_global(
+                format!("#{}", mode.binding()),
+                Scalar::Bool(mode == render_api::VsyncMode::Off),
+            );
+        }
         assert_eq!(data, locked);
     }
 }
