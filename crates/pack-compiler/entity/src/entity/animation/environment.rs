@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     path::Path,
 };
 
@@ -237,14 +237,47 @@ pub(super) fn selection_for<'a>(
 pub(super) fn unique_geometry_indices(
     geometries: &[EntityGeometry],
 ) -> BTreeMap<Box<str>, Option<u32>> {
-    let mut indices = BTreeMap::new();
-    for (index, geometry) in geometries.iter().enumerate() {
-        indices
-            .entry(geometry.identifier.clone())
-            .and_modify(|value| *value = None)
-            .or_insert(Some(index as u32));
+    unique_by_definition(
+        geometries
+            .iter()
+            .enumerate()
+            .map(|(index, geometry)| (geometry.identifier.clone(), index as u32)),
+        |&first, &other| {
+            let (first, other) = (&geometries[first as usize], &geometries[other as usize]);
+            // The defining file is provenance, not part of the model.
+            *first
+                == EntityGeometry {
+                    source_index: first.source_index,
+                    ..other.clone()
+                }
+        },
+    )
+}
+
+/// Maps each key to its first entry, or `None` once another entry under it is not `same`;
+/// a definition repeated verbatim in two files stays unambiguous.
+pub(super) fn unique_by_definition<K: Ord, V>(
+    entries: impl IntoIterator<Item = (K, V)>,
+    same: impl Fn(&V, &V) -> bool,
+) -> BTreeMap<K, Option<V>> {
+    let mut unique = BTreeMap::new();
+    for (key, value) in entries {
+        match unique.entry(key) {
+            Entry::Vacant(slot) => {
+                slot.insert(Some(value));
+            }
+            Entry::Occupied(mut slot) => {
+                if slot
+                    .get()
+                    .as_ref()
+                    .is_some_and(|first| !same(first, &value))
+                {
+                    slot.insert(None);
+                }
+            }
+        }
     }
-    indices
+    unique
 }
 
 pub(super) fn default_geometry(value: Option<&Value>) -> Option<&str> {

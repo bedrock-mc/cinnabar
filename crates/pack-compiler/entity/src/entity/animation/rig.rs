@@ -13,7 +13,8 @@ use super::{
     clip::read_json,
     controller::{ControllerKey, PendingController},
     environment::{
-        GeometrySelection, GeometrySelections, default_geometry, unique_geometry_indices,
+        GeometrySelection, GeometrySelections, default_geometry, unique_by_definition,
+        unique_geometry_indices,
     },
     roots,
 };
@@ -141,6 +142,9 @@ pub(super) fn compile_rigs(
     inputs: RigInputs<'_>,
     molang: &mut MolangCompiler,
 ) -> Result<(PendingRigPayload, Vec<Box<str>>), AssetError> {
+    let render_indices = unique_symbol_indices(&input, EntityAssetKind::RenderController)?;
+    let animation_symbols = unique_symbol_indices(&input, EntityAssetKind::Animation)?;
+    let controller_symbols = unique_symbol_indices(&input, EntityAssetKind::AnimationController)?;
     let RigSources {
         root,
         payloads,
@@ -154,9 +158,6 @@ pub(super) fn compile_rigs(
         geometry_selections,
     } = inputs;
     let geometry_indices = unique_geometry_indices(geometries);
-    let render_indices = unique_symbol_indices(symbols, EntityAssetKind::RenderController);
-    let animation_symbols = unique_symbol_indices(symbols, EntityAssetKind::Animation);
-    let controller_symbols = unique_symbol_indices(symbols, EntityAssetKind::AnimationController);
     let controller_names = controllers
         .iter()
         .map(|controller| {
@@ -361,22 +362,7 @@ pub(super) fn compile_rigs(
             });
         }
         if rejected {
-            outcomes.push(reject(
-                if description
-                    .get("animations")
-                    .and_then(Value::as_object)
-                    .is_some_and(|animations| {
-                        animations.values().filter_map(Value::as_str).any(|target| {
-                            animation_symbols.get(target).is_some_and(Option::is_none)
-                                || controller_symbols.get(target).is_some_and(Option::is_none)
-                        })
-                    })
-                {
-                    RejectReason::AmbiguousAnimationReference
-                } else {
-                    RejectReason::MissingAnimationReference
-                },
-            ));
+            outcomes.push(reject(RejectReason::AmbiguousAnimationReference));
             continue;
         }
         static_fallback |= optional_condition
@@ -549,20 +535,30 @@ fn select_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>
     first
 }
 
+/// Indexes one named-map kind by identifier; only definitions that differ make it ambiguous.
 fn unique_symbol_indices(
-    symbols: &[EntityAssetSymbol],
+    input: &RigSources<'_>,
     kind: EntityAssetKind,
-) -> BTreeMap<Box<str>, Option<u32>> {
-    let mut indices = BTreeMap::new();
-    for (index, symbol) in symbols
+) -> Result<BTreeMap<Box<str>, Option<u32>>, AssetError> {
+    let mut entries = Vec::new();
+    for (index, symbol) in input
+        .symbols
         .iter()
         .enumerate()
         .filter(|(_, symbol)| symbol.kind == kind)
     {
-        indices
-            .entry(symbol.identifier.clone())
-            .and_modify(|value| *value = None)
-            .or_insert(Some(index as u32));
+        let source = &input.sources[symbol.source_index as usize];
+        // Named-map families keep their map under the field their directory is named after.
+        let family = source.path.split('/').next().unwrap_or_default();
+        let definition = read_json(input.root, input.payloads, source)?
+            .get(family)
+            .and_then(|map| map.get(symbol.identifier.as_ref()));
+        entries.push((symbol.identifier.clone(), (index as u32, definition)));
     }
-    indices
+    Ok(
+        unique_by_definition(entries, |first, other| first.1 == other.1)
+            .into_iter()
+            .map(|(identifier, entry)| (identifier, entry.map(|(index, _)| index)))
+            .collect(),
+    )
 }
