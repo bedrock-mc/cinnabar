@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -62,8 +63,8 @@ func TestEducationConstructionRetainsUnrelatedPaletteRecords(t *testing.T) {
 		}
 		changed++
 	}
-	if changed != v2193EducationStateCount {
-		t.Fatalf("construction admission changed %d states, want %d", changed, v2193EducationStateCount)
+	if changed != v2193EducationStateCount() {
+		t.Fatalf("construction admission changed %d states, want %d", changed, v2193EducationStateCount())
 	}
 }
 
@@ -106,6 +107,38 @@ func TestEducationConstructionProjectionKeepsPaletteIdentitiesWithoutCreativeIte
 	}
 }
 
+func TestEducationChalkboardAdmissionPreservesEveryDirectionWithoutTerrainFaces(t *testing.T) {
+	for direction := range 16 {
+		identity := Record{
+			SequentialID: uint32(direction), NetworkHash: uint32(direction + 100),
+			Name:      "minecraft:chalkboard",
+			StateJSON: []byte(fmt.Sprintf(`{"direction":{"type":"int","value":%d}}`, direction)),
+		}
+		record, matched, err := educationRenderRecord(identity)
+		if err != nil || !matched {
+			t.Fatalf("direction %d admission: matched=%v err=%v", direction, matched, err)
+		}
+		if record.Name != identity.Name || record.SequentialID != identity.SequentialID || record.NetworkHash != identity.NetworkHash || !bytes.Equal(record.StateJSON, identity.StateJSON) {
+			t.Fatalf("direction %d lost palette identity", direction)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || record.ModelFamily != ModelFamilyUnknown || record.ModelState != (ModelState{}) || record.ContributorRole != ContributorPrimary {
+			t.Fatalf("direction %d gained terrain geometry: %+v", direction, record)
+		}
+	}
+	for _, state := range []string{
+		`{}`,
+		`{"direction":{"type":"byte","value":1}}`,
+		`{"direction":{"type":"int","value":-1}}`,
+		`{"direction":{"type":"int","value":16}}`,
+		`{"direction":{"type":"int","value":1.5}}`,
+		`{"direction":{"type":"int","value":1},"extra":{"type":"int","value":0}}`,
+	} {
+		if _, _, err := educationRenderRecord(Record{Name: "minecraft:chalkboard", StateJSON: []byte(state)}); err == nil {
+			t.Fatalf("invalid chalkboard state admitted: %s", state)
+		}
+	}
+}
+
 // TestEducationCollisionUsesSharedStateFacts checks the full admitted construction palette without external fixtures.
 func TestEducationCollisionUsesSharedStateFacts(t *testing.T) {
 	_, records := loadV2193PhysicsInputs(t)
@@ -127,13 +160,13 @@ func TestEducationCollisionUsesSharedStateFacts(t *testing.T) {
 			t.Fatalf("construction collision differs for %s", record.Name)
 		}
 	}
-	if count != v2193EducationStateCount {
+	if count != v2193EducationStateCount() {
 		t.Fatalf("Education state count %d", count)
 	}
 }
 
 func TestEducationConstructionRejectsUnidentifiedStateSchemas(t *testing.T) {
-	for _, name := range []string{"minecraft:allow", "minecraft:deny", "minecraft:border_block"} {
+	for _, name := range []string{"minecraft:allow", "minecraft:deny", "minecraft:border_block", "minecraft:chalkboard"} {
 		_, _, err := educationRenderRecord(Record{Name: name, StateJSON: []byte(`{"unexpected":{"type":"byte","value":1}}`)})
 		if err == nil {
 			t.Fatalf("unidentified state accepted for %s", name)

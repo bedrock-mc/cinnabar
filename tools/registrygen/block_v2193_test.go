@@ -208,8 +208,8 @@ func TestV2193ManifestPublishesOnlyDeniedAggregate(t *testing.T) {
 	projection := manifest.Projection
 	classified := projection.LegacyExactStates + projection.LegacyReducedStates +
 		projection.AuthoredStates + projection.TwinStates + projection.DeniedCount + projection.EducationStates
-	invalidCensus := projection.DeniedCount != v2193PhysicsReservedCount ||
-		projection.EducationStates != v2193EducationStateCount || projection.AuthoredStates != 8
+	invalidCensus := projection.DeniedCount != v2193PhysicsReservedCount() ||
+		projection.EducationStates != v2193EducationStateCount() || projection.AuthoredStates != 8
 	invalidTwins := projection.TwinNames != len(v2193Twins)
 	if invalidCensus || invalidTwins || len(projection.DeniedFingerprint) != 64 || projection.States != classified {
 		t.Fatalf("projection aggregate = %+v", projection)

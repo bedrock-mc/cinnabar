@@ -226,8 +226,8 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 	if stats.additions != 0 {
 		return fmt.Errorf("v2193 projection has %d retail states without reviewed facts (fingerprint %s)", stats.additions, stats.additionFingerprint)
 	}
-	if stats.education != v2193EducationStateCount {
-		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount)
+	if stats.education != v2193EducationStateCount() {
+		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount())
 	}
 	projected := projection.records
 	if err := applyBeaconTints(projected, source); err != nil {
