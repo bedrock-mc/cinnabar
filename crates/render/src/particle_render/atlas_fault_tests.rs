@@ -84,3 +84,43 @@ fn a_particle_atlas_that_cannot_fit_is_reduced_instead_of_dropped() {
     world.run_system_once(prepare_particle_resources).unwrap();
     assert_eq!(world.resource::<ParticleGpu>().uploaded_seq, 1);
 }
+
+// Real out-of-memory leaves an invalid texture, so a failed creation must not be written or viewed.
+#[test]
+fn a_failed_particle_atlas_creation_is_never_written_and_recovers_after_backoff() {
+    let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let side = 2048;
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    {
+        let seen = std::rc::Rc::clone(&seen);
+        let _fault = crate::gpu_allocation::inject(move |label, _| {
+            seen.borrow_mut().push(label.to_owned());
+            label == "particle atlas"
+        });
+        publish(world, side, 4);
+    }
+    let seen = seen.borrow();
+    assert!(seen.iter().any(|label| label == "particle atlas"));
+    assert!(
+        seen.iter().all(|label| label == "particle atlas"),
+        "{seen:?}"
+    );
+    assert!(world.resource::<ParticleGpu>().texture.is_none());
+    // Nothing was released, so recovery waits for the backoff rather than a retirement.
+    for _ in 1..crate::gpu_allocation::MIN_RETRY_FRAMES {
+        world.run_system_once(prepare_particle_resources).unwrap();
+        assert!(world.resource::<ParticleGpu>().texture.is_none());
+    }
+    world.run_system_once(prepare_particle_resources).unwrap();
+    assert_eq!(
+        world
+            .resource::<ParticleGpu>()
+            .texture
+            .as_ref()
+            .map(|texture| texture.width()),
+        Some(side)
+    );
+}

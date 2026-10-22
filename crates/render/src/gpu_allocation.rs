@@ -5,7 +5,8 @@ use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy},
     render_resource::{
-        Buffer, BufferDescriptor, BufferUsages, Texture, TextureDataOrder, TextureDescriptor,
+        Buffer, BufferDescriptor, BufferUsages, Origin3d, TexelCopyBufferLayout,
+        TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
     },
     renderer::{RenderDevice, RenderQueue},
 };
@@ -84,26 +85,44 @@ fn warn_once(label: &str, bytes: u64) {
     }
 }
 
-/// A failed replacement upload; it retries once after the GPU retires what its owner released.
+/// Frames before the first retry of a failure; each failed retry doubles the wait.
+pub(crate) const MIN_RETRY_FRAMES: u32 = 30;
+/// Longest wait, so content returns after memory frees without retrying every frame.
+const MAX_RETRY_FRAMES: u32 = 1920;
+
+/// A failed upload that retries after released resources retire, or after a bounded backoff.
 #[derive(Default)]
 pub(crate) struct UploadRetry {
     failed: bool,
+    retrying: bool,
+    interval: u32,
+    wait: u32,
     retired: Option<Arc<AtomicBool>>,
 }
 
 impl UploadRetry {
-    /// Records an attempt; a failure after releasing resources waits for every submission so far,
-    /// which holds their last use.
-    pub(crate) fn record(&mut self, uploaded: bool, released: bool, queue: &RenderQueue) {
-        self.failed = !uploaded;
-        self.retired = None;
-        if self.failed && released {
+    /// Records an attempt; with `released`, a failure also retries once every submission so far,
+    /// which holds the released resources' last use, completes.
+    pub(crate) fn record(&mut self, uploaded: bool, released: Option<&RenderQueue>) {
+        if uploaded {
+            *self = Self::default();
+            return;
+        }
+        self.interval = if self.retrying {
+            (self.interval * 2).min(MAX_RETRY_FRAMES)
+        } else {
+            MIN_RETRY_FRAMES
+        };
+        self.retrying = false;
+        self.failed = true;
+        self.wait = self.interval;
+        self.retired = released.map(|queue| {
             let retired = Arc::new(AtomicBool::new(false));
             let signal = Arc::clone(&retired);
             // Completed submissions release their resources before the frame poll runs callbacks.
             queue.on_submitted_work_done(move || signal.store(true, Ordering::Release));
-            self.retired = Some(retired);
-        }
+            retired
+        });
     }
 
     /// Reports whether the last attempt failed, so its owner does not retry every frame.
@@ -111,32 +130,75 @@ impl UploadRetry {
         self.failed
     }
 
-    /// Returns `true` once, when a failed attempt may retry because released resources retired.
+    /// Advances one frame of a failed upload; `true` when its owner should retry and `record` it.
     pub(crate) fn take_ready(&mut self) -> bool {
-        let ready = self
+        if !self.failed {
+            return false;
+        }
+        let retired = self
             .retired
             .as_ref()
             .is_some_and(|retired| retired.load(Ordering::Acquire));
-        if ready {
-            self.retired = None;
+        self.wait = self.wait.saturating_sub(1);
+        if !retired && self.wait != 0 {
+            return false;
         }
-        ready
+        self.retired = None;
+        self.retrying = true;
+        self.wait = self.interval;
+        true
     }
 }
 
-/// Creates a texture and uploads `data` under one scope, before any view or binding uses it.
+/// Creates a texture in its own scope; an out-of-memory texture is invalid, so nothing may
+/// write, view or bind it.
+pub(crate) fn texture(
+    device: &RenderDevice,
+    descriptor: &TextureDescriptor<'_>,
+) -> Option<Texture> {
+    let size = descriptor.size;
+    let bytes = u64::from(size.width)
+        * u64::from(size.height)
+        * u64::from(size.depth_or_array_layers)
+        * u64::from(descriptor.format.block_copy_size(None).unwrap_or(4));
+    checked(
+        device,
+        descriptor.label.unwrap_or("unlabeled texture"),
+        bytes,
+        || device.create_texture(descriptor),
+    )
+}
+
+/// Creates a single-mip texture, then uploads layer-major `data` only once creation succeeded.
 pub(crate) fn texture_with_data(
     device: &RenderDevice,
     queue: &RenderQueue,
     descriptor: &TextureDescriptor<'_>,
     data: &[u8],
 ) -> Option<Texture> {
-    checked(
-        device,
-        descriptor.label.unwrap_or("unlabeled texture"),
-        data.len() as u64,
-        || device.create_texture_with_data(queue, descriptor, TextureDataOrder::LayerMajor, data),
-    )
+    debug_assert_eq!(descriptor.mip_level_count, 1);
+    let texture = texture(device, descriptor)?;
+    let size = descriptor.size;
+    let block = descriptor.format.block_copy_size(None)?;
+    let label = format!("{} upload", descriptor.label.unwrap_or("unlabeled texture"));
+    checked(device, &label, data.len() as u64, || {
+        queue.profiled_write_texture(
+            TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            data,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size.width * block),
+                rows_per_image: Some(size.height),
+            },
+            size,
+        );
+    })?;
+    Some(texture)
 }
 
 /// Checks creation before any mapping, copying, binding, or upload can use the buffer.
@@ -226,5 +288,32 @@ mod tests {
         );
         assert!(matches!(policy, RenderErrorPolicy::StopRendering));
         assert!(!main_world.resource::<Messages<AppExit>>().is_empty());
+    }
+
+    // A failure with nothing released still retries, backing off to a bounded interval.
+    #[test]
+    fn failed_uploads_retry_with_bounded_backoff_until_one_succeeds() {
+        let frames_until_ready = |retry: &mut UploadRetry| {
+            (1..=MAX_RETRY_FRAMES)
+                .find(|_| retry.take_ready())
+                .expect("a failed upload always retries")
+        };
+        let mut retry = UploadRetry::default();
+        assert!(!retry.take_ready());
+        retry.record(false, None);
+        assert!(retry.failed());
+        assert_eq!(frames_until_ready(&mut retry), MIN_RETRY_FRAMES);
+        retry.record(false, None);
+        assert_eq!(frames_until_ready(&mut retry), MIN_RETRY_FRAMES * 2);
+        for _ in 0..16 {
+            retry.record(false, None);
+            frames_until_ready(&mut retry);
+        }
+        retry.record(false, None);
+        assert_eq!(frames_until_ready(&mut retry), MAX_RETRY_FRAMES);
+        retry.record(true, None);
+        assert!(!retry.failed() && !retry.take_ready());
+        retry.record(false, None);
+        assert_eq!(frames_until_ready(&mut retry), MIN_RETRY_FRAMES);
     }
 }

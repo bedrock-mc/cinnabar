@@ -270,7 +270,8 @@ pub(super) fn rebuild_models(
     gpu.models_revision = scene.models_revision;
     gpu.prioritized_models = current.to_vec();
     let uploaded = upload(device, queue, side, layers as u32, &atlas, &vertices);
-    gpu.upload.record(uploaded.is_some(), released, queue);
+    gpu.upload
+        .record(uploaded.is_some(), released.then_some(queue));
     let Some((texture, view, mesh)) = uploaded else {
         return;
     };

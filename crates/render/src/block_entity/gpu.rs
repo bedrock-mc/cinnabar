@@ -286,7 +286,7 @@ pub(crate) fn prepare_resources(
         gpu.dynamic_revision = u64::MAX;
         let uploaded = upload_atlas(&uploads.device, &uploads.queue, atlas);
         gpu.atlas_upload
-            .record(uploaded.is_some(), released, &uploads.queue);
+            .record(uploaded.is_some(), released.then_some(&*uploads.queue));
         if let Some((texture, view)) = uploaded {
             gpu.view = Some(view);
             gpu.texture = Some(texture);
@@ -379,16 +379,16 @@ pub(crate) fn prepare_resources(
     }
 }
 
-/// Creates the atlas and writes its static rows inside one recoverable allocation scope.
+/// Creates the atlas, then writes its static rows only once creation succeeded.
 fn upload_atlas(
     device: &RenderDevice,
     queue: &RenderQueue,
     atlas: &render_model::block_entity::BlockEntityAtlasImage,
 ) -> Option<(Texture, TextureView)> {
     let [width, height] = atlas.size;
-    let bytes = u64::from(width) * u64::from(height) * 4;
-    let texture = crate::gpu_allocation::checked(device, "block-entity atlas", bytes, || {
-        let texture = device.create_texture(&TextureDescriptor {
+    let texture = crate::gpu_allocation::texture(
+        device,
+        &TextureDescriptor {
             label: Some("block-entity atlas"),
             size: Extent3d {
                 width,
@@ -401,7 +401,10 @@ fn upload_atlas(
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
-        });
+        },
+    )?;
+    let bytes = atlas.static_rgba8.len() as u64;
+    crate::gpu_allocation::checked(device, "block-entity atlas upload", bytes, || {
         write_rows(
             queue,
             &texture,
@@ -410,7 +413,6 @@ fn upload_atlas(
             atlas.static_height,
             &atlas.static_rgba8,
         );
-        texture
     })?;
     let view = crate::gpu_allocation::checked(device, "block-entity atlas view", 0, || {
         texture.create_view(&TextureViewDescriptor::default())
