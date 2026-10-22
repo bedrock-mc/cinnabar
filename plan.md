@@ -275,6 +275,8 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
+  Skin cubes retain signed extents after negative inflation. Rendered qualification of
+  server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
