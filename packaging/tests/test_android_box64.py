@@ -20,6 +20,34 @@ PIN = RUNTIME["bds_translation"]
 
 
 class AndroidBox64Tests(unittest.TestCase):
+    def test_guest_library_pin_is_verified_against_the_build_source(self):
+        """Reject a stale size or digest before packaging the translated runtime."""
+        import hashlib
+
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("missing fixture: CMake for guest library pin verification")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            library = root / PIN["guest_directory"] / PIN["guest_library"]
+            library.parent.mkdir(parents=True)
+            payload = b"original guest library fixture"
+            library.write_bytes(payload)
+            pin = dict(PIN, guest_bytes=len(payload), guest_sha256=hashlib.sha256(payload).hexdigest())
+            for field, replacement in [(None, None), ("guest_bytes", len(payload) + 1),
+                                       ("guest_sha256", "0" * 64)]:
+                with self.subTest(field=field):
+                    changed = dict(pin)
+                    if field:
+                        changed[field] = replacement
+                    manifest = root / "runtime.json"
+                    manifest.write_text(json.dumps({"bds_translation": changed}))
+                    result = subprocess.run([
+                        cmake, "-DMANIFEST=" + str(manifest), "-DSOURCE_DIR=" + str(root),
+                        "-P", str(ROOT / "packaging/android/box64/verify-guest.cmake"),
+                    ], capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, field is None, result.stdout + result.stderr)
+
     def build_fixture(self, missing=False, replacement=False):
         """Run production staging with compiler outputs supplied by a deterministic fixture."""
         temporary = tempfile.TemporaryDirectory()

@@ -14,6 +14,7 @@ fn library_fixture() -> (TranslationPin, Vec<u8>) {
     let pin = TranslationPin {
         helper_library: "helper".to_owned(),
         guest_base_url: "https://example.invalid/".to_owned(),
+        guest_directory: "x64lib".to_owned(),
         revision,
         guest_sha256: format!("{:x}", Sha256::digest(&library)),
         guest_bytes: library.len() as u64,

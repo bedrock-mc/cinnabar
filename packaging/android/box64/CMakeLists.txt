@@ -29,6 +29,10 @@ ExternalProject_Add(box64
     BUILD_BYPRODUCTS "${CMAKE_BINARY_DIR}/build/box64")
 
 ExternalProject_Add_StepDependencies(box64 patch "${CMAKE_CURRENT_LIST_DIR}/patch.py")
+ExternalProject_Add_Step(box64 verify_guest
+    COMMAND "${CMAKE_COMMAND}" "-DMANIFEST=${CMAKE_CURRENT_LIST_DIR}/../runtime.json"
+        "-DSOURCE_DIR=<SOURCE_DIR>" -P "${CMAKE_CURRENT_LIST_DIR}/verify-guest.cmake"
+    DEPENDEES patch DEPENDERS configure ALWAYS TRUE)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../runtime.json")
 
 set(CINNABAR_BDS_NATIVE_OVERRIDE "" CACHE PATH "Replacement native runtime library directory")

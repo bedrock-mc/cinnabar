@@ -77,7 +77,8 @@
     },
     "guest_base_url": "https://raw.githubusercontent.com/ptitSeb/box64/",
     "guest_sha256": "caf944063eb6261bc1c1a6a9f0c7b40d3842843044f3bce58824358f425be254",
-    "guest_bytes": 178760
+    "guest_bytes": 178760,
+    "guest_directory": "x64lib"
   },
   "compiler_library": "libassetc.so"
 }

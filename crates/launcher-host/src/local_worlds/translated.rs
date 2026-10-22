@@ -36,6 +36,7 @@ pub(super) struct TranslationPin {
     revision: String,
     guest_library: String,
     guest_base_url: String,
+    guest_directory: String,
     guest_sha256: String,
     guest_bytes: u64,
     native_runtime: NativeRuntime,
@@ -67,8 +68,8 @@ impl TranslationPin {
     /// The single guest library at the same pinned upstream revision as the translator.
     fn library_url(&self) -> String {
         format!(
-            "{}{}/x64lib/{}",
-            self.guest_base_url, self.revision, self.guest_library
+            "{}{}/{}/{}",
+            self.guest_base_url, self.revision, self.guest_directory, self.guest_library
         )
     }
 
