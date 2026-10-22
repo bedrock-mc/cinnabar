@@ -72,7 +72,7 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
     let translation = translated::Translation::detect(
         platform,
         &layout.core_executable,
-        layout.user_data_root.join("bds-runtime"),
+        android_runtime_dir(&layout.user_data_root),
     );
     let (runtime, pending) = if let Some(translation) = &translation {
         (translation.runtime(), false)
@@ -125,6 +125,16 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         provisioner.detect_in_background(runtime);
     }
     Ok(manager)
+}
+
+/// The Android server's exported platform certificate bundle, refreshed before each app launch.
+pub fn android_server_trust_path(user_data_root: &Path) -> PathBuf {
+    translated::trust_path(&android_runtime_dir(user_data_root))
+}
+
+/// Keeps the translated server's cache and trust store beneath one private runtime directory.
+fn android_runtime_dir(user_data_root: &Path) -> PathBuf {
+    user_data_root.join("bds-runtime")
 }
 
 /// A manager over the worlds in `root` with no server runners, for code that drives one in tests.

@@ -421,7 +421,7 @@ forbidden_transitive_dependencies = ["asset-compiler"]
 [[crates]]
 name = "cinnabar-android"
 path = "packaging/android/client"
-allowed_dependencies = ["app", "assets", "first-run", "launcher"]
+allowed_dependencies = ["app", "assets", "first-run", "launcher", "launcher-host"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]

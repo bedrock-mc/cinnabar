@@ -23,6 +23,11 @@ const LEGACY_SOURCE_ARCHIVE: &str = "source.zip";
 /// Adds write, SIMD and regular barriers for the server's x86 memory ordering.
 const STRONG_MEMORY: &str = "3";
 
+/// The certificate bundle shared by Android bootstrap and the translated server command.
+pub(super) fn trust_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join("platform-trust.pem")
+}
+
 /// Executable names and the translated runtime's pinned guest library.
 #[derive(Deserialize)]
 pub(super) struct AndroidRuntime {
@@ -165,6 +170,11 @@ impl Translation {
             .env_remove("LD_AUDIT")
             .env("BOX64_LD_LIBRARY_PATH", libraries)
             .env("BOX64_DYNAREC_STRONGMEM", STRONG_MEMORY);
+        command.env_remove("SSL_CERT_FILE");
+        let trust = trust_path(&self.cache);
+        if fs::metadata(&trust).is_ok_and(|metadata| metadata.is_file() && metadata.len() != 0) {
+            command.env("SSL_CERT_FILE", trust);
+        }
         Ok(command)
     }
 

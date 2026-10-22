@@ -539,11 +539,14 @@ import, persistence and hosting/session teardown. The accepted local-world scope
 not establish full vanilla world-generation parity.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
 catalog and generated server properties and level data. Pack and experiment configuration,
-hardcore, flat presets, Education Edition, operator status for a signed-out host and live
+hardcore, flat presets, Education Edition, operator status for a signed-out or offline-fallback host and live
 acceptance of every option on supported platforms remain incomplete.
 The Android translated runtime supplies a loopback route and passes two consecutive offline
 transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
-Offline acceptance in the full APK and on physical phones remains open. Other BDS hosts can still
+Signed-in local HTTP joins retry once with local identity when account services fail before transport
+or the launcher's own server reports missing verification keys; other rejections and external or
+transferred servers retain their authentication policy. Player-data continuity between account-backed
+and local identities, offline acceptance in the full APK and physical-phone retesting remain open. Other BDS hosts can still
 offer no NetherNet route with every external interface down, producing an explanatory error.
 hardcore, flat presets, Education Edition and live acceptance of every option on supported
 platforms remain incomplete.
@@ -592,6 +595,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   startup aborts leave reliability acceptance open. Full APK, physical-device, offline lifecycle,
   performance and 4/16 KB compatibility acceptance remain incomplete.
   Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
+  Setup refreshes a private export of Android's default accepted certificate authorities and supplies it
+  to the translated server's TLS stack. Runtime consumption and startup improvement need acceptance;
+  the ten-second startup and join target is unverified.
   The guest library is downloaded directly and hash-checked, with valid cached copies reused;
   the source archive is needed only by the build toolchain.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,

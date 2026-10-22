@@ -46,6 +46,46 @@ fn pinned_guest_library_is_verified_without_an_archive() {
 }
 
 #[test]
+fn translated_server_uses_only_a_nonempty_exported_platform_trust_bundle() {
+    let dir = scratch();
+    let (pin, library) = library_fixture();
+    let translation = Translation {
+        helper: dir.path().join("translator"),
+        cache: dir.path().join("runtime"),
+        pin,
+    };
+    let guest = translation.cache.join(&translation.pin.revision);
+    fs::create_dir_all(&guest).unwrap();
+    fs::write(guest.join(&translation.pin.guest_library), library).unwrap();
+    let service = FakeMojang::start("unused", Vec::new());
+    let provisioner = service.provisioner(dir.path());
+    let bundle = trust_path(&translation.cache);
+    for bytes in [
+        None,
+        Some(&b""[..]),
+        Some(&b"platform certificate fixture"[..]),
+    ] {
+        if let Some(bytes) = bytes {
+            fs::write(&bundle, bytes).unwrap();
+        }
+        let command = translation
+            .command(&dir.path().join("server"), &provisioner, &Cancel::never())
+            .unwrap();
+        let exported = command
+            .get_envs()
+            .find(|(key, _)| *key == "SSL_CERT_FILE")
+            .and_then(|(_, value)| value);
+        assert_eq!(
+            exported,
+            bytes
+                .filter(|bytes| !bytes.is_empty())
+                .map(|_| bundle.as_os_str())
+        );
+    }
+    assert_eq!(service.hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[test]
 fn a_missing_guest_downloads_once_and_then_works_from_cache() {
     let dir = scratch();
     let (mut pin, library) = library_fixture();

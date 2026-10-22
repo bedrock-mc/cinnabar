@@ -111,7 +111,11 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
-  because `online-mode=false`. Player-data persistence needs a stable client identity.
+  because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account
+  services fail before the transport opens or the server reports missing account verification keys.
+  Other server rejections and transferred or external servers never trigger this retry.
+  The local retry has no account XUID or operator grant; player-data continuity between account-backed
+  and local identities still needs acceptance. Player-data persistence needs a stable client identity.
 - **Offline:** the client includes loopback ICE candidates for both local HTTP and LAN joins, so
   its transport can use same-device routes with external interfaces down. This does not create a
   missing server route: native BDS gathers ICE candidates only from non-loopback interfaces and has no other

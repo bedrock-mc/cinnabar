@@ -2399,6 +2399,7 @@ dependencies = [
  "first-run",
  "jni 0.21.1",
  "launcher",
+ "launcher-host",
  "rodio",
  "serde",
  "serde_json",
