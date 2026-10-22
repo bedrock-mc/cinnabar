@@ -413,6 +413,18 @@ const STATES: &[State] = &[
         fixture: || updates::home(false, false),
     },
     State {
+        name: "home-update-pending",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: updates::pending,
+    },
+    State {
+        name: "home-update-pending-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: updates::pending,
+    },
+    State {
         name: "home-update-small",
         size: SMALL_SIZE,
         gui_scale: 1,

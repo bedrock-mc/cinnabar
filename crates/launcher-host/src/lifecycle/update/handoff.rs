@@ -43,7 +43,7 @@ pub(super) fn spawn(layout: &InstallLayout, ready: &Ready) -> Result<()> {
     }
     let args = [
         ready.stage.as_os_str().to_owned(),
-        installed_target()?.into_os_string(),
+        apply_target(ready)?.into_os_string(),
         std::process::id().to_string().into(),
         ready.channel.name().into(),
     ];
@@ -53,6 +53,11 @@ pub(super) fn spawn(layout: &InstallLayout, ready: &Ready) -> Result<()> {
         std::mem::forget(lease.clone());
     }
     Ok(())
+}
+
+/// A downloaded copy applies to its original installation, rather than replacing itself.
+pub(super) fn apply_target(ready: &Ready) -> Result<PathBuf> {
+    ready.target.clone().map_or_else(installed_target, Ok)
 }
 
 /// Starts rollback recovery with the same exact-parent exit barrier as an ordinary apply.

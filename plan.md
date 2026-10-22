@@ -527,6 +527,9 @@ validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
 rollback acceptance on a desktop remains incomplete.
+Launching a retained Linux manual download can offer installation into the existing
+script-managed AppDir, after revalidating its signed manifest and image. End-to-end
+desktop acceptance of this recovery path remains incomplete.
 
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.

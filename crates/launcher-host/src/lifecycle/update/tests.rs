@@ -136,6 +136,7 @@ fn ready(writable: bool) -> Ready {
         stage: PathBuf::from("ready"),
         channel: Channel::Beta,
         switch_now: false,
+        target: None,
         lease: None,
         notice: Notice {
             version: "2.0.0".into(),

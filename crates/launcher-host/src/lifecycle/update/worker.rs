@@ -199,6 +199,26 @@ fn run(
     // The updater's worker and offline helper share this transaction lease.
     let lease =
         update_installer::lease::Lease::acquire(&root).context("lock the update directory")?;
+    #[cfg(target_os = "linux")]
+    if let Some(running) = MANUAL.get() {
+        let ready = running.offer(
+            &layout.user_data_root,
+            &keys,
+            &platform,
+            &lease,
+            OffsetDateTime::now_utc(),
+        )?;
+        if let Some(ready) = ready {
+            if let Ok(mut state) = STATE.lock() {
+                state.offer(ready, generation);
+                if state.accepts_worker(generation) {
+                    state.status = Status::Idle;
+                    state.message = Some("This downloaded update is running temporarily. Choose Restart and update to replace the installed copy.".into());
+                }
+            }
+            return Ok(());
+        }
+    }
     let check = Check {
         channel: preferences.channel.name(),
         platform: &platform,
