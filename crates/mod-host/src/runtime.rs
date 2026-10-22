@@ -75,6 +75,10 @@ struct State {
     grants: ModGrants,
     time_override: Option<u32>,
     pending_time: Option<Option<u32>>,
+    weather_override: Option<cinnabar::extension::environment::Weather>,
+    pending_weather: Option<Option<cinnabar::extension::environment::Weather>>,
+    click_limits: [Option<u32>; 2],
+    pending_click_limits: Option<[Option<u32>; 2]>,
     fullbright: bool,
     pending_fullbright: Option<bool>,
     environment_writes: u32,
@@ -145,6 +149,10 @@ impl State {
             grants,
             time_override: None,
             pending_time: None,
+            weather_override: None,
+            pending_weather: None,
+            click_limits: [None; 2],
+            pending_click_limits: None,
             fullbright: false,
             pending_fullbright: None,
             environment_writes: 0,
@@ -243,6 +251,25 @@ impl cinnabar::extension::hud::Host for State {
 }
 
 impl cinnabar::extension::environment::Host for State {
+    /// Stages presentation weather under the same authority and budget as visual time.
+    fn set_weather_override(
+        &mut self,
+        value: Option<cinnabar::extension::environment::Weather>,
+    ) -> Result<Result<(), String>> {
+        self.environment_writes += 1;
+        if self.environment_writes > MAX_IMPORT_WRITES {
+            bail!("environment import budget exhausted");
+        }
+        if self.exclusive.environment {
+            return Ok(Err(self.exclusive.refuse()));
+        }
+        if !self.grants.environment {
+            return Ok(Err("environment capability denied".into()));
+        }
+        self.pending_weather = Some(value);
+        Ok(Ok(()))
+    }
+
     fn set_fullbright(&mut self, enabled: bool) -> Result<Result<(), String>> {
         self.environment_writes += 1;
         if self.environment_writes > MAX_IMPORT_WRITES {
@@ -538,7 +565,10 @@ impl Instance {
         if camera && !state.exclusive.camera && state.exclusive.camera_claimed {
             state.exclusive.refuse();
         }
-        if environment && !state.exclusive.environment && state.time_override.is_some() {
+        if environment
+            && !state.exclusive.environment
+            && (state.time_override.is_some() || state.weather_override.is_some())
+        {
             state.exclusive.refuse();
         }
         state.exclusive.camera_claimed |= state.camera_output();
@@ -603,6 +633,10 @@ impl Instance {
         state.terrain = Default::default();
         state.pending_time = None;
         state.time_override = None;
+        state.weather_override = None;
+        state.pending_weather = None;
+        state.click_limits = [None; 2];
+        state.pending_click_limits = None;
         state.fullbright = false;
         state.pending_fullbright = None;
         state.snapshot = None;
@@ -720,6 +754,17 @@ impl Instance {
         (!self.store.data().exclusive.environment)
             .then_some(self.store.data().time_override)
             .flatten()
+    }
+
+    /// Reads committed weather subject to active environment precedence.
+    pub(super) fn weather_override(&self) -> Option<cinnabar::extension::environment::Weather> {
+        (!self.store.data().exclusive.environment)
+            .then_some(self.store.data().weather_override)
+            .flatten()
+    }
+    /// Reads committed subtractive input policy without entering the guest.
+    pub(super) fn click_limits(&self) -> [Option<u32>; 2] {
+        self.store.data().click_limits
     }
 
     /// Reads retained UI without entering the component.
@@ -903,6 +948,12 @@ fn commit_event(store: &mut Store<State>) {
     state.inventory.commit();
     if let Some(enabled) = state.pending_fullbright.take() {
         state.fullbright = enabled;
+    }
+    if let Some(value) = state.pending_weather.take() {
+        state.weather_override = value;
+    }
+    if let Some(value) = state.pending_click_limits.take() {
+        state.click_limits = value;
     }
     if let Some(ticks) = state.pending_time.take() {
         state.time_override = ticks;

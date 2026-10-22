@@ -1,5 +1,7 @@
 //! Chooses when current-frame occlusion can repay its depth and compute work.
 
+pub(super) const PROBE_INTERVAL: u64 = 64;
+
 /// Small views keep direct drawing; inactive large views occasionally measure occlusion.
 #[derive(Default)]
 pub(super) struct VisibilityAdmission {
@@ -12,10 +14,14 @@ impl VisibilityAdmission {
     /// Requests a fresh depth test, never permission to cull using an older view's bits.
     pub(super) fn select(&mut self, frame: u64, candidates: usize) -> bool {
         const MIN_CANDIDATES: usize = 64;
-        const PROBE_INTERVAL: u64 = 64;
         if candidates < MIN_CANDIDATES {
             return false;
         }
+        self.select_work(frame)
+    }
+
+    /// Admits work when candidate size is available only from completed GPU feedback.
+    pub(super) fn select_work(&mut self, frame: u64) -> bool {
         if self.profitable || frame >= self.next_probe {
             self.next_probe = frame.saturating_add(PROBE_INTERVAL);
             true
