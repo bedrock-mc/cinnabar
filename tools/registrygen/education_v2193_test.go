@@ -128,6 +128,7 @@ func TestEducationChalkboardAdmissionPreservesEveryDirectionWithoutTerrainFaces(
 	for _, state := range []string{
 		`{}`,
 		`{"direction":{"type":"byte","value":1}}`,
+		`{"direction":{"type":"int","value":null}}`,
 		`{"direction":{"type":"int","value":-1}}`,
 		`{"direction":{"type":"int","value":16}}`,
 		`{"direction":{"type":"int","value":1.5}}`,

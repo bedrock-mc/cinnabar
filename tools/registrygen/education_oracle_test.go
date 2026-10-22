@@ -43,8 +43,8 @@ func educationRenderRecord(identity Record) (Record, bool, error) {
 	record.ModelFamily = ModelFamilyUnknown
 	if identity.Name == "minecraft:chalkboard" {
 		property, ok := state["direction"]
-		var direction uint32
-		if len(state) != 1 || !ok || property.Type != "int" || json.Unmarshal(property.Value, &direction) != nil || direction >= 16 {
+		var direction *uint32
+		if len(state) != 1 || !ok || property.Type != "int" || json.Unmarshal(property.Value, &direction) != nil || direction == nil || *direction >= 16 {
 			return Record{}, false, fmt.Errorf("Education chalkboard has invalid direction state")
 		}
 		return record, true, nil
