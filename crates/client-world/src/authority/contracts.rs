@@ -252,6 +252,10 @@ pub enum CommittedUiEvent {
     LocalTotemActivation {
         sequence: u64,
     },
+    /// Respawn readiness retains its order relative to health and death rules.
+    LocalRespawnReady {
+        sequence: u64,
+    },
     /// The local player's authoritative mount after a link or actor-lifetime change.
     /// `None` means the player is no longer riding anything.
     LocalMount {

@@ -214,6 +214,11 @@ pub(crate) fn drive_server_form_input(
                         .into_iter()
                         .map(|(key, text)| (key, text, false)),
                 )
+                .chain(mouse.just_pressed(MouseButton::Back).then_some((
+                    KeyboardKey::Escape,
+                    None,
+                    false,
+                )))
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
@@ -246,7 +251,8 @@ pub(crate) fn drive_server_form_input(
                 .server_forms_mut()
                 .scroll_rows((-pixels).clamp(-4096.0, 4096.0) as i32);
         }
-        let action = if keys.just_pressed(KeyCode::Escape) {
+        let action = if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Back)
+        {
             Some((identity, LocalFormAction::Dismiss))
         } else if keys.just_pressed(KeyCode::Enter)
             || keys.just_pressed(KeyCode::NumpadEnter)

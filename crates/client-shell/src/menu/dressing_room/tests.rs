@@ -488,6 +488,27 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
 }
 
 #[test]
+fn cosmetic_keyboard_focus_skips_unowned_items() {
+    let free = render_model::hats::fixture::bunny();
+    let locked = render_model::hats::fixture::locked_bunny();
+    let mut menu = MenuRuntime::new(false, 2, "fixture".into());
+    Arc::make_mut(&mut menu.dressing_room).section =
+        launcher::dressing_room::DressingRoomSection::Cosmetics;
+    let actions = menu.dressing_room_focus();
+    assert!(
+        actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            free
+        ))))
+    );
+    assert!(
+        !actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            locked
+        ))))
+    );
+    assert!(actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(None))));
+}
+
+#[test]
 fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change() {
     use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
     let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());

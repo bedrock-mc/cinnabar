@@ -721,7 +721,7 @@ fn unretained_replay_keeps_expired_tick_incoming_anchor() {
     assert_unretained_anchor_replaces_deferred_destination(101);
 }
 
-/// An overflowing MovePlayer stamp must not replace the client's local tick clock.
+/// A MovePlayer stamp beyond the local clock must not replace the client's input tick.
 fn assert_move_stamp_keeps_local_clock(tick: u64, teleported: bool) {
     let world = VersionedFloor(1);
     let mut physics = LocalPhysicsController::default();
@@ -799,4 +799,16 @@ fn an_overflowing_move_stamp_does_not_poison_the_local_clock() {
 #[test]
 fn an_overflowing_teleport_stamp_does_not_poison_the_local_clock() {
     assert_move_stamp_keeps_local_clock(u64::MAX, true);
+}
+
+/// Servers that stamp their own clock must not push the input tick ahead after a snap.
+#[test]
+fn a_future_move_stamp_keeps_the_local_clock() {
+    assert_move_stamp_keeps_local_clock(1_000_000, false);
+}
+
+/// A far pearl or command teleport keeps the input tick that later inputs continue from.
+#[test]
+fn a_future_teleport_stamp_keeps_the_local_clock() {
+    assert_move_stamp_keeps_local_clock(1_000_000, true);
 }
