@@ -3,11 +3,12 @@ use super::painting::{encode_document, unused_source_path};
 use super::*;
 use serde_json::json;
 
-const CONTROLLER: &str = "controller.render.cinnabar.boat";
+/// Prefix of the generated controllers; each boat entity gets its own.
+const CONTROLLER: &str = "controller.render.cinnabar";
 /// Texture keys in actor-variant order; `query.variant` indexes this list.
-const WOODS: [&str; 10] = [
+const WOODS: [&str; 11] = [
     "oak", "spruce", "birch", "jungle", "acacia", "darkoak", "mangrove", "bamboo", "cherry",
-    "paleoak",
+    "paleoak", "poplar",
 ];
 /// The bamboo variant draws the raft model.
 const RAFT_VARIANT: usize = 7;
@@ -315,7 +316,11 @@ pub(super) fn complete_bindings(
         description
             .entry("materials")
             .or_insert_with(|| json!({ "default": "entity" }));
-        description.insert("render_controllers".into(), json!([CONTROLLER]));
+        let controller = format!(
+            "{CONTROLLER}.{}",
+            identifier.trim_start_matches("minecraft:")
+        );
+        description.insert("render_controllers".into(), json!([controller]));
         documents.push(encode_document(
             unused_source_path(
                 format!(
@@ -326,22 +331,31 @@ pub(super) fn complete_bindings(
             ),
             value,
         )?);
-        replaced.push((key, woods));
+        replaced.push((key, controller, woods));
     }
-    let Some((_, woods)) = replaced.first() else {
+    if replaced.is_empty() {
         return Ok(0);
-    };
+    }
+    // Each entity's controller names only that entity's own texture aliases.
+    let controllers: serde_json::Map<String, Value> = replaced
+        .iter()
+        .map(|(_, controller, woods)| {
+            (
+                controller.clone(),
+                json!({
+                    "arrays": { "textures": { "Array.woods": woods } },
+                    "geometry": format!(
+                        "query.variant == {RAFT_VARIANT} ? Geometry.raft : Geometry.default"
+                    ),
+                    "materials": [{ "*": "Material.default" }],
+                    "textures": ["Array.woods[query.variant]"],
+                }),
+            )
+        })
+        .collect();
     documents.push(encode_document(
         unused_source_path("render_controllers/_cinnabar/boats.json".into(), payloads),
-        json!({
-            "format_version": "1.8.0",
-            "render_controllers": { CONTROLLER: {
-                "arrays": { "textures": { "Array.woods": woods } },
-                "geometry": format!("query.variant == {RAFT_VARIANT} ? Geometry.raft : Geometry.default"),
-                "materials": [{ "*": "Material.default" }],
-                "textures": ["Array.woods[query.variant]"],
-            }},
-        }),
+        json!({ "format_version": "1.8.0", "render_controllers": controllers }),
     )?);
     let bytes: usize = documents.iter().map(|(_, bytes)| bytes.len()).sum();
     if remaining_budget.is_some_and(|(count, budget)| documents.len() > count || bytes > budget)
@@ -350,7 +364,7 @@ pub(super) fn complete_bindings(
     {
         return Ok(0);
     }
-    for (key, _) in &replaced {
+    for (key, ..) in &replaced {
         symbols.remove(key);
     }
     for (path, bytes) in documents {

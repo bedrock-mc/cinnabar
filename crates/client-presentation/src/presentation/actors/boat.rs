@@ -29,10 +29,14 @@ pub(super) fn boat_hurt_tilted(
     }
     let lost = integer(ActorDataKey::StructuralIntegrity)
         .map_or(BOAT_FULL_INTEGRITY, |integrity| {
-            BOAT_FULL_INTEGRITY - integrity
+            BOAT_FULL_INTEGRITY.saturating_sub(integrity)
         });
     let damage = (lost as f32 - alpha).max(0.0);
     let angle = (direction as f32 * time * time.sin() * damage / 10.0).to_radians();
+    // Odd streamed values can overflow the product; they leave the boat unrocked.
+    if !angle.is_finite() {
+        return rows;
+    }
     let (sine, cosine) = angle.sin_cos();
     let height = actor.entity_fact.network_y_offset;
     for row in &mut rows {

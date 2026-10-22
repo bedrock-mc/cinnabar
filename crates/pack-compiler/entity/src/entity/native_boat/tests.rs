@@ -25,6 +25,10 @@ fn boat_pack(entity: Value) -> Vec<(Box<str>, Vec<u8>)> {
 }
 
 fn vanilla_shaped_boat() -> Value {
+    boat_entity(assets::facts::VanillaEntity::Boat.identifier())
+}
+
+fn boat_entity(identifier: &str) -> Value {
     let textures: serde_json::Map<String, Value> = WOODS
         .iter()
         .map(|wood| {
@@ -36,7 +40,7 @@ fn vanilla_shaped_boat() -> Value {
         .chain([("default".into(), json!("textures/entity/boat/oak"))])
         .collect();
     json!({"format_version": "1.8.0", "minecraft:client_entity": {"description": {
-        "identifier": assets::facts::VanillaEntity::Boat.identifier(),
+        "identifier": identifier,
         "textures": textures,
         "geometry": {"default": "geometry.boat"},
     }}})
@@ -140,5 +144,93 @@ fn hull_and_raft_floors_rest_on_the_feet() {
             (extent[0] - expected[0]).abs() < 1e-4 && (extent[1] - expected[1]).abs() < 1e-4,
             "raft={raft}: {extent:?}"
         );
+    }
+}
+
+#[test]
+fn each_boat_entity_selects_only_its_own_texture_aliases() {
+    let (mut sources, mut payloads) = (Vec::new(), SourcePayloads::new());
+    let (mut symbols, mut geometries) = (BTreeMap::new(), BTreeMap::new());
+    for (path, identifier, missing) in [
+        (
+            "entity/boat.entity.json",
+            assets::facts::VanillaEntity::Boat,
+            None,
+        ),
+        (
+            "entity/chest_boat.entity.json",
+            assets::facts::VanillaEntity::ChestBoat,
+            Some("cherry"),
+        ),
+    ] {
+        let mut entity = boat_entity(identifier.identifier());
+        if let Some(wood) = missing {
+            entity["minecraft:client_entity"]["description"]["textures"]
+                .as_object_mut()
+                .unwrap()
+                .remove(wood);
+        }
+        let bytes = serde_json::to_vec(&entity).unwrap();
+        parse_source(path, Path::new(path), &bytes, &mut symbols, &mut geometries).unwrap();
+        payloads.insert(path.into(), bytes.into());
+    }
+    complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        None,
+    )
+    .unwrap();
+    let controllers: Value =
+        serde_json::from_slice(&payloads["render_controllers/_cinnabar/boats.json"]).unwrap();
+    let woods = |entity: &str| {
+        controllers["render_controllers"][format!("{CONTROLLER}.{entity}")]["arrays"]["textures"]
+            ["Array.woods"]
+            .clone()
+    };
+    let cherry = WOODS.iter().position(|wood| *wood == "cherry").unwrap();
+    assert_eq!(woods("boat")[cherry], "Texture.cherry");
+    assert_eq!(woods("chest_boat")[cherry], "Texture.default");
+}
+
+/// The pinned pack's boat entities, when the local fixture is present.
+fn pinned_boat_entities() -> Option<Vec<Value>> {
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT") else {
+        eprintln!("missing fixture: CINNABAR_VANILLA_ACTOR_ROOT (pinned vanilla boat entities)");
+        return None;
+    };
+    let root = std::path::PathBuf::from(root);
+    ["entity/boat.entity.json", "entity/chest_boat.entity.json"]
+        .iter()
+        .map(|path| {
+            let Ok(bytes) = std::fs::read(root.join(path)) else {
+                eprintln!(
+                    "missing fixture: pinned vanilla {path} at {}",
+                    root.display()
+                );
+                return None;
+            };
+            Some(serde_json::from_slice(&bytes).unwrap())
+        })
+        .collect()
+}
+
+#[test]
+fn variant_textures_match_the_pinned_boat_catalog() {
+    let Some(entities) = pinned_boat_entities() else {
+        return;
+    };
+    for entity in entities {
+        let keys: std::collections::BTreeSet<&str> =
+            entity["minecraft:client_entity"]["description"]["textures"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .filter(|key| *key != "default")
+                .collect();
+        assert_eq!(keys, WOODS.into_iter().collect());
     }
 }

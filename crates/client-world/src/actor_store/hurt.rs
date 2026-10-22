@@ -1,6 +1,6 @@
 use assets::facts::entity::NativeEntityClass;
-use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
-use protocol_ids::Attribute;
+use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+use protocol_ids::{ActorDataKey, Attribute};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -204,6 +204,20 @@ impl ActorSnapshot {
             }
         }
         position
+    }
+
+    /// Counts a boat's synced hurt time down each tick, as the boat's own tick does, so its rock
+    /// settles without further server updates.
+    pub(super) fn tick_boat_hurt(&mut self) {
+        if self.entity_fact.native_class != NativeEntityClass::Boat {
+            return;
+        }
+        if let Some(ActorMetadataValue::Int(time)) =
+            self.metadata.get_mut(&ActorDataKey::Hurt.wire_value())
+            && *time > 0
+        {
+            *time -= 1;
+        }
     }
 
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
@@ -429,6 +443,30 @@ mod tests {
             kind,
             data: 0,
         })
+    }
+
+    /// A boat's streamed hurt time keeps counting down between server updates.
+    #[test]
+    fn boat_hurt_time_counts_down_without_server_updates() {
+        let mut store = ActorStore::new(1, 0);
+        let protocol::ActorEvent::Spawn(mut boat) = spawn() else {
+            unreachable!();
+        };
+        boat.kind = protocol::ActorKind::Entity {
+            identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
+        };
+        boat.metadata = std::sync::Arc::from([protocol::ActorMetadata {
+            key: ActorDataKey::Hurt.wire_value(),
+            value: ActorMetadataValue::Int(3),
+        }]);
+        store.apply(1, 1, protocol::ActorEvent::Spawn(boat));
+        let hurt = |store: &ActorStore| {
+            store.get(7).unwrap().metadata[&ActorDataKey::Hurt.wire_value()].clone()
+        };
+        store.advance_interpolation_ticks(2);
+        assert_eq!(hurt(&store), ActorMetadataValue::Int(1));
+        store.advance_interpolation_ticks(3);
+        assert_eq!(hurt(&store), ActorMetadataValue::Int(0));
     }
 
     #[test]

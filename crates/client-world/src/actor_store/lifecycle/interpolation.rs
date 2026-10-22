@@ -107,6 +107,7 @@ impl ActorStore {
             }
             actor.advance_creeper_swell();
             actor.status.tick();
+            actor.tick_boat_hurt();
             let using_item = actor.is_using_item();
             actor.status.advance_kinetic_hit(using_item);
         }
