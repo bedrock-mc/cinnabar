@@ -12,7 +12,8 @@ pub struct TickInput {
     pub sprint_down: bool,
     /// Sneak control after the hold/toggle setting, before forced-pose admission.
     pub sneak_down: bool,
-    /// The sneak control is held while it acts as the toggle-sneak control.
+    /// The sneak control is held while it acts as the toggle-sneak control:
+    /// always on a gamepad, otherwise under the toggle-sneak setting.
     pub sneak_toggle_down: bool,
     /// Server sprint state applied before this tick admits local sprint input.
     pub server_sprinting: Option<bool>,

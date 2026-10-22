@@ -277,7 +277,11 @@ impl LocomotionState {
                         sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: input.sneaking,
-                        sneak_toggle_down: frame.toggle_sneak && processed_sneak.held,
+                        // A gamepad's sneak control is vanilla's toggle-sneak
+                        // control under either sneak setting.
+                        sneak_toggle_down: (frame.toggle_sneak
+                            || input_mode == protocol::PlayerInputMode::GamePad)
+                            && processed_sneak.held,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
                     },
