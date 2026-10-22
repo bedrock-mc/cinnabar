@@ -207,6 +207,7 @@ fn completing_a_removal_preserves_a_newer_pack_selection() {
         send.send(RemovalOutcome {
             result: Ok(()),
             selected_path: Some(root.path().join("shaderpacks/Dusk")),
+            removed: true,
         })
         .is_ok()
     );
@@ -224,7 +225,16 @@ fn completing_a_removal_preserves_a_newer_pack_selection() {
 #[test]
 fn failed_deletion_restores_controls_and_keeps_the_library_entry() {
     let root = tempfile::tempdir().unwrap();
-    let mut app = fixture(root.path(), None);
+    let mut app = fixture(root.path(), Some("Dusk"));
+    let saved_path = root.path().join("graphics.json");
+    save_graphics_settings(
+        &saved_path,
+        &GraphicsSettings {
+            mode: ui::RenderMode::ShaderPack,
+            shader_pack: Some("Dusk".into()),
+        },
+    )
+    .unwrap();
     // A settings directory cannot be removed as an option file, so report failure.
     std::fs::create_dir(root.path().join("shaderpacks/Dusk.txt")).unwrap();
     remove(&mut app, 0);
@@ -237,6 +247,17 @@ fn failed_deletion_restores_controls_and_keeps_the_library_entry() {
             .is_none()
     });
     assert!(root.path().join("shaderpacks/Dusk/shaders").is_dir());
+    let video = &app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .video;
+    assert_eq!(video.render_mode, ui::RenderMode::ShaderPack);
+    assert_eq!(video.shader_pack.as_deref(), Some("Dusk"));
+    let saved = crate::render_mode::load_graphics_settings(&saved_path).unwrap();
+    assert_eq!(saved.mode, ui::RenderMode::ShaderPack);
+    assert_eq!(saved.shader_pack.as_deref(), Some("Dusk"));
     assert_eq!(
         app.world()
             .resource::<MenuRuntime>()

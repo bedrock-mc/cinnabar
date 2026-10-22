@@ -14,6 +14,7 @@ use std::{
 struct RemovalOutcome {
     result: Result<(), String>,
     selected_path: Option<PathBuf>,
+    removed: bool,
 }
 
 #[derive(Resource, Default)]
@@ -66,9 +67,13 @@ fn start_removal(
             });
             let result =
                 shaderpack::remove_pack(&directory, &name).map_err(|error| error.to_string());
+            let removed = result.is_ok()
+                || matches!(std::fs::symlink_metadata(directory.join(&name)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound);
             let _ = send.send(RemovalOutcome {
                 result,
                 selected_path,
+                removed,
             });
         });
     if let Err(error) = spawned {
@@ -107,6 +112,7 @@ fn finish_removal(
         Err(mpsc::TryRecvError::Disconnected) => RemovalOutcome {
             result: Err("removal worker stopped".into()),
             selected_path: None,
+            removed: false,
         },
     };
     let mut graphics = GraphicsSettings::of(&settings.user_settings_update().1.video);
@@ -115,7 +121,7 @@ fn finish_removal(
             .is_some_and(|pack| pack.path == *removed)
     });
     let remembered = graphics.shader_pack.as_deref() == Some(name.as_str());
-    if active || remembered {
+    if outcome.removed && (active || remembered) {
         if remembered {
             graphics.shader_pack = None;
         }

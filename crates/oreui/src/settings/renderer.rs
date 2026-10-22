@@ -206,17 +206,18 @@ fn selected_controls(
 ) -> Result<(), PaintError> {
     use super::super::widgets::Variant;
     let mut buttons = Vec::new();
+    let enabled = content.view.shader_pack_removing.is_none();
     if content.view.shader_options_available {
         buttons.push((
             "Shader pack settings…",
             Variant::Secondary,
-            Some(MenuAction::ShaderOptions(Action::Open)),
+            enabled.then_some(MenuAction::ShaderOptions(Action::Open)),
         ));
     }
     buttons.push((
         "Reload",
         Variant::Secondary,
-        Some(MenuAction::ReloadShaders),
+        enabled.then_some(MenuAction::ReloadShaders),
     ));
     if let Some((index, revision)) = entry {
         buttons.push((

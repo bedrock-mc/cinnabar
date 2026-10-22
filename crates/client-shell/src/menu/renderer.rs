@@ -23,12 +23,14 @@ impl MenuRuntime {
         }
     }
 
-    /// Opens a confirmation only for a current imported library entry.
+    /// Opens confirmation for a current library entry after the option editor has closed.
+    /// Closing the editor waits for accepted saves, so deletion cannot race a pending write.
     pub(super) fn remove_shader_pack_dialog(&mut self, index: u16, revision: u64) {
         if render_model::SHADER_PACKS_ENABLED
             && revision == self.shader_packs_revision
             && self.shader_packs.get(usize::from(index)).is_some()
             && self.shader_pack_removing.is_none()
+            && self.shader_options_view().is_none()
         {
             self.dialog = Some(launcher::menu::MenuDialog::RemoveShaderPack(
                 index, revision,
@@ -47,6 +49,7 @@ impl MenuRuntime {
                     index, revision,
                 ))
             || self.shader_pack_removing.is_some()
+            || self.shader_options_view().is_some()
         {
             return;
         }

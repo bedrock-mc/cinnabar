@@ -328,10 +328,18 @@ fn removal_is_available_only_for_managed_entries_and_locks_while_pending() {
     }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".into());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.shader_options_available = true;
+    let options = MenuAction::ShaderOptions(launcher::shader_options::Action::Open);
     let remove = MenuAction::RemoveShaderPackDialog(0, view.shader_packs_revision);
     assert!(controls(&view).0.contains(&remove));
+    assert!(controls(&view).0.contains(&options));
     view.shader_pack_removing = Some(Arc::from("Dusk.zip"));
     assert!(!controls(&view).0.contains(&remove));
+    assert!(!controls(&view).0.contains(&options));
+    assert!(!controls(&view).0.contains(&MenuAction::ReloadShaders));
     view.shader_pack_removing = None;
     view.shader_packs = Arc::from([]);
     view.render_mode = ui::RenderMode::ShaderPack;
