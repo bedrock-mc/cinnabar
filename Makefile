@@ -180,11 +180,13 @@ PKG_CORE_LDFLAGS = -s -w
 CORE_STAMP = $$(CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" bash packaging/common/core-ldflags.sh)
 # Optional diagnostics for the release Rust build, such as --timings.
 PACKAGE_CARGO_FLAGS ?=
+# Optional features selected by release channel metadata, shared by the client and compiler.
+PACKAGE_CARGO_FEATURES ?=
 # The runtime table owns Rust package/bin pairs; Go integrations retain their module-specific builds.
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(if $(strip $(PACKAGE_CARGO_FEATURES)),--features "$(PACKAGE_CARGO_FEATURES)") $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

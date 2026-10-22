@@ -691,8 +691,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use.
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
-- Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
-  feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
+- Java shader packs (Iris/OptiFine format) use the `shaderpacks` Cargo feature, enabled in
+  nightly packages while tagged beta packages leave it disabled. Shaders start Off.
+  Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
   passes skip frames without a loaded pack. CPU translation runs in an owned child process
@@ -710,8 +711,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   one list ending in a drop zone; the selected pack's card shows its load state and holds
   settings, reload and confirmed removal of imported copies and their saved settings.
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
-  memory and visual acceptance across supported backends. These changes do not enable the
-  feature by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris
+  memory and visual acceptance across supported backends. `shaderpack` loads packs,
+  parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated
   helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
