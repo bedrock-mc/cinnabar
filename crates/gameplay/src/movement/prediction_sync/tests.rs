@@ -636,6 +636,69 @@ fn correction_sync_reports_local_block_climber_flags() {
     }
 }
 
+/// One scaffolding layer resting on air, so it is no descending block.
+struct ScaffoldOverAir;
+
+impl sim::CollisionWorld for ScaffoldOverAir {
+    /// Leaves the player unconstrained so only the block climber's reads matter.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Scaffolding at y = 9, air everywhere else.
+    fn block_physics(
+        &self,
+        block: [i32; 3],
+    ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        let mut sample = ScaffoldColumn.block_physics(block)?;
+        if block[1] != 9 {
+            sample.layers[0].flags = sim::BlockPhysicsFlags::PASSABLE;
+        }
+        Ok(sample)
+    }
+}
+
+/// A snapped correction keeps the climber contact, so the next tick's descent
+/// reads it before the block climber measures the new position.
+#[test]
+fn a_snapped_correction_keeps_the_climber_contact() {
+    let mut physics = due_physics();
+    let tick = std::time::Duration::from_millis(50);
+    physics.advance(tick, sim::MovementInput::default(), &ScaffoldColumn);
+    let anchor_tick = physics.state().unwrap().tick;
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: [0.5, 10.0 + protocol::PLAYER_NETWORK_OFFSET, 0.5],
+                tick: anchor_tick,
+                on_ground: true,
+                velocity: None,
+            },
+            crate::movement::PhysicsCorrectionMode::Snap,
+            None,
+            &ScaffoldOverAir,
+        )
+        .unwrap();
+    // The frame after a snap discards its elapsed time, so the sneaking tick
+    // completes on a later frame.
+    let sneaking = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        if physics.prediction_sync_pose().is_some() {
+            break;
+        }
+        physics.advance(tick, sneaking, &ScaffoldOverAir);
+    }
+    let climber = physics.prediction_sync_pose().unwrap().climber.unwrap();
+    assert!(climber.descending_through_block);
+    assert!(!climber.over_descending_block);
+}
+
 /// Measured ticks publish their own climber flags; unmeasured stationary ticks
 /// keep the previous ones and spectator ticks leave the server's.
 #[test]

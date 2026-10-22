@@ -34,6 +34,7 @@ impl LocalPhysicsController {
                 )
             });
         if matches!(mode, PhysicsCorrectionMode::Snap) {
+            let previous_state = self.state.clone();
             let jump_delay = self.state.as_ref().map_or(0, |state| state.jump_delay);
             let swim_amount = self.state.as_ref().map_or(0.0, |state| state.swim_amount);
             let swim_pose_active = self
@@ -46,11 +47,14 @@ impl LocalPhysicsController {
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
-            // jump input or movement abilities.
+            // jump input, movement abilities or the block climber's contact.
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
             self.input_edges = input_edges;
             self.modes = modes;
+            if let (Some(state), Some(previous)) = (self.state.as_mut(), previous_state.as_ref()) {
+                state.keep_climber_contact(previous);
+            }
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
                 state.swim_amount = swim_amount;

@@ -94,6 +94,12 @@ impl PlayerState {
         }
     }
 
+    /// Keeps `previous`'s block-climber contact through a spatial reset, as
+    /// vanilla's corrections and teleports leave the climber's flags untouched.
+    pub fn keep_climber_contact(&mut self, previous: &PlayerState) {
+        self.climber = previous.climber;
+    }
+
     /// Applies an external placement, rebuilding contact faces even at the same
     /// position. Retained climber contact is kept.
     pub fn set_position(&mut self, position: Vec3) {
