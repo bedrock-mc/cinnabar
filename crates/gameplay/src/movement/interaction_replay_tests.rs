@@ -21,6 +21,7 @@ const ORIGIN: [f32; 3] = [0.0, 2.620_01, 0.0];
 /// A block that takes many ticks to break by hand.
 fn slow_block() -> DestroyTarget {
     DestroyTarget {
+        local_runtime_id: 8,
         position: [0, 1, -3],
         face: 1,
         runtime_id: 9,
