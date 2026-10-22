@@ -75,6 +75,7 @@ pub(super) fn drive(
                     && (!native_settings
                         || presentation.settings_slider_thumb_contains(index, position))
                 {
+                    menu.capture_settings_slider(index);
                     capture.touch_slider = Some((touch.id(), index));
                     capture.touch_press = None;
                 } else {

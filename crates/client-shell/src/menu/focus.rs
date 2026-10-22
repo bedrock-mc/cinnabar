@@ -37,14 +37,20 @@ impl MenuRuntime {
             }
         }) {
             self.focused = index;
-            if self.field == Some(MenuField::SettingsQuery) && action.text_field().is_none() {
-                self.field = None;
-            }
             self.navigation_focus.record_input(Some(action));
             self.settings_input.geometry.reset_anchor();
             self.settings_input.geometry.remember(action);
             self.retain_settings_slider_selection();
         }
+    }
+
+    /// Transfers editable-field ownership only after a settings slider captures input.
+    pub(super) fn capture_settings_slider(&mut self, index: u16) {
+        self.field = None;
+        self.focus_pointer(MenuAction::SettingsOption(
+            index,
+            self.settings_options.get(usize::from(index)),
+        ));
     }
 
     pub fn move_focus(&mut self, direction: i32) {
@@ -83,6 +89,7 @@ impl MenuRuntime {
                 .map(|option| option.kind)
             {
                 Some(SettingKind::Slider) => {
+                    self.field = None;
                     self.settings.slider_selected =
                         (self.settings.slider_selected != Some(index)).then_some(index);
                     return;

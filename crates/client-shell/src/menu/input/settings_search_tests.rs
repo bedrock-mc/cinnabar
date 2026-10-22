@@ -18,6 +18,23 @@ fn search_result_slider_releases_text_input_before_keyboard_adjustment() {
         menu.refresh_settings_focus([MenuAction::SearchSettings, action]);
         menu.input_mode = mode;
         menu.focus_pointer(action);
+        assert_eq!(menu.view().field, Some(MenuField::SettingsQuery));
+        match mode {
+            MenuInputMode::Mouse => {
+                menu.hovered = Some(action);
+                settings_pointer::update_slider(
+                    &mut menu,
+                    &client_ui::test_support::mini_engine_presentation(),
+                    None,
+                    true,
+                    true,
+                    false,
+                );
+                assert_eq!(menu.settings_input.slider_drag, Some(index));
+            }
+            MenuInputMode::Touch => menu.capture_settings_slider(index),
+            _ => unreachable!(),
+        }
         assert_eq!(menu.view().field, None);
         menu.edit_text("unexpected");
         assert_eq!(menu.view().settings_query, "volume");
@@ -33,4 +50,24 @@ fn search_result_slider_releases_text_input_before_keyboard_adjustment() {
         );
         assert_eq!(menu.view().settings_query, "volume");
     }
+}
+
+/// Pointer hover retains text ownership until keyboard confirmation captures the slider.
+#[test]
+fn hovering_a_result_preserves_search_until_slider_confirmation() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(MenuAction::SearchSettings);
+    menu.edit_text("volume");
+    let index = SettingId::MainVolume.index() as u16;
+    let action = MenuAction::SettingsOption(index, menu.settings_options.get(usize::from(index)));
+    menu.refresh_settings_focus([MenuAction::SearchSettings, action]);
+    menu.focus_pointer(action);
+    assert_eq!(menu.view().field, Some(MenuField::SettingsQuery));
+    menu.edit_text("x");
+    assert_eq!(menu.view().settings_query, "volumex");
+    menu.input_mode = MenuInputMode::Keyboard;
+    menu.activate_focused();
+    assert_eq!(menu.view().field, None);
+    assert_eq!(menu.view().settings.slider_selected, Some(index));
 }
