@@ -14,7 +14,7 @@ pub(in crate::menu) fn field_editor(field: MenuField) -> ChatEditor {
 /// A field's byte budget; world fields allow their vanilla character limits in any script.
 fn max_bytes(field: MenuField) -> usize {
     match field {
-        MenuField::FriendQuery => ui::MAX_CHAT_INPUT_BYTES,
+        MenuField::FriendQuery | MenuField::SettingsQuery => ui::MAX_CHAT_INPUT_BYTES,
         MenuField::RealmCode => MAX_SERVER_ADDRESS_BYTES,
         MenuField::Name => MAX_SERVER_NAME_BYTES,
         MenuField::Address => MAX_SERVER_ADDRESS_BYTES,

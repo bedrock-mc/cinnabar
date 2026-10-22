@@ -81,7 +81,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
     super::presets::draw(content)?;
-    content.option(SettingId::GraphicsApi)?;
+    options(content, SettingPanel::VideoBackend)?;
     content.heading(
         "menu.video.group.general",
         "menu.video.group.general.description",
@@ -171,7 +171,10 @@ fn draw_macros(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 }
 
 /// One macro slot: its title with the bound key, then the command box beneath.
-fn draw_macro_slot(content: &mut Content<'_, '_>, slot: usize) -> Result<(), PaintError> {
+pub(super) fn draw_macro_slot(
+    content: &mut Content<'_, '_>,
+    slot: usize,
+) -> Result<(), PaintError> {
     draw_macro_binding(content, slot)?;
     draw_macro_command(content, slot)
 }
@@ -386,7 +389,8 @@ fn bindings(content: &mut Content<'_, '_>, gamepad: bool) -> Result<(), PaintErr
     Ok(())
 }
 
-fn binding(
+/// Draws one binding with its existing capture and reset actions.
+pub(super) fn binding(
     content: &mut Content<'_, '_>,
     defaults: &SettingsOptions,
     index: usize,

@@ -984,7 +984,10 @@ pub fn settings(section: &str) -> MenuView {
     view
 }
 
-/// Enumerates every fixture, including the independently owned Social settings states.
+/// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
-    STATES.iter().chain(social_settings::STATES)
+    STATES
+        .iter()
+        .chain(social_settings::STATES)
+        .chain(settings_screens::SEARCH_STATES)
 }

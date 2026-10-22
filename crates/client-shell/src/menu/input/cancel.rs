@@ -36,6 +36,17 @@ impl MenuRuntime {
             self.go_back();
             return;
         }
+        if self.screen == launcher::menu::MenuScreen::Settings
+            && self.dialog.is_none()
+            && !self.settings_query.as_str().is_empty()
+            && self.settings.slider_selected.is_none()
+            && self.settings.key_remap.is_none()
+            && self.settings.dropdown.is_none()
+            && !self.settings.scale_picker
+        {
+            self.activate(launcher::menu::MenuAction::ClearSettingsSearch);
+            return;
+        }
         if self.clear_settings_slider_selection() {
             return;
         }
@@ -61,6 +72,21 @@ mod tests {
     use super::*;
     use bevy::prelude::*;
     use launcher::menu::{MenuAction, MenuScreen};
+
+    #[test]
+    fn escape_clears_search_before_leaving_settings_and_reopening_starts_empty() {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.activate(MenuAction::SearchSettings);
+        menu.edit_text("vsync");
+        menu.go_back_from_input();
+        assert_eq!(menu.view().screen, MenuScreen::Settings);
+        assert!(menu.view().settings_query.is_empty());
+        menu.edit_text("gamma");
+        menu.activate(MenuAction::AddBack);
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        assert!(menu.view().settings_query.is_empty());
+    }
 
     #[test]
     fn mouse_back_retains_held_menu_modifiers_and_observes_releases() {

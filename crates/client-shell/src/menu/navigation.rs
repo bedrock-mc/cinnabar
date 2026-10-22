@@ -140,6 +140,9 @@ impl MenuRuntime {
         {
             self.death_presentation.return_seconds = Some(0.0);
         }
+        if screen != MenuScreen::Settings {
+            self.settings_query.set_text("");
+        }
         self.screen = screen;
         self.navigation_focus.enter();
         if screen != MenuScreen::DressingRoom && self.dressing_room.editor.is_some() {

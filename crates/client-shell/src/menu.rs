@@ -120,6 +120,7 @@ pub struct MenuRuntime {
     port: ui::ChatEditor,
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
+    settings_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -727,7 +728,13 @@ impl MenuRuntime {
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
             MenuAction::SettingsSection(section) => self.activate_settings_section(section),
+            MenuAction::SettingsSearchSection(section) => {
+                self.focus_pointer(MenuAction::SettingsSection(section));
+                self.activate_settings_section(section);
+            }
             action @ (MenuAction::SettingsScale(_)
+            | MenuAction::SearchSettings
+            | MenuAction::ClearSettingsSearch
             | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)

@@ -2,8 +2,8 @@
 
 `vanilla-ui-vocabulary-1.26.50.txt` contains sorted, unique category/name pairs
 from the sample archive pinned by `assets/vanilla-source.json`. It includes UI
-references, bindings, buttons, variables, controls, collections, factory names,
-renderer names, and English text keys. It contains no control trees or text values.
+references, bindings, buttons, variables, controls, collections (including names
+assigned through variables), factory names, renderer names, and English text keys. It contains no control trees or text values.
 The source archive is the pinned [Mojang/bedrock-samples](https://github.com/Mojang/bedrock-samples)
 release; the archive and its original notices remain local inputs.
 

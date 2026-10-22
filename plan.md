@@ -419,6 +419,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Settings search filters translated option labels, help text and input bindings across
+  categories, with editable results and category shortcuts. Desktop live input acceptance
+  remains open.
   Social → Chat exposes the existing chat preferences, shared opacity, duration and
   position controls, and one reset for all displayed Chat settings. Chat uses the bundled
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
@@ -520,6 +523,10 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+
+Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
+installations, with verified extraction and startup rollback. Packaged Linux update and
+rollback acceptance on a desktop remains incomplete.
 
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
