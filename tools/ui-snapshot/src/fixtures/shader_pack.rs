@@ -9,7 +9,7 @@ use launcher::menu::{
     },
 };
 
-use super::Fixture;
+use super::{Fixture, GUI_SCALE, SHADER_PACK_ROW_SIZE, SIZE, State};
 use std::sync::Arc;
 
 const PACK: &str = "Dusk.zip";
@@ -165,6 +165,52 @@ pub(super) fn settings_video() -> Fixture {
         SettingSection::Video.definition().name,
     )))
 }
+
+/// Shader-pack load toasts and the library's selected, loading and failed states.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "toast-shader-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: loading,
+    },
+    State {
+        name: "toast-shader-pack-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: loaded,
+    },
+    State {
+        name: "toast-shader-pack-failed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: failed,
+    },
+    State {
+        name: "settings-shaders-selected",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_shaders(false),
+    },
+    State {
+        name: "settings-shaders-narrow-extra-large",
+        size: [240, 2400],
+        gui_scale: GUI_SCALE,
+        fixture: narrow_extra_large,
+    },
+    State {
+        name: "settings-shaders-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_shaders_loading,
+    },
+    State {
+        name: "settings-shaders-failed",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_shaders(true),
+    },
+];
 
 #[cfg(test)]
 mod tests {

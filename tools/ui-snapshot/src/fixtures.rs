@@ -942,48 +942,6 @@ const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: shader_options::rest,
     },
-    State {
-        name: "toast-shader-pack-loading",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::loading,
-    },
-    State {
-        name: "toast-shader-pack-loaded",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::loaded,
-    },
-    State {
-        name: "toast-shader-pack-failed",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::failed,
-    },
-    State {
-        name: "settings-shaders-selected",
-        size: SHADER_PACK_ROW_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || shader_pack::settings_shaders(false),
-    },
-    State {
-        name: "settings-shaders-narrow-extra-large",
-        size: [240, 2400],
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::narrow_extra_large,
-    },
-    State {
-        name: "settings-shaders-loading",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::settings_shaders_loading,
-    },
-    State {
-        name: "settings-shaders-failed",
-        size: SHADER_PACK_ROW_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || shader_pack::settings_shaders(true),
-    },
 ];
 
 /// Opens a settings category by its registered name rather than a copied index.
@@ -1003,6 +961,7 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .iter()
         .chain(out_of_game::WORLD_FORM_STATES)
         .chain(updates::STATES)
+        .chain(shader_pack::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
 }
