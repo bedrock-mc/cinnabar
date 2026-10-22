@@ -12,6 +12,8 @@ const DYNAMIC_ROWS: u32 = ATLAS_SIDE / 2;
 #[cfg(test)]
 const STATIC_ROWS: u32 = ATLAS_SIDE - DYNAMIC_ROWS;
 pub const TILE_SLOT: u32 = 16;
+/// Opaque white texel at the atlas origin, sampled by `ParticleAtlas::fallback`.
+pub const FALLBACK_TEXEL: [u8; 4] = [255; 4];
 #[cfg(test)]
 const SLOTS_PER_ROW: u32 = ATLAS_SIDE / TILE_SLOT;
 #[cfg(test)]
@@ -105,7 +107,7 @@ impl ParticleAtlas {
             ..Self::default()
         };
         // A white texel at the origin backs untextured or missing-texture particles.
-        atlas.blit(0, 0, 1, 1, &[255, 255, 255, 255]);
+        atlas.blit(0, 0, 1, 1, &FALLBACK_TEXEL);
         atlas.placements.insert(
             "".into(),
             Placement {
