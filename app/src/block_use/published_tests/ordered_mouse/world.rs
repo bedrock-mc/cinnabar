@@ -134,7 +134,7 @@ fn boundary_fixture() -> (App, client_session::CapturedPackets) {
     let origin = frame_origin(world, Vec3::from_array(EYE), rotation);
     let authority = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity();
+        .position_authority_identity();
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&origin, authority);
