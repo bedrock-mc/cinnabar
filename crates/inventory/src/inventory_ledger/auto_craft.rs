@@ -9,7 +9,7 @@ use protocol::{
 };
 
 use super::cells::{Cell, Held};
-use super::crafting::{ExtraDestination, created_stack};
+use super::crafting::{ExtraDestination, OutputPlanner, action_amounts, created_stack};
 use super::gesture::Submission;
 use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
@@ -158,7 +158,7 @@ impl PlayerInventoryLedger {
     }
 
     /// How many times the inventory can craft `recipe` at once, capped so every result fits
-    /// one stack that one action can move.
+    /// one stack.
     fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
         let per_stack = self.crafts_per_request(recipe).unwrap_or(0);
         let (mut low, mut high) = (0u8, per_stack);
@@ -243,7 +243,7 @@ impl PlayerInventoryLedger {
             let cell = Cell::Inventory(slot);
             // Crafting accepts ingredients only from the combined inventory name, and each
             // consume carries at most one action's amount.
-            for amount in super::crafting::action_amounts(total) {
+            for amount in action_amounts(total) {
                 actions.push(StackRequestAction::Consume {
                     amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
@@ -260,24 +260,28 @@ impl PlayerInventoryLedger {
         // Extra results are placed before the main one, which is then created by index too.
         // Neither goes into a cell this request empties: a queued earlier request may still
         // rename it.
+        let mut planner = OutputPlanner::new(consumed);
         let mut registry_bound_merge = false;
-        let mut filled = consumed;
         if recipe.extra_outputs().len() != 0 {
-            (registry_bound_merge, filled) = self.push_extra_outputs(
+            registry_bound_merge = self.push_extra_outputs(
                 recipe,
                 crafts,
                 request_id,
                 ExtraDestination::Inventory,
-                &filled,
+                &mut planner,
                 &mut actions,
                 &mut groups,
             )?;
             actions.push(StackRequestAction::Create { results_index: 0 });
         }
-        let plan = self.spread_plan_partial(&created, capacity, &filled);
+        let plan = planner.plan(self, &created, capacity, &self.player_cells(), false);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
-        if remainder != 0 && self.view().get(Cell::Cursor).is_some() {
+        // A remainder goes to an empty cursor in one action.
+        if remainder != 0
+            && (self.view().get(Cell::Cursor).is_some()
+                || remainder > u16::from(protocol::MAX_STACK_REQUEST_AMOUNT))
+        {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let output_slot = request_slot(Cell::CreatedOutput, request_id, None)?;

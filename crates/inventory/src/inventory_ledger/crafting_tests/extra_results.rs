@@ -215,7 +215,7 @@ fn extras_with_nowhere_to_go_drop_in_encodable_amounts() {
             64,
             -3,
             crafting::ExtraDestination::Inventory,
-            &[],
+            &mut crafting::OutputPlanner::default(),
             &mut actions,
             &mut groups,
         )
@@ -255,8 +255,8 @@ fn a_craft_too_large_to_encode_is_refused_before_it_is_queued() {
     assert_eq!(ledger.pending_request_count(), pending);
 }
 
-#[test]
-fn every_created_result_keeps_its_own_lineage() {
+/// One cobblestone makes a furnace and gives back one plank twice.
+fn two_extras() -> protocol::RecipeHandle {
     let mut fixture = RecipeFixture::shapeless(
         "test:two_extras",
         vec![IngredientFixture::named("minecraft:cobblestone", 0)],
@@ -270,7 +270,12 @@ fn every_created_result_keeps_its_own_lineage() {
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
     assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
-    let recipe = catalog.recipe(80).unwrap();
+    catalog.recipe(80).unwrap()
+}
+
+#[test]
+fn every_created_result_keeps_its_own_lineage() {
+    let recipe = two_extras();
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(COBBLE, 101, 1)));
     ledger.begin_craft(&recipe, 1).unwrap();
@@ -320,5 +325,32 @@ fn a_book_craft_all_keeps_every_result_within_one_stack() {
     assert!(
         created.iter().all(|label| !label.starts_with("drop")),
         "{created:?}"
+    );
+}
+
+#[test]
+fn identical_extras_share_the_room_left_in_one_matching_stack() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(COBBLE, 101, 1)));
+    ledger.apply(&craft_slot(29, stack(PLANKS, 103, 60)));
+    ledger.begin_craft(&two_extras(), 1).unwrap();
+    let grid = format!("{:?}", StackRequestContainer::CraftingInput);
+    let placed: Vec<_> = tail(&ledger)
+        .into_iter()
+        .filter(|label| label.starts_with("place") || label.starts_with("drop"))
+        .collect();
+    assert_eq!(
+        placed,
+        [
+            format!("place 1 {grid} 29 103"),
+            format!("place 1 {grid} 29 103")
+        ]
+    );
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(29))
+            .unwrap()
+            .count,
+        62
     );
 }

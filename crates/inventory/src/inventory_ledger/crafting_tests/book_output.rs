@@ -292,3 +292,38 @@ fn stacks_above_one_action_consume_and_place_in_encodable_amounts() {
     assert_eq!(amounts, [("consume", 64), ("consume", 64), ("place", 64)]);
     assert!(ledger.pending_batch().unwrap().is_some());
 }
+
+#[test]
+fn a_grid_craft_all_above_one_action_spreads_over_several_cells() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        entry.negotiated_max_stack_size = Some(128);
+    }
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 65)));
+    let recipe = unique(&ledger, &catalog());
+    ledger.begin_craft_all(&recipe).unwrap();
+    let placed: Vec<_> = placed_outputs(&ledger)
+        .into_iter()
+        .map(|(slot, stack)| (slot, stack.count))
+        .collect();
+    assert_eq!(placed, [(0, 64), (1, 1)]);
+    assert!(ledger.pending_batch().unwrap().is_some());
+}
+
+#[test]
+fn a_maximal_stack_count_never_overflows_the_room_check() {
+    let mut full: Vec<_> = (1..35)
+        .map(|slot| (slot, COBBLE, 100 + i32::from(slot), 64))
+        .collect();
+    full.push((0, PLANKS, 300, u16::MAX));
+    full.push((35, LOG, 200, 1));
+    let mut ledger = stocked(&full);
+    assert_eq!(
+        ledger.begin_auto_craft(&planks(), false),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+}

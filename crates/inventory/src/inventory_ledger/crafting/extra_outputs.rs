@@ -13,6 +13,7 @@ use super::super::cells::{Cell, Held};
 use super::super::overlay::DeltaGroup;
 use super::super::registry::entry_capacity;
 use super::super::{InventoryGestureError, PlayerInventoryLedger, helpers};
+use super::{OutputPlanner, action_amounts};
 
 /// Where the extra results of a craft go after the main result.
 #[derive(Clone, Copy)]
@@ -78,9 +79,9 @@ impl PlayerInventoryLedger {
             .collect()
     }
 
-    /// Creates each extra result `crafts` times over and places it into cells as they stand
-    /// before the request, never into `taken` ones (cells the request consumes from or already
-    /// filled); returns whether a placement merged into an occupied stack, and every taken cell.
+    /// Creates each extra result `crafts` times over and places it through the request's
+    /// `planner`: the grid's matching stacks and first free cell, then the inventory (or only
+    /// the inventory), dropping what fits nowhere. Returns whether a placement merged.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::inventory_ledger) fn push_extra_outputs(
         &self,
@@ -88,13 +89,14 @@ impl PlayerInventoryLedger {
         crafts: u8,
         request_id: i32,
         destination: ExtraDestination,
-        taken: &[Cell],
+        planner: &mut OutputPlanner,
         actions: &mut Vec<StackRequestAction>,
         groups: &mut Vec<DeltaGroup>,
-    ) -> Result<(bool, Vec<Cell>), InventoryGestureError> {
+    ) -> Result<bool, InventoryGestureError> {
         let mut merged = false;
         let output_slot = helpers::request_slot(Cell::CreatedOutput, request_id, None)?;
-        let mut filled: Vec<Cell> = taken.to_vec();
+        let grid: Vec<Cell> = self.crafting_grid().slots().map(Cell::Craft).collect();
+        let player = self.player_cells();
         for (index, output) in recipe.extra_outputs().enumerate() {
             let capacity = self
                 .negotiated_item_entry(output.network_id)
@@ -119,7 +121,7 @@ impl PlayerInventoryLedger {
                 },
             });
             let mut plan = match destination {
-                ExtraDestination::Grid => self.grid_plan(&created, capacity, &filled),
+                ExtraDestination::Grid => planner.plan(self, &created, capacity, &grid, true),
                 ExtraDestination::Inventory => Vec::new(),
             };
             let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
@@ -128,17 +130,12 @@ impl PlayerInventoryLedger {
                     count: total - placed,
                     ..created.clone()
                 };
-                plan.extend(self.spread_plan_partial(&rest, capacity, &filled));
+                plan.extend(planner.plan(self, &rest, capacity, &player, false));
             }
             let mut left = total;
             for (cell, amount, into) in plan {
-                let amount = amount.min(left);
-                if amount == 0 {
-                    break;
-                }
                 left -= amount;
                 merged |= into.is_some();
-                filled.push(cell);
                 let destination_id = into.map_or(0, |(id, _)| id);
                 actions.push(StackRequestAction::Place {
                     amount: u8::try_from(amount)
@@ -161,10 +158,7 @@ impl PlayerInventoryLedger {
                 });
             }
             // Whatever fits nowhere is dropped, in amounts one action can carry.
-            let limit = super::action_amount_limit(u16::from(capacity));
-            while left != 0 {
-                let amount = left.min(limit);
-                left -= amount;
+            for amount in action_amounts(left) {
                 actions.push(StackRequestAction::Drop {
                     amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
@@ -178,43 +172,6 @@ impl PlayerInventoryLedger {
                 });
             }
         }
-        Ok((merged, filled))
-    }
-
-    /// Grid placements into cells as they stand before the request, away from `taken` ones:
-    /// stackable cells in grid order, then the first empty one, each at most one action's amount.
-    fn grid_plan(
-        &self,
-        created: &NetworkItemStack,
-        capacity: u8,
-        taken: &[Cell],
-    ) -> Vec<super::OutputPlacement> {
-        let capacity = u16::from(capacity);
-        let limit = super::action_amount_limit(capacity);
-        let mut remaining = created.count;
-        let mut plan = Vec::new();
-        let mut first_empty = None;
-        for cell in self.crafting_grid().slots().map(Cell::Craft) {
-            if remaining == 0 || taken.contains(&cell) {
-                continue;
-            }
-            let Some(into) = self.view().get(cell) else {
-                first_empty.get_or_insert(cell);
-                continue;
-            };
-            if !self.merges_into(into, created) {
-                continue;
-            }
-            let count = into.stack.count;
-            let amount = remaining.min(capacity.saturating_sub(count)).min(limit);
-            if amount > 0 {
-                remaining -= amount;
-                plan.push((cell, amount, Some((into.stack.stack_network_id, count))));
-            }
-        }
-        if let Some(cell) = first_empty.filter(|_| remaining > 0) {
-            plan.push((cell, remaining.min(limit), None));
-        }
-        plan
+        Ok(merged)
     }
 }
