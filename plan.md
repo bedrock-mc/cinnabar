@@ -251,6 +251,9 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Elytra gliding retains the sprint state and its movement-speed modifier through
+completed ticks and correction replay. Rendered acceptance of sprinting and
+Speed-boosted glide camera motion remains outstanding.
 Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
