@@ -267,6 +267,65 @@ fn a_page_rejected_for_memory_retries_after_backoff() {
 }
 
 #[test]
+fn partially_uploaded_artwork_keeps_backoff_after_one_retirement_retry() {
+    let (device, queue) = device();
+    let mut pages = publication(1, 2);
+    pages.pages = Arc::from([
+        render_model::ActorTexturePage {
+            width: 1,
+            height: 1,
+            layers: 1,
+            rgba8: vec![1; 4].into(),
+            color_mask: false,
+            multitexture: false,
+        },
+        pages.pages[0].clone(),
+    ]);
+    let attempts = Rc::new(Cell::new(0));
+    let observed = Rc::clone(&attempts);
+    let failure = gpu_allocation::inject(move |label, bytes| {
+        if label != "immutable actor page" {
+            return false;
+        }
+        observed.set(observed.get() + 1);
+        bytes > 4
+    });
+    let mut gpu = GpuArtwork::default();
+    assert!(!gpu.prepare(&pages, &device, &queue));
+    assert!(gpu.pages.is_empty());
+    let initial_attempts = attempts.get();
+    queue.submit([]);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    assert!(!gpu.prepare(&pages, &device, &queue));
+    assert!(
+        attempts.get() > initial_attempts,
+        "retirement allows one early retry"
+    );
+
+    for interval in [2, 4].map(|factor| gpu_allocation::MIN_RETRY_FRAMES * factor) {
+        let previous_attempts = attempts.get();
+        for _ in 1..interval {
+            queue.submit([]);
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            assert!(!gpu.prepare(&pages, &device, &queue));
+            assert_eq!(
+                attempts.get(),
+                previous_attempts,
+                "completed submissions must not bypass backoff after another failed upload"
+            );
+        }
+        assert!(!gpu.prepare(&pages, &device, &queue));
+        assert!(attempts.get() > previous_attempts);
+    }
+    drop(failure);
+    for _ in 1..gpu_allocation::MIN_RETRY_FRAMES * 8 {
+        assert!(!gpu.prepare(&pages, &device, &queue));
+    }
+    assert!(gpu.prepare(&pages, &device, &queue));
+    assert!(gpu.page(0).is_some() && gpu.page(1).is_some());
+}
+
+#[test]
 fn incompatible_old_layer_count_uses_coarse_new_data_instead() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();

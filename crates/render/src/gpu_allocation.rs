@@ -80,13 +80,14 @@ pub(crate) struct UploadRetry {
 }
 
 impl UploadRetry {
-    /// Records an attempt; with `released`, a failure also retries once every submission so far,
-    /// which holds the released resources' last use, completes.
+    /// Records an attempt. Released resources allow one early retry after submission completion;
+    /// another failed retry must wait for the backoff even when it released resources too.
     pub(crate) fn record(&mut self, uploaded: bool, released: Option<&RenderQueue>) {
         if uploaded {
             *self = Self::default();
             return;
         }
+        let released = released.filter(|_| !self.retrying);
         self.interval = if self.retrying {
             (self.interval * 2).min(MAX_RETRY_FRAMES)
         } else {
