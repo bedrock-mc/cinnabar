@@ -39,6 +39,7 @@ impl MenuRuntime {
             dialog: self.dialog,
             field: self.field,
             friend_query: self.friend_query.as_str().to_owned(),
+            settings_query: self.settings_query.as_str().to_owned(),
             caret: self.caret(),
             name: self.name.as_str().to_owned(),
             address: self.address.as_str().to_owned(),
@@ -57,6 +58,7 @@ impl MenuRuntime {
             render_mode: self.render_mode,
             shader_packs: std::sync::Arc::clone(&self.shader_packs),
             shader_packs_revision: self.shader_packs_revision,
+            shader_pack_removing: self.shader_pack_removing.clone(),
             shader_pack: (self.render_mode == ui::RenderMode::ShaderPack)
                 .then(|| self.shader_pack.clone())
                 .flatten(),

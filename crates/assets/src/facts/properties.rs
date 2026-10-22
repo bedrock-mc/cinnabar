@@ -5,11 +5,27 @@ use crate::AssetError;
 use crate::registry::RegistryRecord;
 
 /// A pinned property's allowed scalar values.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyDomain {
     Bool,
     Int(&'static [i32]),
     String(&'static [&'static str]),
+}
+
+/// Returns the values `block`'s own states admit for `key`.
+pub fn block_property_domain(block: &str, key: BlockProperty) -> PropertyDomain {
+    narrowed_domain(super::property_domains_generated::block_domains(block), key)
+}
+
+/// Prefers a block's narrower domain over the vocabulary-wide one.
+pub(crate) fn narrowed_domain(
+    narrowed: &[(BlockProperty, PropertyDomain)],
+    key: BlockProperty,
+) -> PropertyDomain {
+    narrowed
+        .iter()
+        .find(|(narrowed, _)| *narrowed == key)
+        .map_or(key.domain(), |(_, domain)| *domain)
 }
 
 /// A state scalar, preserving the property's domain rather than its JSON envelope.

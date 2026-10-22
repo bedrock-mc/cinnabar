@@ -95,7 +95,9 @@ and resource qualification; they do not imply these systems need to be written.
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
   until exact face-coverage behavior is verified separately. Inventory fences draw the
-  native two-post shape; bamboo fence slats and wall inventory shapes are unverified, and
+  native two-post shape. Walls now use the custom carried two-post shape, and vanilla
+  gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
+  and fresh integrated-frame acceptance remain unverified; bamboo fence slats are also open, and
   world fence rails still omit the outer end faces native tessellation draws.
 - [ ] Close paired-door presentation and interaction acceptance, including lower/upper
   state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
@@ -145,6 +147,10 @@ and resource qualification; they do not imply these systems need to be written.
   including chunk NBT, live updates, required variants and explicit GPU/no-draw evidence.
 - [ ] Close every registered block-entity renderer route, gallery builder, required
   NBT variant and strict-final witness without deferrals.
+  Chalkboard models use supplied runtime-pack box-UV geometry and world textures,
+  with base-owned size, rotation and ground supports. Per-face UV overrides,
+  default-pack resource coverage, text rendering, editing, placement and interaction
+  semantics, complete native galleries and Windows resource correspondence remain incomplete.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
   Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
@@ -415,6 +421,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Settings search filters translated option labels, help text and input bindings across
+  categories, with editable results and category shortcuts. Desktop live input acceptance
+  remains open.
   Social → Chat exposes the existing chat preferences, shared opacity, duration and
   position controls, and one reset for all displayed Chat settings. Chat uses the bundled
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
@@ -504,6 +513,12 @@ compatibility. Existing catalog content is owned by the API repository.
 Local worlds use the Go server integration. Qualify creation, offline play, reload,
 import, persistence and hosting/session teardown. The accepted local-world scope does
 not establish full vanilla world-generation parity.
+Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
+catalog and generated server properties and level data. Pack and experiment configuration,
+hardcore, flat presets, Education Edition and live acceptance of every option on supported
+platforms remain incomplete.
+Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
+offers no NetherNet route, so the join fails with an explanation instead of connecting.
 
 See [local worlds](docs/local-worlds.md).
 
@@ -516,6 +531,13 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+
+Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
+installations, with verified extraction and startup rollback. Packaged Linux update and
+rollback acceptance on a desktop remains incomplete.
+Launching a retained Linux manual download can offer installation into the existing
+script-managed AppDir, after revalidating its signed manifest and image. End-to-end
+desktop acceptance of this recovery path remains incomplete.
 
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
@@ -590,7 +612,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
 - Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
-  feature. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
+  feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
+  are deferred until requested. Retired loads cancel between translation programs and GPU
+  batches; rapid selections share one load worker. The Shaders library uses full-width pack
+  rows with controls on the selected pack and confirmed removal of imported copies and their
+  saved settings. Incomplete: matched shader-feature-off versus
+  feature-on/no-pack startup, frame-time, memory and visual acceptance across supported
+  backends, including shared artwork texture views. These changes do not enable the feature
+  by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
   menus, profiles and option files, evaluates custom uniforms and translates programs to
   validated naga modules, with calls ordered after forward declarations and generated
   helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block

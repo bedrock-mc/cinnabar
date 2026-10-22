@@ -147,6 +147,7 @@ pub(super) fn hud_model(
         chat_color: ui_screens::settings_chat::default_color(settings),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
+        chat_text: ui_screens::settings_chat::chat_text(settings),
         sidebar,
         boss_bars: runtime
             .boss_bars()
