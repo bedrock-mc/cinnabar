@@ -18,7 +18,7 @@ mod icons;
 mod sidebar;
 #[cfg(test)]
 mod tests;
-use icons::{filter_button, trash_icon};
+use icons::filter_button;
 
 const UNREAD: [u8; 4] = [255, 128, 133, 255];
 
@@ -142,9 +142,11 @@ fn card(
         false,
         Some(MenuAction::Inbox(Action::Delete(index))),
     )?;
-    trash_icon(
+    super::icons::draw(
         canvas,
+        super::icons::Icon::Trash,
         [delete_x + height * 0.5 - canvas.r(0.8), top + canvas.r(1.2)],
+        TEXT,
     )?;
     canvas.text_centred(
         "Delete",

@@ -4,13 +4,12 @@
 use std::sync::Arc;
 
 use protocol::{
-    AutoCraftIngredient, CraftResult, NetworkItemStack, RecipeHandle, RecipeIngredientView,
-    StackItemDescriptor, StackRequestAction,
+    AutoCraftIngredient, NetworkItemStack, RecipeHandle, RecipeIngredientView, StackItemDescriptor,
+    StackRequestAction,
 };
-use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, Held};
-use super::crafting::{OutputPlanner, action_amounts};
+use super::crafting::{ExtraDestination, OutputPlanner, action_amounts, created_stack};
 use super::gesture::Submission;
 use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
@@ -158,9 +157,10 @@ impl PlayerInventoryLedger {
         Some(sources)
     }
 
-    /// How many times the inventory can craft `recipe` at once, capped at one output stack.
-    fn max_auto_crafts(&self, recipe: &RecipeHandle, capacity: u8) -> u8 {
-        let per_stack = capacity / recipe.output().count.max(1);
+    /// How many times the inventory can craft `recipe` at once, capped so every result fits
+    /// one stack.
+    fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
+        let per_stack = self.crafts_per_request(recipe).unwrap_or(0);
         let (mut low, mut high) = (0u8, per_stack);
         while low < high {
             let middle = low + (high - low).div_ceil(2);
@@ -181,15 +181,7 @@ impl PlayerInventoryLedger {
         recipe: &RecipeHandle,
         all: bool,
     ) -> Result<i32, InventoryGestureError> {
-        let crafts = if all {
-            let capacity = self
-                .negotiated_item_entry(recipe.output().network_id)
-                .and_then(entry_capacity)
-                .ok_or(InventoryGestureError::InvalidRequest)?;
-            self.max_auto_crafts(recipe, capacity)
-        } else {
-            1
-        };
+        let crafts = if all { self.max_auto_crafts(recipe) } else { 1 };
         if crafts == 0 {
             return Err(InventoryGestureError::InvalidRequest);
         }
@@ -229,20 +221,7 @@ impl PlayerInventoryLedger {
         let capacity = entry_capacity(entry)
             .filter(|capacity| output.count != 0 && output.count <= *capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let user_data: Arc<[u8]> = if output.empty_envelope {
-            Arc::from([0; 10])
-        } else {
-            Arc::from([])
-        };
-        let one_craft = NetworkItemStack {
-            network_id: output.network_id,
-            metadata: u32::from(output.aux),
-            stack_network_id: 0,
-            count: u16::from(output.count),
-            nbt_digest: Sha256::digest(&user_data).into(),
-            block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::clone(&user_data),
-        };
+        let one_craft = created_stack(output, u16::from(output.count), 0);
         // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
         if !self.player_cell_fits(&one_craft, capacity) {
             return Err(InventoryGestureError::InvalidRequest);
@@ -252,11 +231,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let total = output.count * crafts;
         let request_id = self.peek_request_id()?;
-        let created = NetworkItemStack {
-            stack_network_id: request_id,
-            count: u16::from(total),
-            ..one_craft
-        };
+        let created = created_stack(output, u16::from(total), request_id);
         // Each ingredient is listed once with count 1 and empty grid cells are skipped;
         // the sources above still consume every ingredient's full count per craft.
         let ingredients: Arc<[AutoCraftIngredient]> = recipe
@@ -283,13 +258,9 @@ impl PlayerInventoryLedger {
             },
             // Declares one craft's results; the times-crafted field carries the repeat.
             StackRequestAction::CraftResultsDeprecated {
-                results: Arc::from([CraftResult {
-                    identifier: Arc::clone(&entry.identifier),
-                    aux: i32::from(output.aux),
-                    count: u16::from(output.count),
-                    block_runtime_id: output.block_runtime_id,
-                    user_data,
-                }]),
+                results: self
+                    .craft_results(recipe)
+                    .ok_or(InventoryGestureError::InvalidRequest)?,
                 crafts,
             },
         ];
@@ -313,14 +284,24 @@ impl PlayerInventoryLedger {
             }
             consumed.push(cell);
         }
-        // Never into a cell this request empties: a queued earlier request may still rename it.
-        let plan = OutputPlanner::new(consumed).plan(
-            self,
-            &created,
-            capacity,
-            &self.player_cells(),
-            false,
-        );
+        // Extra results are placed before the main one, which is then created by index too.
+        // Neither goes into a cell this request empties: a queued earlier request may still
+        // rename it.
+        let mut planner = OutputPlanner::new(consumed);
+        let mut registry_bound_merge = false;
+        if recipe.extra_outputs().len() != 0 {
+            registry_bound_merge = self.push_extra_outputs(
+                recipe,
+                crafts,
+                request_id,
+                ExtraDestination::Inventory,
+                &mut planner,
+                &mut actions,
+                &mut groups,
+            )?;
+            actions.push(StackRequestAction::Create { results_index: 0 });
+        }
+        let plan = planner.plan(self, &created, capacity, &self.player_cells(), false);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
         // A remainder goes to an empty cursor in one action.
@@ -341,7 +322,7 @@ impl PlayerInventoryLedger {
                 acknowledged_request_id: None,
             },
         });
-        let registry_bound_merge = plan.iter().any(|(_, _, into)| into.is_some());
+        registry_bound_merge |= plan.iter().any(|(_, _, into)| into.is_some());
         for (cell, amount, into) in plan {
             let Cell::Inventory(slot) = cell else {
                 return Err(InventoryGestureError::InvalidRequest);

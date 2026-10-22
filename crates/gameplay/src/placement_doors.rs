@@ -30,6 +30,7 @@ pub(crate) fn door_states(
             P::DoorHingeBit.name(),
         ],
     ) || crate::placement_state::valid_property(
+        fact,
         &lower,
         assets::facts::BlockProperty::MinecraftCardinalDirection,
     )

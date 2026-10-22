@@ -641,6 +641,7 @@ fn chat_data(
         text("accessibility.chat.tts.send", ""),
     );
     let messages = input.messages;
+    let chat_text = crate::settings_chat::chat_text(settings);
     let items = messages
         .iter()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
@@ -653,14 +654,8 @@ fn chat_data(
                     Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
                 )
                 .var("chat_font_type", Value::from("default"))
-                .var(
-                    "chat_font_scale_factor",
-                    Value::from(settings.chat_font_scale()),
-                )
-                .var(
-                    "chat_line_spacing",
-                    Value::from(settings.chat_line_padding()),
-                )
+                .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
+                .var("chat_line_spacing", Value::from(chat_text.line_spacing))
         })
         .collect();
     data.set_factory("messages_factory", items);
