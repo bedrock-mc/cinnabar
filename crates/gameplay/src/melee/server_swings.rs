@@ -79,8 +79,12 @@ mod tests {
         echo.extend([SwingSource::None, SwingSource::Attack, SwingSource::Event]);
         let mut received = Vec::new();
         echo.flush(context(1), &mut swings, |packet| {
+            let mut decoded = protocol::decode_batch(protocol::encode(&packet).unwrap()).unwrap();
+            assert_eq!(decoded.len(), 1);
             let protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Action(action)) =
-                protocol::into_world_event(packet, 0).unwrap().unwrap()
+                protocol::into_world_event(decoded.remove(0), 0)
+                    .unwrap()
+                    .unwrap()
             else {
                 panic!("expected a swing packet");
             };
