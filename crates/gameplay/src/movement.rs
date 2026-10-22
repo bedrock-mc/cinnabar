@@ -868,6 +868,9 @@ impl MovementTicker {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
                     pending.snapshot.position = replayed.position;
+                    if let Some(mining) = pending.mining.as_mut() {
+                        mining.replay_at(replayed.position);
+                    }
                     pending.snapshot.delta = replayed.velocity;
                     pending.displacement = replayed.movement;
                     pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);

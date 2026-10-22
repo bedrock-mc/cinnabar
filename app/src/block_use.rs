@@ -85,7 +85,7 @@ fn maintain_block_use(
     movement: Res<MovementTicker>,
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
 ) {
-    let pick = runtime.pick(movement.interaction_authority_identity());
+    let pick = runtime.pick(&movement);
     if context.input.phase(Action::Use).pressed
         && !context
             .input
@@ -204,7 +204,7 @@ fn maintain_block_use(
         input_mode,
         clock.survival,
         (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
+        movement.position_authority_identity().1,
         &runtime,
         pick,
         trigger,

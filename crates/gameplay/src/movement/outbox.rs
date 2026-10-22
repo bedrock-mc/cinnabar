@@ -719,6 +719,17 @@ impl MovementTicker {
         )
     }
 
+    /// Identifies geometry such as eye rays and picks: every reanchor, including a replayed
+    /// correction that moves the player, retires geometry captured before it.
+    pub const fn position_authority_identity(
+        &self,
+    ) -> (SessionGeneration, PositionAuthorityGeneration) {
+        (
+            SessionGeneration::new(self.session_generation),
+            self.reanchor_epoch,
+        )
+    }
+
     /// Whether interactions only wait for inputs written before a position-authority change.
     pub fn settling_position_authority(&self) -> bool {
         self.physics_is_authorized()

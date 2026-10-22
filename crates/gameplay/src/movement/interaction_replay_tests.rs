@@ -209,3 +209,49 @@ fn a_replay_dropping_an_unsent_block_action_revokes_interactions() {
         "the break restarts on the next tick"
     );
 }
+
+/// A client-authoritative destroy kept on a replayed tick reports that tick's corrected
+/// position, matching the movement input that carries it.
+#[test]
+fn a_kept_destroy_transaction_moves_with_its_replayed_tick() {
+    let mut session = Session::new();
+    session.flush();
+    session.advance(2);
+    let carrier = session.physics.state().unwrap().tick - 1;
+    let destroy = crate::survival_mining::SurvivalTickPayload {
+        destroy: Some(slow_block()),
+        ..Default::default()
+    };
+    assert!(session.ticker.attach_survival_mining(carrier, destroy));
+    let carried = |ticker: &MovementTicker| {
+        let sample = ticker
+            .pending_samples()
+            .into_iter()
+            .find(|sample| sample.snapshot.tick == carrier)
+            .unwrap();
+        let Some(protocol::BlockItemInteraction::Destroy(request)) = sample
+            .mining
+            .and_then(|mining| mining.interactions.block_interaction)
+        else {
+            panic!("the replayed tick keeps its destroy transaction");
+        };
+        (sample.snapshot.position, request.player_position)
+    };
+    let (before, _) = carried(&session.ticker);
+
+    // Knockback stamped on the last written tick replays only the queued ones.
+    let rewind = session
+        .physics
+        .queue_server_motion([0.4, 0.3, 0.0], carrier - 1)
+        .unwrap();
+    reconcile_timeline_rewind(
+        &mut session.ticker,
+        &mut session.physics,
+        rewind,
+        &session.world,
+    )
+    .unwrap();
+    let (position, reported) = carried(&session.ticker);
+    assert_ne!(position, before, "the knockback moved the carrying tick");
+    assert_eq!(reported, position);
+}

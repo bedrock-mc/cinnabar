@@ -42,7 +42,7 @@ fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
     let origin = frame_origin(&world, Vec3::from_array(start), rotation);
     let authority = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity();
+        .position_authority_identity();
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&origin, authority);
@@ -128,7 +128,7 @@ fn a_picked_actor_prevents_indirect_support_use_and_outline() {
     );
     let authority = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity();
+        .position_authority_identity();
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&origin, authority);
@@ -168,7 +168,7 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
     )>::new(world);
     let (context, player, runtime, movement) = system.get_mut(world).unwrap();
     let input = context.input.snapshot()?;
-    let authority = movement.interaction_authority_identity();
+    let authority = movement.position_authority_identity();
     observe_use_target(
         &player,
         &context,
@@ -178,7 +178,7 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
         (input.authority_generation, input.frame_sequence),
         authority.1,
         &runtime,
-        runtime.pick(authority),
+        runtime.pick(&movement),
         trigger,
         &movement.build_action_state()?,
     )
