@@ -18,6 +18,22 @@ fn fixed(fps: u16) -> FrameRateLimit {
 /// `(launch cap, ignore window state)` for the session under test.
 type Session = (Option<u32>, bool);
 
+/// Supplies an empty diagnostic world without carriers, networking or server fixtures.
+fn playing_world() -> crate::runtime::world::ClientWorld {
+    crate::runtime::world::ClientWorld {
+        stream: Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            local_player_unique_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        })),
+        ..Default::default()
+    }
+}
+
 fn pacing_app(session: Session, limit: FrameRateLimit) -> (App, Entity) {
     pacing_app_with(session, limit, |_| {})
 }
@@ -33,6 +49,7 @@ fn pacing_app_with(
         .init_resource::<RuntimeSettings>()
         .init_resource::<FramePacing>()
         .init_resource::<PowerSource>()
+        .insert_resource(playing_world())
         .insert_resource(DisplayRefresh(DisplayTiming {
             refresh: FrameRate::from_hz(120),
             vrr: VrrStatus::Unknown,
@@ -182,6 +199,10 @@ fn leaving_a_world_caps_menus_and_hidden_runs_keep_the_requested_limit() {
         } else {
             app.world().resource::<DisplayRefresh>().0.refresh
         };
+        assert_eq!(pacing(&app).rate, expected);
+        app.world_mut()
+            .remove_resource::<crate::runtime::world::ClientWorld>();
+        app.update();
         assert_eq!(pacing(&app).rate, expected);
     }
 }

@@ -386,7 +386,7 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
     assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
 }
 
-/// VSync off falls back from Immediate to Mailbox and finally universal FIFO.
+/// VSync off prefers Mailbox and retains universal FIFO as its last fallback.
 #[test]
 fn vsync_off_uses_the_best_supported_nonblocking_mode() {
     for (supported, expected) in [

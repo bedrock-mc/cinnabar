@@ -150,7 +150,7 @@ pub(crate) fn update_frame_pacing(
     }
     let focused = primary.is_none_or(|(_, window)| window.focused);
     let context = if runtime.ignore_window_state
-        || (world.is_none_or(|world| world.stream.is_some())
+        || (world.is_some_and(|world| world.stream.is_some())
             && ui.is_none_or(|ui| ui.loading_stage().is_none())
             && failure.is_none_or(|failure| failure.0.is_none()))
     {
