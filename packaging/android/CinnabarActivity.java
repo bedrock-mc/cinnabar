@@ -1,6 +1,9 @@
 package @APPLICATION_ID@;
 
 import android.app.NativeActivity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -78,6 +81,18 @@ public final class CinnabarActivity extends NativeActivity {
     /** Returns bottom system-window obstruction relative to the full native surface. */
     public int bottomObstructionPixels() {
         return bottomObstruction;
+    }
+
+    /** Hands a web link to the default browser; false when no activity accepts it. */
+    public boolean openUrl(String url) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addCategory(Intent.CATEGORY_BROWSABLE);
+        try {
+            startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            return false;
+        }
     }
 
     @Override protected void onDestroy() {
