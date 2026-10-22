@@ -122,6 +122,13 @@ impl PreparedSessionResources {
                 .entered();
                 resources.equipment = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
             }
+            // The frame's catalog layout then matches duplicates by pointer, not by bytes.
+            render_model::share_identical_vertices(
+                resources
+                    .entities
+                    .iter_mut()
+                    .chain(&mut resources.equipment),
+            );
         }
         if let Some(artwork) = block_entity_art {
             let (pages, held) =
