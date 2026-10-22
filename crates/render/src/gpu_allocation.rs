@@ -103,7 +103,7 @@ struct Failure<K> {
 }
 
 /// Per-view requests whose allocation failed. A changed request (a resize or setting) retries at
-/// once; the same request retries with bounded backoff, never every frame and never never.
+/// once; an unchanged request keeps retrying with bounded backoff.
 pub(crate) struct FailedRequests<K>(
     bevy::platform::collections::HashMap<bevy::prelude::Entity, Failure<K>>,
 );

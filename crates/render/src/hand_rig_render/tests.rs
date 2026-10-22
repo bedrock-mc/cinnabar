@@ -10,6 +10,45 @@ use {
     render_scene::HandRigScene,
 };
 
+/// Missing hand depth backs off, recovers, and retries a resized request immediately.
+#[test]
+fn hand_depth_allocation_failure_backs_off_then_recovers() {
+    use bevy::ecs::system::RunSystemOnce;
+    let device = RenderDevice::from(wgpu::Device::noop(&default()).0);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            if label != "first-person rig private reverse-Z depth" {
+                return false;
+            }
+            attempts.set(attempts.get() + 1);
+            true
+        }
+    });
+    for _ in 0..3 {
+        ensure_depth(&mut gpu, &device, [4, 4], 1);
+        assert!(gpu.depth.is_none());
+    }
+    assert_eq!(attempts.get(), 1);
+    drop(failure);
+    ensure_depth(&mut gpu, &device, [4, 4], 1);
+    let depth = gpu.depth.as_ref().expect("hand depth recovers").view.id();
+    ensure_depth(&mut gpu, &device, [4, 4], 1);
+    assert_eq!(gpu.depth.as_ref().unwrap().view.id(), depth);
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        ensure_depth(&mut gpu, &device, [8, 4], 1);
+        assert!(gpu.depth.is_none(), "old depth cannot survive a resize");
+    }
+    ensure_depth(&mut gpu, &device, [8, 8], 1);
+    assert_eq!(gpu.depth.as_ref().unwrap().size, [8, 8]);
+}
+
 #[test]
 fn reshaped_hand_glint_reuploads_shared_pixels_and_retains_unchanged_shapes() {
     use bevy::ecs::system::RunSystemOnce;

@@ -54,7 +54,7 @@ impl UiModelDepths {
         {
             return;
         }
-        // Without depth, `compatible` is `None` and models draw without depth testing.
+        // Without compatible depth, depth-enabled model batches skip until allocation recovers.
         self.views.remove(&owner);
         let bytes = u64::from(size.width) * u64::from(size.height) * 4 * u64::from(samples);
         let Some(texture) = self.failed.attempt(owner, (size, samples), || {

@@ -33,6 +33,7 @@ pub(super) struct HandGpu {
     pub(super) geometry: Option<[u8; 32]>,
     pub(super) skin: Option<PixelGpu>,
     pub(super) depth: Option<DepthGpu>,
+    failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) token: Option<ViewmodelToken>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
@@ -77,6 +78,7 @@ pub(super) fn init_gpu(
         geometry: None,
         skin: None,
         depth: None,
+        failed_depth: default(),
         bind_group: None,
         token: None,
         pipeline: None,
@@ -152,6 +154,7 @@ pub(super) fn prepare(params: PrepareViewmodel) {
         return;
     };
     let token = frame.token;
+    gpu.failed_depth.retain(|owner| owner == token.owner);
     if frame.fallback.is_none() {
         ViewmodelCompletionGate::observe_stage(2, 3, Some(token));
         gate.reject(token);
@@ -248,26 +251,29 @@ pub(super) fn prepare(params: PrepareViewmodel) {
     {
         // Drop the old declared allocation before constructing its replacement.
         gpu.depth = None;
-        // The hand is content: without depth its pass skips, and this retries every frame.
         let [width, height] = token.viewport;
         let bytes = u64::from(width) * u64::from(height) * 4 * u64::from(token.samples);
         let label = "bounded private hand reverse-Z depth";
-        let texture = crate::gpu_allocation::checked(&device, label, bytes, || {
-            device.create_texture(&TextureDescriptor {
-                label: Some(label),
-                size: Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: token.samples,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Depth32Float,
-                usage: TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            })
-        });
+        let texture =
+            gpu.failed_depth
+                .attempt(token.owner, (token.viewport, token.samples), || {
+                    crate::gpu_allocation::checked(&device, label, bytes, || {
+                        device.create_texture(&TextureDescriptor {
+                            label: Some(label),
+                            size: Extent3d {
+                                width,
+                                height,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: token.samples,
+                            dimension: TextureDimension::D2,
+                            format: TextureFormat::Depth32Float,
+                            usage: TextureUsages::RENDER_ATTACHMENT,
+                            view_formats: &[],
+                        })
+                    })
+                });
         gpu.depth = texture.map(|texture| DepthGpu {
             view: texture.create_view(&TextureViewDescriptor::default()),
             _texture: texture,

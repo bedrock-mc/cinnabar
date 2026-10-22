@@ -524,10 +524,12 @@ pub(crate) fn prepare_enhanced_views(
     )>,
     mut failed_depth: Local<FailedRequests<TextureViewId>>,
     mut failed_shadows: Local<FailedRequests<(u32, u32)>>,
+    mut failed_hands: Local<FailedRequests<(Extent3d, TextureFormat)>>,
 ) {
     state.0.retain(|entity, _| views.contains(*entity));
     failed_depth.retain(|view| views.contains(view));
     failed_shadows.retain(|view| views.contains(view));
+    failed_hands.retain(|view| views.contains(view));
     let atmosphere = atmosphere.map(|frame| *frame).unwrap_or_default();
     let seconds = time.elapsed_secs_wrapped();
     let mut casters = [<CasterUniformGpu as bytemuck::Zeroable>::zeroed();
@@ -555,8 +557,11 @@ pub(crate) fn prepare_enhanced_views(
             .as_ref()
             .is_none_or(|layer| !layer.matches(target))
         {
-            // The hand is content, so its layer retries every frame.
-            state.hand_layer = super::hand_layer::HandLayer::new(&device, target);
+            state.hand_layer = failed_hands.attempt(
+                entity,
+                (target.main_texture().size(), target.main_texture_format()),
+                || super::hand_layer::HandLayer::new(&device, target),
+            );
         }
         let resolution = frame.flags.z;
         let cascades = frame.flags.y;

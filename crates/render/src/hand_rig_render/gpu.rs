@@ -7,6 +7,7 @@ use {
 
 use super::*;
 use crate::actor::gpu::ArtworkRawViews;
+use bevy::prelude::Entity;
 
 pub(super) struct HandRigDepth {
     pub(super) _texture: Texture,
@@ -64,6 +65,7 @@ pub(super) struct HandRigGpu {
     pub(super) glint: Option<HandRigGlint>,
     pub(super) instance_count: u32,
     pub(super) depth: Option<HandRigDepth>,
+    failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
     pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; 8],
@@ -122,6 +124,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         glint: None,
         instance_count: 0,
         depth: None,
+        failed_depth: default(),
         bind_group: None,
         pipeline: None,
         pipeline_variants: [None; 8],
@@ -559,25 +562,30 @@ pub(super) fn ensure_depth(
         return;
     }
     gpu.depth = None;
-    // The hand is content: without depth its pass skips, and this retries every frame.
     let bytes = u64::from(size[0]) * u64::from(size[1]) * 4 * u64::from(samples);
     let label = "first-person rig private reverse-Z depth";
-    let Some(texture) = crate::gpu_allocation::checked(device, label, bytes, || {
-        device.create_texture(&TextureDescriptor {
-            label: Some(label),
-            size: Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: TextureDimension::D2,
-            format: CORE_3D_DEPTH_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
+    // This resource owns one shared hand attachment, independent of camera identity.
+    let Some(texture) = gpu
+        .failed_depth
+        .attempt(Entity::PLACEHOLDER, (size, samples), || {
+            crate::gpu_allocation::checked(device, label, bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some(label),
+                    size: Extent3d {
+                        width: size[0],
+                        height: size[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: TextureDimension::D2,
+                    format: CORE_3D_DEPTH_FORMAT,
+                    usage: TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+            })
         })
-    }) else {
+    else {
         return;
     };
     let view = texture.create_view(&TextureViewDescriptor::default());

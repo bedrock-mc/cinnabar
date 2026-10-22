@@ -518,3 +518,52 @@ fn failed_segment_rasters_back_off_then_recover() {
     }
     assert_eq!(layers.len(), 3);
 }
+
+/// The base raster uses the same retry policy even when every allocation fails.
+#[test]
+fn base_raster_allocation_failure_backs_off_then_recovers() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    for count in [1, 3] {
+        let size = Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        };
+        let mut layers = Vec::new();
+        let mut failed = crate::gpu_allocation::FailedRequests::default();
+        let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+        let failure = crate::gpu_allocation::inject({
+            let attempts = attempts.clone();
+            move |label, _| {
+                if label != "retained gamma-space UI layer" {
+                    return false;
+                }
+                attempts.set(attempts.get() + 1);
+                true
+            }
+        });
+        for _ in 0..3 {
+            synchronize_view_layers(
+                &mut layers,
+                &mut failed,
+                Entity::PLACEHOLDER,
+                device,
+                size,
+                count,
+            );
+            assert!(layers.is_empty());
+        }
+        assert_eq!(attempts.get(), 1, "base raster bypassed retry backoff");
+        drop(failure);
+        synchronize_view_layers(
+            &mut layers,
+            &mut failed,
+            Entity::PLACEHOLDER,
+            device,
+            size,
+            count,
+        );
+        assert_eq!(layers.len(), count);
+    }
+}

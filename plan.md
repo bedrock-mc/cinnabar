@@ -772,6 +772,11 @@ retained memory, allocations, uploads and unnecessary rebuilds. Measure release
 performance on hardware; existing source refactors and unmeasured optimizations
 remain incomplete performance evidence. Preserve packed terrain storage and shared
 render resources while measuring implementation choices under the architecture policy.
+Window-sized client targets share bounded allocation retries after memory exhaustion,
+including hands, labels and the base UI raster. Enhanced water, shadows and shafts
+disable sampling while their required targets are unavailable. Injected failures cover
+recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
+remain incomplete.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,
