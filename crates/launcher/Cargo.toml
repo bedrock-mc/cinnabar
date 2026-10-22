@@ -8,6 +8,7 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
+    "assets/startup-screen.json",
     "assets/branding/icon.png",
     "assets/branding/title.png",
     "core/authcache/derived_suffix.txt",

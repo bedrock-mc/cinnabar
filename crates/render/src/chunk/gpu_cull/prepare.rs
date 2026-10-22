@@ -116,6 +116,17 @@ impl GpuCull {
         })
     }
 
+    /// Samples rejection feedback without changing the visibility used for drawing.
+    pub(super) fn encode_feedback(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        feedback: &super::feedback::GpuCullFeedback,
+    ) {
+        if let Some(storage) = &self.storage {
+            feedback.encode(encoder, &storage.record_draws);
+        }
+    }
+
     pub(super) fn clear_fixed_args(&self, encoder: &mut wgpu::CommandEncoder) {
         if self.submission == GpuCullSubmission::Fixed
             && let Some(args) = &self.args
@@ -158,6 +169,7 @@ pub(super) fn prepare_gpu_cull(
     mut cull: ResMut<GpuCull>,
     mut hidden: ResMut<ChunkHiddenEntities>,
     frame: Res<GpuCullFrame>,
+    mut feedback: ResMut<super::feedback::GpuCullFeedback>,
     changed: Query<
         (Entity, &GpuChunkAllocation, Option<&ChunkRenderInstance>),
         Changed<GpuChunkAllocation>,
@@ -232,6 +244,12 @@ pub(super) fn prepare_gpu_cull(
         cull.bound_pyramid = pyramid_id;
     }
     cull.prepared_view = Some(view.entity);
+    feedback.prepare(
+        &device,
+        view.entity,
+        cull.slot_count(),
+        &storage.record_draws,
+    );
 }
 
 /// Grows storage when the slot watermark passes it, then writes dirty records and bits.
