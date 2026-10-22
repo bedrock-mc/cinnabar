@@ -125,6 +125,9 @@ impl super::UiPresentationRuntime {
             );
         }
         for &hat in &self.menu_preview_model.cosmetics {
+            if render_model::hats::rig(hat).is_ground_effect() {
+                continue;
+            }
             bounds = Some(
                 bounds
                     .unwrap_or_else(super::fitting::standard)

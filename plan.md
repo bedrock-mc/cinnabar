@@ -327,6 +327,11 @@ Idle clips settle into a sit
 and optional tricks. Missing terrain freezes the follower; ordinary blockage never
 teleports it. Owner teleports reset only onto checked ground. Broader terrain acceptance, swimming,
 flight, animation-triggered effects and performance qualification remain open.
+Restricted catalog ground effects emit alternating distance-triggered stamps and one-shot
+landing bursts for equipped wearers, independently of body visibility. Local triggers use
+completed movement ticks; remote triggers use interpolated actor movement. Decals require
+continuous coplanar collision support and suppress effects at uneven terrain and ledges.
+Exact foot-pose timing and broader terrain and remote runtime acceptance remain incomplete.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
 and excluded from pointer and keyboard wear selection; production rollout

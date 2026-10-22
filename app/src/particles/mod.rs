@@ -6,6 +6,7 @@ mod ambient;
 mod carrier;
 mod cosmetics;
 mod drive;
+mod ground_effects;
 mod tiles;
 mod world_adapter;
 
