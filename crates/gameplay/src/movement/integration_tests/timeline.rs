@@ -499,22 +499,20 @@ fn same_tick_server_updates_replay_the_latest_value() {
     assert_eq!(restored.state(), untouched.state());
 }
 
-/// Glides from a jump press at height, optionally boosted live from `boost_from` on.
-fn glide_with_boost(
-    ticks: u64,
-    boost_from: Option<(u64, super::BoostSpan)>,
-) -> (
-    LocalPhysicsController,
-    MovementTicker,
-    super::LocalMovementEffectTimeline,
-) {
+/// One event a glide test applies before simulating the tick after `at`.
+#[derive(Clone, Copy)]
+enum BoostEvent {
+    Rocket { at: u64 },
+    Server { at: u64, stamp: u64, span: super::BoostSpan },
+}
+
+/// Glides from a jump press at height, applying boost events on the ticks they name.
+fn glide_with_events(ticks: u64, events: &[BoostEvent]) -> (LocalPhysicsController, MovementTicker) {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 50.620_01, 0.0], 100, false);
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 50.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    let mut effects = super::LocalMovementEffectTimeline::default();
-    effects.begin_session(1);
     let context = PhysicsSampleContext {
         pitch: 20.0,
         mode_intent: super::ModeIntent {
@@ -524,57 +522,119 @@ fn glide_with_boost(
         ..PhysicsSampleContext::default()
     };
     for index in 0..ticks {
-        if let Some((tick, span)) = boost_from
-            && physics.state().unwrap().tick == tick
-        {
-            effects.set_movement_boost(1, 1, super::MovementBoost::Glide, Some(span));
+        let tick = physics.state().unwrap().tick;
+        for event in events {
+            match *event {
+                BoostEvent::Rocket { at } if at == tick => physics.predict_rocket_boost(tick + 1),
+                BoostEvent::Server { at, stamp, span } if at == tick => {
+                    if let Some(rewind) =
+                        physics.record_server_boost(super::MovementBoost::Glide, stamp, span)
+                    {
+                        reconcile_timeline_rewind(&mut ticker, &mut physics, rewind, &VersionedFloor(1))
+                            .unwrap();
+                    }
+                }
+                _ => {}
+            }
         }
         let input = MovementInput {
             jumping: index == 1,
             ..MovementInput::default()
         };
-        let frame = physics.advance_with_context_and_effects(
+        let frame = physics.advance_with_context(
             Duration::from_millis(50),
             input,
             context,
             &VersionedFloor(1),
-            &mut effects,
         );
         assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
         for sample in frame.samples {
             ticker.enqueue_completed_physics(sample).unwrap();
         }
     }
-    (physics, ticker, effects)
+    (physics, ticker)
+}
+
+fn glide_history(physics: &LocalPhysicsController) -> Vec<(u64, bool, sim::PlayerState)> {
+    physics.retained_glide()
+}
+
+/// Replays all retained ticks and checks they match what live prediction simulated, tick for tick,
+/// with every lane following the boost timeline.
+fn assert_replay_matches_live(physics: &mut LocalPhysicsController) {
+    let live = glide_history(physics);
+    for (tick, lane, _) in &live {
+        assert_eq!(*lane, physics.boosted(super::MovementBoost::Glide, *tick), "tick {tick}");
+    }
+    let oldest = physics.oldest_retained_tick().unwrap();
+    physics.replay_retained_from(oldest, &VersionedFloor(1)).unwrap();
+    assert_eq!(glide_history(physics), live);
+}
+
+fn boosted_ticks(physics: &LocalPhysicsController, ticks: std::ops::Range<u64>) -> Vec<u64> {
+    ticks
+        .filter(|tick| physics.boosted(super::MovementBoost::Glide, *tick))
+        .collect()
+}
+
+/// A rocket fired before a tick boosts that tick live, and replay keeps it.
+#[test]
+fn a_rocket_boosts_its_first_tick_live_and_in_replay() {
+    let (mut physics, _) = glide_with_events(8, &[BoostEvent::Rocket { at: 104 }]);
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let lanes: Vec<(u64, bool)> = glide_history(&physics)
+        .into_iter()
+        .map(|(tick, lane, _)| (tick, lane))
+        .filter(|(tick, _)| (104..=105).contains(tick))
+        .collect();
+    assert_eq!(lanes, [(104, false), (105, true)]);
+    assert_replay_matches_live(&mut physics);
+}
+
+/// A rocket that has stopped boosting live still boosts its retained ticks in replay.
+#[test]
+fn an_expired_rocket_still_boosts_its_retained_ticks_in_replay() {
+    let (mut physics, _) = glide_with_events(28, &[BoostEvent::Rocket { at: 102 }]);
+    assert_eq!(boosted_ticks(&physics, 100..130), (103..123).collect::<Vec<_>>());
+    assert_replay_matches_live(&mut physics);
+}
+
+/// A delayed server boost for the first of two rockets keeps the second rocket's boost.
+#[test]
+fn a_delayed_older_rocket_boost_keeps_the_newer_rocket() {
+    let span = super::BoostSpan::Ticks(20);
+    let events = [
+        BoostEvent::Rocket { at: 100 },
+        BoostEvent::Rocket { at: 120 },
+        BoostEvent::Server { at: 125, stamp: 100, span },
+    ];
+    let (mut physics, _) = glide_with_events(30, &events);
+    assert_eq!(boosted_ticks(&physics, 100..150), (101..141).collect::<Vec<_>>());
+    assert_replay_matches_live(&mut physics);
 }
 
 /// A delayed firework boost rewinds to its stamp and matches on-time delivery.
 #[test]
 fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
-    use super::physics::MovementEffectSource;
     let span = super::BoostSpan::Ticks(5);
-    let (on_time, _, mut on_time_effects) = glide_with_boost(6, Some((103, span)));
-    let (mut delayed, mut ticker, _) = glide_with_boost(6, None);
+    let (on_time, _) = glide_with_events(10, &[BoostEvent::Server { at: 103, stamp: 103, span }]);
+    let (mut delayed, mut ticker) = glide_with_events(6, &[]);
     assert_eq!(delayed.mode(), sim::MovementMode::Gliding);
-    assert_ne!(delayed.state(), on_time.state());
-
-    let retime = delayed.retime_movement_boost(super::MovementBoost::Glide, 103, span, |_| false);
-    assert_eq!(retime.rewind, Some(103));
-    assert_eq!(retime.remaining, Some(super::BoostSpan::Ticks(2)));
-    reconcile_timeline_rewind(&mut ticker, &mut delayed, 103, &VersionedFloor(1)).unwrap();
-    assert_eq!(delayed.state(), on_time.state());
-    for _ in 0..2 {
-        assert!(on_time_effects.snapshot().glide_boost);
-        on_time_effects.commit_successful_tick();
-    }
-    assert!(!on_time_effects.snapshot().glide_boost);
-
-    let live = delayed.retime_movement_boost(super::MovementBoost::Glide, 106, span, |_| false);
     assert_eq!(
-        (live.rewind, live.remaining),
-        (None, Some(span)),
-        "a current stamp boosts from the next tick"
+        delayed.record_server_boost(super::MovementBoost::Glide, 103, span),
+        Some(103)
     );
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 103, &VersionedFloor(1)).unwrap();
+    let replayed = glide_history(&delayed);
+    let live = glide_history(&on_time);
+    assert_eq!(replayed[..], live[..replayed.len()]);
+    assert_eq!(boosted_ticks(&delayed, 100..120), (104..109).collect::<Vec<_>>());
+    assert_eq!(
+        delayed.record_server_boost(super::MovementBoost::Glide, 103, span),
+        None,
+        "a restated boost replays nothing"
+    );
+    assert_replay_matches_live(&mut delayed);
 }
 
 /// A delayed liquid speed attribute rewrites the retained inputs after its stamp once.
@@ -597,23 +657,3 @@ fn delayed_liquid_movement_speeds_rewrite_retained_inputs_once() {
     );
 }
 
-/// Reverting a retime whose replay failed restores the retained inputs, so the
-/// boost is written (and later replayed) exactly once.
-#[test]
-fn a_reverted_glide_boost_leaves_retained_inputs_unboosted() {
-    let span = super::BoostSpan::Ticks(2);
-    let (mut physics, _, _) = glide_with_boost(6, None);
-    let before = physics.state().cloned();
-    let retime = physics.retime_movement_boost(super::MovementBoost::Glide, 103, span, |_| false);
-    assert_eq!(retime.rewind, Some(103));
-    physics.revert_movement_boost(retime);
-    assert_eq!(physics.state().cloned(), before);
-    let again = physics.retime_movement_boost(super::MovementBoost::Glide, 103, span, |_| false);
-    assert_eq!(
-        again.rewind,
-        Some(103),
-        "the reverted history no longer holds the boost"
-    );
-    let repeat = physics.retime_movement_boost(super::MovementBoost::Glide, 103, span, |_| false);
-    assert_eq!(repeat.rewind, None, "an applied boost is not written twice");
-}

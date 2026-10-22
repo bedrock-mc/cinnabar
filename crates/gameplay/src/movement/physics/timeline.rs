@@ -147,63 +147,87 @@ impl LocalPhysicsController {
         .then_some(tick)
     }
 
-    /// Writes a movement boost stamped `tick` into the retained inputs after it.
-    ///
-    /// Returns the tick to replay from when a retained input changed, and the
-    /// span left for live ticks. Live stamps start with the next tick; stale
-    /// stamps clamp to the oldest retained frame, as motion does. Ticks that
-    /// `predicted` reports covered by a newer local use stay boosted.
-    pub(crate) fn retime_movement_boost(
+    /// Records a server boost stamped `tick`, which starts on the tick after
+    /// its stamp; an unstamped or live boost starts on the next simulated tick.
+    /// Returns the tick to replay from when a retained tick simulated a
+    /// different boost.
+    pub fn record_server_boost(
         &mut self,
         boost: crate::movement::MovementBoost,
         tick: u64,
         span: crate::movement::BoostSpan,
-        predicted: impl Fn(u64) -> bool,
-    ) -> BoostRetime {
-        let anchor = match self.timeline_slot(tick) {
-            TimelineSlot::Live => None,
-            TimelineSlot::Rewind(tick) => Some(tick),
-            TimelineSlot::Stale => self.history.oldest_tick(),
+    ) -> Option<u64> {
+        let next = self.next_boost_tick();
+        let start = if tick == 0 {
+            next
+        } else {
+            (tick + 1).min(next)
         };
-        let Some(anchor) = anchor else {
-            return BoostRetime {
-                boost,
-                rewind: None,
-                remaining: Some(span),
-                previous: Vec::new(),
-            };
+        self.boosts.record_server(boost, start, span);
+        self.retire_boosts();
+        self.first_boost_change()
+    }
+
+    /// Predicts the glide boost of a rocket fired for the tick `start` onward;
+    /// it cannot boost a tick already simulated.
+    pub fn predict_rocket_boost(&mut self, start: u64) {
+        self.boosts
+            .predict_rocket(start.max(self.next_boost_tick()));
+        self.retire_boosts();
+    }
+
+    /// Whether `boost` applies to the input simulated on `tick`, live or replayed.
+    #[must_use]
+    pub fn boosted(&self, boost: crate::movement::MovementBoost, tick: u64) -> bool {
+        self.boosts.boosted(boost, tick)
+    }
+
+    /// Each retained tick after the oldest with its recorded glide lane and resulting state.
+    #[cfg(test)]
+    pub(in crate::movement) fn retained_glide(&self) -> Vec<(u64, bool, sim::PlayerState)> {
+        let (Some(oldest), Some(newest)) = (self.history.oldest_tick(), self.history.newest_tick())
+        else {
+            return Vec::new();
         };
-        let boosted = |index: u64| span.covers(index) || predicted(anchor + index);
-        let mut previous = Vec::new();
-        for input in self.history.retained_inputs_after_mut(anchor) {
-            let lane = boost.flag(&mut input.effects);
-            previous.push(*lane);
-            *lane = boosted(previous.len() as u64);
-        }
-        let changed = previous
-            .iter()
-            .enumerate()
-            .any(|(index, lane)| *lane != boosted(index as u64 + 1));
-        BoostRetime {
-            boost,
-            rewind: changed.then_some(anchor),
-            remaining: span.after(previous.len() as u64),
-            previous,
+        (oldest + 1..=newest)
+            .filter_map(|tick| {
+                let input = self.history.input_at(tick)?;
+                Some((
+                    tick,
+                    input.effects.glide_boost,
+                    self.history.state_at(tick)?.clone(),
+                ))
+            })
+            .collect()
+    }
+
+    /// The oldest retained tick, which a full replay rewinds to.
+    #[cfg(test)]
+    pub(in crate::movement) fn oldest_retained_tick(&self) -> Option<u64> {
+        self.history.oldest_tick()
+    }
+
+    fn next_boost_tick(&self) -> u64 {
+        self.state.as_ref().map_or(0, |state| state.tick) + 1
+    }
+
+    /// Forgets boost intervals no replay can reach: replays simulate the ticks after the oldest retained one.
+    fn retire_boosts(&mut self) {
+        if let Some(oldest) = self.history.oldest_tick() {
+            self.boosts.forget_before(oldest + 1);
         }
     }
 
-    /// Restores the retained inputs a boost retime rewrote, for a replay that failed.
-    pub(crate) fn revert_movement_boost(&mut self, retime: BoostRetime) {
-        let Some(anchor) = retime.rewind else {
-            return;
-        };
-        for (input, boosted) in self
-            .history
-            .retained_inputs_after_mut(anchor)
-            .zip(retime.previous)
-        {
-            *retime.boost.flag(&mut input.effects) = boosted;
-        }
+    /// The tick before the first retained tick whose recorded boosts differ from the boost timeline.
+    fn first_boost_change(&self) -> Option<u64> {
+        let oldest = self.history.oldest_tick()?;
+        let newest = self.history.newest_tick()?;
+        (oldest + 1..=newest).find_map(|tick| {
+            let recorded = self.history.input_at(tick)?.effects;
+            let mut expected = recorded;
+            self.boosts.apply(tick, &mut expected);
+            (expected != recorded).then_some(tick - 1)
+        })
     }
 
     /// Rewrites the liquid speed attributes of retained ticks after an
@@ -244,16 +268,6 @@ impl LocalPhysicsController {
             );
         }
     }
-}
-
-/// A boost written into retained inputs: where to replay from, the span left
-/// for live ticks, and the overwritten lanes in case the replay fails.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BoostRetime {
-    boost: crate::movement::MovementBoost,
-    pub rewind: Option<u64>,
-    pub remaining: Option<crate::movement::BoostSpan>,
-    previous: Vec<bool>,
 }
 
 /// Sprint and sneak states the live control latches adopt from the server.

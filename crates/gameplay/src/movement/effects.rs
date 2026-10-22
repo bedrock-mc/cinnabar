@@ -5,8 +5,6 @@ use sim::MovementEffects;
 use super::physics::MovementEffectSource;
 
 const TRACKED_EFFECT_COUNT: usize = 8;
-/// Glide boost the client predicts for its own rocket until a server boost restates it.
-const PREDICTED_ROCKET_BOOST_TICKS: u32 = 20;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -58,19 +56,6 @@ impl TrackedEffect {
     }
 }
 
-/// A rocket used while gliding, boosting the ticks after `use_tick` until a server boost restates it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RocketPrediction {
-    use_tick: u64,
-    remaining: u32,
-}
-
-impl RocketPrediction {
-    fn covers(self, tick: u64) -> bool {
-        tick > self.use_tick && tick - self.use_tick <= u64::from(PREDICTED_ROCKET_BOOST_TICKS)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ActiveEffect {
     amplifier: i32,
@@ -80,7 +65,7 @@ struct ActiveEffect {
     sequence: u64,
 }
 
-/// Server-predicted movement boosts the simulator reads.
+/// Movement boosts the simulator reads, from the server or a predicted rocket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MovementBoost {
     Glide,
@@ -98,13 +83,6 @@ impl MovementBoost {
         }
     }
 
-    const fn index(self) -> usize {
-        match self {
-            Self::Glide => 0,
-            Self::Dolphin => 1,
-        }
-    }
-
     /// This boost's lane in the simulator's per-tick effects.
     pub fn flag(self, effects: &mut MovementEffects) -> &mut bool {
         match self {
@@ -114,7 +92,7 @@ impl MovementBoost {
     }
 }
 
-/// How long a server-predicted movement boost lasts from the next simulated tick.
+/// How long a server movement boost lasts from its first tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoostSpan {
     Ticks(u32),
@@ -129,27 +107,6 @@ impl BoostSpan {
         match duration_ticks {
             -1 => Self::Unbounded,
             ticks => Self::Ticks(u32::try_from(ticks).unwrap_or(0).max(1)),
-        }
-    }
-
-    /// Whether the boost covers the `index`th tick after it starts, counting from one.
-    #[must_use]
-    pub fn covers(self, index: u64) -> bool {
-        match self {
-            Self::Ticks(ticks) => index <= u64::from(ticks),
-            Self::Unbounded => true,
-        }
-    }
-
-    /// The span left after `elapsed` ticks, if any.
-    #[must_use]
-    pub fn after(self, elapsed: u64) -> Option<Self> {
-        match self {
-            Self::Ticks(ticks) => u64::from(ticks)
-                .checked_sub(elapsed)
-                .filter(|left| *left > 0)
-                .map(|left| Self::Ticks(left as u32)),
-            Self::Unbounded => Some(Self::Unbounded),
         }
     }
 }
@@ -180,9 +137,6 @@ pub struct LocalMovementEffectTimeline {
     session_generation: u64,
     last_sequence: Option<u64>,
     active: [Option<ActiveEffect>; TRACKED_EFFECT_COUNT],
-    boosts: [Option<BoostSpan>; 2],
-    /// Rocket uses newer than the latest server glide boost; they boost alongside it.
-    rockets: Vec<RocketPrediction>,
     diagnostics: MovementEffectDiagnostics,
     recent_mining: [(MiningEffects, MiningEffects); super::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
     recent_tick_count: usize,
@@ -193,8 +147,6 @@ impl LocalMovementEffectTimeline {
         self.session_generation = session_generation;
         self.last_sequence = None;
         self.active = [None; TRACKED_EFFECT_COUNT];
-        self.boosts = [None; 2];
-        self.rockets.clear();
         self.diagnostics = MovementEffectDiagnostics::default();
         self.recent_tick_count = 0;
     }
@@ -249,49 +201,6 @@ impl LocalMovementEffectTimeline {
         }
     }
 
-    /// Replaces a boost the next simulated tick sees, after any rewind consumed part of it.
-    pub fn set_movement_boost(
-        &mut self,
-        session_generation: u64,
-        sequence: u64,
-        boost: MovementBoost,
-        remaining: Option<BoostSpan>,
-    ) {
-        if session_generation != self.session_generation
-            || self
-                .last_sequence
-                .is_some_and(|last_sequence| sequence <= last_sequence)
-        {
-            self.diagnostics.stale_or_wrong_session =
-                self.diagnostics.stale_or_wrong_session.saturating_add(1);
-            return;
-        }
-        self.last_sequence = Some(sequence);
-        self.boosts[boost.index()] = remaining;
-    }
-
-    /// Predicts the glide boost of a rocket used on `use_tick` for the ticks after it.
-    pub fn predict_rocket_boost(&mut self, use_tick: u64) {
-        self.rockets.push(RocketPrediction {
-            use_tick,
-            remaining: PREDICTED_ROCKET_BOOST_TICKS,
-        });
-    }
-
-    /// Drops the rocket predictions a server boost stamped `tick` restates. A use reaches the
-    /// server ahead of its own tick's input, so a boost stamped the tick before it counts too.
-    pub fn supersede_rocket_predictions(&mut self, boost: MovementBoost, tick: u64) {
-        if boost == MovementBoost::Glide {
-            self.rockets
-                .retain(|rocket| rocket.use_tick > tick.saturating_add(1));
-        }
-    }
-
-    /// Whether a retained rocket prediction boosts `tick`.
-    pub fn predicted_rocket_covers(&self, boost: MovementBoost, tick: u64) -> bool {
-        boost == MovementBoost::Glide && self.rockets.iter().any(|rocket| rocket.covers(tick))
-    }
-
     /// Wire amplifiers of the effects that scale destroy speed.
     pub fn mining_effects(&self) -> MiningEffects {
         let amplifier =
@@ -333,21 +242,14 @@ impl LocalMovementEffectTimeline {
             slow_falling: self.active[TrackedEffect::SlowFalling.index()].is_some(),
             weaving: self.active[TrackedEffect::Weaving.index()].is_some(),
             blindness: self.active[TrackedEffect::Blindness.index()].is_some(),
-            glide_boost: self.boosts[MovementBoost::Glide.index()].is_some()
-                || !self.rockets.is_empty(),
-            dolphin_boost: self.boosts[MovementBoost::Dolphin.index()].is_some(),
+            // The physics controller's boost timeline owns the boost lanes.
+            glide_boost: false,
+            dolphin_boost: false,
         }
     }
 
     fn consume_successful_tick(&mut self) {
         let before = self.mining_effects();
-        for boost in &mut self.boosts {
-            *boost = boost.and_then(|span| span.after(1));
-        }
-        for rocket in &mut self.rockets {
-            rocket.remaining -= 1;
-        }
-        self.rockets.retain(|rocket| rocket.remaining > 0);
         for active in &mut self.active {
             let Some(effect) = active else {
                 continue;
@@ -436,60 +338,6 @@ mod tests {
         timeline.apply(1, 4, event);
         timeline.begin_session(2);
         assert!(timeline.snapshot().is_empty());
-    }
-
-    /// A glide boost covers exactly its duration in ticks; zero still covers one tick.
-    #[test]
-    fn glide_boost_covers_its_duration_in_successful_ticks() {
-        for (duration, ticks) in [(3, 3), (0, 1), (-7, 1)] {
-            let mut timeline = LocalMovementEffectTimeline::default();
-            timeline.begin_session(1);
-            timeline.set_movement_boost(
-                1,
-                1,
-                MovementBoost::Glide,
-                Some(BoostSpan::from_wire(duration)),
-            );
-            for _ in 0..ticks {
-                assert!(timeline.snapshot().glide_boost, "{duration}");
-                timeline.commit_successful_tick();
-            }
-            assert!(!timeline.snapshot().glide_boost, "{duration}");
-        }
-        let mut timeline = LocalMovementEffectTimeline::default();
-        timeline.begin_session(1);
-        timeline.set_movement_boost(1, 1, MovementBoost::Dolphin, Some(BoostSpan::from_wire(-1)));
-        for _ in 0..100 {
-            timeline.commit_successful_tick();
-        }
-        assert!(timeline.snapshot().dolphin_boost);
-        assert!(!timeline.snapshot().glide_boost);
-    }
-
-    /// A rocket's own boost lasts 20 ticks without a server packet; a server boost restates
-    /// only the uses on or before its stamp.
-    #[test]
-    fn predicted_rocket_boost_runs_twenty_ticks_until_a_server_boost_restates_it() {
-        let mut timeline = LocalMovementEffectTimeline::default();
-        timeline.begin_session(1);
-        timeline.predict_rocket_boost(100);
-        assert!(!timeline.predicted_rocket_covers(MovementBoost::Glide, 100));
-        assert!(timeline.predicted_rocket_covers(MovementBoost::Glide, 120));
-        assert!(!timeline.predicted_rocket_covers(MovementBoost::Glide, 121));
-        assert!(!timeline.predicted_rocket_covers(MovementBoost::Dolphin, 110));
-        for _ in 0..PREDICTED_ROCKET_BOOST_TICKS {
-            assert!(timeline.snapshot().glide_boost);
-            timeline.commit_successful_tick();
-        }
-        assert!(!timeline.snapshot().glide_boost);
-
-        timeline.predict_rocket_boost(130);
-        timeline.predict_rocket_boost(140);
-        timeline.supersede_rocket_predictions(MovementBoost::Glide, 129);
-        assert!(!timeline.predicted_rocket_covers(MovementBoost::Glide, 135));
-        assert!(timeline.predicted_rocket_covers(MovementBoost::Glide, 145));
-        timeline.supersede_rocket_predictions(MovementBoost::Glide, 140);
-        assert!(!timeline.snapshot().glide_boost);
     }
 
     #[test]
