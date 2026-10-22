@@ -61,10 +61,12 @@ pub(super) fn render_plugin(
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
+    let automatic = candidates(&defaults, &supported, None, None, &[]);
     let ((creation, chosen), fallback) = with_video_fallback(
         environment.is_some(),
         video,
         crashed,
+        &automatic,
         |video, excluded| {
             let explicit = environment.is_some() || video.is_some();
             let allowed = candidates(
@@ -177,13 +179,13 @@ fn install_notice(app: &mut App, message: String) {
     );
 }
 
-/// Opens the notice once, after the menu exists and is visible.
+/// Opens the notice once the menu is visible and no other dialog would be replaced.
 fn show_fallback_notice(
     mut commands: Commands,
     notice: Res<FallbackNotice>,
     menu: Option<ResMut<client_shell::menu::MenuRuntime>>,
 ) {
-    if let Some(mut menu) = menu.filter(|menu| menu.is_visible()) {
+    if let Some(mut menu) = menu.filter(|menu| menu.is_visible() && !menu.dialog_open()) {
         menu.show_notice(&notice.0);
         commands.remove_resource::<FallbackNotice>();
     }

@@ -103,6 +103,11 @@ impl MenuRuntime {
         Some((self.servers.to_vec(), self.gui_scale_offset))
     }
 
+    /// Whether a dialog currently covers the menu screen.
+    pub fn dialog_open(&self) -> bool {
+        self.dialog.is_some()
+    }
+
     /// Shows a dismissible notice over the current menu screen.
     pub fn show_notice(&mut self, message: &str) {
         self.message = Some(message.to_owned());

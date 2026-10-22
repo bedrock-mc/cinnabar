@@ -347,14 +347,20 @@ fn failed_video_choice_falls_back_to_auto_without_that_api_and_reports_why() {
     for auto_succeeds in [false, true] {
         let saved = Some(Backend::Dx12);
         let mut attempts = Vec::new();
-        let result = with_video_fallback(false, saved, None, |video, excluded| {
-            attempts.push((video, excluded.to_vec()));
-            if video.is_none() && auto_succeeds {
-                Ok(Backend::Vulkan)
-            } else {
-                bail!("device rejected")
-            }
-        });
+        let result = with_video_fallback(
+            false,
+            saved,
+            None,
+            Platform::Windows.backends(),
+            |video, excluded| {
+                attempts.push((video, excluded.to_vec()));
+                if video.is_none() && auto_succeeds {
+                    Ok(Backend::Vulkan)
+                } else {
+                    bail!("device rejected")
+                }
+            },
+        );
         assert_eq!(
             attempts,
             [(saved, vec![]), (None, vec![Backend::Dx12])],
@@ -383,6 +389,7 @@ fn video_choice_that_crashed_an_earlier_startup_goes_straight_to_auto() {
         false,
         Some(Backend::Dx12),
         Some(Backend::Dx12),
+        Platform::Windows.backends(),
         |video, excluded| {
             attempts.push((video, excluded.to_vec()));
             Ok(Backend::Vulkan)
@@ -397,10 +404,40 @@ fn video_choice_that_crashed_an_earlier_startup_goes_straight_to_auto() {
         false,
         Some(Backend::Dx12),
         Some(Backend::Vulkan),
+        Platform::Windows.backends(),
         |video, _| Ok(video),
     )
     .unwrap();
     assert_eq!((chosen, fallback), (Some(Backend::Dx12), None));
+}
+
+#[test]
+fn a_platform_with_one_api_always_tries_it_even_after_it_crashed() {
+    for platform in [Platform::Macos, Platform::Linux, Platform::Android] {
+        let only = platform.backends()[0];
+        for (crashed, succeeds) in [(Some(only), true), (Some(only), false), (None, false)] {
+            let mut attempts = Vec::new();
+            let result = with_video_fallback(
+                false,
+                Some(only),
+                crashed,
+                platform.backends(),
+                |video, excluded| {
+                    attempts.push((video, excluded.to_vec()));
+                    if succeeds {
+                        Ok(())
+                    } else {
+                        bail!("device rejected")
+                    }
+                },
+            );
+            assert_eq!(attempts, [(Some(only), vec![])], "{platform:?}");
+            assert_eq!(result.is_ok(), succeeds);
+            if let Ok(((), fallback)) = result {
+                assert!(fallback.is_none());
+            }
+        }
+    }
 }
 
 #[test]
@@ -414,14 +451,20 @@ fn environment_is_strict_and_successful_video_choices_do_not_retry() {
         // The environment ignores a crashed Video choice.
         for crashed in [None, video.filter(|_| environment)] {
             let mut attempts = Vec::new();
-            let result = with_video_fallback(environment, video, crashed, |choice, excluded| {
-                attempts.push((choice, excluded.to_vec()));
-                if succeeds {
-                    Ok(())
-                } else {
-                    bail!("device rejected")
-                }
-            });
+            let result = with_video_fallback(
+                environment,
+                video,
+                crashed,
+                Platform::Windows.backends(),
+                |choice, excluded| {
+                    attempts.push((choice, excluded.to_vec()));
+                    if succeeds {
+                        Ok(())
+                    } else {
+                        bail!("device rejected")
+                    }
+                },
+            );
             assert_eq!(attempts, [(video, vec![])]);
             assert_eq!(result.is_ok(), succeeds);
             if let Ok(((), fallback)) = result {

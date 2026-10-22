@@ -110,3 +110,30 @@ fn fallback_notice_waits_for_a_visible_menu_and_opens_once() {
         assert!(message.contains(expected), "{message}");
     }
 }
+
+#[test]
+fn fallback_notice_waits_for_an_open_dialog_to_close() {
+    let mut app = App::new();
+    install_notice(&mut app, "DX12 could not start".into());
+    let mut menu = client_shell::menu::MenuRuntime::new(true, 2, String::new());
+    menu.show_notice("Import your Minecraft settings?");
+    app.insert_resource(menu);
+    app.update();
+    assert!(app.world().contains_resource::<FallbackNotice>());
+    let menu = app.world().resource::<client_shell::menu::MenuRuntime>();
+    assert_eq!(
+        menu.view().message.as_deref(),
+        Some("Import your Minecraft settings?")
+    );
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .activate(launcher::menu::MenuAction::DismissDialog);
+    app.update();
+    assert!(!app.world().contains_resource::<FallbackNotice>());
+    let view = app
+        .world()
+        .resource::<client_shell::menu::MenuRuntime>()
+        .view();
+    assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
+    assert_eq!(view.message.as_deref(), Some("DX12 could not start"));
+}

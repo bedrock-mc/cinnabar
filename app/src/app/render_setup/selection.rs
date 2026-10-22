@@ -14,15 +14,19 @@ pub(super) struct VideoFallback {
 }
 
 /// Tries a saved Video choice, then Auto without that API for this launch; the environment is
-/// strict. A `crashed` choice is skipped until the setting changes. `attempt` receives the Video
-/// choice and the APIs this launch excludes.
+/// strict. A `crashed` choice is skipped until the setting changes. A choice with no other
+/// `automatic` API to fall back to is always tried. `attempt` receives the Video choice and the
+/// APIs this launch excludes.
 pub(super) fn with_video_fallback<T>(
     environment: bool,
     video: Option<Backend>,
     crashed: Option<Backend>,
+    automatic: &[Backend],
     mut attempt: impl FnMut(Option<Backend>, &[Backend]) -> Result<T>,
 ) -> Result<(T, Option<VideoFallback>)> {
-    let Some(requested) = video.filter(|_| !environment) else {
+    let fallback_exists = |requested: &Backend| automatic.iter().any(|api| api != requested);
+    let Some(requested) = video.filter(|requested| !environment && fallback_exists(requested))
+    else {
         return attempt(video, &[]).map(|renderer| (renderer, None));
     };
     let reason = if crashed == Some(requested) {
