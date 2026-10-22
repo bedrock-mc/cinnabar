@@ -38,6 +38,8 @@ Write short, clear documentation and comments. Give helpers documentation commen
 
 Keep reviews parallel, but use one shared landing queue per repository. Reserve the landing turn and build capacity before fetching current `origin/dev` and preparing an integration candidate. Hold that turn through the required gates and squash merge, or until the candidate is abandoned; other PRs may continue implementation and review. Reuse successful gate results only for identical integration trees, commands, toolchains and relevant inputs. Investigate failures before retrying; repeat checks only when relevant inputs change or a run was incomplete. Do not refresh an otherwise mergeable PR branch solely because it is behind `dev`; check its reviewed head combined with current `dev` in the integration candidate. A review is repeated when the PR head changes. Until the landing tool enforces this shared reservation, use one coordinator to land one PR at a time, without independent parallel landing invocations.
 
+Do not add Codex or Claude as commit co-authors, including `Co-authored-by` trailers in commits or squash-merge messages.
+
 PR titles become the changelog: use an imperative summary without a `type:` prefix or issue numbers. Apply exactly one label: `new`, `fix`, `performance`, or `internal`. Check the label assigned by `pr-label.yml`. Merge by squash with the final title and body; keep branch commits descriptive. Report pushed, committed, tested but uncommitted, and in-progress work accurately.
 
 ## Worktrees, captures, and payloads
