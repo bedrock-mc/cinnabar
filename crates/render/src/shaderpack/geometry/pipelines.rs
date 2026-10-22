@@ -237,7 +237,13 @@ mod tests {
         render
             .world_mut()
             .insert_resource(MainWorld(std::mem::take(app.world_mut())));
-        let (device, _) = wgpu::Device::noop(&Default::default());
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+                ..default()
+            },
+            ..default()
+        });
         let device = bevy::render::renderer::RenderDevice::from(device);
         for _ in 0..2 {
             render
