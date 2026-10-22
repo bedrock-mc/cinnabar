@@ -11,9 +11,13 @@ import android.view.WindowManager;
 /** Hosts the client, whose JSON-UI engine draws every game screen. */
 public final class CinnabarActivity extends NativeActivity {
     private volatile int bottomObstruction;
+    private StartupScreen startup;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        startup = new StartupScreen(this);
+        addContentView(startup, new android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         final View decor = getWindow().getDecorView();
         decor.setOnApplyWindowInsetsListener((view, insets) -> {
@@ -23,6 +27,13 @@ public final class CinnabarActivity extends NativeActivity {
         decor.getViewTreeObserver().addOnGlobalLayoutListener(() ->
                 updateKeyboardGeometry(decor, decor.getRootWindowInsets()));
         decor.requestApplyInsets();
+    }
+
+    /** Native startup reports work on its own thread; only the activity thread owns views. */
+    public void startupProgress(String message) {
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed() && startup != null) startup.update(message);
+        });
     }
 
     /** Publishes the keyboard overlap while leaving the Vulkan surface at full size. */

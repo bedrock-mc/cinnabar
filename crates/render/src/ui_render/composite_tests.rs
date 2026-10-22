@@ -391,3 +391,38 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
         assert!(weak.upgrade().is_none());
     }
 }
+
+/// Startup handoff needs complete content, and a retained raster is not a new presentation.
+#[test]
+fn destination_readiness_rejects_incomplete_segments_and_previous_frame_presentation() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let raster = retained_layer(
+        device,
+        Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+    );
+    let mut frame = frame_layer(&raster, true);
+    assert!(!frame.complete_content());
+    assert!(!frame.presented_complete_content());
+    *frame.held.lock().unwrap() = Some(held(input()));
+    assert!(frame.complete_content());
+    let segment = retained_layer(
+        device,
+        Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+    );
+    frame.segments.push(frame_layer(&segment, false));
+    assert!(!frame.complete_content());
+    *frame.segments[0].held.lock().unwrap() = Some(held(input()));
+    assert!(frame.complete_content());
+    frame.content_presented.store(true, Ordering::Relaxed);
+    assert!(frame.presented_complete_content());
+    assert!(!frame_layer(&raster, true).presented_complete_content());
+}

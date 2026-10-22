@@ -527,6 +527,7 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+Desktop startup feedback runs independently while resources and graphics initialize. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop/Android recordings, activity responsiveness during native initialization and broader device acceptance remain pending.
 
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and

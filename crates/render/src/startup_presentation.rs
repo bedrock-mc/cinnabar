@@ -1,7 +1,10 @@
 //! Confirms startup only after primary-window presentation and GPU completion.
 
 use bevy::{
-    prelude::{App, Entity, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
+    prelude::{
+        App, ContainsEntity, Entity, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource,
+        With,
+    },
     render::{
         Render, RenderApp, RenderSystems,
         renderer::{RenderQueue, render_system},
@@ -43,6 +46,7 @@ impl Plugin for StartupPresentationPlugin {
 struct PresentationProbe {
     surface: Option<Entity>,
     submitted: u8,
+    content_submitted: bool,
 }
 
 impl PresentationProbe {
@@ -64,26 +68,41 @@ fn capture_surface(
     windows: Query<(Entity, &ExtractedWindow), With<PrimaryWindow>>,
     mut probe: ResMut<PresentationProbe>,
 ) {
-    probe.surface = if probe.submitted < StartupPresentation::REQUIRED_FRAMES {
-        windows
-            .iter()
-            .find_map(|(entity, window)| window.swap_chain_texture.is_some().then_some(entity))
-    } else {
-        None
-    };
+    probe.surface =
+        if probe.submitted < StartupPresentation::REQUIRED_FRAMES || !probe.content_submitted {
+            windows
+                .iter()
+                .find_map(|(entity, window)| window.swap_chain_texture.is_some().then_some(entity))
+        } else {
+            None
+        };
 }
 
 /// Present takes the surface texture; GPU feedback arrives only after that frame's work finishes.
 fn observe_presentation(
-    windows: Query<&ExtractedWindow, With<PrimaryWindow>>,
+    windows: Query<(&bevy::render::sync_world::MainEntity, &ExtractedWindow), With<PrimaryWindow>>,
     mut probe: ResMut<PresentationProbe>,
+    layers: Query<(
+        &bevy::render::camera::ExtractedCamera,
+        &crate::ui_render::composite::UiLayerTexture,
+    )>,
     queue: Res<RenderQueue>,
     feedback: Res<StartupPresentation>,
 ) {
-    let consumed = probe
+    let presented_window = probe
         .surface
         .and_then(|entity| windows.get(entity).ok())
-        .is_some_and(|window| window.swap_chain_texture.is_none());
+        .filter(|(_, window)| window.swap_chain_texture.is_none())
+        .map(|(main, _)| main.id());
+    let consumed = presented_window.is_some();
+    if consumed && !probe.content_submitted && layers.iter().any(|(camera, layer)| {
+        matches!(&camera.target, Some(bevy::camera::NormalizedRenderTarget::Window(window)) if Some(window.entity()) == presented_window)
+            && layer.presented_complete_content()
+    }) {
+        probe.content_submitted = true;
+        let feedback = feedback.clone();
+        crate::device_poll::on_frame_complete(&queue, move || feedback.record_content_frame());
+    }
     if probe.take_presented(consumed) {
         let feedback = feedback.clone();
         crate::device_poll::on_frame_complete(&queue, move || feedback.record_completed_frame());

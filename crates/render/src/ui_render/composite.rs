@@ -64,6 +64,8 @@ pub(crate) struct UiLayerTexture {
     bindings: Arc<Mutex<CompositeBindings>>,
     /// Set when the frame's final layer is left for [`ui_present`] to composite.
     present: AtomicBool,
+    /// Whether this frame composited a complete nonempty interface.
+    content_presented: AtomicBool,
     /// Whether this frame already wrote the final camera output.
     presented: AtomicBool,
     /// The sole writer of its output with no blend, so the composite can replace the blit.
@@ -129,6 +131,23 @@ impl UiLayerTexture {
         })
     }
 
+    /// Whether this frame composited complete content from every retained segment.
+    pub(crate) fn presented_complete_content(&self) -> bool {
+        self.content_presented.load(Ordering::Relaxed)
+    }
+
+    /// Incomplete or empty segments never qualify a destination screen for handoff.
+    fn complete_content(&self) -> bool {
+        std::iter::once(self).chain(&self.segments).all(|segment| {
+            segment
+                .held
+                .lock()
+                .expect("UI layer content lock")
+                .as_ref()
+                .is_some_and(|held| held.encoded)
+        })
+    }
+
     /// Leaves the final layer for the output pass to composite.
     pub(crate) fn defer_present(&self) {
         self.present.store(true, Ordering::Relaxed);
@@ -142,6 +161,7 @@ impl UiLayerTexture {
             held: Arc::default(),
             bindings: Arc::default(),
             present: AtomicBool::new(false),
+            content_presented: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             direct_output: false,
             segments: Vec::new(),
@@ -372,6 +392,7 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
         held: Arc::clone(&layer.held),
         bindings: Arc::clone(&layer.bindings),
         present: AtomicBool::new(false),
+        content_presented: AtomicBool::new(false),
         presented: AtomicBool::new(false),
         direct_output,
         segments: Vec::new(),
@@ -682,6 +703,7 @@ pub(crate) fn ui_present(
         return;
     };
     layer.presented.store(false, Ordering::Relaxed);
+    layer.content_presented.store(false, Ordering::Relaxed);
     if !layer.present.load(Ordering::Relaxed) {
         return;
     }
@@ -730,10 +752,16 @@ pub(crate) fn ui_present(
             &layout,
         );
         layer.presented.store(true, Ordering::Relaxed);
+        layer
+            .content_presented
+            .store(layer.complete_content(), Ordering::Relaxed);
         return;
     }
     if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
         composite(&mut context, world, target, layer, pipeline, &layout);
+        layer
+            .content_presented
+            .store(layer.complete_content(), Ordering::Relaxed);
     }
 }
 
