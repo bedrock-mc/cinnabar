@@ -166,7 +166,10 @@ fn cosmetic_gallery_pressure_preserves_the_equipped_character_mesh() {
     let mut runtime = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     runtime.set_preview_cosmetics(&[item]);
     // Settle the requested atlas before installing the synthetic frame's carriers.
-    runtime.finish_menu_artwork();
+    test_time::eventually("equipped cosmetic artwork is installed", || {
+        runtime.sync_equipped_cosmetic_artwork();
+        runtime.menu_artwork_icon(&item.texture_key()).is_some()
+    });
     runtime.gui_models.enabled = true;
     runtime.gui_models.skin =
         Some(render_model::UiTexturePage::owned([64, 64], vec![255; 64 * 64 * 4].into()).unwrap());
