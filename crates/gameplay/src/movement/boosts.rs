@@ -10,15 +10,8 @@ use super::effects::{BoostSpan, MovementBoost};
 const PREDICTED_ROCKET_BOOST_TICKS: u64 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Source {
-    Server,
-    Rocket,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BoostInterval {
     boost: MovementBoost,
-    source: Source,
     start: u64,
     /// First tick no longer boosted; `None` never ends.
     end: Option<u64>,
@@ -59,38 +52,27 @@ impl BoostTimeline {
     pub(super) fn predict_rocket(&mut self, start: u64) {
         self.intervals.push(BoostInterval {
             boost: MovementBoost::Glide,
-            source: Source::Rocket,
             start,
             end: Some(start + PREDICTED_ROCKET_BOOST_TICKS),
         });
     }
 
-    /// Records a server boost from `start`. It replaces earlier server boosts of
-    /// its kind from that tick on, and restates every rocket predicted to start
-    /// no later than it does.
+    /// Records a server boost from `start`. Earlier server boosts of its kind and
+    /// rockets predicted to start no later than it end at `start`, so ticks before
+    /// the authoritative boundary keep their predicted boost.
     pub(super) fn record_server(&mut self, boost: MovementBoost, start: u64, span: BoostSpan) {
         self.intervals.retain_mut(|interval| {
             if interval.boost != boost || interval.start > start {
                 return true;
             }
-            match interval.source {
-                Source::Rocket => false,
-                Source::Server => {
-                    interval.end = Some(interval.end.map_or(start, |end| end.min(start)));
-                    interval.end.is_some_and(|end| end > interval.start)
-                }
-            }
+            interval.end = Some(interval.end.map_or(start, |end| end.min(start)));
+            interval.end.is_some_and(|end| end > interval.start)
         });
         let end = match span {
             BoostSpan::Ticks(ticks) => Some(start + u64::from(ticks)),
             BoostSpan::Unbounded => None,
         };
-        self.intervals.push(BoostInterval {
-            boost,
-            source: Source::Server,
-            start,
-            end,
-        });
+        self.intervals.push(BoostInterval { boost, start, end });
     }
 
     /// Drops intervals that end before `tick`, the first tick a replay can still simulate.
@@ -123,10 +105,19 @@ mod tests {
     #[test]
     fn a_server_boost_restates_only_rockets_that_start_no_later() {
         let mut timeline = BoostTimeline::default();
-        timeline.predict_rocket(100);
+        timeline.predict_rocket(101);
         timeline.predict_rocket(120);
         timeline.record_server(MovementBoost::Glide, 101, BoostSpan::Ticks(20));
         assert_eq!(glide(&timeline), (101..140).collect::<Vec<_>>());
+    }
+
+    /// A later server boost keeps a rocket's predicted ticks before its own start.
+    #[test]
+    fn a_later_server_boost_keeps_the_rockets_earlier_ticks() {
+        let mut timeline = BoostTimeline::default();
+        timeline.predict_rocket(103);
+        timeline.record_server(MovementBoost::Glide, 106, BoostSpan::Ticks(20));
+        assert_eq!(glide(&timeline), (103..126).collect::<Vec<_>>());
     }
 
     /// A newer server boost replaces an older one of its kind from its own start.
