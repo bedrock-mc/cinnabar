@@ -1,5 +1,6 @@
 //! Settings-owned pointer capture prevents editing from activating gameplay or other menus.
 use super::*;
+use bevy::input::touch::{TouchInput, TouchPhase};
 use std::sync::Arc;
 
 /// Delivers only one owning finger; its cancellation rolls back the unfinished drag.
@@ -7,32 +8,48 @@ pub(super) fn drive(
     menu: &mut MenuRuntime,
     presentation: &mut UiPresentationRuntime,
     touches: &Touches,
+    events: &[TouchInput],
     capture: &mut GuiScaleDrag,
     pointer: Option<[f32; 2]>,
     buttons: &ButtonInput<MouseButton>,
 ) {
-    if capture.editor_touch.is_none()
-        && !capture.left_held
-        && let Some(touch) = touches.iter_just_pressed().next()
-    {
-        capture.editor_touch = Some(Capture::begin(
-            presentation,
-            touch.id(),
-            touch.position().to_array(),
-        ));
-    }
-    if let Some(owner) = capture.editor_touch.as_mut() {
-        if !owner.advance(presentation, touches) {
+    for event in events {
+        let at = event.position.to_array();
+        if event.phase == TouchPhase::Started
+            && !capture.left_held
+            && capture
+                .editor_touch
+                .as_ref()
+                .is_none_or(|owner| owner.id == event.id)
+        {
+            presentation.cancel_touch_editor_pointer();
+            capture.editor_touch = Some(Capture::begin(presentation, event.id, at));
+        } else if let Some(owner) = capture
+            .editor_touch
+            .as_mut()
+            .filter(|owner| owner.id == event.id)
+            && !owner.event(presentation, event.phase, at)
+        {
             capture.editor_touch = None;
         }
-    } else if let Some(at) = pointer {
-        presentation.touch_editor_pointer(
-            at,
-            buttons.just_pressed(MouseButton::Left),
-            capture.left_held,
-        );
-    } else {
-        presentation.cancel_touch_editor_pointer();
+    }
+    if let Some(owner) = capture.editor_touch.as_ref() {
+        if touches.get_pressed(owner.id).is_none() {
+            presentation.cancel_touch_editor_pointer();
+            capture.editor_touch = None;
+        } else if !owner.tap {
+            presentation.touch_editor_pointer(owner.last, false, true);
+        }
+    } else if events.is_empty() && touches.iter().next().is_none() {
+        if let Some(at) = pointer {
+            presentation.touch_editor_pointer(
+                at,
+                buttons.just_pressed(MouseButton::Left),
+                capture.left_held,
+            );
+        } else {
+            presentation.cancel_touch_editor_pointer();
+        }
     }
     if let Some(layout) = presentation.take_touch_editor_result() {
         if let Some(layout) = layout {
@@ -50,6 +67,7 @@ pub(super) fn drive(
 pub(super) struct Capture {
     id: u64,
     start: [f32; 2],
+    last: [f32; 2],
     action: Option<String>,
     tap: bool,
     cancelled: bool,
@@ -67,38 +85,31 @@ impl Capture {
         Self {
             id,
             start,
+            last: start,
             action,
             tap,
             cancelled: false,
         }
     }
-    /// Returns whether the owner remains held; cancelled taps can never activate on release.
-    fn advance(&mut self, p: &mut UiPresentationRuntime, touches: &Touches) -> bool {
-        if touches
-            .iter_just_canceled()
-            .any(|touch| touch.id() == self.id)
-        {
+    /// Applies the actual ordered native sample, including the final release coordinates.
+    fn event(&mut self, p: &mut UiPresentationRuntime, phase: TouchPhase, at: [f32; 2]) -> bool {
+        if phase == TouchPhase::Canceled {
             p.cancel_touch_editor_pointer();
             return false;
         }
-        let released = touches.get_released(self.id);
-        let Some(touch) = released.or_else(|| touches.get_pressed(self.id)) else {
-            p.cancel_touch_editor_pointer();
-            return false;
-        };
-        let at = touch.position().to_array();
+        self.last = at;
+        let released = phase == TouchPhase::Ended;
         if self.tap {
-            // Editor toolbar taps use the same eight-logical-pixel drag tolerance at every DPI.
+            // Editor toolbar taps use an eight-logical-pixel drag tolerance at every DPI.
             const TAP_TRAVEL: f32 = 8.;
             self.cancelled |= (at[0] - self.start[0]).hypot(at[1] - self.start[1]) > TAP_TRAVEL;
-            if released.is_some() && !self.cancelled && p.touch_editor_action_at(at) == self.action
-            {
+            if released && !self.cancelled && p.touch_editor_action_at(at) == self.action {
                 p.touch_editor_pointer(at, true, false);
             }
         } else {
-            p.touch_editor_pointer(at, false, released.is_none());
+            p.touch_editor_pointer(at, false, !released);
         }
-        released.is_none()
+        !released
     }
 }
 

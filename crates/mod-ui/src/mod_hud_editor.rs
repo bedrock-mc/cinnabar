@@ -65,6 +65,7 @@ pub struct HudEditor {
     pub(super) close_requested: bool,
     /// Reset intent for the next result; autosave clears it after publication.
     reset: bool,
+    history_buttons: bool,
     grid: bool,
     snap: bool,
     bypass_snap: bool,
@@ -116,6 +117,7 @@ impl ModUi {
         let mut editor = HudEditor::new(preview)?;
         editor.transitions = transitions.unwrap_or_default();
         editor.snap = false;
+        editor.history_buttons = false;
         self.mod_hud_editor = Some(editor);
         Ok(())
     }

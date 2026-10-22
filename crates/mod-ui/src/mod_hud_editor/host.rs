@@ -25,6 +25,7 @@ impl HudEditor {
             committed: preview,
             close_requested: false,
             reset: false,
+            history_buttons: true,
             grid: false,
             snap: false,
             bypass_snap: false,

@@ -1,7 +1,8 @@
 //! The built-in touch draft shares the mod editor's geometry, snapping and input handling.
 use super::*;
+mod factory;
 use launcher::menu::{MenuView, settings_options::touch_layout::TouchLayout};
-use ui::mod_hud::{Anchor, Card, Cell, Hud};
+use ui::mod_hud::{Card, Cell, Hud};
 
 /// Allows host placement deltas on actual controls while preserving their authored anchors.
 pub(super) fn enable_placement(value: &mut serde_json::Value) {
@@ -88,6 +89,7 @@ impl UiPresentationRuntime {
             let Some(base) = self.screens.touch.base.as_ref() else {
                 return Ok(());
             };
+            let anchors = factory::anchors();
             let cards = base
                 .hits
                 .iter()
@@ -98,7 +100,8 @@ impl UiPresentationRuntime {
                     }
                     let name = hit.pressed.as_deref()?.strip_prefix("cinnabar.touch.")?;
                     let viewport = self.screens.touch.base_viewport.expect("measured viewport");
-                    let (anchor, offset) = Anchor::from_origin(
+                    let anchor = *anchors.get(name).expect("authored touch control anchor");
+                    let offset = anchor.offset_for_origin(
                         [hit.rect.x, hit.rect.y],
                         [hit.rect.w, hit.rect.h],
                         viewport.0.map(|v| f64::from(v / viewport.1)),

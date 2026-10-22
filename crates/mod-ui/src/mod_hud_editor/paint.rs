@@ -128,13 +128,14 @@ impl HudEditor {
                     editor.data = data;
                 }
                 if editor.catalog.is_none() {
-                    let catalog = match template::catalog(&editor.draft, viewport) {
-                        Ok(catalog) => catalog,
-                        Err(error) => {
-                            tracing::warn!(%error,"HUD editor template rejected");
-                            return None;
-                        }
-                    };
+                    let catalog =
+                        match template::catalog(&editor.draft, viewport, editor.history_buttons) {
+                            Ok(catalog) => catalog,
+                            Err(error) => {
+                                tracing::warn!(%error,"HUD editor template rejected");
+                                return None;
+                            }
+                        };
                     editor.catalog = Some(Arc::new(catalog));
                     editor.screen = CachedScreen::default();
                 }

@@ -7,10 +7,6 @@ use launcher::menu::{
 };
 
 /// Opens a real touch draft through the presentation route, with optional safe-area insets.
-#[expect(
-    clippy::print_stderr,
-    reason = "reports unavailable local capture fixtures"
-)]
 fn setup(size: [u32; 2]) -> Option<(UiPresentationRuntime, UiRuntime, MenuView)> {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         eprintln!(
@@ -210,6 +206,46 @@ fn touch_editor_alignment_history_and_reset_keep_factory_layout_available() {
     p.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
     paint(&mut p, &runtime, [1280, 720]);
     assert_eq!(p.touch_editor_bounds("jump").unwrap(), original);
+    p.touch_editor_key("Enter", Default::default());
+    assert_eq!(
+        p.take_touch_editor_result().unwrap().unwrap(),
+        TouchLayout::default()
+    );
+}
+
+/// Changing automatic GUI scale must not turn factory placements into user customization.
+#[test]
+fn touch_editor_factory_layout_matches_fresh_geometry_after_scale_changing_resize() {
+    let Some((mut p, runtime, _)) = setup([1366, 768]) else {
+        return;
+    };
+    paint(&mut p, &runtime, [1280, 720]);
+    let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
+    p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
+    p.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    let base = p.screens.touch.base.as_ref().unwrap();
+    for &(name, id) in CONTROLS {
+        if id == touch::LOOK_SURFACE {
+            continue;
+        }
+        let hit = base
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+            .unwrap();
+        let expected = [
+            base.origin[0] + hit.rect.x as f32 * base.scale,
+            base.origin[1] + hit.rect.y as f32 * base.scale,
+            hit.rect.w as f32 * base.scale,
+            hit.rect.h as f32 * base.scale,
+        ];
+        let actual = p.touch_editor_bounds(name).unwrap();
+        assert!(
+            (0..4).all(|axis| (actual[axis] - expected[axis]).abs() < 0.1),
+            "{name}: {actual:?} != {expected:?}"
+        );
+    }
     p.touch_editor_key("Enter", Default::default());
     assert_eq!(
         p.take_touch_editor_result().unwrap().unwrap(),

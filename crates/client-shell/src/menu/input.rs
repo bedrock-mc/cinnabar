@@ -293,9 +293,21 @@ pub fn drive_menu_input(
         player_runtime,
         time,
         mut keyboard_messages,
+        touch_messages,
+        mut touch_cursor,
         mut focus,
         driven,
     } = context;
+    let touch_events: Vec<_> = touch_messages
+        .as_deref()
+        .map(|messages| {
+            touch_cursor
+                .read(messages)
+                .filter(|event| event.window == window.0)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
     if driven.is_none()
         && (!window.1.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
         || !menu.is_visible()
@@ -455,6 +467,7 @@ pub fn drive_menu_input(
             &mut menu,
             &mut presentation,
             &touches,
+            &touch_events,
             &mut gui_scale_drag,
             window.cursor_position().map(|at| [at.x, at.y]),
             &mouse_buttons,

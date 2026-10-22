@@ -60,13 +60,17 @@ impl Anchor {
             }
         });
         let anchor = Self::ALL[usize::from(thirds[1] * 3 + thirds[0])];
-        let fractions = anchor.fractions();
-        let offset = std::array::from_fn(|axis| {
+        (anchor, anchor.offset_for_origin(at, size, viewport))
+    }
+
+    /// Inverts this specific anchor's reference point without choosing a new anchor.
+    pub fn offset_for_origin(self, at: [f64; 2], size: [f64; 2], viewport: [f64; 2]) -> [f32; 2] {
+        let fractions = self.fractions();
+        std::array::from_fn(|axis| {
             let available = (viewport[axis] - size[axis]).max(0.);
             let direction = if fractions[axis] == 1. { -1. } else { 1. };
             ((at[axis] - available * fractions[axis]) * direction) as f32
-        });
-        (anchor, offset)
+        })
     }
 }
 
@@ -155,5 +159,22 @@ mod tests {
             Anchor::BottomRight.origin(offset, [100., 40.], [640., 360.]),
             [517., 291.]
         );
+    }
+}
+
+#[cfg(test)]
+mod inverse_tests {
+    use super::*;
+    #[test]
+    fn explicit_anchor_inverse_does_not_change_with_viewport_thirds() {
+        for anchor in Anchor::ALL {
+            for viewport in [[455.333, 256.], [640., 360.], [427., 240.]] {
+                let at = [37., 29.];
+                let size = [32., 32.];
+                let offset = anchor.offset_for_origin(at, size, viewport);
+                let restored = anchor.origin(offset, size, viewport);
+                assert!((0..2).all(|axis| (restored[axis] - at[axis]).abs() < 0.0001));
+            }
+        }
     }
 }
