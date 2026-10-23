@@ -1018,6 +1018,7 @@ fn an_unchanged_media_scene_is_presented_without_rebuilding() {
 #[test]
 fn a_server_world_notice_advances_the_epoch_without_a_dimension_packet() {
     let mut live = fixture_v2(1);
+    sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
     live.poll(1, 0).unwrap();
     assert!(live.ready);
     let request = serde_json::to_vec(&Control::Epoch {
@@ -1052,7 +1053,13 @@ fn a_server_world_notice_advances_the_epoch_without_a_dimension_packet() {
 #[test]
 fn world_notices_require_the_live_session_and_wire_v2() {
     for mut live in [fixture(1), fixture_v2(1)] {
+        if live.grant.wire.version == WIRE_VERSION {
+            complete(&mut live, "bundle0");
+        } else {
+            sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
+        }
         live.poll(1, 0).unwrap();
+        assert!(live.ready);
         let session = if live.grant.wire.version == WIRE_VERSION {
             live.grant.session.clone()
         } else {
