@@ -915,7 +915,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip ordering; drawing the
   solid hand's glint before deferred passes; geometry-host composition of celestial layers,
   effects without depth writes and private-depth first-person scenes, which keep the native
-  scene copy; actor colour masks, multitexture materials, dissolve pairs, beacon beams and
+  scene copy; legacy leather colour masks, dissolve pairs, beacon beams and
   additive rays, which keep native composition; native layers behind pack-rendered glass or
   water, whose final depth can hide those layers; autofocus on cutout pixels, liquids and
   entities; complete Iris type checking and target-dependent return overloads; constant

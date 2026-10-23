@@ -13,7 +13,7 @@ use super::classify::{
     glint_texture_matrix, vertex_colour,
 };
 use super::skin::{JOB_GLINT, JOB_ONE_SIDED, JOB_VIEW_SPACE, SkinJob};
-use super::{ActorSources, BlockEntitySource, Hand, LayerTexture, RigSource};
+use super::{ActorSources, BlockEntitySource, Hand, LayerCompose, LayerTexture, RigSource};
 use crate::shaderpack::atlas::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use crate::shaderpack::draws::DrawKind;
 
@@ -21,8 +21,8 @@ use crate::shaderpack::draws::DrawKind;
 #[path = "view/release_tests.rs"]
 mod release_tests;
 
-/// A texture layer's identity: the texture and the layer.
-pub(super) type TextureKey = (TextureId, u32);
+/// A drawn layer's identity: the texture, the layer and its composition.
+pub(super) type TextureKey = (TextureId, u32, LayerCompose);
 
 /// One actor draw: its vertices in the view's stream, its texture and its values.
 #[derive(Clone, Debug, PartialEq)]
@@ -130,6 +130,8 @@ pub(crate) struct ViewActors {
     pub(super) dispatches: Vec<Dispatch>,
     pub(super) slots: HashMap<DrawKind, Vec<Slot>>,
     pub(super) views: HashMap<TextureKey, (TextureView, u64)>,
+    /// Composed layers first used this frame, recorded by [`Self::compose_layers`].
+    pub(super) compositions: HashMap<TextureKey, Texture>,
     pub(super) pages: Vec<PageBuffers>,
     pub(super) neutral: Option<NeutralTextures>,
     pub(super) frame: u64,
@@ -202,9 +204,10 @@ fn layer_view(texture: &Texture, layer: u32) -> TextureView {
 impl ViewActors {
     /// Drops cached layer views and draw bindings that keep `texture` allocated.
     pub(crate) fn release_texture(&mut self, texture: TextureId) {
-        self.views.retain(|(id, _), _| *id != texture);
+        self.views.retain(|(id, ..), _| *id != texture);
+        self.compositions.retain(|(id, ..), _| *id != texture);
         for slot in self.slots.values_mut().flatten() {
-            if slot.texture.is_some_and(|(id, _)| id == texture) {
+            if slot.texture.is_some_and(|(id, ..)| id == texture) {
                 slot.texture = None;
                 slot.groups = Default::default();
             }
@@ -220,18 +223,42 @@ impl ViewActors {
         self.slot_of.clear();
         self.jobs.clear();
         self.dispatches.clear();
+        self.compositions.clear();
         self.frame += 1;
     }
 
-    /// The key of `texture`'s view, creating the view on first use.
+    /// The key of `texture`'s view, creating a plain view on first use and queueing a
+    /// composed one for [`Self::compose_layers`].
     fn view(&mut self, texture: LayerTexture<'_>) -> TextureKey {
-        let key = (texture.texture.id(), texture.layer);
+        let key = (texture.texture.id(), texture.layer, texture.compose);
         let frame = self.frame;
-        self.views
-            .entry(key)
-            .and_modify(|(_, used)| *used = frame)
-            .or_insert_with(|| (layer_view(texture.texture, texture.layer), frame));
+        if let Some((_, used)) = self.views.get_mut(&key) {
+            *used = frame;
+        } else if texture.compose == LayerCompose::Plain {
+            self.views
+                .insert(key, (layer_view(texture.texture, texture.layer), frame));
+        } else {
+            self.compositions
+                .entry(key)
+                .or_insert_with(|| texture.texture.clone());
+        }
         key
+    }
+
+    /// Records this frame's queued layer compositions and publishes their views; `None` when
+    /// an allocation fails.
+    pub(super) fn compose_layers(
+        &mut self,
+        device: &Device,
+        encoder: &mut wgpu::CommandEncoder,
+        kernels: &super::skin::SkinKernels<'_>,
+    ) -> Option<()> {
+        for (key, texture) in std::mem::take(&mut self.compositions) {
+            let (_, layer, compose) = key;
+            let view = super::compose::record(device, encoder, kernels, &texture, layer, compose)?;
+            self.views.insert(key, (view, self.frame));
+        }
+        Some(())
     }
 
     fn push(
@@ -280,9 +307,13 @@ impl ViewActors {
         let first_job = self.jobs.len() as u32;
         let mut max_vertices = 0;
         let glint_keys = [false, true].map(|item| {
-            source
-                .glint(item)
-                .map(|texture| self.view(LayerTexture { texture, layer: 0 }))
+            source.glint(item).map(|texture| {
+                self.view(LayerTexture {
+                    texture,
+                    layer: 0,
+                    compose: LayerCompose::Plain,
+                })
+            })
         });
         source.for_each_instance(&mut |instance| {
             let data = instance.data;
@@ -306,13 +337,18 @@ impl ViewActors {
                     | if class.one_sided { JOB_ONE_SIDED } else { 0 },
                 light: u32::from(instance.light[0].min(15))
                     | (u32::from(instance.light[1].min(15)) << 4),
-                colour: vertex_colour(
-                    data.tint,
-                    matches!(
-                        class.kind,
-                        DrawKind::EntitiesTranslucent | DrawKind::HandWater
-                    ),
-                ),
+                // A composed layer already carries the material's dye.
+                colour: if instance.texture.compose.composes_colour() {
+                    u32::MAX
+                } else {
+                    vertex_colour(
+                        data.tint,
+                        matches!(
+                            class.kind,
+                            DrawKind::EntitiesTranslucent | DrawKind::HandWater
+                        ),
+                    )
+                },
                 block_id: -1,
             };
             *output += u64::from(job.output_vertices());
@@ -420,6 +456,7 @@ impl ViewActors {
         let texture = self.view(LayerTexture {
             texture: source.atlas,
             layer: 0,
+            compose: LayerCompose::Plain,
         });
         let lists = [
             (source.solid, DrawKind::Block, true),

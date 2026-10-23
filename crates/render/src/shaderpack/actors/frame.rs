@@ -66,7 +66,9 @@ pub(crate) fn prepare(
         actors.draws.clear();
         return;
     }
-    if skin(device, queue, encoder, actors, sources, kernels, output).is_none() {
+    if skin(device, queue, encoder, actors, sources, kernels, output).is_none()
+        || actors.compose_layers(device, encoder, &kernels).is_none()
+    {
         actors.allocation_failed = true;
         actors.draws.clear();
         actors.jobs.clear();

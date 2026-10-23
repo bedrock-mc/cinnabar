@@ -2,7 +2,9 @@
 //! with each instance's skin or held-item atlas layer, the hand's light and its field of view.
 
 use super::*;
-use crate::shaderpack::actors::{Hand, LayerTexture, RigBuffers, RigInstance, RigSource};
+use crate::shaderpack::actors::{
+    Hand, LayerCompose, LayerTexture, RigBuffers, RigInstance, RigSource,
+};
 
 /// The uploaded first-person rig, borrowed for one frame.
 pub(crate) struct ShaderpackHand<'a> {
@@ -77,6 +79,7 @@ impl RigSource for ShaderpackHand<'_> {
                 texture: LayerTexture {
                     texture,
                     layer: flags & HAND_TEXTURE_LAYER_MASK,
+                    compose: LayerCompose::Plain,
                 },
                 runtime_id: None,
                 camera: true,

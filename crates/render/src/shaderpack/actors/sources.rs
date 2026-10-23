@@ -20,11 +20,12 @@ pub(crate) struct RigBuffers<'a> {
 }
 
 /// One layer of a texture: a page of actor artwork, a player-skin class, an item atlas, or
-/// layer 0 of a plain 2D texture.
+/// layer 0 of a plain 2D texture, with the composition its native material applies.
 #[derive(Clone, Copy)]
 pub(crate) struct LayerTexture<'a> {
     pub texture: &'a Texture,
     pub layer: u32,
+    pub compose: super::LayerCompose,
 }
 
 /// Which hand a first-person item instance is held in.

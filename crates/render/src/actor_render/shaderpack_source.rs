@@ -2,7 +2,7 @@
 //! bone buffers the actor pass draws from, with each instance's artwork layer and actor.
 
 use super::*;
-use crate::shaderpack::actors::{LayerTexture, RigBuffers, RigInstance, RigSource};
+use crate::shaderpack::actors::{LayerCompose, LayerTexture, RigBuffers, RigInstance, RigSource};
 
 /// The prepared actor rig, borrowed for one frame.
 pub(crate) struct ShaderpackActors<'a> {
@@ -71,7 +71,13 @@ impl RigSource for ShaderpackActors<'_> {
                     index,
                     data,
                     vertex_count: span.vertex_count,
-                    texture: LayerTexture { texture, layer },
+                    texture: LayerTexture {
+                        texture,
+                        layer,
+                        compose: page.map_or(LayerCompose::Plain, |page| {
+                            LayerCompose::for_page(page.color_mask, page.multitexture, data)
+                        }),
+                    },
                     runtime_id: gpu
                         .manifest
                         .get(index as usize)

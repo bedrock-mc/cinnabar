@@ -19,8 +19,12 @@
 //! # Draws
 //! A rig instance is one draw per pass it appears in. Its texture layer is bound as
 //! `gtexture` through a single-layer, non-sRGB view of Cinnabar's actor artwork (raw gamma
-//! bytes, as Java textures read), with neutral LabPBR `normals`/`specular`. Iris's per-entity
-//! uniforms are patched into the draw's own copy of the draw kind's uniform block:
+//! bytes, as Java textures read), with neutral LabPBR `normals`/`specular`. Artwork whose
+//! native material composes in the fragment (`entity_change_color` dye masks such as sheep
+//! wool, `entity_multitexture` llama decor) is first composed into an opaque layer of its
+//! own ([`compose`], `compose.wesl`), which carries the dye in place of the vertex colour.
+//! Iris's per-entity uniforms are patched into the draw's own copy of the draw kind's
+//! uniform block:
 //! `entityId` (the actor's Bedrock identifier through `entity.properties`), `entityColor`
 //! (the hurt/creeper-flash overlay), `blockEntityId` and `currentRenderedItemId` (the held
 //! item's `item.properties` id for first-person items). Glinted instances add a
@@ -36,6 +40,7 @@
 
 mod classify;
 pub(super) mod compatibility;
+mod compose;
 mod frame;
 #[cfg(test)]
 mod gpu_tests;
@@ -49,6 +54,7 @@ mod view;
 
 pub(crate) use classify::hand_projection;
 pub(crate) use compatibility::instance_supported;
+pub(crate) use compose::LayerCompose;
 pub(crate) use frame::{prepare, record};
 pub(crate) use skin::{ActorSkinPipelines, load_shaders, required_storage_buffers};
 pub(crate) use sources::{

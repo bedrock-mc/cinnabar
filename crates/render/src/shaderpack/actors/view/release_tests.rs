@@ -27,6 +27,7 @@ fn block_entity_release_drops_actor_views_even_without_shared_effect_textures() 
             let key = state.actors.view(LayerTexture {
                 texture: atlas,
                 layer: 0,
+                compose: super::LayerCompose::Plain,
             });
             let index = state
                 .pack
@@ -67,7 +68,7 @@ fn block_entity_release_drops_actor_views_even_without_shared_effect_textures() 
                 .actors
                 .views
                 .keys()
-                .all(|(texture, _)| *texture != previous)
+                .all(|(texture, ..)| *texture != previous)
         );
         let slot = &state.actors.slots[&DrawKind::Block][0];
         assert!(slot.texture.is_none());

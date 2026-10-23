@@ -193,18 +193,15 @@ impl ActorGpu {
     pub(super) fn pack_supports_span(&self, span: &crate::actor::gpu::ActorDrawSpan) -> bool {
         #[cfg(feature = "shaderpacks")]
         {
-            let page = (span.page != 0)
-                .then(|| self.artwork.page(usize::from(span.page) - 1))
-                .flatten();
-            (span.page == 0 || page.is_some_and(|page| page.raw_texture().is_some()))
+            (span.page == 0
+                || self
+                    .artwork
+                    .page(usize::from(span.page) - 1)
+                    .is_some_and(|page| page.raw_texture().is_some()))
                 && (span.first..span.first + span.count).all(|index| {
-                    self.instances.get(index as usize).is_some_and(|instance| {
-                        crate::shaderpack::actors::instance_supported(
-                            instance,
-                            page.is_some_and(|page| page.color_mask),
-                            page.is_some_and(|page| page.multitexture),
-                        )
-                    })
+                    self.instances
+                        .get(index as usize)
+                        .is_some_and(crate::shaderpack::actors::instance_supported)
                 })
         }
         #[cfg(not(feature = "shaderpacks"))]
