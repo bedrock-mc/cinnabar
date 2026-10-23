@@ -12,6 +12,8 @@ import (
 
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
 )
 
 // More probe behaviors, selected like those in helpers_test.go by the x of the interacted block.
@@ -36,7 +38,7 @@ type sentMessage struct {
 	player       uuid.UUID
 	exp, channel string
 	schema       uint16
-	payload      []Scalar
+	payload      []cinnabarext.Scalar
 	sent         bool
 	seen         int
 }
@@ -57,7 +59,7 @@ func (c *fakeChannels) Declares(exp, channel string, schema uint16) bool {
 	return slices.Contains(c.declared, declaredChannel{exp, channel, schema})
 }
 
-func (c *fakeChannels) Send(player uuid.UUID, exp, channel string, schema uint16, payload []Scalar) bool {
+func (c *fakeChannels) SendRecord(player uuid.UUID, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool {
 	m := sentMessage{player: player, exp: exp, channel: channel, schema: schema, payload: payload, sent: c.active}
 	if c.observe != nil {
 		m.seen = c.observe()
@@ -93,21 +95,21 @@ func (c *fakeChannels) waitSent(t *testing.T, n int) []sentMessage {
 	}
 }
 
-func integer(v int64) Scalar { return Scalar{Integer: &v} }
+func integer(v int64) cinnabarext.Scalar { return cinnabarext.Scalar{Integer: &v} }
 
 // probeItems is the probe's item list of n entries: one list of records, each an index and a
 // name.
-func probeItems(n int) []Scalar {
-	items := make([]Scalar, n)
+func probeItems(n int) []cinnabarext.Scalar {
+	items := make([]cinnabarext.Scalar, n)
 	for i := range items {
 		name := fmt.Sprintf("item %d", i)
-		items[i] = Scalar{Record: &[]Scalar{integer(int64(i)), {Text: &name}}}
+		items[i] = cinnabarext.Scalar{Record: &[]cinnabarext.Scalar{integer(int64(i)), {Text: &name}}}
 	}
-	return []Scalar{{List: &items}}
+	return []cinnabarext.Scalar{{List: &items}}
 }
 
 // assertMessage checks one Send of payload on channel, schema, to the fixture's actor.
-func (f *hostFixture) assertMessage(m sentMessage, channel string, schema uint16, payload []Scalar) {
+func (f *hostFixture) assertMessage(m sentMessage, channel string, schema uint16, payload []cinnabarext.Scalar) {
 	f.t.Helper()
 	if m.player != f.actor.UUID() || m.exp != "probe" || m.channel != channel || m.schema != schema ||
 		!reflect.DeepEqual(m.payload, payload) {
@@ -134,7 +136,7 @@ func TestStagedSendGoesOutAfterCommit(t *testing.T) {
 	f.activate(pos, pos)
 	f.waitTells(5*time.Second, "count 1 ok", "count 2 ok")
 	for i, m := range channels.waitSent(t, 2) {
-		f.assertMessage(m, probeCounterChannel, 1, []Scalar{integer(int64(i + 1))})
+		f.assertMessage(m, probeCounterChannel, 1, []cinnabarext.Scalar{integer(int64(i + 1))})
 		if m.seen != i+1 {
 			t.Fatalf("message %d went out after %d tells, want after its own commit's", i+1, m.seen)
 		}
@@ -153,7 +155,7 @@ func TestTrapSendsNothing(t *testing.T) {
 	f.place(probeCounter, send, nil)
 	f.activate(trap, send)
 	f.waitTells(5*time.Second, "count 1 ok")
-	f.assertMessage(channels.waitSent(t, 1)[0], probeCounterChannel, 1, []Scalar{integer(1)})
+	f.assertMessage(channels.waitSent(t, 1)[0], probeCounterChannel, 1, []cinnabarext.Scalar{integer(1)})
 }
 
 // A stale result sends nothing.
@@ -292,8 +294,8 @@ func TestClientMessageReachesGuest(t *testing.T) {
 	channels := &fakeChannels{declared: []declaredChannel{{"probe", "probe.echo", 7}}, active: true}
 	f := newClientFixture(t, log, map[string]*Supervisor{"probe": sup}, channels)
 	yes, text, choice := true, "ack", uint16(3)
-	payload := append([]Scalar{{Bool: &yes}, integer(-42), {Text: &text}, {Choice: &choice},
-		{Record: &[]Scalar{}}}, probeItems(3)...)
+	payload := append([]cinnabarext.Scalar{{Bool: &yes}, integer(-42), {Text: &text}, {Choice: &choice},
+		{Record: &[]cinnabarext.Scalar{}}}, probeItems(3)...)
 	if !f.host.DeliverClientMessage(f.actor, "probe", "probe.echo", 7, payload) {
 		t.Fatal("the client message was not queued")
 	}

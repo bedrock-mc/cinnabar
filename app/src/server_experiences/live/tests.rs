@@ -195,6 +195,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         ready: false,
         epoch: 1,
         modal_order: 0,
+        native_epoch: 1,
+        requested_epoch: None,
         gui: None,
         session: None,
     };
@@ -1011,4 +1013,57 @@ fn an_unchanged_media_scene_is_presented_without_rebuilding() {
     let unchanged = live.changed_screens().is_none();
     assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert!(unchanged);
+}
+
+#[test]
+fn a_server_world_notice_advances_the_epoch_without_a_dimension_packet() {
+    let mut live = fixture_v2(1);
+    live.poll(1, 0).unwrap();
+    assert!(live.ready);
+    let request = serde_json::to_vec(&Control::Epoch {
+        session: live.grant.session.clone(),
+        world_epoch: 2,
+    })
+    .unwrap();
+    live.receive(&request, 1).unwrap();
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::Epoch { world_epoch: 2, .. }
+    ));
+    assert_eq!(live.epoch, 2);
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        vec![Event::Epoch]
+    );
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert_eq!(live.epoch, 2);
+    let packets = live.poll(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::Epoch { world_epoch: 3, .. }
+    ));
+}
+
+#[test]
+fn world_notices_require_the_live_session_and_wire_v2() {
+    for mut live in [fixture(1), fixture_v2(1)] {
+        live.poll(1, 0).unwrap();
+        let session = if live.grant.wire.version == WIRE_VERSION {
+            live.grant.session.clone()
+        } else {
+            "another session".into()
+        };
+        let request = serde_json::to_vec(&Control::Epoch {
+            session,
+            world_epoch: 2,
+        })
+        .unwrap();
+        assert!(live.receive(&request, 1).is_err());
+        assert_eq!(live.epoch, 1);
+    }
 }

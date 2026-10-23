@@ -23,12 +23,12 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/internal/cxbtest"
 )
 
 // extensionTestdata holds the goldens that `cinnabar-cxb write-fixtures` writes.
-var extensionTestdata = filepath.Join("extension", "testdata")
+var extensionTestdata = filepath.Join("cinnabarext", "testdata")
 
 // clientPartFlags are the -extension flags for audience: the fixture server seed and a directory
 // holding one .cxb with the golden signed manifest.
@@ -315,7 +315,7 @@ func TestClientPartHandshakeOverRakNet(t *testing.T) {
 		ClientChallenge: strings.Repeat("c1", 32),
 		Connection:      strings.Repeat("c0", 32),
 	}
-	carrier := func(m extension.Message) {
+	carrier := func(m extension.CanonicalValue) {
 		t.Helper()
 		data, err := extension.Encode(m)
 		if err != nil {

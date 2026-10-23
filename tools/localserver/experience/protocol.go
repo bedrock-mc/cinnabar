@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"slices"
+
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
 )
 
 // The Go mirror of the adapter protocol in crates/experience-runtime/src/protocol.rs, which
@@ -88,25 +90,12 @@ type Change struct {
 	PreviousData *string  `json:"previous_data"`
 }
 
-// Scalar is one value of a client-channel record, in the form the client part's wire protocol
-// gives it: a leaf, or on wire v2 a list or record of values. Exactly one field is set.
-type Scalar struct {
-	Bool    *bool
-	Integer *int64
-	Text    *string
-	Choice  *uint16
-	// List holds the items of a list field, all of its one item type.
-	List *[]Scalar
-	// Record holds one value per field of a record field, in order.
-	Record *[]Scalar
-}
-
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
 type Call struct {
-	Place         *PlaceCall
-	Break         *BreakCall
-	Interact      *InteractCall
-	Neighbor      *NeighborCall
+	Place           *PlaceCall
+	Break           *BreakCall
+	Interact        *InteractCall
+	Neighbor        *NeighborCall
 	ClientMessage   *ClientMessageCall
 	Epoch           *EpochCall
 	ScheduledUpdate *ScheduledUpdateCall
@@ -139,11 +128,11 @@ type NeighborCall struct {
 // Schema. Its callback's actor is Player. With Focus, the block of Player's focus, its snapshot
 // is the one an interaction with that block would have; without, it is empty.
 type ClientMessageCall struct {
-	Player  string    `json:"player"`
-	Channel string    `json:"channel"`
-	Schema  uint16    `json:"schema"`
-	Payload []Scalar  `json:"payload"`
-	Focus   *BlockPos `json:"focus"`
+	Player  string               `json:"player"`
+	Channel string               `json:"channel"`
+	Schema  uint16               `json:"schema"`
+	Payload []cinnabarext.Scalar `json:"payload"`
+	Focus   *BlockPos            `json:"focus"`
 }
 
 // EpochCall tells the guest that Player's client part moved to a new world epoch and kept
@@ -242,11 +231,11 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
-	SetBlock      *SetBlockOp
-	SetBlockData  *SetBlockDataOp
-	Tell          *TellOp
-	SendClient    *SendClientOp
-	SetBlockState *SetBlockStateOp
+	SetBlock       *SetBlockOp
+	SetBlockData   *SetBlockDataOp
+	Tell           *TellOp
+	SendClient     *SendClientOp
+	SetBlockState  *SetBlockStateOp
 	SetSlot        *SetSlotOp
 	DropItem       *DropItemOp
 	ScheduleUpdate *ScheduleUpdateOp
@@ -273,10 +262,10 @@ type TellOp struct {
 // SendClientOp sends Payload on Channel, revision Schema, to Player's client part once the rest
 // of its result has committed.
 type SendClientOp struct {
-	Player  string   `json:"player"`
-	Channel string   `json:"channel"`
-	Schema  uint16   `json:"schema"`
-	Payload []Scalar `json:"payload"`
+	Player  string               `json:"player"`
+	Channel string               `json:"channel"`
+	Schema  uint16               `json:"schema"`
+	Payload []cinnabarext.Scalar `json:"payload"`
 }
 
 // Outcome is the outcome of a callback. Exactly one field is set.
@@ -434,12 +423,6 @@ const (
 	typeLoaded        = "loaded"
 	typeLoadFailed    = "load_failed"
 	typeResult        = "result"
-	typeBool          = "bool"
-	typeInteger       = "integer"
-	typeText          = "text"
-	typeChoice        = "choice"
-	typeList          = "list"
-	typeRecord        = "record"
 )
 
 // variantTag is the "type" member of a union variant on the wire.
@@ -537,12 +520,6 @@ type (
 	}
 )
 
-// scalarWire is a Scalar on the wire: "type" names its field, and "value" holds it.
-type scalarWire[T any] struct {
-	Type  string `json:"type"`
-	Value *T     `json:"value"`
-}
-
 // unionTag returns the "type" of data, a JSON object.
 func unionTag(data []byte) (string, error) {
 	var head struct {
@@ -606,73 +583,6 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &scheduledUpdateWire{ScheduledUpdateCall: fresh(&c.ScheduledUpdate)})
 	}
 	return fmt.Errorf("unknown call type %q", tag)
-}
-
-// MarshalJSON writes the client wire protocol's form, escaping no HTML: the encoder that embeds
-// it escapes HTML only when it is set to.
-func (s Scalar) MarshalJSON() ([]byte, error) {
-	switch {
-	case s.Bool != nil:
-		return marshalUnescaped(scalarWire[bool]{typeBool, s.Bool})
-	case s.Integer != nil:
-		return marshalUnescaped(scalarWire[int64]{typeInteger, s.Integer})
-	case s.Text != nil:
-		return marshalUnescaped(scalarWire[string]{typeText, s.Text})
-	case s.Choice != nil:
-		return marshalUnescaped(scalarWire[uint16]{typeChoice, s.Choice})
-	case s.List != nil:
-		return marshalUnescaped(scalarWire[[]Scalar]{typeList, s.List})
-	case s.Record != nil:
-		return marshalUnescaped(scalarWire[[]Scalar]{typeRecord, s.Record})
-	}
-	return nil, errors.New("empty scalar")
-}
-
-// marshalUnescaped encodes v like json.Marshal, but leaves <, > and & as they are.
-func marshalUnescaped(v any) ([]byte, error) {
-	var out bytes.Buffer
-	encoder := json.NewEncoder(&out)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
-}
-
-func (s *Scalar) UnmarshalJSON(data []byte) error {
-	tag, err := unionTag(data)
-	if err != nil {
-		return err
-	}
-	*s = Scalar{}
-	switch tag {
-	case typeBool:
-		return scalarValue(data, &s.Bool)
-	case typeInteger:
-		return scalarValue(data, &s.Integer)
-	case typeText:
-		return scalarValue(data, &s.Text)
-	case typeChoice:
-		return scalarValue(data, &s.Choice)
-	case typeList:
-		return scalarValue(data, &s.List)
-	case typeRecord:
-		return scalarValue(data, &s.Record)
-	}
-	return fmt.Errorf("unknown scalar type %q", tag)
-}
-
-// scalarValue decodes data, a Scalar on the wire whose value must be present and a T, into *p.
-func scalarValue[T any](data []byte, p **T) error {
-	var wire scalarWire[T]
-	if err := decodeStrict(data, &wire); err != nil {
-		return err
-	}
-	if wire.Value == nil {
-		return errors.New(`a scalar without a "value"`)
-	}
-	*p = wire.Value
-	return nil
 }
 
 func (r Request) MarshalJSON() ([]byte, error) {

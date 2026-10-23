@@ -55,7 +55,7 @@ fn fixture<T: serde::de::DeserializeOwned>(name: &str) -> T {
     serde_json::from_slice(
         &std::fs::read(
             root()
-                .join("tools/localserver/extension/testdata")
+                .join("tools/localserver/cinnabarext/testdata")
                 .join(name),
         )
         .unwrap(),

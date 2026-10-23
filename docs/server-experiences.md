@@ -4,7 +4,7 @@ This is an optional **Cinnabar extension**, not vanilla Bedrock parity. This bra
 contains locally compiled client code and regression tests whose validation is
 recorded in `plan.md`. It does not ship a production sandbox or an end-to-end
 cinema implementation. The Dragonfly server half lives in
-`tools/localserver/extension` ([experience-runtime.md](experience-runtime.md#client-parts));
+`tools/localserver/cinnabarext` ([experience-runtime.md](experience-runtime.md#client-parts));
 no server SDK, BDS script, or server sidecar is included.
 
 ## Implementation status
@@ -91,9 +91,9 @@ Unsigned outer wrappers do not require canonical object order, but reject unknow
 fields. `cinnabar-cxb write-fixtures <dir>` writes golden offer, marker, hello,
 accept, ready, epoch, envelope, fragment, channel and manifest documents, v1 and v2
 forms both, with their signatures from fixed seeds into
-`tools/localserver/extension/testdata`; a Rust test keeps them current and verifies them
-with this crate. The Go package `tools/localserver/extension` decodes, re-encodes,
-re-fragments and re-signs every one of them byte for byte (`go test ./extension`).
+`tools/localserver/cinnabarext/testdata`; a Rust test keeps them current and verifies them
+with this crate. The Go package `tools/localserver/cinnabarext` decodes, re-encodes,
+re-fragments and re-signs every one of them byte for byte (`go test ./cinnabarext`).
 
 ## Deployment advertisement
 

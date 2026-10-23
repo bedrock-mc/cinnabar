@@ -789,6 +789,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
+- The reusable Dragonfly client-part helper offers bundles and typed wire v2 messages;
+  the local server imports the same implementation. Explicit world notices fence
+  messages until the client acknowledges a new logical epoch and invoke the existing
+  client-part epoch callback, including same-dimension-type transfers. A two-world
+  example uses upstream Dragonfly. Cold-client bundle hosting, generated application
+  Go message bindings and live multi-client transfer qualification remain incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.

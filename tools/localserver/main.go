@@ -26,8 +26,8 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
+	extension "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.

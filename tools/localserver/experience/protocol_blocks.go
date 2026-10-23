@@ -252,7 +252,7 @@ func (v StateValues) MarshalJSON() ([]byte, error) {
 	case v.Bool && v.Choices == nil:
 		return json.Marshal(variantTag{typeBool})
 	case !v.Bool && v.Choices != nil:
-		return json.Marshal(scalarWire[[]string]{typeChoices, v.Choices})
+		return json.Marshal(stateWire[[]string]{typeChoices, v.Choices})
 	}
 	return nil, errors.New("state values must be bool or choices")
 }
@@ -268,7 +268,7 @@ func (v *StateValues) UnmarshalJSON(data []byte) error {
 		v.Bool = true
 		return decodeStrict(data, &variantTag{})
 	case typeChoices:
-		return scalarValue(data, &v.Choices)
+		return stateValue(data, &v.Choices)
 	}
 	return fmt.Errorf("unknown state values type %q", tag)
 }
@@ -276,9 +276,9 @@ func (v *StateValues) UnmarshalJSON(data []byte) error {
 func (v StateValue) MarshalJSON() ([]byte, error) {
 	switch {
 	case v.Bool != nil:
-		return json.Marshal(scalarWire[bool]{typeBool, v.Bool})
+		return json.Marshal(stateWire[bool]{typeBool, v.Bool})
 	case v.Choice != nil:
-		return json.Marshal(scalarWire[string]{typeChoice, v.Choice})
+		return json.Marshal(stateWire[string]{typeChoice, v.Choice})
 	}
 	return nil, errors.New("empty state value")
 }
@@ -291,9 +291,33 @@ func (v *StateValue) UnmarshalJSON(data []byte) error {
 	*v = StateValue{}
 	switch tag {
 	case typeBool:
-		return scalarValue(data, &v.Bool)
+		return stateValue(data, &v.Bool)
 	case typeChoice:
-		return scalarValue(data, &v.Choice)
+		return stateValue(data, &v.Choice)
 	}
 	return fmt.Errorf("unknown state value type %q", tag)
 }
+
+// stateWire is a block state value on the wire: "type" names its field, and "value" holds it.
+type stateWire[T any] struct {
+	Type  string `json:"type"`
+	Value *T     `json:"value"`
+}
+
+// stateValue decodes data, a block state value on the wire whose value must be present and a T, into *p.
+func stateValue[T any](data []byte, p **T) error {
+	var wire stateWire[T]
+	if err := decodeStrict(data, &wire); err != nil {
+		return err
+	}
+	if wire.Value == nil {
+		return errors.New(`a state value without a "value"`)
+	}
+	*p = wire.Value
+	return nil
+}
+
+const (
+	typeBool   = "bool"
+	typeChoice = "choice"
+)

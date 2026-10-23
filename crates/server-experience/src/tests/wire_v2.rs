@@ -542,3 +542,56 @@ fn boolean_fields_reject_unknown_members_at_every_depth() {
         );
     }
 }
+
+#[test]
+fn server_epoch_requests_keep_the_envelope_sequence_and_share_its_rate_budget() {
+    let grant = grant(v2());
+    let caps = capabilities(&grant);
+    let request = serde_json::to_vec(&session::Control::Epoch {
+        session: grant.session.clone(),
+        world_epoch: 8,
+    })
+    .unwrap();
+    let mut ingress = Ingress::new(0);
+    assert_eq!(
+        ingress.receive_epoch_request(&request, 0, &grant).unwrap(),
+        Some(8)
+    );
+    let message = wire::encode(&envelope(&grant, 1, 8, Vec::new()), &grant.wire).unwrap();
+    ingress
+        .receive(&message[0], 0, 0, &grant, |_| Some(&caps))
+        .unwrap();
+    assert_eq!(ingress.pop(0, 8).unwrap().sequence, 1);
+    for _ in 2..policy::MAX_MESSAGES_PER_SECOND {
+        ingress.receive_epoch_request(&request, 0, &grant).unwrap();
+    }
+    assert!(ingress.receive_epoch_request(&request, 0, &grant).is_err());
+    assert!(
+        ingress
+            .receive_epoch_request(&request, 1000, &grant)
+            .is_err()
+    );
+}
+
+#[test]
+fn server_epoch_requests_cannot_interrupt_fragmented_messages() {
+    let grant = grant(v2());
+    let caps = capabilities(&grant);
+    let frames = wire::encode(&envelope(&grant, 1, 7, large_items(250)), &grant.wire).unwrap();
+    assert!(frames.len() > 1);
+    let mut ingress = Ingress::new(0);
+    ingress
+        .receive(&frames[0], 0, 0, &grant, |_| Some(&caps))
+        .unwrap();
+    let request = serde_json::to_vec(&session::Control::Epoch {
+        session: grant.session.clone(),
+        world_epoch: 8,
+    })
+    .unwrap();
+    assert!(ingress.receive_epoch_request(&request, 0, &grant).is_err());
+    assert!(
+        ingress
+            .receive_epoch_request(&request, 1000, &grant)
+            .is_err()
+    );
+}

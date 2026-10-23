@@ -1,0 +1,19 @@
+id = "worlds"
+version = "0.1.0"
+api = "0.6"
+data-schema = 1
+
+[client]
+permissions = ["messaging"]
+
+[[client.channels]]
+id = "worlds.view"
+schema = 1
+direction = "to_client"
+fields = [{ type = "choice", variants = 2 }]
+
+[[client.channels]]
+id = "worlds.ack"
+schema = 1
+direction = "to_server"
+fields = [{ type = "choice", variants = 2 }]

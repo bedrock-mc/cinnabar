@@ -287,6 +287,42 @@ pub struct Ingress {
 }
 
 impl Ingress {
+    /// Takes a server request to advance the logical world epoch on wire v2. Controls share
+    /// the envelope rate budget and cannot interrupt a fragmented message.
+    pub fn receive_epoch_request(
+        &mut self,
+        bytes: &[u8],
+        now_ms: u64,
+        grant: &Grant,
+    ) -> Result<Option<u64>> {
+        let Ok(crate::session::Control::Epoch {
+            session,
+            world_epoch,
+        }) = serde_json::from_slice(bytes)
+        else {
+            return Ok(None);
+        };
+        let result = (|| {
+            ensure!(!self.failed, "channel quarantined");
+            self.rate.charge(bytes.len(), now_ms)?;
+            ensure!(
+                grant.wire.version != WIRE_VERSION,
+                "world notice requires wire v2"
+            );
+            ensure!(session == grant.session, "world notice for another session");
+            ensure!(world_epoch != 0, "zero world epoch request");
+            ensure!(
+                self.partial.is_none(),
+                "world notice inside a fragmented message"
+            );
+            Ok(Some(world_epoch))
+        })();
+        if result.is_err() {
+            self.quarantine();
+        }
+        result
+    }
+
     /// Starts a fresh sequence space after a signed handshake.
     pub fn new(now_ms: u64) -> Self {
         Self {
@@ -313,12 +349,17 @@ impl Ingress {
     ) -> Result<()> {
         let result = self.receive_inner(bytes, now_ms, publication, grant, recipient);
         if result.is_err() {
-            self.failed = true;
-            self.queue.clear();
-            self.bytes = 0;
-            self.partial = None;
+            self.quarantine();
         }
         result
+    }
+
+    /// Revokes this direction and releases all queued or partially assembled messages.
+    fn quarantine(&mut self) {
+        self.failed = true;
+        self.queue.clear();
+        self.bytes = 0;
+        self.partial = None;
     }
 
     /// Validates identity and schema after charging aggregate ingress cost.

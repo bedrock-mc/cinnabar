@@ -22,12 +22,12 @@ use {
     },
 };
 
-const REGENERATE: &str = "regenerate with `cargo run -p cinnabar-cxb --locked -- write-fixtures tools/localserver/extension/testdata`";
+const REGENERATE: &str = "regenerate with `cargo run -p cinnabar-cxb --locked -- write-fixtures tools/localserver/cinnabarext/testdata`";
 /// The server half writes `go/`: Go's own marker, Accept and envelope for the client's verifiers.
-const REGENERATE_GO: &str = "regenerate with `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures` in tools/localserver";
+const REGENERATE_GO: &str = "regenerate with `go test ./cinnabarext -run TestGoFixturesAreCurrent -update-go-fixtures` in tools/localserver";
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../localserver/extension/testdata")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../localserver/cinnabarext/testdata")
 }
 
 fn read(name: &str) -> Vec<u8> {
@@ -439,6 +439,12 @@ fn go_server_half_passes_the_client_verifiers() {
     let large = ingress.pop(1, world_epoch).unwrap();
     assert_eq!(large.sequence, envelope.sequence + 1);
     assert_eq!(wire::encode(&large, &wire).unwrap(), messages[1..]);
+    assert_eq!(
+        ingress
+            .receive_epoch_request(&read("go/world_change_request.json"), 0, &grant)
+            .unwrap(),
+        Some(world_epoch + 1)
+    );
 }
 
 #[test]

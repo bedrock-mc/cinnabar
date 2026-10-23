@@ -140,6 +140,10 @@ pub(super) struct Live<H = Helper> {
     epoch: u64,
     /// Counts modal openings across bundles.
     modal_order: u64,
+    /// Last native world epoch, tracked separately from server-requested logical epochs.
+    native_epoch: u64,
+    /// Minimum logical epoch requested by the server since the previous poll.
+    requested_epoch: Option<u64>,
     /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
     gui: Option<(GuiSize, String)>,
     /// The session's items, for guests granted `items`.
@@ -224,6 +228,8 @@ impl<H: Worker> Live<H> {
             ready: false,
             epoch,
             modal_order: 0,
+            native_epoch: epoch,
+            requested_epoch: None,
             gui: None,
             session: None,
         };
@@ -234,9 +240,16 @@ impl<H: Worker> Live<H> {
     /// Publishes complete transactions only; failure revokes every contribution in this preview.
     pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
-        if epoch != self.epoch {
-            self.change_epoch(epoch, now_ms, &mut packets)?;
+        let requested = self.requested_epoch.take();
+        if epoch != self.native_epoch || requested.is_some() {
+            let next = self
+                .epoch
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("world epoch exhausted"))?;
+            self.change_epoch(next.max(requested.unwrap_or(next)), now_ms, &mut packets)?;
+            self.native_epoch = epoch;
         }
+        let epoch = self.epoch;
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
             self.budget.begin_slice();
@@ -460,6 +473,13 @@ impl<H: Worker> Live<H> {
     /// Applies aggregate limits and signed schemas before guest dispatch.
     pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
+        if let Some(epoch) = self
+            .ingress
+            .receive_epoch_request(bytes, now_ms, &self.grant)?
+        {
+            self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(epoch));
+            return Ok(());
+        }
         let instances = &self.instances;
         self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
             instances.get(id).map(|instance| &instance.capabilities)
