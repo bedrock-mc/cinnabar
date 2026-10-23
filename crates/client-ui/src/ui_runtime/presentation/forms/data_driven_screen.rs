@@ -1,7 +1,7 @@
 //! Draws the showing data-driven form and exposes its targets to input.
 
 use oreui::data_driven_screen::FormHit;
-use ui::{UiNode, UiPoint, UiRect};
+use ui::{UiNode, UiPoint};
 use ui_engine::engine::screen::PaintFrame;
 use ui_engine::text_metrics::TextMetrics;
 
@@ -29,6 +29,11 @@ impl UiPresentationRuntime {
         let Some(form) = runtime.data_driven_form() else {
             return Ok(());
         };
+        let focus = runtime.data_driven_focus_items();
+        self.screens.data_driven.set_editing(focus.editing);
+        self.screens
+            .data_driven
+            .set_open_dropdown(focus.open_dropdown);
         let mut frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -51,9 +56,9 @@ impl UiPresentationRuntime {
         self.screens.data_driven.hit(position)
     }
 
-    /// Where `hit` drew last frame, for reading a slider press along its track.
-    pub fn data_driven_bounds(&self, hit: FormHit) -> Option<UiRect> {
-        self.screens.data_driven.bounds(hit)
+    /// Where window-logical `x` lies along slider `item`'s thumb travel, from 0 to 1.
+    pub fn data_driven_slider_fraction(&self, item: usize, x: f32) -> Option<f32> {
+        self.screens.data_driven.slider_fraction(item, x)
     }
 
     /// Tracks the pointer and the held control for next frame's hover and press state.
@@ -62,23 +67,15 @@ impl UiPresentationRuntime {
         self.screens.data_driven.set_pressed(pressed);
     }
 
-    /// Scrolls the form's control column by `delta` logical px.
-    pub fn scroll_data_driven(&mut self, delta: f32) {
-        self.screens.data_driven.scroll_by(delta);
+    /// Scrolls the open option list under `position`, or else the form's control column, by
+    /// `delta` logical px.
+    pub fn scroll_data_driven(&mut self, position: Option<UiPoint>, delta: f32) {
+        self.screens.data_driven.scroll_at(position, delta);
     }
 
-    /// The dropdown item whose option list is open.
-    pub fn data_driven_open_dropdown(&self) -> Option<usize> {
-        self.screens.data_driven.open_dropdown()
-    }
-
-    /// Opens the option list of dropdown `item`, or closes the open one.
-    pub fn set_data_driven_dropdown(&mut self, item: Option<usize>) {
-        self.screens.data_driven.set_open_dropdown(item);
-    }
-
-    /// Marks the text field item taking typed text.
-    pub fn set_data_driven_editing(&mut self, item: Option<usize>) {
-        self.screens.data_driven.set_editing(item);
+    /// The data-driven form's targets from the last frame.
+    #[cfg(test)]
+    pub fn data_driven_hits(&self) -> &[(FormHit, ui::UiRect)] {
+        self.screens.data_driven.hits()
     }
 }

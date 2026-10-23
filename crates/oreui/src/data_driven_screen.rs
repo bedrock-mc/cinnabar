@@ -58,11 +58,12 @@ pub enum FormItem {
     },
 }
 
-/// A form to draw: its title, whether it shows a close button, and its controls.
+/// A form to draw: its title, its header close button and its controls.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DataDrivenForm {
     pub title: String,
-    pub close: bool,
+    /// Whether the header shows a close button, and whether it is enabled.
+    pub close: Option<bool>,
     pub items: Vec<FormItem>,
 }
 
@@ -88,6 +89,12 @@ pub struct DataDrivenScreen {
     editing: Option<usize>,
     scroll: f32,
     max_scroll: f32,
+    /// The open option list's scroll position and extent, and where it drew.
+    options_scroll: f32,
+    options_max: f32,
+    options_viewport: Option<UiRect>,
+    /// Each slider's thumb travel by item, in window-logical x.
+    travels: Vec<(usize, [f32; 2])>,
 }
 
 /// The scroll view key of the form's control column.
@@ -111,6 +118,9 @@ impl DataDrivenScreen {
         );
         canvas.bundle = theme::Bundle::Gameplay;
         canvas.offsets.insert(SCROLL_KEY.to_owned(), self.scroll);
+        canvas
+            .offsets
+            .insert(draw::OPTIONS_KEY.to_owned(), self.options_scroll);
         let hovered = self.pointer.and_then(|point| self.hit(point));
         let state = draw::State {
             hovered,
@@ -119,20 +129,31 @@ impl DataDrivenScreen {
             editing: self.editing,
         };
         let drawn = draw::form(&mut canvas, form, &state, frame.content, SCROLL_KEY)?;
-        if let Some(area) = canvas.scrolls.iter().find(|area| area.key == SCROLL_KEY) {
-            self.max_scroll = area.max;
-            self.scroll = area.offset;
+        for area in &canvas.scrolls {
+            if area.key == SCROLL_KEY {
+                self.max_scroll = area.max;
+                self.scroll = area.offset;
+            } else if area.key == draw::OPTIONS_KEY {
+                self.options_max = area.max;
+                self.options_scroll = area.offset;
+            }
         }
         let [left, top] = [frame.safe_area.left(), frame.safe_area.top()];
+        let shift = |b: [f32; 4]| rect(b[0] + left, b[1] + top, b[2] + left, b[3] + top).ok();
         self.hits = drawn
+            .hits
             .into_iter()
             .filter_map(|(hit, bounds)| {
                 let min = bounds.min();
                 let max = bounds.max();
-                rect(min.x() + left, min.y() + top, max.x() + left, max.y() + top)
-                    .ok()
-                    .map(|bounds| (hit, bounds))
+                shift([min.x(), min.y(), max.x(), max.y()]).map(|bounds| (hit, bounds))
             })
+            .collect();
+        self.options_viewport = drawn.options.and_then(shift);
+        self.travels = drawn
+            .travels
+            .into_iter()
+            .map(|(item, [start, end])| (item, [start + left, end + left]))
             .collect();
         Ok(())
     }
@@ -145,14 +166,6 @@ impl DataDrivenScreen {
             .find_map(|(hit, bounds)| bounds.contains(position).then_some(*hit))
     }
 
-    /// Where `hit` drew last frame, in window-logical px.
-    #[must_use]
-    pub fn bounds(&self, hit: FormHit) -> Option<UiRect> {
-        self.hits
-            .iter()
-            .find_map(|(candidate, bounds)| (*candidate == hit).then_some(*bounds))
-    }
-
     /// Tracks the pointer for next frame's hover state.
     pub fn set_pointer(&mut self, position: Option<UiPoint>) {
         self.pointer = position;
@@ -163,15 +176,14 @@ impl DataDrivenScreen {
         self.pressed = hit;
     }
 
-    /// Opens the option list of the dropdown at item position `item`, or closes it.
+    /// Opens the option list of the dropdown at item position `item`, or closes it; a newly
+    /// opened list starts at its top.
     pub fn set_open_dropdown(&mut self, item: Option<usize>) {
+        if self.open != item {
+            self.options_scroll = 0.0;
+            self.options_viewport = None;
+        }
         self.open = item;
-    }
-
-    /// The dropdown item whose option list is open.
-    #[must_use]
-    pub fn open_dropdown(&self) -> Option<usize> {
-        self.open
     }
 
     /// Marks the text field at item position `item` as taking typed text.
@@ -179,11 +191,35 @@ impl DataDrivenScreen {
         self.editing = item;
     }
 
-    /// Scrolls the control column by `delta` logical px, positive moving content up.
-    pub fn scroll_by(&mut self, delta: f32) {
-        if delta.is_finite() {
+    /// Scrolls by `delta` logical px (positive moving content up): the open option list under
+    /// `position`, otherwise the control column.
+    pub fn scroll_at(&mut self, position: Option<UiPoint>, delta: f32) {
+        if !delta.is_finite() {
+            return;
+        }
+        let over_options = self.open.is_some()
+            && position
+                .zip(self.options_viewport)
+                .is_some_and(|(point, viewport)| viewport.contains(point));
+        if over_options {
+            self.options_scroll = (self.options_scroll + delta).clamp(0.0, self.options_max);
+        } else {
             self.scroll = (self.scroll + delta).clamp(0.0, self.max_scroll);
         }
+    }
+
+    /// Where window-logical `x` lies along slider `item`'s thumb travel, from 0 to 1.
+    #[must_use]
+    pub fn slider_fraction(&self, item: usize, x: f32) -> Option<f32> {
+        let [start, end] = self
+            .travels
+            .iter()
+            .find_map(|(candidate, travel)| (*candidate == item).then_some(*travel))?;
+        Some(if end > start {
+            ((x - start) / (end - start)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        })
     }
 
     /// Forgets the previous form's scroll position and targets.

@@ -849,3 +849,62 @@ fn grab_free_capture_follows_the_desktop_capture_rules() {
         assert!(!super::grab_free_capture(&blocked, true));
     }
 }
+
+#[test]
+fn escaping_a_data_driven_form_returns_capture_after_focus_loss() {
+    use crate::ui_runtime::data_driven::drive_data_driven_input;
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseWheel};
+    use client_ui::ui_runtime::{SequencedUiEvent, presentation::UiPresentationRuntime};
+    use protocol::{ddui::ScriptedScreen, test_support::ddui};
+    use ui_engine::test_support::fixture_font;
+    let (mut app, window) = focus_app();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
+        .add_systems(
+            Update,
+            drive_data_driven_input.before(client_shell::menu::screen_focus::publish_screen_focus),
+        );
+    let events = ddui::show_events(
+        ScriptedScreen::CustomForm,
+        4,
+        7,
+        ddui::custom_form_property(),
+    );
+    let world = app.world_mut();
+    let mut player = player_state::PlayerState::new(1);
+    for (sequence, event) in (1..).zip(events) {
+        world
+            .resource_mut::<UiRuntimeResource>()
+            .apply(
+                &mut player,
+                SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: sequence,
+                    local_millis: sequence * 10,
+                    server_tick: None,
+                    event,
+                },
+            )
+            .unwrap();
+    }
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    assert_released(&app, window);
+    press_escape(&mut app, window);
+    assert!(
+        !app.world()
+            .resource::<UiRuntimeResource>()
+            .data_driven_ui()
+            .owns_input()
+    );
+    app.update();
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}

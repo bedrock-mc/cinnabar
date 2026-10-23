@@ -75,7 +75,7 @@ impl UiRuntime {
         Some(Projection {
             form: DataDrivenForm {
                 title: self.screen_text(view.title),
-                close: view.close_button.is_some(),
+                close: view.close_button.map(|button| !button.disabled),
                 items,
             },
             targets,
@@ -199,7 +199,7 @@ impl UiRuntime {
         Some(Projection {
             form: DataDrivenForm {
                 title: self.screen_text(view.title),
-                close: false,
+                close: None,
                 items,
             },
             targets,

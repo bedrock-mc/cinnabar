@@ -6,11 +6,11 @@ use ui_engine::engine::{rect, screen::PaintError};
 use super::super::icons::{self, Icon};
 use super::super::motion::Kind;
 use super::super::paint::{Bounds, Canvas};
-use super::super::settings::controls::{slider_face, toggle_at};
+use super::super::settings::controls::{slider_face, slider_travel, toggle_at};
 use super::super::settings::picker::select_face;
 use super::super::theme::{
     BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, EDGE, FIELD_CARET, HEADER5, NEUTRAL, NEUTRAL80,
-    OUTLINE, SECONDARY, TEXT, TEXT_DIMMER,
+    OUTLINE, SECONDARY, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
 use super::super::transitions::switch_target;
 use super::super::widgets::{Interaction, Variant, button_face, divider};
@@ -38,6 +38,18 @@ const OPTION: f32 = 4.0;
 /// The switch's drawn width, from its rail inset to its far edge.
 const SWITCH_WIDTH: f32 = 6.4;
 
+/// The scroll view key of an open dropdown's option list.
+pub(super) const OPTIONS_KEY: &str = "ddui_options";
+
+/// What one paint leaves for input: press targets (topmost first), each slider's thumb travel
+/// by item, and the open option list's viewport.
+#[derive(Default)]
+pub(super) struct Drawn {
+    pub(super) hits: Vec<(FormHit, UiRect)>,
+    pub(super) travels: Vec<(usize, [f32; 2])>,
+    pub(super) options: Option<Bounds>,
+}
+
 /// Interaction state the controls read this frame.
 pub(super) struct State {
     pub(super) hovered: Option<FormHit>,
@@ -64,7 +76,7 @@ pub(super) fn form(
     state: &State,
     size: [f32; 2],
     scroll_key: &str,
-) -> Result<Vec<(FormHit, UiRect)>, PaintError> {
+) -> Result<Drawn, PaintError> {
     let width = canvas.r(PANEL_WIDTH).min(size[0] - canvas.r(MARGIN) * 2.0);
     let inner = width - canvas.r(SIDE) * 2.0;
     let content = column_height(canvas, &form.items, inner)?;
@@ -76,7 +88,7 @@ pub(super) fn form(
     let left = ((size[0] - width) * 0.5).round();
     let top = ((size[1] - height) * 0.5).round();
     let panel = [left, top, left + width, top + height];
-    let mut hits = Vec::new();
+    let mut drawn = Drawn::default();
 
     canvas.fill(panel, BORDER)?;
     let edge = canvas.r(EDGE);
@@ -90,7 +102,7 @@ pub(super) fn form(
     canvas.specular(face, BEVEL_LIGHT, BEVEL_DARK)?;
 
     let header_bottom = face[1] + header - edge;
-    let title_right = if form.close {
+    let title_right = if form.close.is_some() {
         face[2] - canvas.r(CLOSE)
     } else {
         face[2] - canvas.r(TITLE_INSET)
@@ -105,7 +117,7 @@ pub(super) fn form(
         HEADER5,
         TEXT,
     )?;
-    if form.close {
+    if let Some(enabled) = form.close {
         let inset = canvas.r(0.4);
         let button = [
             face[2] - canvas.r(CLOSE) - inset * 0.5,
@@ -113,8 +125,10 @@ pub(super) fn form(
             face[2] - inset * 0.5,
             header_bottom - inset * 0.5,
         ];
-        close_button(canvas, button, state.of(FormHit::Close))?;
-        push(&mut hits, FormHit::Close, button, None)?;
+        close_button(canvas, button, state.of(FormHit::Close), enabled)?;
+        if enabled {
+            push(&mut drawn.hits, FormHit::Close, button, None)?;
+        }
     }
     divider(canvas, face[0], face[2], header_bottom)?;
 
@@ -131,6 +145,9 @@ pub(super) fn form(
         let mut item_state = state.of(hit);
         item_state.focused = state.editing == Some(index);
         let (height, target) = item_at(canvas, item, x, [face[0], face[2]], y, item_state)?;
+        if let (Some(target), FormItem::Slider { .. }) = (target, item) {
+            drawn.travels.push((index, slider_travel(canvas, target)));
+        }
         if let Some(target) = target {
             if state.open == Some(index)
                 && let FormItem::Dropdown {
@@ -139,22 +156,24 @@ pub(super) fn form(
             {
                 open = Some((target, options, *selected));
             }
-            push(&mut hits, hit, target, Some(viewport))?;
+            push(&mut drawn.hits, hit, target, Some(viewport))?;
         }
         y += height;
     }
     canvas.end_scroll(scroll, content)?;
     if let Some((anchor, options, selected)) = open {
-        let mut list = option_list(canvas, state, anchor, options, selected, size)?;
+        let (mut list, viewport) = option_list(canvas, state, anchor, options, selected, size)?;
         // The open list lies over the column, so its options take presses first.
-        list.append(&mut hits);
-        return Ok(list);
+        list.append(&mut drawn.hits);
+        drawn.hits = list;
+        drawn.options = Some(viewport);
     }
-    Ok(hits)
+    Ok(drawn)
 }
 
-/// Draws an open dropdown's options in a bordered list under its face (above it when the
-/// screen ends first) and returns their targets.
+/// Draws an open dropdown's options in a bordered list under its face, or above it when more
+/// room lies there. A list taller than that room scrolls; returns the option targets and the
+/// list's viewport.
 fn option_list(
     canvas: &mut Canvas<'_>,
     state: &State,
@@ -162,22 +181,41 @@ fn option_list(
     options: &[String],
     selected: Option<usize>,
     size: [f32; 2],
-) -> Result<Vec<(FormHit, UiRect)>, PaintError> {
+) -> Result<(Vec<(FormHit, UiRect)>, Bounds), PaintError> {
     let row = canvas.r(OPTION);
     let edge = canvas.r(EDGE);
-    let height = row * options.len() as f32 + edge * 2.0;
-    let top = if anchor[3] + height <= size[1] {
+    let margin = canvas.r(MARGIN);
+    let content = row * options.len() as f32;
+    let below = size[1] - margin - anchor[3];
+    let above = anchor[1] - margin;
+    let room = if content + edge * 2.0 <= below || below >= above {
+        below
+    } else {
+        above
+    };
+    let height = (content + edge * 2.0).min(room.max(row + edge * 2.0));
+    let top = if room == below {
         anchor[3]
     } else {
-        (anchor[1] - height).max(0.0)
+        anchor[1] - height
     };
     let list = [anchor[0], top, anchor[2], top + height];
     canvas.fill(list, BORDER)?;
+    let viewport = [
+        list[0] + edge,
+        list[1] + edge,
+        list[2] - edge,
+        list[3] - edge,
+    ];
+    let scroll = canvas.begin_scroll(OPTIONS_KEY, viewport)?;
     let role = canvas.role(SECONDARY);
     let mut hits = Vec::with_capacity(options.len());
     for (index, label) in options.iter().enumerate() {
-        let y = list[1] + edge + row * index as f32;
-        let b = [list[0] + edge, y, list[2] - edge, y + row];
+        let y = viewport[1] - scroll.offset + row * index as f32;
+        if y + row < viewport[1] || y > viewport[3] {
+            continue;
+        }
+        let b = [viewport[0], y, viewport[2], y + row];
         let hit = FormHit::Option(index);
         let motion = canvas.feedback(state.of(hit), true, selected == Some(index), Kind::Surface);
         let fill = if selected == Some(index) {
@@ -196,9 +234,10 @@ fn option_list(
             BODY,
             role.text,
         )?;
-        push(&mut hits, hit, b, None)?;
+        push(&mut hits, hit, b, Some(viewport))?;
     }
-    Ok(hits)
+    canvas.end_scroll(scroll, content)?;
+    Ok((hits, viewport))
 }
 
 /// Records a target, trimmed to `clip` when it scrolls.
@@ -474,10 +513,18 @@ fn field(
     Ok(())
 }
 
-/// The header's X: a flat square that lightens under the pointer.
-fn close_button(canvas: &mut Canvas<'_>, b: Bounds, state: Interaction) -> Result<(), PaintError> {
-    let motion = canvas.feedback(state, true, false, Kind::Surface);
+/// The header's X: a flat square that lightens under the pointer, dimmed when disabled.
+fn close_button(
+    canvas: &mut Canvas<'_>,
+    b: Bounds,
+    state: Interaction,
+    enabled: bool,
+) -> Result<(), PaintError> {
+    let motion = canvas.feedback(state, enabled, false, Kind::Surface);
     let role = canvas.role(NEUTRAL);
-    canvas.fill(b, motion.color([0; 4], role.hovered, role.pressed))?;
-    icons::draw_centred(canvas, Icon::Cross, b, TEXT)
+    if enabled {
+        canvas.fill(b, motion.color([0; 4], role.hovered, role.pressed))?;
+    }
+    let ink = if enabled { TEXT } else { TEXT_DIMMEST };
+    icons::draw_centred(canvas, Icon::Cross, b, ink)
 }

@@ -13,7 +13,7 @@ use protocol::ddui::{
     data_driven_screen_closed_packet,
 };
 
-pub use actions::DataDrivenAction;
+pub use actions::{DataDrivenAction, FocusItems};
 
 use super::{UiApplyOutcome, UiRuntime};
 
@@ -31,6 +31,8 @@ pub struct ActiveScreen {
 pub struct DataDrivenUi {
     stores: DataStores,
     active: Option<ActiveScreen>,
+    /// The showing screen's control taking text or showing its options.
+    focus: Option<actions::Focus>,
     ignored_store_changes: u64,
     /// Packets for the server, kept until the network flush takes them: every screen request
     /// waits for its answer, so none may be dropped when the shared queue is full.
@@ -66,6 +68,7 @@ impl DataDrivenUi {
     pub(super) fn clear(&mut self) {
         self.stores.clear();
         self.active = None;
+        self.focus = None;
         self.outgoing.clear();
     }
 
@@ -116,6 +119,7 @@ impl UiRuntime {
                 match (reason, screen) {
                     (Some(reason), _) => self.queue_screen_closed(show.form_id, reason),
                     (None, Some(screen)) => {
+                        self.data_driven.focus = None;
                         self.data_driven.active = Some(ActiveScreen {
                             form_id: show.form_id,
                             screen,
@@ -147,6 +151,7 @@ impl UiRuntime {
 
     /// Ends the showing screen and reports `reason` to the server.
     pub fn close_data_driven_screen(&mut self, reason: DataDrivenScreenCloseReason) {
+        self.data_driven.focus = None;
         if let Some(active) = self.data_driven.active.take() {
             self.queue_screen_closed(active.form_id, reason);
         }

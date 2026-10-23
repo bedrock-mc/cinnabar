@@ -185,8 +185,9 @@ pub(super) fn slider(
     if actions.is_empty() {
         return Ok(());
     }
-    let half = canvas.r(1.6).min((b[2] - b[0]) * 0.5);
-    let travel = (b[2] - b[0] - half * 2.0).max(0.0);
+    let [start, end] = slider_travel(canvas, b);
+    let half = start - b[0];
+    let travel = end - start;
     let selected_fraction = if actions.len() > 1 {
         selected.min(actions.len() - 1) as f32 / (actions.len() - 1) as f32
     } else {
@@ -254,6 +255,12 @@ pub(super) fn slider(
     result
 }
 
+/// The x range a slider thumb's centre moves over in `b`: inset by half the thumb at each end.
+pub(crate) fn slider_travel(canvas: &Canvas<'_>, b: Bounds) -> [f32; 2] {
+    let half = canvas.r(1.6).min((b[2] - b[0]) * 0.5);
+    [b[0] + half, (b[2] - half).max(b[0] + half)]
+}
+
 /// Draws a slider rail filled up to `fraction` and its thumb in `state`; returns the thumb
 /// bounds. `marks` stops (more than two) draw their interior step ticks; the caller owns input.
 pub(crate) fn slider_face(
@@ -264,9 +271,10 @@ pub(crate) fn slider_face(
     state: Interaction,
     enabled: bool,
 ) -> Result<Bounds, PaintError> {
-    let half = canvas.r(1.6).min((b[2] - b[0]) * 0.5);
-    let travel = (b[2] - b[0] - half * 2.0).max(0.0);
-    let centre = b[0] + half + fraction * travel;
+    let [start, end] = slider_travel(canvas, b);
+    let half = start - b[0];
+    let travel = end - start;
+    let centre = start + fraction * travel;
     let middle = (b[1] + b[3]) * 0.5;
     let rail = [b[0], middle - canvas.r(0.6), b[2], middle + canvas.r(0.6)];
     canvas.fill(rail, if enabled { theme::BORDER } else { RAIL_OFF })?;

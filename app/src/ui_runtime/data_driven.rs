@@ -27,13 +27,11 @@ use crate::ui_runtime::interaction::input_capture::{
 /// Logical px a wheel line scrolls the form's column.
 const WHEEL_LINE: f32 = 40.0;
 
-/// The pointer press in progress and the text being typed into a field.
+/// The pointer press in progress, and whether a form owned input last frame.
 #[derive(Default)]
 pub(crate) struct FormGesture {
     held: Option<FormHit>,
     owned_last_frame: bool,
-    /// The edited field's item position and its text so far.
-    editing: Option<(usize, String)>,
 }
 
 /// Routes pointer, wheel and keyboard input to the showing data-driven form, and frees the
@@ -42,7 +40,7 @@ pub(crate) struct FormGesture {
 pub(crate) fn drive_data_driven_input(
     player_runtime: Res<client_state::PlayerRuntime>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    focus: Option<Res<client_state::CursorFocus>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -114,28 +112,28 @@ pub(crate) fn drive_data_driven_input(
             MouseScrollUnit::Line => event.y * WHEEL_LINE,
             MouseScrollUnit::Pixel => event.y,
         };
-        presentation.scroll_data_driven(-lines);
+        presentation.scroll_data_driven(pointer, -lines);
     }
 
+    let focused = runtime.data_driven_focus_items();
     let mut dismiss = mouse.just_pressed(MouseButton::Back);
     for event in keyboard
         .read()
         .filter(|event| event.state == ButtonState::Pressed)
     {
-        match (event.key_code, gesture.editing.as_mut()) {
-            (KeyCode::Escape, Some(_)) | (KeyCode::Enter | KeyCode::NumpadEnter, Some(_)) => {
-                gesture.editing = None;
+        let editing = focused.editing.is_some();
+        match event.key_code {
+            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if editing => {
+                runtime.data_driven_action(DataDrivenAction::Blur);
             }
-            (KeyCode::Escape, None) if presentation.data_driven_open_dropdown().is_some() => {
-                presentation.set_data_driven_dropdown(None);
+            KeyCode::Escape if focused.open_dropdown.is_some() => {
+                runtime.data_driven_action(DataDrivenAction::Blur);
             }
-            (KeyCode::Escape, None) => dismiss = true,
-            (KeyCode::Backspace, Some((item, text))) => {
-                if text.pop().is_some() {
-                    runtime.data_driven_action(DataDrivenAction::Text(*item, text.clone()));
-                }
+            KeyCode::Escape => dismiss = true,
+            KeyCode::Backspace if editing => {
+                runtime.data_driven_action(DataDrivenAction::Backspace);
             }
-            (_, Some((item, text))) => {
+            _ if editing => {
                 let typed: String = event
                     .text
                     .iter()
@@ -143,42 +141,47 @@ pub(crate) fn drive_data_driven_input(
                     .filter(|character| !character.is_control())
                     .collect();
                 if !typed.is_empty() {
-                    text.push_str(&typed);
-                    runtime.data_driven_action(DataDrivenAction::Text(*item, text.clone()));
+                    runtime.data_driven_action(DataDrivenAction::Type(typed));
                 }
             }
             _ => {}
         }
     }
     if dismiss {
-        runtime.data_driven_action(DataDrivenAction::Close);
-        *gesture = FormGesture::default();
-        // The dismissing key must not also open the pause menu this frame.
-        keys.reset_all();
-        mouse.reset_all();
-        return;
+        runtime.data_driven_action(DataDrivenAction::Dismiss);
     }
 
     for down in edges {
+        if !runtime.data_driven_ui().owns_input() {
+            break;
+        }
         let hit = pointer.and_then(|point| presentation.hit_test_data_driven(point));
         if down {
             gesture.held = hit;
-            press(
-                &mut runtime,
-                &mut presentation,
-                &mut gesture,
-                form.as_ref(),
-                hit,
-                pointer,
-            );
+            press(&mut runtime, &presentation, form.as_ref(), hit, pointer);
         } else {
             if let (Some(held), Some(released)) = (gesture.held, hit)
                 && held == released
             {
-                release(&mut runtime, &mut presentation, form.as_ref(), held);
+                release(&mut runtime, form.as_ref(), held);
             }
             gesture.held = None;
         }
+    }
+    if !runtime.data_driven_ui().owns_input() {
+        // The player closed the form: the cursor may return to the game, and the closing input
+        // must not also act there or open the pause menu this frame.
+        if let Some(focus) = focus.as_deref_mut() {
+            focus.authorize_screen_return();
+        }
+        *gesture = FormGesture::default();
+        presentation.set_data_driven_pointer(None, None);
+        keys.reset_all();
+        mouse.reset_all();
+        if !runtime.ui_focused(&player_runtime) {
+            restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
+        }
+        return;
     }
     // A held slider follows the pointer along its track.
     if let Some(FormHit::Item(item)) = gesture.held
@@ -187,7 +190,6 @@ pub(crate) fn drive_data_driven_input(
         slide(&mut runtime, &presentation, item, pointer);
     }
     presentation.set_data_driven_pointer(pointer, gesture.held);
-    presentation.set_data_driven_editing(gesture.editing.as_ref().map(|(item, _)| *item));
     suppress_gameplay_input_for_chat(
         &player_runtime,
         &runtime,
@@ -198,88 +200,74 @@ pub(crate) fn drive_data_driven_input(
     );
 }
 
-/// A press focuses or opens what it lands on; buttons and toggles act on release.
+/// A press focuses a text field, opens or closes a dropdown or moves a slider; buttons and
+/// toggles act on release. A press elsewhere ends text entry and closes an open option list.
 fn press(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
-    presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
-    gesture: &mut FormGesture,
+    presentation: &client_ui::ui_runtime::presentation::UiPresentationRuntime,
     form: Option<&oreui::data_driven_screen::DataDrivenForm>,
     hit: Option<FormHit>,
     pointer: Option<ui::UiPoint>,
 ) {
-    let open = presentation.data_driven_open_dropdown();
-    if !matches!(hit, Some(FormHit::Option(_))) {
-        presentation.set_data_driven_dropdown(None);
-    }
-    let Some(FormHit::Item(item)) = hit else {
-        gesture.editing = None;
-        return;
-    };
-    match form.and_then(|form| form.items.get(item)) {
-        Some(FormItem::TextField { text, .. }) => {
-            gesture.editing = Some((item, text.clone()));
+    match (hit, hit.and_then(|hit| item_of(form, hit))) {
+        (Some(FormHit::Option(_)), _) => {}
+        (
+            Some(FormHit::Item(item)),
+            Some(FormItem::TextField { .. } | FormItem::Dropdown { .. }),
+        ) => {
+            runtime.data_driven_action(DataDrivenAction::Activate(item));
         }
-        Some(FormItem::Dropdown { .. }) => {
-            gesture.editing = None;
-            presentation.set_data_driven_dropdown((open != Some(item)).then_some(item));
-        }
-        Some(FormItem::Slider { .. }) => {
-            gesture.editing = None;
+        (Some(FormHit::Item(item)), Some(FormItem::Slider { .. })) => {
             slide(runtime, presentation, item, pointer);
         }
-        _ => gesture.editing = None,
+        _ => runtime.data_driven_action(DataDrivenAction::Blur),
     }
 }
 
 fn release(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
-    presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
     form: Option<&oreui::data_driven_screen::DataDrivenForm>,
     hit: FormHit,
 ) {
-    match hit {
-        FormHit::Close => runtime.data_driven_action(DataDrivenAction::Close),
-        FormHit::Option(choice) => {
-            if let Some(item) = presentation.data_driven_open_dropdown() {
-                runtime.data_driven_action(DataDrivenAction::Choose(item, choice));
-            }
-            presentation.set_data_driven_dropdown(None);
+    match (hit, item_of(form, hit)) {
+        (FormHit::Close, _) => runtime.data_driven_action(DataDrivenAction::Close),
+        (FormHit::Option(choice), _) => {
+            runtime.data_driven_action(DataDrivenAction::Choose(choice))
         }
-        FormHit::Item(item) => {
-            if matches!(
-                form.and_then(|form| form.items.get(item)),
-                Some(FormItem::Button { .. } | FormItem::Toggle { .. })
-            ) {
-                runtime.data_driven_action(DataDrivenAction::Activate(item));
-            }
+        (FormHit::Item(item), Some(FormItem::Button { .. } | FormItem::Toggle { .. })) => {
+            runtime.data_driven_action(DataDrivenAction::Activate(item));
         }
+        _ => {}
     }
+}
+
+fn item_of(
+    form: Option<&oreui::data_driven_screen::DataDrivenForm>,
+    hit: FormHit,
+) -> Option<&FormItem> {
+    let FormHit::Item(item) = hit else {
+        return None;
+    };
+    form?.items.get(item)
 }
 
 fn is_slider(form: Option<&oreui::data_driven_screen::DataDrivenForm>, item: usize) -> bool {
     matches!(
-        form.and_then(|form| form.items.get(item)),
+        item_of(form, FormHit::Item(item)),
         Some(FormItem::Slider { .. })
     )
 }
 
-/// Moves slider `item` to where the pointer lies along its last drawn track.
+/// Moves slider `item` to where the pointer lies along its thumb's travel.
 fn slide(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
     presentation: &client_ui::ui_runtime::presentation::UiPresentationRuntime,
     item: usize,
     pointer: Option<ui::UiPoint>,
 ) {
-    let (Some(pointer), Some(track)) = (
-        pointer,
-        presentation.data_driven_bounds(FormHit::Item(item)),
-    ) else {
-        return;
-    };
-    let width = track.max().x() - track.min().x();
-    if width <= 0.0 {
-        return;
+    if let Some(fraction) =
+        pointer.and_then(|pointer| presentation.data_driven_slider_fraction(item, pointer.x()))
+    {
+        runtime.data_driven_action(DataDrivenAction::Slide(item, fraction));
     }
-    let fraction = (pointer.x() - track.min().x()) / width;
-    runtime.data_driven_action(DataDrivenAction::Slide(item, fraction));
 }
