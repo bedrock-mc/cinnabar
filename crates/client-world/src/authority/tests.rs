@@ -321,6 +321,7 @@ fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
     assert!(matches!(
         authority.take_committed_ui().as_slice(),
         [
+            CommittedUiEvent::LocalSpawn { sequence: 1, .. },
             CommittedUiEvent::Ui {
                 sequence: 2,
                 event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 })

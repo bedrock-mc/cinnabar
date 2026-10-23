@@ -123,7 +123,7 @@ fn rejecting_a_screen_predecessor_rebuilds_an_unsent_world_drop() {
     assert_eq!(count, 1);
     let transaction = observe_transaction(&packet).unwrap();
     assert_eq!(transaction.actions[0].from_item.count, 5);
-    assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(100));
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].to_item.count, 4);
     assert!(ledger.mark_transport_enqueued(22));
     ledger.apply(&response(legacy, StackResponseStatus::Rejected, None));

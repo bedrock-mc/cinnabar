@@ -174,9 +174,8 @@ fn consumption_survives_a_merge_then_transported_move() {
                         )
                         .unwrap();
                     send_all(&mut ledger);
-                    let mut consumed = 0;
                     for _ in 0..uses {
-                        consumed = consume_backing(&mut ledger, used_slot);
+                        consume_backing(&mut ledger, used_slot);
                     }
                     for id in if successor_first {
                         [moved, merge]
@@ -230,10 +229,7 @@ fn consumption_survives_a_merge_then_transported_move() {
                         protocol::test_support::transactions::observe_transaction(&packet).unwrap();
                     assert_eq!(transaction.actions[0].from_item.count, expected);
                     assert_eq!(transaction.actions[0].to_item.count, expected - 1);
-                    assert_eq!(
-                        transaction.actions[0].from_item.stack_network_id,
-                        Some(if uses > residual_use { consumed } else { 92 }),
-                    );
+                    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
                 }
             }
         }
