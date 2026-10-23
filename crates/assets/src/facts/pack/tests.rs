@@ -394,6 +394,7 @@ fn pack_rules_preserve_typed_texture_and_block_requests() {
         (PackBlock::CobblestoneWall, "minecraft:cobblestone_wall"),
         (PackBlock::Air, "minecraft:air"),
         (PackBlock::Stone, "minecraft:stone"),
+        (PackBlock::HeavyCore, "minecraft:heavy_core"),
     ] {
         assert_eq!(slot.identifier(), old);
     }
@@ -523,4 +524,29 @@ fn existing_item_and_entity_facts_preserve_pack_special_cases() {
             record.identifier.as_ref() == "minecraft:ender_crystal"
         );
     }
+}
+
+/// Each face-slot member is registered with the facing state its native class reads.
+#[test]
+fn face_slot_members_carry_the_state_their_class_reads() {
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut members = BTreeSet::new();
+    for record in records.iter() {
+        let Some(slots) = face_slots(&record.name) else {
+            continue;
+        };
+        assert!(
+            record
+                .property(crate::facts::BlockProperty::MinecraftCardinalDirection)
+                .is_some(),
+            "{} ({slots:?})",
+            record.name
+        );
+        members.insert(record.name.to_string());
+    }
+    assert_eq!(members.len(), 9);
 }

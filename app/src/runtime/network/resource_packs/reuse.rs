@@ -1,5 +1,5 @@
 //! Retains equivalent server stacks under the same process tables for joins and reloads.
-//! Only blocks and icons recompile when their StartGame inputs change.
+//! Active sessions reuse unchanged outputs; the menu retains only archives and admission metadata.
 
 use std::{
     collections::VecDeque,
@@ -17,8 +17,7 @@ use pack_runtime::reload_diff::Changes;
 /// A lobby and the game it transfers to.
 const KEPT_STACKS: usize = 2;
 
-/// Archive bytes past which leaving for the menu releases the newest stack instead of keeping it
-/// for a rejoin; its compiled outputs scale with them.
+/// Compressed archives retained for a rejoin; decoded outputs never use this allowance.
 const REJOIN_KEPT_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 
 /// Process tables a compile reads besides the stack and StartGame facts.
@@ -72,8 +71,15 @@ impl PartialEq for CompileEnvironment {
 }
 
 struct Kept {
-    environment: CompileEnvironment,
     stack: Arc<ValidatedPackStack>,
+    /// Computed on the preparation worker, so leaving does not walk the pack stack.
+    archive_bytes: usize,
+    /// Present only while a session can reuse its compiled outputs.
+    compiled: Option<Compiled>,
+}
+
+struct Compiled {
+    environment: CompileEnvironment,
     /// Admits `stack`; `server_ui` is the source the worker catalog prepares, not its result.
     application: PackApplication,
     /// Keeps the worker catalog cache's prepared UI alive for the next join over the same carrier.
@@ -114,7 +120,7 @@ impl CompiledStacks {
         &self,
         stack: &ValidatedPackStack,
         environment: &CompileEnvironment,
-    ) -> Option<(Arc<ValidatedPackStack>, PackApplication)> {
+    ) -> Option<(Arc<ValidatedPackStack>, Option<PackApplication>)> {
         self.matching_by(stack, environment, ValidatedPackStack::same_contents)
     }
 
@@ -125,12 +131,23 @@ impl CompiledStacks {
         stack: &ValidatedPackStack,
         environment: &CompileEnvironment,
         same: impl Fn(&ValidatedPackStack, &ValidatedPackStack) -> bool,
-    ) -> Option<(Arc<ValidatedPackStack>, PackApplication)> {
+    ) -> Option<(Arc<ValidatedPackStack>, Option<PackApplication>)> {
         let candidates: Vec<_> = self
             .lock()
             .iter()
-            .filter(|kept| kept.environment == *environment)
-            .map(|kept| (Arc::clone(&kept.stack), kept.application.clone()))
+            .filter(|kept| {
+                kept.compiled
+                    .as_ref()
+                    .is_none_or(|compiled| compiled.environment == *environment)
+            })
+            .map(|kept| {
+                (
+                    Arc::clone(&kept.stack),
+                    kept.compiled
+                        .as_ref()
+                        .map(|compiled| compiled.application.clone()),
+                )
+            })
             .collect();
         candidates.into_iter().find(|(kept, _)| same(kept, stack))
     }
@@ -176,13 +193,20 @@ impl CompiledStacks {
             .filter(|kept| same(kept, stack))
             .collect();
         let entry = Kept {
-            environment,
             stack: Arc::clone(stack),
-            _prepared_ui: application.server_ui.clone(),
-            application: PackApplication {
-                server_ui: source_ui,
-                ..application.clone()
-            },
+            archive_bytes: stack
+                .packs()
+                .iter()
+                .map(|pack| pack.archive_bytes().len())
+                .sum(),
+            compiled: Some(Compiled {
+                environment,
+                _prepared_ui: application.server_ui.clone(),
+                application: PackApplication {
+                    server_ui: source_ui,
+                    ..application.clone()
+                },
+            }),
         };
         let evicted = {
             let mut kept = self.lock();
@@ -233,31 +257,25 @@ impl CompiledStacks {
         client_runtime::session::release_off_frame(released);
     }
 
-    /// Keeps only the newest stack, for a rejoin from the menu to reuse, unless its archives
-    /// exceed the rejoin budget; the rest are freed off the calling frame.
+    /// Keeps only the newest stack's archives within the cap, releasing all compiled outputs
+    /// and cached reads off the calling frame. A rejoin rebuilds its presentation.
     pub(crate) fn keep_for_rejoin(&self) {
         self.keep_newest_within(REJOIN_KEPT_ARCHIVE_BYTES);
     }
 
-    /// [`Self::keep_for_rejoin`] under an explicit archive budget.
-    fn keep_newest_within(&self, archive_bytes: usize) {
-        let released: Vec<Kept> = {
+    /// [`Self::keep_for_rejoin`] under an explicit byte budget.
+    fn keep_newest_within(&self, budget: usize) {
+        let (released, compiled, reads) = {
             let mut kept = self.lock();
-            let keep = kept.front().is_some_and(|newest| {
-                newest
-                    .stack
-                    .packs()
-                    .iter()
-                    .map(|pack| pack.archive_bytes().len())
-                    .sum::<usize>()
-                    <= archive_bytes
-            });
-            kept.drain(usize::from(keep)..).collect()
+            let keep = kept
+                .front()
+                .is_some_and(|newest| newest.archive_bytes <= budget);
+            let released: Vec<_> = kept.drain(usize::from(keep)..).collect();
+            let compiled = kept.front_mut().and_then(|newest| newest.compiled.take());
+            let reads = kept.front().map(|newest| newest.stack.take_cached_reads());
+            (released, compiled, reads)
         };
-        #[cfg(not(target_arch = "wasm32"))]
-        rayon::spawn(move || drop(released));
-        #[cfg(target_arch = "wasm32")]
-        client_runtime::session::release_off_frame(released);
+        client_runtime::session::release_off_frame((released, compiled, reads));
     }
 
     /// How many stacks are kept.
@@ -295,7 +313,7 @@ pub(in crate::runtime::network) fn compile_reusing(
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<PackApplication> {
     match kept.matching(&stack, environment) {
-        Some((compiled, previous)) => {
+        Some((compiled, Some(previous))) => {
             let changes = Changes::for_inputs(&previous.inputs, &inputs);
             bevy::log::info!(
                 packs = compiled.packs().len(),
@@ -307,7 +325,10 @@ pub(in crate::runtime::network) fn compile_reusing(
             );
             compile_application(compiled, inputs, Some(&previous), changes, cancelled)
         }
-        None => compile_application(stack, inputs, None, Changes::all(), cancelled),
+        matched => {
+            let stack = matched.map_or(stack, |(archives, _)| archives);
+            compile_application(stack, inputs, None, Changes::all(), cancelled)
+        }
     }
 }
 

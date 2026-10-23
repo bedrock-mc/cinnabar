@@ -9,13 +9,7 @@ pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
 impl ActorSnapshot {
     /// Bounds for movement use constructor dimensions when the server omits them.
     pub(super) fn movement_collision_bounds(&self) -> Option<ActorCollisionBounds> {
-        self.bounding_box_with_defaults(
-            self.position,
-            self.entity_fact.collision.unwrap_or([
-                DEFAULT_ACTOR_COLLISION_WIDTH,
-                DEFAULT_ACTOR_COLLISION_HEIGHT,
-            ]),
-        )
+        self.bounding_box()
     }
 
     /// Uses the synced collision flag when supplied, otherwise the default definition.
@@ -36,7 +30,7 @@ impl ActorSnapshot {
     }
 
     /// Feet-anchored `(min, max)` box with server scale applied once.
-    /// Omitted dimensions retain the generic actor defaults independently.
+    /// Omitted dimensions retain the actor definition's defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
         self.bounding_box_at(self.position)
@@ -45,21 +39,6 @@ impl ActorSnapshot {
     /// [`Self::bounding_box`] with the feet at `position`.
     #[must_use]
     pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
-        self.bounding_box_with_defaults(
-            position,
-            [
-                DEFAULT_ACTOR_COLLISION_WIDTH,
-                DEFAULT_ACTOR_COLLISION_HEIGHT,
-            ],
-        )
-    }
-
-    /// Applies server dimensions and scale to a box, using caller-owned defaults for omitted size.
-    fn bounding_box_with_defaults(
-        &self,
-        position: [f32; 3],
-        defaults: [f32; 2],
-    ) -> Option<([f32; 3], [f32; 3])> {
         if let Some(painting) = &self.painting {
             use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_HITBOX_INSET, motive};
             use protocol::PaintingDirection;
@@ -79,6 +58,10 @@ impl ActorSnapshot {
                 std::array::from_fn(|axis| position[axis] + half[axis]),
             ));
         }
+        let defaults = self.entity_fact.collision.unwrap_or([
+            DEFAULT_ACTOR_COLLISION_WIDTH,
+            DEFAULT_ACTOR_COLLISION_HEIGHT,
+        ]);
         let width = self.scaled_collision_dimension(ActorDataKey::Width, defaults[0])?;
         let height = self.scaled_collision_dimension(ActorDataKey::Height, defaults[1])?;
         let half_width = width * 0.5;

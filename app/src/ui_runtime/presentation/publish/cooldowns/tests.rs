@@ -89,7 +89,7 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
             charge_projectile: None,
             press_consumed: false,
         });
-        assert!(outcome.started || outcome.swung);
+        assert!(outcome.started || outcome.swung.is_some());
         for (elapsed, expected) in [
             (0, 1.0),
             (u64::from(cooldown.ticks) / 2, 0.5),

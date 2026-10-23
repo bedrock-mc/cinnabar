@@ -17,9 +17,9 @@ pub(super) fn window_display_timing(window: &winit::window::Window) -> DisplayTi
     }
 }
 
-/// Converts AppKit's current refresh intervals, requiring native fullscreen for adaptive sync.
+/// Reads the supported refresh ceiling; an adaptive range does not prove VRR is active.
 #[cfg(any(target_os = "macos", test))]
-fn timing_from_intervals(minimum: f64, maximum: f64, fullscreen: bool) -> Option<DisplayTiming> {
+fn timing_from_intervals(minimum: f64, maximum: f64) -> Option<DisplayTiming> {
     if !minimum.is_finite() || !maximum.is_finite() || minimum <= 0.0 || maximum < minimum {
         return None;
     }
@@ -29,8 +29,8 @@ fn timing_from_intervals(minimum: f64, maximum: f64, fullscreen: bool) -> Option
     }
     Some(DisplayTiming {
         refresh: FrameRate::from_millihertz(millihertz as u32),
-        vrr: if fullscreen && maximum > minimum {
-            VrrStatus::Active
+        vrr: if maximum > minimum {
+            VrrStatus::Unknown
         } else {
             VrrStatus::Inactive
         },
@@ -41,7 +41,7 @@ fn timing_from_intervals(minimum: f64, maximum: f64, fullscreen: bool) -> Option
 #[cfg(target_os = "macos")]
 fn macos_display_timing(window: &winit::window::Window) -> Option<DisplayTiming> {
     use objc2::{MainThreadMarker, runtime::NSObjectProtocol, sel};
-    use objc2_app_kit::{NSView, NSWindowStyleMask};
+    use objc2_app_kit::NSView;
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let _main_thread = MainThreadMarker::new()?;
@@ -60,11 +60,6 @@ fn macos_display_timing(window: &winit::window::Window) -> Option<DisplayTiming>
     timing_from_intervals(
         screen.minimumRefreshInterval(),
         screen.maximumRefreshInterval(),
-        native_window
-            .styleMask()
-            .contains(NSWindowStyleMask::FullScreen)
-            && native_window.isVisible()
-            && !native_window.isMiniaturized(),
     )
 }
 
@@ -73,16 +68,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vrr_requires_valid_adaptive_intervals_and_native_fullscreen() {
-        let fastest = 1.0 / 120.0;
-        for (slowest, fullscreen, status) in [
-            (1.0 / 48.0, true, VrrStatus::Active),
-            (1.0 / 48.0, false, VrrStatus::Inactive),
-            (fastest, true, VrrStatus::Inactive),
-            (fastest, false, VrrStatus::Inactive),
+    fn adaptive_refresh_capability_does_not_cap_vsync_off() {
+        use render_api::{FrameRateLimit, VrrPreference};
+        use render_model::{FrameRateContext, PresentationIntent, frame_rate_target};
+
+        let timing = timing_from_intervals(1.0 / 120.0, 1.0 / 48.0).unwrap();
+        let context = FrameRateContext::Gameplay { on_battery: false };
+        for intent in [
+            PresentationIntent::LowLatency,
+            PresentationIntent::AllowTearing,
         ] {
             assert_eq!(
-                timing_from_intervals(fastest, slowest, fullscreen),
+                frame_rate_target(
+                    intent,
+                    FrameRateLimit::Unlimited,
+                    timing.with_vrr_preference(VrrPreference::Automatic),
+                    context,
+                ),
+                None,
+            );
+            assert_eq!(
+                frame_rate_target(
+                    intent,
+                    FrameRateLimit::Unlimited,
+                    timing.with_vrr_preference(VrrPreference::On),
+                    context,
+                ),
+                FrameRate::from_hz(116),
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_intervals_report_capabilities_without_claiming_active_vrr() {
+        let fastest = 1.0 / 120.0;
+        for (slowest, status) in [
+            (1.0 / 48.0, VrrStatus::Unknown),
+            (fastest, VrrStatus::Inactive),
+        ] {
+            assert_eq!(
+                timing_from_intervals(fastest, slowest),
                 Some(DisplayTiming {
                     refresh: FrameRate::from_hz(120),
                     vrr: status,
@@ -97,7 +122,7 @@ mod tests {
             (fastest, f64::INFINITY),
             (f64::MIN_POSITIVE, fastest),
         ] {
-            assert_eq!(timing_from_intervals(minimum, maximum, true), None);
+            assert_eq!(timing_from_intervals(minimum, maximum), None);
         }
     }
 }

@@ -41,6 +41,7 @@ pub enum PresentModePreference {
     Auto = 0,
     Vsync = 1,
     NoVsync = 2,
+    AllowTearing = 3,
 }
 
 impl PresentModePreference {
@@ -48,6 +49,7 @@ impl PresentModePreference {
         match value {
             1 => Self::Vsync,
             2 => Self::NoVsync,
+            3 => Self::AllowTearing,
             _ => Self::Auto,
         }
     }
@@ -57,6 +59,7 @@ impl PresentModePreference {
         match self {
             Self::Auto | Self::Vsync => PresentationIntent::Synchronized,
             Self::NoVsync => PresentationIntent::LowLatency,
+            Self::AllowTearing => PresentationIntent::AllowTearing,
         }
     }
 }

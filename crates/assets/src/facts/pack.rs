@@ -64,6 +64,7 @@ domain!(PackBlock {
     CobblestoneWall,
     Air,
     Stone,
+    HeavyCore,
     StrawBed
 });
 domain!(TextureSelector {
@@ -78,13 +79,26 @@ domain!(TextureSelector {
     Torchflower
 });
 
-/// Identifies a furnace-family cube (furnace, blast furnace, smoker) and whether its front
-/// uses lit artwork, from the registry policy's render routes.
-pub fn furnace_lit(identifier: &str) -> Option<bool> {
+/// How a built-in block's world faces pick its authored face slots.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FaceSlots {
+    /// The front on the cardinal face reads south, or east when lit; other sides read north.
+    Furnace { lit: bool },
+    /// The front on the cardinal face reads south, other sides north and both caps up.
+    Pumpkin,
+}
+
+/// Selects cardinal face-slot rules, deriving furnace membership from the registry policy.
+pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
     match super::block_render_fact(identifier).kind {
-        super::BlockRenderKind::Furnace => Some(false),
-        super::BlockRenderKind::LitFurnace => Some(true),
-        _ => None,
+        super::BlockRenderKind::Furnace => Some(FaceSlots::Furnace { lit: false }),
+        super::BlockRenderKind::LitFurnace => Some(FaceSlots::Furnace { lit: true }),
+        _ => match identifier {
+            "minecraft:pumpkin" | "minecraft:carved_pumpkin" | "minecraft:lit_pumpkin" => {
+                Some(FaceSlots::Pumpkin)
+            }
+            _ => None,
+        },
     }
 }
 

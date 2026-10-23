@@ -42,7 +42,10 @@ pub(super) fn run(
         let sprite = match flat_by_path.get(path) {
             Some(existing) => *existing,
             None => {
-                let sprite = IconBlocks::sprite(root, path)?
+                let sprite = blocks
+                    .map(|blocks| blocks.flat_sprite(root, path))
+                    .transpose()?
+                    .flatten()
                     .map(|sprite| insert_sprite(sprites, sprite, &block_models));
                 flat_by_path.insert(path.clone(), sprite);
                 sprite

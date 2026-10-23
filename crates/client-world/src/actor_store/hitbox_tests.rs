@@ -97,7 +97,7 @@ fn every_hitbox_entry_is_an_interaction_box() {
 
 #[test]
 fn empty_or_unreadable_updates_preserve_existing_hitboxes() {
-    let collision = vec![([9.7, 64.0, 19.7], [10.3, 65.8, 20.3])];
+    let collision = boxes(&store_with(0.0, vec![]));
     let mut store = store_with(0.0, vec![hitbox_compound(&[RAISED])]);
     store.apply(
         1,
@@ -297,8 +297,9 @@ fn predicted_custom_boxes_match_live_interpolation_without_rotating() {
 
 #[test]
 fn well_formed_non_compound_hitboxes_are_skipped() {
+    let collision = boxes(&store_with(0.0, vec![]));
     let mut root = NbtCompound::default();
     root.insert("Hitboxes", NbtValue::List(vec![NbtValue::Int(7)]));
     let store = store_with(0.0, vec![compound(root.encode_root().unwrap())]);
-    assert_boxes_near(&boxes(&store), &[([9.7, 64.0, 19.7], [10.3, 65.8, 20.3])]);
+    assert_boxes_near(&boxes(&store), &collision);
 }

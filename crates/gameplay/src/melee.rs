@@ -9,6 +9,8 @@ const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 
 #[cfg(test)]
 mod actor_pick_tests;
+#[cfg(test)]
+mod hit_position_tests;
 mod target;
 pub use target::{
     ActorHit, Crosshair, actor_is_pickable, actor_pick_unique_id, block_pick_distance, classify,

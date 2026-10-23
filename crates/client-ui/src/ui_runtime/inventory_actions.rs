@@ -427,12 +427,12 @@ impl UiRuntime {
         if let InventoryCellHit::RecipeBook(index) = hit {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
-        if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+        if let InventoryCellHit::Widget(Widget::BookRecipe(index)) = hit {
             // A secondary click crafts once only with an empty cursor.
             if player_runtime.inventory.ledger().cursor_stack().is_some() {
                 return Err(InventoryGestureError::InvalidRequest);
             }
-            return self.activate_widget(player_runtime, widget);
+            return self.book_widget_craft(player_runtime, index, catalog::BookClick::CraftOnce);
         }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
@@ -543,7 +543,7 @@ impl UiRuntime {
                 self.recipe_book_click(player_runtime, index, true, None)
             }
             InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
-                self.book_widget_craft(player_runtime, index, true)
+                self.book_widget_craft(player_runtime, index, catalog::BookClick::CraftAll)
             }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
@@ -816,6 +816,8 @@ impl UiRuntime {
                         options.filtering = !options.filtering
                     });
                 }
+                self.inventory_ledger_mut(player_runtime)
+                    .clear_recipe_selection();
                 self.change_inventory_options(player_runtime, true, |controller| {
                     controller.options.filtering = !controller.options.filtering
                 })
@@ -853,7 +855,9 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
+            Widget::BookRecipe(index) => {
+                self.book_widget_craft(player_runtime, index, catalog::BookClick::Place)
+            }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),

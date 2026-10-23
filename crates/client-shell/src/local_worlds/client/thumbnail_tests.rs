@@ -33,6 +33,8 @@ fn saving_a_thumbnail_queues_disk_work_and_publishes_pixels_immediately() {
     let world = manager
         .create(&NewWorld {
             name: "Preview".into(),
+            generator: launcher::local_worlds::world::Generator::Flat,
+            backend: Some(bridge::Backend::Dragonfly),
             ..Default::default()
         })
         .unwrap();
@@ -56,6 +58,8 @@ fn pump_uses_worker_pixels_and_keeps_a_newer_capture_over_an_older_list_reply() 
     let world = manager
         .create(&NewWorld {
             name: "Preview".into(),
+            generator: launcher::local_worlds::world::Generator::Flat,
+            backend: Some(bridge::Backend::Dragonfly),
             ..Default::default()
         })
         .unwrap();
@@ -101,6 +105,8 @@ fn worker_reads_and_persists_thumbnail_bytes_in_request_order() {
     let world = manager
         .create(&NewWorld {
             name: "Preview".into(),
+            generator: launcher::local_worlds::world::Generator::Flat,
+            backend: Some(bridge::Backend::Dragonfly),
             ..Default::default()
         })
         .unwrap();
