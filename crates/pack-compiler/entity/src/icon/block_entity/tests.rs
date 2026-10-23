@@ -176,3 +176,31 @@ fn dragon_and_piglin_heads_draw_their_mob_head_facing_the_south_side() {
         "a pack without the dragon geometry leaves its icon unresolved"
     );
 }
+
+#[test]
+fn shulker_inventory_applies_each_face_brightness_once() {
+    let root = tempfile::tempdir().unwrap();
+    let texture = root
+        .path()
+        .join("textures/entity/shulker/shulker_white.png");
+    std::fs::create_dir_all(texture.parent().unwrap()).unwrap();
+    image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 255, 255, 255]))
+        .save(texture)
+        .unwrap();
+    let icon = raster(root.path(), "minecraft:white_shulker_box", 0, &[])
+        .unwrap()
+        .unwrap();
+    let shown: std::collections::BTreeSet<_> = icon
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] != 0)
+        .map(|pixel| pixel[0])
+        .collect();
+    let expected = assets::gui_item::CUBE_FACES
+        .map(|face| (255.0 * face.3).round() as u8)
+        .into_iter()
+        .collect();
+    assert_eq!(shown, expected);
+}
