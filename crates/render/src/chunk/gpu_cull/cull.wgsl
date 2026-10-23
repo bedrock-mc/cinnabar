@@ -14,6 +14,13 @@ const RELATIVE_SLACK: f32 = CULL_RELATIVE_SLACK;
 const ABSOLUTE_SLACK: f32 = CULL_ABSOLUTE_SLACK;
 const BOUNDS_BIAS: i32 = 128;
 const PHASE_LATE: u32 = 1u;
+const DECISION_DRAWS: u32 = CULL_DECISION_DRAWS;
+const DECISION_CANDIDATE: u32 = CULL_DECISION_CANDIDATE;
+const DECISION_HIDDEN: u32 = CULL_DECISION_HIDDEN;
+const DECISION_SOLID_MASK: u32 = CULL_DECISION_SOLID_MASK;
+const DECISION_CUTOUT_SHIFT: u32 = CULL_DECISION_CUTOUT_SHIFT;
+const DECISION_MODEL_SHIFT: u32 = CULL_DECISION_MODEL_SHIFT;
+const DECISION_LIQUID_SHIFT: u32 = CULL_DECISION_LIQUID_SHIFT;
 const OCCLUSION_WORDS: u32 = WORKGROUP / 32u;
 
 // Scalar origin fields keep the record free of packed vec3 storage.
@@ -259,7 +266,10 @@ fn cutout_range(record: CullRecord) -> vec2<u32> {
 }
 
 fn unpack_draws(draws: u32) -> vec4<u32> {
-    return vec4(draws & 3u, (draws >> 2u) & 1u, (draws >> 3u) & 1u, (draws >> 4u) & 1u);
+    return vec4(draws & DECISION_SOLID_MASK,
+        (draws >> DECISION_CUTOUT_SHIFT) & 1u,
+        (draws >> DECISION_MODEL_SHIFT) & 1u,
+        (draws >> DECISION_LIQUID_SHIFT) & 1u);
 }
 
 fn record_decision(slot: u32) -> u32 {
@@ -267,21 +277,25 @@ fn record_decision(slot: u32) -> u32 {
     let late = view.params.z == PHASE_LATE;
     let visible = record.live != 0u && slot_enabled(slot) && in_frustum(record_origin(record));
     var draw = false;
+    var feedback = 0u;
     if (late) {
         let kept = visible && hiz_visible(record);
         draw = kept && history[slot] == 0u;
         history[slot] = u32(kept);
+        feedback = select(0u, DECISION_CANDIDATE, visible)
+            | select(0u, DECISION_HIDDEN, visible && !kept);
     } else {
         draw = visible && history[slot] != 0u;
     }
     if (!draw) {
-        return 0u;
+        return feedback;
     }
     let solid = solid_runs(record, false, 0u);
     let cutout = u32(cutout_range(record).y != 0u);
     let model = u32(record.model_count != 0u);
     let liquid = u32(record.liquid_count != 0u);
-    return solid | (cutout << 2u) | (model << 3u) | (liquid << 4u);
+    return solid | (cutout << DECISION_CUTOUT_SHIFT)
+        | (model << DECISION_MODEL_SHIFT) | (liquid << DECISION_LIQUID_SHIFT) | feedback;
 }
 
 fn inclusive_scan(lid: u32) {
@@ -364,7 +378,7 @@ fn cull_emit(
     sums[lid] = mine;
     workgroupBarrier();
     inclusive_scan(lid);
-    if (draws == 0u) {
+    if ((draws & DECISION_DRAWS) == 0u) {
         return;
     }
     let offset = group_sums[wid.x] + sums[lid] - mine;

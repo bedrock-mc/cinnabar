@@ -652,6 +652,7 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         (SwingSource::Mine, "mine"),
         (SwingSource::Build, "build"),
         (SwingSource::Interact, "interact"),
+        (SwingSource::UseItem, "useitem"),
         (SwingSource::ThrowItem, "throwitem"),
     ] {
         let packet = swing_arm_packet(0x1_0000_0001, source);
@@ -938,11 +939,11 @@ fn click_air_with_a_throw_carries_the_inventory_action_and_legacy_request() {
             action.from_item.stack_size.0,
             action.from_item.net_id_variant
         ),
-        (16, Some(wire::ZigZag32(57)))
+        (16, None)
     );
     assert_eq!(
         (action.to_item.stack_size.0, action.to_item.net_id_variant),
-        (15, Some(wire::ZigZag32(-6)))
+        (15, None)
     );
     assert_eq!(transaction.item.stack_size.0, 16);
 }

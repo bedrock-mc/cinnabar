@@ -257,6 +257,28 @@ fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
     assert!(alert.contains("first-run.log"), "{alert}");
 }
 
+/// Only carriers gate the Android game: an unprepared local-world server leaves it startable.
+#[cfg(unix)]
+#[test]
+fn android_game_gate_requires_current_assets_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let data = Dir::new("android-gate");
+    let layout = InstallLayout::android(data.path(), data.path().join("native/core.so"))
+        .with_prepared_assets();
+    let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
+    fs::create_dir_all(compiler.parent().unwrap()).unwrap();
+    for (stale, gated) in [("[\"world\"]", true), ("[]", false)] {
+        fs::write(
+            &compiler,
+            format!("#!/bin/sh\necho '{{\"stale\":{stale},\"needs_pack\":false}}'\n"),
+        )
+        .unwrap();
+        fs::set_permissions(&compiler, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(needs_preparation(&layout), gated, "stale carriers: {stale}");
+    }
+}
+
 #[test]
 fn native_setup_title_uses_embedding_identity_with_default_fallback() {
     assert_eq!(

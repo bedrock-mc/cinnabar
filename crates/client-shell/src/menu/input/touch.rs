@@ -53,14 +53,8 @@ pub(super) fn drive(
         {
             menu.input_mode = MenuInputMode::Touch;
             {
-                if !native_settings
-                    || !matches!(action, launcher::menu::MenuAction::SettingsOption(index, _)
-                    if launcher::menu::settings_options::SETTINGS_OPTIONS.get(usize::from(index))
-                        .is_some_and(|option| matches!(option.kind, launcher::menu::settings_options::SettingKind::Slider)))
-                    || matches!(action, launcher::menu::MenuAction::SettingsOption(index, _)
-                        if presentation.settings_slider_thumb_contains(index, position))
-                {
-                    menu.focus_pointer(action);
+                if is_captured_slider(presentation, action, position) {
+                    focus_touch(menu, presentation, action, position, native_settings);
                 }
                 menu.pressed = Some(action);
                 if let launcher::menu::MenuAction::SettingsOption(index, _) = action
@@ -128,6 +122,9 @@ pub(super) fn drive(
                 .is_some_and(|point| slider_drag(menu, presentation, &mut action, point, true))
                 && let Some(action) = native_release_action(action, hovered)
             {
+                if let Ok(point) = UiPoint::new(position.x, position.y) {
+                    focus_touch(menu, presentation, action, point, native_settings);
+                }
                 press(menu, action);
                 caret_press = UiPoint::new(position.x, position.y)
                     .ok()
@@ -205,4 +202,29 @@ fn is_captured_slider(
             .is_some(),
         _ => false,
     }
+}
+
+/// Ordinary touch controls gain focus after a tap, so a pending pan cannot reveal its tile.
+fn focus_touch(
+    menu: &mut MenuRuntime,
+    presentation: &UiPresentationRuntime,
+    action: launcher::menu::MenuAction,
+    point: UiPoint,
+    native_settings: bool,
+) {
+    if native_settings
+        && let launcher::menu::MenuAction::SettingsOption(index, _) = action
+        && launcher::menu::settings_options::SETTINGS_OPTIONS
+            .get(usize::from(index))
+            .is_some_and(|option| {
+                matches!(
+                    option.kind,
+                    launcher::menu::settings_options::SettingKind::Slider
+                )
+            })
+        && !presentation.settings_slider_thumb_contains(index, point)
+    {
+        return;
+    }
+    menu.focus_pointer(action);
 }

@@ -138,7 +138,7 @@ pub(crate) fn transform(
             items.push(Item::Other(it));
         }
     }
-    let items = specialize::specialize_opaque_params(items);
+    let items = specialize::specialize_opaque_params(items)?;
     let mut c = declare::collect(items, stage, iface, names)?;
     if stage == StageKind::Vertex {
         c.after_main.push(GL_CLIP_TO_WGPU.to_string());

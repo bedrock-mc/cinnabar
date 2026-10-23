@@ -26,7 +26,7 @@ fn world_event(world: &mut World, event: protocol::WorldEvent) {
     let stream = client.stream.as_mut().unwrap();
     let sequence = stream.committed_sequence() + 1;
     stream.submit(sequence, event).unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "boundary terrain ingress", || {
+    test_time::eventually("boundary terrain ingress", || {
         stream.poll(NETWORK_POSITION, 0);
         stream.committed_sequence() >= sequence
     });
@@ -134,7 +134,7 @@ fn boundary_fixture() -> (App, client_session::CapturedPackets) {
     let origin = frame_origin(world, Vec3::from_array(EYE), rotation);
     let authority = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity();
+        .position_authority_identity();
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&origin, authority);

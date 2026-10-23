@@ -673,3 +673,20 @@ fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() 
     };
     assert!(!compatible(&mask, &ordinary));
 }
+
+#[test]
+fn an_independent_layer_stays_visible_beside_its_coverage_only_owner() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20, 20], 1);
+    let runtime_id = frame.rig.manifest[0].identity.runtime_id;
+    let manifest = std::sync::Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity.runtime_id = runtime_id;
+    manifest[0].identity.layer = render_model::hats::ACTOR_LAYER_HAT;
+    frame.mask_only_runtime_ids = std::sync::Arc::from([runtime_id]);
+    frame.main_pass_instance_count = Some(1);
+    draw_frame(&mut app, &frame);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert_eq!(gpu.spans.iter().map(|span| span.count).sum::<u32>(), 1);
+    assert_eq!(gpu.mask_spans.iter().map(|span| span.count).sum::<u32>(), 2);
+    assert_eq!(gpu.main_manifest.len(), 1);
+}

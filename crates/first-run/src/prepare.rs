@@ -1,7 +1,7 @@
 //! One preparation run: fetch the pack only when a stale carrier reads it, rebuild the stale
 //! carriers with a single `assetc prepare` and publish the set over the previous one.
 
-use std::{fs, io::Write, sync::atomic::AtomicBool};
+use std::{fs, io::Write, path::PathBuf, sync::atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
 use assets::carriers::{self, COMPILED_DIR};
@@ -51,27 +51,46 @@ pub(super) fn prepare(
     cancel: &AtomicBool,
     report: &mut dyn FnMut(Status),
 ) -> Result<()> {
+    let result = prepare_assets(layout, cancel, report);
+    match &result {
+        Ok(()) => report(Status::ready()),
+        Err(error) => report(Status::failed("Failed", &format!("{error:#}"))),
+    }
+    result
+}
+
+/// Prepares and publishes carriers without reporting overall setup completion.
+pub(super) fn prepare_assets(
+    layout: &InstallLayout,
+    cancel: &AtomicBool,
+    report: &mut dyn FnMut(Status),
+) -> Result<()> {
     let mut session_log = None;
     let result = open_log(layout).and_then(|log| {
         session_log = Some(log.clone());
         run(layout, cancel, report, log)
     });
-    match &result {
-        Ok(()) => report(Status::new(Phase::Done, 0, 0, "Ready")),
-        Err(error) => {
-            let message = format!("{error:#}");
-            if let Some(log) = &mut session_log {
-                let _ = writeln!(log, "first-run preparation failed: {message}");
-            }
-            report(Status::failed("Failed", &message));
-        }
+    if let Err(error) = &result
+        && let Some(log) = &mut session_log
+    {
+        let _ = writeln!(log, "first-run preparation failed: {error:#}");
     }
     result
 }
 
+/// The setup log and its retained earlier sessions.
+fn log_family(layout: &InstallLayout) -> Family {
+    Family::new(layout.log_dir(), "first-run", "log")
+}
+
+/// The current setup log, shared by asset and local-world preparation.
+pub(super) fn log_path(layout: &InstallLayout) -> PathBuf {
+    log_family(layout).current()
+}
+
 /// Starts this run's `first-run.log`, archiving earlier runs under the client log's retention.
 fn open_log(layout: &InstallLayout) -> Result<SharedLog> {
-    let family = Family::new(layout.log_dir(), "first-run", "log");
+    let family = log_family(layout);
     let path = family.current();
     let log = SessionLog::open(family, Retention::DEFAULT, Vec::new())
         .with_context(|| format!("open {}", path.display()))?;

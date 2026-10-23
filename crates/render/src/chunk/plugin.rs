@@ -57,6 +57,10 @@ impl ChunkRenderPlugin {
 impl Plugin for ChunkRenderPlugin {
     fn build(&self, app: &mut App) {
         install_atmosphere(app);
+        app.init_resource::<render_scene::ChunkOcclusionCulling>()
+            .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
+                render_scene::ChunkOcclusionCulling,
+            >::default());
         app.init_resource::<render_scene::chunk::capacity::ChunkArenaCapacityHint>()
             .init_resource::<ChunkRenderQueue>()
             .init_resource::<crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>()
@@ -92,53 +96,8 @@ impl Plugin for ChunkRenderPlugin {
         install_chunk_extraction(app);
         crate::upload_staging::install_terrain(app);
 
-        crate::lighting::install(app);
         crate::upload_staging::install(app);
-        load_internal_asset!(
-            app,
-            BIOME_TINT_SHADER_HANDLE,
-            "../biome_tint.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
-                    source
-                )),
-                path
-            )
-        );
-        crate::enhanced::load_shader_imports(app);
-        load_internal_asset!(
-            app,
-            CHUNK_BINDINGS_SHADER_HANDLE,
-            "../chunk_bindings.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::source(source),
-                path
-            )
-        );
-        load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wesl", |source, path| {
-            crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
-        });
-        load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wesl", |source, path| {
-            crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
-        });
-        load_internal_asset!(
-            app,
-            LIQUID_SHADER_HANDLE,
-            "../liquid.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::source(source),
-                path
-            )
-        );
-        load_internal_asset!(
-            app,
-            TRANSPARENT_SHADER_HANDLE,
-            "../transparent_terrain.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::source(source),
-                path
-            )
-        );
+        load_shaders(app);
 
         let acknowledgements = app
             .world()
@@ -254,4 +213,54 @@ fn opaque_terrain_passes_enabled(
     diagnostics: Res<VisibilityDiagnosticsInput>,
 ) -> bool {
     diagnostics.startup_probe_enabled() || render_scene::panorama::world_passes_enabled(scene)
+}
+
+/// Registers the native terrain modules and their shared imports in the asset collection.
+pub(crate) fn load_shaders(app: &mut App) {
+    crate::lighting::install(app);
+    load_internal_asset!(
+        app,
+        BIOME_TINT_SHADER_HANDLE,
+        "../biome_tint.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
+                source
+            )),
+            path
+        )
+    );
+    crate::enhanced::load_shader_imports(app);
+    load_internal_asset!(
+        app,
+        CHUNK_BINDINGS_SHADER_HANDLE,
+        "../chunk_bindings.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::source(source),
+            path
+        )
+    );
+    load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wesl", |source, path| {
+        crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
+    });
+    load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wesl", |source, path| {
+        crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
+    });
+    load_internal_asset!(
+        app,
+        LIQUID_SHADER_HANDLE,
+        "../liquid.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::source(source),
+            path
+        )
+    );
+    load_internal_asset!(
+        app,
+        TRANSPARENT_SHADER_HANDLE,
+        "../transparent_terrain.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::source(source),
+            path
+        )
+    );
 }

@@ -58,3 +58,43 @@ An animation file may add a top-level `particles` array of at most eight entries
 The emitter basis is the posed bone's axes in world space, including player scale. Any
 malformed entry rejects the whole item. Emitters run only for world-visible attachments, with at
 most 128 alive at once (sixteen players with eight each); previews never emit.
+
+## Ground companions
+
+A pet animation can declare `companion` instead of `playback`, `cloth`, `wind` or
+`tip_flex`. Its `idle`, `sit`, `trot` and `gallop` fields name looping clips;
+`trot_stride` and `gallop_stride` specify blocks travelled per cycle. Optional
+`tricks` names up to four one-shot clips. Every declared animation must be used.
+Root placement is independent of the owner's animated attachment bone. Author the
+model with its feet at Y=0 and retain the descriptor's root bone in its geometry.
+
+Locomotion poses also supply per-bone clearance sections, including protruding
+muzzles and tails, independently of the smaller ground-support footprint. These
+sections retain their bone centres and turn with the companion.
+The caller supplies real collision-shape queries. Followers accelerate toward a
+rear-side slot projected onto clear support, steer around obstructions, and commit
+to checked hop paths and landings up to one block high,
+and settle into a sit. Gait phase follows travelled distance. Tricks play during
+extended idle periods and cancel when the owner moves away. Ordinary blockage
+never teleports the companion; owner teleports reset only onto checked support. Water, flight and animation-event
+particle bursts remain incomplete; ordinary bone emitters work with the posed pet.
+
+## Ground contact effects
+
+An aura item's emitters may declare `trigger: "step"` or `trigger: "landing"`.
+Such items contain only ground-triggered emitters, with gallery-only geometry and
+no cloth, companion or animation controller. Emitters must use an instant rate
+and a one-shot lifetime with numeric active time from 0.05 to 1 second; they never
+restart while standing. Existing emitters default to `continuous`.
+
+Ground contacts use completed local physics samples or remote interpolated feet,
+including first-person wearers. Distance triggers alternate sides; landing waits
+for supported feet after descent. World-space bursts finish after unequipping.
+Teleport, dimension, session and actor-lifetime changes reset contact history.
+A decal requires continuous coplanar collision support; uneven steps and ledges
+suppress it. Ground effects yield when the particle table is full.
+
+Optional `sprite_side` selects a square 16, 32, 64 or 128 texel region (default 16).
+UVs address that square, including transparent padding. The dynamic atlas retains
+all authored texels and pins the complete region until its last emitter drains.
+Use `emitter_transform_xz` for ground planes that retain the contact heading.

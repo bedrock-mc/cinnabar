@@ -169,3 +169,54 @@ fn respawn_unknown_phases_are_nonspatial_and_preserve_the_current_search() {
         .queue_completion(|_| panic!("unknown phase cannot complete respawn"))
         .unwrap();
 }
+
+#[test]
+fn local_death_holds_input_behind_older_controls_and_rearms_after_ready() {
+    let mut lifecycle = RespawnLifecycle::default();
+    lifecycle.synchronize_session(Some(7));
+    let mut movement = MovementTicker::default();
+    let mut physics = LocalPhysicsController::default();
+    let death = CommittedControlEvent::LocalDeath { sequence: 2 };
+    lifecycle.retain_committed_input_hold(&[death]);
+    assert!(
+        lifecycle.input_held(),
+        "death must hold input even while its control waits"
+    );
+    for event in [death, control(3, 0, [0.0; 3])] {
+        assert!(lifecycle.consume_nonspatial_phase(
+            7,
+            &event,
+            42,
+            &mut movement,
+            &mut physics,
+            None
+        ));
+        assert!(lifecycle.input_held());
+    }
+    assert!(!lifecycle.consume_nonspatial_phase(
+        7,
+        &control(4, 1, [0.0; 3]),
+        42,
+        &mut movement,
+        &mut physics,
+        None
+    ));
+    lifecycle.queue_completion(|_| Ok(())).unwrap();
+    assert!(!lifecycle.input_held());
+    assert!(lifecycle.consume_nonspatial_phase(7, &death, 42, &mut movement, &mut physics, None));
+    assert!(
+        !lifecycle.input_held(),
+        "replaying an old death cannot rearm the hold"
+    );
+    assert!(lifecycle.consume_nonspatial_phase(
+        7,
+        &CommittedControlEvent::LocalDeath { sequence: 5 },
+        42,
+        &mut movement,
+        &mut physics,
+        None
+    ));
+    assert!(lifecycle.input_held(), "a new death must start a new hold");
+    lifecycle.synchronize_session(Some(8));
+    assert!(!lifecycle.input_held());
+}

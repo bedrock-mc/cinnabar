@@ -3,11 +3,13 @@
 mod display;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_display_link;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_presentation;
 
 use std::time::{Duration, Instant};
 
 use bevy::{
-    ecs::system::NonSendMarker,
+    ecs::system::{NonSendMarker, SystemParam},
     prelude::{Entity, Local, MessageReader, Query, Res, ResMut, Resource, With},
     window::{PresentMode, PrimaryWindow, Window, WindowOccluded},
     winit::WINIT_WINDOWS,
@@ -15,14 +17,47 @@ use bevy::{
 use render::FramePacing;
 use render_api::FrameRateLimit;
 use render_model::{
-    DisplayTiming, FrameRate, PresentationIntent, WindowActivity, effective_frame_rate,
-    frame_rate_target,
+    DisplayTiming, FrameRate, FrameRateContext, PresentationIntent, WindowActivity,
+    effective_frame_rate, frame_rate_target,
 };
 
 use crate::present_mode::{DisplayRefresh, PresentModeRuntime};
 
 /// Monitors can change refresh while a window stays put, so it is re-read this often.
 const DISPLAY_RECHECK: Duration = Duration::from_secs(1);
+
+/// Display and session facts used to choose the current frame-rate context.
+#[derive(SystemParam)]
+pub(crate) struct FramePacingEnvironment<'w> {
+    display: Res<'w, DisplayRefresh>,
+    world: Option<Res<'w, crate::runtime::world::ClientWorld>>,
+    ui: Option<Res<'w, client_shell::ui_resources::UiPresentationResource>>,
+    failure: Option<Res<'w, crate::runtime::shutdown::FatalError>>,
+}
+
+impl FramePacingEnvironment<'_> {
+    /// Uses the menu ceiling outside a ready world, while diagnostic runs keep their cadence.
+    fn context(&self, ignore_window_state: bool) -> FrameRateContext {
+        if ignore_window_state
+            || (self
+                .world
+                .as_ref()
+                .is_some_and(|world| world.stream.is_some())
+                && self
+                    .ui
+                    .as_ref()
+                    .is_none_or(|ui| ui.loading_stage().is_none())
+                && self
+                    .failure
+                    .as_ref()
+                    .is_none_or(|failure| failure.0.is_none()))
+        {
+            FrameRateContext::Gameplay
+        } else {
+            FrameRateContext::Menus
+        }
+    }
+}
 
 /// Session inputs to the cadence that the saved settings do not carry.
 #[derive(Resource, Debug)]
@@ -68,6 +103,7 @@ impl FramePacingRuntime {
         limit: FrameRateLimit,
         display: DisplayTiming,
         focused: bool,
+        context: FrameRateContext,
     ) -> FramePacing {
         let activity = if self.ignore_window_state {
             WindowActivity::Focused
@@ -78,7 +114,7 @@ impl FramePacingRuntime {
         } else {
             WindowActivity::Unfocused
         };
-        let requested = frame_rate_target(intent, limit, display);
+        let requested = frame_rate_target(intent, limit, display, context);
         let ordinary = (!self.suspended)
             .then(|| effective_frame_rate(requested, activity))
             .flatten();
@@ -125,7 +161,7 @@ pub(crate) fn update_frame_pacing(
     mut runtime: ResMut<FramePacingRuntime>,
     presentation: Res<PresentModeRuntime>,
     settings: Res<client_state::RuntimeSettings>,
-    display: Res<DisplayRefresh>,
+    environment: FramePacingEnvironment,
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut occlusion: MessageReader<WindowOccluded>,
     mut pacing: ResMut<FramePacing>,
@@ -137,14 +173,17 @@ pub(crate) fn update_frame_pacing(
         }
     }
     let focused = primary.is_none_or(|(_, window)| window.focused);
+    let context = environment.context(runtime.ignore_window_state);
     let next = runtime.pacing(
         presentation.intent(),
         presentation.window_present_mode(),
         presentation.limit(),
-        display
+        environment
+            .display
             .0
             .with_vrr_preference(settings.user_settings_update().1.video.vrr),
         focused,
+        context,
     );
     if *pacing != next {
         *pacing = next;

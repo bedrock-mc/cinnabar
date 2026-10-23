@@ -175,6 +175,35 @@ fn a_not_writable_install_cannot_launch_an_apply_helper() {
 }
 
 #[test]
+fn a_second_exit_handoff_waits_for_the_first_and_never_starts_another_helper() {
+    let done = &Mutex::new(false);
+    let events = &Mutex::new(Vec::new());
+    let (entered, in_handoff) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            once_at_exit(done, || {
+                entered.send(()).unwrap();
+                released.recv().unwrap();
+                events.lock().unwrap().push("first handed off");
+            });
+        });
+        in_handoff.recv().unwrap();
+        let second = scope.spawn(|| {
+            once_at_exit(done, || panic!("the helper was already started"));
+            events.lock().unwrap().push("second returned");
+        });
+        release.send(()).unwrap();
+        second.join().unwrap();
+    });
+    assert_eq!(
+        *events.lock().unwrap(),
+        ["first handed off", "second returned"]
+    );
+    once_at_exit(done, || panic!("a finished handoff never runs again"));
+}
+
+#[test]
 fn failed_helper_preparation_reopens_the_retained_client_once() {
     let mut restarted = 0;
     let error = handoff::spawn_or_restart(

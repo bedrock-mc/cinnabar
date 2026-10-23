@@ -267,3 +267,43 @@ fn particle_sprite_edges_survive_mesh_projection_until_fragment_sampling() {
     assert_eq!(mesh.vertices()[2].uv, [272.0, 512.0]);
     assert_eq!(mesh.vertices()[0].overlay_color, [256.0, 512.0, 16.0, 16.0]);
 }
+
+#[test]
+fn a_ground_item_has_gallery_art_but_adds_no_equipped_menu_mesh_or_particles() {
+    let mut runtime = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    runtime.gui_models.skin =
+        Some(UiTexturePage::owned([64; 2], vec![255; 64 * 64 * 4].into()).unwrap());
+    runtime.player_preview_view = PreviewView::Doll {
+        yaw: 30.0,
+        tilt: -10.0,
+    };
+    let before = runtime.gui_player_mesh().unwrap();
+    let item = hats::fixture::ground_effect();
+    let gallery = hats::thumbnail::render(item, 64, 64).unwrap();
+    assert!(gallery.rgba8.as_chunks::<4>().0.iter().any(|p| p[3] > 0));
+    runtime.menu_artwork.refs.insert(
+        item.texture_key(),
+        ui::IconRef {
+            page: 3,
+            uv: [0, 0, 64, 32],
+            glint: false,
+        },
+    );
+    runtime.set_preview_cosmetics(&[item]);
+    runtime.sync_player_particles(true);
+    let after = runtime.gui_player_mesh().unwrap();
+    assert_eq!(after.vertices().len(), before.vertices().len());
+    assert_eq!(
+        after
+            .vertices()
+            .iter()
+            .map(|v| v.position)
+            .collect::<Vec<_>>(),
+        before
+            .vertices()
+            .iter()
+            .map(|v| v.position)
+            .collect::<Vec<_>>()
+    );
+    assert!(runtime.gui_models.particles.mesh.is_none());
+}

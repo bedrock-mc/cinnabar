@@ -265,6 +265,9 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .and_then(|pack| pack.equipment.clone()),
     );
+    let settings = Arc::clone(&settings_snapshot.0);
+    let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
+    presentation.set_player_preview_custom_item_models(show_custom_item_models);
     // The model wears the local player's armor and held item.
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
@@ -292,7 +295,6 @@ pub(crate) fn prepare_ui_runtime(
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
-    let settings = Arc::clone(&settings_snapshot.0);
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
         && settings.value(SettingId::HideHud) == 0
         && settings.value(SettingId::HidePaperdoll) == 0

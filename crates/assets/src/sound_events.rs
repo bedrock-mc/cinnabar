@@ -3,9 +3,12 @@
 //! Block, entity, individual and interactive (per-material footstep) sections share one route
 //! model. An explicit empty sound string is silence, distinct from an absent event.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
+
+/// Material used when neither a resource-pack block entry nor a server component names a sound.
+pub const DEFAULT_BLOCK_MATERIAL: &str = "stone";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRange {
@@ -190,6 +193,24 @@ fn bare(identifier: &str) -> &str {
     identifier.strip_prefix("minecraft:").unwrap_or(identifier)
 }
 
+/// Looks up an exact pack entry before trying the shared legacy block alias.
+fn explicit_material<'a>(
+    materials: &'a HashMap<Box<str>, Box<str>>,
+    identifier: &str,
+) -> Option<&'a str> {
+    materials
+        .get(bare(identifier))
+        .or_else(|| materials.get(crate::legacy_resource_pack_block_alias(identifier)?))
+        .map(AsRef::as_ref)
+}
+
+/// Accepts a lowered material name or the sound property of a block definition.
+fn block_material(value: &Value) -> Option<&str> {
+    value
+        .as_str()
+        .or_else(|| value.get("sound").and_then(Value::as_str))
+}
+
 /// Outcome of an event lookup; `Silent` is an explicit empty sound, `Absent` means no entry.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RouteLookup {
@@ -278,8 +299,8 @@ impl SoundEventTables {
         if let Value::Object(map) = block_materials {
             tables.materials = map
                 .iter()
-                .filter_map(|(block, material)| {
-                    Some((bare(block).into(), material.as_str()?.into()))
+                .filter_map(|(block, value)| {
+                    Some((bare(block).into(), block_material(value)?.into()))
                 })
                 .collect();
         }
@@ -303,22 +324,30 @@ impl SoundEventTables {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty() && self.entities.is_empty() && self.individual.is_empty()
+        self.blocks.is_empty()
+            && self.entity_defaults.events.is_empty()
+            && self.entities.is_empty()
+            && self.individual.is_empty()
+            && self.interactive_blocks.is_empty()
+            && self.interactive_defaults.events.is_empty()
+            && self.interactive_entities.is_empty()
+            && self.materials.is_empty()
     }
 
     /// Sound material name (`stone`, `wood`, ...) of a block identifier.
     pub fn material_of(&self, block_identifier: &str) -> Option<&str> {
-        // Vanilla loads block textures and `sound` from the same
-        // blocks.json entry. The pack
-        // still calls grass_block `grass`; apply the shared texture alias
-        // after the exact entry, without inventing a default sound material.
-        self.materials
-            .get(bare(block_identifier))
-            .or_else(|| {
-                self.materials
-                    .get(crate::legacy_resource_pack_block_alias(block_identifier)?)
-            })
-            .map(AsRef::as_ref)
+        Some(explicit_material(&self.materials, block_identifier).unwrap_or(DEFAULT_BLOCK_MATERIAL))
+    }
+
+    /// Prefers an explicit pack material, then a nonempty component, then the default.
+    pub fn material_of_with_component<'a>(
+        &'a self,
+        block_identifier: &str,
+        component_material: Option<&'a str>,
+    ) -> &'a str {
+        explicit_material(&self.materials, block_identifier)
+            .or_else(|| component_material.filter(|material| !material.is_empty()))
+            .unwrap_or(DEFAULT_BLOCK_MATERIAL)
     }
 
     /// Resolves a block event through its base materials, preserving explicit silence and
@@ -353,6 +382,36 @@ impl SoundEventTables {
         variant: Option<&str>,
     ) -> Option<SoundRoute> {
         self.entity_lookup(identifier, event, variant).route()
+    }
+
+    /// Enumerates audible resolved events for an entity's default variant.
+    pub fn entity_events<'a>(
+        &'a self,
+        identifier: &'a str,
+    ) -> impl Iterator<Item = (&'a str, SoundRoute)> {
+        let events: HashSet<_> = self
+            .entity_defaults
+            .events
+            .keys()
+            .chain(
+                self.entities
+                    .get(bare(identifier))
+                    .into_iter()
+                    .flat_map(|entity| {
+                        entity.base.events.keys().chain(
+                            entity
+                                .variants
+                                .get("default")
+                                .into_iter()
+                                .flat_map(|set| set.events.keys()),
+                        )
+                    }),
+            )
+            .collect();
+        events.into_iter().filter_map(move |event| {
+            self.entity(identifier, event, None)
+                .map(|route| (event.as_ref(), route))
+        })
     }
 
     /// Like [`Self::entity`] but distinguishing an explicit silent entry from no entry.
@@ -418,6 +477,13 @@ impl SoundEventTables {
     /// Named individual sound event (`bucket.fill.water`, `random.click`, ...).
     pub fn individual(&self, event: &str) -> Option<&SoundRoute> {
         self.individual.get(event).and_then(Option::as_ref)
+    }
+
+    /// Iterates audible individual event routes, omitting explicit silence.
+    pub fn individual_events(&self) -> impl Iterator<Item = (&str, &SoundRoute)> {
+        self.individual
+            .iter()
+            .filter_map(|(event, route)| Some((event.as_ref(), route.as_ref()?)))
     }
 }
 
@@ -508,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_block_materials_resolve_canonical_names_without_custom_fallbacks() {
+    fn legacy_block_materials_resolve_canonical_names_and_unknowns_use_stone() {
         let tables = SoundEventTables::from_json(
             &json!({}),
             &json!({"grass": "grass", "dirt": "gravel", "chain": "metal"}),
@@ -518,8 +584,33 @@ mod tests {
         assert_eq!(tables.material_of("minecraft:grass"), Some("grass"));
         assert_eq!(tables.material_of("minecraft:dirt"), Some("gravel"));
         assert_eq!(tables.material_of("minecraft:iron_chain"), Some("metal"));
-        assert_eq!(tables.material_of("example:grass_block"), None);
-        assert_eq!(tables.material_of("minecraft:unknown_block"), None);
+        assert_eq!(tables.material_of("example:grass_block"), Some("stone"));
+        assert_eq!(tables.material_of("minecraft:unknown_block"), Some("stone"));
+    }
+
+    #[test]
+    fn blocks_json_objects_and_sound_components_follow_the_requested_precedence() {
+        let tables = SoundEventTables::from_json(
+            &json!({}),
+            &json!({
+                "stone": {"sound": "stone"},
+                "example:resource_block": {"sound": "wood"}
+            }),
+        );
+        assert_eq!(tables.material_of("minecraft:stone"), Some("stone"));
+        assert_eq!(tables.material_of("example:resource_block"), Some("wood"));
+        assert_eq!(
+            tables.material_of_with_component("example:resource_block", Some("metal")),
+            "wood"
+        );
+        assert_eq!(
+            tables.material_of_with_component("example:component_block", Some("metal")),
+            "metal"
+        );
+        assert_eq!(
+            tables.material_of_with_component("example:unknown_block", None),
+            "stone"
+        );
     }
 
     #[test]

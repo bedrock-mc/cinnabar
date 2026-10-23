@@ -22,6 +22,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 type settings struct {
 	totemTest, totemTexture                 bool
 	primitiveShapes, cameraTest, actorBurst bool
+	containerTitleTest                      bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
 	terrainFixtureRadius                    int
@@ -29,9 +30,7 @@ type settings struct {
 	luckyBlock                              bool
 	dir, addr, name, gameMode, diff         string
 	generator                               string
-	seed                                    int64
-	pregenRadius, chunkWorkers              int
-	generationStats                         bool
+	chunkWorkers                            int
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -56,13 +55,11 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.name, "name", "World", "world display name")
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
-	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
-	flags.Int64Var(&s.seed, "seed", 0, "world seed")
-	flags.IntVar(&s.pregenRadius, "pregen-radius", 0, "generate and save normal overworld chunks around spawn before listening (0 disables)")
+	flags.StringVar(&s.generator, "generator", "flat", "flat terrain")
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
-	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest tutorial, firstperson, spline, inline, aim and clear fixtures")
-	flags.BoolVar(&s.totemTest, "totem-test", false, "enable /totemtest offhand, main, remote, empty and idle fixtures")
+	flags.BoolVar(&s.containerTitleTest, "container-title-test", false, "enable /containertitle filtered and raw actor-backed chest menu fixtures")
+	flags.BoolVar(&s.totemTest, "totem-test", false, "enable /totemtest offhand, main, remote, empty, idle and staleecho fixtures")
 	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
 	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry|swing|strafe and /actorburst clear")
@@ -81,17 +78,11 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	if s.actorBurstArtwork < 0 || s.actorBurstArtwork > actorBurstLimit {
 		return settings{}, fmt.Errorf("actor burst artwork must be 0..%d", actorBurstLimit)
 	}
-	if s.pregenRadius < 0 || s.pregenRadius > 512 {
-		return settings{}, errors.New("pregen radius must be 0..512 chunks")
-	}
 	if s.chunkWorkers < 1 || s.chunkWorkers > 16 {
 		return settings{}, errors.New("chunk workers must be 1..16")
 	}
-	if s.pregenRadius > 0 && (s.generator != "normal" || s.terrainFixture || s.opaqueOverdraw || s.terrainFixtureGenerate) {
-		return settings{}, errors.New("-pregen-radius requires -generator normal without a synthetic fixture")
-	}
-	if s.generator != "normal" && s.generator != "flat" {
-		return settings{}, fmt.Errorf("unknown generator %q", s.generator)
+	if s.generator != "flat" {
+		return settings{}, fmt.Errorf("unsupported generator %q: only -generator flat is supported", s.generator)
 	}
 	if s.dir == "" || (s.addr == "" && !s.terrainFixtureGenerate) {
 		return settings{}, errors.New("-dir and -addr are required; generation needs only -dir")

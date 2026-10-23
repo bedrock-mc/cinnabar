@@ -72,12 +72,11 @@ impl ActorStore {
     }
 
     /// The predicted pose picks read this frame, or `None` when the live pose is current.
-    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<([f32; 3], f32)> {
+    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<ActorPose> {
         if !self.picks_ahead {
             return None;
         }
-        self.pick_state(runtime_id)
-            .map(|state| (state.pose.position, state.pose.yaw))
+        self.pick_state(runtime_id).map(|state| state.pose)
     }
 
     pub(in crate::actor_store) fn pick_state(

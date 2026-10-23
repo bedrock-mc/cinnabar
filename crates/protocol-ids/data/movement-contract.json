@@ -1,6 +1,5 @@
 {
   "numeric": {
-    "Effect": { "Weaving": 33 },
     "HorseFlag": { "Grazing": 5, "MouthOpen": 7 },
     "PlayerFlag": { "Sleeping": 2 }
   },
