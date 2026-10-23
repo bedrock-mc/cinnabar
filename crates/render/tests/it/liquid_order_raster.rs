@@ -266,7 +266,7 @@ const WITNESS: &str = r#"
         corner,
         geometry_streams[word + 2u],
     );
-    let world = vec3<f32>(chunk_origins[geometry_streams[word + 3u]].value.xyz) + local;
+    let world = vec3<f32>(chunk_origins(geometry_streams[word + 3u]).value.xyz) + local;
     let shade = f32(record % 7u) / 7.0;
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world, 1.0);

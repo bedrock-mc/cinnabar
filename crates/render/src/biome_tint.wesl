@@ -1,3 +1,6 @@
+@if(PACKED_TERRAIN)
+import render::terrain_tables::{terrain_word, terrain_length, terrain_field};
+
 import render::lighting::{tint_to_gamma, tint_to_linear};
 
 // The CPU packs vanilla's 27-sample biome counts at each 3D lattice point.
@@ -16,7 +19,72 @@ struct BiomeTintGpu {
 }
 
 @group(0) @binding(7) var<storage, read> biome_records: array<u32>;
+@if(!PACKED_TERRAIN)
 @group(0) @binding(8) var<storage, read> biome_tints: array<BiomeTintGpu>;
+
+// Returns the palette count without including adjacent packed tables.
+fn biome_tints_length() -> u32 {
+    @if(!PACKED_TERRAIN) return arrayLength(&biome_tints);
+    @if(PACKED_TERRAIN) return terrain_length(8u) / BIOME_TINT_WORDS;
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_grass(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].grass;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 0u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_foliage(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].foliage;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 1u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_birch(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].birch;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 2u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_evergreen(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].evergreen;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 3u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_dry_foliage(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].dry_foliage;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 4u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_water(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].water;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 5u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_flags(index: u32) -> u32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].flags;
+    @if(PACKED_TERRAIN) return terrain_field(8u, index, BIOME_TINT_WORDS, 6u);
+}
+
+// Reads only the requested palette field, avoiding a seasonal-array copy.
+fn tint_water_opacity(index: u32) -> f32 {
+    @if(!PACKED_TERRAIN) return biome_tints[index].water_opacity;
+    @if(PACKED_TERRAIN) return bitcast<f32>(terrain_field(8u, index, BIOME_TINT_WORDS, 7u));
+}
+
+// Loads one seasonal cell without materializing the complete palette record.
+fn tint_seasonal(index: u32, cell: u32) -> vec4<f32> {
+    @if(!PACKED_TERRAIN) return biome_tints[index].seasonal_foliage[cell];
+    @if(PACKED_TERRAIN) {
+        if (index >= biome_tints_length() || cell >= SEASONAL_FOLIAGE_COUNT) { return vec4(0.0); }
+        let base = index * BIOME_TINT_WORDS + 8u + cell * 4u;
+        return bitcast<vec4<f32>>(vec4(terrain_word(8u, base), terrain_word(8u, base + 1u), terrain_word(8u, base + 2u), terrain_word(8u, base + 3u)));
+    }
+}
 
 // Query kernel tables live in a uniform block: a dynamically indexed `const` array is copied
 // into per-invocation scratch by several compilers, once per tinted fragment.
@@ -130,37 +198,37 @@ fn packed_biome_tint_index(record: u32, source_coordinate: vec3<i32>) -> u32 {
 // Lookups take an index and read single fields: copying a whole `BiomeTintGpu` (with its
 // dynamically indexed seasonal array) per sample spills it to per-fragment scratch memory.
 fn safe_tint_index(index: u32) -> u32 {
-    return select(0u, index, index < arrayLength(&biome_tints));
+    return select(0u, index, index < biome_tints_length());
 }
 
 fn tint_domain_colour(index: u32, tint_kind: u32, material_flags: u32, world_position: vec3<i32>) -> vec4<f32> {
     let tint = safe_tint_index(index);
     if (tint_kind == 0x10u) {
-        if ((biome_tints[tint].flags & BIOME_SWAMP_GRASS) != 0u && arrayLength(&biome_tints) >= BIOME_TINT_MAP_SIZE) {
+        if ((tint_flags(tint) & BIOME_SWAMP_GRASS) != 0u && biome_tints_length() >= BIOME_TINT_MAP_SIZE) {
             let palette = grass_palette_index(world_position.xz);
-            return vec4(unpack_linear_rgb10(biome_tints[arrayLength(&biome_tints) - BIOME_TINT_MAP_SIZE + palette].grass), 1.0);
+            return vec4(unpack_linear_rgb10(tint_grass(biome_tints_length() - BIOME_TINT_MAP_SIZE + palette)), 1.0);
         }
-        return vec4(unpack_linear_rgb10(biome_tints[tint].grass), 1.0);
+        return vec4(unpack_linear_rgb10(tint_grass(tint)), 1.0);
     }
     if (tint_kind == 0x30u) {
-        return vec4(unpack_water_rgb8(biome_tints[tint].water), biome_tints[tint].water_opacity);
+        return vec4(unpack_water_rgb8(tint_water(tint)), tint_water_opacity(tint));
     }
     return vec4(special_foliage_tint(tint, material_flags), 1.0);
 }
 
 fn special_foliage_tint(tint: u32, material_flags: u32) -> vec3<f32> {
-    if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u && (biome_tints[tint].flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
+    if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u && (tint_flags(tint) & BIOME_SEASONAL_FOLIAGE) != 0u) {
         var species = SEASONAL_DEFAULT_CELL;
         if ((material_flags & 0x600u) == 0x400u) { species = SEASONAL_EVERGREEN_CELL; }
         if ((material_flags & 0x600u) == 0x200u) { species = SEASONAL_BIRCH_CELL; }
         let exposed = select(0u, SEASONAL_FOLIAGE_EXPOSED_OFFSET, (material_flags & MATERIAL_EXPOSED_FOLIAGE) != 0u);
-        return biome_tints[tint].seasonal_foliage[min(species + exposed, SEASONAL_FOLIAGE_COUNT - 1u)].rgb;
+        return tint_seasonal(tint, min(species + exposed, SEASONAL_FOLIAGE_COUNT - 1u)).rgb;
     }
     switch material_flags & 0x600u {
-        case 0x200u: { return unpack_linear_rgb10(biome_tints[tint].birch); }
-        case 0x400u: { return unpack_linear_rgb10(biome_tints[tint].evergreen); }
-        case 0x600u: { return unpack_linear_rgb10(biome_tints[tint].dry_foliage); }
-        default: { return unpack_linear_rgb10(biome_tints[tint].foliage); }
+        case 0x200u: { return unpack_linear_rgb10(tint_birch(tint)); }
+        case 0x400u: { return unpack_linear_rgb10(tint_evergreen(tint)); }
+        case 0x600u: { return unpack_linear_rgb10(tint_dry_foliage(tint)); }
+        default: { return unpack_linear_rgb10(tint_foliage(tint)); }
     }
 }
 
@@ -174,7 +242,7 @@ fn uniform_biome_tint_gamma(tint_kind: u32, material_flags: u32, record: u32) ->
     if (index == 0xffffffffu) { return vec4(0.0); }
     let tint = safe_tint_index(index);
     // Swamp grass varies with world-position noise even in a uniform biome.
-    if (tint_kind == 0x10u && (biome_tints[tint].flags & BIOME_SWAMP_GRASS) != 0u) { return vec4(0.0); }
+    if (tint_kind == 0x10u && (tint_flags(tint) & BIOME_SWAMP_GRASS) != 0u) { return vec4(0.0); }
     return vec4(tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, vec3(0))).rgb, 1.0);
 }
 
@@ -205,7 +273,7 @@ fn blended_biome_tint(
     // interpolating the ordinary foliage lattice.
     if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u) {
         let tint = safe_tint_index(packed_biome_tint_index(record, coordinate));
-        if ((biome_tints[tint].flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
+        if ((tint_flags(tint) & BIOME_SEASONAL_FOLIAGE) != 0u) {
             return tint_domain_colour(tint, tint_kind, material_flags, block_position);
         }
     }

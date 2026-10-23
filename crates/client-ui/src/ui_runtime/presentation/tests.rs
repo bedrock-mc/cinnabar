@@ -21,6 +21,7 @@ mod chat_screen_tests;
 mod container_screen_tests;
 mod credits_screen_tests;
 mod cursor_durability_tests;
+mod data_driven_screen_tests;
 mod debug_overlay_tests;
 pub mod engine_hud_tests;
 mod fallback_crafting_ghost_tests;

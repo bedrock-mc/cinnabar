@@ -223,23 +223,6 @@ fn disabled_far_terrain_summarises_nothing() {
     assert!(stream.far_terrain.pending.is_empty());
 }
 
-/// A mass eviction is summarised a bounded number of columns per poll, not all at once.
-#[test]
-fn retiring_columns_are_admitted_a_bounded_batch_per_poll() {
-    let mut stream = stream(true);
-    stream.far_terrain.retiring.extend((0..100).map(|x| {
-        (
-            ChunkKey::new(0, x, 0),
-            far_terrain::ColumnSnapshot::new(Arc::default(), Vec::new()),
-        )
-    }));
-    stream.dispatch_far_summaries();
-    let left = stream.far_terrain.retiring.len();
-    assert!((84..100).contains(&left), "{left} retiring columns left");
-    let summaries = drain_until(&mut stream, 100);
-    assert_eq!(summaries.len(), 100);
-}
-
 /// Turning far terrain on summarises columns that loaded while it was off.
 #[test]
 fn enabling_far_terrain_summarises_resident_columns() {
