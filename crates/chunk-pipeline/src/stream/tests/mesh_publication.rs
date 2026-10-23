@@ -434,6 +434,22 @@ fn staged_empty_front_does_not_block_payloads_under_air_pressure() {
     assert!(changes.len() <= config.maximum_frame_items);
 }
 
+/// A fresh worker result cannot spend the last payload credit ahead of staged work.
+#[test]
+fn fresh_result_keeps_staged_publication_priority() {
+    let (mut stream, allowance) = stream_with_staged_meshes(2);
+    let fresh = stream.staged_mesh_completions.pop_back().unwrap();
+    stream.staged_mesh_bytes -= chunk_publication_byte_len(&fresh.mesh, &fresh.biome);
+    let older = stream.staged_mesh_completions.front().unwrap().key;
+    stream.mesh_tx.send(fresh).unwrap();
+    let config = render_api::PublicationServiceConfig::DEFAULT;
+    allowance.begin_frame(2, 1, config.maximum_frame_bytes, 0, 1);
+    stream.poll([0.0; 3], 32);
+    assert!(matches!(stream.take_mesh_changes().as_slice(),
+        [WorldMeshChange::Upsert { key, .. }] if *key == older));
+    assert_eq!(stream.staged_mesh_completions.len(), 1);
+}
+
 /// An urgent retry publishes before ordinary air even when that ordinary section is closer.
 #[test]
 fn urgent_mesh_completion_retry_precedes_ordinary_air() {

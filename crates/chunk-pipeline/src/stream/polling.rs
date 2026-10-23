@@ -77,24 +77,6 @@ impl WorldStream {
         self.service_item_max = Duration::ZERO;
         let frame_deadline = self.begin_poll_work(Instant::now());
         let mut report = WorldStreamPoll::default();
-        // Receive a fresh result even while older staged work fills its publication share.
-        let completion_capacity = self
-            .publication_allowance
-            .as_ref()
-            .map_or(max_mesh_jobs, |allowance| {
-                allowance.frame_remaining_operations()
-            });
-        if completion_capacity != 0
-            && !self.service_yield_requested()
-            && self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
-        {
-            if let Ok(completion) = self.mesh_rx.try_recv() {
-                report.mesh_results += 1;
-                self.service_item("mesh_result", |stream| {
-                    stream.accept_mesh_completion(completion)
-                });
-            }
-        }
         // Ready zero-byte work needs no decode, lighting or geometry scheduler pass.
         let removal_budget = self
             .publication_allowance
