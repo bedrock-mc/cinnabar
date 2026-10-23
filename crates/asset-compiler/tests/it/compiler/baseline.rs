@@ -535,9 +535,7 @@ fn compiler_keeps_large_carrier_pages_device_compatible() {
     let directory = tempfile::tempdir().expect("create fixture");
     let mut blocks = String::from("{");
     let mut terrain = String::from(r#"{"texture_data":{"#);
-    // The vanilla carrier's size, which overflowed a Mali-G52's 1,024-layer arrays.
-    const MALI_G52_ARRAY_LAYERS: u32 = 1_024;
-    let total_layers = 1_600;
+    let total_layers = 3_000;
     let mut records = Vec::with_capacity(total_layers - 1);
     for index in 0..total_layers - 1 {
         if index != 0 {
@@ -573,12 +571,6 @@ fn compiler_keeps_large_carrier_pages_device_compatible() {
 
     let compiled = compile_pack(directory.path(), &records).expect("two-page asset set");
     assert_eq!(compiled.texture_pages.len(), 2);
-    assert!(
-        compiled
-            .texture_pages
-            .iter()
-            .all(|page| page.texture.layers <= MALI_G52_ARRAY_LAYERS)
-    );
     assert_eq!(
         compiled.texture_pages[0].texture.layers,
         MAX_CARRIER_TEXTURE_LAYERS as u32

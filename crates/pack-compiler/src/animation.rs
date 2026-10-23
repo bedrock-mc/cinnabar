@@ -530,8 +530,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        AnimationLimits, DecodedImage, MAX_LAYERS_PER_PAGE, compile_animation_plan,
-        texture_ref_from_linear_index,
+        AnimationLimits, DecodedImage, compile_animation_plan, texture_ref_from_linear_index,
     };
     use assets::TextureRef;
     use assets::{AssetError, MIP_COUNT, TILE_SIZE};
@@ -871,25 +870,22 @@ mod tests {
     }
 
     #[test]
-    fn texture_page_ref_encodes_page_and_layer_and_rolls_at_the_page_budget() {
-        let page = MAX_LAYERS_PER_PAGE;
-        let limits = limits(page, 2);
-        let last_first_page =
-            texture_ref_from_linear_index(page as usize - 1, limits).expect("page zero");
-        let first_second_page =
-            texture_ref_from_linear_index(page as usize, limits).expect("page one");
+    fn texture_page_ref_encodes_page_and_layer_and_rolls_at_2048() {
+        let limits = limits(2_048, 2);
+        let last_first_page = texture_ref_from_linear_index(2_047, limits).expect("page zero");
+        let first_second_page = texture_ref_from_linear_index(2_048, limits).expect("page one");
 
         assert_eq!(
             (last_first_page.page(), last_first_page.layer()),
-            (0, page - 1)
+            (0, 2_047)
         );
-        assert_eq!(last_first_page.raw(), page - 1);
+        assert_eq!(last_first_page.raw(), 2_047);
         assert_eq!(
             (first_second_page.page(), first_second_page.layer()),
             (1, 0)
         );
         assert_eq!(first_second_page.raw(), 1_u32 << assets::TEXTURE_PAGE_SHIFT);
-        assert!(texture_ref_from_linear_index(2 * page as usize, limits).is_err());
+        assert!(texture_ref_from_linear_index(4_096, limits).is_err());
     }
 
     #[test]

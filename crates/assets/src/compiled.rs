@@ -51,11 +51,8 @@ impl BlockFace {
 pub const DIAGNOSTIC_MATERIAL: u32 = 0;
 /// Layer capacity of a texture reference. Runtime pages also check the device limit.
 pub const MAX_TEXTURE_LAYERS: usize = 8_192;
-/// Offline page budget for carriers on every platform.
-///
-/// Common Android GPUs such as Mali-G52 report `max_texture_array_layers = 1024`, so
-/// larger pages are rejected at upload there.
-pub const MAX_CARRIER_TEXTURE_LAYERS: usize = 1_024;
+/// Offline page budget for carriers that must fit a 2,048-layer device.
+pub const MAX_CARRIER_TEXTURE_LAYERS: usize = 2_048;
 /// Compiled carriers carry the base page plus at most one vanilla page.
 pub const MAX_CARRIER_TEXTURE_PAGES: usize = 2;
 /// Layer bits shared by carrier references and GPU shader encoders.

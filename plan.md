@@ -725,10 +725,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
-  rendering acceptance remains incomplete. Carrier texture pages hold at most 1,024 layers to fit
-  Mali's array limit. Android Mali culls terrain on the CPU because the compute cull lost the
-  device on a tested Mali phone; the driver fault is not isolated, so this vendor workaround
-  stays incomplete.
+  rendering acceptance remains incomplete. Android Mali culls terrain on the CPU because the
+  compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
+  vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
+  vanilla page against their 1,024-layer array limit; smaller pages first need session block
+  overlays to accept multi-page base carriers.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
