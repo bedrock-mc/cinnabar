@@ -6,6 +6,7 @@ pub(super) mod controls;
 mod gui_scale;
 mod labels;
 mod layout;
+mod localization;
 mod mods;
 mod picker;
 mod presets;
@@ -18,6 +19,8 @@ mod shader_options;
 mod sidebar;
 mod updates;
 
+#[cfg(test)]
+mod localization_tests;
 #[cfg(test)]
 mod row_tests;
 
@@ -303,19 +306,7 @@ pub(super) struct Content<'a, 'b> {
 
 impl Content<'_, '_> {
     pub(super) fn word(&self, key: &str) -> String {
-        if key.is_empty() {
-            return String::new();
-        }
-        let is_fr = self.view.settings_options.language().is_some_and(|l| l.starts_with("fr"));
-        if is_fr {
-            if let Some(fr) = sections::french_text(key) {
-                return fr.to_owned();
-            }
-        }
-        (self.translate)(key).map_or_else(
-            || sections::fallback(key).to_owned(),
-            |text| text.to_string(),
-        )
+        localization::word(key, self.view.settings_options.language(), self.translate)
     }
 
     pub(super) fn inset(&self) -> [f32; 2] {

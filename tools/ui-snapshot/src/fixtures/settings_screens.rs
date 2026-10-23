@@ -27,6 +27,12 @@ pub(super) const SEARCH_STATES: &[State] = &[
 /// Whole settings pages, tall enough to show every row at once.
 pub(super) const PAGE_STATES: &[State] = &[
     State {
+        name: "settings-video-french-page",
+        size: [1280, 2600],
+        gui_scale: GUI_SCALE,
+        fixture: settings_video_french,
+    },
+    State {
         name: "settings-accessibility-page",
         size: [1280, 1700],
         gui_scale: GUI_SCALE,
@@ -63,6 +69,13 @@ pub(super) const PAGE_STATES: &[State] = &[
         fixture: || settings_page(SettingSection::Video, false),
     },
 ];
+
+/// Shows French video labels and help text with their accented glyphs.
+fn settings_video_french() -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    Arc::make_mut(&mut view.settings_options).set_language("fr_FR");
+    Fixture::Menu(Box::new(view))
+}
 
 /// One settings page, optionally signed in, with the sidebar beside it.
 fn settings_page(section: SettingSection, signed_in: bool) -> Fixture {

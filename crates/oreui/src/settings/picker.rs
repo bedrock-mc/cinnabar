@@ -6,7 +6,7 @@ use super::super::modal::{self, Modal};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE, TEXT};
 use super::super::widgets::MenuItem;
-use super::{button, gui_scale, sections};
+use super::{button, gui_scale, localization};
 use crate::images::CHEVRON_DOWN_IMAGE;
 use launcher::menu::{
     MenuAction, MenuView,
@@ -38,18 +38,7 @@ pub(super) fn draw(
     let SettingKind::Dropdown(choices) = option.kind else {
         return Ok(());
     };
-    let word = |key: &str| {
-        let is_fr = view.settings_options.language().is_some_and(|l| l.starts_with("fr"));
-        if is_fr {
-            if let Some(fr) = sections::french_text(key) {
-                return fr.to_owned();
-            }
-        }
-        translate(key).map_or_else(
-            || sections::fallback(key).to_owned(),
-            |text| text.to_string(),
-        )
-    };
+    let word = |key: &str| localization::word(key, view.settings_options.language(), translate);
     let title = word(option.oreui_label.unwrap_or(option.label));
     let visible: Vec<_> = (0..choices.len())
         .filter(|choice| view.setting_choice_visible(option, *choice))
