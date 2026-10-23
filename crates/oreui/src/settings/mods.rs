@@ -4,6 +4,7 @@ use super::super::theme;
 use super::super::transitions::resources::{Group, Listing, Mods};
 use super::super::widgets::Variant;
 use super::Content;
+mod marketplace;
 mod permissions;
 mod update;
 use super::resources::{
@@ -23,6 +24,9 @@ fn command(action: Action) -> MenuAction {
 
 /// Draws the ordered Active and available mod groups with retained card motion.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    if content.view.mods.marketplace.open {
+        return marketplace::draw(content);
+    }
     let mut motion = content
         .canvas
         .transitions
@@ -71,6 +75,13 @@ fn draw_sections(
     actions(
         content,
         &[
+            (
+                "Browse marketplace",
+                Variant::Primary,
+                Some(command(Action::Marketplace(
+                    launcher::marketplace::Action::Browse,
+                ))),
+            ),
             (
                 "Import mod…",
                 Variant::Secondary,

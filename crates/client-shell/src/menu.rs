@@ -778,6 +778,9 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
                 if !self.over_world() {
+                    std::sync::Arc::make_mut(&mut self.mods)
+                        .marketplace
+                        .apply(launcher::marketplace::Action::Close);
                     self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
                         .definition()
                         .index;

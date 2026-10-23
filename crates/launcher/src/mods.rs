@@ -12,6 +12,7 @@ pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    Marketplace(crate::marketplace::Action),
     ReadMore(u64),
     ToggleActive,
     ToggleAvailable,
@@ -173,6 +174,7 @@ impl Library {
 /// The published library and local disclosure state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
+    pub marketplace: crate::marketplace::State,
     pub library: Library,
     pub details_expanded: Option<u64>,
     pub active_expanded: bool,
@@ -184,6 +186,7 @@ pub struct Snapshot {
 impl Default for Snapshot {
     fn default() -> Self {
         Self {
+            marketplace: Default::default(),
             library: Library::default(),
             details_expanded: None,
             active_expanded: true,
@@ -198,6 +201,10 @@ impl Snapshot {
     /// Keeps disclosure changes local and forwards work only while the library is idle.
     pub fn apply(&mut self, action: Action) -> Option<Action> {
         match action {
+            Action::Marketplace(action) => {
+                self.marketplace.apply(action);
+                None
+            }
             Action::Customize(id) => {
                 self.customizing = (self.customizing != Some(id)).then_some(id);
                 self.show_all_permissions = false;

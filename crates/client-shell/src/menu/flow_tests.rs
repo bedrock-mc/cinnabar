@@ -694,3 +694,42 @@ fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
         }
     }
 }
+
+#[test]
+fn mod_update_notice_opens_installed_mods_and_retains_marketplace_previews() {
+    use launcher::{marketplace, mods};
+
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(MenuAction::SettingsSection(
+        launcher::menu::settings_sections::SettingSection::Mods
+            .definition()
+            .index,
+    ));
+    menu.activate(MenuAction::Mods(mods::Action::Marketplace(
+        marketplace::Action::Browse,
+    )));
+    let id = marketplace::catalog()
+        .listings
+        .iter()
+        .find(|item| item.status == "published")
+        .unwrap()
+        .id;
+    menu.activate(MenuAction::Mods(mods::Action::Marketplace(
+        marketplace::Action::Save(id),
+    )));
+    assert!(menu.view().mods.marketplace.open);
+    menu.go_back();
+    menu.activate(MenuAction::Mods(mods::Action::ViewUpdates));
+    let view = menu.view();
+    assert_eq!(view.screen, MenuScreen::Settings);
+    assert_eq!(
+        menu.settings.section,
+        launcher::menu::settings_sections::SettingSection::Mods
+            .definition()
+            .index
+    );
+    assert!(!view.mods.marketplace.open);
+    assert!(view.mods.marketplace.saved.contains(&id));
+    assert!(menu.mod_actions.is_empty());
+}

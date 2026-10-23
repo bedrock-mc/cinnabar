@@ -621,6 +621,13 @@ coverage, supported slot/ownership enforcement, player-preview acceptance and ha
 qualification. Payments and moderation remain incomplete; rollout must respect API/client
 compatibility. Existing catalog content is owned by the API repository.
 
+The free community-mod marketplace has a shared synthetic catalog and review
+policy, a session-only OreUI browse/detail/library preview and a website POC. See
+[community mod marketplace](docs/marketplace.md). Production Microsoft/Xbox
+linking, API-enforced staff roles and revision review, durable library sync,
+verified downloads and live input acceptance remain incomplete. Preview saves
+do not install components or grant permissions.
+
 ## Phase 7 — Local worlds
 
 Local worlds use the Go server integration. Qualify creation, offline play, reload,

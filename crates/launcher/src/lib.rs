@@ -25,6 +25,7 @@ pub mod global_resources;
 pub mod graphics_backend;
 pub mod install_layout;
 pub mod local_worlds;
+pub mod marketplace;
 pub mod menu;
 pub mod minecraft_import;
 pub mod mods;

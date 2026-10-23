@@ -374,7 +374,8 @@ fn perform(
             )
             .map(|()| String::new())
         }
-        Action::ReadMore(_)
+        Action::Marketplace(_)
+        | Action::ReadMore(_)
         | Action::Update(_)
         | Action::ViewUpdates
         | Action::OpenUpdate(_)

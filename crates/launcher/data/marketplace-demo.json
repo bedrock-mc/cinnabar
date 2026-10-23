@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "demo": true,
+  "accounts": {
+    "player-demo": {
+      "name": "Riverstone",
+      "gamertag": "Riverstone",
+      "role": "player"
+    },
+    "creator-demo": {
+      "name": "Emberworks",
+      "gamertag": "Emberworks",
+      "role": "creator"
+    },
+    "moderator-demo": {
+      "name": "Brook",
+      "gamertag": "Brook",
+      "role": "moderator"
+    },
+    "admin-demo": {
+      "name": "Aster",
+      "gamertag": "Aster",
+      "role": "admin"
+    },
+    "workshop-demo": {
+      "name": "Mosslight",
+      "gamertag": "Mosslight",
+      "role": "creator"
+    }
+  },
+  "roles": {
+    "player": [
+      "library.add"
+    ],
+    "creator": [
+      "library.add",
+      "submission.create",
+      "submission.edit_own",
+      "submission.submit"
+    ],
+    "moderator": [
+      "library.add",
+      "submission.review",
+      "listing.suspend"
+    ],
+    "admin": [
+      "library.add",
+      "submission.review",
+      "listing.suspend",
+      "staff.manage"
+    ]
+  },
+  "review_transitions": [
+    {
+      "from": "draft",
+      "action": "submit",
+      "to": "pending",
+      "permission": "submission.submit",
+      "owner": "self",
+      "requires_reason": false
+    },
+    {
+      "from": "changes_requested",
+      "action": "submit",
+      "to": "pending",
+      "permission": "submission.submit",
+      "owner": "self",
+      "requires_reason": false
+    },
+    {
+      "from": "pending",
+      "action": "approve",
+      "to": "published",
+      "permission": "submission.review",
+      "owner": "other",
+      "requires_reason": true
+    },
+    {
+      "from": "pending",
+      "action": "request_changes",
+      "to": "changes_requested",
+      "permission": "submission.review",
+      "owner": "other",
+      "requires_reason": true
+    },
+    {
+      "from": "published",
+      "action": "suspend",
+      "to": "suspended",
+      "permission": "listing.suspend",
+      "owner": "other",
+      "requires_reason": true
+    }
+  ],
+  "listings": [
+    {
+      "id": 101,
+      "slug": "zoom-plus",
+      "title": "Zoom Plus",
+      "creator": "Emberworks",
+      "owner": "creator-demo",
+      "category": "Camera",
+      "summary": "A closer look, at the press of a key.",
+      "description": "Hold a key to zoom, then scroll to adjust your view. Release to return to your usual field of view.",
+      "version": "1.2.0",
+      "status": "published",
+      "permissions": [
+        "Camera control"
+      ],
+      "license": "MIT",
+      "tone": "fern",
+      "icon": "zoom"
+    },
+    {
+      "id": 102,
+      "slug": "quiet-hud",
+      "title": "Quiet HUD",
+      "creator": "Mosslight",
+      "owner": "workshop-demo",
+      "category": "Interface",
+      "summary": "Keep your view clear. Keep what matters.",
+      "description": "Arrange a compact heads-up display with only the information you choose. Preview the layout before enabling it.",
+      "version": "0.8.0",
+      "status": "published",
+      "permissions": [
+        "HUD rendering"
+      ],
+      "license": "MIT",
+      "tone": "ochre",
+      "icon": "layout"
+    },
+    {
+      "id": 103,
+      "slug": "golden-hour",
+      "title": "Golden Hour",
+      "creator": "Emberworks",
+      "owner": "creator-demo",
+      "category": "Environment",
+      "summary": "Your favourite light, a little longer.",
+      "description": "Preview a local time-of-day setting. This changes your view of the world; it does not change the server clock.",
+      "version": "1.0.0",
+      "status": "published",
+      "permissions": [
+        "Local environment"
+      ],
+      "license": "MIT",
+      "tone": "ember",
+      "icon": "sun"
+    },
+    {
+      "id": 104,
+      "slug": "wayfinder",
+      "title": "Wayfinder",
+      "creator": "Mosslight",
+      "owner": "workshop-demo",
+      "category": "Interface",
+      "summary": "Find your bearings without the clutter.",
+      "description": "A minimal compass for your HUD, with a compact display you can position in your own layout.",
+      "version": "0.3.0",
+      "status": "pending",
+      "permissions": [
+        "HUD rendering",
+        "Player position"
+      ],
+      "license": "Apache-2.0",
+      "tone": "slate",
+      "icon": "compass"
+    }
+  ]
+}
