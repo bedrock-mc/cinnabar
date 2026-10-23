@@ -461,6 +461,11 @@ impl UiPresentationRuntime {
         (captured, action)
     }
 
+    /// Returns the capacity for additional fixed artwork, including all reserved UI pages.
+    pub fn remaining_fixed_texture_bytes(&self) -> usize {
+        render_model::MAX_UI_FIXED_TEXTURE_BYTES.saturating_sub(self.textures.fixed_budget_bytes())
+    }
+
     /// Registers the installed artwork as immutable static texture pages.
     pub fn enable_oreui_originals(&mut self, images: OreUiImages) -> Result<(), String> {
         if self

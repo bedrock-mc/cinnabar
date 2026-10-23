@@ -24,6 +24,22 @@ const SWAY_RATE: f32 = 0.001;
 /// Directory of `panorama_0..5.{png,jpg}` replacing the pack's faces.
 const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
 
+/// A face set carried by the fetched resource pack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanoramaSet {
+    Primary,
+    Alternate,
+}
+
+/// Loads a complete face set through the existing UI carrier.
+pub fn pack_faces(assets: &RuntimeUiAssets, set: PanoramaSet) -> Option<PanoramaFaces> {
+    let prefix = match set {
+        PanoramaSet::Primary => "panorama_",
+        PanoramaSet::Alternate => "panorama_alternate_",
+    };
+    decode_faces(|face| assets.ui_file(&format!("textures/ui/{prefix}{face}.png")))
+}
+
 /// The title-screen camera `seconds` after the panorama first showed.
 pub fn launcher_view(seconds: f32, aspect: f32, tint: [f32; 4]) -> PanoramaView {
     let turned = seconds * TURN_DEGREES_PER_SECOND;
@@ -63,9 +79,9 @@ fn override_or_pack_faces(
     });
     // The title screen shows the alternate set when a pack carries one.
     overridden.or_else(|| {
-        ["panorama_alternate_", "panorama_"].iter().find_map(|set| {
-            decode_faces(|face| assets.ui_file(&format!("textures/ui/{set}{face}.png")))
-        })
+        [PanoramaSet::Alternate, PanoramaSet::Primary]
+            .into_iter()
+            .find_map(|set| pack_faces(assets, set))
     })
 }
 

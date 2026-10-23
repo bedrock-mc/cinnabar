@@ -8,6 +8,19 @@ fn menu() -> MenuView {
     MenuView::new(true, "Player".into())
 }
 
+/// Shows the loaded Profile card with an anonymous account and no featured screenshot.
+pub(super) fn profile_loaded() -> Fixture {
+    let mut view = MenuView::new(true, "ExamplePlayer".into());
+    view.screen = MenuScreen::Profile;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    view.feeds.profile.loaded = true;
+    view.feeds.profile.avatar_loaded = true;
+    view.feeds.profile.featured_screenshot_loaded = true;
+    view.feeds.profile.gamertag = "ExamplePlayer".into();
+    view.feeds.profile.xuid = "0".into();
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows invalid-cache failure or the fresh sign-in prompt with anonymous credentials.
 pub(super) fn sign_in_recovery(recovered: bool) -> Fixture {
     use launcher::menu::{auth::AuthState, sign_in::BrowserState};

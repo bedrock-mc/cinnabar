@@ -82,6 +82,11 @@ pub(super) fn draw(
     ];
     if let Some(icon) = featured {
         canvas.icon_ref_cover(icon, banner_bounds)?;
+    } else {
+        canvas.cover_sprite(
+            crate::images::panorama::profile_key(&view.feeds.profile.xuid),
+            banner_bounds,
+        )?;
     }
     if let Some(icon) = character {
         let model_width = canvas.r(14.8);
@@ -264,3 +269,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod panorama_tests;

@@ -46,3 +46,24 @@ fn unchanged_native_art_reuses_pages_and_changed_art_replaces_its_range() {
         start as u16
     );
 }
+
+#[test]
+fn remaining_artwork_capacity_includes_fonts_and_reserved_pages() {
+    use oreui::images::OreUiPage;
+    let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let available = runtime.remaining_fixed_texture_bytes();
+    assert!(available < render_model::MAX_UI_FIXED_TEXTURE_BYTES);
+    assert_eq!(
+        available + runtime.textures.fixed_budget_bytes(),
+        render_model::MAX_UI_FIXED_TEXTURE_BYTES
+    );
+    let images = OreUiImages {
+        pages: vec![OreUiPage {
+            dimensions: [2, 2],
+            pixels: vec![255; 16].into(),
+        }],
+        ..Default::default()
+    };
+    runtime.enable_oreui_originals(images).unwrap();
+    assert_eq!(runtime.remaining_fixed_texture_bytes(), available - 16);
+}

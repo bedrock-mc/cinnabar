@@ -139,6 +139,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    State {
+        name: "profile-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::profile_loaded,
+    },
     asset_free("sprite-outline-before", [800, 240], || {
         Fixture::SpriteOutline { outline: false }
     }),

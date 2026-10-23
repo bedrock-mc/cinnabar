@@ -2,6 +2,7 @@
 
 pub mod dimensions;
 mod packing;
+pub mod panorama;
 mod shipped;
 
 use std::{
@@ -225,7 +226,7 @@ pub struct OreUiSprite {
 }
 
 /// Original pixels shared by every presentation instance.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OreUiImages {
     pub pages: Vec<OreUiPage>,
     pub sprites: Arc<HashMap<String, OreUiSprite>>,

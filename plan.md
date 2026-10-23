@@ -447,6 +447,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   face selection across measurement and painting; broader text acceptance remains open.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Profile banners and the Create World preview use prepared perspective views of the
+  fetched panorama, with featured screenshots and saved-world thumbnails taking priority.
+  Optional panorama views use the capacity left after other UI textures; budget fallback
+  preserves existing artwork.
+  Broader menu visual acceptance remains open.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.

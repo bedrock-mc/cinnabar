@@ -28,6 +28,20 @@ pub struct Carriers {
     pub ui_page: u16,
 }
 
+/// Counts source texture bytes before the CPU raster expands coverage fonts into RGBA.
+/// `pages` starts with one expanded raster page for each font page.
+pub fn fixed_texture_bytes(font: &RuntimeFontCatalog, pages: &[Page]) -> usize {
+    font.pages()
+        .iter()
+        .map(|page| page.pixels.bytes().len())
+        .sum::<usize>()
+        + pages
+            .iter()
+            .skip(font.pages().len())
+            .map(|page| page.rgba.len())
+            .sum::<usize>()
+}
+
 /// Reads bounded carrier bytes, distinguishing absent fixtures from broken ones.
 pub fn read(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
     let file = File::open(path).map_err(|error| {

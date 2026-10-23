@@ -50,7 +50,7 @@ pub(super) fn draw(
     let top = bounds[1] + edge + pad - scroll.offset;
     let preview = [inner[0], top, inner[1], top + preview_height];
     canvas.fill(preview, NEUTRAL80.fill)?;
-    // An edited world shows its own last view; a new one keeps the plain panel.
+    // An edited world's last view takes priority over the prepared panorama.
     let thumbnail = view
         .local
         .edited
@@ -59,6 +59,8 @@ pub(super) fn draw(
         .and_then(|world| canvas.artwork?.get(&thumbnail_key(&world.id)).copied());
     if let Some(icon) = thumbnail {
         canvas.icon_ref_cover(icon, preview)?;
+    } else {
+        canvas.cover_sprite(crate::images::panorama::CREATE_WORLD_KEY, preview)?;
     }
     canvas.frame(preview, EDGE, BORDER)?;
     let mut y = preview[3] + canvas.r(0.8);
@@ -143,3 +145,6 @@ pub(super) fn draw(
     }
     canvas.end_scroll(scroll, y + pad - top + pad)
 }
+
+#[cfg(test)]
+mod panorama_tests;

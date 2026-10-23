@@ -432,12 +432,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
     ui_presentation.enable_touch_controls(cfg!(target_os = "android"));
     // OreUI artwork is decoded once for every native screen.
-    if let Some(images) = oreui::images::load_optional_oreui_images(
+    let mut images = oreui::images::load_optional_oreui_images(
         loaded_assets
             .selected_path
             .parent()
             .unwrap_or(Path::new(".")),
-    ) && let Err(reason) = ui_presentation.enable_oreui_originals(images)
+    )
+    .unwrap_or_default();
+    oreui::images::panorama::install(
+        &mut images,
+        ui_presentation.ui_assets(),
+        ui_presentation.remaining_fixed_texture_bytes(),
+    );
+    if !images.pages.is_empty()
+        && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
         bevy::log::warn!("OreUI originals disabled ({reason})");
     }
