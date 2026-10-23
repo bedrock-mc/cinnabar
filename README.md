@@ -17,11 +17,6 @@ client.
 
 <img width="1282" height="752" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
-| | |
-| --- | --- |
-| <img alt="Sunset over a savanna with a shader pack" src="docs/screenshots/shaders-sunset.jpg" /> | <img alt="Moonlit river with a shader pack" src="docs/screenshots/shaders-night.jpg" /> |
-| <img alt="Light shafts in a cave with a shader pack" src="docs/screenshots/shaders-cave.jpg" /> | <img alt="PvP on iOS" src="docs/screenshots/ios-pvp.jpg" /> |
-
 ## Download
 
 - **Stable:** [latest release](https://github.com/cinnabar-mc/cinnabar/releases/latest)

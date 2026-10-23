@@ -692,6 +692,9 @@ fn shaderpack_post(
             .get_resource::<render_scene::CloudVisibility>()
             .is_some_and(|visible| visible.0),
         particles: world.get_resource::<render_scene::ParticleGpuFrame>(),
+        particle_atlas_side: world
+            .get_resource::<ShaderpackEffectTextures>()
+            .map_or(0, |textures| textures.particle_atlas_size()[0] as u32),
         precipitation: world.get_resource::<render_scene::PrecipitationScene>(),
         lightning: world.get_resource::<render_scene::LightningScene>(),
         selection: world
