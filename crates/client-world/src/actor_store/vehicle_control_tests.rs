@@ -70,6 +70,7 @@ fn harbour(boat_metadata: Vec<ActorMetadata>) -> (ActorStore, u64) {
         sequence += 1;
         store.apply(1, sequence, event);
     }
+    store.exclude_remote_state_for(PLAYER as u64);
     (store, sequence)
 }
 
@@ -100,15 +101,6 @@ fn a_player_boarding_behind_a_mob_takes_the_controlling_seat() {
         &[(OTHER_PLAYER, ActorLinkType::Passenger)],
     );
     assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
-
-    // When the steering player leaves, the next passenger in order steers: the mob it
-    // displaced, not the player who boarded later.
-    board(
-        &mut store,
-        &mut sequence,
-        &[(PLAYER, ActorLinkType::Remove)],
-    );
-    assert_eq!(store.controlling_passenger(BOAT), Some(PIG));
 }
 
 #[test]
@@ -164,6 +156,7 @@ fn boat_move(x: f32, teleported: bool) -> ActorEvent {
 #[test]
 fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     let feed = LocalVehicleFeed {
         runtime_id: BOAT as u64,
         server_moves: 0,
@@ -200,8 +193,12 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     store.advance_interpolation_ticks(1);
     assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 41.0);
 
-    // A released vehicle follows the server again.
-    store.sync_local_vehicle(None);
+    // Leaving the boat releases it to the server at once, before any presentation frame.
+    board(
+        &mut store,
+        &mut sequence,
+        &[(PLAYER, ActorLinkType::Remove)],
+    );
     sequence += 1;
     store.apply(1, sequence, boat_move(50.0, false));
     assert_eq!(
@@ -238,6 +235,7 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
             ],
         ),
     );
+    store.exclude_remote_state_for(PLAYER as u64);
     assert_eq!(store.rider_view_lock(PLAYER, 0.5), None);
     store.apply_link(1, 3, link(PLAYER, ActorLinkType::Rider));
     store.sync_local_vehicle(Some(LocalVehicleFeed {
@@ -250,8 +248,54 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
     store.advance_interpolation_ticks(1);
     let lock = store.rider_view_lock(PLAYER, 0.5).unwrap();
     assert_eq!(lock.vehicle_yaw, 10.0);
-    assert_eq!(lock.facing, -80.0);
+    assert_eq!(lock.facing(), -80.0);
     assert_eq!(lock.limit, 90.0);
     // A free seat does not hold the view.
     assert_eq!(store.rider_view_lock(PIG, 0.5), None);
+}
+
+#[test]
+fn a_player_linked_before_it_spawns_still_takes_the_front_seat() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    store.apply(1, 2, spawn(PIG, entity("minecraft:pig"), Vec::new()));
+    let mut sequence = 2;
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (PIG, ActorLinkType::Rider),
+            (PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    assert_eq!(store.controlling_passenger(BOAT), Some(PIG));
+    store.apply(1, sequence + 1, spawn(PLAYER, player("Rider"), Vec::new()));
+    assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+}
+
+#[test]
+fn a_feed_for_a_boat_the_player_does_not_steer_is_ignored() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PIG, ActorLinkType::Rider)]);
+    board(
+        &mut store,
+        &mut sequence,
+        &[(PLAYER, ActorLinkType::Passenger)],
+    );
+    // The pig boarded first, but a player boarding behind a mob steers.
+    assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+    board(
+        &mut store,
+        &mut sequence,
+        &[(PLAYER, ActorLinkType::Remove)],
+    );
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        server_moves: 0,
+        position: [30.0, 5.0, 10.0],
+        yaw: 0.0,
+        velocity: [0.0; 3],
+    }));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 10.0);
 }

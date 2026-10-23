@@ -1,5 +1,6 @@
-//! The vehicle the local player steers. The client predicts its pose, so server movement
-//! lands on it only when the server teleports or forces the move.
+//! The boat the local player steers. The client predicts its pose, so server movement lands
+//! on it only when the server teleports or forces the move; which boat that is follows the
+//! current links.
 
 use protocol::ActorMoveEvent;
 
@@ -20,28 +21,42 @@ pub struct LocalVehicleFeed {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct LocalVehicle {
-    runtime_id: Option<u64>,
     /// Server moves admitted for the predicted vehicle, which prediction must restart from.
     server_moves: u64,
 }
 
 impl ActorStore {
-    /// Drives the predicted vehicle's pose, or releases it to server movement with `None`.
+    /// The boat the local player currently steers, from the current links; the client
+    /// predicts it while this holds.
+    fn local_steered_boat(&self) -> Option<u64> {
+        let local = self
+            .actors
+            .get(&self.remote_state_excluded_runtime_id?)?
+            .unique_id;
+        let vehicle = *self.rider_to_ridden.get(&local)?;
+        if self.controlling_passenger(vehicle)? != local {
+            return None;
+        }
+        let boat = self.snapshot_by_unique(vehicle)?;
+        (boat.entity_fact.native_class == assets::facts::entity::NativeEntityClass::Boat)
+            .then_some(boat.runtime_id)
+    }
+
+    /// Drives the predicted pose of the boat the local player steers. A feed for another
+    /// actor, or one predicted before the latest server move, is ignored.
     pub(crate) fn sync_local_vehicle(&mut self, feed: Option<LocalVehicleFeed>) {
-        let feed = feed.filter(|feed| {
+        let Some(feed) = feed.filter(|feed| {
             feed.position
                 .iter()
                 .chain(&feed.velocity)
                 .chain(&[feed.yaw])
                 .all(|value| value.is_finite())
-        });
-        self.local_vehicle.runtime_id = feed.map(|feed| feed.runtime_id);
-        let Some(feed) = feed else {
+        }) else {
             return;
         };
-        // A feed predicted before the latest server move would overwrite that move's
-        // target before prediction restarts from it.
-        if feed.server_moves != self.local_vehicle.server_moves {
+        if self.local_steered_boat() != Some(feed.runtime_id)
+            || feed.server_moves != self.local_vehicle.server_moves
+        {
             return;
         }
         let Some(actor) = self.actors.get_mut(&feed.runtime_id) else {
@@ -63,10 +78,10 @@ impl ActorStore {
         self.effect_members.collidable.update(actor);
     }
 
-    /// Whether a server move applies. Moves of the predicted vehicle apply only when they
-    /// teleport or are forced, and then count as a restart for prediction.
+    /// Whether a server move applies. Moves of the boat the local player steers apply only
+    /// when they teleport or are forced, and then count as a restart for prediction.
     pub(super) fn admit_local_vehicle_move(&mut self, movement: &ActorMoveEvent) -> bool {
-        if self.local_vehicle.runtime_id != Some(movement.runtime_id) {
+        if self.local_steered_boat() != Some(movement.runtime_id) {
             return true;
         }
         if !movement.teleported && !movement.force_local_move {

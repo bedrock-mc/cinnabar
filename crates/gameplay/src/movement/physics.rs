@@ -684,7 +684,7 @@ impl LocalPhysicsController {
             {
                 state.velocity = overlay.velocity;
             }
-            let before = state.position;
+            let before = riding::before_seat(state.position, ride_delta);
             // The liquid probe uses the prior tick's pose-adjusted eye anchor.
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
@@ -780,7 +780,7 @@ impl LocalPhysicsController {
                         && input.mode != sim::MovementMode::Riding
                         && !input.spectator;
                     processed.ride = context.mode_intent.ride;
-                    processed.vehicle = self.vehicle.commit();
+                    processed.vehicle = self.vehicle.commit(state.tick);
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
                     if input.immobile || input.mode == sim::MovementMode::Riding {

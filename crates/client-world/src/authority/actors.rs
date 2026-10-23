@@ -328,7 +328,8 @@ impl WorldAuthority {
             .then(|| self.actors.snapshot_by_unique(vehicle))
             .flatten()
     }
-    /// Drives the predicted pose of the vehicle the local player steers; `None` releases it.
+    /// Drives the predicted pose of the boat the local player steers; feeds for any other
+    /// actor, or `None`, change nothing.
     pub fn sync_local_vehicle_pose(&mut self, feed: Option<crate::LocalVehicleFeed>) {
         self.actors.sync_local_vehicle(feed);
     }

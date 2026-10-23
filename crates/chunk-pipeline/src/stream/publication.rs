@@ -242,7 +242,7 @@ impl WorldStream {
         self.authority.sync_local_player_pose(feed)
     }
 
-    /// Drives the predicted pose of the vehicle the local player steers; `None` releases it.
+    /// Drives the predicted pose of the boat the local player steers.
     pub fn sync_local_vehicle_pose(&mut self, feed: Option<client_world::LocalVehicleFeed>) {
         self.authority.sync_local_vehicle_pose(feed)
     }

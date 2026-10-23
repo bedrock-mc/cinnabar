@@ -57,8 +57,17 @@ impl super::movement_interpolation::MotionState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SeatViewLock {
     pub vehicle_yaw: f32,
-    pub facing: f32,
+    /// The seat's facing relative to the vehicle.
+    pub offset: f32,
     pub limit: f32,
+}
+
+impl SeatViewLock {
+    /// The seat's facing in the world.
+    #[must_use]
+    pub fn facing(&self) -> f32 {
+        wrap_degrees(self.vehicle_yaw + self.offset)
+    }
 }
 
 /// Where a rider sits and how its body and head are held.
@@ -195,7 +204,7 @@ impl ActorStore {
         let vehicle_yaw = previous + wrap_degrees(mount.yaw - previous) * alpha.clamp(0.0, 1.0);
         vehicle_yaw.is_finite().then(|| SeatViewLock {
             vehicle_yaw,
-            facing: wrap_degrees(vehicle_yaw + offset),
+            offset,
             limit,
         })
     }

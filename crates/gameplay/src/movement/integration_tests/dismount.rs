@@ -100,14 +100,14 @@ fn dismount_requests_do_not_cross_mount_session_or_focus_boundaries() {
     }
 }
 
-/// Boat input uses jump to exit; other vehicle contexts keep jump available to the mount.
+/// Boat input exits on jump or sneak; other vehicle contexts keep jump available to the mount.
 #[test]
 fn dismount_input_follows_the_vehicle_context_without_repeating_held_buttons() {
-    for (kind, jump_exits) in [
-        (super::RideKind::Boat, true),
-        (super::RideKind::Horse, false),
-        (super::RideKind::Minecart, false),
-        (super::RideKind::Other, false),
+    for (kind, jump_exits, sneak_exits) in [
+        (super::RideKind::Boat, true, true),
+        (super::RideKind::Horse, false, true),
+        (super::RideKind::Minecart, false, true),
+        (super::RideKind::Other, false, true),
     ] {
         for jump_pressed in [false, true] {
             let (mut physics, mut ticker) = walked_physics(0);
@@ -136,7 +136,8 @@ fn dismount_input_follows_the_vehicle_context_without_repeating_held_buttons() {
                     Ok(())
                 });
             }
-            assert_eq!(sent, usize::from(jump_exits == jump_pressed), "{kind:?}");
+            let exits = if jump_pressed { jump_exits } else { sneak_exits };
+            assert_eq!(sent, usize::from(exits), "{kind:?} jump {jump_pressed}");
         }
     }
 }
@@ -294,7 +295,7 @@ fn dismount_request_keeps_the_seated_pose_until_the_server_unlinks() {
         ));
         locals.flush_dismount(physics.network_position().unwrap(), |_| Ok(()));
         assert_eq!(physics.mode(), sim::MovementMode::Riding);
-        assert_eq!(physics.render_feet_position(), Some(seat));
+        assert_eq!(physics.state().unwrap().position, sim::Vec3::new(2.0, 3.0, 4.0));
         assert_eq!(physics.latest_sneak_sprint(), Some((false, false)));
         let sample = ticker.pending_samples().last().unwrap().clone();
         assert!(sample.snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits() != 0);
@@ -378,4 +379,30 @@ fn mounted_sneak_and_jump_replay_without_crouching_or_moving_the_seat() {
             }
         }
     }
+}
+
+/// Rendering eases the rider from its previous seat to the new one rather than jumping.
+#[test]
+fn a_moving_seat_renders_from_the_previous_seat() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    for seat in [[2.0, 3.0, 4.0], [2.5, 3.0, 4.0]] {
+        let mut frame = speed_frame(Default::default());
+        frame.facts.ride = Some(super::RideKind::Other);
+        frame.facts.ride_seat = Some(seat);
+        frame.facts.mount_runtime_id = Some(20);
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+    }
+    // The frame sits at the start of the tick that moved the seat.
+    assert_eq!(physics.tick_alpha(), 0.0);
+    assert_eq!(physics.render_feet_position(), Some([2.0, 3.0, 4.0]));
 }

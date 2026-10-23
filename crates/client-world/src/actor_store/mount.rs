@@ -39,10 +39,33 @@ impl super::ActorStore {
     /// The passenger in the vehicle's controlling seat, whose input steers it.
     pub(crate) fn controlling_passenger(&self, vehicle_unique_id: i64) -> Option<i64> {
         let vehicle = self.snapshot_by_unique(vehicle_unique_id)?;
-        self.passenger_order
-            .get(&vehicle_unique_id)?
+        self.passenger_order(vehicle_unique_id)
             .get(vehicle.controlling_seat_index())
             .copied()
+    }
+
+    /// The vehicle's passengers in seat order, from its current links: arrival order, except
+    /// that a player boarding a vehicle fronted by a non-player takes the front seat.
+    fn passenger_order(&self, vehicle_unique_id: i64) -> Vec<i64> {
+        let mut arrivals: Vec<(u64, i64)> = self
+            .rider_to_ridden
+            .iter()
+            .filter(|(_, ridden)| **ridden == vehicle_unique_id)
+            .map(|(rider, _)| (self.link_arrival.get(rider).copied().unwrap_or(0), *rider))
+            .collect();
+        arrivals.sort_unstable();
+        let mut order: Vec<i64> = Vec::with_capacity(arrivals.len());
+        for (_, rider) in arrivals {
+            let front_is_mob = order
+                .first()
+                .is_some_and(|front| !self.is_player_unique(*front));
+            if self.is_player_unique(rider) && front_is_mob {
+                order.insert(0, rider);
+            } else {
+                order.push(rider);
+            }
+        }
+        order
     }
 
     fn is_player_unique(&self, unique_id: i64) -> bool {
@@ -50,8 +73,8 @@ impl super::ActorStore {
             .is_some_and(|actor| matches!(actor.kind, ActorKind::Player { .. }))
     }
 
-    /// Applies one riding link. Link types only add or remove; seat order follows arrival,
-    /// except that a player boarding a vehicle steered by a non-player takes the front seat.
+    /// Applies one riding link. Link types only add or remove; a new link records its
+    /// arrival, which orders the vehicle's seats.
     pub(super) fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
         let rider = event.rider_unique_id;
         let vehicle = event.ridden_unique_id;
@@ -60,7 +83,7 @@ impl super::ActorStore {
             ActorLinkType::Remove => {
                 if self.rider_to_ridden.get(&rider) == Some(&vehicle) {
                     self.rider_to_ridden.remove(&rider);
-                    self.leave_passenger_order(rider, vehicle);
+                    self.link_arrival.remove(&rider);
                 }
                 ActorApplyResult::Updated
             }
@@ -69,51 +92,28 @@ impl super::ActorStore {
                 if previous.is_none() && self.rider_to_ridden.len() >= self.max_actor_links {
                     return ActorApplyResult::CapacityRejected;
                 }
-                if previous == Some(vehicle) {
-                    return ActorApplyResult::Updated;
-                }
-                if let Some(previous) = previous {
-                    self.leave_passenger_order(rider, previous);
-                }
-                self.rider_to_ridden.insert(rider, vehicle);
-                let rider_is_player = self.is_player_unique(rider);
-                let front_is_player = self
-                    .passenger_order
-                    .get(&vehicle)
-                    .and_then(|order| order.first())
-                    .map(|front| self.is_player_unique(*front));
-                let order = self.passenger_order.entry(vehicle).or_default();
-                if rider_is_player && front_is_player == Some(false) {
-                    order.insert(0, rider);
-                } else {
-                    order.push(rider);
+                if previous != Some(vehicle) {
+                    self.rider_to_ridden.insert(rider, vehicle);
+                    self.next_link_arrival = self.next_link_arrival.wrapping_add(1);
+                    self.link_arrival.insert(rider, self.next_link_arrival);
                 }
                 ActorApplyResult::Updated
             }
         }
     }
 
-    fn leave_passenger_order(&mut self, rider: i64, vehicle: i64) {
-        if let Some(order) = self.passenger_order.get_mut(&vehicle) {
-            order.retain(|passenger| *passenger != rider);
-            if order.is_empty() {
-                self.passenger_order.remove(&vehicle);
-            }
-        }
-    }
-
     /// Drops every link that names this actor as rider or vehicle.
     pub(super) fn remove_links_for(&mut self, unique_id: i64) {
-        if let Some(vehicle) = self.rider_to_ridden.remove(&unique_id) {
-            self.leave_passenger_order(unique_id, vehicle);
-        }
+        self.rider_to_ridden.remove(&unique_id);
         self.rider_to_ridden
             .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
-        self.passenger_order.remove(&unique_id);
+        let riders = &self.rider_to_ridden;
+        self.link_arrival
+            .retain(|rider, _| riders.contains_key(rider));
     }
 
     pub(super) fn clear_links(&mut self) {
         self.rider_to_ridden.clear();
-        self.passenger_order.clear();
+        self.link_arrival.clear();
     }
 }

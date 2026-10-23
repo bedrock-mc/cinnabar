@@ -150,6 +150,7 @@ fn steered_vehicle(stream: &impl crate::GameplayWorld) -> Option<super::vehicle:
         },
         position: vehicle.last_received_native_position(),
         yaw: vehicle.last_received_pose().yaw,
+        velocity: vehicle.native_velocity(),
         seat,
         server_moves: stream.local_vehicle_server_moves(),
     })

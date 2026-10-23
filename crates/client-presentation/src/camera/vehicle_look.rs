@@ -25,7 +25,7 @@ impl VehicleLookFollow {
             .last_vehicle_yaw
             .map_or(0.0, |last| wrap_degrees(lock.vehicle_yaw - last));
         self.last_vehicle_yaw = Some(lock.vehicle_yaw);
-        let relative = wrap_degrees(look_yaw - lock.facing);
+        let relative = wrap_degrees(look_yaw - lock.facing());
         (relative + vehicle_turn).clamp(-lock.limit, lock.limit) - relative
     }
 
@@ -50,7 +50,7 @@ mod tests {
     const fn boat(vehicle_yaw: f32) -> SeatViewLock {
         SeatViewLock {
             vehicle_yaw,
-            facing: vehicle_yaw - 90.0,
+            offset: -90.0,
             limit: 90.0,
         }
     }

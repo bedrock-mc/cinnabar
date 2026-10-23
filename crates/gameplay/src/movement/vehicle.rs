@@ -14,9 +14,10 @@ pub struct SteeredVehicle {
     pub unique_id: i64,
     /// Collision box and position origin from the boat's actor facts.
     pub body: BoatBody,
-    /// Network position and yaw the server last gave the boat; prediction starts there.
+    /// Network position, yaw and per-tick motion the boat retains; prediction starts there.
     pub position: [f32; 3],
     pub yaw: f32,
+    pub velocity: [f32; 3],
     /// The rider's seat relative to the boat's feet, in the boat's frame.
     pub seat: [f32; 3],
     /// Server teleports of the boat; a new one restarts prediction.
@@ -61,22 +62,30 @@ pub struct VehicleCorrection {
     pub on_ground: bool,
 }
 
-#[derive(Debug, Clone)]
-struct Predicted {
+/// Identifies one prediction session: the steered boat and the count of server moves it
+/// started from. A change of owner starts a new session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SessionOwner {
     runtime_id: u64,
     unique_id: i64,
     server_moves: u64,
+}
+
+#[derive(Debug, Clone)]
+struct Session {
+    owner: SessionOwner,
     seat: [f32; 3],
     state: BoatState,
-    /// At least one tick completed from this start.
-    committed: bool,
-    /// The newest correction applied; older ones are stale.
-    corrected_tick: u64,
+    /// The yaw one tick before `state`, which rendering eases from.
+    previous_yaw: f32,
+    /// Corrections at or before this tick belong to an earlier session or are already
+    /// applied; `None` until the session's first tick completes.
+    stale_through: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct VehiclePrediction {
-    predicted: Option<Predicted>,
+    session: Option<Session>,
     pending: Option<BoatState>,
     /// Xorshift state for the wave's big-wave draws.
     wave_seed: u32,
@@ -84,7 +93,8 @@ pub(super) struct VehiclePrediction {
 
 impl VehiclePrediction {
     /// Paddles the steered boat for the coming tick and returns the rider's seat feet, or
-    /// `None` without a steered boat. A boat whose terrain is unavailable fails the tick, so
+    /// `None` without a steered boat. A new boat or server move starts a session from the
+    /// boat's retained pose and motion. A boat whose terrain is unavailable fails the tick, so
     /// its input never silently reports the rider instead.
     pub(super) fn step(
         &mut self,
@@ -94,48 +104,48 @@ impl VehiclePrediction {
     ) -> Result<Option<[f32; 3]>, WorldQueryError> {
         self.pending = None;
         let Some(vehicle) = vehicle else {
-            self.predicted = None;
+            self.session = None;
             return Ok(None);
         };
-        let restart = self.predicted.as_ref().is_none_or(|predicted| {
-            predicted.runtime_id != vehicle.runtime_id
-                || predicted.unique_id != vehicle.unique_id
-                || predicted.server_moves != vehicle.server_moves
-        });
-        if restart {
-            self.predicted = Some(Predicted {
-                runtime_id: vehicle.runtime_id,
-                unique_id: vehicle.unique_id,
-                server_moves: vehicle.server_moves,
+        let owner = SessionOwner {
+            runtime_id: vehicle.runtime_id,
+            unique_id: vehicle.unique_id,
+            server_moves: vehicle.server_moves,
+        };
+        let session = match &mut self.session {
+            Some(session) if session.owner == owner => session,
+            slot => slot.insert(Session {
+                owner,
                 seat: vehicle.seat,
-                state: BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw),
-                committed: false,
-                corrected_tick: 0,
-            });
-        }
-        let Some(predicted) = self.predicted.as_mut() else {
-            return Ok(None);
+                state: BoatState {
+                    velocity: vehicle.velocity,
+                    ..BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw)
+                },
+                previous_yaw: vehicle.yaw,
+                stale_through: None,
+            }),
         };
-        predicted.seat = vehicle.seat;
-        predicted.state.body = vehicle.body;
+        session.seat = vehicle.seat;
+        session.state.body = vehicle.body;
         let wave_draw = next_draw(&mut self.wave_seed);
         let tick = sim::tick_boat(
             world,
-            &predicted.state,
+            &session.state,
             sim::boat_paddle_power(move_vector),
             BoatBuoyancy::Live { wave_draw },
         )?;
         self.pending = Some(tick.state);
-        Ok(Some(seat_feet(&tick.state, predicted.seat)))
+        Ok(Some(seat_feet(&tick.state, session.seat)))
     }
 
-    /// Keeps the stepped boat as the completed tick's state.
-    pub(super) fn commit(&mut self) -> Option<PredictedVehicleSample> {
+    /// Keeps the stepped boat as the state of the completed input tick.
+    pub(super) fn commit(&mut self, tick: u64) -> Option<PredictedVehicleSample> {
         let state = self.pending.take()?;
-        let predicted = self.predicted.as_mut()?;
-        predicted.state = state;
-        predicted.committed = true;
-        Some(predicted_sample(predicted.unique_id, &state))
+        let session = self.session.as_mut()?;
+        session.previous_yaw = session.state.yaw;
+        session.state = state;
+        session.stale_through.get_or_insert(tick.saturating_sub(1));
+        Some(predicted_sample(session.owner.unique_id, &state))
     }
 
     /// Discards a stepped boat whose player tick failed.
@@ -143,33 +153,43 @@ impl VehiclePrediction {
         self.pending = None;
     }
 
-    /// Forgets the predicted boat.
+    /// Ends the session.
     pub(super) fn reset(&mut self) {
-        self.predicted = None;
+        self.session = None;
         self.pending = None;
+    }
+
+    /// The predicted boat's yaw `alpha` of the way through the current tick.
+    pub(super) fn render_yaw(&self, alpha: f32) -> Option<f32> {
+        let session = self
+            .session
+            .as_ref()
+            .filter(|session| session.stale_through.is_some())?;
+        let turn = (session.state.yaw - session.previous_yaw + 180.0).rem_euclid(360.0) - 180.0;
+        Some(session.previous_yaw + turn * alpha.clamp(0.0, 1.0))
     }
 
     /// The predicted boat's latest pose for the actor store.
     pub(super) fn feed(&self) -> Option<client_world::LocalVehicleFeed> {
-        let predicted = self
-            .predicted
+        let session = self
+            .session
             .as_ref()
-            .filter(|predicted| predicted.committed)?;
-        let [x, _, z] = predicted.state.position;
+            .filter(|session| session.stale_through.is_some())?;
+        let [x, _, z] = session.state.position;
         Some(client_world::LocalVehicleFeed {
-            runtime_id: predicted.runtime_id,
-            server_moves: predicted.server_moves,
-            position: [x, predicted.state.feet_y(), z],
-            yaw: predicted.state.yaw,
-            velocity: predicted.state.velocity,
+            runtime_id: session.owner.runtime_id,
+            server_moves: session.owner.server_moves,
+            position: [x, session.state.feet_y(), z],
+            yaw: session.state.yaw,
+            velocity: session.state.velocity,
         })
     }
 
-    /// Restarts prediction from a server correction's vehicle state and returns the rider's
-    /// seat feet on it. Corrections no newer than one already applied, or with non-finite
-    /// state, are ignored.
+    /// Continues the session from a server correction's vehicle state and returns the rider's
+    /// seat feet on it. A correction from before this session, no newer than one already
+    /// applied, or with non-finite state is ignored.
     pub(super) fn correct(&mut self, correction: &VehicleCorrection) -> Option<[f32; 3]> {
-        let predicted = self.predicted.as_mut()?;
+        let session = self.session.as_mut()?;
         let finite = correction
             .position
             .iter()
@@ -177,22 +197,23 @@ impl VehiclePrediction {
             .chain(&correction.rotation)
             .chain(correction.angular_velocity.as_ref())
             .all(|value| value.is_finite());
-        if !finite || correction.tick <= predicted.corrected_tick {
+        if !finite || correction.tick <= session.stale_through? {
             return None;
         }
-        predicted.corrected_tick = correction.tick;
-        predicted.state = BoatState {
+        session.stale_through = Some(correction.tick);
+        session.previous_yaw = correction.rotation[1];
+        session.state = BoatState {
             position: correction.position,
             velocity: correction.velocity,
             yaw: correction.rotation[1],
             angular_velocity: correction
                 .angular_velocity
-                .unwrap_or(predicted.state.angular_velocity),
+                .unwrap_or(session.state.angular_velocity),
             on_ground: correction.on_ground,
-            ..predicted.state
+            ..session.state
         };
         self.pending = None;
-        Some(seat_feet(&predicted.state, predicted.seat))
+        Some(seat_feet(&session.state, session.seat))
     }
 }
 

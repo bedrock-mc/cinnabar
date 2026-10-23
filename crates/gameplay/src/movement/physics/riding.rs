@@ -40,11 +40,25 @@ pub(super) fn seat_rider(
     })
 }
 
+/// Where the rider was before this tick seated it, so rendering eases from the previous seat
+/// to the new one instead of jumping between them.
+pub(super) fn before_seat(position: Vec3, ride_delta: Option<[f32; 3]>) -> Vec3 {
+    ride_delta.map_or(position, |[x, y, z]| {
+        position - Vec3::new(f64::from(x), f64::from(y), f64::from(z))
+    })
+}
+
 impl super::LocalPhysicsController {
     /// The predicted pose of the boat the player steers, for the actor store.
     #[must_use]
     pub fn predicted_vehicle_feed(&self) -> Option<client_world::LocalVehicleFeed> {
         self.vehicle.feed()
+    }
+
+    /// The steered boat's predicted yaw at this frame's point between ticks.
+    #[must_use]
+    pub fn predicted_vehicle_yaw(&self) -> Option<f32> {
+        self.vehicle.render_yaw(self.tick_alpha())
     }
 
     /// Restarts the steered boat's prediction from a server correction and returns the
@@ -93,6 +107,7 @@ mod tests {
                 },
                 position: [0.5, 0.375, 0.5],
                 yaw: 0.0,
+                velocity: [0.0; 3],
                 seat: [0.0, -0.2, 0.0],
                 server_moves: 0,
             }),
