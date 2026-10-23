@@ -144,6 +144,13 @@ fn runtime_acceptance_child() {
         actions: bundle.manifest.actions.clone(),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
     };
+    assert!(
+        !capabilities
+            .scope
+            .permissions
+            .contains(&server_experience::manifest::Permission::Input),
+        "messaging-only parts must recover without input callbacks"
+    );
     let owner = Principal {
         session: "test-session".into(),
         bundle: bundle.manifest.id.clone(),
@@ -193,10 +200,10 @@ fn runtime_acceptance_child() {
         record: serde_json::to_vec(&vec![Scalar::Bool(true)]).unwrap(),
     };
     assert!(host.dispatch(&trap, 2).is_err());
-    let recovering = host.dispatch(&Event::Epoch, 2).unwrap();
+    let recovering = host.take_transaction();
     assert!(
         matches!(recovering.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
-        "guest recovery must publish a fresh registry request through a successful callback"
+        "guest recovery must publish a fresh registry request without another callback"
     );
     let restarted = host.dispatch(&confirmation, 2).unwrap();
     assert!(

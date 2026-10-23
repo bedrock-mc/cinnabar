@@ -240,3 +240,52 @@ fn helper_stderr_lines_are_cut_rate_limited_and_their_drops_counted() {
         &format!("{dropped} more helper stderr lines dropped")
     );
 }
+
+/// A full recovery transaction and a maximally escaped failure fit the same bounded reply.
+#[test]
+fn recovery_output_and_failure_fit_one_reply() {
+    use server_experience::runtime::Command;
+    use server_experience::wire::Scalar;
+
+    let mut transaction = Transaction {
+        owner: Principal {
+            session: "\\\"".repeat(MAX_IDENTIFIER_BYTES),
+            bundle: "\\\"".repeat(MAX_IDENTIFIER_BYTES),
+            generation: u64::MAX,
+        },
+        epoch: u64::MAX,
+        commands: Vec::new(),
+    };
+    let command = Command::Send {
+        channel: "x".repeat(MAX_IDENTIFIER_BYTES),
+        schema: u16::MAX,
+        record: vec![Scalar::Bool(false)],
+    };
+    while serde_json::to_vec(&transaction).unwrap().len()
+        + serde_json::to_vec(&command).unwrap().len()
+        + 1
+        <= MAX_HOST_OUTPUT
+    {
+        transaction.commands.push(command.clone());
+    }
+    let failure = CallFailure::of(
+        &transaction.owner.bundle,
+        "dispatch",
+        &anyhow::anyhow!("\\\"".repeat(MAX_FAILURE_REASON_BYTES)),
+    );
+    let mut frame = Vec::new();
+    answer(
+        &mut frame,
+        Reply::Recovered {
+            failure,
+            transaction,
+        },
+        "fixture",
+        "dispatch",
+    )
+    .unwrap();
+    assert!(matches!(
+        read_frame::<Reply>(&mut frame.as_slice(), MAX_REPLY_IPC).unwrap(),
+        Reply::Recovered { .. }
+    ));
+}

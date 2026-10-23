@@ -181,7 +181,7 @@ or disconnected client. A protocol failure or a helper that dies ends the sessio
 runtime with no restart, as before.
 
 A failed client part callback does not. The developer helper (`mod-host server-helper`,
-helper IPC protocol 2, which the client and its helper share) answers a callback that
+a versioned helper IPC protocol, which the client and its helper share) answers a callback that
 traps, runs out of fuel, panics or breaks a host rule with a failure reply naming the
 bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
 `panic`, `trap`, `refused` or `startup`) and a reason of at most
@@ -191,6 +191,10 @@ which the client logs at debug level with the bundle and callback, and
 `mod_host::server::BundleHost::last_fuel_used` reports the same in process. The callback
 publishes nothing and the helper runs on a fresh instance of the
 component, so the guest's memory starts over; the helper says so on its stderr. The
+fresh initializer's messages accompany the failure reply, so registry negotiation can
+resume without input or a world change. Its presentation output is discarded because
+the previous instance's presentation still stands. Recovery messages pass the same
+capability and epoch checks as other sends and are dropped if the strike stops the part. The
 client logs each failure at WARN and counts it as a strike; `MAX_GUEST_STRIKES` within
 `GUEST_STRIKE_WINDOW_MS` (`server_experience::policy`, mirroring the server adapter's
 `strikeLimit` and `strikeWindow`, which a test checks) stop that client part, as does a

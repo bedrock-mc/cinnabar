@@ -1,5 +1,6 @@
 use super::*;
 
+mod recovery;
 mod shift;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
@@ -44,7 +45,13 @@ impl Worker for FakeWorker {
     /// Delivers only explicitly completed transactions and failures.
     fn poll(&mut self) -> Option<Result<Reply>> {
         if let Some(failure) = self.failure.take() {
-            return Some(Ok(Reply::Failed(failure)));
+            return Some(Ok(match self.response.take() {
+                Some(transaction) => Reply::Recovered {
+                    failure,
+                    transaction,
+                },
+                None => Reply::Failed(failure),
+            }));
         }
         self.response.take().map(|transaction| {
             Ok(Reply::Committed {

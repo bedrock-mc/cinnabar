@@ -450,9 +450,10 @@ impl BundleHost {
     /// Runs one fuel-bounded callback. A failed callback (a trap, its fuel running out, or a
     /// host rule it broke) discards all its output and leaves an instance that may be
     /// inconsistent, so it is replaced by a fresh one, whose guest memory starts over; the
-    /// fresh instance's `init` output is discarded too, since the first one's still stands. Only
-    /// a failed restart quarantines the bundle. A 1.0 component skips `action` and `epoch` and
-    /// returns an empty transaction.
+    /// fresh instance's initialization messages are staged for recovery, while its presentation
+    /// output is discarded because the first instance's still stands. Callers take recovery
+    /// output with `take_transaction` after an error. Only a failed restart quarantines the bundle.
+    /// A 1.0 component skips `action` and `epoch` and returns an empty transaction.
     pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<Transaction> {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
@@ -524,7 +525,10 @@ impl BundleHost {
         match Self::start(&self.linker, &self.component, owner, capabilities, epoch) {
             Ok((store, exports)) => {
                 (self.store, self.exports) = (store, exports);
-                self.store.data_mut().commands.clear();
+                self.store
+                    .data_mut()
+                    .commands
+                    .retain(|command| matches!(command, Command::Send { .. }));
                 self.set_session(session);
                 eprintln!(
                     "bundle {bundle} restarted after a failed callback; its guest state is lost"

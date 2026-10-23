@@ -423,6 +423,41 @@ fn a_trapped_dispatch_fails_alone_and_the_next_runs_on_a_fresh_instance() {
     assert_eq!(count(&mut host), 1);
 }
 
+/// Restart messages belong to the fresh initializer, without replaying presentation or
+/// publishing the failed callback's staged send, even when no further event arrives.
+#[test]
+fn restarted_guest_publishes_initialization_messages_without_another_callback() {
+    use server_experience::wire::{Channel, Direction, Field, Scalar};
+
+    let mut capabilities = screen_capabilities(&[Permission::Ui, Permission::Messaging]);
+    capabilities.channels.push(Channel {
+        id: "demo.request".into(),
+        schema: 1,
+        direction: Direction::ToServer,
+        fields: vec![Field::Bool {}],
+    });
+    let mut host = BundleHost::launch(
+        include_bytes!("guest_recovery.wat"),
+        owner(),
+        capabilities,
+        1,
+    )
+    .unwrap();
+    assert_eq!(host.take_transaction().commands.len(), 2);
+    for epoch in 2..=3 {
+        assert!(host.dispatch(&on("demo.fail"), epoch).is_err());
+        let recovery = host.take_transaction();
+        assert_eq!(recovery.owner, owner());
+        assert_eq!(recovery.epoch, epoch);
+        assert!(
+            matches!(recovery.commands.as_slice(), [Command::Send { channel, schema: 1, record }]
+                if channel == "demo.request" && record == &[Scalar::Bool(false)]),
+            "restart must publish only the fresh initializer's message: {recovery:?}"
+        );
+        assert!(host.take_transaction().commands.is_empty());
+    }
+}
+
 /// Running out of fuel is a trap like any other: reported, and survived.
 #[test]
 fn fuel_exhaustion_fails_its_call_and_the_guest_restarts() {

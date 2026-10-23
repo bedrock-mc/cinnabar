@@ -102,7 +102,7 @@ pub fn active<T: ClientPart>() -> bool {
     T::registry().is_none() || REGISTRY_STATE.get() == crate::message::RegistryState::Active
 }
 
-/// Gates a callback and stages one retry in case recovery discarded the guest's init output.
+/// Gates a callback and stages one retry while registry confirmation is pending.
 #[doc(hidden)]
 pub fn begin_callback<T: ClientPart>() -> bool {
     begin_callback_with::<T>(false, send)
