@@ -15,7 +15,8 @@ use assets::{
 
 use pack_compile_input::image::decode_texture;
 use pack_compile_input::pack::{
-    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key, resolve_texture_key,
+    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key,
+    resolve_carried_fallback_key, resolve_texture_key,
 };
 use pack_compile_input::static_texture_path;
 
@@ -182,7 +183,20 @@ impl IconBlocks {
                 .map_or(0, |(_, variant)| variant as usize);
             let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
                 .map(String::into_boxed_str)
-                .or_else(|| world_fallback.then_some(world).flatten())
+                .or_else(|| {
+                    if !world_fallback {
+                        return None;
+                    }
+                    if matches!(
+                        assets::facts::block_render_fact(&record.name).kind,
+                        assets::facts::BlockRenderKind::Furnace
+                            | assets::facts::BlockRenderKind::LitFurnace
+                    ) {
+                        resolve_carried_fallback_key(&pack.blocks, record, face)
+                    } else {
+                        world
+                    }
+                })
             else {
                 return Ok(None);
             };
@@ -426,6 +440,68 @@ mod tests {
                     .as_deref(),
                 Some("textures/items/litter")
             );
+        }
+    }
+
+    /// Inventory furnace faces use authored slots regardless of the placed state's direction.
+    #[test]
+    fn furnace_inventory_faces_show_the_unrotated_front() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{
+                "furnace":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}},
+                "blast_furnace":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}},
+                "smoker":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}}
+            }"#,
+            r#"{"texture_data":{
+                "top":{"textures":"textures/blocks/top"},
+                "side":{"textures":"textures/blocks/side"},
+                "front":{"textures":"textures/blocks/front"}
+            }}"#,
+            "[]",
+        );
+        for (name, pixel) in [
+            ("top", [19, 31, 47, 255]),
+            ("side", [61, 79, 97, 255]),
+            ("front", [101, 127, 151, 255]),
+        ] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(pixel))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        for name in [
+            "minecraft:furnace",
+            "minecraft:blast_furnace",
+            "minecraft:smoker",
+        ] {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|r| r.name.as_ref() == name)
+                .collect();
+            assert!(!states.is_empty(), "registered block {name}");
+            for record in states {
+                let tiles = blocks
+                    .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    &tiles[BlockFace::South as usize].rgba8[..4],
+                    &[101, 127, 151, 255],
+                    "front of {name} in {}",
+                    record.canonical_state
+                );
+                assert_eq!(
+                    &tiles[BlockFace::West as usize].rgba8[..4],
+                    &[61, 79, 97, 255]
+                );
+                assert_eq!(
+                    &tiles[BlockFace::Up as usize].rgba8[..4],
+                    &[19, 31, 47, 255]
+                );
+            }
         }
     }
 
