@@ -60,6 +60,30 @@ impl DataValue {
         }
     }
 
+    /// The stored elements in index order with their indices: a list's items, or the decimal-keyed
+    /// members of an array-shaped map below its `length`. Missing indices are skipped, so the
+    /// work follows the stored entries rather than a claimed length.
+    #[must_use]
+    pub fn elements(&self) -> Vec<(usize, &Self)> {
+        match self {
+            Self::List(items) => items.iter().enumerate().collect(),
+            Self::Map(entries) => {
+                let length = self.array_len();
+                let mut elements: Vec<_> = entries
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        let index = key.parse::<usize>().ok()?;
+                        (index < length && index.to_string() == key.as_ref())
+                            .then_some((index, value))
+                    })
+                    .collect();
+                elements.sort_unstable_by_key(|(index, _)| *index);
+                elements
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// The element count of a list, or the `length` member of an array-shaped map.
     #[must_use]
     pub fn array_len(&self) -> usize {

@@ -93,6 +93,9 @@ pub(super) fn prepare(
     };
     let mut models = BTreeMap::new();
     for entry in icons.entries() {
+        let sprite = icons
+            .lookup_held_index(&entry.identifier, entry.metadata)
+            .ok_or(UiPresentationError::InvalidFontTexture)?;
         let definition = entities.item_visuals().iter().find(|visual| {
             visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
         });
@@ -104,12 +107,12 @@ pub(super) fn prepare(
             }
             Some(ItemVisualDefinitionRoute::EmptyHand) => None,
             _ => {
-                if icons.sprites().get(entry.sprite as usize).is_none() {
+                if icons.sprites().get(sprite).is_none() {
                     continue;
                 }
                 // Sprite texels already live in the item atlas; keep their original region.
                 let source = *icon_refs
-                    .get(entry.sprite as usize)
+                    .get(sprite)
                     .ok_or(UiPresentationError::InvalidFontTexture)?;
                 let model = PreviewHeldModel {
                     source,
@@ -121,7 +124,7 @@ pub(super) fn prepare(
                             .unwrap_or(false),
                     }; 2],
                 };
-                Some((model, Some(entry.sprite as usize)))
+                Some((model, Some(sprite)))
             }
         };
         if let Some((model, sprite)) = model {

@@ -8,10 +8,14 @@ impl BlobCacheResolver {
     ) -> Result<(), BlobCacheError> {
         let mut unique = Vec::<(u64, bytes::Bytes)>::new();
         let mut positions = HashMap::<u64, usize>::new();
+        let mut unsolicited = None;
         for blob in response.missing_blobs {
             let (blob_id, blob_data) = (blob.blob_id.0, blob.blob_data);
             if !self.pending_by_hash.contains_key(&blob_id) && !self.cache.contains(blob_id) {
-                return Err(BlobCacheError::UnsolicitedBlob(blob_id));
+                // A retired transaction can leave a late blob beside still-needed payloads.
+                // Ignore its body without discarding or recovering the other columns.
+                unsolicited = Some(blob_id);
+                continue;
             }
             if let Some(&index) = positions.get(&blob_id) {
                 if unique[index].1 != blob_data {
@@ -29,6 +33,13 @@ impl BlobCacheResolver {
             }
             positions.insert(blob_id, unique.len());
             unique.push((blob_id, blob_data));
+        }
+        if let Some(hash) = unsolicited {
+            if unique.is_empty() {
+                return Err(BlobCacheError::UnsolicitedBlob(hash));
+            }
+            self.stats.miss_response_unsolicited =
+                self.stats.miss_response_unsolicited.saturating_add(1);
         }
 
         let mut staged_additions = HashMap::<u64, usize>::new();

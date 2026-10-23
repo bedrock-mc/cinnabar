@@ -178,6 +178,32 @@ fn dragon_and_piglin_heads_draw_their_mob_head_facing_the_south_side() {
 }
 
 #[test]
+fn lectern_inventory_board_slopes_toward_the_viewer() {
+    let parts = lectern();
+    let reading_surface = parts
+        .iter()
+        .find(|part| part.texture == geometry::LECTERN_TEXTURES[2])
+        .unwrap();
+    assert_eq!(reading_surface.faces.len(), 1);
+    let corners = reading_surface.faces[0].0;
+    let near_z = corners.iter().map(|p| p[2]).fold(f32::MIN, f32::max);
+    let far_z = corners.iter().map(|p| p[2]).fold(f32::MAX, f32::min);
+    let height_at = |z: f32| {
+        let points: Vec<_> = corners
+            .iter()
+            .filter(|p| (p[2] - z).abs() < 0.0001)
+            .collect();
+        assert_eq!(points.len(), 2);
+        (points[0][1] + points[1][1]) * 0.5
+    };
+    assert!(
+        height_at(near_z) < height_at(far_z),
+        "reading surface faces south"
+    );
+    assert_eq!(reading_surface.faces[0].1, [0.0, 1.0, 16.0, 13.0]);
+}
+
+#[test]
 fn shulker_inventory_applies_each_face_brightness_once() {
     let root = tempfile::tempdir().unwrap();
     let texture = root

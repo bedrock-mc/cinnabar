@@ -7,6 +7,7 @@ mod chat_position_tests;
 pub mod chat_screen;
 pub mod containers;
 pub mod credits_screen;
+mod data_driven_screen;
 mod debug_overlay;
 #[cfg(test)]
 mod disconnect_retry_tests;
@@ -139,6 +140,9 @@ pub(super) struct ScreenStates {
     emote: ui_screens::emote_screen::EmoteScreen,
     /// The bed screen's hits and pointer.
     bed: oreui::BedScreen,
+    /// The data-driven form's hits, pointer and scroll, and the form instance they belong to.
+    data_driven: oreui::data_driven_screen::DataDrivenScreen,
+    data_driven_form: Option<u64>,
     /// The sign editor's cached screen.
     sign: ui_screens::sign_editor::SignScreen,
     credits: ui_screens::credits_screen::CreditsScreen,

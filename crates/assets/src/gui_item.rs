@@ -6,8 +6,8 @@ use crate::{BlockFace, EntityGeometryCube, EntityGeometryUv};
 mod block_model;
 mod cube_model;
 pub use block_model::{
-    GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_item_quads,
-    cube_face, face_brightness, material_tile,
+    GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
+    block_item_quads, cube_face, face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
 

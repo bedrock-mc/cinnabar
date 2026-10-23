@@ -21,7 +21,7 @@ use pack_compile_input::pack::{
 use pack_compile_input::static_texture_path;
 
 /// Registry families whose vanilla block shapes render as flat item icons.
-const FLAT_FAMILIES: [ModelFamily; 11] = [
+const FLAT_FAMILIES: [ModelFamily; 10] = [
     ModelFamily::Cross,
     ModelFamily::Rail,
     ModelFamily::Torch,
@@ -29,7 +29,6 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::Vine,
     ModelFamily::GlowLichen,
     ModelFamily::SculkVein,
-    ModelFamily::Pane,
     ModelFamily::Aquatic,
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
@@ -94,8 +93,10 @@ impl IconBlocks {
             || FLAT_FAMILIES.contains(&record.model_family)
             || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
-            || (record.model_family == ModelFamily::Unknown
-                && assets::facts::block_render_fact(&record.name).flat_icon)
+            || (matches!(
+                record.model_family,
+                ModelFamily::Unknown | ModelFamily::Pane
+            ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
     /// The state an item draws: a wall item shows a post with east and west arms.
@@ -217,6 +218,14 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
+    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+            return None;
+        }
+        self.texture_path(visual)
+    }
+
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
         let pack = self.pack.as_ref()?;
@@ -320,6 +329,71 @@ mod respawn_anchor_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glass_panes_are_models_while_metal_bars_remain_flat() {
+        let blocks = IconBlocks::read(tempfile::tempdir().unwrap().path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let panes: Vec<_> = blocks
+            .records
+            .iter()
+            .filter(|record| record.model_family == ModelFamily::Pane)
+            .collect();
+        assert!(!panes.is_empty());
+        for record in panes {
+            assert_eq!(
+                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
+                record.name.ends_with("_bars"),
+                "{}",
+                record.name
+            );
+        }
+    }
+
+    #[test]
+    fn crystal_and_spike_items_use_the_flat_inventory_variant() {
+        let records = read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let selected: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                assets::facts::block_render_fact(&record.name).kind
+                    == assets::facts::BlockRenderKind::Crystal
+                    || record.traits.contains(BlockTraits::DRIPSTONE_OFFSET)
+            })
+            .collect();
+        assert!(!selected.is_empty());
+        let mut catalog = serde_json::Map::new();
+        for record in &selected {
+            catalog.insert(
+                record.name.strip_prefix("minecraft:").unwrap().into(),
+                serde_json::json!({"textures": "tile"}),
+            );
+        }
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            &serde_json::Value::Object(catalog).to_string(),
+            r#"{"texture_data":{"tile":{"textures":["textures/blocks/inventory","textures/blocks/placed"]}}}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        for record in selected {
+            let visual = BlockVisualId(record.sequential_id);
+            assert!(blocks.is_flat(&world, visual), "{}", record.name);
+            assert_eq!(
+                blocks.texture_path(visual).as_deref(),
+                Some("textures/blocks/inventory"),
+                "{} {}",
+                record.name,
+                record.canonical_state
+            );
+        }
+    }
 
     #[test]
     fn candles_keep_their_carried_icons_without_world_model_geometry() {
