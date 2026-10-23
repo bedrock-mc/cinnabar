@@ -819,6 +819,12 @@ const STATES: &[State] = &[
         fixture: shader_pack::empty_library,
     },
     State {
+        name: "settings-shaders-empty-without-drops",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library_without_drops,
+    },
+    State {
         name: "settings-shaders-narrow-library",
         size: [800, 720],
         gui_scale: GUI_SCALE,

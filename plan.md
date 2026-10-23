@@ -842,8 +842,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
-  one list ending in a drop zone; the selected pack's card shows its load state and holds
-  settings, reload and confirmed removal of imported copies and their saved settings.
+  one list ending in an import target that opens the file picker for `.zip` packs and, on
+  desktop, takes dropped zips and folders; the selected pack's card shows its load state and
+  holds settings, reload and confirmed removal of imported copies and their saved settings.
+  Incomplete: Android can add only `.zip` packs, because its document picker selects files
+  and folder packs need a folder picker.
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
   memory and visual acceptance across supported backends. `shaderpack` loads packs,
   parses `shaders.properties`, options, Iris
