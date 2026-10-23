@@ -3,7 +3,7 @@ use crate::committed_control::CommittedGameplayState;
 use std::sync::Arc;
 
 /// Commits sparse dimensions through the same actor path as server metadata.
-fn write_dimensions(
+pub(super) fn write_dimensions(
     world: &mut client_world::WorldAuthority,
     sequence: u64,
     fields: &[(ActorDataKey, f32)],
@@ -31,7 +31,7 @@ fn write_dimensions(
 }
 
 /// Reads a due sync without consuming it, using the actual stored local actor.
-fn reported_box(
+pub(super) fn reported_box(
     physics: &mut LocalPhysicsController,
     world: &client_world::WorldAuthority,
 ) -> [f32; 3] {

@@ -8,6 +8,7 @@ mod climber_writes;
 mod authority_writes;
 mod progress;
 mod server_writes;
+mod size_edges;
 mod state_updates;
 
 #[test]
