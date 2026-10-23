@@ -359,6 +359,8 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+  Decorated pot inventory sides exclude the texture border; broader model pose, tinting
+  and animation acceptance remains open.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
