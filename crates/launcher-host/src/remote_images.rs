@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+pub use render_api::BodyGeneration;
 use reqwest::{StatusCode, redirect::Policy};
 use server_experience::fetch::public_address;
 use url::{Host, Url};

@@ -145,8 +145,8 @@ fn an_open_forms_large_images_download_once_while_the_atlas_draws_them() {
     });
     for _ in 0..3 {
         atlas.require([first.as_str(), second.as_str()]);
-        assert!(matches!(images.state(&first), RemoteState::Ready(_)));
-        assert!(matches!(images.state(&second), RemoteState::Ready(_)));
+        assert!(matches!(images.state(&first), RemoteState::Ready(..)));
+        assert!(matches!(images.state(&second), RemoteState::Ready(..)));
     }
     assert_eq!(served.load(std::sync::atomic::Ordering::SeqCst), 2);
 }

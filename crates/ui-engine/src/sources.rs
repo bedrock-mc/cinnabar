@@ -1,6 +1,7 @@
 //! Host-owned reads, clock and threads the texture atlas draws through, keeping filesystem,
 //! network, time and thread access out of the engine.
 
+use render_api::BodyGeneration;
 use std::{sync::Arc, time::Duration};
 
 /// The installed vanilla resource pack's files by pack-relative path; the host owns the reads.
@@ -27,7 +28,8 @@ pub trait RemoteSource: Send + Sync {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemoteImage {
     Loading,
-    Ready(Arc<[u8]>),
+    /// A body whose generation stays fixed until the host publishes another download.
+    Ready(BodyGeneration, Arc<[u8]>),
     Failed,
 }
 

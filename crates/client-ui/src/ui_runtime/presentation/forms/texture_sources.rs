@@ -38,7 +38,7 @@ impl RemoteSource for Downloads {
     fn state(&self, url: &str) -> RemoteImage {
         match self.0.state(url) {
             RemoteState::Loading => RemoteImage::Loading,
-            RemoteState::Ready(bytes) => RemoteImage::Ready(bytes),
+            RemoteState::Ready(generation, bytes) => RemoteImage::Ready(generation, bytes),
             RemoteState::Failed => RemoteImage::Failed,
         }
     }

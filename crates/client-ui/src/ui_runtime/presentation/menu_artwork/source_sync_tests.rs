@@ -169,7 +169,7 @@ fn completed_download_requests_art_and_evicted_fitted_pages_keep_the_snapshot() 
     textures.atlas_mut().require([key]);
     runtime.sync_server_ui_pages();
     let requested = runtime.menu_artwork_loader.requested;
-    *download.0.lock().unwrap() = RemoteImage::Ready(png(1).into());
+    *download.0.lock().unwrap() = RemoteImage::Ready(render_api::BodyGeneration(1), png(1).into());
     runtime
         .engine
         .as_mut()

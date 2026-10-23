@@ -457,7 +457,7 @@ struct SameImage(Arc<[u8]>, Mutex<Vec<String>>);
 
 impl RemoteSource for SameImage {
     fn state(&self, _: &str) -> RemoteImage {
-        RemoteImage::Ready(self.0.clone())
+        RemoteImage::Ready(render_api::BodyGeneration(1), self.0.clone())
     }
 
     fn touch(&self, url: &str) {
@@ -490,7 +490,7 @@ fn downloaded_bodies_stay_owned_by_the_host_and_draws_touch_them() {
 }
 
 /// A download cache that can evict a body and later return a replacement for its URL.
-struct ReplacedImage(Mutex<Option<Arc<[u8]>>>);
+struct ReplacedImage(Mutex<Option<(render_api::BodyGeneration, Arc<[u8]>)>>);
 
 impl RemoteSource for ReplacedImage {
     fn state(&self, _: &str) -> RemoteImage {
@@ -498,7 +498,9 @@ impl RemoteSource for ReplacedImage {
             .lock()
             .unwrap()
             .clone()
-            .map_or(RemoteImage::Loading, RemoteImage::Ready)
+            .map_or(RemoteImage::Loading, |(generation, bytes)| {
+                RemoteImage::Ready(generation, bytes)
+            })
     }
 }
 
@@ -506,7 +508,10 @@ impl RemoteSource for ReplacedImage {
 fn a_redownload_uses_the_new_body_after_its_atlas_page_was_evicted() {
     let url = "https://images.test/button.png";
     for side in [2, 8] {
-        let remote = Arc::new(ReplacedImage(Mutex::new(Some(png(2, 2).into()))));
+        let remote = Arc::new(ReplacedImage(Mutex::new(Some((
+            render_api::BodyGeneration(1),
+            png(2, 2).into(),
+        )))));
         let files = vec![("textures/full.png".into(), png(PAGE_SIDE, PAGE_SIDE))];
         let mut atlas = ServerAtlas::new(&files, None, 1)
             .with_fallbacks(None, Some(remote.clone()))
@@ -522,7 +527,8 @@ fn a_redownload_uses_the_new_body_after_its_atlas_page_was_evicted() {
         image::RgbaImage::from_pixel(side, side, image::Rgba(color))
             .write_to(&mut bytes, image::ImageFormat::Png)
             .unwrap();
-        *remote.0.lock().unwrap() = Some(bytes.into_inner().into());
+        *remote.0.lock().unwrap() =
+            Some((render_api::BodyGeneration(2), bytes.into_inner().into()));
         atlas.require([url]);
         let slot = atlas.placement(url).unwrap();
         assert_eq!(slot.rect[2..], [side as u16; 2]);
@@ -534,4 +540,92 @@ fn a_redownload_uses_the_new_body_after_its_atlas_page_was_evicted() {
             &color
         );
     }
+}
+
+#[test]
+fn remote_redownload_replaces_resident_pixels_and_metadata_together() {
+    assert_remote_replacement(false);
+}
+
+#[test]
+fn remote_redownload_replaces_native_sheet_pixels_and_metadata_together() {
+    assert_remote_replacement(true);
+}
+
+/// Checks replacement without evicting the URL's existing fitted sprite or native sheet.
+fn assert_remote_replacement(native: bool) {
+    let url = "https://images.test/replaced.png";
+    let width = if native {
+        crate::pages::WHOLE_ART_PAGE + 1
+    } else {
+        2
+    };
+    let remote = Arc::new(ReplacedImage(Mutex::new(Some((
+        render_api::BodyGeneration(1),
+        png(width, 2).into(),
+    )))));
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_fallbacks(None, Some(remote.clone()))
+        .with_native_sheets(native)
+        .with_image_work(ImageWork::inline());
+    atlas.require([url]);
+    assert_eq!(atlas.fallback_size(url), Some([f64::from(width), 2.0]));
+    let revision = atlas.metadata_revision();
+    let color = [90, 80, 70, 255];
+    let mut bytes = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(width + 2, 8, image::Rgba(color))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    *remote.0.lock().unwrap() = Some((render_api::BodyGeneration(2), bytes.into_inner().into()));
+    // No atlas page eviction: both fitted sprites and native sheets are still resident.
+    atlas.require([url]);
+    assert_eq!(atlas.fallback_size(url), Some([f64::from(width + 2), 8.0]));
+    if native {
+        assert_eq!(
+            atlas.native_sprite(url).unwrap().1[2..],
+            [(width + 2) as f32, 8.0]
+        );
+        assert_eq!(&atlas.native_pages()[0].pixels()[..4], &color);
+    } else {
+        let slot = atlas.placement(url).unwrap();
+        assert_eq!(slot.rect[2..], [(width + 2) as u16, 8]);
+        let [x, y, _, _] = slot.rect.map(usize::from);
+        let offset = (y * PAGE_SIDE as usize + x) * 4;
+        assert_eq!(
+            &atlas.images()[usize::from(slot.page)].pixels()[offset..offset + 4],
+            &color
+        );
+    }
+    assert_ne!(atlas.metadata_revision(), revision);
+}
+
+#[test]
+fn deferred_remote_decodes_do_not_inspect_body_bytes_each_frame() {
+    let url = "https://images.test/deferred.png";
+    let body = source(png(2, 2).into()).unwrap();
+    let mut decodes = Decodes::default();
+    remote::BODY_INSPECTIONS.with(|calls| calls.set(0));
+    for _ in 0..8 {
+        assert!(decodes.get(url, &body, DecodeOn::Later).is_none());
+    }
+    assert_eq!(remote::BODY_INSPECTIONS.with(std::cell::Cell::get), 0);
+}
+
+#[test]
+fn warm_remote_images_do_not_reinspect_the_same_generation() {
+    let url = "https://images.test/warm.png";
+    let remote = Arc::new(ReplacedImage(Mutex::new(Some((
+        render_api::BodyGeneration(1),
+        png(2, 2).into(),
+    )))));
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_fallbacks(None, Some(remote))
+        .with_image_work(ImageWork::inline());
+    atlas.require([url]);
+    remote::BODY_INSPECTIONS.with(|calls| calls.set(0));
+    for _ in 0..8 {
+        atlas.require([url]);
+        assert_eq!(atlas.fallback_size(url), Some([2.0, 2.0]));
+    }
+    assert_eq!(remote::BODY_INSPECTIONS.with(std::cell::Cell::get), 0);
 }

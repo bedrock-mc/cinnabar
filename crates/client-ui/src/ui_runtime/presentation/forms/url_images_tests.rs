@@ -80,7 +80,7 @@ fn form_url_images_preserve_queries_and_decode_common_formats() {
             remote.state(&url) != RemoteImage::Loading
         });
         assert!(
-            matches!(remote.state(&url), RemoteImage::Ready(_)),
+            matches!(remote.state(&url), RemoteImage::Ready(..)),
             "{target}"
         );
         atlas.require([url.as_str()]);
@@ -117,7 +117,7 @@ fn form_url_images_larger_than_two_megabytes_reach_the_atlas() {
         remote.state(&url) != RemoteImage::Loading
     });
     assert!(
-        matches!(remote.state(&url), RemoteImage::Ready(_)),
+        matches!(remote.state(&url), RemoteImage::Ready(..)),
         "a valid PNG must reach the image decoder"
     );
     let mut atlas = ServerAtlas::new(&[], None, 1)

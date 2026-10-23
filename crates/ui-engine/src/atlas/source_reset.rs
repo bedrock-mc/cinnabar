@@ -19,6 +19,12 @@ impl ServerAtlas {
         self.extra.get_mut().clear();
         self.extra_sidecars.get_mut().clear();
         self.local_reads = Default::default();
+        self.remote_sources = Default::default();
+        self.reset_derived_artwork();
+    }
+
+    /// Cancels pending image work and drops every representation derived from the current sources.
+    pub(super) fn reset_derived_artwork(&mut self) {
         self.decodes = Default::default();
         self.native = Default::default();
         self.outlines = Default::default();

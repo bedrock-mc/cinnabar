@@ -5277,6 +5277,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "time",

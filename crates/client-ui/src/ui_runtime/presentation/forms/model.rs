@@ -111,7 +111,7 @@ fn engine_image(
     match image {
         FormButtonImage::Path(path) => Some(ButtonImage::Path(path.to_string())),
         FormButtonImage::Url(url) => match remote(url) {
-            RemoteImage::Ready(_) => Some(ButtonImage::Url(url.to_string())),
+            RemoteImage::Ready(..) => Some(ButtonImage::Url(url.to_string())),
             RemoteImage::Loading => Some(ButtonImage::Loading),
             RemoteImage::Failed => None,
         },
@@ -503,7 +503,7 @@ mod tests {
         for (remote, expected) in [
             (RemoteImage::Loading, Some(ButtonImage::Loading)),
             (
-                RemoteImage::Ready(Arc::from([])),
+                RemoteImage::Ready(render_api::BodyGeneration(1), Arc::from([])),
                 Some(ButtonImage::Url("https://example.invalid/image".to_owned())),
             ),
             (RemoteImage::Failed, None),

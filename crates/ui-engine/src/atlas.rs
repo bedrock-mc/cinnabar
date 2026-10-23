@@ -297,6 +297,7 @@ pub struct ServerAtlas {
     carrier: Option<Arc<assets::RuntimeUiAssets>>,
     builtin: BuiltinImages,
     remote: Option<Arc<dyn RemoteSource>>,
+    remote_sources: RefCell<remote::RemoteSources>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
     images: Vec<UiTexturePage>,
@@ -385,8 +386,6 @@ impl Decodes {
     /// `key`'s pixels at `size`: cached, decoded inline, queued on a worker,
     /// or left for a later frame (`None` until then).
     fn get(&mut self, key: &str, source: &Source, decode_on: DecodeOn) -> Option<Arc<Vec<u8>>> {
-        let identity = remote::decode_key(key, &source.bytes);
-        let key = identity.as_ref();
         if let Some(pixels) = self.pixels.get(key) {
             return Some(Arc::clone(pixels));
         }
@@ -561,6 +560,7 @@ impl ServerAtlas {
 
     /// Collects image completions before a retained menu can reuse its saved frame.
     pub fn poll_native_images(&mut self) -> bool {
+        let remote_changed = self.invalidate_remote_sources();
         let ready = self
             .pack
             .as_ref()
@@ -570,7 +570,7 @@ impl ServerAtlas {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
         }
-        ready | self.native.collect() | self.outlines.collect()
+        remote_changed | ready | self.native.collect() | self.outlines.collect()
     }
 
     /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.
@@ -717,13 +717,18 @@ impl ServerAtlas {
     /// Make every texture in `keys` resident for this frame: pack textures, then
     /// vanilla images and downloaded URLs. A texture
     /// that fits nowhere without evicting one drawn this frame is left out.
-    pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
+    pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str, IntoIter: Clone>) {
         self.clock += 1;
         self.require_current(keys);
     }
 
     /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
-    pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
+    pub(crate) fn require_current<'a>(
+        &mut self,
+        keys: impl IntoIterator<Item = &'a str, IntoIter: Clone>,
+    ) {
+        let keys = keys.into_iter();
+        self.prepare_remote_sources(keys.clone());
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
