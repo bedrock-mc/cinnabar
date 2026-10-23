@@ -38,6 +38,7 @@ pub fn run(args: &[String]) -> Result<()> {
             install(Path::new(package), Path::new(world)).map(|_| ())
         }
         ["run"] => local::run(Path::new("."), false),
+        ["run", "--release"] => local::run(Path::new("."), true),
         ["run", "--project", root] => local::run(Path::new(root), false),
         ["run", "--project", root, "--release"] => local::run(Path::new(root), true),
         _ => bail!(
