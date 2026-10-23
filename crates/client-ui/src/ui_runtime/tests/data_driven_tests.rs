@@ -329,3 +329,24 @@ fn death_and_session_end_dismiss_the_form() {
             .is_none()
     );
 }
+
+#[test]
+fn screen_answers_wait_out_a_full_client_queue() {
+    let mut session = Session::new();
+    let filler = closed(1, DataDrivenScreenCloseReason::UserBusy);
+    let mut queued = 0;
+    while session
+        .runtime
+        .queue_client_packet(data_driven_screen_closed_packet(
+            1,
+            DataDrivenScreenCloseReason::UserBusy,
+        ))
+    {
+        queued += 1;
+    }
+    session.show_form(4);
+    session.show_form(5);
+    let mut expected = vec![filler; queued];
+    expected.push(closed(5, DataDrivenScreenCloseReason::UserBusy));
+    assert_eq!(sent(&mut session.runtime), expected);
+}

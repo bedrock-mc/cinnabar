@@ -3,9 +3,11 @@
 mod actions;
 mod projection;
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use oreui::data_driven_screen::DataDrivenForm;
+use protocol::Packet;
 use protocol::ddui::{
     DataDrivenScreenCloseReason, DataDrivenUiEvent, DataStores, ScriptedScreen, StoreApply,
     data_driven_screen_closed_packet,
@@ -30,6 +32,9 @@ pub struct DataDrivenUi {
     stores: DataStores,
     active: Option<ActiveScreen>,
     ignored_store_changes: u64,
+    /// Packets for the server, kept until the network flush takes them: every screen request
+    /// waits for its answer, so none may be dropped when the shared queue is full.
+    outgoing: VecDeque<Packet>,
 }
 
 impl DataDrivenUi {
@@ -61,6 +66,12 @@ impl DataDrivenUi {
     pub(super) fn clear(&mut self) {
         self.stores.clear();
         self.active = None;
+        self.outgoing.clear();
+    }
+
+    /// The oldest packet waiting for the network flush.
+    pub(super) fn take_packet(&mut self) -> Option<Packet> {
+        self.outgoing.pop_front()
     }
 }
 
@@ -150,8 +161,8 @@ impl UiRuntime {
     }
 
     fn queue_screen_closed(&mut self, form_id: u32, reason: DataDrivenScreenCloseReason) {
-        if !self.queue_client_packet(data_driven_screen_closed_packet(form_id, reason)) {
-            tracing::warn!(target: "ddui", form_id, "screen answer dropped");
-        }
+        self.data_driven
+            .outgoing
+            .push_back(data_driven_screen_closed_packet(form_id, reason));
     }
 }

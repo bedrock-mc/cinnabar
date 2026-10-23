@@ -128,11 +128,10 @@ impl UiRuntime {
             .stores
             .write(SCRIPT_STORE, property, path, value)
         {
-            Ok(update) => {
-                if !self.queue_client_packet(data_store_update_packet(&update)) {
-                    tracing::warn!(target: "ddui", path, "screen input dropped");
-                }
-            }
+            Ok(update) => self
+                .data_driven
+                .outgoing
+                .push_back(data_store_update_packet(&update)),
             Err(outcome) => tracing::debug!(target: "ddui", path, ?outcome, "screen input skipped"),
         }
     }

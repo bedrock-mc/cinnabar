@@ -127,6 +127,8 @@ impl UiPresentationRuntime {
             let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
             self.scene_clocks.observe(&open, self.menu_seconds);
             let mut menu_hit_targets = Vec::new();
+            // The HUD's own player doll keeps its pose while a screen shows another one.
+            let mut hud_nodes = 0..0;
             for scene in &scenes {
                 self.scene_clock = self.scene_clocks.clocks(*scene);
                 let (nodes, next) = (&mut nodes, &mut next_id);
@@ -153,6 +155,7 @@ impl UiPresentationRuntime {
                         if crosshair && !crosshair_visible {
                             continue;
                         }
+                        let hud_start = nodes.len();
                         self.append_engine_hud(
                             player_runtime,
                             runtime,
@@ -164,6 +167,7 @@ impl UiPresentationRuntime {
                             crosshair,
                         )?;
                         if !crosshair {
+                            hud_nodes = hud_start..nodes.len();
                             self.append_mod_hud(
                                 player_runtime,
                                 runtime,
@@ -366,7 +370,7 @@ impl UiPresentationRuntime {
                 obfuscation_seed: now_millis,
                 obfuscation: Some(&self.obfuscation),
             };
-            self.apply_gui_models_in(&mut nodes, viewport, safe_area, effects);
+            self.apply_gui_models_in(&mut nodes, viewport, safe_area, effects, hud_nodes);
             let render_viewport = UiRenderViewport {
                 physical_size,
                 dpi_scale,
