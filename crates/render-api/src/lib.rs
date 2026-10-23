@@ -62,3 +62,6 @@ pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
 
 /// Structured report emitted after the first presented main-menu frame.
 pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";
+
+/// Requests an acceptance client to exit after reporting its first completed menu frame.
+pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";

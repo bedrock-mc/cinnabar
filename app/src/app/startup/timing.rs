@@ -49,7 +49,7 @@ fn log_presented_menu(
     {
         bevy::log::info!("{} {report}", render_scene::startup_timing::MARKER);
         #[cfg(feature = "acceptance")]
-        if std::env::var_os("CINNABAR_STARTUP_BENCHMARK").is_some() {
+        if std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some() {
             exit.write(bevy::prelude::AppExit::Success);
         }
     }

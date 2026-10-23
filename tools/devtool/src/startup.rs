@@ -124,6 +124,14 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
     {
         return Err(error("startup acceptance requires a release client"));
     }
+    if cfg!(any(target_os = "macos", target_os = "windows"))
+        && options.modes.contains(&"cold")
+        && options.cold_reset.is_none()
+    {
+        return Err(error(
+            "cold cache runs require --cold-reset on this platform",
+        ));
+    }
     Ok(options)
 }
 
@@ -144,9 +152,12 @@ fn error(message: impl std::fmt::Display) -> DevtoolError {
 
 /// Launches one owned process and waits for its structured report and orderly exit.
 fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
+    for directory in [cache.join("mesa"), cache.join("gl")] {
+        std::fs::create_dir_all(directory).map_err(error)?;
+    }
     let child = Command::new(&options.client)
         .args(&options.args)
-        .env("CINNABAR_STARTUP_BENCHMARK", "1")
+        .env(render_api::STARTUP_BENCHMARK_ENV, "1")
         .env("MESA_SHADER_CACHE_DIR", cache.join("mesa"))
         .env("__GL_SHADER_DISK_CACHE_PATH", cache.join("gl"))
         .env("NO_COLOR", "1")
@@ -452,6 +463,14 @@ mod tests {
         for value in ["NaN", "inf", "0", "-1"] {
             assert!(positive(value).is_err());
         }
+        let cold = ["--cache".to_owned(), "cold".to_owned()];
+        assert_eq!(
+            parse(&cold).is_err(),
+            cfg!(any(target_os = "macos", target_os = "windows"))
+        );
+        let mut reset = cold.to_vec();
+        reset.extend(["--cold-reset".to_owned(), "reset-fixture".to_owned()]);
+        assert!(parse(&reset).is_ok());
         let mut report = None;
         let mut tail = Default::default();
         let line = format!(
@@ -497,6 +516,8 @@ mod process_tests {
             .unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
             let result = launch(&options, directory.path());
+            assert!(directory.path().join("mesa").is_dir());
+            assert!(directory.path().join("gl").is_dir());
             assert_eq!(result.is_ok(), succeeds, "{result:?}");
             if succeeds {
                 assert_eq!(result.unwrap()["menu_ms"], 7);

@@ -281,11 +281,13 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
-    if std::env::var_os("CINNABAR_STARTUP_BENCHMARK").is_some() && !cfg!(feature = "acceptance") {
+    if std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some()
+        && !cfg!(feature = "acceptance")
+    {
         bail!("startup benchmark requires a client built with the `acceptance` feature");
     }
     #[cfg(feature = "developer-control")]
-    let offscreen_benchmark = std::env::var_os("CINNABAR_STARTUP_BENCHMARK").is_some()
+    let offscreen_benchmark = std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some()
         && crate::developer_control::hidden_window_requested();
     #[cfg(not(feature = "developer-control"))]
     let offscreen_benchmark = false;
