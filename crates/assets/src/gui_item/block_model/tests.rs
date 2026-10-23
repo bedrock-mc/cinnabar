@@ -24,6 +24,20 @@ fn azalea_inventory_has_a_separate_stem_and_open_bottom_canopy() {
     let held = block_item_quads(VisualKind::Model, faces, Some(0), &templates, &source).unwrap();
     let inventory =
         block_gui_quads(VisualKind::Model, faces, Some(0), &templates, &source).unwrap();
+    for face in BlockFace::ALL
+        .into_iter()
+        .filter(|face| *face != BlockFace::Down)
+    {
+        let (corners, uvs) = cube_face(face);
+        let canopy = inventory
+            .iter()
+            .find(|quad| quad.corners == corners)
+            .unwrap();
+        assert_eq!(
+            canopy.uvs, uvs,
+            "{face:?}: canopy preserves directional artwork"
+        );
+    }
     assert_eq!(held.len(), 6);
     assert_eq!(inventory.len(), 7);
     assert!(inventory.iter().all(|quad| quad.two_sided));

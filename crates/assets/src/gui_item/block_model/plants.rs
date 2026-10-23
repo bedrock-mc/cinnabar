@@ -1,17 +1,22 @@
 //! Inventory plant surfaces whose leaves and stems use separate texture slots.
 
-use super::{BlockFace, GuiBlockQuad, inventory_cuboid_quads};
+use super::{BlockFace, GuiBlockQuad, cube_face};
 
 /// A full-height crossed stem inside a double-sided canopy with no floor.
 pub(super) fn azalea(faces: [u32; 6]) -> Vec<GuiBlockQuad> {
     let mut materials = [faces[BlockFace::North as usize]; 6];
     materials[BlockFace::Up as usize] = faces[BlockFace::Up as usize];
-    let mut quads: Vec<_> = inventory_cuboid_quads([0.0; 3], [1.0; 3], materials)
+    let mut quads: Vec<_> = BlockFace::ALL
         .into_iter()
-        .zip(BlockFace::ALL)
-        .filter_map(|(mut quad, face)| {
-            quad.two_sided = true;
-            (face != BlockFace::Down).then_some(quad)
+        .filter(|face| *face != BlockFace::Down)
+        .map(|face| {
+            let (corners, uvs) = cube_face(face);
+            GuiBlockQuad {
+                corners,
+                uvs,
+                material: materials[face as usize],
+                two_sided: true,
+            }
         })
         .collect();
     let [near, far] = [0.5 - 0.45, 0.5 + 0.45];
