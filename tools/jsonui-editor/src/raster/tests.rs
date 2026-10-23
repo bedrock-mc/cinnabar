@@ -6,7 +6,7 @@ fn additive_particles_preserve_destination_coverage() {
         [200, 100, 0, 128],
         [255; 4],
         ui::UiBlendMode::Alpha,
-        render_model::UI_STYLE_ADDITIVE as u16,
+        render_model::UI_STYLE_ADDITIVE,
     );
     assert_eq!(destination, [140, 110, 80, 255]);
 }
@@ -108,7 +108,7 @@ fn quad() -> UiDrawList {
 fn particle_mesh_alpha_testing_thresholds_texture_before_node_opacity() {
     let mut list = quad();
     for vertex in &mut list.vertices {
-        vertex.style_flags = render_model::UI_STYLE_PARTICLE as u16;
+        vertex.style_flags = render_model::UI_STYLE_PARTICLE;
         vertex.alpha_test = true;
         vertex.color[3] = 128;
     }
@@ -153,7 +153,7 @@ fn particle_sprite_columns_keep_equal_width_and_stay_inside_source_bounds() {
         vertex.uv = [1.0 + vertex.position[0] * 4.0, 0.5];
         vertex.position[0] *= 8.0;
         vertex.overlay_color = [1.0, 0.0, 16.0, 1.0];
-        vertex.style_flags = render_model::UI_STYLE_PARTICLE as u16;
+        vertex.style_flags = render_model::UI_STYLE_PARTICLE;
     }
     list.batches[0].clip = rect(0., 0., 32., 4.);
     for draw in [&list, &triangle(list.clone())] {
@@ -203,7 +203,7 @@ fn coverage_geometry_mixes_fill_and_border_without_sampling_a_texture() {
     }
     .vertex_colors();
     for vertex in &mut list.vertices {
-        vertex.style_flags = render_api::UI_STYLE_COVERAGE_PAINT;
+        vertex.style_flags = u32::from(render_api::UI_STYLE_COVERAGE_PAINT);
         vertex.color = color;
         vertex.overlay_color = overlay;
         vertex.uv = [0., 0.25];
@@ -220,7 +220,7 @@ fn rounded_shadows_sample_the_analytic_shape_and_respect_the_clip() {
     for blur in [0.0, 0.75] {
         let mut list = quad();
         for vertex in &mut list.vertices {
-            vertex.style_flags = render_api::ui_shadow::UI_STYLE_SHADOW;
+            vertex.style_flags = u32::from(render_api::ui_shadow::UI_STYLE_SHADOW);
             vertex.uv = vertex.position.map(|axis| axis - 2.0);
             vertex.overlay_color = [1.0, 1.0, 0.5, blur];
             vertex.color = [200, 80, 20, 128];
@@ -301,7 +301,7 @@ fn bilinear_sampling_uses_texel_centres_and_clamps_page_edges() {
     for uv in [[0.5, 0.5], [1.0, 1.0], [-1.0, -1.0], [3.0, 3.0]] {
         for vertex in &mut list.vertices {
             vertex.uv = uv;
-            vertex.style_flags = u16::from(ui::UI_STYLE_BILINEAR);
+            vertex.style_flags = u32::from(ui::UI_STYLE_BILINEAR);
         }
         let expected = if uv == [1.0, 1.0] {
             [128, 128, 128, 255]
@@ -341,10 +341,10 @@ fn repeated_texture_filters_inside_its_atlas_region_on_both_raster_paths() {
         for vertex in &mut list.vertices {
             vertex.uv = uv;
             vertex.overlay_color = [1.0, 1.0, 2.0, 2.0];
-            vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
-                | outline
+            vertex.style_flags = u32::from(render_api::ui_repeat::UI_STYLE_REPEAT)
+                | u32::from(outline)
                 | if linear {
-                    u16::from(ui::UI_STYLE_BILINEAR)
+                    u32::from(ui::UI_STYLE_BILINEAR)
                 } else {
                     0
                 };
@@ -368,8 +368,8 @@ fn minified_outline_strokes_keep_their_area_across_fractional_phases() {
         let mut list = quad();
         for vertex in &mut list.vertices {
             vertex.uv = vertex.position.map(|position| position * 4. + 4. + phase);
-            vertex.style_flags = assets::FontRendering::OutlineCoverage.style_flags();
-            vertex.style_flags |= u16::from(ui::UI_STYLE_BILINEAR);
+            vertex.style_flags = u32::from(assets::FontRendering::OutlineCoverage.style_flags());
+            vertex.style_flags |= u32::from(ui::UI_STYLE_BILINEAR);
         }
         for draw in [&list, &triangle(list.clone())] {
             let pixel = first_pixel(draw, &texture);
@@ -399,10 +399,10 @@ fn repeated_original_image_pages_preserve_translucent_coverage() {
         for vertex in &mut list.vertices {
             vertex.uv = vertex.uv.map(|v| v * 13.25);
             vertex.overlay_color = [0.0, 0.0, 2.0, 2.0];
-            vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
-                | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE
-                | u16::from(ui::UI_STYLE_BILINEAR)
-                | outline;
+            vertex.style_flags = u32::from(render_api::ui_repeat::UI_STYLE_REPEAT)
+                | u32::from(render_api::ui_repeat::UI_STYLE_REPEAT_PAGE)
+                | u32::from(ui::UI_STYLE_BILINEAR)
+                | u32::from(outline);
         }
         let mut other = list.batches[0].clone();
         other.texture_page = 1;
@@ -434,7 +434,7 @@ fn native_coverage_keeps_nearest_sampling_and_uses_text_colour_gamma() {
             vertex.uv = [0.9, 0.5];
             vertex.color = color;
             vertex.style_flags =
-                u16::from(assets::FONT_STYLE_COVERAGE_GAMMA | ui::UI_STYLE_BILINEAR);
+                u32::from(assets::FONT_STYLE_COVERAGE_GAMMA | ui::UI_STYLE_BILINEAR);
         }
         for draw in [&list, &triangle(list.clone())] {
             let pixel = first_pixel(draw, &texture);
@@ -456,7 +456,7 @@ fn sdf_samples_are_filtered_before_coverage_and_gamma_conversion() {
     for vertex in &mut list.vertices {
         vertex.uv = [1.0, 0.5];
         // SDF selects linear sampling even without the sprite bilinear flag.
-        vertex.style_flags = u16::from(assets::FONT_STYLE_SDF | assets::FONT_STYLE_COVERAGE_GAMMA);
+        vertex.style_flags = u32::from(assets::FONT_STYLE_SDF | assets::FONT_STYLE_COVERAGE_GAMMA);
     }
     for draw in [&list, &triangle(list.clone())] {
         let pixel = first_pixel(draw, &texture);
@@ -478,7 +478,7 @@ fn sdf_smoothing_tracks_the_uv_derivative_area_on_both_paths() {
         for vertex in &mut list.vertices {
             vertex.uv = vertex.position.map(|coordinate| coordinate * scale);
             vertex.style_flags =
-                u16::from(assets::FONT_STYLE_SDF | assets::FONT_STYLE_COVERAGE_GAMMA);
+                u32::from(assets::FONT_STYLE_SDF | assets::FONT_STYLE_COVERAGE_GAMMA);
         }
         let coverage = render_model::font_shading::sdf_coverage(132.0 / 255.0, scale);
         let coverage = render_model::font_shading::coverage_gamma(coverage, [1.0; 3]);

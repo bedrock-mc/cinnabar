@@ -125,7 +125,7 @@ fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiR
         clip_w: vertex.clip_w,
         uv: vertex.uv,
         color: vertex.color,
-        style_flags: u32::from(vertex.style_flags)
+        style_flags: vertex.style_flags
             | if vertex.alpha_test {
                 render_model::UI_STYLE_ALPHA_TEST
             } else {

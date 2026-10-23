@@ -190,7 +190,7 @@ fn dyed_sprite_mask_keeps_trim_cutout_glint_and_node_opacity() {
     assert!(
         draw.vertices
             .iter()
-            .all(|v| v.style_flags & u16::from(ui::UI_STYLE_GLINT) != 0)
+            .all(|v| v.style_flags & u32::from(ui::UI_STYLE_GLINT) != 0)
     );
     let page = Page {
         width: 3,

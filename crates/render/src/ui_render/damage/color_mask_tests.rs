@@ -32,7 +32,7 @@ fn sprite_color_mask_preserves_trim_cutout_and_independent_node_opacity() {
     );
     let tint = [51, 153, 204];
     for vertex in Arc::make_mut(&mut input.vertices) {
-        vertex.style_flags = u32::from(render_api::UI_STYLE_SPRITE_COLOR_MASK);
+        vertex.style_flags = render_api::UI_STYLE_SPRITE_COLOR_MASK;
         vertex.alpha_cutoff = 1.0 / 255.0;
         vertex.overlay_color = [
             tint[0] as f32 / 255.,

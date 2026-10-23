@@ -299,7 +299,7 @@ fn emit_untransformed(
                 batches,
             )?;
             for vertex in &mut vertices[first..] {
-                vertex.style_flags |= *style;
+                vertex.style_flags |= u32::from(*style);
                 vertex.overlay_color = *source;
             }
             Ok(())
@@ -747,7 +747,7 @@ fn emit_colored_quad(
             clip_w,
             uv,
             color,
-            style_flags,
+            style_flags: u32::from(style_flags),
             alpha_test: clip
                 .projection
                 .is_some_and(|projection| projection.alpha_test),

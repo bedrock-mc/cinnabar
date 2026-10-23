@@ -87,7 +87,7 @@ pub(super) fn emit_mesh(
                 clip_w: vertex.clip_w,
                 uv: vertex.uv,
                 color: vertex.color,
-                style_flags: vertex.style_flags,
+                style_flags: u32::from(vertex.style_flags),
                 alpha_test: vertex.alpha_test,
                 alpha_cutoff: material.alpha_cutoff.unwrap_or(-1.0),
                 model_light: vertex.model_light,

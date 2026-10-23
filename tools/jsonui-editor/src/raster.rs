@@ -10,10 +10,10 @@ use std::sync::Arc;
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};
 
 /// Includes model alpha testing in the shading flags, matching the GPU render adapter.
-fn style_flags(vertex: &UiVertex) -> u16 {
+fn style_flags(vertex: &UiVertex) -> u32 {
     vertex.style_flags
         | if vertex.alpha_test {
-            render_model::UI_STYLE_ALPHA_TEST as u16
+            render_model::UI_STYLE_ALPHA_TEST
         } else {
             0
         }
@@ -21,7 +21,7 @@ fn style_flags(vertex: &UiVertex) -> u16 {
 
 /// Applies the particle source bounds after triangle interpolation, as the GPU shader does.
 fn particle_uv(uv: [f32; 2], vertex: &UiVertex) -> [f32; 2] {
-    if u32::from(vertex.style_flags) & render_model::UI_STYLE_PARTICLE != 0 {
+    if vertex.style_flags & render_model::UI_STYLE_PARTICLE != 0 {
         render_model::ui_particle_uv(uv, vertex.overlay_color)
     } else {
         uv
@@ -258,55 +258,56 @@ impl Canvas {
                         .round() as u8
                 });
                 let flags = style_flags(v[0]);
-                let (texel, tint) = if flags & render_api::ui_shadow::UI_STYLE_SHADOW != 0 {
-                    let shape = std::array::from_fn(|channel| {
-                        (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
-                    });
-                    let [dx, dy] = texel_derivatives(&v);
-                    let pixel = dx[0].hypot(dx[1]).max(dy[0].hypot(dy[1]));
-                    let area = render_api::ui_shadow::coverage([u, t], shape, pixel);
-                    (straight([area; 4]), color)
-                } else if flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
-                    let overlay = std::array::from_fn(|channel| {
-                        (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
-                    });
-                    let border = (0..3).map(|k| w[k] * v[k].model_light).sum();
-                    let paint = render_api::UiCoveragePaint::from_vertex_colors(color, overlay);
-                    (straight(paint.sample(u, [t, border])), [255; 4])
-                } else if u32::from(flags) & render_model::UI_STYLE_RADIAL_GRADIENT != 0 {
-                    let radius = u.hypot(t).clamp(0.0, 1.0);
-                    let outer: [f32; 4] = std::array::from_fn(|channel| {
-                        (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
-                    });
-                    let alpha = f32::from(color[3]) / 255.0;
-                    let mixed = std::array::from_fn(|channel| {
-                        let inner = if channel == 3 {
-                            alpha
-                        } else {
-                            f32::from(color[channel]) / 255.0 * alpha
-                        };
-                        let outside = if channel == 3 {
-                            outer[3]
-                        } else {
-                            outer[channel] * outer[3]
-                        };
-                        inner * (1.0 - radius) + outside * radius
-                    });
-                    (straight(mixed), [255; 4])
-                } else {
-                    let derivatives = texel_derivatives(&v);
-                    (
-                        shaded_sample(
-                            texture,
-                            particle_uv([u, t], v[0]),
+                let (texel, tint) =
+                    if flags & u32::from(render_api::ui_shadow::UI_STYLE_SHADOW) != 0 {
+                        let shape = std::array::from_fn(|channel| {
+                            (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
+                        });
+                        let [dx, dy] = texel_derivatives(&v);
+                        let pixel = dx[0].hypot(dx[1]).max(dy[0].hypot(dy[1]));
+                        let area = render_api::ui_shadow::coverage([u, t], shape, pixel);
+                        (straight([area; 4]), color)
+                    } else if flags & u32::from(render_api::UI_STYLE_COVERAGE_PAINT) != 0 {
+                        let overlay = std::array::from_fn(|channel| {
+                            (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
+                        });
+                        let border = (0..3).map(|k| w[k] * v[k].model_light).sum();
+                        let paint = render_api::UiCoveragePaint::from_vertex_colors(color, overlay);
+                        (straight(paint.sample(u, [t, border])), [255; 4])
+                    } else if flags & render_model::UI_STYLE_RADIAL_GRADIENT != 0 {
+                        let radius = u.hypot(t).clamp(0.0, 1.0);
+                        let outer: [f32; 4] = std::array::from_fn(|channel| {
+                            (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
+                        });
+                        let alpha = f32::from(color[3]) / 255.0;
+                        let mixed = std::array::from_fn(|channel| {
+                            let inner = if channel == 3 {
+                                alpha
+                            } else {
+                                f32::from(color[channel]) / 255.0 * alpha
+                            };
+                            let outside = if channel == 3 {
+                                outer[3]
+                            } else {
+                                outer[channel] * outer[3]
+                            };
+                            inner * (1.0 - radius) + outside * radius
+                        });
+                        (straight(mixed), [255; 4])
+                    } else {
+                        let derivatives = texel_derivatives(&v);
+                        (
+                            shaded_sample(
+                                texture,
+                                particle_uv([u, t], v[0]),
+                                color,
+                                flags,
+                                derivatives,
+                                Some(v[0].overlay_color),
+                            ),
                             color,
-                            flags,
-                            derivatives,
-                            Some(v[0].overlay_color),
-                        ),
-                        color,
-                    )
-                };
+                        )
+                    };
                 let at = y as usize * self.width as usize + x as usize;
                 blend_styled(&mut self.pixels[at], texel, tint, blend, flags);
             }
@@ -337,9 +338,9 @@ fn axis_aligned(v: &[&UiVertex; 4]) -> bool {
 
 /// The span fast path only handles uniformly tinted ordinary texture quads.
 fn flat_texture(v: &[&UiVertex; 4]) -> bool {
-    v[0].style_flags & render_api::UI_STYLE_COVERAGE_PAINT == 0
-        && v[0].style_flags & render_api::ui_shadow::UI_STYLE_SHADOW == 0
-        && u32::from(v[0].style_flags) & render_model::UI_STYLE_RADIAL_GRADIENT == 0
+    v[0].style_flags & u32::from(render_api::UI_STYLE_COVERAGE_PAINT) == 0
+        && v[0].style_flags & u32::from(render_api::ui_shadow::UI_STYLE_SHADOW) == 0
+        && v[0].style_flags & render_model::UI_STYLE_RADIAL_GRADIENT == 0
         && v.iter().all(|vertex| vertex.color == v[0].color)
         && v[0].uv[1] == v[1].uv[1]
         && v[1].uv[0] == v[2].uv[0]
@@ -366,17 +367,17 @@ fn shaded_sample(
     texture: &Page,
     uv: [f32; 2],
     color: [u8; 4],
-    flags: u16,
+    flags: u32,
     derivatives: [[f32; 2]; 2],
     bounds: Option<[f32; 4]>,
 ) -> [u8; 4] {
-    let native = flags & u16::from(assets::FONT_STYLE_COVERAGE_GAMMA) != 0;
-    let sdf = flags & u16::from(assets::FONT_STYLE_SDF) != 0;
-    let linear = sdf || (!native && flags & u16::from(ui::UI_STYLE_BILINEAR) != 0);
+    let native = flags & u32::from(assets::FONT_STYLE_COVERAGE_GAMMA) != 0;
+    let sdf = flags & u32::from(assets::FONT_STYLE_SDF) != 0;
+    let linear = sdf || (!native && flags & u32::from(ui::UI_STYLE_BILINEAR) != 0);
     // Repeat coordinates must be wrapped before sampling, including on mixed-style vertices.
-    let mut sample = if flags & render_api::ui_repeat::UI_STYLE_REPEAT != 0 {
+    let mut sample = if flags & u32::from(render_api::ui_repeat::UI_STYLE_REPEAT) != 0 {
         repeated_sample(texture, uv, bounds.unwrap_or_default(), flags, linear)
-    } else if flags & assets::FONT_STYLE_OUTLINE_COVERAGE != 0 {
+    } else if flags & u32::from(assets::FONT_STYLE_OUTLINE_COVERAGE) != 0 {
         texture.sample_outline(uv, derivatives)
     } else if linear {
         texture.sample_linear(uv[0], uv[1])
@@ -404,7 +405,7 @@ fn shaded_sample(
             render_model::font_shading::coverage_gamma(sample[3], rgb),
         ];
     }
-    if flags & u16::from(ui::UI_STYLE_GRAYSCALE) != 0 {
+    if flags & u32::from(ui::UI_STYLE_GRAYSCALE) != 0 {
         let luma = sample[0] * 0.299 + sample[1] * 0.587 + sample[2] * 0.114;
         sample = [luma, luma, luma, sample[3]];
     }
@@ -425,13 +426,13 @@ fn repeated_sample(
     texture: &Page,
     uv: [f32; 2],
     bounds: [f32; 4],
-    flags: u16,
+    flags: u32,
     linear: bool,
 ) -> [f32; 4] {
     let Some(uv) = render_api::ui_repeat::decode_uv(
         uv,
         bounds,
-        flags,
+        flags as u16,
         [texture.width, texture.height],
         texture.repeat_content,
     ) else {
@@ -512,10 +513,10 @@ fn blend_styled(
     mut texel: [u8; 4],
     tint: [u8; 4],
     blend: UiBlendMode,
-    flags: u16,
+    flags: u32,
 ) {
-    if u32::from(flags) & render_model::UI_STYLE_PARTICLE != 0 {
-        if u32::from(flags) & render_model::UI_STYLE_ALPHA_TEST != 0 {
+    if flags & render_model::UI_STYLE_PARTICLE != 0 {
+        if flags & render_model::UI_STYLE_ALPHA_TEST != 0 {
             if texel[3] < 128 {
                 return;
             }
@@ -525,7 +526,7 @@ fn blend_styled(
             return;
         }
     }
-    if u32::from(flags) & render_model::UI_STYLE_ADDITIVE != 0 {
+    if flags & render_model::UI_STYLE_ADDITIVE != 0 {
         let alpha = mul(texel[3], tint[3]) as u8;
         for c in 0..3 {
             dst[c] = (u32::from(dst[c]) + mul(mul(texel[c], tint[c]) as u8, alpha)).min(255) as u8;

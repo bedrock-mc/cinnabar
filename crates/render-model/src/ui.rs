@@ -111,6 +111,7 @@ mod style_tests {
             assert_eq!(
                 u32::from(rendering.style_flags())
                     & (UI_STYLE_COLOR_MASK
+                        | render_api::UI_STYLE_SPRITE_COLOR_MASK
                         | UI_STYLE_ADDITIVE
                         | UI_STYLE_PARTICLE
                         | UI_STYLE_ALPHA_TEST

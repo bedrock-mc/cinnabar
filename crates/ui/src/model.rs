@@ -306,7 +306,7 @@ pub struct UiVertex {
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
-    pub style_flags: u16,
+    pub style_flags: u32,
     pub alpha_test: bool,
     /// Sampled-texture cutoff (negative disables it).
     pub alpha_cutoff: f32,
