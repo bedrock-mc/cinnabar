@@ -5,6 +5,6 @@ use bevy::prelude::{Component, UVec2};
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RenderScaleOutput(pub UVec2);
 
-/// Selects the optional sharpening samples without changing native UI or world dimensions.
+/// Selects RCAS sharpness in stops; `None` resolves EASU without sharpening.
 #[derive(bevy::prelude::Resource)]
-pub struct RenderScaleSharpen(pub bool);
+pub struct RenderScaleSharpen(pub Option<f32>);

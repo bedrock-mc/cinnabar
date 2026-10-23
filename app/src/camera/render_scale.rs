@@ -63,7 +63,8 @@ fn extract_scale_requests(
         .as_ref()
         .map_or(ui::DEFAULT_RENDER_SCALE_SHARPEN, |settings| {
             settings.user_settings_update().1.video.render_scale_sharpen
-        });
+        })
+        .then_some(ui::FSR_SHARPNESS_STOPS);
     if filter.as_ref().map(|filter| filter.0) != Some(sharpen) {
         commands.insert_resource(render::RenderScaleSharpen(sharpen));
     }
@@ -316,6 +317,11 @@ mod tests {
         let mut system = IntoSystem::into_system(extract_scale_requests);
         system.initialize(&mut world);
         system.run((), &mut world).unwrap();
+        assert_eq!(
+            world.resource::<render::RenderScaleSharpen>().0,
+            Some(ui::FSR_SHARPNESS_STOPS),
+        );
+
         assert!(world.get::<RenderScaleRequest>(entity).is_none());
         assert!(world.get::<render::RenderScaleOutput>(entity).is_none());
 

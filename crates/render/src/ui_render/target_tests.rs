@@ -369,7 +369,9 @@ fn native_one_pixel_hud(sharpen: bool) {
         return;
     };
     let world = app.sub_app_mut(RenderApp).world_mut();
-    world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
+    world.insert_resource(crate::render_scale::RenderScaleSharpen(
+        sharpen.then_some(0.0),
+    ));
     let entity = view(world, [40, 30], [4, 3]);
     ready_pipelines(world);
     let device = world.resource::<RenderDevice>().clone();
@@ -529,7 +531,7 @@ fn native_one_pixel_hud(sharpen: bool) {
                 .lock()
                 .unwrap()
                 .len(),
-            1
+            2
         );
     }
 }
@@ -631,7 +633,9 @@ fn native_ui_supports_scaled_hdr_views() {
     ready_pipelines(world);
     let device = world.resource::<RenderDevice>().clone();
     for sharpen in [false, true] {
-        world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
+        world.insert_resource(crate::render_scale::RenderScaleSharpen(
+            sharpen.then_some(0.0),
+        ));
         world.run_system_once(prepare_native_ui_targets).unwrap();
         let (_, commands) = crate::render_test_support::record(world, &device, |world, context| {
             let target = world.get::<ViewTarget>(entity).unwrap();
@@ -675,6 +679,160 @@ fn native_ui_supports_scaled_hdr_views() {
     }
 }
 
+/// Renders the production reconstruction path or a direct bilinear control into the same output.
+fn reconstruct(world: &mut World, entity: Entity, bilinear: bool) -> Vec<[u8; 4]> {
+    world.run_system_once(prepare_native_ui_targets).unwrap();
+    let device = world.resource::<RenderDevice>().clone();
+    let (_, commands) = crate::render_test_support::record(world, &device, |world, context| {
+        let target = world.get::<ViewTarget>(entity).unwrap();
+        let native = world.get::<NativeUiTarget>(entity).unwrap();
+        if bilinear {
+            let cache = world.resource::<PipelineCache>();
+            let pipeline = cache
+                .get_render_pipeline(native.seed_pipelines.bilinear)
+                .unwrap();
+            let binding = world.resource::<UpscalePipeline>().binding(
+                &device,
+                cache,
+                target.main_texture_view(),
+                &native.sampler,
+                FsrConstants::new(
+                    crate::render_bounds::extent(target.main_texture_view()),
+                    native.extent(),
+                    None,
+                ),
+            );
+            encode_blit(
+                world,
+                context,
+                &native.views[0],
+                pipeline,
+                &binding,
+                "bilinear control",
+            );
+            native.ready.store(true, Ordering::Relaxed);
+        } else {
+            assert!(native.seed(world, context, target));
+        }
+        assert!(native.present(world, context, target));
+    });
+    world.resource::<RenderQueue>().submit(commands);
+    pixels(world, entity)
+}
+
+#[test]
+fn easu_keeps_diagonal_edges_sharper_than_bilinear_and_rcas_changes_only_detail() {
+    let Some(mut app) = raster_fixture() else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let entity = view(world, [64, 64], [16, 16]);
+    ready_pipelines(world);
+    let source: Vec<[u8; 4]> = (0..16)
+        .flat_map(|y| {
+            (0..16).map(move |x| {
+                let value = if x > y { 224 } else { 32 };
+                [value, value, value, 255]
+            })
+        })
+        .collect();
+    world.resource::<RenderQueue>().write_texture(
+        world
+            .get::<ViewTarget>(entity)
+            .unwrap()
+            .main_texture()
+            .as_image_copy(),
+        bytemuck::cast_slice(&source),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(64),
+            rows_per_image: Some(16),
+        },
+        Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        },
+    );
+    let bilinear = reconstruct(world, entity, true);
+    world.insert_resource(crate::render_scale::RenderScaleSharpen(None));
+    let easu = reconstruct(world, entity, false);
+    world.insert_resource(crate::render_scale::RenderScaleSharpen(Some(0.0)));
+    let rcas = reconstruct(world, entity, false);
+    let changed = easu
+        .iter()
+        .zip(&bilinear)
+        .filter(|(a, b)| a[0].abs_diff(b[0]) > 4)
+        .count();
+    assert!(
+        changed > 64,
+        "EASU must reconstruct differently from bilinear: {changed}"
+    );
+    let transition =
+        |pixels: &Vec<[u8; 4]>| pixels.iter().filter(|p| (64..192).contains(&p[0])).count();
+    assert!(
+        transition(&easu) < transition(&bilinear),
+        "EASU must narrow diagonal edge transitions: EASU {}, bilinear {}",
+        transition(&easu),
+        transition(&bilinear)
+    );
+    assert!(
+        rcas.iter().zip(&easu).any(|(a, b)| a[0].abs_diff(b[0]) > 2),
+        "RCAS must sharpen reconstructed detail"
+    );
+    for image in [&easu, &rcas] {
+        for (x, y, value) in [(52, 8, 224u8), (8, 52, 32u8)] {
+            assert!(
+                image[y * 64 + x][0].abs_diff(value) <= 1,
+                "flat areas must retain their colour"
+            );
+            assert_eq!(image[y * 64 + x][3], 255);
+        }
+        assert!(
+            image
+                .iter()
+                .all(|p| p[0] == p[1] && p[1] == p[2] && p[3] == 255)
+        );
+    }
+}
+
+#[test]
+fn fsr_preserves_solid_black_and_white_with_sharpening_enabled() {
+    let Some(mut app) = raster_fixture() else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let entity = view(world, [16, 16], [4, 4]);
+    ready_pipelines(world);
+    world.insert_resource(crate::render_scale::RenderScaleSharpen(Some(0.0)));
+    for value in [0, 255] {
+        let source = [[value, value, value, 255]; 16];
+        world.resource::<RenderQueue>().write_texture(
+            world
+                .get::<ViewTarget>(entity)
+                .unwrap()
+                .main_texture()
+                .as_image_copy(),
+            bytemuck::cast_slice(&source),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(16),
+                rows_per_image: Some(4),
+            },
+            Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+        );
+        assert!(
+            reconstruct(world, entity, false)
+                .iter()
+                .all(|p| *p == [value, value, value, 255])
+        );
+    }
+}
+
 /// Loads real GPU resources and the presentation shaders before offscreen comparisons.
 fn raster_fixture() -> Option<App> {
     let renderer = crate::render_test_support::scene_raster::renderer()?;
@@ -704,11 +862,11 @@ fn ready_pipelines(world: &mut World) {
         .query::<&NativeUiTarget>()
         .iter(world)
         .flat_map(|native| {
-            [
-                native.seed_pipelines[0],
-                native.seed_pipelines[1],
-                native.present_pipeline,
-            ]
+            native
+                .seed_pipelines
+                .ids()
+                .into_iter()
+                .chain([native.present_pipeline])
         })
         .collect();
     test_time::eventually("native UI reconstruction pipelines", || {

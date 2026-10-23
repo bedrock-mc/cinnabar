@@ -1,4 +1,4 @@
-//! Bilinear world reconstruction with optional, bounded sharpening before native UI.
+//! FSR1 reconstruction and sharpening before native-resolution UI composition.
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -8,7 +8,7 @@ use bevy::{
 
 const SHADER: Handle<Shader> = uuid_handle!("3dd2d5df-3d2c-44af-bbba-f0ff45fc60ed");
 
-/// Loads the original reconstruction shader and its per-device pipeline resources.
+/// Loads FSR1 and its bilinear fallback with their per-device pipeline resources.
 pub(super) fn install(app: &mut App) {
     load_internal_asset!(
         app,
@@ -24,7 +24,68 @@ pub(super) fn install(app: &mut App) {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
 pub(super) struct UpscaleKey {
     pub format: TextureFormat,
-    pub sharpen: bool,
+    pub pass: UpscalePass,
+}
+
+/// Chooses a filter stage without backend-specific storage or compute features.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum UpscalePass {
+    Bilinear,
+    Easu,
+    Rcas,
+}
+
+/// Holds the reconstruction stages by role, independent of their compilation order.
+#[derive(Clone, Copy)]
+pub(super) struct UpscalePipelines {
+    pub bilinear: CachedRenderPipelineId,
+    pub easu: CachedRenderPipelineId,
+    pub rcas: CachedRenderPipelineId,
+}
+
+impl UpscalePipelines {
+    /// Enumerates all stages for readiness checks; a new field must be handled here.
+    pub(super) fn ids(self) -> [CachedRenderPipelineId; 3] {
+        let Self {
+            bilinear,
+            easu,
+            rcas,
+        } = self;
+        [bilinear, easu, rcas]
+    }
+}
+
+/// FP32 constants from FsrEasuCon and FsrRcasCon, stored without bit reinterpretation.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct FsrConstants {
+    con0: [f32; 4],
+    con1: [f32; 4],
+    con2: [f32; 4],
+    con3: [f32; 4],
+    rcas: [f32; 4],
+}
+
+impl FsrConstants {
+    /// Maps a complete input viewport to output pixels; `None` disables RCAS sharpening.
+    pub(super) fn new(input: [u32; 2], output: [u32; 2], sharpness: Option<f32>) -> Self {
+        let [ix, iy] = input.map(|n| n as f32);
+        let [ox, oy] = output.map(|n| n as f32);
+        let [rx, ry] = [ix.recip(), iy.recip()];
+        let [sx, sy] = [ix * ox.recip(), iy * oy.recip()];
+        Self {
+            con0: [sx, sy, 0.5 * sx - 0.5, 0.5 * sy - 0.5],
+            con1: [rx, ry, rx, -ry],
+            con2: [-rx, 2.0 * ry, rx, 2.0 * ry],
+            con3: [0.0, 4.0 * ry, 0.0, 0.0],
+            rcas: [
+                sharpness.map_or(0.0, |stops| (-stops).exp2()),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    }
 }
 
 struct UpscaleSpecializer;
@@ -32,7 +93,7 @@ struct UpscaleSpecializer;
 impl Specializer<RenderPipeline> for UpscaleSpecializer {
     type Key = UpscaleKey;
 
-    /// Specializes colour storage and removes the extra samples when sharpening is disabled.
+    /// Selects an FSR stage and preserves the scene colour range through its perceptual transform.
     fn specialize(
         &self,
         key: Self::Key,
@@ -41,13 +102,17 @@ impl Specializer<RenderPipeline> for UpscaleSpecializer {
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = key.format;
         fragment.entry_point = Some(
-            if key.sharpen {
-                "sharpen_fragment"
-            } else {
-                "bilinear_fragment"
+            match key.pass {
+                UpscalePass::Bilinear => "bilinear_fragment",
+                UpscalePass::Easu => "easu_fragment",
+                UpscalePass::Rcas => "rcas_fragment",
             }
             .into(),
         );
+        fragment.shader_defs.clear();
+        if key.format == render_scene::SCENE_HDR_FORMAT {
+            fragment.shader_defs.push("FSR_HDR".into());
+        }
         Ok(key)
     }
 }
@@ -79,6 +144,16 @@ impl FromWorld for UpscalePipeline {
                     binding: 1,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(size_of::<FsrConstants>() as u64),
+                    },
                     count: None,
                 },
             ],
@@ -122,6 +197,37 @@ impl UpscalePipeline {
             .expect("valid world upscale specialization")
     }
 
+    /// Queues every stage once for a scene format, sharing the draw path with warmup.
+    pub(super) fn stages(
+        &mut self,
+        cache: &PipelineCache,
+        format: TextureFormat,
+    ) -> UpscalePipelines {
+        UpscalePipelines {
+            bilinear: self.specialize(
+                cache,
+                UpscaleKey {
+                    format,
+                    pass: UpscalePass::Bilinear,
+                },
+            ),
+            easu: self.specialize(
+                cache,
+                UpscaleKey {
+                    format,
+                    pass: UpscalePass::Easu,
+                },
+            ),
+            rcas: self.specialize(
+                cache,
+                UpscaleKey {
+                    format,
+                    pass: UpscalePass::Rcas,
+                },
+            ),
+        }
+    }
+
     /// Binds a completed world image without sampling the presentation attachment.
     pub(super) fn binding(
         &self,
@@ -129,17 +235,23 @@ impl UpscalePipeline {
         cache: &PipelineCache,
         source: &TextureView,
         sampler: &Sampler,
+        constants: FsrConstants,
     ) -> BindGroup {
+        let buffer = device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("FSR1 constants"),
+            contents: bytemuck::bytes_of(&constants),
+            usage: BufferUsages::UNIFORM,
+        });
         device.create_bind_group(
             "world upscale",
             &cache.get_bind_group_layout(&self.layout),
-            &BindGroupEntries::sequential((source, sampler)),
+            &BindGroupEntries::sequential((source, sampler, buffer.as_entire_binding())),
         )
     }
 }
 
 impl crate::pipeline_warmup::PrewarmPipelines for UpscalePipeline {
-    /// Warms both filter choices before entering a world, including HDR camera variants.
+    /// Warms both FSR passes and their fallback, including HDR camera variants.
     fn prewarm(
         &mut self,
         cache: &PipelineCache,
@@ -151,9 +263,36 @@ impl crate::pipeline_warmup::PrewarmPipelines for UpscalePipeline {
         } else {
             render_scene::SCENE_COLOR_FORMAT
         };
-        ids.extend(
-            [false, true].map(|sharpen| self.specialize(cache, UpscaleKey { format, sharpen })),
-        );
+        ids.extend(self.stages(cache, format).ids());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn easu_constants_match_reference_half_and_unequal_scales() {
+        // FsrEasuCon with a viewport equal to its source resource.
+        let c = FsrConstants::new([1280, 720], [2560, 1440], None);
+        assert_eq!(c.con0, [0.5, 0.5, -0.25, -0.25]);
+        assert_eq!(c.con1, [0.00078125, 1.0 / 720.0, 0.00078125, -1.0 / 720.0]);
+        assert_eq!(c.con2, [-0.00078125, 1.0 / 360.0, 0.00078125, 1.0 / 360.0]);
+        assert_eq!(c.con3, [0.0, 1.0 / 180.0, 0.0, 0.0]);
+        let c = FsrConstants::new([3, 2], [4, 4], None);
+        assert_eq!(c.con0, [0.75, 0.5, -0.125, -0.25]);
+        assert_eq!(c.con1, [1.0 / 3.0, 0.5, 1.0 / 3.0, -0.5]);
+        assert_eq!(c.con2, [-1.0 / 3.0, 1.0, 1.0 / 3.0, 1.0]);
+        assert_eq!(c.con3, [0.0, 2.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn rcas_constants_convert_stops_to_reference_linear_strength() {
+        for (stops, expected) in [(0.0, 1.0), (0.2, 0.8705506), (1.0, 0.5), (2.0, 0.25)] {
+            let c = FsrConstants::new([1, 1], [1, 1], Some(stops));
+            assert!((c.rcas[0] - expected).abs() < 1e-7);
+        }
+        assert_eq!(FsrConstants::new([1, 1], [1, 1], None).rcas[0], 0.0);
     }
 }

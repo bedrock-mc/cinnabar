@@ -1,6 +1,6 @@
 //! Native-resolution UI composition after the reduced world has finished rendering.
 
-use super::upscale::{UpscaleKey, UpscalePipeline};
+use super::upscale::{FsrConstants, UpscalePipeline, UpscalePipelines};
 use crate::gpu_allocation::{self, FailedRequests};
 use bevy::{
     core_pipeline::blit::{BlitPipeline, BlitPipelineKey},
@@ -27,9 +27,9 @@ pub(crate) struct NativeUiTarget {
     presented: AtomicBool,
     output_format: TextureFormat,
     sampler: Sampler,
-    seed_pipelines: [CachedRenderPipelineId; 2],
+    seed_pipelines: UpscalePipelines,
     present_pipeline: CachedRenderPipelineId,
-    seed_bindings: Mutex<Vec<(TextureViewId, BindGroup)>>,
+    seed_bindings: Mutex<Vec<(TextureViewId, u32, BindGroup)>>,
     present_bindings: [BindGroup; 2],
 }
 
@@ -39,7 +39,7 @@ impl NativeUiTarget {
         device: &RenderDevice,
         extent: [u32; 2],
         formats: [TextureFormat; 2],
-        pipelines: [CachedRenderPipelineId; 3],
+        pipelines: (UpscalePipelines, CachedRenderPipelineId),
         blit: &BlitPipeline,
         cache: &PipelineCache,
     ) -> Option<Self> {
@@ -86,9 +86,9 @@ impl NativeUiTarget {
                 min_filter: FilterMode::Linear,
                 ..default()
             }),
-            seed_pipelines: [pipelines[0], pipelines[1]],
-            present_pipeline: pipelines[2],
-            seed_bindings: Mutex::new(Vec::with_capacity(2)),
+            seed_pipelines: pipelines.0,
+            present_pipeline: pipelines.1,
+            seed_bindings: Mutex::new(Vec::with_capacity(3)),
             present_bindings,
         })
     }
@@ -154,39 +154,93 @@ impl NativeUiTarget {
         ) else {
             return false;
         };
-        let sharpen = world
-            .get_resource::<crate::render_scale::RenderScaleSharpen>()
-            .is_some_and(|filter| filter.0);
-        let Some(pipeline) = cache.get_render_pipeline(self.seed_pipelines[usize::from(sharpen)])
-        else {
+        let [bilinear, easu, rcas] = self
+            .seed_pipelines
+            .ids()
+            .map(|id| cache.get_render_pipeline(id));
+        let fsr_failed = [self.seed_pipelines.easu, self.seed_pipelines.rcas]
+            .iter()
+            .any(|&id| {
+                matches!(
+                    cache.get_render_pipeline_state(id),
+                    CachedPipelineState::Err(error) if !matches!(error,
+                        bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
+                        | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable)
+                )
+            });
+        let use_fsr = easu.is_some() && rcas.is_some();
+        // Pending shaders wait for warmup; only failed pipelines select the fallback.
+        if !use_fsr && (!fsr_failed || bilinear.is_none()) {
             return false;
-        };
+        }
+        let sharpness = world
+            .get_resource::<crate::render_scale::RenderScaleSharpen>()
+            .and_then(|filter| filter.0);
         let source = target.main_texture_view();
-        let live = [source.id(), target.main_texture_other_view().id()];
-        let binding = {
-            let mut bindings = self
-                .seed_bindings
-                .lock()
-                .expect("native UI seed bindings lock");
-            bindings.retain(|(id, _)| live.contains(id));
-            if let Some((_, binding)) = bindings.iter().find(|(id, _)| *id == source.id()) {
-                binding.clone()
-            } else {
-                let binding =
-                    upscale.binding(context.render_device(), cache, source, &self.sampler);
-                bindings.push((source.id(), binding.clone()));
-                binding
+        let live = [
+            source.id(),
+            target.main_texture_other_view().id(),
+            self.views[1].id(),
+        ];
+        let mut bindings = self
+            .seed_bindings
+            .lock()
+            .expect("native UI seed bindings lock");
+        bindings.retain(|(id, _, _)| live.contains(id));
+        let mut binding = |source: &TextureView, input, sharpness: Option<f32>| {
+            let strength = sharpness.map_or(0.0, |stops| (-stops).exp2()).to_bits();
+            if let Some((_, _, binding)) = bindings
+                .iter()
+                .find(|(id, key, _)| *id == source.id() && *key == strength)
+            {
+                return binding.clone();
             }
+            bindings.retain(|(id, _, _)| *id != source.id());
+            let binding = upscale.binding(
+                context.render_device(),
+                cache,
+                source,
+                &self.sampler,
+                FsrConstants::new(input, self.extent(), sharpness),
+            );
+            bindings.push((source.id(), strength, binding.clone()));
+            binding
         };
-        self.current.store(0, Ordering::Relaxed);
-        encode_blit(
-            world,
-            context,
-            &self.views[0],
-            pipeline,
-            &binding,
-            "world upscale before native UI",
+        let source_binding = binding(
+            source,
+            crate::render_bounds::extent(target.main_texture_view()),
+            None,
         );
+        let rcas_binding = use_fsr.then(|| binding(&self.views[1], self.extent(), sharpness));
+        drop(bindings);
+        self.current.store(0, Ordering::Relaxed);
+        if let Some(rcas_binding) = rcas_binding {
+            encode_blit(
+                world,
+                context,
+                &self.views[1],
+                easu.unwrap(),
+                &source_binding,
+                "FSR1 EASU",
+            );
+            encode_blit(
+                world,
+                context,
+                &self.views[0],
+                rcas.unwrap(),
+                &rcas_binding,
+                "FSR1 RCAS",
+            );
+        } else {
+            encode_blit(
+                world,
+                context,
+                &self.views[0],
+                bilinear.unwrap(),
+                &source_binding,
+                "bilinear world fallback",
+            );
+        }
         self.ready.store(true, Ordering::Relaxed);
         true
     }
@@ -348,15 +402,7 @@ pub(crate) fn prepare_native_ui_targets(
             continue;
         };
         let scene_format = target.main_texture_format();
-        let seeds = [false, true].map(|sharpen| {
-            upscale.specialize(
-                &cache,
-                UpscaleKey {
-                    format: scene_format,
-                    sharpen,
-                },
-            )
-        });
+        let seeds = upscale.stages(&cache, scene_format);
         let present = pipelines.specialize(
             &cache,
             blit,
@@ -378,7 +424,7 @@ pub(crate) fn prepare_native_ui_targets(
                 &device,
                 extent,
                 [scene_format, output_format],
-                [seeds[0], seeds[1], present],
+                (seeds, present),
                 blit,
                 &cache,
             )
