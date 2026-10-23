@@ -4,6 +4,11 @@ use super::{CameraDelta, ModHost};
 use anyhow::Result;
 
 impl ModHost {
+    /// Reads a committed pulse so filtering can run before the frame outputs are collected.
+    pub fn attack_pulse_requested(&self) -> bool {
+        self.instance.attack_pulse_requested()
+    }
+
     /// Successfully committed local weather target, in rain/thunder channel order.
     pub fn weather_override(&self) -> Option<[f32; 2]> {
         use crate::runtime::cinnabar::extension::environment::Weather;

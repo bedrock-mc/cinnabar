@@ -215,6 +215,13 @@ pub mod player_mod {
     });
 }
 
+/// Explicit opt-in player-mod bindings; ordinary SDK exports do not claim input filtering.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Canonical ABI flattens screen records"
+)]
+pub mod filtered_player_mod;
+
 /// The `packet-mod` world: a trusted mod that relays every session packet.
 #[allow(
     clippy::too_many_arguments,

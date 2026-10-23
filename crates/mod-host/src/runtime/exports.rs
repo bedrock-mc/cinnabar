@@ -65,6 +65,7 @@ event_callbacks! {
 pub(super) struct Exports {
     frame: TypedFunc<(), ()>,
     events: Events,
+    filter: Option<TypedFunc<(super::ActionFrame,), (super::ActionVerdict,)>>,
 }
 
 impl Exports {
@@ -72,7 +73,8 @@ impl Exports {
     pub(super) fn check(pre: &InstancePre<State>) -> Result<()> {
         check::<()>(pre, INIT, true)?;
         check::<()>(pre, FRAME, true)?;
-        Events::check(pre)
+        Events::check(pre)?;
+        check_result::<(super::ActionFrame,), (super::ActionVerdict,)>(pre, "filter-actions", false)
     }
 
     /// Finds the callbacks after admission has checked their signatures.
@@ -92,8 +94,29 @@ impl Exports {
             Self {
                 frame: frame.typed(&*store)?,
                 events,
+                filter: typed(store, instance, "filter-actions")?,
             },
         ))
+    }
+
+    /// Whether this component explicitly opts into action filtering.
+    pub(super) fn has_filter(&self) -> bool {
+        self.filter.is_some()
+    }
+
+    /// Executes and finishes a synchronous verdict before any input is changed.
+    pub(super) fn filter(
+        &self,
+        store: &mut Store<State>,
+        frame: super::ActionFrame,
+    ) -> Result<super::ActionVerdict> {
+        let filter = self
+            .filter
+            .as_ref()
+            .context("component lacks filter-actions")?;
+        let (verdict,) = filter.call(&mut *store, (frame,))?;
+        filter.post_return(store)?;
+        Ok(verdict)
     }
 
     /// Whether the component exports any event callback.
@@ -184,10 +207,19 @@ fn check<P>(pre: &InstancePre<State>, name: &str, required: bool) -> Result<()>
 where
     P: ComponentNamedList + Lower,
 {
+    check_result::<P, ()>(pre, name, required)
+}
+
+/// Checks an optional callback including its returned transaction.
+fn check_result<P, R>(pre: &InstancePre<State>, name: &str, required: bool) -> Result<()>
+where
+    P: ComponentNamedList + Lower,
+    R: ComponentNamedList + Lift,
+{
     let component = pre.component().component_type();
     match component.get_export(pre.engine(), name) {
         Some(ComponentItem::ComponentFunc(func)) => func
-            .typecheck::<P, ()>(&pre.instance_type())
+            .typecheck::<P, R>(&pre.instance_type())
             .with_context(|| format!("export {name} has another signature")),
         None if !required => Ok(()),
         None => bail!("component lacks {name}"),

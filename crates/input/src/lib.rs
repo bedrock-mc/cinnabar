@@ -1,6 +1,7 @@
 //! Vendor-independent, renderer-independent semantic input primitives.
 
 mod action;
+pub mod action_filter;
 mod click_limit;
 pub use click_limit::ClickLimiter;
 mod axes;

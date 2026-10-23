@@ -12,6 +12,7 @@ reads = [
     "crates/mod-api/native-frame-v1.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/hud.wat",
+    "crates/mod-host/src/tests/action_filter.wat",
 ]
 
 [dependencies]

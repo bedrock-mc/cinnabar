@@ -712,3 +712,51 @@ fn merged_huds_keep_the_aggregate_compass_budget() {
         expected
     );
 }
+
+/// Ownership follows granted opt-in instances across reorder, trap, and removal.
+#[test]
+fn action_filter_owner_tracks_instance_lifecycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let ordinary = ModHost::load(&component(dir.path(), "ordinary.wat")).unwrap();
+    let source = include_str!("../../../mod-host/src/tests/action_filter.wat")
+        .replace("$BODY", "")
+        .replace("$COUNT", "i32.const 0");
+    let path = dir.path().join("filter.wat");
+    std::fs::write(&path, &source).unwrap();
+    let grant = ModGrants {
+        controls: true,
+        ..Default::default()
+    };
+    let first = ModHost::load_with_grants(&path, grant.clone()).unwrap();
+    let second = ModHost::load_with_grants(&path, grant).unwrap();
+    let mut hosts = ModHosts::new(ordinary, vec![first, second]);
+    assert_eq!(hosts.action_filter_owner(), Some(1));
+    let identity = hosts.host(1).action_filter_identity();
+    hosts.swap(0, 1);
+    assert_eq!(hosts.action_filter_owner(), Some(0));
+    assert_eq!(hosts.host(0).action_filter_identity(), identity);
+    hosts.remove(0);
+    assert_eq!(hosts.action_filter_owner(), Some(1));
+    let failed = hosts.host_mut(1).filter_actions(mod_host::ActionFrame {
+        epoch: 1,
+        time_us: 0,
+        physical: mod_host::ActionHeld {
+            attack: false,
+            item_use: false,
+        },
+        logical: mod_host::ActionHeld {
+            attack: false,
+            item_use: false,
+        },
+        transitions: vec![
+            mod_host::ActionTransition {
+                action: mod_host::FilteredAction::Attack,
+                kind: mod_host::TransitionKind::Press,
+                held_after: true,
+            };
+            9
+        ],
+    });
+    assert!(failed.is_err());
+    assert!(hosts.action_filter_owner().is_none());
+}

@@ -1,3 +1,4 @@
+mod action_filter;
 #[path = "tests/camera.rs"]
 mod camera;
 mod collection_reveal;

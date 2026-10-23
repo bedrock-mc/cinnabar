@@ -174,9 +174,38 @@ to stop both checks and downloads. Both mod settings work independently of the
 app updater, including development builds. Mods without either declaration make
 no update requests.
 
+## Generic action filtering
+
+A player mod can explicitly export `filter-actions(action-frame) -> action-verdict`
+under the `controls` grant. Use `mod_api::filtered_player_mod` bindings to opt in;
+ordinary `PlayerMod` exports do not claim ownership. Only the earliest active,
+granted exporter runs. It receives resolved Attack/Use transitions, physical and
+logical hold state, each transition’s resulting physical hold, a continuity epoch,
+and absolute monotonic microseconds. Releasing one binding preserves an action
+still held by another.
+Ordered desktop transitions preserve source order. Phase-only devices use a
+canonical channel order and cannot recover sub-frame ordering.
+
+The callback runs after ordinary frames and before gameplay, with independent
+fuel and no host-import calls. It returns one accept/suppress decision per observed
+transition and may finish retained releases. Suppressing a release retains its
+hold; suppressing the following press joins it. Accepting that press completes the
+outstanding release first. Suppressing a fresh press blocks its gesture until
+physical release. Authorized attack pulses appear as `repeat`; rejecting one leaves
+the hold unchanged. Every emitted press has an observed source in the same frame.
+
+Callbacks run on transitions and every frame with a retained hold. Idle physical
+holds need no callback. Traps, invalid verdicts, owner replacement, loss of capture,
+input-absorbing UI, suspension, session/dimension changes and authority gaps clear
+continuity. Retained releases complete; suppressed gestures remain suppressed until
+their physical release. A changed epoch tells the module to discard policy state.
+Native code owns projection and lifecycle only. Modules own all filtering rules,
+deadlines and rates; the host imposes no hold-duration policy.
+
 ## Click limiting and local weather
 
-`input.set-click-limits(attack, item-use)` retains separate optional press caps.
+`input.set-click-limits(attack, item-use)` is a frozen legacy compatibility API.
+New modules should implement policy through `filter-actions`. It retains separate optional press caps.
 Each cap accepts 1 through `mod_api::MAX_CLICK_RATE` (100) presses per second;
 `none` restores ordinary input for that channel. It requires `controls` authority
 and cannot generate clicks. Excess gestures are discarded through their release;

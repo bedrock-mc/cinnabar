@@ -297,6 +297,11 @@ impl ModHosts {
         false
     }
 
+    /// Only the earliest active, granted, explicitly exporting component filters actions.
+    pub fn action_filter_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&i| self.host(i).action_filter_identity().is_some())
+    }
+
     /// The earliest card publisher owns the retained card surface.
     pub fn hud_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
@@ -400,6 +405,23 @@ pub struct FrameInput<'a> {
 pub fn run_frame(
     runtime: &mut ModHosts,
     input: FrameInput<'_>,
+    world: impl FnMut(
+        &ModGrants,
+    ) -> (
+        Option<GameplaySnapshot>,
+        Vec<GameplayMob>,
+        Option<GameplayMovementSnapshot>,
+    ),
+    failed: impl FnMut(usize, String),
+) -> Merged {
+    run_frame_callbacks(runtime, input, world, failed);
+    collect_frame_outputs(runtime)
+}
+
+/// Runs observations and guest frames before input filtering and output collection.
+pub fn run_frame_callbacks(
+    runtime: &mut ModHosts,
+    input: FrameInput<'_>,
     mut world: impl FnMut(
         &ModGrants,
     ) -> (
@@ -408,7 +430,7 @@ pub fn run_frame(
         Option<GameplayMovementSnapshot>,
     ),
     mut failed: impl FnMut(usize, String),
-) -> Merged {
+) {
     let mut union = ModGrants::default();
     let mut active = false;
     for index in 0..runtime.host_count() {
@@ -434,7 +456,6 @@ pub fn run_frame(
     };
     let owner = runtime.panel_owner();
     let mut claimed = Vec::new();
-    let mut merged = Merged::default();
     for index in 0..runtime.host_count() {
         let host = runtime.host(index);
         if !host.is_active() {
@@ -501,6 +522,13 @@ pub fn run_frame(
         if let Some(error) = host.take_settings_error() {
             bevy::log::warn!("Cinnabar extension preferences could not be saved: {error}");
         }
+    }
+}
+
+/// Collects only still-active guests, so a failed input callback cannot publish prior output.
+pub fn collect_frame_outputs(runtime: &mut ModHosts) -> Merged {
+    let mut merged = Merged::default();
+    for host in runtime.iter_mut().filter(|host| host.is_active()) {
         merged.absorb(host);
     }
     merged

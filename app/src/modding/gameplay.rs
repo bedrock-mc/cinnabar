@@ -353,12 +353,6 @@ impl GameplayContext<'_> {
             apply_delta(view, delta);
         }
     }
-
-    pub(super) fn pulse_attack(&mut self) -> bool {
-        self.input
-            .as_mut()
-            .is_some_and(|input| input.request_mod_attack_press())
-    }
 }
 
 /// Selects at most K borrowed actors before constructing any guest-owned payloads.
