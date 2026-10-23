@@ -633,13 +633,11 @@ confirmed values and show a retry message in Game; failed console writes show a 
 Save replies refresh all confirmed settings and retain newer pending selections. World toggles keep
 keyboard and gamepad focus across value changes. A successful save clears superseded errors for its
 settings, while unrelated save failures remain visible. Live edits remain pending until a successful
-server exit. Pack and experiment configuration,
-hardcore, flat presets, Education Edition, operator status for a signed-out host, the in-game
-Personal Game Mode and Multiplayer section, and live acceptance of every option on supported
-platforms remain incomplete.
-catalog and generated server properties and level data. Pack and experiment configuration,
-hardcore, flat presets, Education Edition, operator status for a signed-out or offline-fallback host and live
-acceptance of every option on supported platforms remain incomplete.
+server exit. Default game mode and default player permission changes still wait for the next
+start; live application of these settings remains an incomplete parity gap. Pack and experiment
+configuration, hardcore, flat presets, Education Edition, operator status for a signed-out or
+offline-fallback host, the in-game Personal Game Mode and Multiplayer section, and live acceptance
+of every option on supported platforms remain incomplete.
 The Android translated runtime supplies a loopback route and passes two consecutive offline
 transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
 Signed-in local HTTP joins retry once with local identity when account services fail before transport

@@ -115,6 +115,41 @@ fn bds_world(runner: &Arc<FakeRunner>) -> (Fixture, World) {
     (fixture, world)
 }
 
+/// Saving a new default mode wakes every route subscriber without restarting the server.
+#[test]
+fn applied_game_mode_wakes_route_subscribers() {
+    let runner = Arc::new(FakeRunner::default());
+    let (fixture, world) = bds_world(&runner);
+    let manager = &fixture.manager;
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let before = manager.core_report();
+    let subscribers = [manager.subscribe(), manager.subscribe()];
+    manager
+        .apply(
+            &world.id,
+            &WorldUpdate {
+                game_mode: Some(bridge::GameMode::Creative),
+                ..WorldUpdate::default()
+            },
+        )
+        .expect("save the default mode");
+    for changes in subscribers {
+        changes
+            .try_recv()
+            .expect("wake for the changed world report");
+    }
+    manager.open(&world.id, None).expect("idempotent open");
+    let after = manager.core_report();
+    assert_eq!(after.state, WorldState::Running);
+    assert_eq!(after.target, before.target);
+    assert_eq!(
+        after.world.expect("world").game_mode,
+        bridge::GameMode::Creative
+    );
+    assert_eq!(lock(&runner.made).len(), 1, "the server stays running");
+}
+
 /// An in-game change reaches the running server at once and stays saved; a clean stop, after
 /// which the server's own data holds it, ends it being pending.
 #[test]

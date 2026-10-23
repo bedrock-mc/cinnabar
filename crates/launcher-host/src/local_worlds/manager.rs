@@ -339,6 +339,7 @@ impl Manager {
                 });
             }
             life.world = Some(world.clone());
+            self.notify_subscribers();
             (life.instance.clone(), life.generation)
         };
         let Some(instance) = instance else {
@@ -814,7 +815,7 @@ impl Manager {
         }
     }
 
-    /// A receiver that wakes after each lifecycle change.
+    /// A receiver that wakes after lifecycle changes and updates to the active world report.
     pub fn subscribe(&self) -> Receiver<()> {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         lock(&self.inner.subscribers).push(sender);
@@ -823,6 +824,11 @@ impl Manager {
 
     fn set_state(&self, life: &mut Life, state: WorldState) {
         life.state = state;
+        self.notify_subscribers();
+    }
+
+    /// Wakes report readers, coalescing changes until each reader consumes its notification.
+    fn notify_subscribers(&self) {
         lock(&self.inner.subscribers).retain(|subscriber| {
             !matches!(subscriber.try_send(()), Err(TrySendError::Disconnected(())))
         });
