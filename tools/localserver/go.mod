@@ -1,4 +1,4 @@
-module github.com/hashimthearab/rust-mcbe/tools/localserver
+module github.com/cinnabar-mc/cinnabar/tools/localserver
 
 go 1.26.1
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/internal/cxbtest"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/internal/cxbtest"
 )
 
 // zipEntry is one file of a test .cxb.

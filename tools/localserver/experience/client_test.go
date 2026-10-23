@@ -13,7 +13,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // More probe behaviors, selected like those in helpers_test.go by the x of the interacted block.

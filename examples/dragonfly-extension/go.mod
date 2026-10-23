@@ -3,10 +3,10 @@ module github.com/cinnabar-mc/cinnabar/examples/dragonfly-extension
 go 1.26.1
 
 require (
+	github.com/cinnabar-mc/cinnabar/tools/localserver v0.0.0
 	github.com/df-mc/dragonfly v0.11.5
 	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0
-	github.com/hashimthearab/rust-mcbe/tools/localserver v0.0.0
 )
 
 require (
@@ -54,4 +54,4 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 )
 
-replace github.com/hashimthearab/rust-mcbe/tools/localserver => ../../tools/localserver
+replace github.com/cinnabar-mc/cinnabar/tools/localserver => ../../tools/localserver

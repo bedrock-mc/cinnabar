@@ -9,7 +9,7 @@ import (
 	"io"
 	"slices"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // The Go mirror of the adapter protocol in crates/experience-runtime/src/protocol.rs, which

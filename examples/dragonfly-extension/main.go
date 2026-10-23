@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/cmd"
@@ -19,7 +20,6 @@ import (
 	"github.com/df-mc/dragonfly/server/world/generator"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
 )
 
 // view is a typed world choice carried on the bundle's declared to-client channel.

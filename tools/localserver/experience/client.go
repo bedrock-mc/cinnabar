@@ -7,7 +7,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // ClientChannels is the server half of the client parts (tools/localserver/cinnabarext): the

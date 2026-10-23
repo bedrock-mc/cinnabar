@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.

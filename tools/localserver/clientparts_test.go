@@ -23,8 +23,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 
-	extension "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/internal/cxbtest"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/internal/cxbtest"
 )
 
 // extensionTestdata holds the goldens that `cinnabar-cxb write-fixtures` writes.

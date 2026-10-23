@@ -17,8 +17,8 @@ import (
 
 	"github.com/df-mc/dragonfly/server/world"
 
-	extension "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 func TestParseSettingsValidates(t *testing.T) {

@@ -7,11 +7,11 @@ Experience runtime. The local server imports this same package.
 The package lives in the existing Go module:
 
 ```go
-import "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
+import "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 ```
 
-Pin the module to the Cinnabar commit you deploy. The module retains its original
-Go import path. Consumers can use upstream Dragonfly v0.11.5 with upstream
+Pin the module to the Cinnabar commit you deploy. Consumers can use upstream
+Dragonfly v0.11.5 with upstream
 Gophertunnel v1.62.0; this package needs only the public
 [listener interface](https://github.com/df-mc/dragonfly/blob/v0.11.5/server/listener.go)
 and session connection interface. The two-world example uses those dependencies
