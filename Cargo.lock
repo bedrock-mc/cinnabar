@@ -2718,7 +2718,6 @@ dependencies = [
  "json-ui",
  "launcher",
  "launcher-host",
- "ndk-context",
  "objc2-metal 0.3.2",
  "pack-runtime",
  "player-state",
