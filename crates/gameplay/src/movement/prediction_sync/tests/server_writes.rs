@@ -1,5 +1,18 @@
 use super::*;
 
+/// Marks the dimension fields in a complete fixture snapshot as explicitly received.
+fn record_dimensions(actor: &mut LocalActor, sequence: u64) {
+    for (&key, value) in &actor.0.metadata {
+        actor.0.explicit_dimensions.record(
+            &protocol::ActorMetadata {
+                key,
+                value: value.clone(),
+            },
+            sequence,
+        );
+    }
+}
+
 /// A valid received current remains reportable even outside the simulation budget.
 #[test]
 fn sync_regression_reports_large_accepted_speed() {
@@ -62,7 +75,7 @@ fn sync_regression_preserves_explicit_pose_sized_dimensions() {
                     .metadata
                     .insert(key.wire_value(), ActorMetadataValue::Float(value));
             }
-            actor.0.explicit_dimensions_revision = Some(20);
+            record_dimensions(&mut actor, 20);
             send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
                 assert_eq!(
                     protocol::test_support::packets::prediction_sync_bounding_box(&packet),
@@ -277,8 +290,8 @@ fn sync_replaces_explicit_dimensions_on_a_later_local_resize() {
         ActorDataKey::Height.wire_value(),
         ActorMetadataValue::Float(0.6),
     );
-    actor.0.explicit_dimensions_revision = Some(20);
-    physics.note_server_dimensions(Some(20));
+    record_dimensions(&mut actor, 20);
+    physics.note_server_dimensions(actor.0.explicit_dimensions);
     physics.advance(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
@@ -435,13 +448,13 @@ fn sync_preserves_explicit_spawn_dimensions() {
         ActorDataKey::Height.wire_value(),
         ActorMetadataValue::Float(1.5),
     );
-    actor.0.explicit_dimensions_revision = Some(1);
+    record_dimensions(&mut actor, 1);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
         crate::movement::PhysicsSampleContext {
             mode_intent: crate::movement::ModeIntent {
-                dimensions_revision: Some(1),
+                explicit_dimensions: actor.0.explicit_dimensions,
                 ..Default::default()
             },
             ..Default::default()

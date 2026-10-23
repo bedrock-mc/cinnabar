@@ -113,14 +113,14 @@ pub enum CommittedControlEvent {
         tick: u64,
         flags: crate::MovementFlagUpdate,
     },
-    /// Movement, underwater and lava speed attribute currents from one local
-    /// attribute update, as one control. Unsupported movement models still carry arrival.
+    /// Attribute authority from a local update or an accepted actor spawn.
+    /// Unsupported or absent spawn movement attributes still carry arrival.
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
         /// Effective `minecraft:movement` current and its sprint recalculation facts.
         movement: Option<MovementSpeedAttribute>,
-        /// A movement attribute arrived, even if its prediction model was unsupported.
+        /// Movement state arrived or was replaced, even when no prediction model is available.
         movement_received: bool,
         underwater: Option<f64>,
         lava: Option<f64>,
