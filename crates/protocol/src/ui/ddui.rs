@@ -5,6 +5,7 @@
 //! input back as `ServerboundDataStore` path updates and reports every screen it closes with
 //! `ServerboundDataDrivenScreenClosed`.
 
+mod scripted;
 mod store;
 mod value;
 
@@ -19,6 +20,10 @@ use bedrock_protocol_1_26_51::types::{
 };
 use bedrock_protocol_1_26_51::wire;
 
+pub use scripted::{
+    CLOSE_BUTTON_CLICKS, ControlKind, CustomFormView, DropdownItem, FormControl, MessageBoxView,
+    SCRIPT_STORE, ScreenButton, ScreenText, ScriptedScreen,
+};
 pub use store::{DataStores, StoreApply};
 pub use value::{DataPrimitive, DataValue, PathError};
 use value::{from_wire, text};

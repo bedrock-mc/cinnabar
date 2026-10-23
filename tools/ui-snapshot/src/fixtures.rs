@@ -96,6 +96,9 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// A script form shown through data-driven UI.
+    #[cfg(feature = "test-support")]
+    DataDriven(protocol::ddui::ScriptedScreen),
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
@@ -276,6 +279,20 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::FormOverlap,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "ddui-custom-form",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::DataDriven(protocol::ddui::ScriptedScreen::CustomForm),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "ddui-message-box",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::DataDriven(protocol::ddui::ScriptedScreen::MessageBox),
     },
     #[cfg(feature = "test-support")]
     State {

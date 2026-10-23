@@ -110,7 +110,10 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input()
+        || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
+    {
         runtime.screen_state_mut().container_close_armed = false;
         runtime.screen_state_mut().container_scroll_drag = None;
         return;
@@ -375,6 +378,7 @@ pub(crate) fn drive_chat_keyboard_input(
     }
     if runtime.sign_editor().is_open()
         || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation

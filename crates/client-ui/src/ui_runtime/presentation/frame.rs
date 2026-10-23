@@ -277,6 +277,9 @@ impl UiPresentationRuntime {
                             content_height,
                         )?;
                     }
+                    Scene::DataDriven => {
+                        self.append_data_driven_screen(runtime, nodes, next, metrics, content)?;
+                    }
                     Scene::Menu(_) => {
                         menu_hit_targets = self.append_menu(
                             runtime,

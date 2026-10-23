@@ -7,7 +7,7 @@ mod gui_scale;
 mod labels;
 mod layout;
 mod mods;
-mod picker;
+pub(super) mod picker;
 mod presets;
 mod renderer;
 mod resources;
