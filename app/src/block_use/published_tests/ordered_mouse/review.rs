@@ -371,10 +371,11 @@ fn ordered_mouse_review_overflow_drains_an_accepted_block_stop_before_neutral_re
         &[ButtonState::Released],
     );
     assert!(app.world().resource::<BlockUseRuntime>().stopping());
-    mouse_frame(
+    mouse_frame_after_collection(
         app.world_mut(),
         MouseButton::Left,
-        &vec![ButtonState::Pressed; semantic_input::MAX_PENDING_ACTION_EVENTS + 1],
+        &[ButtonState::Pressed],
+        semantic_input::DesktopEvents::invalidate,
     );
     after_physics(&mut app);
     captured.drain();
