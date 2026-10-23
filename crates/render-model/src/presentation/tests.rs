@@ -58,13 +58,13 @@ fn selection_table_matches_backend_capability_sets() {
     }
 }
 
-/// Low latency prefers Mailbox, while the explicit tearing choice prefers Immediate.
+/// Low latency prefers Mailbox, while the diagnostic launch flag prefers Immediate.
 #[test]
 fn presentation_intents_respect_the_tearing_boundary() {
     for surface in all_surfaces() {
-        assert_ne!(
+        assert_eq!(
             select_present_mode(Synchronized, surface),
-            Immediate,
+            Fifo,
             "{surface:?}"
         );
         assert_eq!(

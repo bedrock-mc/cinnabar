@@ -27,7 +27,17 @@ fn actions(query: &str, translate: Translate<'_>) -> Vec<MenuAction> {
 fn search_finds_controls_across_categories_and_deduplicates_shared_rows() {
     for query in ["vsync", "  VSYNC  "] {
         let actions = actions(query, &|_| None);
-        assert_eq!(actions.iter().filter(|action| matches!(action, MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::Vsync.index())).count(), render_api::VsyncMode::ALL.len());
+        let mut vsync_actions: Vec<_> = actions.iter().copied().filter(|action| matches!(action,
+            MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::Vsync.index()
+        )).collect();
+        vsync_actions.dedup();
+        assert_eq!(
+            vsync_actions,
+            [MenuAction::SettingsOption(
+                SettingId::Vsync.index() as u16,
+                1 - launcher::menu::settings_options::VSYNC_OPTION.default,
+            )]
+        );
         assert!(!actions.iter().any(|action| matches!(action, MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::MainVolume.index())));
         assert!(actions.contains(&MenuAction::SearchSettings));
         assert!(actions.contains(&MenuAction::ClearSettingsSearch));

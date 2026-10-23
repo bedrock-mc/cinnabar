@@ -211,55 +211,62 @@ fn gameplay_frame_adopts_server_sprint_without_double_boosting() {
 /// A held sprint can restart after metadata clears it between completed ticks.
 #[test]
 fn server_sprint_stop_preserves_the_held_key_restart_action() {
-    let (mut physics, mut ticker) = walked_physics(0);
-    let mut locals = super::LocomotionState::default();
-    let mut effects = super::LocalMovementEffectTimeline::default();
-    let mut speed = super::LocalMovementSpeedAuthority::default();
-    let held = semantic_input::ActionPhase {
-        held: true,
-        ..Default::default()
-    };
-    for _ in 0..2 {
+    for toggle_sprint in [false, true] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::LocomotionState::default();
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        let held = semantic_input::ActionPhase {
+            held: true,
+            ..Default::default()
+        };
+        for pressed in [true, false] {
+            assert!(locals.advance(
+                super::PhysicsFrameInput {
+                    toggle_sprint,
+                    ..speed_frame(semantic_input::ActionPhase { pressed, ..held })
+                },
+                &mut physics,
+                &mut ticker,
+                &mut effects,
+                &mut speed,
+                &VersionedFloor(1),
+            ));
+        }
+        assert!(physics.sample_at(102).unwrap().processed.sprinting);
+        physics.apply_server_movement_flags(0, flags(|flags| flags.sprinting = Some(false)));
+        let mut tickless = speed_frame(held);
+        tickless.toggle_sprint = toggle_sprint;
+        tickless.delta = Duration::ZERO;
         assert!(locals.advance(
-            speed_frame(held),
+            tickless,
             &mut physics,
             &mut ticker,
             &mut effects,
             &mut speed,
             &VersionedFloor(1),
         ));
+        let mut catch_up = speed_frame(held);
+        catch_up.toggle_sprint = toggle_sprint;
+        catch_up.delta = Duration::from_millis(100);
+        assert!(locals.advance(
+            catch_up,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        let start = PlayerInputFlags::START_SPRINTING.bits();
+        let packets = ticker.pending_snapshots();
+        assert_ne!(packets[2].flags.bits() & start, 0);
+        assert_eq!(packets[3].flags.bits() & start, 0);
+        assert!(physics.sample_at(103).unwrap().processed.sprinting);
+        reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+        let replayed = ticker.pending_snapshots();
+        assert_ne!(replayed[1].flags.bits() & start, 0);
+        assert_eq!(replayed[2].flags.bits() & start, 0);
     }
-    assert!(physics.sample_at(102).unwrap().processed.sprinting);
-    physics.apply_server_movement_flags(0, flags(|flags| flags.sprinting = Some(false)));
-    let mut tickless = speed_frame(held);
-    tickless.delta = Duration::ZERO;
-    assert!(locals.advance(
-        tickless,
-        &mut physics,
-        &mut ticker,
-        &mut effects,
-        &mut speed,
-        &VersionedFloor(1),
-    ));
-    let mut catch_up = speed_frame(held);
-    catch_up.delta = Duration::from_millis(100);
-    assert!(locals.advance(
-        catch_up,
-        &mut physics,
-        &mut ticker,
-        &mut effects,
-        &mut speed,
-        &VersionedFloor(1),
-    ));
-    let start = PlayerInputFlags::START_SPRINTING.bits();
-    let packets = ticker.pending_snapshots();
-    assert_ne!(packets[2].flags.bits() & start, 0);
-    assert_eq!(packets[3].flags.bits() & start, 0);
-    assert!(physics.sample_at(103).unwrap().processed.sprinting);
-    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    let replayed = ticker.pending_snapshots();
-    assert_ne!(replayed[1].flags.bits() & start, 0);
-    assert_eq!(replayed[2].flags.bits() & start, 0);
 }
 
 #[test]
