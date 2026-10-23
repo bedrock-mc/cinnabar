@@ -18,7 +18,7 @@ pub(super) const SOURCE_BYTES: &[u8] =
 
 const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
 const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";
-const ROUTE_COUNT: usize = 45;
+const ROUTE_COUNT: usize = 46;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
