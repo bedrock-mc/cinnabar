@@ -302,11 +302,16 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         }
     }
 
-    /// Removes a pending job and retires its lane ownership and retry history.
+    /// Retires a job and drops obsolete ingress records when the last pending job leaves.
     pub(super) fn remove_pending(&mut self, key: &SubChunkKey) -> Option<P> {
         self.retries.remove(key);
         self.retire_lane_ownership(key);
-        self.pending.remove(key)
+        let pending = self.pending.remove(key);
+        if self.pending.is_empty() {
+            self.scan.clear();
+            self.startup_scan.clear();
+        }
+        pending
     }
 
     /// Retires a key from both lane generations without scanning unrelated candidates.

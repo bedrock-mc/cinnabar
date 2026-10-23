@@ -309,9 +309,9 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
     assert!(stream.pop_mesh_change().is_none());
 }
 
-/// A permit-denied current mesh waits in staging instead of being meshed again.
+/// A staged mesh retains publication capacity while ready air fills a pressured frame.
 #[test]
-fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
+fn permit_denied_mesh_publishes_from_staging_amid_air_pressure() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -360,21 +360,25 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
     assert_eq!(stream.staged_mesh_completions.len(), 1);
     assert!(stream.take_mesh_changes().is_empty());
 
-    allowance.begin_frame(
-        2,
-        config.maximum_frame_items,
-        config.maximum_frame_bytes,
-        config.maximum_zero_byte_operations_per_frame,
-        config.maximum_frame_items,
-    );
+    for x in 10..18 {
+        stream.mark_dirty_exact(SubChunkKey::new(0, x, 8, 0), Instant::now());
+    }
+
+    allowance.begin_frame(2, 8, config.maximum_frame_bytes, 8, 8);
     dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
     let changes = stream.take_mesh_changes();
     assert_eq!(dispatched, 1);
     assert!(stream.staged_mesh_completions.is_empty());
-    assert!(matches!(
-        changes.as_slice(),
-        [WorldMeshChange::Upsert { key: published, permit: Some(_), .. }] if *published == key
-    ));
+    assert!(changes.iter().any(|change| matches!(
+        change,
+        WorldMeshChange::Upsert { key: published, permit: Some(_), .. } if *published == key
+    )));
+    assert!(
+        changes
+            .iter()
+            .any(|change| matches!(change, WorldMeshChange::Remove { .. }))
+    );
+    assert!(changes.len() <= 8);
 }
 
 /// An urgent retry publishes before ordinary air even when that ordinary section is closer.

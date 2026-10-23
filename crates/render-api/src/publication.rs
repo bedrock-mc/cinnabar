@@ -229,6 +229,16 @@ impl PublicationAllowance {
 
     #[must_use]
     pub fn zero_byte_admission_capacity_with_priority(&self, urgent: bool) -> usize {
+        self.zero_byte_admission_capacity_reserving_payload(urgent, 0)
+    }
+
+    /// Leaves credited payload operations available within the shared frame cap.
+    #[must_use]
+    pub fn zero_byte_admission_capacity_reserving_payload(
+        &self,
+        urgent: bool,
+        payload_reserve: usize,
+    ) -> usize {
         let state = self.lock();
         let live_limit = state
             .config
@@ -236,7 +246,11 @@ impl PublicationAllowance {
             .saturating_add(usize::from(urgent) * state.config.urgent_zero_byte_reserve);
         state
             .remaining_zero_byte_operations
-            .min(state.frame_remaining_operations)
+            .min(
+                state
+                    .frame_remaining_operations
+                    .saturating_sub(payload_reserve.min(state.remaining_items)),
+            )
             .min(live_limit.saturating_sub(state.live_zero_byte_operations))
     }
 

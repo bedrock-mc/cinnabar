@@ -410,15 +410,15 @@ impl WorldStream {
         if let Some(pending) = self.mesh_jobs.pending.get_mut(&key) {
             // No new scan record follows, so a deferred nearby record is offered directly.
             self.mesh_jobs.refresh.wake_near(key);
-            if urgent && !pending.urgent {
-                pending.urgent = true;
-                self.mesh_jobs.scan.push_front((key, pending.revision));
-            }
-            let revision = pending.revision;
+            let promoted = urgent && !pending.urgent;
+            pending.urgent |= urgent;
+            let pending = *pending;
             // A coalesced change that leaves only air queues its removal now, so no state of the
             // geometry lane can hold the old mesh on screen.
             if !self.mesh_requires_geometry(key) {
-                self.air_removals.insert(key, revision);
+                self.enqueue_mesh_revision(key, pending, self.is_startup_dependency(key));
+            } else if promoted {
+                self.mesh_jobs.scan.push_front((key, pending.revision));
             }
             return;
         }

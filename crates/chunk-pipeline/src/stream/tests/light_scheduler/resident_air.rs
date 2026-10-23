@@ -1,5 +1,44 @@
 use super::*;
 
+/// Coalesced player changes publish before ordinary air outside the first routing batch.
+#[test]
+fn coalesced_urgent_air_precedes_ordinary_removals() {
+    let mut stream = lit_stream(1);
+    for x in 0..32 {
+        let key = SubChunkKey::new(1, x, 8, 0);
+        resident(&mut stream, key, super::uniform_sub_chunk(0));
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let key = SubChunkKey::new(1, 100, 8, 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(2));
+    stream.mark_dirty_exact(key, Instant::now());
+    resident(&mut stream, key, super::uniform_sub_chunk(0));
+    stream.mark_changed_light_mesh_dependents(key, [true; 6], Instant::now(), true);
+    stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
+    assert!(matches!(stream.take_mesh_changes().as_slice(),
+        [WorldMeshChange::Remove { key: published, urgent: true, .. }] if *published == key));
+}
+
+/// Completed geometry-to-air revisions cannot accumulate obsolete ingress ownership.
+#[test]
+fn completed_air_drops_obsolete_geometry_ingress() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 8, 0);
+    for _ in 0..=MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        stream.mark_dirty_exact(key, Instant::now());
+        resident(&mut stream, key, super::uniform_sub_chunk(0));
+        stream.mark_changed_light_mesh_dependents(key, [true; 6], Instant::now(), false);
+        stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
+        assert_eq!(stream.take_mesh_changes().len(), 1);
+        assert!(stream.mesh_jobs.pending.is_empty());
+    }
+    assert!(
+        stream.mesh_jobs.scan.len() + stream.mesh_jobs.startup_scan.len()
+            <= MAX_PENDING_MESH_QUEUE_WORK_PER_POLL
+    );
+}
+
 /// Ready air spends its allowance without first scanning a backlog of geometry dependencies.
 #[test]
 fn fresh_air_is_not_held_behind_geometry_scheduler_ingress() {
