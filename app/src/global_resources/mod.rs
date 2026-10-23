@@ -40,6 +40,9 @@ fn apply_on_leave(
             worker.send(worker::Command::Action { action, revision });
         }
         worker.send(worker::Command::Leave);
+        if quitting {
+            worker.flush_pending();
+        }
     }
     *was_open = open && !quitting;
 }

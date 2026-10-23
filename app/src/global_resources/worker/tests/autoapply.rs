@@ -1,10 +1,10 @@
 use super::*;
-use bevy::prelude::{App, AppExit, Last, Update};
+use bevy::prelude::{App, Last, Update};
 use client_shell::menu::MenuRuntime;
 use launcher::menu::{MenuAction, MenuScreen, settings_sections::SettingSection};
 
 /// Drives menu transitions with queued disk work so no runtime reload can finish.
-fn leave_events(actions: &[MenuAction], quit: bool) -> (tempfile::TempDir, Vec<Event>) {
+fn leave_events(actions: &[MenuAction]) -> (tempfile::TempDir, Vec<Event>) {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("installed");
     let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
@@ -37,9 +37,6 @@ fn leave_events(actions: &[MenuAction], quit: bool) -> (tempfile::TempDir, Vec<E
             .resource_mut::<MenuRuntime>()
             .activate(*action);
     }
-    if quit {
-        app.world_mut().write_message(AppExit::Success);
-    }
     app.update();
     app.update();
     drop(app);
@@ -70,48 +67,26 @@ fn leaving_with_pending_changes_applies_once() {
         MenuAction::SettingsSection(SettingSection::Video.definition().index),
         MenuAction::Navigate(MenuScreen::Home),
     ] {
-        let (_fixture, events) = leave_events(
-            &[MenuAction::GlobalResources(Action::Activate(0)), leave],
-            false,
-        );
+        let (_fixture, events) =
+            leave_events(&[MenuAction::GlobalResources(Action::Activate(0)), leave]);
         assert_eq!(reloads(&events), 1, "{leave:?}");
     }
 }
 
 #[test]
 fn leaving_without_pending_changes_does_nothing() {
-    let (_fixture, events) = leave_events(&[MenuAction::AddBack], false);
+    let (_fixture, events) = leave_events(&[MenuAction::AddBack]);
     assert_eq!(reloads(&events), 0);
 }
 
 #[test]
 fn apply_then_leave_submits_only_once() {
-    let (_fixture, events) = leave_events(
-        &[
-            MenuAction::GlobalResources(Action::Activate(0)),
-            MenuAction::GlobalResources(Action::Apply),
-            MenuAction::AddBack,
-        ],
-        false,
-    );
+    let (_fixture, events) = leave_events(&[
+        MenuAction::GlobalResources(Action::Activate(0)),
+        MenuAction::GlobalResources(Action::Apply),
+        MenuAction::AddBack,
+    ]);
     assert_eq!(reloads(&events), 1);
-}
-
-#[test]
-fn quitting_preserves_pending_selection_without_a_runtime_acknowledgement() {
-    let (fixture, events) = leave_events(&[MenuAction::GlobalResources(Action::Activate(0))], true);
-    let submitted = events
-        .iter()
-        .rev()
-        .find_map(|event| match event {
-            Event::Snapshot(snapshot) => Some(snapshot.selection.clone()),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(submitted.len(), 1);
-    let restarted =
-        GlobalPackLibrary::open(fixture.path().join("installed"), engine_version()).unwrap();
-    assert_eq!(restarted.active(), submitted);
 }
 
 #[test]
@@ -200,4 +175,53 @@ fn leaving_retries_a_failed_apply_of_pending_changes() {
         ],
     );
     assert_eq!(reloads(&events), 2);
+}
+
+#[test]
+fn leaving_applies_corrected_selection_after_initial_preview_failure() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+    let pack = import_fixture(&mut library, fixture.path(), 1);
+    library.activate(pack.id).unwrap();
+    library.apply().unwrap();
+    for file in std::fs::read_dir(&root).unwrap() {
+        let path = file.unwrap().path();
+        if resource_pack::is_pack_import_path(&path) {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    assert!(library.preview().is_err());
+    let events = collect_events(
+        root,
+        vec![
+            Command::Action {
+                action: Action::Deactivate(0),
+                revision: 0,
+            },
+            Command::Leave,
+            Command::Leave,
+        ],
+    );
+    let submissions: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Apply(_, selection) => Some(selection.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(submissions, [Vec::<resource_pack::ActivePack>::new()]);
+}
+
+#[test]
+fn leaving_retries_after_initial_runtime_failure_without_an_acknowledgement() {
+    let events = events_for(
+        "leave-initial-failure",
+        vec![
+            Command::ApplyFailed(Vec::new()),
+            Command::Leave,
+            Command::Leave,
+        ],
+    );
+    assert_eq!(reloads(&events), 1);
 }

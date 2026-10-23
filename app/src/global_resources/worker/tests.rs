@@ -4,6 +4,7 @@ use {
 };
 
 mod autoapply;
+mod shutdown;
 
 /// Runs queued commands with isolated worker storage and collects their events.
 fn events_for(name: &str, queued: Vec<Command>) -> Vec<Event> {

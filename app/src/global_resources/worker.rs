@@ -21,6 +21,7 @@ pub(super) enum Command {
     Commit(Vec<resource_pack::ActivePack>),
     ApplyFailed(Vec<resource_pack::ActivePack>),
     Leave,
+    Flush(crossbeam_channel::Sender<()>),
 }
 pub(super) enum Event {
     MinecraftImportStatus(String),
@@ -62,6 +63,14 @@ impl Worker {
     /// Queues a command without blocking the frame.
     pub fn send(&mut self, command: Command) {
         let _ = self.commands.send(command);
+    }
+
+    /// Waits for queued disk work before exit without waiting for a runtime reload.
+    pub fn flush_pending(&mut self) {
+        let (done, completed) = crossbeam_channel::bounded(1);
+        if self.commands.send(Command::Flush(done)).is_ok() {
+            let _ = completed.recv();
+        }
     }
 
     /// Reports whether the explicit import request reached the serial worker.
@@ -119,7 +128,7 @@ fn run(
             && requested
                 .as_deref()
                 .or(snapshot.applied_selection.as_deref())
-                .is_none_or(|selection| selection == library.active())
+                .is_some_and(|selection| selection == library.active())
         {
             continue;
         }
@@ -171,6 +180,10 @@ fn run(
             super::icons::refresh(library, snapshot, &icon_root);
         };
         let result = match command {
+            Command::Flush(done) => {
+                let _ = done.send(());
+                continue;
+            }
             Command::MinecraftImport(request) => {
                 let (outcome, changed) = import_minecraft_data(
                     &mut minecraft_import,
