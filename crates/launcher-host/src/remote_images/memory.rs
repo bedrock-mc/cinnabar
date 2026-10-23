@@ -12,10 +12,10 @@ use tokio::sync::mpsc::{Receiver, Sender, error::TrySendError};
 
 use super::{FORM_IMAGES, client, download};
 
-/// Most URLs remembered, loading ones included; the oldest settled entry goes first.
+/// Target URL count; loading and recently requested entries may exceed it.
 const MAX_ENTRIES: usize = 64;
-/// Retained download bytes; handed-off bodies are released first. Bodies the engine has not
-/// received may exceed this budget until their first handoff.
+/// Retained download bytes; abandoned bodies go before handed-off ones. Bodies the engine has not
+/// received may exceed this budget while a screen still requests them.
 const MAX_READY_BYTES: usize = FORM_IMAGES.max_bytes;
 /// Requests waiting for a download slot; the oldest are dropped first.
 const MAX_QUEUED: usize = MAX_ENTRIES;
@@ -47,7 +47,7 @@ struct Remote {
 struct Entries {
     states: HashMap<String, Entry>,
     order: VecDeque<String>,
-    /// When a drawn screen last asked for each loading URL.
+    /// When a drawn screen last asked for each URL.
     asked: HashMap<String, Instant>,
     /// Total length of the `Ready` images in `states`.
     ready_bytes: usize,
@@ -69,20 +69,32 @@ impl Entry {
 }
 
 impl Entries {
-    /// Bounds remembered URLs and releases handed-off bodies without changing readiness.
-    /// Unclaimed bodies survive either limit until the engine receives them.
+    /// Reclaims abandoned bodies first, preserving loading and wanted entries at admission.
+    /// Wanted bodies survive either limit until the engine receives them.
     fn trim(&mut self) {
-        while self.order.len() > MAX_ENTRIES {
+        while self.order.len() > MAX_ENTRIES || self.ready_bytes > MAX_READY_BYTES {
             let eligible = |key: &String| {
-                self.states.get(key).is_some_and(|entry| {
-                    entry.handed || !matches!(entry.state, RemoteState::Ready(_))
-                })
+                !self.wanted(key)
+                    && self
+                        .states
+                        .get(key)
+                        .is_some_and(|entry| entry.state != RemoteState::Loading)
             };
             let Some(position) = self
                 .order
                 .iter()
-                .position(|key| eligible(key) && self.states[key].state != RemoteState::Loading)
-                .or_else(|| self.order.iter().position(eligible))
+                .position(|key| {
+                    eligible(key)
+                        && !self.states[key].handed
+                        && matches!(self.states[key].state, RemoteState::Ready(_))
+                })
+                .or_else(|| {
+                    if self.order.len() > MAX_ENTRIES {
+                        self.order.iter().position(eligible)
+                    } else {
+                        None
+                    }
+                })
             else {
                 break;
             };
@@ -111,6 +123,13 @@ impl Entries {
                 entry.state = RemoteState::ReadyWithoutBody;
             }
         }
+    }
+
+    /// Whether a screen has requested this URL within the polling grace period.
+    fn wanted(&self, url: &str) -> bool {
+        self.asked
+            .get(url)
+            .is_some_and(|asked| asked.elapsed() < OBSOLETE_AFTER)
     }
 
     /// Forgets a loading URL so a later ask queues it afresh.
@@ -147,11 +166,9 @@ impl RemoteImages {
             let state = entry.state.clone();
             if needs_body && matches!(state, RemoteState::Ready(_)) {
                 entry.handed = true;
-                entries.trim();
             }
-            if state == RemoteState::Loading {
-                entries.asked.insert(url.to_owned(), Instant::now());
-            }
+            entries.asked.insert(url.to_owned(), Instant::now());
+            entries.trim();
             return state;
         }
         let valid =
@@ -197,7 +214,6 @@ impl Remote {
     /// Settles a download and restores the retained cache capacity.
     fn finish(&self, url: String, bytes: Option<Vec<u8>>) {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        entries.asked.remove(&url);
         if let Some(entry) = entries.states.get_mut(&url) {
             let replaced = match &entry.state {
                 RemoteState::Ready(old) => old.len(),
@@ -220,10 +236,7 @@ impl Remote {
     /// a later ask queues it afresh.
     fn still_wanted(&self, url: &str) -> bool {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let fresh = entries
-            .asked
-            .get(url)
-            .is_some_and(|asked| asked.elapsed() < OBSOLETE_AFTER);
+        let fresh = entries.wanted(url);
         if !fresh {
             entries.forget(url);
         }
@@ -442,6 +455,36 @@ pub mod tests {
     }
 
     #[test]
+    fn abandoned_downloads_do_not_block_new_form_images() {
+        let images = RemoteImages::default();
+        let (sender, mut requests) = tokio::sync::mpsc::channel(MAX_QUEUED);
+        *images.0.worker.lock().unwrap() = Some(sender);
+        for index in 0..MAX_ENTRIES {
+            let url = format!("http://example.test/closed-{index}.png");
+            assert_eq!(images.state(&url), RemoteState::Loading);
+            assert_eq!(requests.try_recv().unwrap(), url);
+            assert!(images.0.still_wanted(&url));
+            // The form stops polling before its in-flight download completes.
+            images
+                .0
+                .entries
+                .lock()
+                .unwrap()
+                .asked
+                .insert(url.clone(), Instant::now() - OBSOLETE_AFTER);
+            images.0.finish(url, Some(vec![1]));
+        }
+
+        let url = "http://example.test/open-form.png";
+        assert_eq!(images.state(url), RemoteState::Loading);
+        assert_eq!(requests.try_recv().unwrap(), url);
+        assert!(images.0.still_wanted(url));
+        images.0.finish(url.to_owned(), Some(vec![2]));
+        assert_eq!(images.load(url), RemoteState::Ready(vec![2].into()));
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
     fn review_download_completion_restores_the_cache_capacity() {
         let remote = Remote::default();
         {
@@ -464,7 +507,7 @@ pub mod tests {
         let entries = remote.entries.lock().unwrap();
         assert_eq!(entries.states.len(), MAX_ENTRIES);
         assert_eq!(entries.order.len(), entries.states.len());
-        assert!(entries.asked.is_empty());
+        assert!(entries.wanted("fixture:newest"));
         assert!(matches!(
             entries.states["fixture:newest"].state,
             RemoteState::Ready(_)
@@ -481,6 +524,7 @@ pub mod tests {
                 .states
                 .insert(url.to_owned(), Entry::new(RemoteState::Loading));
             entries.order.push_back(url.to_owned());
+            entries.asked.insert(url.to_owned(), Instant::now());
         }
         for url in urls {
             images
@@ -513,6 +557,7 @@ pub mod tests {
                     .states
                     .insert(key.clone(), Entry::new(RemoteState::Loading));
                 entries.order.push_back(key.clone());
+                entries.asked.insert(key.clone(), Instant::now());
             }
             remote.finish(key.clone(), Some(vec![0; size]));
             assert!(matches!(images.load(key), RemoteState::Ready(_)));
@@ -563,6 +608,7 @@ pub mod tests {
                 .states
                 .insert(key.clone(), Entry::new(RemoteState::Loading));
             entries.order.push_back(key.clone());
+            entries.asked.insert(key.clone(), Instant::now());
         }
         images.0.finish(key.clone(), Some(vec![0; MAX_READY_BYTES]));
         {
@@ -584,9 +630,9 @@ pub mod tests {
         assert_eq!(entries.ready_bytes, b"replacement".len());
     }
 
-    // Loading entries and queued URLs were unbounded, so a flood of new URLs grew without limit.
+    // Admission waits for settled, unwanted entries to become evictable.
     #[test]
-    fn loading_entries_stay_bounded_and_forgotten_urls_requeue() {
+    fn loading_and_wanted_entries_survive_the_entry_budget() {
         let mut entries = Entries::default();
         for index in 0..MAX_ENTRIES + 8 {
             let key = format!("https://example.test/{index}.png");
@@ -597,10 +643,23 @@ pub mod tests {
             entries.asked.insert(key, Instant::now());
             entries.trim();
         }
+        assert_eq!(entries.states.len(), MAX_ENTRIES + 8);
+        for entry in entries.states.values_mut() {
+            entry.state = RemoteState::Ready(vec![1].into());
+        }
+        entries.ready_bytes = entries.states.len();
+        entries.trim();
+        assert_eq!(entries.states.len(), MAX_ENTRIES + 8);
+
+        for asked in entries.asked.values_mut() {
+            *asked = Instant::now() - OBSOLETE_AFTER;
+        }
+        entries.trim();
         assert_eq!(entries.states.len(), MAX_ENTRIES);
-        assert_eq!(entries.order.len(), MAX_ENTRIES);
-        assert!(!entries.states.contains_key("https://example.test/0.png"));
+        assert_eq!(entries.ready_bytes, MAX_ENTRIES);
         let newest = format!("https://example.test/{}.png", MAX_ENTRIES + 7);
+        entries.states.get_mut(&newest).unwrap().state = RemoteState::Loading;
+        entries.ready_bytes -= 1;
         entries.forget(&newest);
         assert!(!entries.states.contains_key(&newest) && !entries.asked.contains_key(&newest));
         assert_eq!(entries.order.len(), entries.states.len());
