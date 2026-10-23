@@ -5,7 +5,7 @@ use super::super::motion::Kind;
 use super::super::paint::{Bounds, Canvas};
 use super::super::sidebar::background as row_background;
 use super::super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL80, TEXT, TEXT_DIMMER};
-use super::{section_index, sections};
+use super::{localization, section_index};
 use crate::images::{SETTINGS_ICON_HIGHLIGHT_IMAGE, SETTINGS_ICONS};
 use launcher::menu::view::SettingsFocusAxis;
 use launcher::menu::{MenuAction, MenuView};
@@ -178,10 +178,7 @@ pub(super) fn draw(
     let labels: Vec<_> = tabs
         .iter()
         .map(|Tab { title: key, .. }| {
-            translate(key).map_or_else(
-                || sections::fallback(key).to_owned(),
-                |text| text.to_string(),
-            )
+            localization::word(key, view.settings_options.language(), translate)
         })
         .collect();
     let heights: Vec<_> = labels
@@ -205,10 +202,7 @@ pub(super) fn draw(
     for (index, (tab, label)) in tabs.iter().zip(&labels).enumerate() {
         let selector = tab.section;
         if let Some(group) = tab.group {
-            let text = translate(group).map_or_else(
-                || sections::fallback(group).to_owned(),
-                |text| text.to_string(),
-            );
+            let text = localization::word(group, view.settings_options.language(), translate);
             y = group_label(canvas, &text, [viewport[0], right], y)?;
         }
         let action = MenuAction::SettingsSection(section_index(selector));

@@ -66,6 +66,20 @@ public final class CinnabarActivity extends NativeActivity {
     /** Lets native rendering invalidate readiness even when a pause preserves its surface. */
     public long startupGeneration() { return startupGeneration; }
 
+    /** Keeps a native startup failure readable until the player closes the activity. */
+    public void startupFailed(String message) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            startupActive = false;
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("@PRODUCT_NAME@ failed")
+                    .setMessage(message)
+                    .setPositiveButton("Close", (dialog, which) -> finish())
+                    .setOnCancelListener(dialog -> finish())
+                    .show();
+        });
+    }
+
     /** Publishes the keyboard overlap while leaving the Vulkan surface at full size. */
     private void updateKeyboardGeometry(View decor, WindowInsets insets) {
         if (insets == null) return;

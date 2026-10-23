@@ -556,7 +556,7 @@ const LIQUID_REFERENCE: &str = r#"
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    return vertex_for_record(transparent_refs[instance_index].liquid_record_index, vertex_index);
+    return vertex_for_record(transparent_refs(instance_index).liquid_record_index, vertex_index);
 }
 "#;
 

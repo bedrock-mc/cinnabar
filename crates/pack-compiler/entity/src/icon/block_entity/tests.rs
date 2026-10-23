@@ -202,3 +202,31 @@ fn lectern_inventory_board_slopes_toward_the_viewer() {
     );
     assert_eq!(reading_surface.faces[0].1, [0.0, 1.0, 16.0, 13.0]);
 }
+
+#[test]
+fn shulker_inventory_applies_each_face_brightness_once() {
+    let root = tempfile::tempdir().unwrap();
+    let texture = root
+        .path()
+        .join("textures/entity/shulker/shulker_white.png");
+    std::fs::create_dir_all(texture.parent().unwrap()).unwrap();
+    image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 255, 255, 255]))
+        .save(texture)
+        .unwrap();
+    let icon = raster(root.path(), "minecraft:white_shulker_box", 0, &[])
+        .unwrap()
+        .unwrap();
+    let shown: std::collections::BTreeSet<_> = icon
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] != 0)
+        .map(|pixel| pixel[0])
+        .collect();
+    let expected = assets::gui_item::CUBE_FACES
+        .map(|face| (255.0 * face.3).round() as u8)
+        .into_iter()
+        .collect();
+    assert_eq!(shown, expected);
+}

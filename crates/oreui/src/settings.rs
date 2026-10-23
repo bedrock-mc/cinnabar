@@ -6,6 +6,7 @@ pub(super) mod controls;
 mod gui_scale;
 mod labels;
 mod layout;
+mod localization;
 mod mods;
 mod picker;
 mod presets;
@@ -19,6 +20,8 @@ mod sidebar;
 mod updates;
 mod world;
 
+#[cfg(test)]
+mod localization_tests;
 #[cfg(test)]
 mod row_tests;
 
@@ -305,13 +308,7 @@ pub(super) struct Content<'a, 'b> {
 
 impl Content<'_, '_> {
     pub(super) fn word(&self, key: &str) -> String {
-        if key.is_empty() {
-            return String::new();
-        }
-        (self.translate)(key).map_or_else(
-            || sections::fallback(key).to_owned(),
-            |text| text.to_string(),
-        )
+        localization::word(key, self.view.settings_options.language(), self.translate)
     }
 
     pub(super) fn inset(&self) -> [f32; 2] {
@@ -355,9 +352,14 @@ impl Content<'_, '_> {
     pub(super) fn label(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let title = self.word(title);
         let description = self.word(description);
+        self.label_text(&title, &description)
+    }
+
+    /// Draws literal or already translated text without looking it up again.
+    pub(super) fn label_text(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let [left, right] = self.inset();
-        let b = self.row(&title, &description, right - left, None, 0.0)?;
-        self.texts(b, &title, &description, right - left, 0.0)?;
+        let b = self.row(title, description, right - left, None, 0.0)?;
+        self.texts(b, title, description, right - left, 0.0)?;
         Ok(())
     }
 
