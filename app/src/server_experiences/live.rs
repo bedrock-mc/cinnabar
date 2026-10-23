@@ -270,6 +270,17 @@ impl<H: Worker> Live<H> {
                     self.scene_revision += 1;
                     continue;
                 }
+                Ok(Reply::Recovered {
+                    failure,
+                    transaction,
+                }) => {
+                    failed(instance, &mut self.budget, &failure, now_ms);
+                    if instance.stopped.is_some() {
+                        self.scene_revision += 1;
+                        continue;
+                    }
+                    transaction
+                }
                 Err(error) => {
                     self.budget.quarantine(&instance.owner);
                     instance.contributions = Contributions::default();

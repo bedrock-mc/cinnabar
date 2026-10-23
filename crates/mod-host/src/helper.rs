@@ -24,14 +24,15 @@ const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 const MAX_ITEMS_IPC: usize = 8 << 20;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
 const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT + MAX_ITEMS_IPC;
-/// A reply: one callback's output, or a failure, with room for the reply's own framing.
-const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 2 * MAX_FAILURE_REASON_BYTES;
+/// A reply has room for bounded output, an escaped failure, and its framing and identifiers.
+const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 4 * MAX_FAILURE_REASON_BYTES;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
-/// the helper exiting; 3 the session items a dispatch carries.
-const HELPER_PROTOCOL: u32 = 3;
+/// the helper exiting; 3 the session items a dispatch carries; 4 carries initialization messages
+/// from a restarted guest alongside the failed callback's diagnostic.
+const HELPER_PROTOCOL: u32 = 4;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -168,6 +169,12 @@ pub enum Reply {
     /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
     /// a fresh instance of the guest; after a failed start it exits.
     Failed(CallFailure),
+    /// The callback failed, but a fresh guest initialized successfully. Publish only its
+    /// initialization messages, unless this failure stops the part.
+    Recovered {
+        failure: CallFailure,
+        transaction: Transaction,
+    },
 }
 
 /// Why one callback, or the start, failed.
@@ -436,10 +443,21 @@ pub fn serve_developer() -> Result<()> {
                 transaction,
                 fuel: host.last_fuel_used(),
             },
-            Err(error) => Reply::Failed(CallFailure {
-                fuel: Some(host.last_fuel_used()),
-                ..CallFailure::of(&bundle, callback, &error)
-            }),
+            Err(error) => {
+                let failure = CallFailure {
+                    fuel: Some(host.last_fuel_used()),
+                    ..CallFailure::of(&bundle, callback, &error)
+                };
+                let transaction = host.take_transaction();
+                if transaction.commands.is_empty() {
+                    Reply::Failed(failure)
+                } else {
+                    Reply::Recovered {
+                        failure,
+                        transaction,
+                    }
+                }
+            }
         };
         answer(&mut output, reply, &bundle, callback)?;
     }
