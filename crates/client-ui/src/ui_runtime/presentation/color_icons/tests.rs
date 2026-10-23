@@ -12,7 +12,7 @@ fn presentation() -> UiPresentationRuntime {
     let mut sources = compiled.sources.into_vec();
     let source = sources.len() as u32;
     sources.push(assets::EntityAssetSource {
-        path: "textures/items/fixture.png".into(),
+        path: "textures/items/FiXtUrE.png".into(),
         source_bytes: 4,
         source_sha256: sha2::Sha256::digest(b"mask").into(),
     });

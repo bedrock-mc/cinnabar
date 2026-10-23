@@ -31,7 +31,7 @@ pub(super) fn prepare(
         };
         if let Some(icon) = sources
             .iter()
-            .find(|raw| raw.path == source.path)
+            .find(|raw| raw.path.eq_ignore_ascii_case(&source.path))
             .and_then(|raw| refs.get(raw.sprite as usize))
         {
             out.entry(item.key.identifier.clone())
