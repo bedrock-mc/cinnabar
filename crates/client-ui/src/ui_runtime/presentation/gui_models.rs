@@ -102,6 +102,19 @@ impl PreviewTargets {
     fn matches(&self, index: usize, key: IconKey) -> bool {
         key == self.key && self.hud.contains(&index) == self.in_hud
     }
+
+    /// Whether the node at `index` still shows one of these placeholders.
+    fn shows(&self, index: usize, visual: &UiVisual) -> bool {
+        match visual {
+            UiVisual::Sprite {
+                texture_page, uv, ..
+            }
+            | UiVisual::GlintSprite {
+                texture_page, uv, ..
+            } => self.matches(index, (*texture_page, *uv)),
+            _ => false,
+        }
+    }
 }
 
 pub(super) fn icon_key(icon: IconRef) -> IconKey {
@@ -118,6 +131,8 @@ pub(super) struct GuiModels {
     live_player: live_player::LivePlayer,
     /// A screen's `live_player_renderer` capture, its head turned toward the pointer.
     screen_player: live_player::LivePlayer,
+    /// Whether the last frame drew a `live_player_renderer`, so its capture must stay current.
+    live_drawn: std::sync::atomic::AtomicBool,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     cape: Option<render_model::cape::CapeRig>,
@@ -429,9 +444,25 @@ impl UiPresentationRuntime {
         effects: TextEffects<'_>,
         hud: std::ops::Range<usize>,
     ) {
-        if !self.gui_models.enabled {
-            return;
+        let mut live_drawn = false;
+        if self.gui_models.enabled {
+            live_drawn = self.apply_enabled_gui_models_in(nodes, viewport, safe_area, effects, hud);
         }
+        self.gui_models
+            .live_drawn
+            .store(live_drawn, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Replaces model icons once GUI models are installed. Returns whether a placeholder drew
+    /// with a `live_player_renderer` pose, which keeps that renderer's capture current.
+    fn apply_enabled_gui_models_in(
+        &self,
+        nodes: &mut [UiNode],
+        viewport: UiRect,
+        safe_area: SafeArea,
+        effects: TextEffects<'_>,
+        hud: std::ops::Range<usize>,
+    ) -> bool {
         let mut modulated_meshes = self
             .gui_models
             .modulated
@@ -452,6 +483,7 @@ impl UiPresentationRuntime {
         );
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
+        let mut live_drawn = false;
         if let Some(key) = self.player_preview_icon.map(icon_key) {
             // Screens draw over the HUD, so their doll is admitted first.
             for (in_hud, view) in [
@@ -463,10 +495,16 @@ impl UiPresentationRuntime {
                     hud: hud.clone(),
                     in_hud,
                 };
+                live_drawn |= matches!(view, player_preview::PreviewView::Live { .. })
+                    && nodes
+                        .iter()
+                        .enumerate()
+                        .any(|(index, node)| targets.shows(index, node.visual()));
                 self.apply_gui_player_model_in(nodes, viewport, safe_area, effects, &targets, view);
             }
         }
         self.apply_cosmetic_gallery_models(nodes);
+        live_drawn
     }
 
     /// Admits the equipped character before optional gallery meshes consume the remaining budget.
@@ -479,15 +517,7 @@ impl UiPresentationRuntime {
         targets: &PreviewTargets,
         view: player_preview::PreviewView,
     ) {
-        let is_preview = |index: usize, visual: &UiVisual| match visual {
-            UiVisual::Sprite {
-                texture_page, uv, ..
-            }
-            | UiVisual::GlintSprite {
-                texture_page, uv, ..
-            } => targets.matches(index, (*texture_page, *uv)),
-            _ => false,
-        };
+        let is_preview = |index: usize, visual: &UiVisual| targets.shows(index, visual);
         if !nodes
             .iter()
             .enumerate()

@@ -76,9 +76,28 @@ impl UiPresentationRuntime {
         self.gui_models.live_player = live;
     }
 
+    /// Keeps the `live_player_renderer` capture current while an open container screen or the
+    /// last drawn frame shows that renderer, and drops it otherwise so no later control draws a
+    /// stale pose; such a control first draws the menu model until its capture arrives.
+    pub fn refresh_screen_player(
+        &mut self,
+        stream: Option<&chunk_pipeline::WorldStream>,
+        container_open: bool,
+    ) {
+        let drawn = self
+            .gui_models
+            .live_drawn
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if container_open || drawn {
+            self.capture_screen_player(stream);
+        } else {
+            self.gui_models.screen_player.vertices.clear();
+        }
+    }
+
     /// Projects the same evaluation for a screen's `live_player_renderer`, separately from the
     /// HUD doll. Its head looks toward the pointer offset the renderer last painted with.
-    pub fn capture_screen_player(&mut self, stream: Option<&chunk_pipeline::WorldStream>) {
+    fn capture_screen_player(&mut self, stream: Option<&chunk_pipeline::WorldStream>) {
         let offset = match self.player_preview_view {
             PreviewView::Live { offset } => offset,
             _ => [0.0; 2],

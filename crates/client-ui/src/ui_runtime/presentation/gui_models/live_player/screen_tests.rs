@@ -87,19 +87,79 @@ fn live_renderer_turns_only_the_head_and_its_children_toward_the_pointer() {
     assert!((span(turned) - span(&hud)).abs() < 1e-4);
 }
 
-#[test]
-fn hud_doll_keeps_its_own_pose_while_a_screen_shows_the_live_renderer() {
-    let stream = headed_player();
+const PREVIEW: IconRef = IconRef {
+    page: u16::MAX,
+    uv: [0, 0, 96, 112],
+    glint: false,
+};
+
+/// A presentation drawing model geometry for the [`PREVIEW`] placeholder.
+fn model_presentation() -> UiPresentationRuntime {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;
     presentation.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
-    let preview = IconRef {
-        page: u16::MAX,
-        uv: [0, 0, 96, 112],
-        glint: false,
+    presentation.player_preview_icon = Some(PREVIEW);
+    presentation
+}
+
+/// One node per id showing the [`PREVIEW`] placeholder.
+fn placeholders(ids: &[u32]) -> Vec<UiNode> {
+    let bounds = crate::ui_runtime::presentation::rect(0.0, 0.0, 96.0, 112.0).unwrap();
+    ids.iter()
+        .map(|&id| {
+            UiNode::new(UiNodeId::new(id), None, bounds).with_visual(UiVisual::Sprite {
+                texture_page: PREVIEW.page,
+                uv: PREVIEW.uv,
+                color: [255; 4],
+            })
+        })
+        .collect()
+}
+
+/// Applies model geometry to a 96x112 frame whose first `hud` nodes the HUD painted.
+fn apply(presentation: &UiPresentationRuntime, nodes: &mut [UiNode], hud: usize) {
+    let bounds = crate::ui_runtime::presentation::rect(0.0, 0.0, 96.0, 112.0).unwrap();
+    presentation.apply_gui_models_in(
+        nodes,
+        bounds,
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+        0..hud,
+    );
+}
+
+#[test]
+fn a_live_renderer_outside_containers_keeps_a_current_capture_and_drops_it_when_gone() {
+    let stream = headed_player();
+    let mut presentation = model_presentation();
+    presentation.player_preview_view = PreviewView::Live { offset: [0.0; 2] };
+    presentation.refresh_screen_player(Some(&stream), true);
+    let centred = presentation.gui_models.screen_player.vertices.clone();
+    assert!(!centred.is_empty());
+
+    // With the inventory closed, a pack HUD's live renderer turns toward a new pointer.
+    let pointed = PreviewView::Live {
+        offset: [40.0, -25.0],
     };
-    presentation.player_preview_icon = Some(preview);
+    presentation.hud_preview_view = pointed;
+    presentation.player_preview_view = pointed;
+    apply(&presentation, &mut placeholders(&[1]), 1);
+    presentation.refresh_screen_player(Some(&stream), false);
+    let turned = &presentation.gui_models.screen_player.vertices;
+    assert_eq!(turned.len(), centred.len());
+    assert_ne!(*turned, centred, "the drawn renderer follows the pointer");
+
+    // Once nothing draws the renderer, its last pose is not kept for a later control.
+    apply(&presentation, &mut placeholders(&[]), 0);
+    presentation.refresh_screen_player(Some(&stream), false);
+    assert!(presentation.live_capture(pointed).is_none());
+}
+
+#[test]
+fn hud_doll_keeps_its_own_pose_while_a_screen_shows_the_live_renderer() {
+    let stream = headed_player();
+    let mut presentation = model_presentation();
     presentation.capture_hud_player(Some(&stream), false);
     // The HUD paints its doll first; the inventory's live renderer paints after it.
     presentation.hud_preview_view = PreviewView::Hud;
@@ -107,22 +167,8 @@ fn hud_doll_keeps_its_own_pose_while_a_screen_shows_the_live_renderer() {
         offset: [40.0, -25.0],
     };
     presentation.capture_screen_player(Some(&stream));
-    let bounds = crate::ui_runtime::presentation::rect(0.0, 0.0, 96.0, 112.0).unwrap();
-    let placeholder = |id| {
-        UiNode::new(UiNodeId::new(id), None, bounds).with_visual(UiVisual::Sprite {
-            texture_page: preview.page,
-            uv: preview.uv,
-            color: [255; 4],
-        })
-    };
-    let mut nodes = vec![placeholder(1), placeholder(2)];
-    presentation.apply_gui_models_in(
-        &mut nodes,
-        bounds,
-        ui::SafeArea::ZERO,
-        ui::TextEffects::default(),
-        0..1,
-    );
+    let mut nodes = placeholders(&[1, 2]);
+    apply(&presentation, &mut nodes, 1);
     let [UiVisual::Mesh(hud), UiVisual::Mesh(screen)] = [nodes[0].visual(), nodes[1].visual()]
     else {
         panic!("both dolls draw model geometry");
