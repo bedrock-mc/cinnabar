@@ -30,7 +30,7 @@ const COMMAND_CAPACITY: usize = 64;
 const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const NETWORK_PUMP_TERMINAL_MARKER: &str = "CINNABAR_NETWORK_PUMP_TERMINAL";
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub session_generation: SessionGeneration,
@@ -662,7 +662,7 @@ impl<P> Drop for NetworkHandle<P> {
 pub(crate) mod execution;
 mod start;
 pub use execution::{NetworkExecutor, SessionRead};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use start::spawn_network;
 pub use start::{PreparedLogin, prepare_network};
 
@@ -922,7 +922,7 @@ mod frame_flush;
 pub(crate) mod handle_state;
 mod latency_reply;
 mod outbound;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub mod packet_log;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 use outbound::*;

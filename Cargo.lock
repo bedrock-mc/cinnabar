@@ -2437,6 +2437,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-vita"
+version = "0.1.27"
+dependencies = [
+ "assets",
+ "cc",
+ "meshing",
+ "semantic-input",
+ "sim",
+ "simulation-clock",
+ "world",
+]
+
+[[package]]
 name = "cipher"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -36,7 +36,7 @@ pub struct SessionLogin<'a> {
     pub settings: &'a LoginSettings,
     pub tap: Option<Arc<dyn PacketTap>>,
     /// Native packet reactor selected before this session starts.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     pub relay: Option<Arc<dyn crate::PacketRelay>>,
     pub target: Option<bridge::ConnectTarget>,
 }
@@ -51,9 +51,9 @@ pub trait JoinPreparation {
     -> Self::Task<T>;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 mod native;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use native::NativeJoinPreparation;
 
 impl LoginSequence {
@@ -92,7 +92,7 @@ impl LoginSequence {
             frames,
             timers,
         } = io;
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
         let client_data = login.relay.as_ref().map(|_| {
             super::client_data::login_client_data(
                 login.display_name,
@@ -102,7 +102,7 @@ impl LoginSequence {
             )
             .to_string()
         });
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
         let relay = login.relay.clone();
         let SessionLogin {
             cache,
@@ -117,7 +117,7 @@ impl LoginSequence {
         reader.set_trace_conn(handoff.trace_conn);
         let mut transport =
             SessionTransport::with_timers(reader, frames, &handoff.startup, timers).with_tap(tap);
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
         let packs = if let Some(relay) = relay {
             let added = crate::packet_relay::start(
                 Arc::clone(&relay),

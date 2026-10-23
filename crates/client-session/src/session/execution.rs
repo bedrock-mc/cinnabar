@@ -2,7 +2,7 @@
 
 use bridge::tasks::Timers;
 use std::future::Future;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use std::path::PathBuf;
 
 /// A session reader movable between native runtime workers.
@@ -53,13 +53,13 @@ pub trait NetworkExecutor: Clone {
 }
 
 /// Native execution retains Tokio tasks, timers and the core's pack-application observer.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 #[derive(Clone, Default)]
 pub(super) struct NativeNetworkExecutor {
     pub(super) socket_dir: PathBuf,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 impl NetworkExecutor for NativeNetworkExecutor {
     type OutboundTask = NativeOutboundTask;
 
@@ -80,9 +80,9 @@ impl NetworkExecutor for NativeNetworkExecutor {
 }
 
 /// Aborts the native outbound task when its pump stops.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub(super) struct NativeOutboundTask(tokio::task::JoinHandle<()>);
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 impl Drop for NativeOutboundTask {
     fn drop(&mut self) {
         self.0.abort();

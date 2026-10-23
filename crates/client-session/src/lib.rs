@@ -2,8 +2,10 @@
 //!
 //! Control and world channels retain separate bounded FIFOs. Prepared presentation data is
 //! an opaque generic payload: the session publishes it only at the original bootstrap point.
+//! Vita uses the host-supplied executor and prepared I/O; desktop process/socket
+//! startup is excluded, without replacing the shared session state machine.
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub mod connection;
 pub mod markers;
 mod session;
@@ -48,5 +50,5 @@ impl Default for SessionTrace {
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use session::{NetworkConfig, packet_log, spawn_network};

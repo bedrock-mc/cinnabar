@@ -124,6 +124,12 @@ allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
+name = "cinnabar-vita"
+path = "packaging/vita/client"
+allowed_dependencies = ["assets", "meshing", "semantic-input", "sim", "simulation-clock", "world"]
+forbidden_dependencies = ["bevy", "wgpu", "launcher-host"]
+
+[[crates]]
 name = "assets"
 path = "crates/assets"
 allowed_dependencies = ["env-compat", "block-transform", "protocol-ids"]

@@ -1,0 +1,32 @@
+[package]
+name = "cinnabar-vita"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+autoexamples = false
+
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+
+[dependencies]
+assets = { path = "../../../crates/assets" }
+meshing = { path = "../../../crates/meshing" }
+semantic-input = { path = "../../../crates/input" }
+sim = { path = "../../../crates/sim" }
+simulation-clock = { path = "../../../crates/simulation-clock" }
+world = { path = "../../../crates/world" }
+
+[build-dependencies]
+cc = "1"
+
+[[example]]
+name = "render-check"
+path = "examples/render_check.rs"
+
+[[example]]
+name = "world-check"
+path = "examples/world_check.rs"
+
+[lints]
+workspace = true

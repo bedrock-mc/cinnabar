@@ -37,6 +37,15 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
+   The [Vita host](packaging/vita/README.md) is an incomplete port. Native Rust
+   domain crates cross-check; controls, fixed-tick movement/camera, textured cube
+   uploads and admission have an initial implementation. The developer fixture
+   exercises walk/jump/break/place and a subchunk checkpoint in Vita3K;
+   its automated run still fails on emulator shutdown. Asset preparation and a
+   pinned world-carrier loader exist; retained decoder memory remains unadmitted.
+   A standalone session/local-world core, complete renderer,
+   UI/audio/storage integration and hardware playability remain open. The developer
+   integration example is not a playable Bedrock VPK and closes no acceptance gate.
 4. Simplify existing subsystem ownership without adding unnecessary crates or adapter layers.
 
 **The unchecked boxes below describe full acceptance requirements, not absent features.**

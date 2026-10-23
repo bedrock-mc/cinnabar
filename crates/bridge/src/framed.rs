@@ -6,20 +6,20 @@ use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use futures::Sink;
 use futures::{SinkExt, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use tokio_util::codec::Framed;
 use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 use crate::BridgeError;
 use crate::contract::QUEUED_FRAMES;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use crate::endpoint::{PlatformReadHalf, PlatformStream};
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "vita"))]
 use tokio::io::Empty as PlatformReadHalf;
 
 /// Shared u32 big-endian framing, with payload bounds checked before assembly grows.
@@ -113,12 +113,12 @@ fn validate_frame_length(length: usize, maximum: usize) -> Result<(), BridgeErro
 }
 
 /// A local byte stream framed as unsigned 32-bit big-endian payloads.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub struct FramedStream {
     inner: Framed<PlatformStream, BridgeCodec>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 impl FramedStream {
     pub(crate) fn with_max(stream: PlatformStream, maximum: usize) -> Self {
         Self {
@@ -130,7 +130,7 @@ impl FramedStream {
 /// Splits a fresh stream so a spawned writer task owns its write half.
 ///
 /// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
     let trace_conn = crate::latency_trace::active().map(|_| Arc::new(AtomicU64::new(0)));
@@ -426,7 +426,7 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 impl Stream for FramedStream {
     type Item = Result<Bytes, BridgeError>;
 
@@ -435,7 +435,7 @@ impl Stream for FramedStream {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 impl Sink<Bytes> for FramedStream {
     type Error = BridgeError;
 

@@ -51,7 +51,7 @@ bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { workspace = true, features = ["js"] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "vita")))'.dependencies]
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
 

@@ -6,6 +6,22 @@ a current implementation audit; check the owning code and later entries before
 calling work unstarted. Test files listed below establish existing coverage, not
 a fresh passing run or full gate acceptance.
 
+## Vita host
+
+The initial Vita host adapts physical controls, bounds indexed cube uploads and
+tracks retained allocation ownership. Existing world, assets, meshing, simulation
+and semantic-input crates pass a Vita target cross-check with the pinned nightly.
+Twenty-one focused host tests pass, including fixed-tick movement, pitch direction,
+nonzero air IDs, material batching, and subchunk checkpoint reload. The native
+examples use a synthetic section, not a playable session. Vita3K `4218-5844e21f`
+with external-host mapping renders inspected 960×544 frames using the prepared,
+hash-checked Minecraft world carrier; the integration fixture completes walking,
+jumping, break/place and checkpoint checks with bookshelf/plank face textures. The
+emulator crashes during shutdown after guest exit code 0, so
+the automated test fails overall. No hardware performance is inferred.
+No Vita render, control-parity, memory, frame-pacing, networking or full-game
+acceptance gate is closed. See [the port requirements](../../packaging/vita/README.md).
+
 ## Browser host composition
 
 The browser host uses verified memory carriers, the shared game frame and HUD, injected

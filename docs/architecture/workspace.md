@@ -46,6 +46,7 @@ coordinates work that crosses these owners.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `app` | `cinnabar` | Client executable and Bevy composition; use it to launch the client and assemble its plugins. | `client-*` crates own subsystem adapters; domain crates own game rules. |
+| `packaging/vita/client` | `cinnabar-vita` | Incomplete native Vita host: physical controls, player/camera adapter, resource admission, indexed textured cube uploads and a VitaGL ABI boundary. Developer integration fixtures are not a game entry point. | `semantic-input` owns routing; `sim` and `simulation-clock` own movement/ticks; `world` owns palettes; `meshing` owns geometry; `assets` owns validated carriers/materials. |
 | `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames; `cinnabar` owns application startup. |
 | `web/transport` | `web-transport` | Browser WebTransport and WebSocket channels, bounded control and reconnect state; the browser host drives timers and passes prepared play I/O to the existing session. | `bridge` owns framing and the shared relay contract. |
 | `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |

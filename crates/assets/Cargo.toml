@@ -47,7 +47,7 @@ thiserror.workspace = true
 tracing.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
 rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 
 [target.'cfg(windows)'.dependencies]

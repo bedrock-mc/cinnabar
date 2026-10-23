@@ -28,7 +28,7 @@ mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
 mod startup;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use session_join::NativeJoinPreparation;
 pub use session_join::{JoinPreparation, SessionIo, SessionLogin};
 mod unused_packets;
