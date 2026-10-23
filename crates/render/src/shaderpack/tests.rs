@@ -5,6 +5,8 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+#[cfg(target_os = "windows")]
+mod fxc;
 mod geometry_frames;
 
 use super::loader::{build, runnable_programs, translate_config};
@@ -137,7 +139,13 @@ fn the_next_packs_block_ids_never_reuse_a_revision() {
 
 /// Requests only fixture features and fails if an available device cannot be created.
 pub(super) fn gpu() -> Option<GpuContext> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    device_on(&wgpu::Instance::new(
+        wgpu::InstanceDescriptor::new_without_display_handle(),
+    ))
+}
+
+/// [`gpu`] on `instance`'s default adapter, if it has one.
+fn device_on(instance: &wgpu::Instance) -> Option<GpuContext> {
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
         Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,

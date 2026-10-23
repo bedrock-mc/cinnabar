@@ -702,9 +702,9 @@ pub(crate) fn geometry_draws(
         };
         // Each draw gets its own error scope: a pipeline the device rejects drops only that
         // draw, as Iris falls back per program, instead of the pack-wide scope failing.
-        let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = super::pipelines::RejectionScope::push(&gpu.device);
         let built = draw_pipeline(*kind, &inputs);
-        let rejected = bevy::tasks::block_on(scope.pop());
+        let rejected = scope.pop();
         match (built, rejected) {
             (Ok((pipeline, outputs)), None) => draws.push(GeometryDraw {
                 kind: *kind,

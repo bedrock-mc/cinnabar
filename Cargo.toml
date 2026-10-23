@@ -168,17 +168,18 @@ wit-component = "=0.247.0"
 # plus naga GLSL frontend fixes for Java shader packs: constant `?:` and indexing,
 # missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction.
 # A lost device is a `PollError` instead of a poll panic, and queue-write staging OOM is recoverable.
+# FXC (DX12) gets `[loop]` on loops with implicit-derivative operations instead of failing to unroll them.
 # Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
 # Keep Linux crash dumps when a thread's stack cannot be read.
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
 
 # Iris conditions support option expressions and recover malformed conditional directives.
 pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "abbb47f83d69b8790c1a26c96ce68bc9d001664c" }

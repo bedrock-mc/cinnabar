@@ -514,7 +514,7 @@ fn build_translation(
     });
 
     check_cancelled(progress)?;
-    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let scope = super::pipelines::RejectionScope::push(&gpu.device);
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
     let loaded = crate::gpu_allocation::checked(&render_device, "shader pack load", 0, || {
         let key = content_key(pack, &config);
@@ -869,10 +869,10 @@ fn build_translation(
         };
         Ok((loaded, pipeline_cache))
     });
-    let validation_error = bevy::tasks::block_on(scope.pop());
+    let rejected = scope.pop();
     let (loaded, pipeline_cache) =
         loaded.ok_or_else(|| "shader pack load ran out of GPU memory".to_owned())??;
-    if let Some(error) = validation_error {
+    if let Some(error) = rejected {
         return Err(format!("the device rejected the pack: {error}"));
     }
     check_cancelled(progress)?;

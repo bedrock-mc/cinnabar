@@ -918,6 +918,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   and closing the menu retires its reader before another starts. Accepted expression depths
   survive result transport. Unreadable render-side saved settings retain the default values.
   Render-view admission failures reach the pack picker and restore the native renderer.
+  Pipelines the device rejects, including backend compiler failures such as FXC limits on
+  DX12, fail the pack load (or drop that geometry draw) instead of stopping the client.
   Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
   builds cancel between source, pixel and upload stages, and one cancelled build retires before its
   replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,
