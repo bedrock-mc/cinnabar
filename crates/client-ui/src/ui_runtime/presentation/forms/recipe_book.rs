@@ -3,6 +3,9 @@
 
 #[cfg(test)]
 mod cache_tests;
+mod icons;
+pub(crate) use icons::BookIconCache;
+pub use icons::BookIconSources;
 #[cfg(test)]
 mod large_catalog_tests;
 #[cfg(test)]
@@ -30,22 +33,30 @@ pub fn recipe_book_shown(player_runtime: &player_state::PlayerState, runtime: &U
         })
 }
 
-/// The listed entries' icons, in list order.
+/// The listed entries' icons, in list order, resolved again only after an entry or an icon
+/// source in `sources` changes.
 pub fn recipe_book_icons(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
+    sources: BookIconSources,
     icon: impl Fn(&protocol::NetworkItemStack) -> Option<IconRef>,
-) -> Vec<Option<IconRef>> {
-    if ui_screens::furnace_book::active(player_runtime) {
-        return super::furnace_book::entries(player_runtime, runtime)
+) -> std::sync::Arc<[Option<IconRef>]> {
+    let stacks = if ui_screens::furnace_book::active(player_runtime) {
+        super::furnace_book::entries(player_runtime, runtime)
             .iter()
-            .map(|recipe| icon(&ui_screens::furnace_book::output_stack(recipe)))
-            .collect();
-    }
-    recipe_book_entries(player_runtime, runtime)
-        .iter()
-        .map(|entry| icon(&entry.stack()))
-        .collect()
+            .map(ui_screens::furnace_book::output_stack)
+            .collect()
+    } else {
+        recipe_book_entries(player_runtime, runtime)
+            .iter()
+            .map(BookEntry::stack)
+            .collect()
+    };
+    runtime
+        .recipe_book_icons
+        .lock()
+        .unwrap()
+        .icons(stacks, sources, icon)
 }
 
 /// The stack a hovered entry's tooltip describes; a group head names its group.

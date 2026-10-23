@@ -1,0 +1,314 @@
+{
+  "namespace": "cinnabar_touch",
+  "button": {
+    "type": "button",
+    "layer": 10,
+    "button_mappings": [
+      {
+        "from_button_id": "button.menu_select",
+        "to_button_id": "$control",
+        "mapping_type": "pressed",
+        "scope": "view"
+      }
+    ],
+    "controls": [
+      {
+        "normal": {
+          "type": "image",
+          "texture": "$texture",
+          "size": [
+            "100%",
+            "100%"
+          ]
+        }
+      },
+      {
+        "held": {
+          "type": "image",
+          "texture": "$held_texture",
+          "size": [
+            "100%",
+            "100%"
+          ],
+          "layer": 1,
+          "bindings": [
+            {
+              "binding_name": "$held_binding",
+              "binding_name_override": "#visible"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "screen": {
+    "type": "screen",
+    "render_only_when_topmost": false,
+    "controls": [
+      {
+        "look": {
+          "type": "input_panel",
+          "size": [
+            "100%",
+            "100%"
+          ],
+          "button_mappings": [
+            {
+              "from_button_id": "button.menu_select",
+              "to_button_id": "cinnabar.touch.look",
+              "mapping_type": "pressed",
+              "scope": "view"
+            }
+          ]
+        }
+      },
+      {
+        "joystick": {
+          "type": "button",
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "-35%",
+            "5%"
+          ],
+          "size": [
+            "100%y",
+            "33.33333333333333%"
+          ],
+          "layer": 10,
+          "button_mappings": [
+            {
+              "from_button_id": "button.menu_select",
+              "to_button_id": "cinnabar.touch.joystick",
+              "mapping_type": "pressed",
+              "scope": "view"
+            }
+          ],
+          "controls": [
+            {
+              "frame": {
+                "type": "image",
+                "texture": "textures/ui/joystick_frame",
+                "size": [
+                  "100%",
+                  "100%"
+                ]
+              }
+            },
+            {
+              "knob": {
+                "type": "draggable",
+                "draggable": "both",
+                "size": [
+                  "50%",
+                  "50%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "layer": 1,
+                "controls": [
+                  {
+                    "art": {
+                      "type": "image",
+                      "texture": "textures/ui/joystick_knob",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "sprint@cinnabar_touch.button": {
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "32.5%",
+            "0%"
+          ],
+          "size": [
+            "100%y",
+            "13.75%"
+          ],
+          "$control": "cinnabar.touch.sprint",
+          "$texture": "textures/ui/sprint",
+          "$held_texture": "textures/ui/sprint_pressed",
+          "$held_binding": "#touch_sprint_pressed"
+        }
+      },
+      {
+        "jump@cinnabar_touch.button": {
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "42.5%",
+            "-10%"
+          ],
+          "size": [
+            "100%y",
+            "13.75%"
+          ],
+          "$control": "cinnabar.touch.jump",
+          "$texture": "textures/ui/jump",
+          "$held_texture": "textures/ui/jump_pressed",
+          "$held_binding": "#touch_jump_pressed"
+        }
+      },
+      {
+        "sneak@cinnabar_touch.button": {
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "42.5%",
+            "10%"
+          ],
+          "size": [
+            "100%y",
+            "13.75%"
+          ],
+          "$control": "cinnabar.touch.sneak",
+          "$texture": "textures/ui/sneak",
+          "$held_texture": "textures/ui/sneak_pressed",
+          "$held_binding": "#touch_sneak_pressed"
+        }
+      },
+      {
+        "attack@cinnabar_touch.button": {
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "32.5%",
+            "20%"
+          ],
+          "size": [
+            "100%y",
+            "13.75%"
+          ],
+          "$control": "cinnabar.touch.attack",
+          "$texture": "textures/ui/attack",
+          "$held_texture": "textures/ui/attack_pressed",
+          "$held_binding": "#touch_attack_pressed"
+        }
+      },
+      {
+        "use@cinnabar_touch.button": {
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "42.5%",
+            "30%"
+          ],
+          "size": [
+            "100%y",
+            "13.75%"
+          ],
+          "$control": "cinnabar.touch.use",
+          "$texture": "textures/ui/interact",
+          "$held_texture": "textures/ui/interact_pressed",
+          "$held_binding": "#touch_use_pressed"
+        }
+      },
+      {
+        "utilities": {
+          "type": "stack_panel",
+          "orientation": "horizontal",
+          "size": [
+            58,
+            18
+          ],
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "offset": [
+            0,
+            3
+          ],
+          "controls": [
+            {
+              "emote@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.emote",
+                "$uv": [
+                  236,
+                  46
+                ]
+              }
+            },
+            {
+              "gap_before_chat": {
+                "type": "panel",
+                "size": [
+                  2,
+                  18
+                ]
+              }
+            },
+            {
+              "chat@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.chat",
+                "$uv": [
+                  200,
+                  82
+                ]
+              }
+            },
+            {
+              "gap_before_pause": {
+                "type": "panel",
+                "size": [
+                  2,
+                  18
+                ]
+              }
+            },
+            {
+              "menu@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.menu",
+                "$uv": [
+                  200,
+                  64
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "utility_button": {
+    "type": "button",
+    "size": [
+      18,
+      18
+    ],
+    "layer": 10,
+    "button_mappings": [
+      {
+        "from_button_id": "button.menu_select",
+        "to_button_id": "$control",
+        "mapping_type": "pressed",
+        "scope": "view"
+      }
+    ],
+    "controls": [
+      {
+        "art": {
+          "type": "image",
+          "texture": "textures/gui/gui",
+          "uv": "$uv",
+          "uv_size": [
+            18,
+            18
+          ],
+          "size": [
+            "100%",
+            "100%"
+          ]
+        }
+      }
+    ]
+  }
+}

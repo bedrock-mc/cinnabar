@@ -16,6 +16,7 @@ pub mod persistence;
 pub mod render_distance;
 pub mod reset;
 pub mod runtime;
+pub mod touch_layout;
 pub mod video_presets;
 pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
@@ -44,7 +45,7 @@ pub use definitions::{
     MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
     SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
     THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VIEW_BOBBING_CHOICES, VRR_CHOICES,
-    VRR_OPTION,
+    VRR_OPTION, VSYNC_CHOICES,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -96,6 +97,7 @@ pub struct SettingsOptions {
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
     server_list: super::server_list::ServerListPreferences,
+    touch_layout: touch_layout::TouchLayout,
 }
 
 impl Default for SettingsOptions {
@@ -112,6 +114,7 @@ impl Default for SettingsOptions {
             command_macros: None,
             emote_slots: None,
             server_list: super::server_list::ServerListPreferences::default(),
+            touch_layout: Default::default(),
         }
     }
 }
@@ -243,6 +246,8 @@ impl SettingsOptions {
             .unwrap_or_else(|| self.option_default(definition))
             == value
             && (definition.id != SettingId::RenderDistance
+                || self.values.contains_key(definition.name))
+            && (definition.id != SettingId::MaxFramerate
                 || self.values.contains_key(definition.name))
         {
             return false;

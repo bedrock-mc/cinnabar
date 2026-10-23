@@ -17,6 +17,8 @@ pub struct HudModel {
     pub survival_ui: bool,
     pub armor_visible: bool,
     pub hotbar_visible: bool,
+    /// Shows inventory access beside the classic hotbar on touch-capable hosts.
+    pub touch_inventory: bool,
     /// The classic experience bar shows (else the hotbar stands alone).
     pub xp_bar: bool,
     pub exp_progress: f64,
@@ -82,6 +84,8 @@ impl Default for ChatText {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudSlot {
     pub icon: Option<usize>,
+    /// The stack's vanilla `#item_id_aux` key; `None` for an empty cell.
+    pub id_aux: Option<i32>,
     pub count: u32,
     pub selected: bool,
     pub durability: Option<f64>,
@@ -310,6 +314,15 @@ fn status_data(data: &mut DataSource, model: &HudModel) {
             model.armor_visible && model.survival_ui,
         ),
         ("#hotbar_visible", model.hotbar_visible),
+        (
+            "#inventory_touch_button",
+            model.touch_inventory && model.hotbar_visible,
+        ),
+        (
+            "#hotbar_elipses_right_visible",
+            model.touch_inventory && model.hotbar_visible,
+        ),
+        ("#hotbar_elipses_left_visible", false),
         ("#hotbar_with_xp_bar", model.xp_bar),
         ("#hotbar_no_xp_bar", !model.xp_bar),
         ("#level_number_visible", model.xp_bar && model.level > 0),
@@ -475,6 +488,11 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_renderer_data",
             slot.icon
                 .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
+        // Packs key per-item overlays on this; vanilla answers -1 for an empty cell.
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(slot.id_aux.unwrap_or(-1))),
         )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(

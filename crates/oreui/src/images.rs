@@ -76,12 +76,11 @@ const _: () = assert!(INBOX_ICONS.len() == launcher::menu::inbox::CATEGORIES.len
 const _: () = assert!(INBOX_EMPTY_IMAGES.len() == INBOX_ICONS.len());
 
 /// Settings category art.
-pub(crate) const SETTINGS_ICONS: [&str; 13] = [
+pub(crate) const SETTINGS_ICONS: [&str; 12] = [
     "assets/accessibility-41a033eee6f8f8726f5e.png",
     "assets/keyboard-mouse-58d767999df54b704830.png",
     "assets/controls-5b4a0c8bc7ac0539b349.png",
     "assets/touch-e5c085e0d79f26deb0c9.png",
-    "assets/party-cc4b74f40b6ecac45aaf.png",
     "assets/work-bench-e18a3804944464e2d854.png",
     "assets/painting-c9fe53a4df86136c1e14.png",
     "assets/sound-block-0abbefc33b0871e358ac.png",

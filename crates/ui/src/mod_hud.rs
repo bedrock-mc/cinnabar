@@ -243,6 +243,9 @@ pub struct Card {
     /// Retains native preview identity after its row policy is materialized. JSON cannot set it.
     #[serde(skip)]
     pub editor_native: bool,
+    /// Host-measured preview bounds in GUI pixels. JSON cannot set this geometry.
+    #[serde(skip)]
+    pub editor_size: Option<[f32; 2]>,
     #[serde(default)]
     pub anchor: Anchor,
     /// GUI pixels inward from edge anchors, or right/down from centered axes.
@@ -316,6 +319,7 @@ impl Default for Card {
             title: String::new(),
             editor_label: String::new(),
             editor_native: false,
+            editor_size: None,
             anchor: Anchor::default(),
             offset: [0.; 2],
             scale: unit(),
@@ -747,9 +751,13 @@ impl Hud {
             }
             text(&card.title)?;
             text(&card.editor_label)?;
-            if card.reset_scale.is_some_and(|scale| {
-                !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
-            }) || !card.scale.is_finite()
+            if card
+                .editor_size
+                .is_some_and(|size| size.into_iter().any(|side| !side.is_finite() || side <= 0.))
+                || card.reset_scale.is_some_and(|scale| {
+                    !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
+                })
+                || !card.scale.is_finite()
                 || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
                 || card.offset.into_iter().any(|v| !v.is_finite())
                 || card.rows.len() > MAX_CARD_ROWS

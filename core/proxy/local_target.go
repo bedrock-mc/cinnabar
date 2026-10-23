@@ -19,6 +19,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/pion/webrtc/v4"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
@@ -62,13 +63,25 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			}}.New()
 			return &resolvedUpstreamTarget{
-				address: "http://" + target.Address,
-				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{Signaling: localSignaling{client}}, status: client},
+				address:         "http://" + target.Address,
+				keylessFallback: true,
+				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{
+					Signaling: localSignaling{client},
+					Dialer:    nethernet.Dialer{API: localNetherNetAPI()},
+				}, status: client},
 			}, nil
 		default:
 			return nil, fmt.Errorf("unsupported local transport %q", target.Transport)
 		}
 	}
+}
+
+// localNetherNetAPI includes same-device routes even when every external interface is down.
+// External candidates remain available for container port mappings.
+func localNetherNetAPI() *webrtc.API {
+	var settings webrtc.SettingEngine
+	settings.SetIncludeLoopbackCandidate(true)
+	return webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 }
 
 // errLocalServerNoRoute reports a local server that answered a join without any ICE candidate.
@@ -130,8 +143,8 @@ func (n localNetherNetNetwork) PingContext(ctx context.Context, address string) 
 	return n.status.PingContext(ctx, address)
 }
 
-// DialContext is the signed-out dial. BDS refuses HTTP offers without an identity even with
-// online-mode off, but admits a self-signed one; signed-in dials present the account's instead.
+// DialContext is the signed-out dial. BDS requires a self-signed identity even with
+// online mode off; authenticated dials present the account's identity instead.
 func (n localNetherNetNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
 	identity, err := selfSignedIdentity(time.Now())
 	if err != nil {

@@ -331,6 +331,12 @@ pub(super) fn describe(
                 model: ItemFrameModel {
                     glow: backing.entity.renderer == BlockEntityRenderer::GlowItemFrame,
                     outward,
+                    full_face: [
+                        BlockProperty::ItemFrameMapBit,
+                        BlockProperty::ItemFramePhotoBit,
+                    ]
+                    .into_iter()
+                    .any(|bit| state.int(bit.name()).is_some_and(|value| value != 0)),
                     map: None,
                 },
                 item: nbt.compound("Item").and_then(held_item),
@@ -745,6 +751,29 @@ mod tests {
                 assert_eq!(usize::from(model.outward), outward);
                 assert_eq!(model.glow, glow);
             }
+        }
+    }
+
+    #[test]
+    fn item_frames_widen_for_the_map_and_photo_state_bits() {
+        for (bits, full_face) in [
+            ("", false),
+            (r#","item_frame_map_bit":{"type":"byte","value":0}"#, false),
+            (r#","item_frame_map_bit":{"type":"byte","value":1}"#, true),
+            (r#","item_frame_photo_bit":{"type":"byte","value":1}"#, true),
+        ] {
+            let Some(Template::ItemFrame { model, .. }) = describe(
+                "ItemFrame",
+                "minecraft:frame",
+                &state(&format!(
+                    r#"{{"facing_direction":{{"type":"int","value":3}}{bits}}}"#
+                )),
+                &nbt(|_| {}),
+                [0; 3],
+            ) else {
+                panic!("frame expected");
+            };
+            assert_eq!(model.full_face, full_face, "state bits {bits:?}");
         }
     }
 

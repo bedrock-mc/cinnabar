@@ -86,7 +86,7 @@ pub(super) fn current_target(
             mode,
             super::interaction::block_pick_reach(reach, actor_reach),
             (input.authority_generation, input.frame_sequence),
-            movement.interaction_authority_identity().1,
+            movement.position_authority_identity().1,
         ),
     )
     .ok()?;

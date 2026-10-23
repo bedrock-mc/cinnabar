@@ -20,6 +20,8 @@ mod saturation_overlap;
 mod settings_draft;
 mod sprite_outline;
 mod tiled_image;
+#[cfg(feature = "test-support")]
+mod touch_editor;
 
 use std::{
     collections::HashMap,
@@ -150,6 +152,10 @@ fn png_fixture(
     if matches!(&fixture, Fixture::MenuKeyboard) {
         return menu_keyboard::png(state, dir);
     }
+    #[cfg(feature = "test-support")]
+    if let Fixture::TouchEditor { phase } = &fixture {
+        return touch_editor::png(state, dir, *phase, seconds);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -166,7 +172,8 @@ fn png_fixture(
         | Fixture::ModPanel(..)
         | Fixture::HudEditor { .. } => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. }
+        Fixture::TouchEditor { .. }
+        | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
         | Fixture::SettingsDraft
@@ -265,6 +272,10 @@ fn png_fixture(
             )
             .map_err(|error| error.to_string())?;
             add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        #[cfg(feature = "test-support")]
+        Fixture::TouchEditor { .. } => {
+            unreachable!("touch editor uses the complete presentation path")
         }
         Fixture::HudEditor { hud, edited } => {
             let mut engine = json_engine(&carriers)?;

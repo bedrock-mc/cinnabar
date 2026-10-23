@@ -2,6 +2,7 @@
 mod budget;
 mod observation;
 mod policy;
+pub(crate) use policy::BookDiscoveryKey;
 mod projection;
 
 use projection::{

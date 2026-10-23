@@ -561,8 +561,7 @@ impl WorldStream {
             WorldEvent::Respawn(respawn) => {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
                 let resolved = if respawn.ready_to_spawn() {
-                    self.authority
-                        .push_committed_ui(CommittedUiEvent::LocalRespawnReady { sequence });
+                    self.authority.commit_local_respawn_ready(sequence);
                     let resolved = self.authority.resolve_position(sequence, respawn.position);
                     self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);

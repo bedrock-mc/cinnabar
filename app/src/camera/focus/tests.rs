@@ -484,14 +484,17 @@ fn touch_resume_returns_capture_after_focus_loss() {
     app.update();
     app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
     app.update();
-    app.world_mut().write_message(TouchInput {
-        phase: TouchPhase::Started,
-        position: Vec2::new(point.x(), point.y()),
-        window,
-        force: None,
-        id: 1,
-    });
-    app.update();
+    // Menu controls activate on a completed tap, not on touch-down.
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        app.world_mut().write_message(TouchInput {
+            phase,
+            position: Vec2::new(point.x(), point.y()),
+            window,
+            force: None,
+            id: 1,
+        });
+        app.update();
+    }
     assert!(!app.world().resource::<MenuRuntime>().is_visible());
     assert_eq!(
         app.world().get::<CursorOptions>(window).unwrap().grab_mode,

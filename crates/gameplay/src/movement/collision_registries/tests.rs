@@ -136,6 +136,7 @@ fn bind(
 fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
     protocol::CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
@@ -149,6 +150,33 @@ fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
         friction: None,
         visual: Default::default(),
     }
+}
+
+#[test]
+fn custom_sound_components_follow_registered_states_in_both_id_spaces() {
+    let protocol = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let preg = synthetic_preg(protocol, BREG_V2193, &records);
+    let mut registries = bind(BREG_V2193, &preg, protocol).unwrap();
+    let mut block = custom_block("test:sound_block", 1);
+    block.sound = Some("wood".into());
+    let hash = block.hashed_states()[0].hash;
+    let definitions = protocol::CustomBlocks {
+        blocks: Arc::from([block]),
+        ..Default::default()
+    };
+    let (range, _) = registries
+        .begin_session_custom_blocks(&definitions)
+        .unwrap();
+    registries.begin_session_hashed_custom_blocks(&definitions);
+    assert_eq!(
+        registries.block_sound_material(assets::NetworkIdMode::Sequential, range.start),
+        Some("wood")
+    );
+    assert_eq!(
+        registries.block_sound_material(assets::NetworkIdMode::Hashed, hash),
+        Some("wood")
+    );
 }
 
 #[test]

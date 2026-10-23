@@ -127,19 +127,7 @@ pub(in crate::compiler) fn compile_rule(
             [0, 0, 2, 2, 2, 2],
             [0, 0, 1, 1, 1, 1],
         ];
-        let mut quads = super::geometry::vanilla_cuboid_quads(materials, [0; 3], [256; 3]);
-        for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
-            for uv in &mut quad.uvs {
-                let [u, v] = *uv;
-                *uv = match TURNS[direction][face as usize] {
-                    1 => [v, 4096 - u],
-                    2 => [4096 - v, u],
-                    3 => [4096 - u, 4096 - v],
-                    _ => [u, v],
-                };
-            }
-            quad.flags |= (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4;
-        }
+        let quads = super::geometry::flipped_cube_quads(materials, TURNS[direction]);
         let template = push_model_template(quads.to_vec(), 0, storage.templates, storage.quads)?;
         templates.insert(key, template);
         template
