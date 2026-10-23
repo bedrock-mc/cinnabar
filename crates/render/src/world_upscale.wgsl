@@ -43,27 +43,21 @@ fn vertex(@builtin(vertex_index) index: u32) -> Vertex {
     return out;
 }
 
-/// Keeps a basic reconstruction available if an FSR pipeline fails.
-@fragment
-fn bilinear_fragment(in: Vertex) -> @location(0) vec4<f32> {
-    return textureSampleLevel(world_image, linear_sampler, in.uv, 0.0);
-}
-
 /// Converts linear scene samples to FSR's nonnegative perceptual input range.
 fn perceptual(color: vec3<f32>) -> vec3<f32> {
     var c = max(color, vec3(0.0));
-#ifdef FSR_HDR
-    c /= 1.0 + max(c.r, max(c.g, c.b));
-#endif
+    if constants.rcas.y != 0.0 {
+        c /= 1.0 + max(c.r, max(c.g, c.b));
+    }
     return sqrt(c);
 }
 
 /// Restores linear scene colour after sharpening, including HDR highlights.
 fn scene_color(color: vec3<f32>) -> vec3<f32> {
     var c = color * color;
-#ifdef FSR_HDR
-    c /= max(1.0 / 32768.0, 1.0 - max(c.r, max(c.g, c.b)));
-#endif
+    if constants.rcas.y != 0.0 {
+        c /= max(1.0 / 32768.0, 1.0 - max(c.r, max(c.g, c.b)));
+    }
     return c;
 }
 

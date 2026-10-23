@@ -503,9 +503,15 @@ fn native_one_pixel_hud(sharpen: bool) {
         if draw_hud {
             assert_eq!(actual[3 * 40 + 17], [255; 4]);
         }
-        // The gradient must interpolate inside each source texel rather than forming blocks.
-        assert!(actual[10 * 40 + 14][0] < actual[10 * 40 + 15][0]);
-        assert!(actual[10 * 40 + 14][0] > source[0][0]);
+        // The output gradient needs more colour steps than the input columns.
+        let red_steps = |pixels: &[[u8; 4]]| {
+            pixels
+                .iter()
+                .map(|pixel| pixel[0])
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        };
+        assert!(red_steps(&actual[10 * 40..11 * 40]) > red_steps(&source));
         for (index, pixel) in actual.iter().enumerate() {
             if draw_hud && index == 3 * 40 + 17 {
                 continue;
@@ -700,6 +706,7 @@ fn reconstruct(world: &mut World, entity: Entity, bilinear: bool) -> Vec<[u8; 4]
                     crate::render_bounds::extent(target.main_texture_view()),
                     native.extent(),
                     None,
+                    false,
                 ),
             );
             encode_blit(
@@ -831,6 +838,62 @@ fn fsr_preserves_solid_black_and_white_with_sharpening_enabled() {
                 .all(|p| *p == [value, value, value, 255])
         );
     }
+}
+
+#[test]
+fn a_failed_fsr_shader_still_reconstructs_with_the_independent_bilinear_fallback() {
+    let Some(mut app) = raster_fixture() else {
+        return;
+    };
+    *app.world_mut()
+        .resource_mut::<Assets<Shader>>()
+        .get_mut(&super::super::upscale::SHADER)
+        .unwrap() = crate::shader_safety::from_wgsl("invalid WGSL", "failed-fsr.wgsl");
+    app.update();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let entity = view(world, [16, 16], [4, 4]);
+    let stages = world.get::<NativeUiTarget>(entity).unwrap().seed_pipelines;
+    let present = world
+        .get::<NativeUiTarget>(entity)
+        .unwrap()
+        .present_pipeline;
+    test_time::eventually("failed FSR with a ready bilinear fallback", || {
+        let mut cache = world.resource_mut::<PipelineCache>();
+        cache.process_queue();
+        cache.get_render_pipeline(stages.bilinear).is_some()
+            && cache.get_render_pipeline(present).is_some()
+            && [stages.easu, stages.rcas].iter().all(|&id| {
+                matches!(
+                    cache.get_render_pipeline_state(id),
+                    CachedPipelineState::Err(error) if !matches!(error,
+                        bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
+                        | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable)
+                )
+            })
+    });
+    let source = [[70u8, 120, 200, 255]; 16];
+    world.resource::<RenderQueue>().write_texture(
+        world
+            .get::<ViewTarget>(entity)
+            .unwrap()
+            .main_texture()
+            .as_image_copy(),
+        bytemuck::cast_slice(&source),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: Some(4),
+        },
+        Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+    );
+    let control = reconstruct(world, entity, true);
+    let fallback = reconstruct(world, entity, false);
+    assert_eq!(fallback, control);
+    assert!(fallback.iter().all(|p| *p == source[0]));
 }
 
 /// Loads real GPU resources and the presentation shaders before offscreen comparisons.

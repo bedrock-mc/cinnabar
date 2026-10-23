@@ -6,14 +6,22 @@ use bevy::{
     render::{RenderApp, render_resource::*, renderer::RenderDevice},
 };
 
-const SHADER: Handle<Shader> = uuid_handle!("3dd2d5df-3d2c-44af-bbba-f0ff45fc60ed");
+pub(super) const SHADER: Handle<Shader> = uuid_handle!("3dd2d5df-3d2c-44af-bbba-f0ff45fc60ed");
 
-/// Loads FSR1 and its bilinear fallback with their per-device pipeline resources.
+const FALLBACK_SHADER: Handle<Shader> = uuid_handle!("6b72a97c-b1f9-4690-aa90-0a9319b58b11");
+
+/// Loads FSR1 and its independent bilinear fallback with their pipeline resources.
 pub(super) fn install(app: &mut App) {
     load_internal_asset!(
         app,
         SHADER,
         "../world_upscale.wgsl",
+        crate::shader_safety::from_wgsl
+    );
+    load_internal_asset!(
+        app,
+        FALLBACK_SHADER,
+        "../world_bilinear.wgsl",
         crate::shader_safety::from_wgsl
     );
     crate::pipeline_warmup::register::<UpscalePipeline>(app);
@@ -55,7 +63,7 @@ impl UpscalePipelines {
     }
 }
 
-/// FP32 constants from FsrEasuCon and FsrRcasCon, stored without bit reinterpretation.
+/// FP32 FSR constants; the unused second RCAS lane carries the HDR range flag.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct FsrConstants {
@@ -68,7 +76,12 @@ pub(super) struct FsrConstants {
 
 impl FsrConstants {
     /// Maps a complete input viewport to output pixels; `None` disables RCAS sharpening.
-    pub(super) fn new(input: [u32; 2], output: [u32; 2], sharpness: Option<f32>) -> Self {
+    pub(super) fn new(
+        input: [u32; 2],
+        output: [u32; 2],
+        sharpness: Option<f32>,
+        hdr: bool,
+    ) -> Self {
         let [ix, iy] = input.map(|n| n as f32);
         let [ox, oy] = output.map(|n| n as f32);
         let [rx, ry] = [ix.recip(), iy.recip()];
@@ -80,7 +93,7 @@ impl FsrConstants {
             con3: [0.0, 4.0 * ry, 0.0, 0.0],
             rcas: [
                 sharpness.map_or(0.0, |stops| (-stops).exp2()),
-                0.0,
+                if hdr { 1.0 } else { 0.0 },
                 0.0,
                 0.0,
             ],
@@ -99,7 +112,14 @@ impl Specializer<RenderPipeline> for UpscaleSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
+        let shader = if key.pass == UpscalePass::Bilinear {
+            FALLBACK_SHADER
+        } else {
+            SHADER
+        };
+        descriptor.vertex.shader = shader.clone();
         let fragment = descriptor.fragment.as_mut().unwrap();
+        fragment.shader = shader;
         fragment.targets[0].as_mut().unwrap().format = key.format;
         fragment.entry_point = Some(
             match key.pass {
@@ -109,10 +129,6 @@ impl Specializer<RenderPipeline> for UpscaleSpecializer {
             }
             .into(),
         );
-        fragment.shader_defs.clear();
-        if key.format == render_scene::SCENE_HDR_FORMAT {
-            fragment.shader_defs.push("FSR_HDR".into());
-        }
         Ok(key)
     }
 }
@@ -275,12 +291,12 @@ mod tests {
     #[test]
     fn easu_constants_match_reference_half_and_unequal_scales() {
         // FsrEasuCon with a viewport equal to its source resource.
-        let c = FsrConstants::new([1280, 720], [2560, 1440], None);
+        let c = FsrConstants::new([1280, 720], [2560, 1440], None, false);
         assert_eq!(c.con0, [0.5, 0.5, -0.25, -0.25]);
         assert_eq!(c.con1, [0.00078125, 1.0 / 720.0, 0.00078125, -1.0 / 720.0]);
         assert_eq!(c.con2, [-0.00078125, 1.0 / 360.0, 0.00078125, 1.0 / 360.0]);
         assert_eq!(c.con3, [0.0, 1.0 / 180.0, 0.0, 0.0]);
-        let c = FsrConstants::new([3, 2], [4, 4], None);
+        let c = FsrConstants::new([3, 2], [4, 4], None, false);
         assert_eq!(c.con0, [0.75, 0.5, -0.125, -0.25]);
         assert_eq!(c.con1, [1.0 / 3.0, 0.5, 1.0 / 3.0, -0.5]);
         assert_eq!(c.con2, [-1.0 / 3.0, 1.0, 1.0 / 3.0, 1.0]);
@@ -290,9 +306,9 @@ mod tests {
     #[test]
     fn rcas_constants_convert_stops_to_reference_linear_strength() {
         for (stops, expected) in [(0.0, 1.0), (0.2, 0.8705506), (1.0, 0.5), (2.0, 0.25)] {
-            let c = FsrConstants::new([1, 1], [1, 1], Some(stops));
+            let c = FsrConstants::new([1, 1], [1, 1], Some(stops), false);
             assert!((c.rcas[0] - expected).abs() < 1e-7);
         }
-        assert_eq!(FsrConstants::new([1, 1], [1, 1], None).rcas[0], 0.0);
+        assert_eq!(FsrConstants::new([1, 1], [1, 1], None, false).rcas[0], 0.0);
     }
 }

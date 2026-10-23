@@ -201,7 +201,12 @@ impl NativeUiTarget {
                 cache,
                 source,
                 &self.sampler,
-                FsrConstants::new(input, self.extent(), sharpness),
+                FsrConstants::new(
+                    input,
+                    self.extent(),
+                    sharpness,
+                    target.main_texture_format() == render_scene::SCENE_HDR_FORMAT,
+                ),
             );
             bindings.push((source.id(), strength, binding.clone()));
             binding
