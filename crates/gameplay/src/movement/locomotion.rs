@@ -132,6 +132,8 @@ pub(super) struct ModeChoice {
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
+    /// Effective flight ability, independent of whether a mount owns travel.
+    flying: bool,
     last_flight: FlightAuthority,
     last_ability_sequence: Option<u64>,
     /// `Jumping` sent on the previous tick; a flight press needs it clear.
@@ -153,6 +155,11 @@ impl ModeTracker {
 
     pub(super) const fn mode(&self) -> MovementMode {
         self.mode
+    }
+
+    /// Returns the accepted flight ability even while riding selects another travel mode.
+    pub(super) const fn flying(&self) -> bool {
+        self.flying
     }
 
     pub(super) const fn fall_fly_ticks(&self) -> u32 {
@@ -220,6 +227,7 @@ impl ModeTracker {
                 self.sprint_trigger
                     .select(self.sprinting, self.previous_feet, intent, observed);
             self.mode = MovementMode::Flying;
+            self.flying = true;
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.fly_countdown = 0;
@@ -239,10 +247,16 @@ impl ModeTracker {
         let held_flight = if server_update {
             intent.flight.is_flying()
         } else {
-            self.mode == MovementMode::Flying
+            self.flying
         };
         let fly_toggle = self.fly_trigger(intent, held_flight, observed.jump_down);
         let flight_request = fly_toggle.then_some(!held_flight);
+        self.flying = match intent.flight {
+            FlightAuthority::Fixed(value) => value,
+            FlightAuthority::Mutable(server_flying) => {
+                (intent.can_fly || server_flying) && held_flight != fly_toggle
+            }
+        };
         if intent.ride.is_some() {
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
@@ -259,12 +273,7 @@ impl ModeTracker {
             });
         }
         // Flight survives ground contact; server flight does not require MayFly.
-        let flying = match intent.flight {
-            FlightAuthority::Fixed(value) => value,
-            FlightAuthority::Mutable(server_flying) => {
-                (intent.can_fly || server_flying) && held_flight != fly_toggle
-            }
-        };
+        let flying = self.flying;
         let sampled = sim::Simulator::default().movement_environment_with_liquid_contact(
             observed.feet,
             self.mode,

@@ -15,6 +15,11 @@ pub(in crate::movement) struct SyncPose {
 }
 
 impl LocalPhysicsController {
+    /// Returns effective flight independently of the current travel mode.
+    pub(in crate::movement) fn prediction_sync_flying(&self) -> bool {
+        self.modes.flying()
+    }
+
     /// Overlays server posture accepted after the latest completed movement sample.
     pub(in crate::movement) fn prediction_sync_posture(&self) -> Option<(bool, bool)> {
         let (sneaking, sprinting) = self.latest_sneak_sprint()?;

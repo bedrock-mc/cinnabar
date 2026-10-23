@@ -527,6 +527,70 @@ fn horizontal_poses_send_the_width_as_the_height() {
     );
 }
 
+#[test]
+fn horizontal_poses_resize_custom_dimensions() {
+    for width in [0.4, 0.75, 2.0] {
+        for height in [0.6, 1.49, 1.8, 2.5] {
+            let metadata = HashMap::from([
+                (
+                    ActorDataKey::Scale.wire_value(),
+                    ActorMetadataValue::Float(2.0),
+                ),
+                (
+                    ActorDataKey::Width.wire_value(),
+                    ActorMetadataValue::Float(width),
+                ),
+                (
+                    ActorDataKey::Height.wire_value(),
+                    ActorMetadataValue::Float(height),
+                ),
+            ]);
+            for flag in HORIZONTAL_POSE_FLAGS {
+                let mut words = [0; 3];
+                set_flag(&mut words, flag, true);
+                assert_eq!(
+                    predicted_bounding_box(&metadata, Some(1.49), words),
+                    [2.0, width, width],
+                    "{flag:?}: {width} by {height}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn riding_sync_retains_the_effective_flight_ability() {
+    use client_world::game_mode_capabilities::FlightAuthority;
+    for flying in [false, true] {
+        let mut physics = due_physics();
+        let frame = physics.advance_with_context(
+            std::time::Duration::from_millis(100),
+            sim::MovementInput::default(),
+            super::super::PhysicsSampleContext {
+                mode_intent: super::super::ModeIntent {
+                    ride: Some(super::super::RideKind::Other),
+                    can_fly: true,
+                    flight: FlightAuthority::Fixed(flying),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &OpenWorld,
+        );
+        assert!(frame.completed_ticks > 0);
+        assert_eq!(physics.mode(), sim::MovementMode::Riding);
+        let mut sent = None;
+        send_movement_prediction_sync(&mut physics, &local_actor(), None, false, |packet| {
+            sent = Some(packet);
+            true
+        });
+        assert_eq!(
+            protocol::test_support::packets::prediction_sync_flying(&sent.expect("due sync")),
+            Some(flying)
+        );
+    }
+}
+
 /// Only a replayed correction schedules a sync; a snap (far teleport, respawn) does not.
 #[test]
 fn only_replayed_corrections_schedule_a_sync() {
