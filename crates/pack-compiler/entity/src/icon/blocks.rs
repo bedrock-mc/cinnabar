@@ -386,19 +386,20 @@ impl IconBlocks {
                 None
             };
             selected
-                .map(|index| (index, &pack.flipbooks[index]))
+                .map(|index| (index, &pack.flipbooks[index], true))
                 .or_else(|| {
                     pack.flipbooks
                         .iter()
                         .enumerate()
                         .filter(|(_, source)| stem(&source.texture_path) == stem(path))
                         .min_by_key(|(_, source)| source.replicate)
+                        .map(|(index, source)| (index, source, false))
                 })
         } else {
             None
         };
-        let decoded = if let Some((index, flipbook)) = flipbook {
-            let first_frame = if destination.is_some() {
+        let decoded = if let Some((index, flipbook, uses_timeline)) = flipbook {
+            let first_frame = if uses_timeline {
                 flipbook.frames.first().copied().unwrap_or(0)
             } else {
                 0
