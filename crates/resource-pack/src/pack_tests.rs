@@ -30,9 +30,16 @@ fn zip_files(files: &[(&str, &[u8])]) -> Vec<u8> {
 
 /// Validates an archive fixture with the chosen subpack and decryption key.
 fn admit(archive: Vec<u8>, subpack: &str, key: Option<ContentKey>) -> ValidatedPack {
-    validate_archive_parts(PACK_ID, "1.0.0", subpack, archive, key, None)
-        .unwrap()
-        .0
+    validate_archive_parts(
+        PACK_ID,
+        crate::manifest::Version([1, 0, 0]),
+        subpack,
+        archive,
+        key,
+        None,
+    )
+    .unwrap()
+    .0
 }
 
 /// Creates a validated stack with the chosen layers and rejection metadata.

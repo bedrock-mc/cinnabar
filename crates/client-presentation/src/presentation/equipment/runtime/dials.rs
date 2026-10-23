@@ -15,6 +15,6 @@ impl EquipmentRuntime {
             .dial_frames
             .icon_key(&item.identifier, &self.icons)
             .unwrap_or((&item.identifier, item.metadata));
-        self.icons.lookup_index(identifier, metadata)
+        self.icons.lookup_held_index(identifier, metadata)
     }
 }

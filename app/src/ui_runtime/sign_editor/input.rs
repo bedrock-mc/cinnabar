@@ -51,7 +51,9 @@ pub(crate) fn drive_sign_editor(
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    if runtime.credits().owns_input() {
+    // A data-driven form owns the keys: an editor opened under it waits, and a sign edit
+    // requested meanwhile opens once the form closes.
+    if runtime.credits().owns_input() || runtime.data_driven_ui().owns_input() {
         keyboard.clear();
         *owned_last_frame = false;
         return;
@@ -184,3 +186,6 @@ pub(crate) fn drive_sign_editor(
         *owned_last_frame = false;
     }
 }
+
+#[cfg(test)]
+mod tests;

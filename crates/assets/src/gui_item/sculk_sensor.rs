@@ -24,6 +24,7 @@ pub fn sculk_sensor_quads(calibrated: bool) -> Vec<(GuiBlockQuad, bool)> {
                 corners: corners.map(|[x, y, z]| [x, y * 0.5, z]),
                 uvs,
                 material: face as u32,
+                two_sided: false,
             },
             true,
         ));
@@ -57,5 +58,6 @@ fn plane([ax, az]: [f32; 2], [bx, bz]: [f32; 2], material: u32) -> GuiBlockQuad 
         corners: [[ax, 1.5, az], [ax, 0.5, az], [bx, 0.5, bz], [bx, 1.5, bz]],
         uvs: [[0., 0.], [0., 1.], [1., 1.], [1., 0.]],
         material,
+        two_sided: true,
     }
 }

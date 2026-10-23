@@ -67,5 +67,6 @@ fn surface(
         corners,
         uvs,
         material,
+        two_sided: false,
     }
 }

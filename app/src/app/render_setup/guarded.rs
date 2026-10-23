@@ -10,7 +10,7 @@ use super::selection::{
     Candidate, VideoFallback, eligible, probe_backend, rank, summary, try_candidates,
     with_recovery, with_video_fallback,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bevy::{
     app::OnAppExitSystems,
     prelude::{
@@ -83,6 +83,7 @@ pub(super) fn render_plugin(
                     "Renderer trying {order:?} (allowed {allowed:?}; excluded after interrupted startups: {failed:?})"
                 ));
                 let mut adapters = Vec::new();
+                let mut failures = Vec::new();
                 for backend in order {
                     let found = probe_backend(guard, backend, explicit, || {
                         log(format_args!(
@@ -102,6 +103,10 @@ pub(super) fn render_plugin(
                             bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
                         {
                             if let Err(error) = meets_requirements(&adapter) {
+                                failures.push(format!(
+                                    "{} ({backend:?}): {error:#}",
+                                    adapter.get_info().name
+                                ));
                                 log(format_args!(
                                     "Renderer skipping incompatible adapter {:?}: {error:#}",
                                     adapter.get_info()
@@ -129,6 +134,7 @@ pub(super) fn render_plugin(
                     match found {
                         Ok(found) => adapters.extend(found),
                         Err(error) => {
+                            failures.push(format!("{backend:?}: {error:#}"));
                             log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
                         }
                     }
@@ -139,6 +145,16 @@ pub(super) fn render_plugin(
                     let (instance, adapter) = candidate.native;
                     bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
                         .map(|creation| (creation, backend))
+                })
+                .with_context(|| {
+                    if failures.is_empty() {
+                        "No compatible graphics adapter could be initialized".to_owned()
+                    } else {
+                        format!(
+                            "Graphics adapters lack required capabilities: {}",
+                            failures.join("; ")
+                        )
+                    }
                 })
             })
         },

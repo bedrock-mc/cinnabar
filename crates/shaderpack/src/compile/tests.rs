@@ -93,3 +93,54 @@ fn recursive_function_dependencies_are_rejected() {
         }));
     }
 }
+
+#[test]
+fn stage_transport_rebuilds_validation_information_from_the_module() {
+    let mut stage = fragment(
+        "#version 450\nlayout(location=0) out vec4 color;
+        void main() { color = vec4(1.0); }",
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&stage, &mut bytes).unwrap();
+    let fields: ciborium::Value = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert!(
+        fields
+            .as_map()
+            .unwrap()
+            .iter()
+            .all(|(key, _)| key.as_text() != Some("info"))
+    );
+    let decoded: CompiledStage = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert_eq!(decoded.stage, stage.stage);
+    assert_eq!(
+        ciborium::Value::serialized(&decoded.module).unwrap(),
+        ciborium::Value::serialized(&stage.module).unwrap()
+    );
+    for (handle, _) in stage.module.global_variables.iter() {
+        assert_eq!(
+            decoded.info.get_entry_point(0)[handle],
+            stage.info.get_entry_point(0)[handle]
+        );
+    }
+
+    let scalar = stage.module.types.insert(
+        naga::Type {
+            name: None,
+            inner: naga::TypeInner::Scalar(naga::Scalar::F32),
+        },
+        naga::Span::UNDEFINED,
+    );
+    stage.module.entry_points[0]
+        .function
+        .result
+        .as_mut()
+        .unwrap()
+        .ty = scalar;
+    bytes.clear();
+    ciborium::into_writer(&stage, &mut bytes).unwrap();
+    assert!(
+        ciborium::from_reader::<CompiledStage, _>(bytes.as_slice()).is_err(),
+        "stale validation information cannot make an invalid module usable"
+    );
+}

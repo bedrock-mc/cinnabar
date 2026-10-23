@@ -25,10 +25,46 @@ pub(super) fn tile(
     else {
         return Ok(None);
     };
+    if apply_overlay(&mut sprite, overlay).is_none() {
+        return Ok(None);
+    }
+    if first_strip_frame && sprite.width > BLOCK_ITEM_FACE_SIDE {
+        // Overlay alpha is a tint weight; resolve it before opacity-aware resampling.
+        sprite.rgba8 = Arc::from(pack_compile_input::image::normalize_texture_tile(
+            sprite.rgba8.to_vec().into_boxed_slice(),
+            u32::from(sprite.width),
+            path,
+        )?);
+        sprite.width = BLOCK_ITEM_FACE_SIDE;
+        sprite.height = BLOCK_ITEM_FACE_SIDE;
+    }
+    Ok(Some(sprite))
+}
+
+/// Loads square model artwork without the fixed carried-sheet tile dimensions.
+pub(super) fn model_tile(
+    blocks: &IconBlocks,
+    root: &Path,
+    destination: &str,
+    path: &str,
+    overlay: Option<&str>,
+) -> Result<Option<IconSprite>, AssetError> {
+    let Some(mut sprite) = blocks
+        .model_frame_sprite(root, destination, path)?
+        .filter(|sprite| sprite.width == sprite.height)
+    else {
+        return Ok(None);
+    };
+    if apply_overlay(&mut sprite, overlay).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(sprite))
+}
+
+/// Applies a carried color mask while retaining the source resolution.
+fn apply_overlay(sprite: &mut IconSprite, overlay: Option<&str>) -> Option<()> {
     if let Some(overlay) = overlay {
-        let Some(color) = overlay_rgb(overlay) else {
-            return Ok(None);
-        };
+        let color = overlay_rgb(overlay)?;
         let mut pixels = sprite.rgba8.to_vec();
         for pixel in pixels.as_chunks_mut::<4>().0 {
             let mask = f32::from(pixel[3]) / 255.0;
@@ -44,17 +80,7 @@ pub(super) fn tile(
         }
         sprite.rgba8 = Arc::from(pixels);
     }
-    if first_strip_frame && sprite.width > BLOCK_ITEM_FACE_SIDE {
-        // Overlay alpha is a tint weight; resolve it before opacity-aware resampling.
-        sprite.rgba8 = Arc::from(pack_compile_input::image::normalize_texture_tile(
-            sprite.rgba8.to_vec().into_boxed_slice(),
-            u32::from(sprite.width),
-            path,
-        )?);
-        sprite.width = BLOCK_ITEM_FACE_SIDE;
-        sprite.height = BLOCK_ITEM_FACE_SIDE;
-    }
-    Ok(Some(sprite))
+    Some(())
 }
 
 fn overlay_rgb(source: &str) -> Option<[u8; 3]> {
