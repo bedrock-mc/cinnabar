@@ -5829,8 +5829,7 @@ dependencies = [
 [[package]]
 name = "minidump-writer"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f742d7445a9d4c63826d302dadbbcb607745560108e88b21c4014a9724d09dbe"
+source = "git+https://github.com/cinnabar-mc/minidump-writer?rev=389d34092fb3323f2253010615eda402212e534f#389d34092fb3323f2253010615eda402212e534f"
 dependencies = [
  "bitflags 2.13.0",
  "byteorder",

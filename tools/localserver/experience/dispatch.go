@@ -33,6 +33,7 @@ type Host struct {
 	store   *Store
 	log     *slog.Logger
 	worldID string
+	worlds  worldBindings
 	// channels is the server half of the client parts; nil when the server has none, which
 	// drops every staged client message.
 	channels ClientChannels
@@ -98,8 +99,8 @@ type neighborTick struct {
 // event is one hook's callback, queued for its Experience's worker. A client message's or an
 // epoch's event has no world until its snapshot finds the actor's.
 type event struct {
-	w   *world.World
-	dim dimension
+	w        *world.World
+	instance worldInstance
 	// anchor is the block the callback is for. It bounds the snapshot and the writes.
 	anchor cube.Pos
 	// actor is the player who caused the event; nil for a neighbor event.
@@ -114,35 +115,11 @@ func (c Call) anchored() bool {
 	return (c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil
 }
 
-// dimension is a world's dimension as the store and the guest name it.
-type dimension struct {
-	num int
-	id  string
-}
-
-// storeKey is the store key of pos in the dimension.
-func (d dimension) storeKey(pos cube.Pos) Key {
-	return Key{Dim: d.num, X: int32(pos[0]), Y: int32(pos[1]), Z: int32(pos[2])}
-}
-
-// dimensionOf is the dimension of tx's world, and false for a dimension that has no id.
-func dimensionOf(tx *world.Tx) (dimension, bool) {
-	switch tx.World().Dimension() {
-	case world.Overworld:
-		return dimension{num: 0, id: "overworld"}, true
-	case world.Nether:
-		return dimension{num: 1, id: "nether"}, true
-	case world.End:
-		return dimension{num: 2, id: "end"}, true
-	}
-	return dimension{}, false
-}
-
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
 // hook sink of every Experience block. worldID is the base name of the world folder, which
 // callbacks see as their world id. channels is the server half of the client parts, or nil. A
 // block of an Experience missing from sups keeps its data in the store but queues no events. The
-// Host closes the supervisors when it closes.
+// Host closes the supervisors when it closes. Bind its worlds before admitting hooks.
 func NewHost(
 	reg *Registry, store *Store, sups map[string]*Supervisor, worldID string, channels ClientChannels,
 	log *slog.Logger,
@@ -283,14 +260,14 @@ func (h *Host) useOnBlock(
 	if tx.Block(target) != world.Block(b) {
 		return false
 	}
-	dim, ok := dimensionOf(tx)
+	instance, ok := h.worlds.of(tx.World())
 	if !ok {
 		return true
 	}
-	h.store.Place(b.t.exp, dim.storeKey(target))
+	h.store.Place(b.t.exp, instance.storeKey(target))
 	actor := user.H()
 	id := actor.UUID().String()
-	h.enqueue(b.t.exp, event{w: tx.World(), dim: dim, anchor: target, actor: actor, call: Call{
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: target, actor: actor, call: Call{
 		Place: &PlaceCall{Change: Change{
 			Pos: blockPos(target), Actor: &id, Cause: CausePlayer, BeforeID: before, AfterID: b.t.id,
 		}},
@@ -303,7 +280,7 @@ func (h *Host) useOnBlock(
 func (h *Host) activate(
 	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, _ *item.UseContext,
 ) {
-	dim, ok := dimensionOf(tx)
+	instance, ok := h.worlds.of(tx.World())
 	if u == nil || !ok {
 		return
 	}
@@ -312,7 +289,7 @@ func (h *Host) activate(
 		return
 	}
 	actor := u.H()
-	h.enqueue(b.t.exp, event{w: tx.World(), dim: dim, anchor: pos, actor: actor, call: Call{
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
 		Interact: &InteractCall{
 			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace],
 		},
@@ -326,11 +303,11 @@ func (h *Host) neighbourUpdateTick(b Block, pos, changedNeighbour cube.Pos, tx *
 	if !ok || h.closed.Load() {
 		return
 	}
-	dim, ok := dimensionOf(tx)
+	instance, ok := h.worlds.of(tx.World())
 	if !ok || !h.admitNeighbor(d, tx, pos) {
 		return
 	}
-	h.enqueue(b.t.exp, event{w: tx.World(), dim: dim, anchor: pos, call: Call{
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, call: Call{
 		Neighbor: &NeighborCall{Pos: blockPos(pos), Neighbor: blockPos(changedNeighbour)},
 	}})
 }
@@ -341,11 +318,11 @@ func (h *Host) scheduledTick(b Block, pos cube.Pos, tx *world.Tx) {
 	if _, ok := h.dispatchers[b.t.exp]; !ok || h.closed.Load() {
 		return
 	}
-	dim, ok := dimensionOf(tx)
+	instance, ok := h.worlds.of(tx.World())
 	if !ok {
 		return
 	}
-	h.enqueue(b.t.exp, event{w: tx.World(), dim: dim, anchor: pos, call: Call{
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, call: Call{
 		ScheduledUpdate: &ScheduledUpdateCall{Pos: blockPos(pos)},
 	}})
 }
@@ -353,11 +330,11 @@ func (h *Host) scheduledTick(b Block, pos cube.Pos, tx *world.Tx) {
 // breakHandler deletes the broken block's data. A player's break then queues on-break with that
 // data; a break without a user, such as an explosion, notifies nothing.
 func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
-	dim, ok := dimensionOf(tx)
+	instance, ok := h.worlds.of(tx.World())
 	if !ok {
 		return
 	}
-	prev, had := h.store.Remove(b.t.exp, dim.storeKey(pos))
+	prev, had := h.store.Remove(b.t.exp, instance.storeKey(pos))
 	if u == nil {
 		return
 	}
@@ -368,7 +345,7 @@ func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
 	}
 	actor := u.H()
 	id := actor.UUID().String()
-	h.enqueue(b.t.exp, event{w: tx.World(), dim: dim, anchor: pos, actor: actor, call: Call{
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
 		Break: &BreakCall{Change: Change{
 			Pos: blockPos(pos), Actor: &id, Cause: CausePlayer, BeforeID: b.t.id,
 			AfterID: blockID(tx.Block(pos)), PreviousData: previous,
@@ -514,14 +491,24 @@ type cellState struct {
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
 	if ev.call.anchored() {
-		if err := await(ctx, ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, *ev) })); err != nil {
+		valid := false
+		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
+			instance, ok := h.worlds.of(tx.World())
+			valid = ok && instance.handle == ev.instance.handle
+			if valid {
+				snap = h.read(tx, d, *ev)
+			}
+		})); err != nil {
 			return snapshot{}, err
+		}
+		if !valid {
+			return snapshot{}, fmt.Errorf("%w: world instance changed", errStale)
 		}
 		return snap, nil
 	}
 	found := false
 	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
-		if ev.dim, found = dimensionOf(tx); found {
+		if ev.instance, found = h.worlds.of(tx.World()); found {
 			ev.w = tx.World()
 			h.focusOn(tx, d, ev, actor)
 			snap = h.read(tx, d, *ev)
@@ -531,7 +518,7 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 		return snapshot{}, fmt.Errorf("finding the actor of a player's callback: %w", err)
 	}
 	if !found {
-		return snapshot{}, errors.New("the actor of a player's callback is in a world without a dimension id")
+		return snapshot{}, errors.New("the actor of a player's callback is in an unbound world instance")
 	}
 	return snap, nil
 }
@@ -555,7 +542,7 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	snap := snapshot{
 		req: CallbackRequest{
 			Info: Info{
-				WorldID: h.worldID, DimensionID: ev.dim.id, Tick: uint64(tx.CurrentTick()),
+				WorldID: h.worldID, DimensionID: ev.instance.id, Tick: uint64(tx.CurrentTick()),
 				EventSequence: d.seq,
 			},
 			WorldMinY:  int32(r.Min()),
@@ -585,11 +572,11 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		}
 	}
 	for _, pos := range positions {
-		st := h.cellState(tx, d.id, ev.dim, pos)
+		st := h.cellState(tx, d.id, ev.instance, pos)
 		cell := Cell{Pos: blockPos(pos), Loaded: st.loaded, ID: st.id, Owned: st.owned}
 		if st.owned {
 			cell.States = st.block.states()
-			if data, ok := h.store.Data(d.id, ev.dim.storeKey(pos)); ok {
+			if data, ok := h.store.Data(d.id, ev.instance.storeKey(pos)); ok {
 				s := hex.EncodeToString(data)
 				cell.Data = &s
 				st.dataLen = uint64(len(data))
@@ -604,9 +591,9 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 
 // cellState reads the block at pos without loading its chunk, and the Experience's store entry
 // there. An unloaded cell has no id and is not owned.
-func (h *Host) cellState(tx *world.Tx, exp string, dim dimension, pos cube.Pos) cellState {
+func (h *Host) cellState(tx *world.Tx, exp string, instance worldInstance, pos cube.Pos) cellState {
 	st := cellState{pos: pos}
-	st.token, st.hasToken = h.store.Token(exp, dim.storeKey(pos))
+	st.token, st.hasToken = h.store.Token(exp, instance.storeKey(pos))
 	b, loaded := tx.BlockLoaded(pos)
 	if !loaded {
 		return st

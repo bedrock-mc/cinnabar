@@ -102,19 +102,19 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		pos := op.SetBlock.Pos.cube()
 		if op.SetBlock.ID == airID {
 			tx.SetBlock(pos, nil, nil)
-			h.store.Remove(exp, ev.dim.storeKey(pos))
+			h.store.Remove(exp, ev.instance.storeKey(pos))
 			continue
 		}
 		b, _ := h.reg.Lookup(op.SetBlock.ID)
 		tx.SetBlock(pos, b, nil)
-		h.store.Place(exp, ev.dim.storeKey(pos))
+		h.store.Place(exp, ev.instance.storeKey(pos))
 	}
 	for _, grow := range []bool{false, true} {
 		for _, w := range plan.writes {
 			if (w.delta > 0) != grow {
 				continue
 			}
-			if err := h.store.SetData(exp, ev.dim.storeKey(w.pos), w.data, w.present); err != nil {
+			if err := h.store.SetData(exp, ev.instance.storeKey(w.pos), w.data, w.present); err != nil {
 				// validate checked ownership and the quota, so the store disagrees with it.
 				h.log.Error("validated data write failed", "experience", exp, "pos", w.pos, "error", err)
 			}
@@ -151,15 +151,18 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 // current validates retained cells and rejected network boundaries, then resolves the actor.
 // A boundary that gains an owned network member makes the callback's topology stale.
 func (h *Host) current(tx *world.Tx, exp string, ev event, snap snapshot) (world.Entity, error) {
+	if instance, ok := h.worlds.of(tx.World()); !ok || instance.handle != ev.instance.handle {
+		return nil, fmt.Errorf("%w: world instance changed", errStale)
+	}
 	for _, was := range snap.cells {
-		now := h.cellState(tx, exp, ev.dim, was.pos)
+		now := h.cellState(tx, exp, ev.instance, was.pos)
 		if now.loaded != was.loaded || now.id != was.id || now.block != was.block ||
 			now.hasToken != was.hasToken || now.token != was.token {
 			return nil, fmt.Errorf("%w: the cell at %v changed", errStale, was.pos)
 		}
 	}
 	for _, pos := range snap.networkBoundary {
-		now := h.cellState(tx, exp, ev.dim, pos)
+		now := h.cellState(tx, exp, ev.instance, pos)
 		if now.owned && now.block.t.network {
 			return nil, fmt.Errorf("%w: network boundary at %v gained a member", errStale, pos)
 		}

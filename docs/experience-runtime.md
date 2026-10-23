@@ -477,7 +477,7 @@ asset paths absolute as textures' are, and the ops `set_block_state`, `set_slot`
 ## Private data store
 
 Block data never enters chunk NBT, so it never reaches clients. The adapter keeps it in
-`<world>/experience-data/<id>.json`, one file per Experience, keyed by dimension and position;
+`<world>/experience-data/<id>.json`, one file per Experience, keyed by world instance and position;
 each entry has a placement generation, a data revision and optional bytes. A placement or
 replacement starts a new generation without data; a write bumps the revision. Reads check that the
 live block is still the Experience's, so orphaned data is never returned. Each Experience may
@@ -487,6 +487,21 @@ Files are written atomically (temporary file and rename) every `flushInterval` (
 dirty, and on shutdown. **Crash window:** a crash loses up to one flush interval of data writes.
 The world and the store are saved independently, so after a crash a block can exist without its
 latest data.
+
+The adapter binds each loaded world to a stable `WorldInstanceID`. The three existing worlds use
+`OverworldInstance`, `NetherInstance` and `EndInstance`; additional worlds use their own IDs, even
+when they share a dimension type. IDs must remain stable across restarts. A `WorldHandle` also
+contains an opening generation. Unbinding an instance invalidates its handles, queued block callbacks
+and already-read results before the world closes; reopening it preserves storage but assigns a new generation.
+Unbound worlds do not admit Experience hooks. Player focus belongs to that live instance opening.
+This adapter binding does not yet expose guest world creation or coordinate player transfers.
+
+Block-data file schema 2 writes `instance` instead of `dim`. Opening schema 1 maps dimensions
+0, 1 and 2 to the three existing instance IDs, preserving bytes, absent versus empty values,
+placement generations, revisions and quota usage. The next flush persists the migration atomically.
+Unknown legacy dimensions and entries with ambiguous identities fail startup. `_installed.json`
+keeps its existing schema. Back up the data directory before upgrading: older servers cannot read
+schema 2, so a downgrade requires restoring the backup.
 
 `_installed.json` records installed Experience IDs and their required block IDs together. Removing
 an artifact or one of its block definitions fails startup. Both lists are replaced atomically.
