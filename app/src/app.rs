@@ -45,7 +45,7 @@ use {
 };
 pub(crate) mod logging;
 pub(crate) mod session;
-mod startup;
+pub(crate) mod startup;
 use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
@@ -326,7 +326,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let carriers =
+        startup::take_or_load_startup_carriers(selected_assets, &layout.physics_registry);
     let startup::CoreCarriers {
         assets: loaded_assets,
         actor: actor_catalog,

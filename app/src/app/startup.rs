@@ -8,7 +8,7 @@ use crate::args;
 use anyhow::{Context, Result, bail};
 use assets::carriers::startup::{
     self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
-    LoadedIconAssets, LoadedLangAssets,
+    LoadedIconAssets, LoadedLangAssets, select_asset_path_from_environment,
 };
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
@@ -17,10 +17,16 @@ use assets::{
 use client_interaction::movement::PhysicsCollisionRegistries;
 use client_ui::ui_runtime::json_ui_assets::LoadedUiAssets;
 use client_ui::ui_runtime::presentation::PreparedJsonUi;
+use launcher::install_layout::InstallLayout;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::Digest;
 use sha2::Sha256;
-use std::{fs, path::Path, sync::Arc, time::Instant};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, PoisonError},
+    time::Instant,
+};
 
 /// Every carrier startup reads, each read and decoded exactly once. Results are checked by the
 /// caller in the serial order startup always used, so the first failure reported never changes.
@@ -73,11 +79,58 @@ pub(super) struct AudioCarriers {
     pub(super) sound_bank: Option<client_audio::audio::SoundBank>,
 }
 
-/// Loads every startup carrier in parallel and logs each one's load time.
-pub(super) fn load_startup_carriers(
+/// Startup carriers loaded before `run`, with the paths they were read from.
+struct Preloaded {
+    world: PathBuf,
+    physics_registry: PathBuf,
+    carriers: StartupCarriers,
+}
+
+/// The latest preload, until `run` takes or setup discards it.
+static PRELOADED: Mutex<Option<Preloaded>> = Mutex::new(None);
+
+/// Loads the default startup carriers for the next `run`, replacing any earlier preload.
+pub(crate) fn preload(layout: &InstallLayout) {
+    let selection = select_asset_path_from_environment(None, &layout.world_assets());
+    let world = selection.path.clone();
+    let carriers = load_startup_carriers(selection, &layout.physics_registry);
+    *PRELOADED.lock().unwrap_or_else(PoisonError::into_inner) = Some(Preloaded {
+        world,
+        physics_registry: layout.physics_registry.clone(),
+        carriers,
+    });
+}
+
+/// Drops a preload whose carrier files have since been rewritten.
+pub(crate) fn discard_preloaded() {
+    PRELOADED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+}
+
+/// Returns the preloaded carriers when they were read from these paths, otherwise loads them.
+pub(super) fn take_or_load_startup_carriers(
     selection: AssetSelection,
     physics_registry: &Path,
 ) -> StartupCarriers {
+    take_preloaded(&PRELOADED, &selection.path, physics_registry)
+        .unwrap_or_else(|| load_startup_carriers(selection, physics_registry))
+}
+
+/// Empties `slot`, returning its carriers only when they were read from these paths.
+fn take_preloaded(
+    slot: &Mutex<Option<Preloaded>>,
+    world: &Path,
+    physics_registry: &Path,
+) -> Option<StartupCarriers> {
+    let preloaded = slot.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+    (preloaded.world == world && preloaded.physics_registry == physics_registry)
+        .then_some(preloaded.carriers)
+}
+
+/// Loads every startup carrier in parallel and logs each one's load time.
+fn load_startup_carriers(selection: AssetSelection, physics_registry: &Path) -> StartupCarriers {
     let start = Instant::now();
     let times = LoadTimes::default();
     let carriers = load_with(selection, physics_registry, &times);
@@ -373,6 +426,38 @@ mod carrier_tests {
                 "weather",
                 "world",
             ]
+        );
+    }
+
+    #[test]
+    fn a_preload_is_reused_only_for_the_paths_it_was_read_from() {
+        let directory = Directory::new("preload");
+        let physics = directory.0.join("absent-physics.bin");
+        let slot = Mutex::new(None);
+        let preload = |slot: &Mutex<Option<Preloaded>>| {
+            *slot.lock().unwrap() = Some(Preloaded {
+                world: directory.world(),
+                physics_registry: physics.clone(),
+                carriers: directory.load(&LoadTimes::default()),
+            });
+        };
+
+        preload(&slot);
+        assert!(take_preloaded(&slot, &directory.world(), &physics).is_some());
+        assert!(slot.lock().unwrap().is_none(), "a preload is consumed once");
+        assert!(take_preloaded(&slot, &directory.world(), &physics).is_none());
+
+        preload(&slot);
+        let other_world = directory.0.join("other.mcbea");
+        assert!(take_preloaded(&slot, &other_world, &physics).is_none());
+        assert!(
+            slot.lock().unwrap().is_none(),
+            "a mismatched preload is released"
+        );
+
+        preload(&slot);
+        assert!(
+            take_preloaded(&slot, &directory.world(), &directory.0.join("other.bin")).is_none()
         );
     }
 
