@@ -111,7 +111,7 @@ const CORE_NAMES: &[(&str, &str, bool)] = &[
 /// Replaces undeclared [`CORE_NAMES`] with their compatibility built-ins, so a stage that
 /// uses both (`gl_Normal` and `vaNormal`) reads one input. A declared name stays the
 /// pack's own variable.
-pub(super) fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
+fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
     let mut declared = HashSet::new();
     let mut shadowed = shadowed_bindings(src, CORE_NAMES.iter().map(|(name, _, _)| *name));
     let mut offset = 0;

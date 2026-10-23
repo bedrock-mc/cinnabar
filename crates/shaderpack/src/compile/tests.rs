@@ -12,6 +12,37 @@ fn fragment(glsl: &str) -> Result<CompiledStage, Vec<Diagnostic>> {
             lines: &LineMap::default(),
         },
     )
+    .map_err(|failure| failure.diagnostics)
+}
+
+#[test]
+fn unresolved_variables_are_distinct_from_other_parser_failures() {
+    for (body, variable) in [
+        ("color=vec4(missingValue);", Some("missingValue")),
+        ("color=missingFunction();", None),
+    ] {
+        let glsl =
+            format!("#version 450\nlayout(location=0) out vec4 color; void main() {{ {body} }}");
+        let failure = compile(
+            StageKind::Fragment,
+            &OutputMap {
+                glsl: &glsl,
+                origins: &[],
+                lines: &LineMap::default(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.unknown_variables,
+            variable.into_iter().map(str::to_owned).collect()
+        );
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.phase == Phase::Parse)
+        );
+    }
 }
 
 #[test]

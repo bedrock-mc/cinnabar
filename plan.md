@@ -883,8 +883,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   to validated naga modules, with calls ordered after forward declarations and generated
   helpers. Compatibility rewriting accepts empty top-level declarations, defers square roots
   of negative float literals and separates shared-memory array declarations. Missing vertex
-  varying locations receive zero outputs. Live fragment inputs supply missing numeric
-  vertex declarations before parsing, with zero initialization at user main entry.
+  varying locations receive zero outputs. Unresolved vertex variables receive numeric
+  declarations from used fragment inputs, with zero initialization at user main entry.
   Iris preprocessing recovers empty expanded conditions, malformed conditional macro
   directives and unclosed groups at end of source. Settings properties keep their directive
   diagnostics. Compiler results carry shader modules without duplicate validation data;

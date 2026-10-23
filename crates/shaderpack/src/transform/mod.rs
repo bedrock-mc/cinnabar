@@ -95,10 +95,7 @@ pub(crate) fn transform(
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
     validate_delimiters(&pp.tokens)?;
-    let wide = narrow::lower(&pp.tokens);
-    let wide = wide.as_deref().unwrap_or(&pp.tokens);
-    let fused = dot::order(wide);
-    let lg = legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, pp.version)?;
+    let lg = stage_tokens(&pp.tokens, stage, pp.version)?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
@@ -252,6 +249,18 @@ pub(crate) fn transform(
         frag_outputs: c.frag_outputs,
         resource_names,
     })
+}
+
+/// Applies the type, expression and legacy-name rewrites shared by stage compilation and repair.
+fn stage_tokens(
+    tokens: &[Tok],
+    stage: StageKind,
+    version: u32,
+) -> Result<legacy::Legacy, TransformError> {
+    let wide = narrow::lower(tokens);
+    let wide = wide.as_deref().unwrap_or(tokens);
+    let fused = dot::order(wide);
+    legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, version)
 }
 
 /// Rejects unbalanced token groups before a compatibility parser inspects their contents.

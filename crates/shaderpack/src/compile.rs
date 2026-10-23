@@ -4,6 +4,7 @@ use crate::diagnostics::{Diagnostic, Phase};
 use crate::preprocess::LineMap;
 use crate::programs::StageKind;
 use naga::valid::ModuleInfo;
+use std::collections::HashSet;
 
 mod inputs;
 mod order;
@@ -23,6 +24,23 @@ pub struct CompiledStage {
     /// capabilities and limits its device actually has.
     #[serde(skip_serializing)]
     pub info: ModuleInfo,
+}
+
+/// Compilation diagnostics and the unresolved variable names reported by the GLSL parser.
+#[derive(Debug)]
+pub(crate) struct CompileFailure {
+    pub diagnostics: Vec<Diagnostic>,
+    pub unknown_variables: HashSet<String>,
+}
+
+impl From<Vec<Diagnostic>> for CompileFailure {
+    /// Keeps failures outside name resolution ineligible for declaration repair.
+    fn from(diagnostics: Vec<Diagnostic>) -> Self {
+        Self {
+            diagnostics,
+            unknown_variables: HashSet::new(),
+        }
+    }
 }
 
 /// naga's stage for a translatable stage kind.
@@ -64,18 +82,28 @@ impl OutputMap<'_> {
 pub(crate) fn compile(
     stage: StageKind,
     map: &OutputMap<'_>,
-) -> Result<CompiledStage, Vec<Diagnostic>> {
+) -> Result<CompiledStage, CompileFailure> {
     let Some(naga_stage) = naga_stage(stage) else {
         return Err(vec![Diagnostic::new(
             Phase::Parse,
             format!("{} shaders are not supported", stage.extension()),
-        )]);
+        )]
+        .into());
     };
     let mut frontend = naga::front::glsl::Frontend::default();
     let mut module = frontend
         .parse(&naga::front::glsl::Options::from(naga_stage), map.glsl)
-        .map_err(|e| {
-            e.errors
+        .map_err(|e| CompileFailure {
+            unknown_variables: e
+                .errors
+                .iter()
+                .filter_map(|error| match &error.kind {
+                    naga::front::glsl::ErrorKind::UnknownVariable(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect(),
+            diagnostics: e
+                .errors
                 .iter()
                 .map(|err| {
                     let line = err
@@ -84,7 +112,7 @@ pub(crate) fn compile(
                         .then(|| err.meta.location(map.glsl).line_number);
                     map.diagnostic(Phase::Parse, err.kind.to_string(), line)
                 })
-                .collect::<Vec<_>>()
+                .collect(),
         })?;
     order::functions(&mut module).map_err(|span| {
         let line = span

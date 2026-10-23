@@ -3,7 +3,7 @@
 use crate::compile::{CompiledStage, OutputMap, compile};
 use crate::diagnostics::{Diagnostic, Phase};
 use crate::options::{OptionKind, OptionValues, PackOption};
-use crate::preprocess::{ConstDirective, expand, preprocess};
+use crate::preprocess::{ConstDirective, LineMap, Preprocessed, expand, preprocess};
 use crate::programs::{ProgramKind, ProgramSource, StageKind};
 use crate::properties::ProgramRule;
 use crate::reflect::{StageNames, reflect};
@@ -12,7 +12,7 @@ use crate::source::PackSource;
 use crate::transform::{
     ProgramInterface, ResourceNames, StageDraft, assemble, merge_uniforms, transform,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The outcome for one stage file.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -165,9 +165,6 @@ pub(crate) fn translate_program(
             }
         }
     }
-    let mut iface = ProgramInterface::default();
-    // Stage index → draft and line map, for stages that got through the transform.
-    let mut drafts: Vec<(usize, StageDraft, crate::preprocess::LineMap)> = vec![];
     let mut fragment_targets = None;
     let mut vertex_targets = None;
     let mut preprocessed = Vec::new();
@@ -201,66 +198,56 @@ pub(crate) fn translate_program(
         out.consts.extend(pp.consts.iter().cloned());
         preprocessed.push((i, pp));
     }
-    if program
-        .stages
-        .iter()
-        .all(|(stage, _)| matches!(stage, StageKind::Vertex | StageKind::Fragment))
-        && let Some(vertex) = preprocessed
-            .iter()
-            .position(|(i, _)| out.stages[*i].stage == StageKind::Vertex)
-        && let Some(fragment) = preprocessed
-            .iter()
-            .position(|(i, _)| out.stages[*i].stage == StageKind::Fragment)
-    {
-        let [(_, vertex), (_, fragment)] =
-            preprocessed.get_disjoint_mut([vertex, fragment]).unwrap();
-        if let Err(error) = crate::transform::vertex_outputs(vertex, fragment) {
-            out.diagnostics.push(
-                Diagnostic::new(Phase::Transform, error.message).at(vertex.map.locate(error.line)),
-            );
-            return out;
-        }
-    }
-    for (i, pp) in preprocessed {
-        let stage = out.stages[i].stage;
-        let names = ResourceNames {
-            image_formats: cx.image_formats,
-            sampler_classes: cx.sampler_classes,
-        };
-        match transform(&pp, stage, &mut iface, &names) {
-            Ok(draft) => drafts.push((i, draft, pp.map)),
-            Err(e) => {
-                let d = Diagnostic::new(Phase::Transform, e.message).at(pp.map.locate(e.line));
-                out.stages[i].result = Err(vec![d]);
-            }
-        }
-    }
     if let Some(targets) = fragment_targets.or(vertex_targets) {
         out.draw_buffers = targets;
     }
-    let ubo = match merge_uniforms(drafts.iter().map(|(_, d, _)| d)) {
-        Ok(u) => u,
-        Err(message) => {
-            out.diagnostics.push(Diagnostic::new(Phase::Link, message));
-            return out;
+    let mut attempted = HashSet::new();
+    let drafts = loop {
+        let (drafts, mut unknown) = compile_stages(cx, &preprocessed, &mut out);
+        unknown.retain(|name| attempted.insert(name.clone()));
+        if !out.diagnostics.is_empty()
+            || unknown.is_empty()
+            || program
+                .stages
+                .iter()
+                .any(|(stage, _)| !matches!(stage, StageKind::Vertex | StageKind::Fragment))
+        {
+            break drafts;
         }
-    };
-    let locations = match iface.location_defines() {
-        Ok(locations) => locations,
-        Err(message) => {
-            out.diagnostics.push(Diagnostic::new(Phase::Link, message));
-            return out;
-        }
-    };
-    for (i, draft, map) in &drafts {
-        let (glsl, origins) = assemble(draft, &ubo, &locations);
-        let output = OutputMap {
-            glsl: &glsl,
-            origins: &origins,
-            lines: map,
+        let Some(vertex) = preprocessed
+            .iter()
+            .position(|(i, _)| out.stages[*i].stage == StageKind::Vertex)
+        else {
+            break drafts;
         };
-        out.stages[*i].result = compile(out.stages[*i].stage, &output);
-    }
+        let Some(fragment) = preprocessed
+            .iter()
+            .position(|(i, _)| out.stages[*i].stage == StageKind::Fragment)
+        else {
+            break drafts;
+        };
+        let Ok(compiled) = &out.stages[preprocessed[fragment].0].result else {
+            break drafts;
+        };
+        let vertex_source = &preprocessed[vertex].1;
+        let replacement = match crate::transform::vertex_outputs(
+            vertex_source,
+            &preprocessed[fragment].1,
+            compiled,
+            &unknown,
+        ) {
+            Ok(Some(tokens)) => tokens,
+            Ok(None) => break drafts,
+            Err(error) => {
+                out.diagnostics.push(
+                    Diagnostic::new(Phase::Transform, error.message)
+                        .at(vertex_source.map.locate(error.line)),
+                );
+                break drafts;
+            }
+        };
+        preprocessed[vertex].1.tokens = replacement;
+    };
     if !out.diagnostics.is_empty() || out.stages.iter().any(|s| s.result.is_err()) {
         return out;
     }
@@ -298,4 +285,58 @@ pub(crate) fn translate_program(
         Err(message) => out.diagnostics.push(Diagnostic::new(Phase::Link, message)),
     }
     out
+}
+
+/// Compiles stage drafts with one shared interface and retains vertex name-resolution failures.
+fn compile_stages(
+    cx: &Context<'_>,
+    preprocessed: &[(usize, Preprocessed)],
+    out: &mut ProgramTranslation,
+) -> (Vec<(usize, StageDraft, LineMap)>, HashSet<String>) {
+    let mut iface = ProgramInterface::default();
+    let mut drafts = Vec::new();
+    for (i, pp) in preprocessed {
+        let names = ResourceNames {
+            image_formats: cx.image_formats,
+            sampler_classes: cx.sampler_classes,
+        };
+        match transform(pp, out.stages[*i].stage, &mut iface, &names) {
+            Ok(draft) => drafts.push((*i, draft, pp.map.clone())),
+            Err(error) => {
+                out.stages[*i].result = Err(vec![
+                    Diagnostic::new(Phase::Transform, error.message).at(pp.map.locate(error.line)),
+                ]);
+            }
+        }
+    }
+    let ubo = match merge_uniforms(drafts.iter().map(|(_, draft, _)| draft)) {
+        Ok(ubo) => ubo,
+        Err(message) => {
+            out.diagnostics.push(Diagnostic::new(Phase::Link, message));
+            return (drafts, HashSet::new());
+        }
+    };
+    let locations = match iface.location_defines() {
+        Ok(locations) => locations,
+        Err(message) => {
+            out.diagnostics.push(Diagnostic::new(Phase::Link, message));
+            return (drafts, HashSet::new());
+        }
+    };
+    let mut unknown = HashSet::new();
+    for (i, draft, map) in &drafts {
+        let (glsl, origins) = assemble(draft, &ubo, &locations);
+        let output = OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: map,
+        };
+        out.stages[*i].result = compile(out.stages[*i].stage, &output).map_err(|failure| {
+            if out.stages[*i].stage == StageKind::Vertex {
+                unknown.extend(failure.unknown_variables);
+            }
+            failure.diagnostics
+        });
+    }
+    (drafts, unknown)
 }

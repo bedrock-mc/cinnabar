@@ -338,3 +338,43 @@ fn compatibility_binding_unbraced_locals_do_not_create_outputs() {
         );
     }
 }
+
+#[test]
+fn compatibility_bare_condition_inputs_repair_missing_vertex_variables() {
+    success(
+        "#version 450\nvoid main() { carry=1; gl_Position=vec4(0.0); }",
+        "#version 450\nflat in int carry; out vec4 color; void main() { switch(carry) { case 1: color=vec4(1.0); break; default: color=vec4(0.0); } }",
+    );
+}
+
+#[test]
+fn compatibility_repair_preserves_other_bound_vertex_names() {
+    success(
+        "#version 450\nlayout(location=0) out vec2 sourceUv; void main() { vec2 uv=vec2(1.0); sourceUv=uv; carry=1; gl_Position=vec4(0.0); }",
+        "#version 450\nlayout(location=0) in vec2 uv; layout(location=1) flat in int carry; out vec4 color; void main() { color=vec4(uv,float(carry),1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_missing_variables_use_resolved_fragment_reads() {
+    for (vertex, fragment) in [
+        (
+            "#version 330\nvoid main() { carry=vec2(0.25); gain=0.75; gl_Position=vec4(0.0); }",
+            "#version 330\nin vec2 carry; in float gain; out vec4 color; void main() { color=vec4(carry,gain,1.0); }",
+        ),
+        (
+            "#version 120\nvoid main() { texture=vec2(0.25); gl_Position=vec4(0.0); }",
+            "#version 120\nvarying vec2 texture; void main() { gl_FragColor=vec4(texture,0.0,1.0); }",
+        ),
+        (
+            "#version 330\nvoid main() { carry=mat2(1.0); gl_Position=vec4(0.0); }",
+            "#version 330\nin mat2 carry; out vec4 color; void main() { color=vec4(carry[0],carry[1]); }",
+        ),
+        (
+            "#version 330\nvoid main() { carry=vec2(0.25); gl_Position=vec4(0.0); }",
+            "#version 330\nin vec2 carry; vec2 readUnused() { return carry; } out vec4 color; void main() { color=vec4(1.0); }",
+        ),
+    ] {
+        success(vertex, fragment);
+    }
+}
