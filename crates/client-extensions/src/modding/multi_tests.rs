@@ -751,7 +751,8 @@ fn action_filter_owner_tracks_instance_lifecycle() {
         transitions: vec![
             mod_host::ActionTransition {
                 action: mod_host::FilteredAction::Attack,
-                kind: mod_host::TransitionKind::Press
+                kind: mod_host::TransitionKind::Press,
+                held_after: true,
             };
             9
         ],

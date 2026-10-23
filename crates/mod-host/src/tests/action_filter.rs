@@ -38,6 +38,7 @@ fn frame() -> ActionFrame {
         transitions: vec![ActionTransition {
             action: FilteredAction::Attack,
             kind: TransitionKind::Press,
+            held_after: true,
         }],
     }
 }

@@ -74,6 +74,7 @@ fn to_guest(frame: &input::ActionFilterFrame) -> mod_host::ActionFrame {
             .transitions
             .iter()
             .map(|t| mod_host::ActionTransition {
+                held_after: t.held_after,
                 action: match t.action {
                     input::FilterAction::Attack => mod_host::FilteredAction::Attack,
                     input::FilterAction::ItemUse => mod_host::FilteredAction::ItemUse,

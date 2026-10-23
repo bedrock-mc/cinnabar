@@ -180,7 +180,9 @@ A player mod can explicitly export `filter-actions(action-frame) -> action-verdi
 under the `controls` grant. Use `mod_api::filtered_player_mod` bindings to opt in;
 ordinary `PlayerMod` exports do not claim ownership. Only the earliest active,
 granted exporter runs. It receives resolved Attack/Use transitions, physical and
-logical hold state, a continuity epoch, and absolute monotonic microseconds.
+logical hold state, each transition’s resulting physical hold, a continuity epoch,
+and absolute monotonic microseconds. Releasing one binding preserves an action
+still held by another.
 Ordered desktop transitions preserve source order. Phase-only devices use a
 canonical channel order and cannot recover sub-frame ordering.
 

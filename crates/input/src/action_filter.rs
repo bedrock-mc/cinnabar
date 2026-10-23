@@ -38,6 +38,7 @@ pub enum TransitionKind {
 pub struct ActionTransition {
     pub action: FilterAction,
     pub kind: TransitionKind,
+    pub held_after: bool,
 }
 /// Immutable observations for a synchronous filter invocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +143,7 @@ impl ActionFilterState {
             .filter_map(|e| {
                 Some(ActionTransition {
                     action: FilterAction::from_action(e.action)?,
+                    held_after: e.buttons.held(e.action),
                     kind: if e.pressed {
                         TransitionKind::Press
                     } else {
@@ -159,6 +161,7 @@ impl ActionFilterState {
             transitions.push(ActionTransition {
                 action: FilterAction::Attack,
                 kind: TransitionKind::Repeat,
+                held_after: true,
             });
         }
         let frame = ActionFilterFrame {
@@ -203,10 +206,11 @@ impl ActionFilterState {
         for a in FilterAction::ALL {
             let i = a.index();
             if verdict.release[i] && held[i] && !physical[i] {
-                emit(&mut output, &mut edges, &mut held, a, false, initial);
+                emit(&mut output, &mut edges, &mut held, a, false, false, initial);
             }
         }
         let mut physical = physical;
+        let mut owned = held;
         let mut decision = 0;
         for event in events {
             if let Some(a) = FilterAction::from_action(event.action) {
@@ -216,14 +220,45 @@ impl ActionFilterState {
                 if accepted {
                     if event.pressed && (!physical[i] || held[i]) {
                         if held[i] && !physical[i] {
-                            emit(&mut output, &mut edges, &mut held, a, false, event.buttons);
+                            emit(
+                                &mut output,
+                                &mut edges,
+                                &mut held,
+                                a,
+                                false,
+                                false,
+                                event.buttons,
+                            );
                         }
-                        emit(&mut output, &mut edges, &mut held, a, true, event.buttons);
-                    } else if held[i] {
-                        emit(&mut output, &mut edges, &mut held, a, false, event.buttons);
+                        emit(
+                            &mut output,
+                            &mut edges,
+                            &mut held,
+                            a,
+                            true,
+                            event.buttons.held(event.action),
+                            event.buttons,
+                        );
+                        owned[i] = true;
+                    } else if !event.pressed && (held[i] || owned[i]) {
+                        emit(
+                            &mut output,
+                            &mut edges,
+                            &mut held,
+                            a,
+                            false,
+                            event.buttons.held(event.action),
+                            event.buttons,
+                        );
                     }
                 }
-                physical[i] = event.pressed;
+                if event.pressed && !accepted && !held[i] {
+                    owned[i] = false;
+                }
+                if !event.pressed && !event.buttons.held(event.action) {
+                    owned[i] = held[i];
+                }
+                physical[i] = event.buttons.held(event.action);
             } else {
                 output.push(ActionEvent {
                     buttons: project(event.buttons, held),
@@ -239,6 +274,7 @@ impl ActionFilterState {
                 &mut edges,
                 &mut held,
                 FilterAction::Attack,
+                true,
                 true,
                 buttons,
             );
@@ -266,10 +302,11 @@ fn emit(
     held: &mut [bool; 2],
     action: FilterAction,
     pressed: bool,
+    held_after: bool,
     raw: ActionButtons,
 ) {
     let i = action.index();
-    held[i] = pressed;
+    held[i] = held_after;
     if pressed {
         edges[i].pressed = true;
     } else {

@@ -29,7 +29,7 @@
     (export "filtered-action" (type $action (eq $a)))
     (type $k (enum "press" "release" "repeat"))
     (export "transition-kind" (type $kind (eq $k)))
-    (type $t (record (field "action" $action) (field "kind" $kind)))
+    (type $t (record (field "action" $action) (field "kind" $kind) (field "held-after" bool)))
     (export "transition" (type $transition (eq $t)))
     (type $h (record (field "attack" bool) (field "item-use" bool)))
     (export "held" (type $held (eq $h)))

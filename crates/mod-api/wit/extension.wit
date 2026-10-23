@@ -570,7 +570,12 @@ interface action-filter {
     enum filtered-action { attack, item-use }
     /// Repeat is an authorized pulse on physically held attack, not another device press.
     enum transition-kind { press, release, repeat }
-    record transition { action: filtered-action, kind: transition-kind }
+    record transition {
+        action: filtered-action,
+        kind: transition-kind,
+        /// Resolved physical hold after this edge; another binding may still hold the action.
+        held-after: bool,
+    }
     record held { attack: bool, item-use: bool }
     record action-frame {
         /// Changes on owner replacement, callback failure or input-authority interruption.

@@ -237,7 +237,8 @@ fn authorized_repeat_is_independent_of_physical_edges_and_rejection_keeps_hold()
                 f.transitions,
                 [ActionTransition {
                     action: FilterAction::Attack,
-                    kind: TransitionKind::Repeat
+                    kind: TransitionKind::Repeat,
+                    held_after: true,
                 }]
             );
             decide(&[accept], [false; 2])
@@ -315,4 +316,60 @@ fn duplicate_physical_press_does_not_restart_a_suppressed_hold() {
         duplicate.phases[Action::Attack as usize],
         ActionPhase::default()
     );
+}
+
+/// A release edge may leave the action physically held by a different binding.
+#[test]
+fn releasing_one_binding_preserves_another_binding_hold() {
+    let mut state = ActionFilterState::default();
+    let mut input = ordered([true, false], &[]);
+    input.phases[Action::Attack as usize] = ActionPhase {
+        held: true,
+        released: true,
+        pressed: true,
+    };
+    input.ordered.as_mut().unwrap().events = vec![
+        ActionEvent {
+            action: Action::Attack,
+            pressed: false,
+            buttons: buttons([true, false]),
+        },
+        ActionEvent {
+            action: Action::Attack,
+            pressed: true,
+            buttons: buttons([true, false]),
+        },
+    ];
+    state.filter(&mut input, Some(1), 0, false, |f| {
+        assert!(f.transitions.iter().all(|t| t.held_after));
+        decide(&[true, true], [false; 2])
+    });
+    assert!(input.phases[Action::Attack as usize].held);
+    assert!(
+        input
+            .ordered
+            .unwrap()
+            .events
+            .iter()
+            .all(|e| e.buttons.held(Action::Attack))
+    );
+}
+
+/// Momentary source edges remain taps rather than becoming an invented hold.
+#[test]
+fn accepted_momentary_edges_preserve_the_raw_projection() {
+    let mut state = ActionFilterState::default();
+    let mut input = ordered(
+        [false; 2],
+        &[(Action::Attack, true), (Action::Attack, false)],
+    );
+    for event in &mut input.ordered.as_mut().unwrap().events {
+        event.buttons = buttons([false; 2]);
+    }
+    let original = input.phases[Action::Attack as usize];
+    state.filter(&mut input, Some(1), 0, false, |f| {
+        Some(ActionVerdict::passthrough(f))
+    });
+    assert_eq!(input.phases[Action::Attack as usize], original);
+    assert_eq!(input.ordered.unwrap().events.len(), 2);
 }
