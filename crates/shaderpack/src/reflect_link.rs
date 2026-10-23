@@ -135,6 +135,10 @@ fn same_buffer_layout(
                     stride: b_stride,
                 },
             ) if a_size == b_size && a_stride == b_stride => pending.push((*a, *b)),
+            (
+                TypeInner::Scalar(a) | TypeInner::Atomic(a),
+                TypeInner::Scalar(b) | TypeInner::Atomic(b),
+            ) if a == b => {}
             (a, b) if a == b => {}
             _ => return false,
         }
@@ -166,4 +170,50 @@ fn locations(
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_buffer_layout;
+
+    /// Builds a module with one scalar or atomic buffer leaf for layout comparisons.
+    fn leaf(scalar: naga::Scalar, atomic: bool) -> (naga::Module, naga::Handle<naga::Type>) {
+        let mut module = naga::Module::default();
+        let ty = module.types.insert(
+            naga::Type {
+                name: None,
+                inner: if atomic {
+                    naga::TypeInner::Atomic(scalar)
+                } else {
+                    naga::TypeInner::Scalar(scalar)
+                },
+            },
+            naga::Span::UNDEFINED,
+        );
+        (module, ty)
+    }
+
+    #[test]
+    fn scalar_and_atomic_leaves_require_matching_kind_and_width() {
+        for left_atomic in [false, true] {
+            for right_atomic in [false, true] {
+                let (left, left_ty) = leaf(naga::Scalar::U32, left_atomic);
+                for right_scalar in [
+                    naga::Scalar::U32,
+                    naga::Scalar::I32,
+                    naga::Scalar {
+                        kind: naga::ScalarKind::Uint,
+                        width: 8,
+                    },
+                ] {
+                    let (right, right_ty) = leaf(right_scalar, right_atomic);
+                    assert_eq!(
+                        same_buffer_layout(&left, left_ty, &right, right_ty),
+                        right_scalar == naga::Scalar::U32,
+                        "left atomic={left_atomic}, right atomic={right_atomic}, right scalar={right_scalar:?}"
+                    );
+                }
+            }
+        }
+    }
 }

@@ -215,6 +215,57 @@ fn compatible_resource_blocks_allow_stage_local_member_names() {
 }
 
 #[test]
+fn compatible_storage_blocks_allow_stage_local_atomic_usage() {
+    for (members, access) in [
+        ("uint count;", "data.count"),
+        ("uint counts[2];", "data.counts[1]"),
+        ("State states[2];", "data.states[1].counts[1]"),
+    ] {
+        for atomic_in_vertex in [false, true] {
+            let declaration = format!(
+                "#version 450
+                struct State {{ uint counts[2]; }};
+                layout(std430, binding=2) buffer Data {{ {members} }} data;"
+            );
+            let atomic = format!("atomicAdd({access}, 1u)");
+            let (vertex_value, fragment_value) = if atomic_in_vertex {
+                (atomic.as_str(), access)
+            } else {
+                (access, atomic.as_str())
+            };
+            let translation = success(
+                &format!(
+                    "{declaration}\nvoid main() {{ gl_Position = vec4(float({vertex_value})); }}"
+                ),
+                &format!(
+                    "{declaration}\nout vec4 color;
+                    void main() {{ color = vec4(float({fragment_value})); }}"
+                ),
+            );
+            let buffers = &reflection(program(&translation, "composite")).storage_buffers;
+            assert_eq!(buffers.len(), 1);
+            assert!(buffers[0].stages.vertex && buffers[0].stages.fragment);
+        }
+    }
+}
+
+#[test]
+fn atomic_storage_members_reject_different_scalar_kinds() {
+    let translation = translate(
+        "#version 450
+        layout(std430, binding=2) buffer Data { uint count; } data;
+        void main() { gl_Position = vec4(float(atomicAdd(data.count, 1u))); }",
+        "#version 450
+        layout(std430, binding=2) buffer Data { int count; } data;
+        out vec4 color; void main() { color = vec4(float(data.count)); }",
+    );
+    let failed = program(&translation, "composite");
+    assert!(!failed.is_ok());
+    assert!(failed.stages.iter().all(|stage| stage.result.is_ok()));
+    assert!(failed.diagnostics.iter().any(|d| d.phase == Phase::Link));
+}
+
+#[test]
 fn unused_resource_layout_differences_do_not_reject_live_stages() {
     success(
         "#version 450
