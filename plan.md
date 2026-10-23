@@ -517,7 +517,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   remain incomplete.
   Actor-use transactions precede throwable use when verified component and held-item
   facts rule out every possible offering. Unresolved native resolvers, behavior sources,
-  component groups and callback state retain conservative interaction handling.
+  component groups, unclassified components and callback state retain conservative
+  interaction handling.
   Complete native resolver coverage, filter/property and item-tag conditions, dynamic
   group activation, ride eligibility metadata and matched in-world interaction acceptance
   remain incomplete; this scoped throwable correction closes no interaction gate.

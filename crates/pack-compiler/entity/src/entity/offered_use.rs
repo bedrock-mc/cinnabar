@@ -200,8 +200,8 @@ fn components(
             | "minecraft:dyeable"
             | "minecraft:spawn_egg_interaction"
             | "minecraft:boostable" => C::Never,
-            _ if !name.starts_with("minecraft:") => C::Unresolved,
-            _ => continue,
+            // A namespace alone cannot rule out an interaction from an unclassified component.
+            _ => C::Unresolved,
         };
         output.push(ComponentUse {
             selector,

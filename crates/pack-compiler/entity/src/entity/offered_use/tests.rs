@@ -48,6 +48,26 @@ fn balloon_retrieval_cannot_be_excluded_by_the_held_item() {
 }
 
 #[test]
+fn unclassified_components_cannot_supply_negative_interaction_evidence() {
+    for component in ["minecraft:unclassified_fixture", "fixture:interaction"] {
+        assert_unresolved_callback(component);
+        for entity in [
+            serde_json::json!({"components": {
+                "minecraft:breedable": {"breed_items": ["wheat"]}, component: {}
+            }}),
+            serde_json::json!({"components": {
+                "minecraft:breedable": {"breed_items": ["wheat"]}
+            }, "component_groups": {"fixture:conditional": {component: {}}}}),
+        ] {
+            assert_eq!(
+                outcome(entity, "minecraft:snowball"),
+                OfferedUse::Unresolved
+            );
+        }
+    }
+}
+
+#[test]
 fn unsupported_filter_operators_cannot_default_to_equality() {
     for operator in [
         serde_json::json!(1),
