@@ -215,7 +215,7 @@ pub(super) fn due_physics() -> LocalPhysicsController {
 
 fn sent_air_drag(physics: &mut LocalPhysicsController, accepted: Option<f32>) -> f32 {
     let mut sent = None;
-    send_movement_prediction_sync(physics, &local_actor(), accepted, false, |packet| {
+    send_movement_prediction_sync(physics, &local_actor(), accepted, None, false, |packet| {
         sent = Some(packet);
         true
     });
@@ -231,7 +231,7 @@ fn undefined_attributes_publish_defaults_and_retry_until_accepted() {
     let mut physics = due_physics();
     let mut attempts = Vec::new();
     for accepted in [false, true] {
-        send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+        send_movement_prediction_sync(&mut physics, &actor, None, None, false, |packet| {
             attempts.push(
                 protocol::test_support::packets::prediction_sync_attributes(&packet)
                     .expect("wrong packet"),
@@ -302,7 +302,7 @@ fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {
             | if sprinting { sprint } else { 0 };
         for accepted in [false, true] {
             let mut sent = None;
-            send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+            send_movement_prediction_sync(&mut physics, &actor, None, None, false, |packet| {
                 sent = Some(packet);
                 accepted
             });
@@ -479,7 +479,7 @@ fn correction_sync_reports_a_local_swim_before_server_metadata() {
     }
     assert_eq!(physics.mode(), sim::MovementMode::Swimming);
     let mut sent = None;
-    send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+    send_movement_prediction_sync(&mut physics, &actor, None, None, false, |packet| {
         sent = Some(packet);
         true
     });
@@ -580,7 +580,7 @@ fn riding_sync_retains_the_effective_flight_ability() {
         assert!(frame.completed_ticks > 0);
         assert_eq!(physics.mode(), sim::MovementMode::Riding);
         let mut sent = None;
-        send_movement_prediction_sync(&mut physics, &local_actor(), None, false, |packet| {
+        send_movement_prediction_sync(&mut physics, &local_actor(), None, None, false, |packet| {
             sent = Some(packet);
             true
         });
@@ -588,6 +588,38 @@ fn riding_sync_retains_the_effective_flight_ability() {
             protocol::test_support::packets::prediction_sync_flying(&sent.expect("due sync")),
             Some(flying)
         );
+    }
+}
+
+#[test]
+fn sync_uses_effective_movement_speed_before_the_server_echo() {
+    let mut speed = super::super::LocalMovementSpeedAuthority::default();
+    speed.begin_session(1, 0);
+    assert!(speed.apply(
+        1,
+        1,
+        0,
+        client_world::MovementSpeedAttribute::unmodified(0.1)
+    ));
+    for sprinting in [true, false] {
+        speed.set_sprinting(sprinting);
+        let mut physics = due_physics();
+        let mut sent = None;
+        send_movement_prediction_sync(
+            &mut physics,
+            &local_actor(),
+            None,
+            speed.current(),
+            false,
+            |packet| {
+                sent = Some(packet);
+                true
+            },
+        );
+        let attributes =
+            protocol::test_support::packets::prediction_sync_attributes(&sent.expect("due sync"))
+                .expect("prediction sync");
+        assert_eq!(attributes[0], speed.current().unwrap() as f32);
     }
 }
 
@@ -652,7 +684,7 @@ fn correction_sync_retry_preserves_server_posture_without_a_completed_tick() {
             let frame = physics.advance(std::time::Duration::from_millis(100), input, &OpenWorld);
             assert_eq!(frame.completed_ticks, 2);
             let completed = physics.latest_sneak_sprint().unwrap();
-            send_movement_prediction_sync(&mut physics, &actor, None, false, |_| false);
+            send_movement_prediction_sync(&mut physics, &actor, None, None, false, |_| false);
             assert!(physics.prediction_sync.due());
 
             let accepted = (!completed.0, !completed.1);
@@ -681,7 +713,7 @@ fn correction_sync_retry_preserves_server_posture_without_a_completed_tick() {
             assert_eq!(physics.latest_sneak_sprint(), Some(completed));
 
             for admitted in [false, true] {
-                send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+                send_movement_prediction_sync(&mut physics, &actor, None, None, false, |packet| {
                     assert_eq!(
                         packet,
                         client_movement_prediction_sync(MovementPredictionSync {

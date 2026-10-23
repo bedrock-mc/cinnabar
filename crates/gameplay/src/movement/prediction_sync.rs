@@ -34,11 +34,13 @@ const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 /// Sends a due correction sync and clears its countdown only after admission.
 /// `air_drag_modifier` is the session's last accepted finite value, which
 /// outlives the replay history that dimension waits and hard corrections clear.
+/// `movement_speed` is the accepted attribute current after local sprint and effect changes.
 /// `using_item` is the accepted local item use.
 pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
     air_drag_modifier: Option<f32>,
+    movement_speed: Option<f64>,
     using_item: bool,
     send: impl FnOnce(protocol::Packet) -> bool,
 ) {
@@ -48,7 +50,7 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    let attributes = attributes(
+    let mut attributes = attributes(
         |name| {
             actor
                 .attributes
@@ -57,6 +59,9 @@ pub fn send_movement_prediction_sync(
         },
         air_drag_modifier,
     );
+    if let Some(current) = movement_speed {
+        attributes[0] = current as f32;
+    }
     let actor_flags =
         predicted_flag_words(&actor.metadata, physics.prediction_sync_pose(), using_item);
     let sync = MovementPredictionSync {
