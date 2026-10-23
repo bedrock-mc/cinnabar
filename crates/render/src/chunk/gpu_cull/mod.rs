@@ -44,6 +44,13 @@ use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull};
 
 /// Forces the CPU culling path for A/B measurement.
 const CPU_CULLING_ENV: &str = "CINNABAR_CPU_CULLING";
+
+/// Android drivers that lose the Vulkan device under the indirect/compute terrain path.
+/// ARM Mali uses vendor 0x13B5; Imagination PowerVR uses 0x1010.
+fn fragile_android_gpu(info: &wgpu::AdapterInfo) -> bool {
+    cfg!(target_os = "android") && matches!(info.vendor, 0x13B5 | 0x1010)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::chunk) enum GpuCullSubmission {
     Count,
@@ -103,7 +110,6 @@ pub(in crate::chunk) struct GpuCullFrame {
 }
 
 pub(in crate::chunk) fn install(app: &mut App) {
-    let forced_cpu = env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
@@ -113,12 +119,20 @@ pub(in crate::chunk) fn install(app: &mut App) {
     ) else {
         return;
     };
-    let draw_mode = select_chunk_draw_mode(
-        adapter.get_downlevel_capabilities().flags,
-        device.features(),
-        Backends::from(adapter.get_info().backend),
-        apple_gpu(&adapter.get_info()),
-    );
+    let info = adapter.get_info();
+    let fragile = fragile_android_gpu(&info);
+    let forced_cpu =
+        fragile || env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
+    let draw_mode = if fragile {
+        ChunkDrawMode::Direct
+    } else {
+        select_chunk_draw_mode(
+            adapter.get_downlevel_capabilities().flags,
+            device.features(),
+            Backends::from(info.backend),
+            apple_gpu(&info),
+        )
+    };
     let submission = gpu_cull_submission(
         draw_mode,
         device.features(),
