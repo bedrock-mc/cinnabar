@@ -278,6 +278,17 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    if std::env::var_os("CINNABAR_STARTUP_BENCHMARK").is_some() && !cfg!(feature = "acceptance") {
+        bail!("startup benchmark requires a client built with the `acceptance` feature");
+    }
+    #[cfg(feature = "developer-control")]
+    let offscreen_benchmark = std::env::var_os("CINNABAR_STARTUP_BENCHMARK").is_some()
+        && crate::developer_control::hidden_window_requested();
+    #[cfg(not(feature = "developer-control"))]
+    let offscreen_benchmark = false;
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.configure_menu(!args.connection_requested(), offscreen_benchmark);
+    }
     let feedback = crate::startup_feedback::Feedback::start();
     let app = App::new();
     #[cfg(feature = "enhanced-diagnostics")]
@@ -325,7 +336,88 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
+        &layout
+            .server_file()
+            .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+    );
+    let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
+    let stage_profile_enabled =
+        env_compat::var_os(diagnostics::markers::STAGE_PROFILE).as_deref() == Some(OsStr::new("1"));
+    #[cfg(feature = "developer-control")]
+    let hidden_surface = crate::developer_control::hidden_window_requested();
+    #[cfg(not(feature = "developer-control"))]
+    let hidden_surface = false;
+    let present_mode_runtime = PresentModeRuntime::from_startup(
+        args.force_vsync,
+        args.no_vsync,
+        diagnostics_enabled,
+        hidden_surface,
+    )
+    .with_launch_frame_cap(args.frame_cap);
+    let present_mode = present_mode_runtime.window_present_mode();
+    let present_mode_policy = present_mode_runtime.policy();
+    let vsync_override = present_mode_runtime.vsync_override();
+    let runtime_config = AcceptanceRuntimeConfig {
+        build_profile: if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+    };
+    let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
+
+    let startup_vsync = present_mode_runtime
+        .vsync_override()
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync.enabled());
+    if feedback.cancelled() {
+        return Ok(());
+    }
+    feedback.progress(launcher::startup::Stage::OpeningWindow);
+    let primary_window = render_setup::primary_window(
+        launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
+        present_mode,
+        render::frame_latency_for_vsync(startup_vsync),
+    );
+    #[cfg(feature = "developer-control")]
+    let primary_window = crate::developer_control::primary_window(primary_window);
+    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
+    let mut app = app;
+    let boot_exit = render_setup::BootExit::watch(&mut app);
+    app.insert_resource(feedback.clone());
+    configure_client_frame_schedule(&mut app);
+    let renderer = RendererSetup {
+        data_root: layout.user_data_root.clone(),
+        video_override: saved_settings.graphics_api(),
+        graphics_api_revision: saved_settings.graphics_api_revision(),
+    };
+    let plugins = DefaultPlugins
+        .set(WindowPlugin {
+            primary_window: Some(primary_window),
+            ..default()
+        })
+        .add_before::<bevy::render::RenderPlugin>(renderer)
+        .disable::<bevy::render::RenderPlugin>()
+        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
+        // The world camera installs only the opt-in depth-based spatial filter.
+        .disable::<AntiAliasPlugin>()
+        // The launcher owns the production process lifecycle. Keeping the
+        // OS default SIGINT action also preserves a real developer escape
+        // hatch if graceful Bevy teardown is wedged.
+        .disable::<TerminalCtrlCHandlerPlugin>();
+    let (carriers, ()) = startup::overlap(
+        || {
+            render_scene::startup_timing::measure("carriers", || {
+                startup::load_startup_carriers(selected_assets, &layout.physics_registry)
+            })
+        },
+        || {
+            render_scene::startup_timing::measure("renderer_and_plugins", || {
+                logging::add_default_plugins(&mut app, plugins)
+            })
+        },
+    );
+
     let startup::CoreCarriers {
         assets: loaded_assets,
         actor: actor_catalog,
@@ -364,11 +456,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
     bevy::log::info!("{}", lang_assets.startup_summary());
-    let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
-        &layout
-            .server_file()
-            .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
-    );
     let language = assets::carriers::startup::active_language(
         args.language.as_deref().or(saved_settings.language()),
     );
@@ -441,9 +528,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     let food_catalog = equipment_catalog.clone();
     ui_presentation.set_equipment_catalog(equipment_catalog);
-    ui_presentation
-        .set_gui_models(&loaded_assets.runtime, &entity_runtime)
-        .context("prepare native GUI model geometry and original texture pages")?;
+    render_scene::startup_timing::measure("gui_models", || {
+        ui_presentation.set_gui_models(&loaded_assets.runtime, &entity_runtime)
+    })
+    .context("prepare native GUI model geometry and original texture pages")?;
     ui_presentation.set_gui_particle_assets(particle_assets.clone());
     ui_presentation
         .set_gui_fire_texture(flame_texture)
@@ -544,7 +632,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
-    let renderer_data_root = layout.user_data_root.clone();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = MenuRuntime::new_with_import_snapshot(
         !connection_requested,
@@ -559,76 +646,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.language.as_deref(),
     );
     crate::runtime::network::await_overlay_texture_device();
-    let packet_mods = crate::modding::packets::from_environment();
+    app.insert_resource(crate::modding::packets::from_environment());
     let network = NetworkHandle::<PackApplication>::disconnected();
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
     );
-    let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
-    let stage_profile_enabled =
-        env_compat::var_os(diagnostics::markers::STAGE_PROFILE).as_deref() == Some(OsStr::new("1"));
-    #[cfg(feature = "developer-control")]
-    let hidden_surface = crate::developer_control::hidden_window_requested();
-    #[cfg(not(feature = "developer-control"))]
-    let hidden_surface = false;
-    let present_mode_runtime = PresentModeRuntime::from_startup(
-        args.force_vsync,
-        args.no_vsync,
-        diagnostics_enabled,
-        hidden_surface,
-    )
-    .with_launch_frame_cap(args.frame_cap);
-    let present_mode = present_mode_runtime.window_present_mode();
-    let present_mode_policy = present_mode_runtime.policy();
-    let vsync_override = present_mode_runtime.vsync_override();
-    let runtime_config = AcceptanceRuntimeConfig {
-        build_profile: if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        },
-    };
-    let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
-
-    let startup_vsync = present_mode_runtime
-        .vsync_override()
-        .unwrap_or_else(|| saved_settings.user_settings().video.vsync.enabled());
-    if feedback.cancelled() {
-        return Ok(());
-    }
-    feedback.progress(launcher::startup::Stage::OpeningWindow);
-    let primary_window = render_setup::primary_window(
-        launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
-        present_mode,
-        render::frame_latency_for_vsync(startup_vsync),
-    );
-    #[cfg(feature = "developer-control")]
-    let primary_window = crate::developer_control::primary_window(primary_window);
-    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
-    let mut app = app;
-    app.insert_resource(packet_mods);
-    app.insert_resource(feedback.clone());
-    configure_client_frame_schedule(&mut app);
-    let renderer = RendererSetup {
-        data_root: renderer_data_root,
-        video_override: saved_settings.graphics_api(),
-        graphics_api_revision: saved_settings.graphics_api_revision(),
-    };
-    let plugins = DefaultPlugins
-        .set(WindowPlugin {
-            primary_window: Some(primary_window),
-            ..default()
-        })
-        .add_before::<bevy::render::RenderPlugin>(renderer)
-        .disable::<bevy::render::RenderPlugin>()
-        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-        // The world camera installs only the opt-in depth-based spatial filter.
-        .disable::<AntiAliasPlugin>()
-        // The launcher owns the production process lifecycle. Keeping the
-        // OS default SIGINT action also preserves a real developer escape
-        // hatch if graceful Bevy teardown is wedged.
-        .disable::<TerminalCtrlCHandlerPlugin>();
-    logging::add_default_plugins(&mut app, plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .init_resource::<crate::frame_pacing::PowerSource>()
@@ -903,6 +925,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
+    boot_exit.disarm();
     let exit = crate::runtime::frame_profile::run(&mut app);
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);

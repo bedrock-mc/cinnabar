@@ -104,3 +104,38 @@ mod tests {
         }
     }
 }
+
+/// Cancels an unfinished renderer only when ordinary setup returns before the event loop.
+pub(super) struct BootExit {
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    armed: bool,
+}
+
+#[derive(bevy::prelude::Resource, Default)]
+struct BootCancellation(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl BootExit {
+    /// Links normal setup returns to the renderer guard without borrowing the app.
+    pub(super) fn watch(app: &mut bevy::prelude::App) -> Self {
+        app.init_resource::<BootCancellation>();
+        Self {
+            cancelled: app.world().resource::<BootCancellation>().0.clone(),
+            armed: true,
+        }
+    }
+
+    /// Runtime exits and crashes use the renderer's existing presentation and recovery rules.
+    pub(super) fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for BootExit {
+    /// Marks an orderly early return; unwinding still preserves crash recovery.
+    fn drop(&mut self) {
+        if self.armed && !std::thread::panicking() {
+            self.cancelled
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+}

@@ -59,3 +59,6 @@ pub const BLOCK_OVERLAY_FACE_OFFSET: f32 = 0.002;
 
 /// Vertex style bit selecting linear filtering for UI sprites.
 pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
+
+/// Structured report emitted after the first presented main-menu frame.
+pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";

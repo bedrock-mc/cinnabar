@@ -1,16 +1,60 @@
 //! Wall-clock instrumentation for startup carrier I/O and the first frame.
 use assets::carriers::startup::CarrierLoadObserver;
-use bevy::prelude::{App, Last, Local, Res, Resource};
+use bevy::prelude::{App, IntoScheduleConfigs, Last, Local, Res, Resource};
 use std::time::Instant;
 
 /// When the event loop started.
 #[derive(Resource)]
 struct EventLoopStart(Instant);
 
+#[derive(Resource)]
+struct UpdateStart(Instant);
+
 /// Logs, on the first frame, the time since launch and how much of it preceded the event loop.
 pub(crate) fn install_first_frame_log(app: &mut App) {
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.record(
+            "before_event_loop",
+            crate::lifecycle::launched_at().elapsed(),
+        );
+    }
     app.insert_resource(EventLoopStart(Instant::now()))
-        .add_systems(Last, log_first_frame);
+        .insert_resource(UpdateStart(Instant::now()))
+        .add_systems(bevy::prelude::First, begin_update.run_if(recording))
+        .add_systems(
+            Last,
+            (
+                finish_update.run_if(recording),
+                log_first_frame,
+                log_presented_menu.run_if(recording),
+            )
+                .chain(),
+        );
+}
+
+/// Emits a report only for completed menu content; world launches have a different endpoint.
+fn log_presented_menu(
+    presentation: Res<render_scene::startup_presentation::StartupPresentation>,
+    menu: Res<client_shell::menu::MenuRuntime>,
+    mut exit: bevy::prelude::MessageWriter<bevy::prelude::AppExit>,
+) {
+    if !menu.is_visible() {
+        return;
+    }
+    if let Some(timing) = render_scene::startup_timing::current()
+        && let Some(presented) = presentation
+            .content_presented_at()
+            .or_else(|| timing.offscreen_content_at())
+        && let Some(report) = timing.finish(presented)
+    {
+        bevy::log::info!("{} {report}", render_scene::startup_timing::MARKER);
+        #[cfg(feature = "acceptance")]
+        if std::env::var_os("CINNABAR_STARTUP_BENCHMARK").is_some() {
+            exit.write(bevy::prelude::AppExit::Success);
+        }
+    }
+    #[cfg(not(feature = "acceptance"))]
+    let _ = &mut exit;
 }
 
 /// Logs the first frame's launch latency once.
@@ -84,4 +128,24 @@ pub(crate) fn join<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
     handle
         .join()
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
+/// Starts a main-thread update sample without the opt-in gameplay profiler.
+fn begin_update(mut started: bevy::prelude::ResMut<UpdateStart>) {
+    started.0 = Instant::now();
+}
+
+/// Totals main updates up to the first presented menu.
+fn finish_update(started: Res<UpdateStart>) {
+    if let Some(timing) = render_scene::startup_timing::current() {
+        let elapsed = started.0.elapsed();
+        timing.record("main_updates", elapsed);
+        timing.main_update(elapsed);
+        timing.count("main_updates", 1);
+    }
+}
+
+/// Leaves ordinary gameplay and direct world launches free of startup-only sampling.
+fn recording() -> bool {
+    render_scene::startup_timing::current().is_some_and(|timing| timing.is_recording())
 }

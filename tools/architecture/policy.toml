@@ -561,7 +561,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["crash-report", "diagnostics", "workspace-declarations"]
+allowed_dependencies = ["render-api", "crash-report", "diagnostics", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.

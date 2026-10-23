@@ -18,5 +18,6 @@ static ALLOCATOR: test_alloc::TrackingAllocator<std::alloc::System> =
 
 /// Runs the client through its shared startup and exit dispatch.
 fn main() {
+    cinnabar::lifecycle::record_launch();
     entry::dispatch();
 }

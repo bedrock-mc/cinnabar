@@ -71,12 +71,20 @@ pub const fn pinned_block_registry_bytes() -> &'static [u8] {
     BLOCK_REGISTRY_BYTES
 }
 
+/// Shares one immutable decode of the pinned block registry across startup consumers.
+pub fn pinned_block_registry_records() -> &'static [crate::RegistryRecord] {
+    static RECORDS: OnceLock<Box<[crate::RegistryRecord]>> = OnceLock::new();
+    RECORDS.get_or_init(|| {
+        crate::read_registry_for_protocol(BLOCK_REGISTRY_BYTES, active_content_registry_protocol())
+            .expect("the pinned block registry must be valid")
+    })
+}
+
 /// Resolves pinned identities when the optional world carrier is unavailable.
 pub fn pinned_block_sequential_id(network_hash: u32) -> Option<u32> {
     static IDS: OnceLock<std::collections::HashMap<u32, u32>> = OnceLock::new();
     IDS.get_or_init(|| {
-        crate::read_registry_for_protocol(BLOCK_REGISTRY_BYTES, active_content_registry_protocol())
-            .expect("validated pinned block registry")
+        pinned_block_registry_records()
             .iter()
             .map(|record| (record.network_hash, record.sequential_id))
             .collect()

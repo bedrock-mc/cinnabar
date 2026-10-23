@@ -5,6 +5,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU8, Ordering},
 };
+use web_time::Instant;
 
 /// Counts successful primary-window presentations whose submitted GPU work has completed.
 #[derive(Clone, Default, Resource)]
@@ -20,7 +21,7 @@ struct Feedback {
 struct Content {
     epoch: u64,
     active: bool,
-    ready: bool,
+    presented: Option<Instant>,
 }
 
 impl StartupPresentation {
@@ -42,7 +43,7 @@ impl StartupPresentation {
         let mut content = self.0.content.lock().expect("startup content lock");
         content.epoch += 1;
         content.active = active;
-        content.ready = false;
+        content.presented = None;
     }
 
     /// Identifies the currently usable native surface; hidden/offscreen views have none.
@@ -52,17 +53,23 @@ impl StartupPresentation {
     }
 
     /// Accepts GPU completion only for the surface that submitted the destination frame.
-    pub fn record_content_frame(&self, epoch: u64) {
+    pub fn record_content_frame(&self, epoch: u64, completed: Instant) {
         let mut content = self.0.content.lock().expect("startup content lock");
         if content.active && content.epoch == epoch {
-            content.ready = true;
+            content.presented.get_or_insert(completed);
         }
     }
 
     /// Clear-only frames and completions from retired surfaces cannot dismiss feedback.
     pub fn has_presented_content(&self) -> bool {
         let content = self.0.content.lock().expect("startup content lock");
-        content.active && content.ready
+        content.active && content.presented.is_some()
+    }
+
+    /// The first GPU-completed content frame for the current native surface.
+    pub fn content_presented_at(&self) -> Option<Instant> {
+        let content = self.0.content.lock().expect("startup content lock");
+        content.active.then_some(content.presented).flatten()
     }
 
     /// Whether enough presented frames have completed to confirm client startup.
@@ -98,7 +105,8 @@ mod tests {
         assert!(feedback.is_complete());
         assert!(!feedback.has_presented_content());
         feedback.replace_content_surface(true);
-        render_feedback.record_content_frame(feedback.content_epoch().unwrap());
+        render_feedback
+            .record_content_frame(feedback.content_epoch().unwrap(), web_time::Instant::now());
         assert!(feedback.has_presented_content());
     }
 }
@@ -112,18 +120,38 @@ mod surface_tests {
         let feedback = StartupPresentation::default();
         feedback.replace_content_surface(true);
         let old = feedback.content_epoch().unwrap();
-        feedback.record_content_frame(old);
+        feedback.record_content_frame(old, web_time::Instant::now());
         assert!(feedback.has_presented_content());
         feedback.replace_content_surface(false);
         assert!(!feedback.has_presented_content());
         assert_eq!(feedback.content_epoch(), None);
-        feedback.record_content_frame(old);
+        feedback.record_content_frame(old, web_time::Instant::now());
         assert!(!feedback.has_presented_content());
         feedback.replace_content_surface(true);
         let new = feedback.content_epoch().unwrap();
-        feedback.record_content_frame(old);
+        feedback.record_content_frame(old, web_time::Instant::now());
         assert!(!feedback.has_presented_content());
-        feedback.record_content_frame(new);
+        feedback.record_content_frame(new, web_time::Instant::now());
         assert!(feedback.has_presented_content());
+    }
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn first_content_completion_keeps_its_timestamp_until_the_surface_changes() {
+        let feedback = StartupPresentation::default();
+        let first = Instant::now();
+        feedback.replace_content_surface(true);
+        let epoch = feedback.content_epoch().unwrap();
+        feedback.record_content_frame(epoch, first);
+        feedback.record_content_frame(epoch, first + Duration::from_millis(5));
+        assert_eq!(feedback.content_presented_at(), Some(first));
+        feedback.replace_content_surface(true);
+        feedback.record_content_frame(epoch, first);
+        assert_eq!(feedback.content_presented_at(), None);
     }
 }

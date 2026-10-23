@@ -99,14 +99,10 @@ pub fn load_overlay_textures(mut commands: Commands, scene: Option<ResMut<Screen
 }
 
 fn pinned_fire_state() -> Option<u32> {
-    assets::read_registry_for_protocol(
-        assets::pinned_block_registry_bytes(),
-        assets::active_content_registry_protocol(),
-    )
-    .ok()?
-    .iter()
-    .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
-    .map(|state| state.sequential_id)
+    assets::pinned_block_registry_records()
+        .iter()
+        .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
+        .map(|state| state.sequential_id)
 }
 
 pub fn publish_screen_overlays(
@@ -158,7 +154,16 @@ mod tests {
 
     #[test]
     fn camera_fire_binding_uses_the_active_pinned_registry_protocol() {
-        assert!(pinned_fire_state().is_some());
+        let previous = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+        .iter()
+        .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
+        .map(|state| state.sequential_id);
+        assert!(previous.is_some());
+        assert_eq!(pinned_fire_state(), previous);
     }
 
     #[test]

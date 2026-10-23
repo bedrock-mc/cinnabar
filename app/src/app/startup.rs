@@ -73,6 +73,18 @@ pub(super) struct AudioCarriers {
     pub(super) sound_bank: Option<client_audio::audio::SoundBank>,
 }
 
+/// Runs carrier work on a scoped worker while display-bound setup stays on its caller.
+pub(super) fn overlap<T: Send, U>(
+    load: impl FnOnce() -> T + Send,
+    prepare: impl FnOnce() -> U,
+) -> (T, U) {
+    std::thread::scope(|scope| {
+        let loading = scope.spawn(load);
+        let prepared = prepare();
+        (join(loading), prepared)
+    })
+}
+
 /// Loads every startup carrier in parallel and logs each one's load time.
 pub(super) fn load_startup_carriers(
     selection: AssetSelection,
@@ -128,11 +140,8 @@ fn load_with(
                 crate::environment::load_optional_weather_textures(world)
             })
         });
-        let collision = scope.spawn(|| {
-            times.time("physics", || {
-                load_collision_registries(physics_registry, world)
-            })
-        });
+        let collision =
+            scope.spawn(|| times.time("physics", || load_collision_registries(physics_registry)));
         let core = load_core(selection, times);
         StartupCarriers {
             core,
@@ -241,10 +250,7 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
 }
 
 /// The pinned physics registry, bound against the world carrier's block registry.
-fn load_collision_registries(
-    physics_registry: &Path,
-    world: &Path,
-) -> Result<PhysicsCollisionRegistries> {
+fn load_collision_registries(physics_registry: &Path) -> Result<PhysicsCollisionRegistries> {
     // One shared authority drives both startup registry gates: the world-carrier provenance pins
     // and this physics binding derive their protocol from it, so a partially flipped carrier set
     // fails closed instead of aliasing live block identities.
@@ -255,14 +261,19 @@ fn load_collision_registries(
         PHYSICS_REGISTRY_SHA256,
         expected_protocol,
     )?;
-    PhysicsCollisionRegistries::bind_coherent_assets(
+    PhysicsCollisionRegistries::from_assets(
         assets::pinned_block_registry_bytes(),
+        assets::pinned_block_registry_records(),
         &preg,
-        physics_registry,
-        world,
         expected_protocol,
     )
-    .context("decode and bind the active-content-protocol collision registries")
+    .with_context(|| {
+        format!(
+            "decode and bind the active-content-protocol collision registries from {}; {}",
+            physics_registry.display(),
+            PHYSICS_REGISTRY_GENERATION_GUIDANCE
+        )
+    })
 }
 
 /// Verifies the installed physics registry against the startup pin.
@@ -426,6 +437,31 @@ mod carrier_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn graphics_setup_overlaps_carriers_and_stays_on_the_calling_thread() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let loading = AtomicBool::new(false);
+        let preparing = AtomicBool::new(false);
+        let main = std::thread::current().id();
+        let result = super::overlap(
+            || {
+                assert_ne!(std::thread::current().id(), main);
+                loading.store(true, Ordering::Release);
+                test_time::eventually("graphics setup admitted during carrier loading", || {
+                    preparing.load(Ordering::Acquire)
+                });
+                7
+            },
+            || {
+                assert_eq!(std::thread::current().id(), main);
+                test_time::eventually("carrier worker started", || loading.load(Ordering::Acquire));
+                preparing.store(true, Ordering::Release);
+                9
+            },
+        );
+        assert_eq!(result, (7, 9));
+    }
+
     use crate::args::{ClientArgs, ParseOutcome};
 
     #[test]

@@ -136,8 +136,12 @@ this storage change advances no rendered, live-join or broader parity completion
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;
-app composition coverage remains in `app`. This move adds no compilation, execution
-or live evidence, and all behavior and performance gates retain their status.
+app composition coverage remains in `app`. Launch diagnostics now retain the first
+GPU-completed menu presentation and bounded main/render startup samples. Physics and
+overlays reuse one immutable pinned registry decode. The release
+launch benchmark and delayed feedback have deterministic coverage; reference-hardware
+startup budgets, world-work deferral and persistent shader-cache reuse remain unqualified.
+All behavior and performance gates retain their status.
 
 End-rod terrain coverage now includes the six facing states, separate shaft/base sprite
 mapping and an original-art GPU fixture. This bounded geometry correction leaves the

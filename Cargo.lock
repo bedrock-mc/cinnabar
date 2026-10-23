@@ -3589,6 +3589,7 @@ dependencies = [
  "minidump-unwind",
  "quick-xml",
  "regex",
+ "render-api",
  "serde",
  "serde_json",
  "tempfile",
