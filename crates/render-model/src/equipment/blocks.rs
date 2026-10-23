@@ -234,6 +234,10 @@ fn template_model(
             VisualSupport::Exact | VisualSupport::VanillaFallback
         )
         || block.animation().is_some()
+        || block
+            .model_template()
+            .and_then(|id| world.model_templates().get(id as usize))
+            .is_some_and(|template| template.flags & assets::MODEL_TEMPLATE_FLAG_PANE != 0)
     {
         return None;
     }

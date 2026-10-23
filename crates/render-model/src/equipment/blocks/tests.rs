@@ -744,6 +744,19 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
 }
 
 #[test]
+fn pane_inventory_models_keep_the_held_sprite() {
+    let (compiled, records) =
+        crate::viewmodel::cube::tests::block_with_size(assets::TILE_SIZE, "glass_pane");
+    let visual = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:glass_pane")
+        .unwrap()
+        .sequential_id;
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    assert!(template_model(&world, visual).is_none());
+}
+
+#[test]
 fn custom_content_template_sheet_retains_authored_non_cube_geometry() {
     let mut source = overlay(BlockFlags::empty(), 0, 16);
     source.visuals[0].kind = VisualKind::Model;

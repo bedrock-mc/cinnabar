@@ -69,14 +69,13 @@ pub fn block_gui_quads(
             .into_iter()
             .zip(corners)
             .map(|(face, corners)| {
-                let corners = corners.map(|[x, y, z]| [x - 0.2, y, z]);
                 let uvs = corners.map(|[x, y, z]| match face {
                     BlockFace::Up | BlockFace::Down => [x, z],
                     BlockFace::North | BlockFace::South => [x, 1.0 - y],
                     BlockFace::West | BlockFace::East => [z, 1.0 - y],
                 });
                 GuiBlockQuad {
-                    corners,
+                    corners: corners.map(|[x, y, z]| [x - 0.2, y, z]),
                     uvs,
                     material: faces[match face {
                         BlockFace::West | BlockFace::East => face,
@@ -442,6 +441,16 @@ mod tests {
             bounds,
             [[7.0 / 16.0 - 0.2, 0.0, 0.0], [9.0 / 16.0 - 0.2, 1.0, 1.0]]
         );
+        for face in [
+            BlockFace::Up,
+            BlockFace::Down,
+            BlockFace::North,
+            BlockFace::South,
+        ] {
+            let u = inventory[face as usize].uvs.map(|uv| uv[0]);
+            assert_eq!(u.into_iter().fold(f32::INFINITY, f32::min), 7.0 / 16.0);
+            assert_eq!(u.into_iter().fold(f32::NEG_INFINITY, f32::max), 9.0 / 16.0);
+        }
         let visible: Vec<_> = inventory
             .iter()
             .filter(|quad| quad.visible_in_gui())
