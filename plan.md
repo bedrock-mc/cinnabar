@@ -469,15 +469,14 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap.
-  actor ray uses loaded collision defaults, authoritative dimensions and scale, and
-  constructor pick radii. Attack, use and hover preserve the selected world intercept;
-  matched server-box packet acceptance remains incomplete. The survival
   Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
   each ingredient draws from one concrete variant. Missing grid ingredients and their
   result use distinct ghost cells in both renderers and retain hover names.
   Broader crafting and container acceptance remains incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap. The survival
+  Hover reports and actor use share the attack's game-mode actor cap.
+  Actor rays use loaded collision defaults, authoritative dimensions and scale, and
+  constructor pick radii. Attack, use and hover preserve the selected world intercept;
+  matched server-box packet acceptance remains incomplete. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
   Desktop input retains every transition in a complete arrival batch, including
