@@ -16,6 +16,7 @@ pub(super) fn configure(app: &mut App) {
     };
     crate::game_frame::configure_client_frame_schedule(app);
     crate::game_frame::configure_world(app);
+    crate::melee::server_swings::configure(app);
     app.init_resource::<CanvasCapture>();
     app.add_plugins((
         client_runtime::ClientRuntimePlugin::<network::resource_packs::PackApplication>::default(),
@@ -78,12 +79,6 @@ pub(super) fn configure(app: &mut App) {
         Update,
         semantic_controls::finalize_semantic_input_after_ui_authority
             .in_set(ClientFrameSet::SemanticFinalize),
-    )
-    .add_systems(
-        Update,
-        crate::melee::server_swings::echo
-            .after(world::reconcile_world_stream_before_physics)
-            .before(ClientFrameSet::SemanticFinalize),
     )
     .add_systems(
         Update,

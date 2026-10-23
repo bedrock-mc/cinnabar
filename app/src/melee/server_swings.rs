@@ -5,6 +5,17 @@ use crate::runtime::shutdown::{FatalError, record_fatal_error};
 use bevy::prelude::Local;
 use gameplay::melee::{ServerSwingContext, ServerSwingEcho};
 
+/// Registers server callbacks after inventory authority and before input finalization on either host.
+pub(crate) fn configure(app: &mut bevy::prelude::App) {
+    use bevy::prelude::{IntoScheduleConfigs, Update};
+    app.add_systems(
+        Update,
+        echo.after(crate::runtime::world::reconcile_world_stream_before_physics)
+            .after(client_state::ClientFrameSet::UiAuthority)
+            .before(client_state::ClientFrameSet::SemanticFinalize),
+    );
+}
+
 /// Drains local callbacks after ingress and retries them until the network accepts each echo.
 #[allow(
     clippy::too_many_arguments,

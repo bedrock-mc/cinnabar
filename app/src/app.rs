@@ -137,6 +137,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(feature = "acceptance")]
     app.init_resource::<MovementEvidenceEmitter>();
     configure_client_authority_systems(app);
+    crate::melee::server_swings::configure(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
@@ -179,12 +180,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(drive_session)
                 .after(follow_server_transfer)
                 .after(recover_session_failure),
-        )
-        .add_systems(
-            Update,
-            crate::melee::server_swings::echo
-                .after(reconcile_world_stream_before_physics)
-                .before(ClientFrameSet::SemanticFinalize),
         )
         .add_systems(
             Update,

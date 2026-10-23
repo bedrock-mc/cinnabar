@@ -432,9 +432,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
-  Server-requested local swings retain their source and echo when the arm guard admits
-  them; unknown-source parsing, matched live ordering, transport-batch acceptance
-  and effect modifiers on authored item swing durations remain incomplete.
+  Server-requested local swings retain their source and echo after inventory authority
+  when the arm guard admits them; unknown-source parsing, matched live ordering,
+  transport-batch acceptance and effect modifiers on authored item swing durations remain incomplete.
   Hover reports and actor use share the attack's game-mode actor cap. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
