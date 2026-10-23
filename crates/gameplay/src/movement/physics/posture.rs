@@ -75,7 +75,7 @@ impl ClimberFlags {
     /// Climber flags after one completed tick. Spectator flags stay the
     /// server's. A tick that published contact (measured, or retained by the
     /// simulator) reports it; one with no contact known keeps the contact of
-    /// `previous`, the prior tick's flags, with this tick's descent.
+    /// `previous`, the accepted flags at tick entry, with this tick's descent.
     pub(in crate::movement) fn after_tick(
         input: &sim::MovementInput,
         environment: &sim::MovementEnvironment,
