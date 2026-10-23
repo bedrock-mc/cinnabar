@@ -159,6 +159,10 @@ fn runtime_acceptance_child() {
     assert!(
         matches!(host.dispatch(&Event::Epoch, 1).unwrap().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request")
     );
+    assert!(
+        matches!(host.dispatch(&Event::Epoch, 2).unwrap().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
+        "a new world must re-arm pending registry negotiation"
+    );
     let schema: serde_json::Value =
         serde_json::from_slice(&fs::read(package.join("registry.json")).unwrap()).unwrap();
     let project_source = fs::read_to_string(
@@ -176,29 +180,29 @@ fn runtime_acceptance_child() {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text(project.fingerprint())]).unwrap(),
     };
-    let output = host.dispatch(&confirmation, 1).unwrap();
+    let output = host.dispatch(&confirmation, 2).unwrap();
     assert!(
         matches!(output.commands.as_slice(), [Command::Send { channel, schema: 1, record }] if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(42)])
     );
     assert!(
-        host.dispatch(&confirmation, 1).unwrap().commands.is_empty(),
+        host.dispatch(&confirmation, 2).unwrap().commands.is_empty(),
         "duplicate confirmation never initializes twice"
     );
     let trap = Event::Message {
         channel: "space.notice".into(),
         record: serde_json::to_vec(&vec![Scalar::Bool(true)]).unwrap(),
     };
-    assert!(host.dispatch(&trap, 1).is_err());
-    let recovering = host.dispatch(&Event::Epoch, 1).unwrap();
+    assert!(host.dispatch(&trap, 2).is_err());
+    let recovering = host.dispatch(&Event::Epoch, 2).unwrap();
     assert!(
         matches!(recovering.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
         "guest recovery must publish a fresh registry request through a successful callback"
     );
-    let restarted = host.dispatch(&confirmation, 1).unwrap();
+    let restarted = host.dispatch(&confirmation, 2).unwrap();
     assert!(
         matches!(restarted.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.travel")
     );
-    let active = host.dispatch(&Event::Epoch, 1).unwrap();
+    let active = host.dispatch(&Event::Epoch, 3).unwrap();
     assert!(
         matches!(active.commands.as_slice(), [Command::Send { record, .. }] if record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)])
     );
@@ -206,8 +210,8 @@ fn runtime_acceptance_child() {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text("different".into())]).unwrap(),
     };
-    assert!(host.dispatch(&mismatch, 1).is_err());
-    let refused = host.dispatch(&Event::Epoch, 2).unwrap();
+    assert!(host.dispatch(&mismatch, 3).is_err());
+    let refused = host.dispatch(&Event::Epoch, 4).unwrap();
     assert!(refused.commands.iter().all(|command| matches!(command, Command::Send { channel, .. } if channel == "space.registry_request")), "a mismatch must not restore authored callbacks");
 }
 

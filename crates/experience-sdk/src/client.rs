@@ -105,13 +105,23 @@ pub fn active<T: ClientPart>() -> bool {
 /// Gates a callback and stages one retry in case recovery discarded the guest's init output.
 #[doc(hidden)]
 pub fn begin_callback<T: ClientPart>() -> bool {
-    begin_callback_with::<T>(send)
+    begin_callback_with::<T>(false, send)
 }
 
-/// Publishes a request through a successful callback at most once per waiting guest instance.
+/// Re-arms pending negotiation when transport moves to a new world epoch.
+#[doc(hidden)]
+pub fn begin_epoch<T: ClientPart>() -> bool {
+    begin_callback_with::<T>(true, send)
+}
+
+/// Advances the negotiation state and publishes at most one callback retry per world epoch.
 fn begin_callback_with<T: ClientPart>(
+    epoch_changed: bool,
     send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>,
 ) -> bool {
+    if epoch_changed && REGISTRY_STATE.get() == crate::message::RegistryState::RetrySent {
+        REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
+    }
     if active::<T>() {
         return true;
     }
@@ -203,7 +213,7 @@ macro_rules! export_client_part {
             }
 
             fn epoch() {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::epoch() }
+                if $crate::client::begin_epoch::<$ty>() { <$ty as $crate::client::ClientPart>::epoch() }
             }
 
             fn modal_resized(size: $crate::client::ui::GuiSize) {
@@ -298,7 +308,7 @@ mod tests {
         });
         let retries = std::cell::Cell::new(0);
         for _ in 0..4 {
-            assert!(!begin_callback_with::<Guarded>(|channel, record| {
+            assert!(!begin_callback_with::<Guarded>(false, |channel, record| {
                 assert_eq!(channel.id, REGISTRY.request.id);
                 assert_eq!(record, &[Value::Text(REGISTRY.fingerprint.into())]);
                 retries.set(retries.get() + 1);
@@ -309,6 +319,15 @@ mod tests {
             retries.get(),
             1,
             "waiting callbacks must not flood registry requests"
+        );
+        assert!(!begin_callback_with::<Guarded>(true, |_, _| {
+            retries.set(retries.get() + 1);
+            Ok(())
+        }));
+        assert_eq!(
+            retries.get(),
+            2,
+            "a new world must get a current-epoch request"
         );
         dispatch::<Guarded>("test.data".into(), vec![]);
         assert!(!active::<Guarded>());
