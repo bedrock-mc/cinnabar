@@ -108,6 +108,11 @@ fn collect_shapes(
             // Items the inventory draws flat (torches, plants, panes) stay sprites in hand.
             let display = display.filter(|_| cube.is_none())?;
             let shown = display(&definition.key)
+                .or_else(|| {
+                    (definition.key.identifier.as_ref()
+                        == assets::facts::pack::PackBlock::DriedGhast.identifier())
+                    .then_some(visual)
+                })
                 .filter(|shown| (*shown as usize) < world.visual_count())?;
             template_model(world, shown)
         });

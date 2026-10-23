@@ -669,6 +669,32 @@ fn pinned_end_rod_is_carried_as_a_three_dimensional_model() {
 }
 
 #[test]
+fn pinned_dried_ghast_keeps_its_three_dimensional_held_model() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let visual = entities
+        .item_visuals()
+        .iter()
+        .find(|entry| {
+            entry.key.identifier.as_ref() == assets::facts::pack::PackBlock::DriedGhast.identifier()
+        })
+        .and_then(|entry| match entry.route {
+            ItemVisualDefinitionRoute::BlockItem { block_visual } => Some(block_visual.0),
+            _ => None,
+        })
+        .expect("registered dried ghast block item");
+    let held = collect_held(&world, &entities, &icons);
+    assert!(
+        !held
+            .models
+            .get(&visual)
+            .expect("carried thumbnail retains the held model")
+            .is_empty()
+    );
+}
+
+#[test]
 fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
     let (mut compiled, records) = crate::viewmodel::cube::tests::barrels();
     let visual = records

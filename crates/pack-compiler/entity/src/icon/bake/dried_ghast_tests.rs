@@ -2,6 +2,13 @@ use super::*;
 
 #[test]
 fn dried_ghast_inventory_keeps_separate_body_and_tentacle_artwork() {
+    for side in [16, 32, 64, 8] {
+        assert_body_and_tentacle_artwork(side);
+    }
+}
+
+/// Checks carried materials at each resource pack body resolution.
+fn assert_body_and_tentacle_artwork(side: u32) {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
     std::fs::write(
@@ -11,7 +18,7 @@ fn dried_ghast_inventory_keeps_separate_body_and_tentacle_artwork() {
     .unwrap();
     std::fs::write(root.path().join("textures/terrain_texture.json"), r#"{"texture_data":{"body":{"textures":"textures/blocks/body"},"feet":{"textures":"textures/blocks/feet"}}}"#).unwrap();
     std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
-    image::RgbaImage::from_pixel(16, 16, image::Rgba([255, 0, 0, 255]))
+    image::RgbaImage::from_pixel(side, side, image::Rgba([255, 0, 0, 255]))
         .save(root.path().join("textures/blocks/body.png"))
         .unwrap();
     image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 255, 255]))

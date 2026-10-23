@@ -201,13 +201,17 @@ impl IconBlocks {
             let Some((path, overlay)) = pack.terrain.get_clamped_carried(&key, variant) else {
                 return Ok(None);
             };
-            let Some(tile) = super::carried::tile(
-                root,
-                path,
-                overlay,
-                pack_compile_input::respawn_anchor::is_record(record),
-            )?
-            else {
+            let tile = if carried {
+                super::carried::tile(
+                    root,
+                    path,
+                    overlay,
+                    pack_compile_input::respawn_anchor::is_record(record),
+                )?
+            } else {
+                super::carried::model_tile(root, path, overlay)?
+            };
+            let Some(tile) = tile else {
                 return Ok(None);
             };
             tiles.push(tile);
