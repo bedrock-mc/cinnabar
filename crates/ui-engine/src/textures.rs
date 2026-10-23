@@ -719,6 +719,7 @@ mod review_tests {
         let images = HashMap::from([(
             "textures/ui/test".into(),
             IconRef {
+                color_mask: None,
                 page: 7,
                 uv: [0, 0, 256, 128],
                 glint: false,

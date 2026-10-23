@@ -467,11 +467,7 @@ fn validate_fixed(
                     .0
                     .get(index + 1)
                     .is_none_or(|next| {
-                        !matches!(
-                            u32_at(next, 8),
-                            0 | crate::MODEL_TEMPLATE_FLAG_BAMBOO
-                                | crate::MODEL_TEMPLATE_FLAG_SHORT_GRASS
-                        )
+                        !crate::model::potted_world_template_flags_are_valid(u32_at(next, 8))
                     }))
         {
             return Err(invalid(

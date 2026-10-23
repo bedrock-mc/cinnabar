@@ -82,6 +82,7 @@ fn retained_inventory_cell_answers_empty_after_occupied_and_can_be_refilled() {
     stack.stack_network_id = 1;
     stack.count = 1;
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -121,6 +122,7 @@ fn emptying_a_cell_keeps_other_cells_icon_bindings() {
     stack.network_id = 1;
     stack.count = 1;
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,

@@ -29,6 +29,7 @@ pub(in crate::compiler) fn compile_rule(
                 materials,
                 [0, 0, 0],
                 [256, 16, 256],
+                0,
                 templates.cuboids,
                 storage.templates,
                 storage.quads,

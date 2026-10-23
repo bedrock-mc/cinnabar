@@ -143,8 +143,6 @@ fn dragon_and_piglin_heads_draw_their_mob_head_facing_the_south_side() {
         texture.save(file).unwrap();
     }
     let geometries = mob_geometries();
-    // GUI faces are Up, South and West; an unlit red texel keeps only the south brightness.
-    let south = (255.0 * assets::gui_item::CUBE_FACES[1].3).round() as u8;
     let mut icons = Vec::new();
     for name in ["minecraft:dragon_head", "minecraft:piglin_head"] {
         let icon = raster(root.path(), name, 0, &geometries)
@@ -158,8 +156,8 @@ fn dragon_and_piglin_heads_draw_their_mob_head_facing_the_south_side() {
             .collect();
         assert!(face.len() > 8, "{name}: its face is drawn");
         assert!(
-            face.iter().all(|&index| pixels[index][0] == south),
-            "{name}: the face is lit as a south face, like the other heads"
+            face.iter().all(|&index| pixels[index][0] == 255),
+            "{name}: the face retains its texture brightness"
         );
         let edges = (0..SIDE).flat_map(|row| [row * SIDE, row * SIDE + SIDE - 1]);
         assert!(
@@ -175,6 +173,98 @@ fn dragon_and_piglin_heads_draw_their_mob_head_facing_the_south_side() {
             .is_none(),
         "a pack without the dragon geometry leaves its icon unresolved"
     );
+}
+
+#[test]
+fn skull_inventory_preserves_texture_brightness() {
+    let root = tempfile::tempdir().unwrap();
+    for skull_type in 0..=4 {
+        let (path, logical) = geometry::skull_texture(skull_type).unwrap();
+        let texture = root.path().join(format!("{path}.png"));
+        std::fs::create_dir_all(texture.parent().unwrap()).unwrap();
+        image::RgbaImage::from_pixel(
+            logical[0] as u32,
+            logical[1] as u32,
+            image::Rgba([255, 255, 255, 255]),
+        )
+        .save(texture)
+        .unwrap();
+    }
+    for name in [
+        "minecraft:skeleton_skull",
+        "minecraft:wither_skeleton_skull",
+        "minecraft:player_head",
+        "minecraft:zombie_head",
+        "minecraft:creeper_head",
+    ] {
+        let icon = raster(root.path(), name, 0, &[]).unwrap().unwrap();
+        let shown: Vec<_> = icon
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .collect();
+        assert!(!shown.is_empty(), "{name}");
+        assert!(
+            shown.iter().all(|p| p[..3] == [255; 3]),
+            "{name}: heads retain full texture brightness"
+        );
+    }
+}
+
+#[test]
+fn lectern_inventory_board_slopes_toward_the_viewer() {
+    let parts = lectern();
+    let reading_surface = parts
+        .iter()
+        .find(|part| part.texture == geometry::LECTERN_TEXTURES[2])
+        .unwrap();
+    assert_eq!(reading_surface.faces.len(), 1);
+    let corners = reading_surface.faces[0].0;
+    let near_z = corners.iter().map(|p| p[2]).fold(f32::MIN, f32::max);
+    let far_z = corners.iter().map(|p| p[2]).fold(f32::MAX, f32::min);
+    let height_at = |z: f32| {
+        let points: Vec<_> = corners
+            .iter()
+            .filter(|p| (p[2] - z).abs() < 0.0001)
+            .collect();
+        assert_eq!(points.len(), 2);
+        (points[0][1] + points[1][1]) * 0.5
+    };
+    assert!(
+        height_at(near_z) < height_at(far_z),
+        "reading surface faces south"
+    );
+    assert_eq!(reading_surface.faces[0].1, [0.0, 1.0, 16.0, 13.0]);
+}
+
+#[test]
+fn shulker_inventory_applies_each_face_brightness_once() {
+    let root = tempfile::tempdir().unwrap();
+    let texture = root
+        .path()
+        .join("textures/entity/shulker/shulker_white.png");
+    std::fs::create_dir_all(texture.parent().unwrap()).unwrap();
+    image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 255, 255, 255]))
+        .save(texture)
+        .unwrap();
+    let icon = raster(root.path(), "minecraft:white_shulker_box", 0, &[])
+        .unwrap()
+        .unwrap();
+    let shown: std::collections::BTreeSet<_> = icon
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] != 0)
+        .map(|pixel| pixel[0])
+        .collect();
+    let expected = assets::gui_item::CUBE_FACES
+        .map(|face| (255.0 * face.3).round() as u8)
+        .into_iter()
+        .collect();
+    assert_eq!(shown, expected);
 }
 
 #[test]
@@ -285,58 +375,4 @@ fn copper_golem_statue_inventory_uses_standing_geometry_and_oxidation() {
             .unwrap()
             .is_none()
     );
-}
-
-#[test]
-fn lectern_inventory_board_slopes_toward_the_viewer() {
-    let parts = lectern();
-    let reading_surface = parts
-        .iter()
-        .find(|part| part.texture == geometry::LECTERN_TEXTURES[2])
-        .unwrap();
-    assert_eq!(reading_surface.faces.len(), 1);
-    let corners = reading_surface.faces[0].0;
-    let near_z = corners.iter().map(|p| p[2]).fold(f32::MIN, f32::max);
-    let far_z = corners.iter().map(|p| p[2]).fold(f32::MAX, f32::min);
-    let height_at = |z: f32| {
-        let points: Vec<_> = corners
-            .iter()
-            .filter(|p| (p[2] - z).abs() < 0.0001)
-            .collect();
-        assert_eq!(points.len(), 2);
-        (points[0][1] + points[1][1]) * 0.5
-    };
-    assert!(
-        height_at(near_z) < height_at(far_z),
-        "reading surface faces south"
-    );
-    assert_eq!(reading_surface.faces[0].1, [0.0, 1.0, 16.0, 13.0]);
-}
-
-#[test]
-fn shulker_inventory_applies_each_face_brightness_once() {
-    let root = tempfile::tempdir().unwrap();
-    let texture = root
-        .path()
-        .join("textures/entity/shulker/shulker_white.png");
-    std::fs::create_dir_all(texture.parent().unwrap()).unwrap();
-    image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 255, 255, 255]))
-        .save(texture)
-        .unwrap();
-    let icon = raster(root.path(), "minecraft:white_shulker_box", 0, &[])
-        .unwrap()
-        .unwrap();
-    let shown: std::collections::BTreeSet<_> = icon
-        .rgba8
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .filter(|pixel| pixel[3] != 0)
-        .map(|pixel| pixel[0])
-        .collect();
-    let expected = assets::gui_item::CUBE_FACES
-        .map(|face| (255.0 * face.3).round() as u8)
-        .into_iter()
-        .collect();
-    assert_eq!(shown, expected);
 }

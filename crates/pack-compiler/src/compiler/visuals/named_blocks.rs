@@ -92,6 +92,7 @@ pub(in crate::compiler) fn compile_rule(
                     materials,
                     [0; 3],
                     max,
+                    0,
                     templates,
                     storage.templates,
                     storage.quads,

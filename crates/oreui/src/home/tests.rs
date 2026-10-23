@@ -44,6 +44,7 @@ fn brand_sits_above_translucent_panels_and_footer_names_game_and_protocol() {
     let view = view();
     let (_, _, nodes) = paint(HashMap::new(), |c| {
         c.title_artwork = Some(IconRef {
+            color_mask: None,
             page: 18,
             uv: [0, 0, 400, 80],
             glint: false,
