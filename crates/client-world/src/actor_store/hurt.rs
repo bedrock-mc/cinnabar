@@ -107,6 +107,9 @@ pub struct ActorStatus {
     /// Runtime ID and spawn revision of the dragon's last selected healing crystal.
     pub(crate) healing_crystal: Option<(u64, u64)>,
     pub pickup: Option<ActorPickup>,
+    /// The body yaw the client predicts this frame for a vehicle it steers, which the rig
+    /// draws instead of easing between its ticks.
+    pub predicted_render_yaw: Option<f32>,
     /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
     /// Breathing point below a liquid surface; `None` before the first world sample.

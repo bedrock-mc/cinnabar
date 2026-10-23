@@ -592,7 +592,14 @@ fn a_predicted_boat_shows_its_render_pose_on_the_rider_s_clock() {
         assert_eq!(boat.interpolated_position(alpha), Some([11.9, 5.0, 10.0]));
     }
     assert_eq!(boat.yaw, 25.0);
+    assert_eq!(boat.status.predicted_render_yaw, Some(25.0));
     assert_eq!(boat.last_received_pose().position, [12.0, 5.0, 10.0]);
+    // Without a feed the boat returns to its ticked pose and body yaw.
+    store.sync_local_vehicle(None);
+    store.advance_interpolation_ticks(1);
+    let boat = store.snapshot_by_unique(BOAT).unwrap();
+    assert_eq!(boat.status.predicted_render_yaw, None);
+    assert_eq!(boat.position, [12.0, 5.0, 10.0]);
 }
 
 /// Before the live actors advance, a locked seat on the predicted boat follows the boat's

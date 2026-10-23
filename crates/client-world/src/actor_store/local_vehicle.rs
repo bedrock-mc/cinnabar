@@ -58,7 +58,7 @@ impl ActorStore {
     /// the fed tick pose, which prediction restarts from, while the boat displays the fed
     /// render pose.
     pub(crate) fn sync_local_vehicle(&mut self, feed: Option<LocalVehicleFeed>) {
-        self.local_vehicle.render = None;
+        self.release_local_vehicle_render();
         let Some(feed) = feed.filter(|feed| {
             feed.position
                 .iter()
@@ -115,7 +115,17 @@ impl ActorStore {
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
             actor.previous_pose = pose;
             actor.set_current_pose(pose);
+            actor.status.predicted_render_yaw = Some(pose.yaw);
             self.effect_members.collidable.update(actor);
+        }
+    }
+
+    /// Returns a boat no longer fed to its ticked pose and body yaw.
+    fn release_local_vehicle_render(&mut self) {
+        if let Some((runtime_id, _)) = self.local_vehicle.render.take()
+            && let Some(actor) = self.actors.get_mut(&runtime_id)
+        {
+            actor.status.predicted_render_yaw = None;
         }
     }
 
@@ -141,7 +151,7 @@ impl ActorStore {
             || self.local_steered_boat() == Some(runtime_id)
         {
             self.local_vehicle.revision = self.local_vehicle.revision.wrapping_add(1);
-            self.local_vehicle.render = None;
+            self.release_local_vehicle_render();
         }
     }
 

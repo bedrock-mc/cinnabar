@@ -378,7 +378,10 @@ pub(crate) fn sampled_rig_placement(
     {
         0.0
     } else {
-        lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
+        actor
+            .status
+            .predicted_render_yaw
+            .unwrap_or_else(|| lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha))
     };
     let scale = authored[0] * actor.render_scale();
     if !yaw.is_finite()
