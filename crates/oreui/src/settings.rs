@@ -2,14 +2,16 @@
 
 mod account_icon;
 mod button;
-mod controls;
+pub(super) mod controls;
 mod gui_scale;
+mod labels;
 mod layout;
 mod mods;
 mod picker;
 mod presets;
 mod renderer;
 mod resources;
+mod search;
 mod sections;
 mod services;
 mod shader_options;
@@ -34,6 +36,8 @@ use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
+pub(super) const SEARCH_SCROLL_KEY: &str = "oreui_settings_search";
+
 pub(super) fn section_index(name: &str) -> u8 {
     SettingSection::from_name(name)
         .expect("registered settings section")
@@ -41,9 +45,10 @@ pub(super) fn section_index(name: &str) -> u8 {
         .index
 }
 
-/// Retains the described option until another option or screen is selected.
+/// Retains settings search scrolling and the described shader option between frames.
 #[derive(Default)]
-pub(super) struct ShaderOptionDescription {
+pub(super) struct State {
+    pub(super) query: String,
     screen: Option<(String, u32)>,
     index: Option<usize>,
 }
@@ -54,7 +59,7 @@ pub(super) fn draw(
     size: [f32; 2],
     translate: Translate<'_>,
     gamerpic: Option<IconRef>,
-    description: &mut ShaderOptionDescription,
+    description: &mut State,
 ) -> Result<(), PaintError> {
     widgets::screen_overlay(canvas, size)?;
     canvas.settings_scrollbars = true;
@@ -65,10 +70,30 @@ pub(super) fn draw(
     let header = header(canvas, view, size[0], translate)?;
     let columns = layout::Columns::new(canvas.rem, size[0]);
     let (nav, body) = (columns.navigation, columns.content);
-    let top = header + canvas.r(0.8);
+    let search_top = header + canvas.r(0.8);
+    let searching = !view.settings_query.trim().is_empty() && view.shader_options.is_none();
+    let top = search_top
+        + canvas.r(if view.shader_options.is_none() {
+            5.6
+        } else {
+            0.0
+        });
     let bottom = size[1];
     let content_focus =
         canvas.begin_focus_region(focus::CONTENT, [0.0, header, size[0], bottom], None, true)?;
+    if view.shader_options.is_none() {
+        search::field(
+            canvas,
+            view,
+            [
+                nav[0],
+                search_top,
+                body[1] - canvas.r(1.6),
+                search_top + canvas.r(4.8),
+            ],
+            translate,
+        )?;
+    }
     sidebar::draw(
         canvas,
         view,
@@ -83,11 +108,11 @@ pub(super) fn draw(
     canvas.frame(panel, EDGE, theme::BORDER)?;
     let section =
         SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
-    // The Shader Pack Settings screen replaces the Video panel and keeps a footer below it.
+    // The Shader Pack Settings screen keeps a footer below the option grid.
     let options = view
         .shader_options
         .as_deref()
-        .filter(|_| section == SettingSection::Video);
+        .filter(|_| render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders);
     let footer = options.map_or(0.0, |_| shader_options::footer_height(canvas));
     let viewport = [
         panel[0] + canvas.r(EDGE),
@@ -97,13 +122,18 @@ pub(super) fn draw(
     ];
     let selector = section.definition().name;
     let key = match options {
+        _ if searching => SEARCH_SCROLL_KEY.to_owned(),
         Some(options) => format!(
             "oreui_settings/{selector}/shader_options/{}",
             options.screen
         ),
         None => format!("oreui_settings/{selector}"),
     };
-    let tab = focus::tab(section.definition().index);
+    let tab = if searching {
+        focus::SEARCH_RESULTS
+    } else {
+        focus::tab(section.definition().index)
+    };
     let entrance =
         canvas.begin_entrance(super::motion::Surface::Settings(section.definition().index));
     let tab_focus = canvas.begin_focus_region(tab, [body[0], top, body[1], bottom], None, false)?;
@@ -140,6 +170,7 @@ pub(super) fn draw(
         };
         match options {
             Some(options) => described = shader_options::body(&mut content, options)?,
+            None if searching => search::results(&mut content)?,
             None => sections::draw(&mut content, section)?,
         }
         let height = content.y + offset - viewport[1];
@@ -187,7 +218,8 @@ pub(super) fn draw(
             described,
         )?;
     } else {
-        *description = ShaderOptionDescription::default();
+        description.screen = None;
+        description.index = None;
     }
     canvas.end_focus_region(tab_focus);
     canvas.end_focus_region(detail_focus);
@@ -426,13 +458,29 @@ impl Content<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn option(&mut self, id: SettingId) -> Result<(), PaintError> {
+    /// Applies the same device and host availability to normal rows and search results.
+    pub(super) fn option_available(&self, id: SettingId) -> bool {
+        use launcher::menu::settings_options::layout::SettingPanel;
         if id == SettingId::GraphicsApi
             && launcher::graphics_backend::Platform::current()
                 .backends()
                 .len()
                 < 2
         {
+            return false;
+        }
+        id.definition()
+            .section
+            .iter()
+            .all(|(panel, _)| match panel {
+                SettingPanel::Touch => self.view.touch_available,
+                SettingPanel::Updates => self.view.updates.active,
+                _ => true,
+            })
+    }
+
+    pub(super) fn option(&mut self, id: SettingId) -> Result<(), PaintError> {
+        if !self.option_available(id) {
             return Ok(());
         }
         if id == SettingId::FullScreen {
@@ -447,60 +495,24 @@ impl Content<'_, '_> {
         let index = id.index();
         let option = id.definition();
         let value = self.view.settings_options.get(index);
-        let label_key = option.oreui_label.unwrap_or(option.label);
-        let title = self.word(label_key);
-        let base_key = label_key.strip_suffix(".name").unwrap_or(label_key);
-        let description_key = match id {
-            SettingId::KeyboardMouseInvertYAxis => {
-                "options.invertYAxis.Mouse.description".to_owned()
-            }
-            SettingId::ControllerInvertYAxis => "options.invertYAxis.description".to_owned(),
-            _ => format!("{base_key}.description"),
-        };
-        let description =
-            (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if id == SettingId::GraphicsApi {
-            "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
-        } else if id == SettingId::Vrr {
-            "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
-        } else if id == SettingId::CinnabarVisible {
-            "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
-        } else if id == SettingId::CinnabarBadges {
-            "Show Cinnabar badges beside player names and in the player list.".to_owned()
-        } else if id == SettingId::AutoUpdateEnabled {
-            "Check the selected channel and download verified updates in the background.".to_owned()
-        } else if id == SettingId::InstallUpdatesOnQuit {
-            "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
-        } else if id == SettingId::UpdateChannel {
-            "Beta for regular releases. Nightly for the latest changes.".to_owned()
-        } else if id == SettingId::ScreenAnimations {
-            "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
-        } else if id == SettingId::VerboseLogging {
-            "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
-        } else if id == SettingId::RecordNetworkSession {
-            "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
-        } else if (id == SettingId::RenderClouds
-            || id == SettingId::MaxFramerate
-            || id == SettingId::ShowExactServerPing
-            || id == SettingId::OreuiDarkMode)
-            && description.is_empty()
+        let (title, description) = self.option_text(id);
+        if id == SettingId::Vsync
+            && let Some(on) = self.view.vsync_override
         {
-            sections::fallback(&description_key).to_owned()
-        } else {
-            description
-        };
+            return self.boolean(
+                &title,
+                &description,
+                on,
+                MenuAction::SettingsOption(index as u16, i32::from(!on)),
+                false,
+            );
+        }
         match option.kind {
             SettingKind::Host => {
                 unreachable!("host controls are dispatched before option rendering")
             }
             SettingKind::Toggle => {
-                let (on, enabled) = match id {
-                    SettingId::Vsync => (
-                        self.view.vsync_override.unwrap_or(value != 0),
-                        self.view.vsync_override.is_none(),
-                    ),
-                    _ => (value != 0, true),
-                };
+                let (on, enabled) = (value != 0, true);
                 self.boolean(
                     &title,
                     &description,
@@ -522,7 +534,13 @@ impl Content<'_, '_> {
                         })
                     }
                     SettingId::Msaa => value.to_string(),
+                    SettingId::ChatFontSize => format!("{}%", value * 10),
                     _ => format!("{value}%"),
+                };
+                let (title, shown) = if id == SettingId::ChatFontSize && title.contains("%s") {
+                    (title.replace("%s", &shown), String::new())
+                } else {
+                    (title, shown)
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;
                 let width = (right - left - amount - self.canvas.r(1.6)).max(1.0);

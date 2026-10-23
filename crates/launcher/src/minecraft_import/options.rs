@@ -12,6 +12,8 @@ use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
 #[derive(Clone, Copy, Debug)]
 pub enum Encoding {
     Toggle,
+    /// Native Off/On imports select the corresponding bobbing mode.
+    ViewBobbing,
     Integer,
     Fraction,
     Blocks,
@@ -73,7 +75,7 @@ pub const MAPPINGS: &[Mapping] = &[
     Mapping {
         source: "gfx_viewbobbing",
         destination: SettingId::ViewBobbing,
-        encoding: Encoding::Toggle,
+        encoding: Encoding::ViewBobbing,
         category: Category::Video,
     },
     Mapping {
@@ -137,12 +139,6 @@ pub const MAPPINGS: &[Mapping] = &[
         category: Category::Controls,
     },
     Mapping {
-        source: "ctrl_autojump",
-        destination: SettingId::KeyboardMouseAutojump,
-        encoding: Encoding::Toggle,
-        category: Category::Controls,
-    },
-    Mapping {
         source: "audio_main",
         destination: SettingId::MainVolume,
         encoding: Encoding::Fraction,
@@ -199,12 +195,6 @@ pub const MAPPINGS: &[Mapping] = &[
     Mapping {
         source: "audio_weather",
         destination: SettingId::WeatherVolume,
-        encoding: Encoding::Fraction,
-        category: Category::Audio,
-    },
-    Mapping {
-        source: "audio_texttospeech",
-        destination: SettingId::TexttospeechVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
@@ -300,6 +290,11 @@ pub fn parse(bytes: &[u8]) -> ParsedOptions {
 fn convert(mapping: &Mapping, raw: &str) -> Option<i32> {
     let option = mapping.destination.definition();
     let value = match mapping.encoding {
+        Encoding::ViewBobbing => match raw {
+            "0" => ui::ViewBobbing::Off as i32,
+            "1" => ui::ViewBobbing::Full as i32,
+            _ => return None,
+        },
         Encoding::Toggle => match raw {
             "0" => 0,
             "1" => 1,
@@ -367,7 +362,16 @@ mod tests {
                 .find(|option| option.id == mapping.destination)
                 .unwrap_or_else(|| panic!("missing import destination {:?}", mapping.destination));
             if matches!(mapping.encoding, Encoding::Toggle) {
-                assert_eq!((definition.min, definition.max, definition.step), (0, 1, 1));
+                assert_eq!(definition.step, 1);
+                for raw in ["0", "1"] {
+                    assert_eq!(
+                        convert(mapping, raw),
+                        raw.parse().ok(),
+                        "{}",
+                        mapping.source
+                    );
+                }
+                assert!(convert(mapping, "2").is_none(), "{}", mapping.source);
             }
             let raw = match mapping.encoding {
                 Encoding::Fraction => "0.5".to_owned(),
@@ -376,6 +380,38 @@ mod tests {
             };
             assert!(convert(mapping, &raw).is_some(), "{}", mapping.source);
         }
+    }
+
+    /// Importing either VSync value replaces the previous toggle state.
+    #[test]
+    fn imported_vsync_retains_the_native_binary_choice() {
+        for mode in render_api::VsyncMode::ALL {
+            let parsed = parse(format!("gfx_vsync:{}", mode as i32).as_bytes());
+            let mut settings = SettingsOptions::default();
+            settings.set(SettingId::Vsync.index(), i32::from(!mode.enabled()));
+            parsed.apply(&mut settings);
+            assert_eq!(parsed.skipped, 0);
+            assert_eq!(settings.user_settings().video.vsync, mode);
+        }
+    }
+
+    /// Native preferences remain binary even though the client offers a third mode.
+    #[test]
+    fn imported_view_bobbing_selects_off_or_full() {
+        for (raw, mode) in [("0", ui::ViewBobbing::Off), ("1", ui::ViewBobbing::Full)] {
+            let parsed = parse(format!("gfx_viewbobbing:{raw}").as_bytes());
+            let mut settings = SettingsOptions::default();
+            settings.set(
+                SettingId::ViewBobbing.index(),
+                ui::ViewBobbing::Minimal as i32,
+            );
+            parsed.apply(&mut settings);
+            assert_eq!(parsed.skipped, 0);
+            assert_eq!(settings.user_settings().video.view_bobbing, mode);
+        }
+        let parsed = parse(b"gfx_viewbobbing:2");
+        assert_eq!(parsed.skipped, 1);
+        assert!(parsed.values.is_empty());
     }
 
     #[test]

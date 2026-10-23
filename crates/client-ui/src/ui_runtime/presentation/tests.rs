@@ -23,6 +23,7 @@ mod credits_screen_tests;
 mod cursor_durability_tests;
 mod debug_overlay_tests;
 pub mod engine_hud_tests;
+mod fallback_crafting_ghost_tests;
 mod fallback_inventory_layout_tests;
 mod forms_tests;
 mod hud_matrix_tests;

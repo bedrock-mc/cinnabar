@@ -71,6 +71,29 @@ mod drop_inventory_tests;
 #[path = "published_tests/repeat_clock.rs"]
 mod repeat_clock_tests;
 
+#[path = "published_tests/touch.rs"]
+mod touch_tests;
+
+/// Builds a fully known air column for interaction rays and their shape halo.
+fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
+    let mut payload = vec![1, 2];
+    payload.extend(std::iter::repeat_n(
+        0xff,
+        protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count
+            - 1,
+    ));
+    payload.push(0);
+    protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+        dimension: 0,
+        x,
+        z,
+        mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+        payload,
+    })
+}
+
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
     fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
@@ -110,27 +133,7 @@ fn fixture_with_network(
         air_network_id: id("minecraft:air"),
         block_network_ids_are_hashes: false,
     });
-    let mut payload = vec![1, 2];
-    payload.extend(std::iter::repeat_n(
-        0xff,
-        protocol::vanilla_dimension_range(0)
-            .unwrap()
-            .sub_chunk_count
-            - 1,
-    ));
-    payload.push(0);
-    stream
-        .submit(
-            1,
-            protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
-                payload,
-            }),
-        )
-        .unwrap();
+    stream.submit(1, empty_column(0, 0)).unwrap();
     stream
         .submit(
             2,
@@ -142,7 +145,7 @@ fn fixture_with_network(
             }]),
         )
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "synthetic terrain decode", || {
+    test_time::eventually("synthetic terrain decode", || {
         stream.poll(position, 0);
         stream.committed_sequence() >= 2
     });
@@ -174,7 +177,7 @@ fn fixture_with_network(
     origin.publish_from_local_player_frame(&carrier);
     // The frame before this one picked along the same ray.
     let mut block_use = BlockUseRuntime::default();
-    block_use.retain_pick(&origin, movement.interaction_authority_identity());
+    block_use.retain_pick(&origin, movement.position_authority_identity());
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     player
         .facts
@@ -393,7 +396,7 @@ fn a_moving_press_measures_reach_from_the_pre_tick_eye() {
     let ahead = frame_origin(&world, Vec3::new(4.5, 2.5, 12.3), Quat::IDENTITY);
     let authority = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity();
+        .position_authority_identity();
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&ahead, authority);
@@ -550,7 +553,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
         stream
             .submit(3, protocol::WorldEvent::BlockUpdates(floor))
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "fixture floor commit", || {
+        test_time::eventually("fixture floor commit", || {
             stream.poll(start, 0);
             stream.committed_sequence() >= 3
         });
@@ -582,7 +585,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     });
     let mut movement = world.resource_mut::<MovementTicker>();
     movement.reset(7, 100, start);
-    let authority = movement.interaction_authority_identity();
+    let authority = movement.position_authority_identity();
     let mut physics = client_interaction::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(start, 100, true);
     world.insert_resource(physics);

@@ -4,8 +4,8 @@
 
 use bevy::{
     prelude::{
-        App, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res, ResMut, Resource,
-        Time, Transform, Update, Vec3, With,
+        App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
+        ResMut, Resource, Time, Transform, Update, Vec3, With,
     },
     time::Real,
 };
@@ -24,7 +24,7 @@ use render_scene::{
     ActorRenderFrame, AtmosphereFrame, ChunkRenderQueue, WorldLighting,
     shaderpack::{
         SKY_BIOME_SLOTS, ShaderPackActorIds, ShaderPackFrameInputs, ShaderPackIdMaps,
-        ShaderPackStatus,
+        ShaderPackRequest, ShaderPackStatus,
     },
 };
 
@@ -73,12 +73,62 @@ impl Plugin for ShaderPackInputsPlugin {
                 (
                     publish_frame_inputs
                         .after(update_atmosphere_frame)
-                        .after(LocalPlayerFrameSet::Interaction),
-                    publish_actor_ids,
-                    mesh_like_java_for_shader_packs,
+                        .after(LocalPlayerFrameSet::Interaction)
+                        .run_if(shader_inputs_sampled),
+                    publish_dimension
+                        .after(update_atmosphere_frame)
+                        .run_if(requested_pack_failed),
+                    publish_actor_ids.run_if(actor_ids_published),
+                    mesh_like_java_for_shader_packs.run_if(java_meshing_may_change),
                 ),
             );
     }
+}
+
+/// Whether the requested pack is the one that failed to load; it renders Vanilla until a
+/// reload or a dimension change retries it.
+fn pack_failed(request: &ShaderPackRequest, status: Option<&ShaderPackStatus>) -> bool {
+    matches!(
+        (status, &request.pack),
+        (Some(ShaderPackStatus::Failed { pack, .. }), Some(requested)) if pack == requested
+    )
+}
+
+/// Samples shader-only world data while a pack is requested, including its initial load,
+/// unless that pack failed.
+fn shader_inputs_sampled(
+    request: Option<Res<ShaderPackRequest>>,
+    status: Option<Res<ShaderPackStatus>>,
+) -> bool {
+    request
+        .is_some_and(|request| request.pack.is_some() && !pack_failed(&request, status.as_deref()))
+}
+
+/// A failed pack samples only the dimension its retry is keyed on.
+fn requested_pack_failed(
+    request: Option<Res<ShaderPackRequest>>,
+    status: Option<Res<ShaderPackStatus>>,
+) -> bool {
+    request.is_some_and(|request| pack_failed(&request, status.as_deref()))
+}
+
+/// Keeps the dimension current for the loader, which retries a failed pack when it changes.
+fn publish_dimension(frame: Res<AtmosphereFrame>, mut inputs: ResMut<ShaderPackFrameInputs>) {
+    let dimension = frame.sky_kind() as i32;
+    if inputs.dimension != dimension {
+        inputs.dimension = dimension;
+    }
+}
+
+/// Actor ids follow a loaded pack's maps, and clear once after it unloads.
+fn actor_ids_published(ids: Res<ShaderPackIdMaps>, actor_ids: Res<ShaderPackActorIds>) -> bool {
+    ids.is_loaded() || *actor_ids != ShaderPackActorIds::default()
+}
+
+/// Java meshing follows a ready pack, so it is re-evaluated while one is ready and whenever
+/// the load status changes.
+fn java_meshing_may_change(status: Option<Res<ShaderPackStatus>>) -> bool {
+    status.is_some_and(|status| status.is_ready() || status.is_changed())
 }
 
 /// Bedrock blocks Java fills with water (`seagrass`, `kelp` and `kelp_plant`, `bubble_column`
@@ -255,7 +305,7 @@ fn publish_frame_inputs(
         let main_hand = player_runtime.selected_stack();
         next.held_item_id = held_item_id(stream, &ids, main_hand);
         next.held_block_light = held_block_light(stream, main_hand);
-        let off_hand = ui.gameplay_hud().offhand_stack();
+        let off_hand = ui.local_offhand_stack(&player_runtime);
         next.held_item_id2 = held_item_id(stream, &ids, off_hand);
         next.held_block_light2 = held_block_light(stream, off_hand);
     }
@@ -474,6 +524,126 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "shaderpacks"))]
+    #[test]
+    fn builds_without_shaderpacks_install_no_shader_inputs() {
+        let mut app = App::new();
+        app.add_plugins(ShaderPackInputsPlugin);
+        app.update();
+        assert!(!app.world().contains_resource::<ShaderPackFrameInputs>());
+        assert!(!app.world().contains_resource::<ShaderPackIdMaps>());
+        assert!(!app.world().contains_resource::<ShaderPackActorIds>());
+    }
+
+    /// Shader-only sampling follows the request, including before a pack becomes ready.
+    #[test]
+    fn world_sampling_stops_when_shaders_are_off() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut app = App::new();
+        app.init_resource::<WorldClock>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<AtmosphereFrame>()
+            .init_resource::<WorldLighting>()
+            .init_resource::<CameraMediumState>()
+            .init_resource::<VisionEffects>()
+            .init_resource::<ClientWorld>()
+            .init_resource::<ActorRenderFrame>()
+            .init_resource::<ShaderPackRequest>()
+            .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
+            .add_plugins(ShaderPackInputsPlugin)
+            .insert_resource(FrameTimeCounterPin(Some(17.0)));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            None
+        );
+        app.world_mut().resource_mut::<ShaderPackRequest>().pack = Some("Dusk.zip".into());
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            Some(17.0)
+        );
+        app.world_mut().resource_mut::<ShaderPackRequest>().pack = None;
+        app.world_mut().resource_mut::<FrameTimeCounterPin>().0 = Some(23.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            Some(17.0)
+        );
+    }
+
+    /// A failed pack renders Vanilla, so it samples only the dimension the loader retries on.
+    #[test]
+    fn failed_packs_track_only_the_dimension() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        use render_scene::SkyKind;
+        let mut app = App::new();
+        app.init_resource::<WorldClock>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<AtmosphereFrame>()
+            .init_resource::<WorldLighting>()
+            .init_resource::<CameraMediumState>()
+            .init_resource::<VisionEffects>()
+            .init_resource::<ClientWorld>()
+            .init_resource::<ActorRenderFrame>()
+            .insert_resource(ShaderPackRequest {
+                pack: Some("Dusk.zip".into()),
+                ..Default::default()
+            })
+            .insert_resource(ShaderPackStatus::Failed {
+                pack: "Dusk.zip".into(),
+                reason: "broken".into(),
+            })
+            .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
+            .add_plugins(ShaderPackInputsPlugin)
+            .insert_resource(FrameTimeCounterPin(Some(17.0)));
+        let nether = AtmosphereFrame::default().with_sky_kind(SkyKind::Nether);
+        app.insert_resource(nether);
+        app.update();
+        let inputs = app.world().resource::<ShaderPackFrameInputs>();
+        assert_eq!(inputs.frame_time_counter, None, "no full sampling");
+        assert_eq!(
+            inputs.dimension,
+            SkyKind::Nether as i32,
+            "dimension tracked"
+        );
+
+        // A different pack, or a retry that is loading, samples everything again.
+        app.insert_resource(ShaderPackStatus::Loading("Dusk.zip".into()));
+        app.update();
+        let inputs = app.world().resource::<ShaderPackFrameInputs>();
+        assert_eq!(inputs.frame_time_counter, Some(17.0));
+        app.insert_resource(ShaderPackStatus::Failed {
+            pack: "Dusk.zip".into(),
+            reason: "broken".into(),
+        });
+        app.world_mut().resource_mut::<ShaderPackRequest>().pack = Some("Lumen".into());
+        app.world_mut().resource_mut::<FrameTimeCounterPin>().0 = Some(23.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShaderPackFrameInputs>()
+                .frame_time_counter,
+            Some(23.0)
+        );
+    }
 
     #[test]
     fn java_meshing_toggle_discards_old_uploads_and_preserves_removals() {

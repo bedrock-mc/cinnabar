@@ -1,4 +1,4 @@
-//! The Shader Pack Settings screen over Video settings: its commands and the immutable view
+//! The Shader Pack Settings screen in the Shaders tab: its commands and the immutable view
 //! the app publishes while it is open. With the `shader-pack-options` feature, [`Editor`]
 //! runs a pack's [`shaderpack::OptionSession`] behind them.
 

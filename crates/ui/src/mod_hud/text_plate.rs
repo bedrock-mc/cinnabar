@@ -33,6 +33,8 @@ pub struct TextPlateStyle {
     pub background: [f32; 4],
     pub border_color: [f32; 4],
     pub border_width: f32,
+    /// Unscaled GUI-pixel background corner radius, 0 through 16; the card's own radius is unused.
+    pub radius: f32,
     /// None fits the text and padding; Some reserves this exact background dimension.
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -47,6 +49,7 @@ impl Default for TextPlateStyle {
             background: [0.; 4],
             border_color: [0.; 4],
             border_width: 0.,
+            radius: 0.,
             width: None,
             height: None,
         }
@@ -71,6 +74,7 @@ impl TextPlate {
         }
         if !s.border_width.is_finite()
             || !(0. ..=8.).contains(&s.border_width)
+            || !super::background_radius_valid(s.radius)
             || s.width
                 .is_some_and(|v| !v.is_finite() || !(1. ..=super::MAX_CARD_WIDTH).contains(&v))
             || s.height
@@ -130,6 +134,12 @@ mod tests {
             text_plate: Some(TextPlate::default()),
             ..Default::default()
         };
+        assert!(card.text_plate.as_ref().unwrap().validate(&card).is_ok());
+        for radius in [f32::NAN, -1., MAX_TEXT_PLATE_HEIGHT] {
+            card.text_plate.as_mut().unwrap().style.radius = radius;
+            assert!(card.text_plate.as_ref().unwrap().validate(&card).is_err());
+        }
+        card.text_plate.as_mut().unwrap().style.radius = 3.;
         assert!(card.text_plate.as_ref().unwrap().validate(&card).is_ok());
         card.source.as_mut().unwrap().limit = 2;
         assert!(card.text_plate.as_ref().unwrap().validate(&card).is_err());

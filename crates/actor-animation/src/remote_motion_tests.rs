@@ -55,3 +55,27 @@ fn remote_player_turns_leave_bedrock_and_java_walk_cycles_idle() {
     assert!(rig.java.limb_amount[1] > 0.0);
     assert!(rig.java.limb_swing[1] > 0.0);
 }
+
+/// Boats are not mobs: a standing boat faces its new rotation at once, with no body-turn lag.
+#[test]
+fn boats_face_their_rotation_without_mob_body_lag() {
+    let actor = TestActor {
+        kind: ActorKind::Entity {
+            identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
+        },
+        ..Default::default()
+    };
+    let mut actors = HashMap::from([(actor.runtime_id, actor)]);
+    let mut store =
+        ActorAnimationStore::with_assets(crate::test_support::counting_random_assets_for(
+            assets::facts::VanillaEntity::Boat.identifier(),
+        ));
+    store.insert(1, 0, &actors[&1]);
+    for yaw in [150.0, -170.0, 20.0] {
+        actors.get_mut(&1).unwrap().yaw = yaw;
+        store.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+        assert_eq!(store.get(1).unwrap().body_yaw, yaw);
+    }
+}

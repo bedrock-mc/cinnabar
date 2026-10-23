@@ -85,7 +85,7 @@ fn unsupported_world_settings_do_not_publish_inputs() {
         hits.iter()
             .filter(|(action, _)| matches!(action, MenuAction::LocalWorld(A::Tab(_))))
             .count(),
-        2
+        4
     );
 }
 
@@ -156,45 +156,90 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
     }
 }
 
+/// Every catalog option is reachable on its tab, and no tab offers a Dragonfly backend.
 #[test]
-fn advanced_world_form_exposes_backend_and_generator_separately() {
-    use bridge::Backend;
-    use launcher::local_worlds::world::UnavailableReason;
+fn advanced_world_form_exposes_terrain_and_catalog_options() {
+    use launcher::local_worlds::options::{Control, WorldOption as O};
     let mut view = MenuView::new(true, "Fixture".into());
-    view.local.tab = Tab::Advanced;
-    view.local.bds_unavailable = Some(UnavailableReason::DockerMissing);
-    for backend in [Backend::Dragonfly, Backend::Bds] {
-        view.local.create.backend = backend;
-        let (_, hits, nodes) = paint(Default::default(), |canvas| {
-            draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
+    for tab in [Tab::Advanced, Tab::Multiplayer, Tab::Cheats] {
+        view.local.tab = tab;
+        let (_, hits, _) = paint(Default::default(), |canvas| {
+            draw(canvas, &view, [1280.0, 4096.0], Screen::Create).unwrap();
         });
-        for action in [
-            A::Backend(Backend::Dragonfly),
-            A::Backend(Backend::Bds),
-            A::Flat(false),
-            A::Flat(true),
-        ] {
-            assert!(hits.iter().any(|(found, _)| *found == local(action)));
+        for &id in O::ALL {
+            let definition = id.definition();
+            if definition.tab != tab {
+                continue;
+            }
+            let expected = match definition.control {
+                Control::Toggle => A::Option(id, 1 - definition.default),
+                Control::Number { .. } => A::OptionField(id),
+                Control::Choice(choices) => A::Option(id, choices[0].value),
+            };
+            assert!(
+                hits.iter().any(|(found, _)| *found == local(expected)),
+                "{id:?}"
+            );
         }
-        let text: String = nodes
-            .iter()
-            .filter_map(|node| match node.visual() {
-                ui::UiVisual::Text { layout, .. } => Some(
-                    layout
-                        .glyphs()
-                        .iter()
-                        .map(|g| g.codepoint)
-                        .collect::<String>(),
-                ),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .replace(' ', "");
-        assert!(text.contains("Worldgenerator"));
-        assert_eq!(
-            text.contains("BDSneedsDockeronMac"),
-            backend == Backend::Bds
+        if tab == Tab::Advanced {
+            assert!(
+                hits.iter()
+                    .any(|(found, _)| *found == local(A::Flat(false)))
+            );
+            assert!(hits.iter().any(|(found, _)| *found == local(A::Flat(true))));
+        }
+        assert!(
+            !hits
+                .iter()
+                .any(|(found, _)| *found == local(A::Backend(bridge::Backend::Dragonfly)))
         );
     }
+}
+
+#[test]
+fn world_options_edit_shows_the_saved_seed_without_generation_inputs() {
+    use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};
+    let world = World {
+        id: "fixture".into(),
+        name: "Fixture".into(),
+        game_mode: GameMode::Survival,
+        generator: Generator::Normal,
+        difficulty: Difficulty::Normal,
+        backend: bridge::Backend::Bds,
+        seed: -42,
+        options: Default::default(),
+        created_unix: 0,
+        last_played_unix: 0,
+        options_unavailable: false,
+        size_bytes: 0,
+    };
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![world]));
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SelectTab(Tab::Advanced));
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.local = menu.view();
+    let (_, hits, nodes) = paint(Default::default(), |canvas| {
+        draw(canvas, &view, [1280.0, 900.0], Screen::Edit).unwrap();
+    });
+    assert!(
+        !hits
+            .iter()
+            .any(|(action, _)| matches!(action, MenuAction::LocalWorld(A::SeedField | A::Flat(_))))
+    );
+    let text: String = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert!(text.contains("-42"));
+    assert!(text.contains(launcher::local_worlds::NORMAL_WORLD_LABEL));
 }

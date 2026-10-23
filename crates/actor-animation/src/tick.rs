@@ -99,6 +99,8 @@ pub struct ActorTickContext {
     pub camera_position: [f32; 3],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
     pub armor: [Option<WornArmor>; 5],
+    /// Nonempty worn slots, including stacks whose item identity is not yet resolved.
+    pub equipment_count: u8,
     /// The player's skin carries a cape image.
     pub has_cape: bool,
     /// The player's skin model inputs, when it may name its own geometry.
@@ -176,6 +178,10 @@ pub(super) fn advance_motion(
     if query::is_arrow(actor) {
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
+    }
+    // Boats are not mobs: they face their own rotation without body-turn lag.
+    if super::boat::is_boat(actor) {
+        motion.body_yaw = actor.yaw();
     }
     let baby_scale = if query::actor_flag(actor, ActorFlag::Baby.wire_value()) {
         BABY_MOVE_SPEED_SCALE

@@ -20,8 +20,8 @@ use crate::{
     equipment_rig_id, geometry_from_geometry_index, geometry_from_runtime_assets,
     is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
-pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
+pub use catalog::{ActorRigVertexSegments, share_identical_vertices};
 
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
@@ -454,6 +454,11 @@ impl ActorRigFrameBuilder {
     #[must_use]
     pub fn contains_geometry(&self, id: EntityRigId) -> bool {
         self.catalog.geometries.contains_key(&id)
+    }
+
+    /// Borrows the currently registered, validated geometry for contact and attachment queries.
+    pub fn geometry(&self, id: EntityRigId) -> Option<&ActorRigGeometry> {
+        self.catalog.geometries.get(&id)
     }
 
     #[must_use]

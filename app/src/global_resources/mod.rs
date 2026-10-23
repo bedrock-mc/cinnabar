@@ -79,7 +79,7 @@ impl From<Overlay<'_>> for PublishedOverlay {
 ///
 /// The published snapshot is a function of the worker's snapshot and the reload overlay, so
 /// it is rebuilt only when either changes instead of being cloned every frame. Dropped world
-/// files go to the Worlds tab while it shows, Video settings hands drops to the shader-pack
+/// files go to the Worlds tab while it shows, the Shaders tab hands drops to the shader-pack
 /// import, and every other drop imports as a pack.
 fn drive(
     mut worker: ResMut<worker::Worker>,

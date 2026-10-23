@@ -311,7 +311,7 @@ impl InstallLayout {
         self.user_data_root.join("mods")
     }
 
-    /// Java shader packs (zips or folders) the player drops in to pick from Video settings.
+    /// Java shader packs (zips or folders) the player drops in to pick from the Shaders tab.
     #[must_use]
     pub fn shader_packs_dir(&self) -> PathBuf {
         self.user_data_root.join("shaderpacks")

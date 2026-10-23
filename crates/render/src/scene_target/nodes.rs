@@ -26,12 +26,19 @@ type SceneOpaqueQuery = (
 );
 
 /// Draws opaque and cutout geometry while retaining the sky samples for later world passes.
-pub(crate) fn scene_opaque(
+pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<SceneOpaqueQuery>,
     mut context: RenderContext,
 ) {
     let entity = query.entity();
+    if super::unavailable(world, entity) {
+        return;
+    }
+    let draw_native = crate::shaderpack::native_pass_enabled(world, entity, AFTER_PACK);
+    if AFTER_PACK && !draw_native {
+        return;
+    }
     let (camera, view, target, scene, depth, resolution, sky_pipeline, sky_group, offset) =
         query.into_inner();
     let (Some(opaque), Some(cutout)) = (
@@ -57,17 +64,19 @@ pub(crate) fn scene_opaque(
         },
     );
     let sky = scene.is_none() && (sky_pipeline.is_some() || sky_group.is_some());
-    if crate::gpu_timing::draw_categories(
-        world,
-        &mut context,
-        entity,
-        opaque,
-        cutout,
-        sky,
-        color.clone(),
-        depth.clone(),
-        viewport.clone(),
-    ) {
+    if draw_native
+        && crate::gpu_timing::draw_categories(
+            world,
+            &mut context,
+            entity,
+            opaque,
+            cutout,
+            sky,
+            color.clone(),
+            depth.clone(),
+            viewport.clone(),
+        )
+    {
         return;
     }
     let diagnostics = context.diagnostic_recorder();
@@ -85,6 +94,10 @@ pub(crate) fn scene_opaque(
         multiview_mask: None,
     });
     let span = diagnostics.pass_span(&mut pass, "main_opaque_pass_3d");
+    if !draw_native {
+        span.end(&mut pass);
+        return;
+    }
     match &viewport {
         Some(Some(viewport)) => pass.set_camera_viewport(viewport),
         Some(None) => {

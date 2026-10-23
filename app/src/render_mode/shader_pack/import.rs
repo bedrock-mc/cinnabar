@@ -1,4 +1,4 @@
-//! Shader packs dropped onto the window while Video settings lists them are copied into the
+//! Shader packs dropped onto the window while the Shaders tab lists them are copied into the
 //! shader-pack folder off the frame, as Iris's shader pack screen does; the list then
 //! refreshes and a toast reports the outcome with Iris's wording. Unlike Iris, an added pack
 //! is not selected, since picking a pack here applies it at once.

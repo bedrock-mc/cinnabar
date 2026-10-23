@@ -80,7 +80,7 @@ impl BookEntry<'_> {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),
                     count: u16::from(output.count),
-                    block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                    block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
                     ..NetworkItemStack::empty()
                 }
             }
@@ -155,38 +155,61 @@ pub fn book_data(
     }
     let first_icon = icons.len();
     let entries = source.book_entries();
+    let facts = source.player().inventory.ledger().item_facts();
+    let row = |(index, entry): (usize, &BookEntry<'_>)| {
+        let stack = entry.stack();
+        cache::RowKey {
+            count: stack.count,
+            id_aux: facts.id_aux(&stack),
+            background: background(source, entry),
+            modifier: modifier(entry),
+            icon: frame.book_entries.get(index).copied().flatten(),
+        }
+    };
+    if BookCache::reuse_rows(
+        cache,
+        creative,
+        entries.iter().enumerate().map(row),
+        icons,
+        data,
+    ) {
+        return;
+    }
     let total = entries.len() as f64;
-    let items: Vec<_> = entries
+    let rows: Vec<_> = entries.iter().enumerate().map(row).collect();
+    let items: Vec<_> = rows
         .iter()
-        .enumerate()
-        .map(|(index, entry)| {
+        .map(|row| {
             let mut item =
                 CollectionItem::default().with("#item_renderer_data", Scalar::Json(Value::Null));
-            if let Some(icon) = frame.book_entries.get(index).copied().flatten() {
+            if let Some(icon) = row.icon {
                 icons.push(icon);
                 item = item.with("#item_renderer_data", Scalar::Num((icons.len() - 1) as f64));
             }
-            let count = entry.stack().count;
-            item.with(
-                "#recipe_craftable_count",
-                Scalar::Text(if count > 1 && !creative {
-                    count.to_string()
-                } else {
-                    String::new()
-                }),
-            )
-            .with("#recipe_hover_text", Scalar::Text(String::new()))
-            .with("#is_creative_selected_slot", Scalar::Bool(false))
-            .with(
-                "#container_item_background_texture",
-                Scalar::Text(background(source, entry).to_owned()),
-            )
-            .with("#recipe_book_total_items", Scalar::Num(total))
-            .with("#container_item_modifier", Scalar::Int(modifier(entry)))
+            item.with("#item_id_aux", Scalar::Int(i64::from(row.id_aux)))
+                .with(
+                    "#recipe_craftable_count",
+                    Scalar::Text(if row.count > 1 && !creative {
+                        row.count.to_string()
+                    } else {
+                        String::new()
+                    }),
+                )
+                .with("#recipe_hover_text", Scalar::Text(String::new()))
+                .with("#is_creative_selected_slot", Scalar::Bool(false))
+                .with(
+                    "#container_item_background_texture",
+                    Scalar::Text(row.background.to_owned()),
+                )
+                .with("#recipe_book_total_items", Scalar::Num(total))
+                .with("#container_item_modifier", Scalar::Int(row.modifier))
         })
         .collect();
     let items = std::sync::Arc::from(items);
-    *cache = BookCache::capture(source, frame, first_icon, icons, &items);
+    *cache = Some(
+        BookCache::capture(source, frame, first_icon, icons, &items)
+            .unwrap_or_else(|| BookCache::capture_rows(creative, rows, first_icon, icons, &items)),
+    );
     data.set_shared_collection(COLLECTION, items);
 }
 

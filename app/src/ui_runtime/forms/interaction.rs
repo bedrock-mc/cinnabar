@@ -74,11 +74,12 @@ fn gamepad_keys<'a>(
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven): (
+    (player_runtime, window, mut focus, driven, pointer_source): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
+        Option<Res<crate::ui_runtime::touch_pointer::UiPointerSource>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -189,6 +190,7 @@ pub(crate) fn drive_server_form_input(
     if input_available && let Some(frame) = engine_frame {
         let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
         let input = engine_input::EngineInput {
+            touch: pointer_source.as_ref().is_some_and(|source| source.0),
             pointer_edges,
             cursor: window
                 .cursor_position()
@@ -214,6 +216,11 @@ pub(crate) fn drive_server_form_input(
                         .into_iter()
                         .map(|(key, text)| (key, text, false)),
                 )
+                .chain(mouse.just_pressed(MouseButton::Back).then_some((
+                    KeyboardKey::Escape,
+                    None,
+                    false,
+                )))
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
@@ -246,7 +253,8 @@ pub(crate) fn drive_server_form_input(
                 .server_forms_mut()
                 .scroll_rows((-pixels).clamp(-4096.0, 4096.0) as i32);
         }
-        let action = if keys.just_pressed(KeyCode::Escape) {
+        let action = if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Back)
+        {
             Some((identity, LocalFormAction::Dismiss))
         } else if keys.just_pressed(KeyCode::Enter)
             || keys.just_pressed(KeyCode::NumpadEnter)

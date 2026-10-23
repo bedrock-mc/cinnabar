@@ -80,6 +80,7 @@ fn every_reset_changes_only_its_registered_members_and_keeps_bindings() {
         SettingsGroup::Accessibility,
         SettingsGroup::Audio,
         SettingsGroup::Chat,
+        SettingsGroup::Discord,
     ] {
         let mut options = SettingsOptions::default();
         for row in SETTINGS_OPTIONS {
@@ -133,6 +134,38 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
     assert_eq!(
         SettingSection::Sound.definition().reset_group,
         Some(SettingsGroup::Audio)
+    );
+    assert_eq!(
+        SettingSection::Chat.definition().reset_group,
+        Some(SettingsGroup::Chat)
+    );
+    assert_eq!(
+        SettingSection::Discord.definition().reset_group,
+        Some(SettingsGroup::Discord)
+    );
+}
+
+#[test]
+fn shaders_tab_is_visible_only_in_shader_pack_builds() {
+    let shaders = SettingSection::Shaders.definition();
+    assert_eq!(shaders.tab_title.is_some(), super::SHADER_PACK_BINDINGS);
+    assert_eq!(
+        SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name),
+        super::SHADER_PACK_BINDINGS
+    );
+    let position = |section: SettingSection| {
+        SECTION_DEFINITIONS
+            .iter()
+            .position(|row| row.id == section)
+            .unwrap()
+    };
+    assert_eq!(
+        position(SettingSection::Shaders),
+        position(SettingSection::GlobalTexturePack) + 1
+    );
+    assert_eq!(
+        position(SettingSection::Mods),
+        position(SettingSection::Shaders) + 1
     );
 }
 
@@ -207,8 +240,50 @@ fn chat_color_codes_and_swatch_choices_share_one_palette() {
     }
 }
 
+/// Saved keys of settings that were removed; old files holding them must still load.
+const RETIRED: &[&str] = &[
+    "chat_typeface",
+    "content_log_gui_level",
+    "gamepad_cursor_sensitivity",
+    "actionbar_text_background_opacity",
+    "show_auto_save_icon",
+    "bubble_particles",
+    "keyboard_show_full_keyboard_options",
+    "keyboard_mouse_autojump",
+    "controller_autojump",
+    "hide_tooltips",
+    "hide_gamepad_cursor",
+    "controller_clear_hotbar",
+    "websockets_enabled",
+    "websocket_encryption",
+    "only_trusted_skins_allowed",
+    "pause_option_toggle",
+    "ecomode_toggle",
+    "script_debugger_passcode_required",
+    "script_debugger_auto_attach",
+    "editor_collect_network_metrics",
+    "serverbound_client_diagnostics_enabled",
+    "script_watchdog_spike_warning",
+    "script_watchdog_slow_warning",
+    "device_info_use_memory_tier_override",
+    "debug_text_filtering_use_delay_sec_override",
+    "content_log_file",
+    "content_log_gui",
+    "content_log_gui_show_on_errors",
+    "enable_gameplay_subtitles",
+    "hide_own_gameplay_subtitles",
+    "hide_ambient_gameplay_subtitles",
+    "enable_ui_text_to_speech",
+    "enable_chat_text_to_speech",
+    "enable_open_chat_message",
+    "hide_endflash",
+    "enable_dithering_blocks",
+    "enable_dithering_mobs",
+    "texttospeech_volume",
+];
+
 #[test]
-fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
+fn saved_schema_snapshot_keeps_active_setting_and_binding_keys() {
     let fixture = include_bytes!("../../../tests/data/settings-v1.json");
     let stored: serde_json::Value = serde_json::from_slice(fixture).unwrap();
     let options = SettingsOptions::decode(fixture).unwrap();
@@ -223,10 +298,20 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
             .as_object()
             .unwrap()
             .keys()
+            .filter(|name| !RETIRED.contains(&name.as_str()))
             .collect::<Vec<_>>()
     );
     assert_eq!(encoded["keys"], stored["keys"]);
-    for name in stored["values"].as_object().unwrap().keys() {
+    for retired in RETIRED {
+        assert!(SettingId::from_name(retired).is_none(), "{retired}");
+        assert!(encoded["values"].get(retired).is_none(), "{retired}");
+    }
+    for name in stored["values"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|name| !RETIRED.contains(&name.as_str()))
+    {
         let id = SettingId::from_name(name).expect("saved setting must remain registered");
         assert_eq!(
             options.value(id),
@@ -239,6 +324,120 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
             .map_or((name.as_str(), false), |name| (name, true));
         let id = BindingId::from_name(name).expect("saved binding must remain registered");
         assert_eq!(options.key_control(id.row(gamepad).unwrap()), None);
+    }
+}
+
+/// Accessibility neither displays nor resets preferences owned by the Chat panel.
+#[test]
+fn accessibility_keeps_chat_preferences_in_the_chat_panel() {
+    let mut settings = SettingsOptions::default();
+    for option in SettingPanel::Chat.options() {
+        assert!(
+            option
+                .section
+                .iter()
+                .all(|(panel, _)| panel.section() != SettingSection::Accessibility)
+        );
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    settings.set(SettingId::ToastNotificationDuration.index(), 1);
+    let before = settings.clone();
+    assert!(settings.reset_group(SettingsGroup::Accessibility));
+    for option in SettingPanel::Chat.options() {
+        assert_eq!(settings.value(option.id), before.value(option.id));
+    }
+    assert_eq!(
+        settings.value(SettingId::ToastNotificationDuration),
+        SettingId::ToastNotificationDuration.definition().default
+    );
+}
+
+/// The dedicated Chat reset includes every displayed preference and preserves other panels.
+#[test]
+fn chat_panel_reset_restores_shared_values_and_persists_defaults() {
+    let mut settings = SettingsOptions::default();
+    let chat: BTreeSet<_> = SettingPanel::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(chat, reset);
+    for option in SettingPanel::Chat.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    let unrelated = SettingId::MainVolume;
+    settings.set(unrelated.index(), unrelated.definition().min);
+    let saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_ne!(saved.value(option.id), option.default);
+    }
+    assert!(settings.reset_group(SettingsGroup::Chat));
+    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_eq!(restored.value(option.id), option.default);
+    }
+    assert_eq!(restored.value(unrelated), unrelated.definition().min);
+}
+
+/// The Discord panel and its detailed rows share one reset group.
+#[test]
+fn discord_panel_reset_restores_all_presence_preferences() {
+    let mut settings = SettingsOptions::default();
+    let displayed: BTreeSet<_> = SettingPanel::Discord
+        .options()
+        .chain(SettingPanel::DiscordDetails.options())
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Discord
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(displayed, reset);
+    for option in SettingsGroup::Discord.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    assert!(settings.reset_group(SettingsGroup::Discord));
+    for option in SettingsGroup::Discord.options() {
+        assert_eq!(settings.value(option.id), option.default);
+    }
+}
+
+/// Old typeface values cannot suppress font sizing or reintroduce a removed selector.
+#[test]
+fn retired_chat_typeface_is_ignored_without_losing_font_size() {
+    let retired = "chat_typeface";
+    for legacy in [0, 1] {
+        let stored =
+            serde_json::json!({"schema": 2, "values": {(retired): legacy, "chat_font_size": 15}});
+        let options = SettingsOptions::decode(&serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert_eq!(options.chat_font_scale(), 1.5);
+        assert!(SettingId::from_name(retired).is_none());
+        let saved = serde_json::to_value(&options).unwrap();
+        assert!(saved["values"].get(retired).is_none());
+        assert_eq!(
+            SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap())
+                .unwrap()
+                .chat_font_scale(),
+            1.5
+        );
     }
 }
 
@@ -266,4 +465,37 @@ fn reload_shaders_defaults_to_r_and_remaps_only_in_shader_pack_builds() {
         reloaded.named_key_control(BindingId::ReloadShaders),
         Some(f5)
     );
+}
+
+/// An older file that still holds removed settings loads its live values unchanged and drops the
+/// removed keys on the next save.
+#[test]
+fn saved_values_survive_alongside_removed_setting_keys() {
+    let mut values = serde_json::Map::new();
+    for retired in RETIRED {
+        values.insert((*retired).into(), 1.into());
+    }
+    let live = [
+        (SettingId::FilterProfanity, 1),
+        (SettingId::AlwaysSprint, 1),
+        (SettingId::FieldOfView, 90),
+        (SettingId::MainVolume, 40),
+    ];
+    for (id, value) in live {
+        assert_ne!(
+            id.definition().default,
+            value,
+            "{id:?} needs a nondefault value"
+        );
+        values.insert(id.name().into(), value.into());
+    }
+    let saved = serde_json::json!({ "schema": super::SETTINGS_SCHEMA, "values": values });
+    let options = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+    for (id, value) in live {
+        assert_eq!(options.value(id), value, "{id:?}");
+    }
+    let encoded = serde_json::to_value(&options).unwrap();
+    for retired in RETIRED {
+        assert!(encoded["values"].get(retired).is_none(), "{retired}");
+    }
 }

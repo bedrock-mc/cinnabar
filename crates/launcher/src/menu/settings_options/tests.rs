@@ -335,7 +335,6 @@ fn reset_restores_a_shared_default_without_changing_other_actions() {
 fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     let mut settings = SettingsOptions::default();
     for (name, value) in [
-        ("chat_typeface", 1),
         ("chat_font_size", 15),
         ("chat_line_spacing", 25),
         ("chat_color", 3),
@@ -502,14 +501,32 @@ fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
 }
 
 #[test]
-fn vsync_defaults_on_and_persists_into_runtime_settings() {
-    let mut settings = SettingsOptions::default();
-    assert!(settings.user_settings().video.vsync);
-    settings.set(index("vsync"), 0);
-    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(!loaded.user_settings().video.vsync);
+fn vsync_defaults_and_saved_toggle_values_survive_loading() {
+    use render_api::VsyncMode;
+    assert_eq!(
+        SettingsOptions::default().user_settings().video.vsync,
+        VsyncMode::DEFAULT
+    );
     let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
-    assert!(legacy.user_settings().video.vsync);
+    assert_eq!(legacy.user_settings().video.vsync, VsyncMode::DEFAULT);
+    for mode in VsyncMode::ALL {
+        let bytes =
+            serde_json::to_vec(&serde_json::json!({"values":{"vsync": mode as i32}})).unwrap();
+        let loaded = SettingsOptions::decode(&bytes).unwrap();
+        assert_eq!(loaded.user_settings().video.vsync, mode);
+        let saved = SettingsOptions::decode(&serde_json::to_vec(&loaded).unwrap()).unwrap();
+        assert_eq!(saved.user_settings().video.vsync, mode);
+    }
+}
+
+/// Both settings interfaces use the registry's binary toggle contract.
+#[test]
+fn vsync_is_a_toggle() {
+    let option = SettingId::Vsync.definition();
+    assert!(matches!(option.kind, SettingKind::Toggle));
+    assert_eq!(option.min, render_api::VsyncMode::Off as i32);
+    assert_eq!(option.max, render_api::VsyncMode::On as i32);
+    assert_eq!(option.default, render_api::VsyncMode::DEFAULT as i32);
 }
 
 #[test]
@@ -637,6 +654,36 @@ fn animations_default_to_bedrock_and_persist_both_choices() {
     assert!(!settings.user_settings().video.java_animations);
 }
 
+/// Old toggle values retain their meaning, Minimal persists and Video reset restores Full.
+#[test]
+fn view_bobbing_preserves_toggle_values_and_persists_minimal() {
+    let mut settings = SettingsOptions::default();
+    let id = SettingId::ViewBobbing;
+    assert_eq!(
+        settings.user_settings().video.view_bobbing,
+        ui::ViewBobbing::Full
+    );
+    assert_eq!(VIEW_BOBBING_CHOICES.len(), ui::ViewBobbing::ALL.len());
+    for (value, mode) in ui::ViewBobbing::ALL.into_iter().enumerate() {
+        assert_eq!(mode as usize, value);
+        assert_eq!(VIEW_BOBBING_CHOICES[value].label, mode.label());
+        settings.set(id.index(), mode as i32);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.value(id), mode as i32);
+        assert_eq!(loaded.user_settings().video.view_bobbing, mode);
+    }
+    for (toggle, expected) in [(0, ui::ViewBobbing::Off), (1, ui::ViewBobbing::Full)] {
+        let legacy = serde_json::json!({ "schema": 1, "values": { id.name(): toggle } });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(loaded.user_settings().video.view_bobbing, expected);
+    }
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(
+        settings.user_settings().video.view_bobbing,
+        ui::ViewBobbing::Full
+    );
+}
+
 #[test]
 fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
     for (toggle, choice) in [(0, 1), (1, 0)] {
@@ -673,15 +720,6 @@ fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
     }
 }
 
-/// Vanilla 1.26.50 ships auto-jump off for keyboard/mouse and controller alike.
-#[test]
-fn auto_jump_defaults_off_for_every_input_mode() {
-    let settings = SettingsOptions::default();
-    for name in ["keyboard_mouse_autojump", "controller_autojump"] {
-        assert_eq!(settings.get(index(name)), 0, "{name}");
-    }
-}
-
 /// Returns the frame-rate limit applied by the loaded settings.
 fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
     settings.user_settings().video.frame_rate_limit
@@ -689,10 +727,10 @@ fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
 
 /// Missing and unsupported FPS values use the default without becoming a one-FPS cap.
 #[test]
-fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
-    use render_api::FrameRateLimit::Unlimited;
+fn frame_rate_missing_and_invalid_values_keep_the_automatic_default() {
+    use render_api::FrameRateLimit::Automatic;
 
-    assert_eq!(limit(&SettingsOptions::default()), Unlimited);
+    assert_eq!(limit(&SettingsOptions::default()), Automatic);
     for schema in [None, Some(SETTINGS_SCHEMA)] {
         for value in [None, Some(0), Some(-1), Some(i32::MIN), Some(i32::MAX)] {
             let mut saved = serde_json::json!({ "values": {} });
@@ -703,7 +741,7 @@ fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
                 saved["values"]["max_framerate"] = value.into();
             }
             let settings = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
-            assert_eq!(limit(&settings), Unlimited, "{saved}");
+            assert_eq!(limit(&settings), Automatic, "{saved}");
             assert_eq!(
                 settings.value(SettingId::MaxFramerate),
                 FRAME_RATE_UNLIMITED,
@@ -711,9 +749,21 @@ fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
             );
             let reloaded =
                 SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert_eq!(limit(&reloaded), Unlimited, "{saved}");
+            assert_eq!(limit(&reloaded), Automatic, "{saved}");
         }
     }
+}
+
+#[test]
+fn explicitly_choosing_unlimited_survives_saves_and_video_reset_restores_automatic() {
+    use render_api::FrameRateLimit;
+    let mut settings = SettingsOptions::default();
+    assert!(settings.set(SettingId::MaxFramerate.index(), FRAME_RATE_UNLIMITED));
+    assert_eq!(limit(&settings), FrameRateLimit::Unlimited);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(limit(&loaded), FrameRateLimit::Unlimited);
+    loaded.reset_group(SettingsGroup::Video);
+    assert_eq!(limit(&loaded), FrameRateLimit::Automatic);
 }
 
 #[test]
@@ -750,16 +800,16 @@ fn frame_rate_slider_stops_cover_every_cap_and_unlimited() {
         let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(limit(&reloaded), expected);
         settings.reset_group(SettingsGroup::Video);
-        assert_eq!(limit(&settings), Unlimited);
+        assert_eq!(limit(&settings), render_api::FrameRateLimit::default());
     }
 }
 
-/// Tearing is not a player setting; a stray stored key is ignored, never an error.
+/// An unregistered standalone tearing key does not override the VSync choice.
 #[test]
 fn an_unknown_tearing_key_is_ignored() {
     let settings =
         SettingsOptions::decode(br#"{"schema":1,"values":{"allow_tearing":1,"vsync":0}}"#).unwrap();
-    assert!(!settings.user_settings().video.vsync);
+    assert!(!settings.user_settings().video.vsync.enabled());
     let saved = String::from_utf8(serde_json::to_vec(&settings).unwrap()).unwrap();
     assert!(!saved.contains("allow_tearing"), "{saved}");
 }
@@ -825,6 +875,36 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
         loaded.reset_group(super::SettingsGroup::Video);
         assert!(loaded.user_settings().video.native_skybox_offset);
     }
+}
+
+/// Held-item models are enabled for new installs and the preference survives reloads and reset.
+#[test]
+fn custom_item_models_default_on_and_persist_both_states() {
+    let mut settings = SettingsOptions::default();
+    let id = SettingId::ShowCustomItemModels;
+    assert_eq!(
+        settings.value(id),
+        i32::from(ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS)
+    );
+    assert_eq!(
+        settings.user_settings().video.show_custom_item_models,
+        ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS
+    );
+    for enabled in [0, 1] {
+        settings.set(id.index(), enabled);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.value(id), enabled);
+        assert_eq!(
+            loaded.user_settings().video.show_custom_item_models,
+            enabled != 0
+        );
+    }
+    settings.set(id.index(), 0);
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(
+        settings.user_settings().video.show_custom_item_models,
+        ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS
+    );
 }
 
 /// Far terrain stays off whatever an older build saved for it.

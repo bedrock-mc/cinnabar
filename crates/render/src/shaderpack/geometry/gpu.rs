@@ -254,14 +254,8 @@ impl ShaderpackGeometry {
             .map(|origin| (origin.as_dvec3() - camera).as_vec3())
     }
 
-    /// Eye distance within which every section the camera may see is expanded, or `None`
-    /// when nothing waits. Beyond it terrain may be missing from the pack's geometry.
-    pub fn complete_radius(&self) -> Option<f32> {
-        self.complete_radius
-    }
-
     /// Eye distance past which the vertex budget leaves terrain undrawn, `None` while every
-    /// section fits. Unlike [`Self::complete_radius`] it ignores sections merely queued for
+    /// section fits. It ignores sections merely queued for
     /// this frame's expansion, so it holds steady while terrain streams in.
     pub fn budget_horizon(&self) -> Option<f32> {
         self.budget_horizon
@@ -525,7 +519,7 @@ pub(crate) struct GeometryInputs<'w> {
     block_ids: Option<Res<'w, ShaderpackBlockIds>>,
     /// The pack's `far`, the client render distance in blocks.
     frame: Option<Res<'w, render_scene::shaderpack::ShaderPackFrameInputs>>,
-    pipelines: Res<'w, ExpansionPipelines>,
+    pipelines: Option<Res<'w, ExpansionPipelines>>,
     cache: Res<'w, PipelineCache>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
@@ -545,7 +539,7 @@ type GeometryViews<'w, 's> = Query<
 
 /// Plans this frame's expansion and rebuilds every view's draw lists.
 pub(crate) fn prepare_shaderpack_geometry(
-    mut geometry: ResMut<ShaderpackGeometry>,
+    geometry: Option<ResMut<ShaderpackGeometry>>,
     inputs: GeometryInputs,
     sources: PackedChunkSources,
     mut sections: ResidentSections,
@@ -555,6 +549,9 @@ pub(crate) fn prepare_shaderpack_geometry(
         .profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
+    let Some(mut geometry) = geometry else {
+        return;
+    };
     geometry.prepared = PreparedExpansion::default();
     let settings = inputs.settings.as_deref().cloned().unwrap_or_default();
     if !settings.enabled || !geometry.supported {
@@ -613,7 +610,10 @@ pub(crate) fn prepare_shaderpack_geometry(
         geometry.release_all();
         return;
     }
-    let kernels_ready = geometry.pipelines_ready(&inputs.cache, &inputs.pipelines);
+    let kernels_ready = inputs
+        .pipelines
+        .as_deref()
+        .is_some_and(|pipelines| geometry.pipelines_ready(&inputs.cache, pipelines));
     let attribute_key = AttributeKey {
         assets: std::sync::Arc::as_ptr(&textures.assets) as usize,
         revision: textures.revision,
@@ -934,12 +934,15 @@ fn expand_params(
 
 /// Records this frame's expansion dispatches ahead of camera passes.
 pub(crate) fn record_geometry_expansion(
-    mut geometry: ResMut<ShaderpackGeometry>,
-    pipelines: Res<ExpansionPipelines>,
+    geometry: Option<ResMut<ShaderpackGeometry>>,
+    pipelines: Option<Res<ExpansionPipelines>>,
     cache: Res<PipelineCache>,
     timestamps: Option<Res<crate::gpu_timing::GpuTimestamps>>,
     mut context: RenderContext,
 ) {
+    let (Some(mut geometry), Some(pipelines)) = (geometry, pipelines) else {
+        return;
+    };
     let prepared = std::mem::take(&mut geometry.prepared);
     if prepared.dispatches.is_empty() {
         return;
@@ -974,6 +977,8 @@ pub(crate) fn record_geometry_expansion(
 }
 
 mod camera_lists;
+#[cfg(test)]
+mod fixture;
 /// Requires the atlas and packed tables to represent the selected texture source.
 fn expansion_sources_match(
     selected: &ChunkTextureAssets,

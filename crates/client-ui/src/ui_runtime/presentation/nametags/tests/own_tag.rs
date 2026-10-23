@@ -27,6 +27,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -44,7 +45,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
 }
 
 #[test]
-fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibility() {
+fn own_tag_eligibility_uses_server_metadata_and_local_pose() {
     let mut stream = actor_stream(0, None, 1);
     let mut feed = local_feed();
     let boards = ui::ScoreboardStore::default();
@@ -58,11 +59,30 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
             actor,
             view(Vec3::ZERO),
             None,
-            authority.actor_display_name(actor.unique_id).unwrap(),
+            authority.actor_name_tag(actor.unique_id).unwrap(),
             &boards,
             1.0,
         )
     };
+    assert!(own_tag(&stream).is_none());
+    stream
+        .submit(
+            1,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: METADATA_ALWAYS_SHOW_NAMETAG,
+                        value: ActorMetadataValue::Byte(1),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: 0,
+                },
+            )),
+        )
+        .unwrap();
+    stream.poll([0.0; 3], 0);
     assert!(own_tag(&stream).is_some());
     assert!(
         project_nametags(
@@ -86,28 +106,37 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
         ))
         .sneaking
     );
-    for (index, (flags, expected)) in [
-        (0, false),
+    for (index, (always, flags, expected)) in [
+        (0, 1 << ActorFlag::ShowName.wire_value(), false),
+        (-1, 1 << ActorFlag::ShowName.wire_value(), false),
+        (1, 0, true),
         (
+            1,
             (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
             false,
         ),
-        (1 << ActorFlag::ShowName.wire_value(), true),
+        (1, 1 << ActorFlag::ShowName.wire_value(), true),
     ]
     .into_iter()
     .enumerate()
     {
         stream
             .submit(
-                index as u64 + 1,
+                index as u64 + 2,
                 protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
                     protocol::ActorMetadataUpdateEvent {
                         dimension: 0,
                         runtime_id: 1,
-                        metadata: Arc::from([protocol::ActorMetadata {
-                            key: 0,
-                            value: ActorMetadataValue::Flags(flags),
-                        }]),
+                        metadata: Arc::from([
+                            protocol::ActorMetadata {
+                                key: METADATA_ALWAYS_SHOW_NAMETAG,
+                                value: ActorMetadataValue::Byte(always),
+                            },
+                            protocol::ActorMetadata {
+                                key: ActorDataKey::Flags.wire_value(),
+                                value: ActorMetadataValue::Flags(flags),
+                            },
+                        ]),
                         properties: Arc::from([]),
                         tick: 0,
                     },
@@ -138,7 +167,8 @@ fn render_feet_replace_stale_actor_interpolation_for_geometry_and_score_range() 
         let mut camera = view(feet);
         camera.camera_position = feet + Vec3::new(0.0, 2.0, 4.0);
         let tag =
-            extract_nametag_at_feet(&actor, camera, None, "Player".into(), &boards, feet).unwrap();
+            extract_nametag_at_feet(&actor, camera, None, "Player".into(), Some(&boards), feet)
+                .unwrap();
         assert_eq!(tag.position, feet + Vec3::Y * tag_height(&actor));
         assert_eq!(tag.lines[1].as_ref(), "7 wins");
         let old_tag = extract_nametag(&actor, camera, None, "Player".into(), &boards, 0.5).unwrap();
@@ -172,7 +202,14 @@ fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions()
     );
     let boards = ui::ScoreboardStore::default();
     let extract = |actor: &ActorSnapshot, position| {
-        extract_nametag_at_feet(actor, view(feet), None, "Player".into(), &boards, position)
+        extract_nametag_at_feet(
+            actor,
+            view(feet),
+            None,
+            "Player".into(),
+            Some(&boards),
+            position,
+        )
     };
     let tag = extract(&actor, feet).unwrap();
     assert_eq!(tag.position, feet + Vec3::Y * tag_height(&actor));
@@ -184,11 +221,18 @@ fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions()
     ] {
         assert!(extract(&actor, invalid).is_none());
     }
-    for flags in [
+    actor.metadata.insert(0, ActorMetadataValue::Flags(0));
+    assert!(extract(&actor, feet).is_some());
+    actor
+        .metadata
+        .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(0));
+    assert!(extract(&actor, feet).is_none());
+    actor
+        .metadata
+        .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
+    actor.metadata.insert(
         0,
-        (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
-    ] {
-        actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
-        assert!(extract(&actor, feet).is_none());
-    }
+        ActorMetadataValue::Flags(1 << ActorFlag::Invisible.wire_value()),
+    );
+    assert!(extract(&actor, feet).is_none());
 }

@@ -216,7 +216,7 @@ fn cache_pressure_preserves_complete_label_records_and_rasterizes_only_the_miss(
     anchors[1].runtime_id = 2;
     anchors[1].position.x = 2.0;
     anchors[1].depth_tested = true;
-    let before = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &|page| {
+    let before = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &|page| {
         font_page(&font, page)
     });
     for index in atlas.lines.len()..MAX_ATLAS_LINES {
@@ -229,7 +229,7 @@ fn cache_pressure_preserves_complete_label_records_and_rasterizes_only_the_miss(
     let reads = Cell::new(0);
     let after = build_nametag_scene(
         &[new, anchors[0].clone(), anchors[1].clone()],
-        1.0,
+        None,
         &font,
         &mut layouts,
         &mut atlas,
@@ -285,7 +285,7 @@ fn labels_outside_the_record_budget_do_not_block_admission() {
     let reads = Cell::new(0);
     let scene = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(1, 1 << 20),
         &mut atlas,
@@ -399,10 +399,10 @@ fn count_pressure_reuses_empty_and_unused_shelves_for_tall_ink() {
             tag
         })
         .collect();
-    let scene = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let scene = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     let built = layouts.built_layout_count();
     for _ in 0..3 {
-        let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+        let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated.records, scene.records);
         assert!(Arc::ptr_eq(&repeated.atlas, &scene.atlas));
         assert_eq!(repeated.atlas_revision, scene.atlas_revision);
@@ -545,7 +545,7 @@ fn tall_to_short_and_back_admits_the_whole_crowd_without_waiting_for_a_change() 
     let pages = |page| font_page(&font, page);
     let expected = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(anchors.len(), 1 << 20),
         &mut NametagAtlas::default(),
@@ -570,7 +570,7 @@ fn tall_to_short_and_back_admits_the_whole_crowd_without_waiting_for_a_change() 
     for _ in 0..3 {
         let tall = build_nametag_scene(
             &[anchor("/")],
-            1.0,
+            None,
             &font,
             &mut layouts,
             &mut atlas,
@@ -584,7 +584,7 @@ fn tall_to_short_and_back_admits_the_whole_crowd_without_waiting_for_a_change() 
         reads.set(0);
         let short = build_nametag_scene(
             &anchors,
-            1.0,
+            None,
             &font,
             &mut layouts,
             &mut atlas,
@@ -599,7 +599,7 @@ fn tall_to_short_and_back_admits_the_whole_crowd_without_waiting_for_a_change() 
         for _ in 0..3 {
             let repeated = build_nametag_scene(
                 &anchors,
-                1.0,
+                None,
                 &font,
                 &mut layouts,
                 &mut atlas,
@@ -627,13 +627,20 @@ fn reclaiming_a_tall_cell_releases_its_tail_without_moving_short_requested_cells
     let kept = atlas
         .line(&Arc::from("0"), &font, &mut layouts, &pages)
         .unwrap();
-    let before = build_nametag_scene(&[anchor("0")], 1.0, &font, &mut layouts, &mut atlas, &pages);
-    let old_pixels = Arc::clone(&atlas.cells[atlas.lines["0"]].rgba8);
-    let mut anchors = short_anchors();
     let mut protected = anchor("0");
     protected.runtime_id = 0;
+    let before = build_nametag_scene(
+        std::slice::from_ref(&protected),
+        None,
+        &font,
+        &mut layouts,
+        &mut atlas,
+        &pages,
+    );
+    let old_pixels = Arc::clone(&atlas.cells[atlas.lines["0"]].rgba8);
+    let mut anchors = short_anchors();
     anchors.insert(0, protected);
-    let after = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let after = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(
         after.records.len(),
         anchors.len() * NAMETAG_RECORDS_PER_LINE
@@ -654,7 +661,7 @@ fn reclaiming_a_tall_cell_releases_its_tail_without_moving_short_requested_cells
         .collect();
     assert_eq!(protected, before.records);
     assert_placed_cells(&atlas);
-    let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(repeated.records, after.records);
     assert!(Arc::ptr_eq(&repeated.atlas, &after.atlas));
 }
@@ -672,7 +679,7 @@ fn short_first_tall_ink_grows_through_both_unallocated_and_reclaimed_tails() {
     let pages = |page| font_page(&font, page);
     let expected = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(3, 1 << 20),
         &mut NametagAtlas::default(),
@@ -686,10 +693,17 @@ fn short_first_tall_ink_grows_through_both_unallocated_and_reclaimed_tails() {
         let mut atlas = NametagAtlas::default();
         let mut layouts = TextLayoutCache::new(3, 1 << 20);
         if reclaimed_tail {
-            build_nametag_scene(&[anchor("/")], 1.0, &font, &mut layouts, &mut atlas, &pages);
+            build_nametag_scene(
+                &[anchor("/")],
+                None,
+                &font,
+                &mut layouts,
+                &mut atlas,
+                &pages,
+            );
         }
         let before =
-            build_nametag_scene(&anchors[..1], 1.0, &font, &mut layouts, &mut atlas, &pages);
+            build_nametag_scene(&anchors[..1], None, &font, &mut layouts, &mut atlas, &pages);
         let kept = atlas.cells[atlas.lines["0"]].line;
         let pixels = Arc::clone(&atlas.cells[atlas.lines["0"]].rgba8);
         let reads = Cell::new(0);
@@ -699,7 +713,7 @@ fn short_first_tall_ink_grows_through_both_unallocated_and_reclaimed_tails() {
         };
         let after = build_nametag_scene(
             &anchors,
-            1.0,
+            None,
             &font,
             &mut layouts,
             &mut atlas,
@@ -715,7 +729,7 @@ fn short_first_tall_ink_grows_through_both_unallocated_and_reclaimed_tails() {
         for _ in 0..3 {
             let repeated = build_nametag_scene(
                 &anchors,
-                1.0,
+                None,
                 &font,
                 &mut layouts,
                 &mut atlas,
@@ -815,7 +829,7 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
     };
     let blocked = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut layouts,
         &mut atlas,
@@ -831,7 +845,7 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
     let blocked_copy = blocked.clone();
     let recovered = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut layouts,
         &mut atlas,
@@ -839,7 +853,7 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
     );
     let expected = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(anchors.len(), 1 << 20),
         &mut NametagAtlas::default(),
@@ -860,7 +874,7 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
     for _ in 0..4 {
         let repeated = build_nametag_scene(
             &anchors,
-            1.0,
+            None,
             &font,
             &mut layouts,
             &mut atlas,
@@ -891,26 +905,26 @@ fn impossible_requests_rebuild_once_until_actual_admission_order_changes() {
         reads.set(reads.get() + 1);
         font_page(&font, page)
     };
-    let initial = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let initial = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(initial.records.len(), NAMETAG_RECORDS_PER_LINE);
     assert_eq!(reads.get(), 1);
-    let rebuilt = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let rebuilt = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(rebuilt.records, initial.records);
     assert_eq!(reads.get(), 1);
     assert_eq!(rebuilt.atlas_revision, initial.atlas_revision);
     for _ in 0..4 {
-        let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+        let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, rebuilt);
         assert!(Arc::ptr_eq(&repeated.atlas, &rebuilt.atlas));
         assert_eq!(reads.get(), 1);
     }
     // The same requested set in a new order must get its own fresh admission attempt.
     anchors[1].view_depth -= 1.0;
-    build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
-    let reordered = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
+    let reordered = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     let expected = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(2, 1 << 20),
         &mut NametagAtlas::default(),
@@ -920,7 +934,7 @@ fn impossible_requests_rebuild_once_until_actual_admission_order_changes() {
     assert_eq!(reordered.atlas.as_ref(), expected.atlas.as_ref());
     assert_eq!(reads.get(), 2);
     for _ in 0..4 {
-        let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+        let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, reordered);
         assert!(Arc::ptr_eq(&repeated.atlas, &reordered.atlas));
         assert_eq!(reads.get(), 2);
@@ -950,27 +964,27 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
         reads.set(reads.get() + 1);
         font_page(&font, page)
     };
-    build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
-    let rebuilt = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
+    let rebuilt = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(reads.get(), 1);
     for _ in 0..3 {
-        let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+        let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, rebuilt);
         assert!(Arc::ptr_eq(&repeated.atlas, &rebuilt.atlas));
         assert_eq!(reads.get(), 1);
     }
     // The predicted budget prefix stays identical; only a later actual request changes.
     anchors[1].lines = vec![Arc::from("2")].into();
-    let changed = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let changed = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(
         changed.records.len(),
         anchors.len() * NAMETAG_RECORDS_PER_LINE
     );
     assert_eq!(reads.get(), 2);
-    let recovered = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let recovered = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     let expected = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(4, 1 << 20),
         &mut NametagAtlas::default(),
@@ -980,7 +994,7 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
     assert_eq!(recovered.atlas.as_ref(), expected.atlas.as_ref());
     assert_eq!(reads.get(), 2);
     for _ in 0..3 {
-        let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+        let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, recovered);
         assert!(Arc::ptr_eq(&repeated.atlas, &recovered.atlas));
         assert_eq!(reads.get(), 2);

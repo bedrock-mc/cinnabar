@@ -26,6 +26,8 @@ mod device_poll;
 mod gpu_allocation;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+#[path = "../src/startup_presentation.rs"]
+mod startup_presentation;
 
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
@@ -65,6 +67,17 @@ mod screen_overlay_render {
         _: &mut bevy::render::renderer::RenderContext,
         _: &bevy::prelude::World,
     ) {
+    }
+}
+
+mod shaderpack {
+    /// Standalone UI views use the ordinary scene boundary without a shader pack.
+    pub(crate) fn native_pass_enabled(
+        _: &bevy::prelude::World,
+        _: bevy::prelude::Entity,
+        after_pack: bool,
+    ) -> bool {
+        !after_pack
     }
 }
 

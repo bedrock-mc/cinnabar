@@ -60,9 +60,12 @@ impl ActorStore {
     }
 
     /// Rendered name tags use synced actor data, including overrides on players.
-    /// An explicitly empty tag hides it; a missing player tag uses its spawn name.
+    /// An empty tag hides it; a missing player tag uses its spawn name after appearance readiness.
     pub(crate) fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         let actor = self.snapshot_by_unique(unique_id)?;
+        if !self.appearance_ready(actor) {
+            return None;
+        }
         let name = match actor.metadata.get(&ActorDataKey::Name.wire_value()) {
             Some(ActorMetadataValue::String(name)) => std::sync::Arc::clone(name),
             _ => match &actor.kind {
@@ -260,6 +263,13 @@ impl ActorStore {
             self.camera_position,
             partial_tick,
         )
+    }
+    /// Full-body controller layers paired with the actor's UI pose.
+    pub(crate) fn actor_ui_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.ui_layers(runtime_id)
     }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(

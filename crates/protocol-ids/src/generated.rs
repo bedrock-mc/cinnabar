@@ -98,6 +98,7 @@ wire_ids!(ActorDataKey, u32, {
     Name => 4,
     NameAuthor => 83,
     NameRawText => 112,
+    NameplateRenderDistance => 140,
     NameplateRenderDistanceMax => 143,
     NearbyCuredDiscountTimeStamp => 117,
     NearbyCuredTradeDiscount => 116,
@@ -289,6 +290,7 @@ wire_ids!(ActorFlag, u32, {
 
 wire_ids!(CommandArgFlag, u32, {
     Enum => 2097152,
+    IndexMask => 1048575,
     SoftEnum => 67108864,
     Suffixed => 16777216,
     Valid => 1048576,
@@ -462,13 +464,16 @@ wire_ids!(ContainerName, u8, {
 
 wire_ids!(Effect, i32, {
     Absorption => 22,
+    BadOmen => 28,
     Blindness => 15,
     ConduitPower => 26,
+    Darkness => 30,
     FatalPoison => 25,
     FireResistance => 12,
     Haste => 3,
     HealthBoost => 21,
     Hunger => 17,
+    Infested => 35,
     InstantDamage => 7,
     InstantHealth => 6,
     Invisibility => 14,
@@ -477,7 +482,9 @@ wire_ids!(Effect, i32, {
     MiningFatigue => 4,
     Nausea => 9,
     NightVision => 16,
+    Oozing => 34,
     Poison => 19,
+    RaidOmen => 36,
     Regeneration => 10,
     Resistance => 11,
     Saturation => 23,
@@ -485,9 +492,12 @@ wire_ids!(Effect, i32, {
     Slowness => 2,
     Speed => 1,
     Strength => 5,
+    TrialOmen => 31,
+    VillageHero => 29,
     WaterBreathing => 13,
     Weakness => 18,
     Weaving => 33,
+    WindCharged => 32,
     Wither => 20,
 });
 

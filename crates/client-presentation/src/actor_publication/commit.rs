@@ -28,6 +28,8 @@ impl PreparedActorPublication {
 
 pub(super) struct PendingActorPublication {
     pub(super) batch: ActorPresentationBatch,
+    pub(super) mask_only_runtime_ids: Vec<u64>,
+    pub(super) independent_layers: Vec<(u64, u8)>,
     pub(super) session_id: Option<u64>,
     pub(super) partial_tick: f32,
     pub(super) witness: ActorMainWitness,
@@ -46,6 +48,8 @@ impl PendingActorPublication {
     ) -> Self {
         let (session_id, local_runtime_id) = local_actor;
         Self {
+            mask_only_runtime_ids: Vec::new(),
+            independent_layers: Vec::new(),
             batch,
             session_id,
             partial_tick,
@@ -83,7 +87,10 @@ pub fn publish_actor_render_frame(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorRigBuild));
-    *frame = update_actor_rig_scene(&mut scene, prepared.partial_tick, prepared.batch).clone();
+    update_actor_rig_scene(&mut scene, prepared.partial_tick, prepared.batch);
+    *frame = scene
+        .set_mask_only_except(prepared.mask_only_runtime_ids, &prepared.independent_layers)
+        .clone();
     prepared.witness.local_route = frame
         .rig
         .manifest

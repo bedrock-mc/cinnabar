@@ -48,7 +48,7 @@ pub(crate) fn drain_committed_ui_before_authority(
     };
     let authority = stream.authority();
     if let Some(name) = authority.actor_display_name(authority.local_player_unique_id()) {
-        ui_runtime.set_chat_source_name(name);
+        ui_runtime.set_local_player_display_name(name);
     }
     ui_runtime.note_stream_dimension(stream.current_dimension());
     let current_dimension = stream.current_dimension();
@@ -254,6 +254,21 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event,
                 local_millis,
             ),
+            CommittedUiEvent::LocalSpawn {
+                sequence,
+                health,
+                ridden_unique_id,
+            } => ui_runtime.apply_local_spawn(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick: 0,
+                    attributes: health,
+                },
+                ridden_unique_id,
+            ),
             CommittedUiEvent::LocalMount {
                 sequence,
                 ridden_unique_id,
@@ -269,6 +284,9 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 local_millis,
             ),
+            CommittedUiEvent::LocalRespawnReady { sequence } => {
+                ui_runtime.apply_respawn_ready(clock.session_generation(), sequence, local_millis)
+            }
         };
         if let Err(error) = result {
             player_runtime.facts.clear_local_abilities();

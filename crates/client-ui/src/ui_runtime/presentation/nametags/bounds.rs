@@ -4,31 +4,113 @@ use super::super::nametag_atlas::{LineMetrics, line_metrics};
 use super::*;
 use glam::{Mat4, Quat};
 
-/// Retains labels whose ink or plates can reach the view under any admitted line prefix.
-pub(in crate::ui_runtime::presentation) fn intersects_view(
+#[cfg(test)]
+mod tests;
+
+/// Retains local bounds independently of the shared glyph-layout LRU.
+#[derive(Default)]
+pub(in crate::ui_runtime::presentation) struct BoundsCache {
+    entries: HashMap<u64, CachedBounds>,
+    font: Option<assets::FontCatalogIdentity>,
+    style: Option<ui::mod_hud::NametagStyle>,
+}
+
+struct CachedBounds {
+    lines: Arc<[Arc<str>]>,
+    badge: bool,
+    counter: Option<Arc<ui::mod_hud::CounterAnnotation>>,
+    measured: Option<MeasuredBounds>,
+    seen: bool,
+}
+
+#[derive(Clone, Copy)]
+struct MeasuredBounds {
+    rect: [f32; 4],
+    scale: f32,
+    lift: f32,
+}
+
+impl BoundsCache {
+    /// Starts candidate selection without discarding unchanged measurements.
+    pub(in crate::ui_runtime::presentation) fn begin_frame(&mut self) {
+        for entry in self.entries.values_mut() {
+            entry.seen = false;
+        }
+    }
+
+    /// Releases departed candidates and keeps spare buckets proportional to the live set.
+    pub(in crate::ui_runtime::presentation) fn finish_frame(&mut self) {
+        self.entries.retain(|_, entry| entry.seen);
+        if self.entries.capacity() > self.entries.len().saturating_mul(4) {
+            self.entries.shrink_to(self.entries.len().saturating_mul(2));
+        }
+    }
+
+    /// Projects cached local bounds using the current camera and actor pose.
+    pub(in crate::ui_runtime::presentation) fn intersects_view(
+        &mut self,
+        anchor: &NametagAnchor,
+        clip_from_world: Mat4,
+        rotation: Quat,
+        font: &RuntimeFontCatalog,
+        layouts: &mut TextLayoutCache,
+        style: Option<&ui::mod_hud::NametagStyle>,
+    ) -> bool {
+        if self.font != Some(font.identity()) || self.style.as_ref() != style {
+            self.entries.clear();
+            self.font = Some(font.identity());
+            self.style = style.cloned();
+        }
+        if style.is_some_and(|style| style.hide) || anchor.lines.is_empty() {
+            return false;
+        }
+        let cached = self.entries.get_mut(&anchor.runtime_id).filter(|cached| {
+            cached.lines == anchor.lines
+                && cached.badge == anchor.cinnabar_badge
+                && cached.counter == anchor.counter
+        });
+        // The first plate contains the ordinary label's unlifted anchor. An on-screen
+        // anchor therefore intersects the conservative hull without measuring its text.
+        if !anchor.sneaking
+            && render_model::visibility_bounds::points_intersect_view(
+                clip_from_world,
+                [anchor.position],
+            )
+        {
+            if let Some(cached) = cached {
+                cached.seen = true;
+            }
+            return true;
+        }
+        let measured = if let Some(cached) = cached {
+            cached.seen = true;
+            cached.measured
+        } else {
+            let measured = measure_bounds(anchor, font, layouts, style);
+            self.entries.insert(
+                anchor.runtime_id,
+                CachedBounds {
+                    lines: Arc::clone(&anchor.lines),
+                    badge: anchor.cinnabar_badge,
+                    counter: anchor.counter.clone(),
+                    measured,
+                    seen: true,
+                },
+            );
+            measured
+        };
+        measured.is_none_or(|bounds| bounds.intersects_view(anchor, clip_from_world, rotation))
+    }
+}
+
+/// Measures local ink, plates and extensions under every admitted line prefix.
+fn measure_bounds(
     anchor: &NametagAnchor,
-    clip_from_world: Mat4,
-    rotation: Quat,
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
     style: Option<&ui::mod_hud::NametagStyle>,
-) -> bool {
-    if style.is_some_and(|style| style.hide) || anchor.lines.is_empty() {
-        return false;
-    }
-    // The first plate contains the ordinary label's unlifted anchor. An on-screen
-    // anchor therefore intersects the conservative hull without measuring its text.
-    if !anchor.depth_tested
-        && render_model::visibility_bounds::points_intersect_view(
-            clip_from_world,
-            [anchor.position],
-        )
-    {
-        return true;
-    }
-    let Some(name) = line_metrics(&anchor.lines[0], font, layouts) else {
-        return true;
-    };
+) -> Option<MeasuredBounds> {
+    let name = line_metrics(&anchor.lines[0], font, layouts)?;
     let mut runs: [Option<LineMetrics>; 2] = [None, None];
     let mut counter_width = 0.0;
     let mut gap = 0.0;
@@ -37,15 +119,11 @@ pub(in crate::ui_runtime::presentation) fn intersects_view(
             if index == 0 && text.is_empty() {
                 continue;
             }
-            let Some(metrics) = line_metrics(text, font, layouts) else {
-                return true;
-            };
+            let metrics = line_metrics(text, font, layouts)?;
             counter_width += metrics.width_px;
             runs[index] = Some(metrics);
         }
-        let Some(space) = line_metrics(" ", font, layouts) else {
-            return true;
-        };
+        let space = line_metrics(" ", font, layouts)?;
         gap = space.width_px;
     }
     let separate = anchor
@@ -75,9 +153,7 @@ pub(in crate::ui_runtime::presentation) fn intersects_view(
     let name_start = usize::from(separate && before);
     let mut bounds = Bounds { rect: None, style };
     for (index, text) in anchor.lines.iter().enumerate() {
-        let Some(metrics) = line_metrics(text, font, layouts) else {
-            return true;
-        };
+        let metrics = line_metrics(text, font, layouts)?;
         let width = if index == 0 {
             first_width
         } else {
@@ -132,41 +208,50 @@ pub(in crate::ui_runtime::presentation) fn intersects_view(
             true,
         );
     }
-    let Some(mut rect) = bounds.rect else {
-        return true;
-    };
     let scale = style.map_or(1.0, |style| style.scale);
-    if anchor.depth_tested {
-        let drop = SNEAK_LABEL_DROP / render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL * scale;
-        rect[1] += drop;
-        rect[3] += drop;
-    }
     let lift = EXTRA_LINE_LIFT
         * (anchor.lines.len() + usize::from(separate)).saturating_sub(1) as f32
         * scale;
-    let record = NametagRecord {
-        anchor: anchor.position.to_array(),
-        rect,
-        ..Default::default()
-    };
-    let Some(base) = record.world_corners(rotation) else {
-        return true;
-    };
-    let Some(lifted) = (NametagRecord {
-        line_lift: lift,
-        ..record
+    Some(MeasuredBounds {
+        rect: bounds.rect?,
+        scale,
+        lift,
     })
-    .world_corners(rotation) else {
-        return true;
-    };
-    let points: [Vec3; 8] = std::array::from_fn(|index| {
-        Vec3::from_array(if index < 4 {
-            base[index]
-        } else {
-            lifted[index - 4]
+}
+
+impl MeasuredBounds {
+    /// Applies live sneak placement and projects the complete range of possible line lifts.
+    fn intersects_view(self, anchor: &NametagAnchor, clip: Mat4, rotation: Quat) -> bool {
+        let mut rect = self.rect;
+        if anchor.sneaking {
+            let drop = SNEAK_LABEL_DROP / render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL * self.scale;
+            rect[1] += drop;
+            rect[3] += drop;
+        }
+        let record = NametagRecord {
+            anchor: anchor.position.to_array(),
+            rect,
+            ..Default::default()
+        };
+        let Some(base) = record.world_corners(rotation) else {
+            return true;
+        };
+        let Some(lifted) = (NametagRecord {
+            line_lift: self.lift,
+            ..record
         })
-    });
-    render_model::visibility_bounds::points_intersect_view(clip_from_world, points)
+        .world_corners(rotation) else {
+            return true;
+        };
+        let points: [Vec3; 8] = std::array::from_fn(|index| {
+            Vec3::from_array(if index < 4 {
+                base[index]
+            } else {
+                lifted[index - 4]
+            })
+        });
+        render_model::visibility_bounds::points_intersect_view(clip, points)
+    }
 }
 
 struct Bounds<'a> {

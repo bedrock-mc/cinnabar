@@ -7,7 +7,7 @@ publish = false
 
 [features]
 test-support = ["dep:client-ui", "client-ui/test-support", "protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
-# Captures the shader-pack Video settings a `shaderpacks` client build shows.
+# Captures the Shaders settings tab a `shaderpacks` client build shows.
 shaderpacks = ["render-model/shaderpacks", "launcher/shaderpacks"]
 
 [dependencies]

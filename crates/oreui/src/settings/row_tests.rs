@@ -185,7 +185,7 @@ fn passive_clients_keep_mod_checks_without_app_update_controls() {
         };
         sections::draw(
             &mut content,
-            launcher::menu::settings_sections::SettingSection::General,
+            launcher::menu::settings_sections::SettingSection::Updates,
         )
         .unwrap();
     });
@@ -551,4 +551,179 @@ fn command_macro_invalid_draft_shows_a_chat_limit_error() {
         .replace(' ', "");
     assert!(labels.contains("Commandistoolong."));
     assert!(labels.contains(&format!("{}-bytechatlimit.", ui::MAX_CHAT_INPUT_BYTES)));
+}
+
+/// Every registered chat option exposes its real input action, including reset.
+#[test]
+fn chat_section_draws_all_chat_panel_options_and_reset() {
+    let view = MenuView::new(true, "Player".into());
+    for width in [400.0, 800.0] {
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 100.0 + width],
+                column_width: width,
+                y: 100.0,
+                translate: &|_| None,
+                nested: false,
+            };
+            sections::draw(&mut content, SettingSection::Chat).unwrap();
+        });
+        for option in SettingPanel::Chat.options() {
+            assert!(
+                hits.iter().any(|(action, _)| match action {
+                    MenuAction::SettingsOption(index, _) | MenuAction::SettingsDropdown(index) =>
+                        usize::from(*index) == option.id.index(),
+                    _ => false,
+                }),
+                "missing control for {:?}",
+                option.id
+            );
+        }
+        assert!(hits.iter().any(|(action, _)| *action
+            == MenuAction::SettingsResetGroup(
+                launcher::menu::settings_options::SettingsGroup::Chat
+            )));
+        let labels = rendered_text(&nodes);
+        assert!(labels.contains("ResetChatSettings"));
+        assert!(!labels.contains("Mojangles"));
+        assert!(!labels.contains("NotoSans"));
+        assert!(!labels.contains("Typeface"));
+        assert!(labels.contains("100%"));
+        assert!(!labels.contains("chat.settings."));
+        assert!(!labels.contains("typeface."));
+        assert!(!labels.contains("color."));
+        assert!(!labels.contains(".description"));
+    }
+}
+
+/// Every Discord option is reachable from the Social → Discord tab and has a shared reset.
+#[test]
+fn discord_section_draws_all_presence_options_and_reset() {
+    let view = MenuView::new(true, "Player".into());
+    for width in [400.0, 800.0] {
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 100.0 + width],
+                column_width: width,
+                y: 100.0,
+                translate: &|_| None,
+                nested: false,
+            };
+            sections::draw(&mut content, SettingSection::Discord).unwrap();
+        });
+        for panel in [SettingPanel::Discord, SettingPanel::DiscordDetails] {
+            for option in panel.options() {
+                assert!(
+                    hits.iter().any(|(action, _)| match action {
+                        MenuAction::SettingsOption(index, _)
+                        | MenuAction::SettingsDropdown(index) => {
+                            usize::from(*index) == option.id.index()
+                        }
+                        _ => false,
+                    }),
+                    "missing control for {:?}",
+                    option.id
+                );
+            }
+        }
+        assert!(hits.iter().any(|(action, _)| {
+            *action
+                == MenuAction::SettingsResetGroup(
+                    launcher::menu::settings_options::SettingsGroup::Discord,
+                )
+        }));
+        let labels = rendered_text(&nodes).to_ascii_lowercase();
+        assert!(labels.contains("discordrichpresence"));
+        assert!(labels.contains("activitydetails"));
+        assert!(labels.contains("showserverandworlddetails"));
+        assert!(!labels.contains("discord.settings."));
+        assert!(!labels.contains(".description"));
+    }
+}
+
+/// Collects visible glyphs without depending on the painter's text-node splitting.
+fn rendered_text(nodes: &[ui::UiNode]) -> String {
+    nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect::<String>()
+        .replace(' ', "")
+}
+
+/// Missing help text must remain absent; known fallbacks and translations still render.
+#[test]
+fn option_descriptions_do_not_expose_missing_translation_keys() {
+    let view = MenuView::new(true, "Player".into());
+    for translated in [false, true] {
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+            let translate = |key: &str| {
+                (translated && key == "options.vsync.description")
+                    .then_some("Translated help".into())
+            };
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 900.0],
+                column_width: 800.0,
+                y: 100.0,
+                translate: &translate,
+                nested: false,
+            };
+            content.option(SettingId::Vsync).unwrap();
+            content.option(SettingId::ChatBackgroundOpacity).unwrap();
+        });
+        let labels = rendered_text(&nodes);
+        assert!(!labels.contains(".description"), "{labels}");
+        assert_eq!(labels.contains("Translatedhelp"), translated);
+        assert!(labels.contains("Adjusttheopacityofthechatbackgroundbox"));
+    }
+}
+
+/// The pack's size template substitutes the percentage instead of printing its placeholder.
+#[test]
+fn chat_font_size_formats_translated_values_and_remains_editable() {
+    for locale in ["en_US", "ja_JP"] {
+        for value in [5, 10, 20] {
+            let mut view = MenuView::new(true, "Player".into());
+            let options = std::sync::Arc::make_mut(&mut view.settings_options);
+            options.set(SettingId::ChatFontSize.index(), value);
+            options.set_language(locale);
+            let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+                let translate =
+                    |key: &str| (key == "chat.settings.fontSize").then_some("Size: %s".into());
+                let mut content = Content {
+                    canvas,
+                    view: &view,
+                    span: [100.0, 900.0],
+                    column_width: 800.0,
+                    y: 100.0,
+                    translate: &translate,
+                    nested: false,
+                };
+                content.option(SettingId::ChatFontSize).unwrap();
+            });
+            let labels = rendered_text(&nodes);
+            assert!(
+                labels.contains(&format!("Size:{}%", value * 10)),
+                "{labels}"
+            );
+            assert!(!labels.contains("%s"));
+            assert_eq!(labels.matches(&format!("{}%", value * 10)).count(), 1);
+            assert!(hits.iter().any(|(action, _)| matches!(action,
+                MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::ChatFontSize.index())));
+        }
+    }
 }

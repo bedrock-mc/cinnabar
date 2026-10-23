@@ -83,13 +83,17 @@ pub(crate) struct PrimitiveGpu {
     view_buffer_id: Option<BufferId>,
 }
 
-fn vertex_buffer(device: &RenderDevice, vertices: u64) -> Buffer {
-    device.create_buffer(&BufferDescriptor {
+fn vertex_descriptor(vertices: u64) -> BufferDescriptor<'static> {
+    BufferDescriptor {
         label: Some("mod primitive vertices"),
         size: vertices.max(6) * VERTEX_BYTES,
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         mapped_at_creation: false,
-    })
+    }
+}
+
+fn vertex_buffer(device: &RenderDevice, vertices: u64) -> Buffer {
+    device.create_buffer(&vertex_descriptor(vertices))
 }
 
 pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
@@ -126,10 +130,15 @@ fn prepare(
         let capacity = needed.next_power_of_two().min(
             (mod_render::geometry::MAX_VERTICES
                 + super::position_box::VERTICES
-                + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::VERTICES_PER_BLOCK)
+                + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK)
                 as u64,
         );
-        gpu.vertices = vertex_buffer(&device, capacity);
+        let Some(vertices) = crate::gpu_allocation::buffer(&device, &vertex_descriptor(capacity))
+        else {
+            // Out of memory keeps drawing the previous upload and retries next frame.
+            return;
+        };
+        gpu.vertices = vertices;
         gpu.capacity = capacity;
         gpu.bind_group = None;
     }

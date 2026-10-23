@@ -15,7 +15,8 @@
 //! actors, block entities and the hand from the actor adapter (`actors`). The pack also
 //! draws the sun, moon, stars, particles, clouds, weather, lightning, block cracks and the
 //! selection outline through its own programs (`effects`). What it does not draw (block-entity
-//! portals) is taken from the Vanilla scene where it is nearer than the pack's geometry. The
+//! portals and unsupported actor materials) draws natively after final, against restored
+//! pack depth. Native hands keep their own depth and screen overlays draw before the HUD. The
 //! Vanilla terrain and far-terrain passes skip the pack's cameras (`ShaderPackDrawnCategories`
 //! `terrain`), so a section not expanded yet shows the pack's sky or fog, as Iris draws no
 //! unbuilt section. Packs without terrain programs get the Vanilla scene copied into
@@ -50,6 +51,10 @@ mod lightmap;
 #[cfg(feature = "shaderpacks")]
 mod loader;
 #[cfg(feature = "shaderpacks")]
+mod native_passes;
+#[cfg(feature = "shaderpacks")]
+mod overlay_depth;
+#[cfg(feature = "shaderpacks")]
 mod passes;
 #[cfg(feature = "shaderpacks")]
 mod pipeline_cache;
@@ -76,7 +81,25 @@ mod uniform_audit;
 #[cfg(feature = "shaderpacks")]
 mod uniforms;
 
+pub(crate) mod native_actors;
+
 use bevy::prelude::{App, Plugin};
+
+/// Runs native scene draws at their ordinary boundary or after a ready pack's final pass.
+pub(crate) fn native_pass_enabled(
+    world: &bevy::prelude::World,
+    view: bevy::prelude::Entity,
+    after_pack: bool,
+) -> bool {
+    #[cfg(feature = "shaderpacks")]
+    let replacement = plugin::draws_world(world, view);
+    #[cfg(not(feature = "shaderpacks"))]
+    let replacement = {
+        let _ = (world, view);
+        false
+    };
+    replacement == after_pack
+}
 
 /// Loads the requested shader pack and runs it on opted-in cameras.
 #[derive(Debug, Clone, Copy, Default)]

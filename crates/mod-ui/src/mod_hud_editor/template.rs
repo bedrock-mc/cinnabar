@@ -11,10 +11,11 @@ fn rect(size: [f64; 2], offset: [f64; 2], color: [f64; 4]) -> Value {
         "size":size,"offset":offset,"color":color,"anchor_from":"top_left","anchor_to":"top_left"})
 }
 /// Creates a literal, clipped editor label using the active carrier font.
-fn label(text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
-    json!({"type":"label","text":text,"size":size,"offset":offset,"localize":false,
-        "font_scale_factor":0.8,"color":[1,1,1,1],"shadow":true,"text_alignment":"left",
-        "anchor_from":"top_left","anchor_to":"top_left","clip_children":true})
+fn label(style: ui::mod_hud::EditorStyle, text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
+    json!({"type":"label","text":text,"size":[size[0],"default"],"max_size":size,
+        "offset":[offset[0],offset[1]+size[1]*0.5-1.],"localize":false,
+        "font_type":style.font.name(),"font_scale_factor":style.text_scale,"color":[1,1,1,1],"shadow":true,"text_alignment":"left",
+        "anchor_from":"top_left","anchor_to":"left_middle","clip_children":true})
 }
 /// Gives native hit-testing a host-owned pressed action.
 fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) -> Value {
@@ -24,7 +25,11 @@ fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) 
 }
 
 /// Builds stable card previews and a bounded grid with editor controls.
-pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> {
+pub(super) fn catalog(
+    hud: &Hud,
+    viewport: [f64; 2],
+    history_buttons: bool,
+) -> Result<Catalog, String> {
     let style = hud.editor_style.unwrap_or_default();
     let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
@@ -82,19 +87,68 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             {"binding_name":format!("#measurement_{axis}_width"), "binding_name_override":"#size_binding_x_absolute"},
             {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
         controls.push(named(&format!("measurement_{axis}"), line));
+        // The pill width follows its label; the label is centred in it at its natural height.
+        let widest = feedback::pill_size("00000");
+        let width = json!({"binding_name":format!("#measurement_{axis}_pill_width"),
+            "binding_name_override":"#size_binding_x_absolute"});
         let mut text = label(
+            style,
             &format!("#measurement_{axis}_label"),
-            MEASUREMENT_PILL,
+            widest,
             [0.; 2],
         );
+        text["offset"] = json!([0, 0]);
+        text["size"][1] = json!("default");
+        text["max_size"] = json!(widest);
+        text["anchor_from"] = json!("center");
+        text["anchor_to"] = json!("center");
+        text["font_scale_factor"] = json!(MEASUREMENT_FONT_SCALE);
+        text["clip_children"] = json!(false);
         text["text_alignment"] = json!("center");
         text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
-        let mut background = rect(MEASUREMENT_PILL, [0.; 2], [0.055, 0.065, 0.08, 0.97]);
-        background["radius"] = json!(MEASUREMENT_PILL[1] * 0.5);
+        let mut background = rect(widest, [0.; 2], color(style.measurement));
+        background["radius"] = json!(MEASUREMENT_PILL_HEIGHT * 0.5);
+        background["bindings"] = json!([width.clone()]);
         controls.push(named(&format!("measurement_{axis}_pill"), json!({
-            "type":"panel", "size":MEASUREMENT_PILL, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
-            "bindings":[visible, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
+            "type":"panel", "size":widest, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
+            "bindings":[visible, width, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
             "controls":[named("background",background),named("label",text)]
+        })));
+    }
+    if style.selection_caption {
+        let mut name = label(
+            style,
+            "#hud_caption_name",
+            [30., caption::CAPTION_HEIGHT],
+            [5., 0.],
+        );
+        name["max_size"] = json!(["100%", caption::CAPTION_HEIGHT]);
+        name["bindings"] = json!([{"binding_name":"#hud_caption_name"},{"binding_name":"#hud_caption_name_width","binding_name_override":"#size_binding_x_absolute"}]);
+        let mut scale = label(
+            style,
+            "#hud_selected_scale_text",
+            [22., caption::CAPTION_HEIGHT],
+            [0.; 2],
+        );
+        scale["text_alignment"] = json!("right");
+        scale["size"][0] = json!("100%");
+        scale["max_size"][0] = json!("100%");
+        // Offset bindings replace the vector, so keep the measured vertical centering inside a wrapper.
+        scale["bindings"] = json!([{"binding_name":"#hud_selected_scale_text"}]);
+        for text in [&mut name, &mut scale] {
+            text["color"] = json!(style.caption_text);
+            text["shadow"] = json!(false);
+        }
+        let mut background = rect(
+            [64., caption::CAPTION_HEIGHT],
+            [0.; 2],
+            color(style.selected),
+        );
+        background["size"][0] = json!("100%");
+        background["radius"] = json!(3.5);
+        controls.push(named("selection_caption",json!({"type":"panel","size":[64,caption::CAPTION_HEIGHT],"anchor_from":"top_left","anchor_to":"top_left","layer":30,
+            "bindings":[{"binding_name":"#hud_caption_visible","binding_name_override":"#visible"},{"binding_name":"#hud_caption_offset","binding_name_override":"#offset"},{"binding_name":"#hud_caption_width","binding_name_override":"#size_binding_x_absolute"}],
+            "controls":[named("background",background),named("name",name),named("scale",json!({"type":"panel","size":[22,caption::CAPTION_HEIGHT],"anchor_from":"top_left","anchor_to":"top_left","bindings":[{"binding_name":"#hud_caption_scale_offset","binding_name_override":"#offset"},{"binding_name":"#hud_caption_scale_width","binding_name_override":"#size_binding_x_absolute"}],"controls":[named("text",scale)]}))]
         })));
     }
     let mut row = 0;
@@ -159,7 +213,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         }
         if !hud.hide_editor_labels && hud.surface.is_some() {
             let name = format!("#hud_card_{index}_name");
-            let mut text = label(&name, [size[0], 12.], [0.; 2]);
+            let mut text = label(style, &name, [size[0], 12.], [0.; 2]);
             text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}, {"binding_name":name}, visible]);
             controls.push(named(&format!("name_{index}"), text));
         }
@@ -170,6 +224,16 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         let actions: &[(&str, &str)] = if hud.autosave {
             &[
                 ("close", "Done"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
+            ]
+        } else if history_buttons {
+            &[
+                ("save", "Save"),
+                ("cancel", "Cancel"),
+                ("undo", "Undo"),
+                ("redo", "Redo"),
                 ("reset", "Reset"),
                 ("grid", "#grid_label"),
                 ("snap", "#snap_label"),
@@ -192,19 +256,22 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             rect([width, 28.], [0.; 2], [0.055, 0.065, 0.08, 0.97]),
         )];
         for (index, &(action, text)) in actions.iter().enumerate() {
-            let mut textnode = label(text, [(slot - 4.).max(0.), 12.], [4., 7.]);
+            let mut textnode = label(style, text, [(slot - 4.).max(0.), 12.], [4., 7.]);
             if matches!(action, "grid" | "snap") {
                 textnode["bindings"] = json!([{"binding_name":text}]);
             }
-            toolbar.push(named(
-                action,
-                button(
-                    &format!("hud.{action}"),
-                    [slot, 24.],
-                    [4. + index as f64 * slot, 2.],
-                    vec![named("text", textnode)],
-                ),
-            ));
+            let mut control = button(
+                &format!("hud.{action}"),
+                [slot, 24.],
+                [4. + index as f64 * slot, 2.],
+                vec![named("text", textnode)],
+            );
+            if matches!(action, "undo" | "redo") {
+                control["bindings"] = json!([
+                    {"binding_name":format!("#hud_can_{action}"),"binding_name_override":"#enabled"},
+                    {"binding_name":format!("#hud_{action}_alpha"),"binding_name_override":"#alpha"}]);
+            }
+            toolbar.push(named(action, control));
         }
         controls.push(named(
             "toolbar",
@@ -213,6 +280,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         ));
         if !hud.hide_editor_labels {
             let mut caption = label(
+                style,
                 "#editor_label",
                 [390_f64.min(viewport[0] - 12.), 12.],
                 [((viewport[0] - 390.) * 0.5).max(6.), viewport[1] - 61.],
@@ -224,6 +292,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         controls.push(named(
             "help",
             label(
+                style,
                 if hud.autosave {
                     "Drag / Shift bypasses snapping / arrows nudge / autosaved"
                 } else {

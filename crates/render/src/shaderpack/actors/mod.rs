@@ -48,6 +48,7 @@ mod tests;
 mod view;
 
 pub(crate) use classify::hand_projection;
+pub(crate) use compatibility::instance_supported;
 pub(crate) use frame::{prepare, record};
 pub(crate) use skin::{ActorSkinPipelines, load_shaders};
 pub(crate) use sources::{

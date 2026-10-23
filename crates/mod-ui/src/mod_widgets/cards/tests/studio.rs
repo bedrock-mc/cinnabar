@@ -21,17 +21,27 @@ fn studio_hidden_measurements_stay_hidden_after_a_sibling_text_plate_changes() {
     harness.paint(&mut ui, true);
     studio_click(&mut ui, "hud.card:0");
     harness.paint(&mut ui, true);
-    assert!(ui.mod_hud_editor_state().unwrap().nodes.iter().any(
-        |node| matches!(&node.draw, json_ui::Draw::Text { text, .. } if text.ends_with(" px"))
-    ));
+    assert!(
+        ui.mod_hud_editor_state()
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|node| node.key.contains("measurement_")
+                && matches!(&node.draw, json_ui::Draw::Text { .. }))
+    );
     studio_click(&mut ui, "hud.visibility:0");
     hud.cards[1].rows[0].value = "999999".into();
     ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
         .unwrap();
     harness.paint(&mut ui, true);
-    assert!(!ui.mod_hud_editor_state().unwrap().nodes.iter().any(
-        |node| matches!(&node.draw, json_ui::Draw::Text { text, .. } if text.ends_with(" px"))
-    ));
+    assert!(
+        !ui.mod_hud_editor_state()
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|node| node.key.contains("measurement_")
+                && matches!(&node.draw, json_ui::Draw::Text { .. }))
+    );
 }
 
 /// Paints editor animation from an explicit caller clock through the production painter.

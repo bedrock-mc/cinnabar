@@ -45,6 +45,7 @@ fn move_actor(runtime_id: u64, position: [f32; 3], yaw: f32) -> WorldEvent {
         head_yaw: Some(yaw),
         on_ground: None,
         teleported: false,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: protocol::ActorInterpolation {

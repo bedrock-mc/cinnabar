@@ -190,6 +190,11 @@
       "atlas_variant": 0
     },
     {
+      "identifier": "minecraft:red_shrub",
+      "default_alias": "red_shrub",
+      "atlas_variant": 0
+    },
+    {
       "identifier": "minecraft:redstone",
       "default_alias": "redstone_dust",
       "atlas_variant": 0

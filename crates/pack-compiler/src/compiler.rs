@@ -342,8 +342,17 @@ fn compile_pack_sources(
                 == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
             || visuals::bubble_column::is_record(record)
+            || visuals::beacon::is_record(record)
             || fallback.contains(record)
     }) {
+        if visuals::beacon::is_record(record) {
+            if let Some(descriptors) = visuals::beacon::descriptors(&pack, record) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
         if visuals::hollow_containers::is_name(&record.name) {
             if let Some(descriptors) = visuals::hollow_containers::descriptors(&pack, record) {
                 for (descriptor, key) in descriptors {

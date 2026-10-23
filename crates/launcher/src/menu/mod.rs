@@ -21,6 +21,7 @@ pub mod settings_storage;
 pub mod settings_support;
 pub mod shader_pack_status;
 pub mod sign_in;
+mod text_fields;
 pub mod updates;
 pub mod view;
 pub mod worlds_tab;
@@ -82,6 +83,7 @@ pub enum MenuDialog {
     Exit,
     DeathQuit,
     RemoveSaved(usize),
+    RemoveShaderPack(u16, u64),
     StorageDelete,
     StorageError,
     /// A dismissible host notice whose body is supplied by the menu view.
@@ -93,20 +95,24 @@ pub enum MenuDialog {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuField {
+    /// Filters the friends drawer by gamertag.
+    FriendQuery,
+    /// Searches options across settings categories.
+    SettingsQuery,
     Name,
     Address,
     Port,
     /// The local-world create or edit screen's name field.
     WorldName,
     WorldSeed,
+    WorldOption(crate::local_worlds::options::WorldOption),
     SkinName,
     RealmCode,
     /// One command macro slot's command box.
     MacroCommand(usize),
 }
 
-/// One Video-section renderer choice. Shader packs carry their list revision so an old
-/// picker action cannot select a different pack after discovery changes.
+/// A renderer or shader-pack choice; packs carry their list revision so stale picks miss.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum RendererChoice {
     /// The vanilla renderer ("Off").
@@ -154,9 +160,16 @@ pub enum MenuAction {
     AddAddress,
     AddPort,
     EditSkinName,
+    SearchFriends,
+    SearchSettings,
+    ClearSettingsSearch,
+    /// Opens a matching category and clears its search query.
+    SettingsSearchSection(u8),
     AddSave,
     AddSaveConnect,
     AddBack,
+    /// Opens the native touch-control layout draft.
+    EditTouchControls,
     SettingsScale(i8),
     SettingsScalePicker,
     SettingsFullscreen(bool),
@@ -179,8 +192,14 @@ pub enum MenuAction {
     SettingsAdvancedGraphics,
     /// The JSON-UI Enhanced switch: Vanilla and Enhanced flip; a shader pack turns into Enhanced.
     ToggleRenderMode,
-    /// The OreUI Video renderer picker.
+    /// The OreUI renderer and shader-pack pickers.
     SelectRenderer(RendererChoice),
+    /// Opens the Shaders settings tab from Video.
+    SettingsShaders,
+    /// Re-lists shader packs and reloads the selected pack with its saved options.
+    ReloadShaders,
+    RemoveShaderPackDialog(u16, u64),
+    ConfirmRemoveShaderPack(u16, u64),
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,
@@ -217,24 +236,8 @@ pub enum MenuAction {
     Invite(invite::Action),
     /// Answers the oldest Discord join request: Accept (true) or Decline.
     JoinRequest(bool),
-    /// A press on the Shader Pack Settings screen or its Renderer-row button.
+    /// A press on the Shader Pack Settings screen or its Shaders-tab button.
     ShaderOptions(crate::shader_options::Action),
-}
-
-impl MenuAction {
-    /// The text field a press on this control focuses.
-    pub fn text_field(self) -> Option<MenuField> {
-        match self {
-            Self::SettingsMacroCommand(slot) => Some(MenuField::MacroCommand(slot)),
-            Self::RealmMembership(realm_membership::Action::EditCode) => Some(MenuField::RealmCode),
-            Self::AddName => Some(MenuField::Name),
-            Self::AddAddress => Some(MenuField::Address),
-            Self::AddPort => Some(MenuField::Port),
-            Self::EditSkinName => Some(MenuField::SkinName),
-            Self::LocalWorld(action) => action.field(),
-            _ => None,
-        }
-    }
 }
 
 /// Joining the featured-list entry at `index`.

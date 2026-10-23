@@ -143,7 +143,13 @@ fn inspect_executed_frame(world: &mut World) {
         .flat_map(|span| span.first..span.first + span.count)
         .collect::<Vec<_>>();
     indices.sort_unstable();
-    assert_eq!(indices, (0..gpu.instance_count).collect::<Vec<_>>());
+    assert_eq!(
+        indices,
+        gpu.main_manifest
+            .iter()
+            .map(|entry| entry.instance_index)
+            .collect::<Vec<_>>()
+    );
     let tracker = world.resource::<ActorDrawTracker>();
     if let Some((old, spans)) = &world.resource::<PreviousReceipt>().0 {
         assert!(
@@ -158,7 +164,7 @@ fn inspect_executed_frame(world: &mut World) {
         .take_drawn()
         .expect("all current spans were executed");
     assert_eq!(drawn.frame_generation, frame.rig.frame_generation);
-    assert_eq!(drawn.manifest.as_ref(), gpu.manifest.as_ref());
+    assert_eq!(drawn.manifest.as_ref(), gpu.main_manifest.as_ref());
     assert!(drawn.is_exact());
     world.resource_mut::<PreviousReceipt>().0 = Some((batch, executed));
     world
@@ -399,13 +405,13 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
         gpu.frame_generation += 1;
         assert!(gpu.draw_batch(view).is_none());
         gpu.frame_generation -= 1;
-        let manifest = Arc::clone(&gpu.manifest);
-        gpu.manifest = gpu.manifest.to_vec().into();
+        let manifest = Arc::clone(&gpu.main_manifest);
+        gpu.main_manifest = gpu.main_manifest.to_vec().into();
         assert!(
             gpu.draw_batch(view).is_none(),
             "equal manifest contents are a distinct prepared identity"
         );
-        gpu.manifest = manifest;
+        gpu.main_manifest = manifest;
         assert!(gpu.draw_batch(view).is_some());
     }
     world.run_system_once(prepare_actor_resources).unwrap();
@@ -582,4 +588,125 @@ fn actor_instances_and_both_bone_endpoints_take_one_pool_lock() {
     assert_eq!(after.staged_writes - before.staged_writes, 3);
     assert_eq!(after.batches - before.batches, 1);
     assert_eq!(after.fallback_writes, 0);
+}
+
+#[test]
+fn coverage_only_suffix_keeps_exact_receipts_for_only_the_visible_main_pass() {
+    use render_model::{
+        ActorRigGeometry, ActorRigRenderInput, ActorRigSubmission, RenderBoneTransform,
+    };
+    let mut scene = render_scene::ActorRenderScene::default();
+    let fixture = frame(&[false]);
+    let rasters: Vec<_> = [16u16, 32]
+        .into_iter()
+        .map(|size| render_model::EquipmentRaster {
+            width: size,
+            height: size,
+            rgba8: vec![255; usize::from(size) * usize::from(size) * 4].into(),
+        })
+        .collect();
+    let (artwork, locations) =
+        render_model::ActorArtworkPages::default().with_equipment_rasters(&rasters);
+    scene.configure_artwork(artwork);
+    for id in [100, 101] {
+        scene
+            .insert_geometry(
+                ActorRigGeometry::new(
+                    render_model::equipment_rig_id(id),
+                    vec![
+                        ActorRigVertex {
+                            normal: [0., 1., 0.],
+                            ..Default::default()
+                        };
+                        3
+                    ],
+                    vec![[0.; 3]],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+    }
+    let pose: Arc<[_]> =
+        Arc::from([
+            RenderBoneTransform::from_model_space([0., 0., 0., 1.], [0., 0., 0., 1.]).unwrap(),
+        ]);
+    let mut assignments = std::collections::HashMap::new();
+    let submissions: Vec<_> = [(1, 0, 100, 1), (2, 0, 101, 2), (2, 1, 100, 1)]
+        .into_iter()
+        .map(|(id, layer, rig, page)| {
+            let identity = ActorRenderIdentity {
+                runtime_id: id,
+                layer,
+                ..fixture.rig.manifest[0].identity
+            };
+            assignments.insert(identity, locations[page - 1].unwrap());
+            ActorRigSubmission {
+                input: ActorRigRenderInput {
+                    identity,
+                    rig: render_model::equipment_rig_id(rig),
+                    previous_bones: Arc::clone(&pose),
+                    current_bones: Arc::clone(&pose),
+                    completed_tick: 1,
+                    reset_generation: 1,
+                },
+                material: Default::default(),
+                culling_bounds: Default::default(),
+                world_from_actor: [
+                    [1., 0., 0., id as f32],
+                    [0., 1., 0., 0.],
+                    [0., 0., 1., layer as f32],
+                ],
+                texture_layer: 0,
+                route: ActorRigRoute::Compiled,
+                tint: 0,
+                overlay_rgba8: 0,
+                uv_anim: [0., 0., 1., 1.],
+                light: 0,
+            }
+        })
+        .collect();
+    let unpartitioned = scene
+        .update_rigs_with_artwork(1., None, submissions, &[], &assignments)
+        .clone();
+    assert_eq!(unpartitioned.rig.manifest.len(), 3);
+    assert_eq!(
+        unpartitioned.rig.manifest[0].identity.runtime_id, 1,
+        "the builder overrides submission order"
+    );
+    let source = scene.set_mask_only(vec![1]).clone();
+    for (index, entry) in source.rig.manifest.iter().enumerate() {
+        assert_eq!(entry.instance_index as usize, index);
+        let original = unpartitioned
+            .rig
+            .manifest
+            .iter()
+            .position(|old| old.identity == entry.identity)
+            .unwrap();
+        assert_eq!(
+            source.rig.instances[index],
+            unpartitioned.rig.instances[original]
+        );
+        assert_eq!(source.instances[index], unpartitioned.instances[original]);
+        assert_eq!(
+            source.instance_pages[index],
+            unpartitioned.instance_pages[original]
+        );
+    }
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(source.clone());
+    world.run_schedule(Render);
+    assert_eq!(
+        world.resource::<ExecutedFrames>().0,
+        [(source.rig.frame_generation, vec![0, 1])]
+    );
+    let gpu = world.resource::<ActorGpu>();
+    assert_eq!(gpu.main_manifest.as_ref(), &gpu.manifest[..2]);
+    assert!(
+        gpu.main_manifest
+            .iter()
+            .all(|entry| entry.identity.runtime_id == 2)
+    );
+    assert_eq!(gpu.manifest.len(), 3);
+    assert!(!gpu.mask_spans.is_empty());
 }

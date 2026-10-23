@@ -201,7 +201,6 @@ fn enhanced_lobby_replay_on_native_gpu() {
                     nametags::extract_nametag(
                         actor,
                         nametags::NametagView {
-                            viewer_position: replay.local_position.into(),
                             camera_position: camera.translation,
                             camera_forward: *camera.forward(),
                         },
@@ -216,7 +215,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
                 .insert_resource(render_scene::NametagSceneResource(
                     nametags::build_nametag_scene(
                         &anchors,
-                        1.0,
+                        None,
                         &font,
                         &mut layouts,
                         &mut atlas,

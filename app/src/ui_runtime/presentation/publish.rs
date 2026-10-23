@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::resource_packs::PackApplication;
-use bevy::prelude::{Local, Projection, Transform, Vec3};
+use bevy::prelude::{Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -54,6 +54,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     actor_pipelines: Option<Res<'w, render_scene::ActorPipelineReadiness>>,
     warmed_pipelines: Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     server_camera: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    picked_actor: Option<Res<'w, crate::block_selection::CrosshairActor>>,
     nametag_cache: Local<'s, nametags::NametagTextCache>,
     fatal_error: ResMut<'w, crate::runtime::shutdown::FatalError>,
     actor_partial: Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
@@ -104,6 +105,7 @@ pub(crate) fn prepare_ui_runtime(
         actor_pipelines,
         warmed_pipelines,
         server_camera,
+        picked_actor,
         mut nametag_cache,
         mut fatal_error,
         actor_partial,
@@ -187,6 +189,21 @@ pub(crate) fn prepare_ui_runtime(
             return;
         }
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bottom =
+            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
+        let safe = platform_safe_area_insets();
+        presentation.set_safe_area(
+            SafeArea::new(
+                safe.left(),
+                safe.top(),
+                safe.right(),
+                safe.bottom().max(bottom),
+            )
+            .unwrap_or(safe),
+        );
+    }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(
@@ -248,6 +265,9 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .and_then(|pack| pack.equipment.clone()),
     );
+    let settings = Arc::clone(&settings_snapshot.0);
+    let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
+    presentation.set_player_preview_custom_item_models(show_custom_item_models);
     // The model wears the local player's armor and held item.
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
@@ -275,7 +295,6 @@ pub(crate) fn prepare_ui_runtime(
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
-    let settings = Arc::clone(&settings_snapshot.0);
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
         && settings.value(SettingId::HideHud) == 0
         && settings.value(SettingId::HidePaperdoll) == 0
@@ -354,6 +373,13 @@ pub(crate) fn prepare_ui_runtime(
         client_world.stream.as_ref(),
         |position| {
             station_triggered(
+                client_world.stream.as_ref()?,
+                collisions.as_deref()?,
+                position,
+            )
+        },
+        |position| {
+            beacon_level(
                 client_world.stream.as_ref()?,
                 collisions.as_deref()?,
                 position,
@@ -464,18 +490,7 @@ pub(crate) fn prepare_ui_runtime(
         }))
         .map(|(stream, (transform, clip_from_view))| {
             let authority = stream.authority();
-            let viewer_position = local_frame
-                .snapshot()
-                .map(|frame| frame.feet())
-                .or_else(|| {
-                    authority
-                        .actor(authority.local_player_runtime_id())
-                        .and_then(|actor| actor.interpolated_position(actor_partial.0))
-                        .map(Vec3::from_array)
-                })
-                .unwrap_or_else(|| transform.translation());
             let nametag_view = nametags::NametagView {
-                viewer_position,
                 camera_position: transform.translation(),
                 camera_forward: *transform.forward(),
             };
@@ -503,7 +518,7 @@ pub(crate) fn prepare_ui_runtime(
                 runtime.scoreboards(),
                 stream,
                 nametag_view,
-                picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
+                picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
                 show_names && !tag_style.is_some_and(|style| style.hide_players),
                 &mut admit,
@@ -528,18 +543,16 @@ pub(crate) fn prepare_ui_runtime(
                         !tag_style.is_some_and(|style| style.hide_passengers)
                             || authority.ridden_unique_id(actor.unique_id).is_none()
                     })
-                    && let Some(name) = authority
-                        .actor_name_tag(actor.unique_id)
-                        .or_else(|| authority.actor_display_name(actor.unique_id))
+                    && let Some(name) = authority.actor_name_tag(actor.unique_id)
                     && let Some(mut tag) = nametags::extract_nametag_at_feet(
                         actor,
-                        nametags::NametagView {
-                            viewer_position: visibility.feet(),
-                            ..nametag_view
-                        },
+                        nametag_view,
                         None,
                         name,
-                        runtime.scoreboards(),
+                        (!authority.remote_actors().any(|rider| {
+                            authority.ridden_unique_id(rider.unique_id) == Some(actor.unique_id)
+                        }))
+                        .then_some(runtime.scoreboards()),
                         visibility.feet(),
                     )
                     && admit(&mut tag)
@@ -557,7 +570,7 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .map(|stream| stream.authority().local_player_runtime_id()),
     );
-    presentation.set_nametag_anchors(nametags);
+    nametag_cache.recycle_anchors(presentation.set_nametag_anchors(nametags));
     presentation.set_chat_settings_snapshot(settings_snapshot);
     #[cfg(not(target_arch = "wasm32"))]
     let menu_view = menu_visible.then(|| {
@@ -637,45 +650,27 @@ fn station_triggered(
         .crafter_triggered
 }
 
-/// Captures nametag picking with gameplay's reach and collision policy before UI projection.
-fn picked_nametag_actor(
+/// Counts the beacon pyramid's layers of base blocks from the loaded world.
+fn beacon_level(
     stream: &chunk_pipeline::WorldStream,
-    camera_transform: &GlobalTransform,
-    collisions: Option<&client_interaction::movement::PhysicsCollisionRegistries>,
-    player: &client_state::PlayerRuntime,
-) -> Option<u64> {
-    let eye = camera_transform.translation();
-    let direction = *camera_transform.forward();
-    gameplay::melee::pick_actor(
-        stream.authority().remote_actors(),
-        None,
-        eye.to_array(),
-        direction.to_array(),
-        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
-    )
-    .filter(|hit| {
-        let Some(collisions) = collisions else {
-            return true;
-        };
-        let world = sim::PaletteWorld::new(
-            stream.collision_store(),
-            collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-            crate::interaction_authority::pick_context(
-                stream,
-                collisions,
-                player.facts.player_game_mode(),
-                player.selected_stack().map(|item| item.block_runtime_id),
-            ),
-        );
-        let vector =
-            |v: bevy::math::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
-        !matches!(
-            world.block_interaction_ray_current(vector(eye), vector(direction), hit.distance),
-            Ok(Some(_))
-        )
+    collisions: &client_interaction::movement::PhysicsCollisionRegistries,
+    position: [i32; 3],
+) -> Option<u8> {
+    let mode = stream.network_id_mode();
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    let states = assets::block_presentation_state::pinned_block_presentation_states();
+    // Unloaded terrain leaves the level unknown rather than reading as a broken pyramid.
+    client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
+        world
+            .primary_runtime_id(block)
+            .ok()
+            .map(|runtime_id| states.get(mode, runtime_id).beacon_base)
     })
-    .map(|hit| hit.runtime_id)
 }
 
 #[cfg(test)]

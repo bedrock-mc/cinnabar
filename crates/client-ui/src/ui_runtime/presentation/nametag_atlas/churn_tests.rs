@@ -109,7 +109,7 @@ fn fragmented_names_repack_before_publication_and_keep_every_changing_suffix() {
     for tick in 0..32 {
         anchors.last_mut().unwrap().lines =
             vec![Arc::from(format!("W{}", "§r".repeat(tick)))].into();
-        let scene = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &|page| {
+        let scene = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &|page| {
             font_page(&font, page)
         });
         assert_eq!(

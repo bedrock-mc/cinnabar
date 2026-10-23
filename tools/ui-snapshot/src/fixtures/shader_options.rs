@@ -10,6 +10,7 @@ use shaderpack::{OptionSession, OptionValues, PackSource, ShaderPack};
 /// The fixture pack as the shader-pack folder would hold it.
 const PACK: &str = "Fixture Pack.zip";
 
+/// Loads the original pack used to exercise profiles, options and sub-screens.
 fn pack() -> ShaderPack {
     ShaderPack::new(PackSource::from_files([
         (
@@ -34,19 +35,23 @@ fn editor(saved: &[(&str, &str)]) -> Editor {
     Editor::new(OptionSession::new(&pack(), &saved), "Fixture Pack")
 }
 
-/// Video settings with the fixture pack selected and `editor`'s screen open over them.
+/// The Shaders tab with the fixture pack selected and `editor`'s screen open over them.
 fn view(editor: &Editor) -> MenuView {
     let mut view = selected();
     view.shader_options = Some(Arc::new(editor.view()));
+    view.focused_action = Some(MenuAction::SettingsSection(
+        SettingSection::Shaders.definition().index,
+    ));
     view
 }
 
-/// Video settings with the fixture pack selected.
+/// The Shaders tab with the fixture pack selected.
 fn selected() -> MenuView {
-    let mut view = settings(SettingSection::Video.definition().name);
+    let mut view = settings(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from([PACK.to_owned()]);
     view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some(PACK.to_owned());
     view.shader_options_available = true;
     view
 }
@@ -64,8 +69,8 @@ fn hover(view: &mut MenuView, index: u16, input: Input) {
     }));
 }
 
-/// The Renderer row with a pack selected, scrolled to the button that opens its options.
-pub(super) fn renderer_row() -> Fixture {
+/// The Shaders tab with a pack selected and its options button focused.
+pub(super) fn options_button() -> Fixture {
     let mut view = selected();
     view.focused_action = Some(MenuAction::ShaderOptions(Action::Open));
     Fixture::Menu(Box::new(view))

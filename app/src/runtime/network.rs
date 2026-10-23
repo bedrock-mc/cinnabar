@@ -59,6 +59,7 @@ pub(crate) fn receive_network_events(
     mut pack_reload: Option<ResMut<PackReload>>,
     mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
     mut block_entity_scene: Option<ResMut<render_scene::BlockEntitySceneResource>>,
+    mut actor_artwork: Option<ResMut<render_scene::ActorArtworkResource>>,
     mut state: AppWorldState,
     #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     #[cfg(feature = "acceptance")] metrics: Res<AppMetrics>,
@@ -97,6 +98,7 @@ pub(crate) fn receive_network_events(
                     pack_reload: pack_reload.as_mut().map(|reload| reload.reborrow()),
                     chunk_textures: chunk_textures.as_mut().map(|textures| textures.reborrow()),
                     block_entity_scene: block_entity_scene.as_mut().map(|scene| scene.reborrow()),
+                    actor_artwork: actor_artwork.as_mut().map(|artwork| artwork.reborrow()),
                     acknowledgements: &acknowledgements,
                     publication: &publication,
                     display_interval,
@@ -175,7 +177,7 @@ mod pack_reload_diff_tests;
 mod pack_reload_tests;
 #[cfg(test)]
 mod pack_reload_world_witness;
-pub(crate) use entity_texture_reload::set_base_actor_artwork;
+pub(crate) use entity_texture_reload::{set_base_actor_artwork, startup_actor_artwork};
 pub(crate) mod block_entity_art;
 pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;

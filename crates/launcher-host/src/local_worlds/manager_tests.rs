@@ -695,14 +695,15 @@ fn a_create_during_detection_waits_for_the_result() {
         .expect("the create returned")
         .expect("create");
     assert_eq!(world.backend, Backend::Dragonfly);
-    let normal = fixture
-        .manager
-        .create(&NewWorld {
+    for backend in [None, Some(Backend::Dragonfly)] {
+        let normal = fixture.manager.create(&NewWorld {
             name: "normal".into(),
+            backend,
             ..NewWorld::default()
-        })
-        .expect("a Dragonfly world without Docker");
-    assert_eq!(normal.backend, Backend::Dragonfly);
+        });
+        assert!(matches!(normal, Err(WorldError::Invalid(_))), "{normal:?}");
+        assert_eq!(fixture.manager.list().expect("list").len(), 1);
+    }
 }
 
 /// A probe that outlasts the wait refuses the create instead of saving a guess.
@@ -825,3 +826,64 @@ fn a_create_refuses_the_fallback_when_its_server_is_missing() {
     }
     assert!(fixture.manager.list().expect("list").is_empty());
 }
+
+#[test]
+fn world_options_report_multiplayer_denial_to_the_core() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let fixture = fixture(|_, _| {});
+    let manager = &fixture.manager;
+    {
+        let mut life = lock(&manager.inner.life);
+        let mut world = crate::local_worlds::test_support::world();
+        world.options.set(O::Multiplayer, 0);
+        life.world = Some(world);
+        life.state = WorldState::Starting;
+    }
+    assert!(manager.core_report().world.unwrap().multiplayer_disabled);
+    lock(&manager.inner.life)
+        .world
+        .as_mut()
+        .unwrap()
+        .options
+        .set(O::Multiplayer, 1);
+    assert!(!manager.core_report().world.unwrap().multiplayer_disabled);
+}
+
+#[test]
+fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let (runner, save) = FakeRunner::saving();
+    let runner = Arc::new(runner);
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    let world = manager.create(&flat("Latest rules")).unwrap();
+    let level = manager
+        .inner
+        .store
+        .dir(&world.id)
+        .unwrap()
+        .join(super::super::store::LEVEL_DIR);
+    std::fs::create_dir_all(&level).unwrap();
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    super::super::level_dat::configure(&world, &level, true).unwrap();
+    manager.open(&world.id, None).unwrap();
+    wait_for(manager, WorldState::Running);
+    manager.close();
+    manager.open(&world.id, None).unwrap();
+    let mut final_save = world.clone();
+    final_save.options.set(O::RandomTickSpeed, 42);
+    super::super::level_dat::configure(&final_save, &level, false).unwrap();
+    drop(save);
+    wait_for(manager, WorldState::Running);
+    assert_eq!(
+        lock(&runner.started)
+            .last()
+            .unwrap()
+            .options
+            .get(O::RandomTickSpeed),
+        42
+    );
+}
+
+#[path = "manager_host_tests.rs"]
+mod host;

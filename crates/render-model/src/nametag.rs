@@ -77,7 +77,8 @@ pub struct NametagRecord {
     pub line_lift: f32,
     /// Nonzero when this quad tests world depth; tested glyphs also write depth.
     pub depth_tested: u32,
-    pub padding: [u32; 2],
+    /// Actor identity retained for local-player cosmetic styling; unused by the shader.
+    pub runtime_id: u64,
 }
 
 impl NametagRecord {

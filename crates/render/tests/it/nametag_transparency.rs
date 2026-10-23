@@ -102,10 +102,7 @@ fn transparent_nametag_plate_preserves_world_color_and_alpha() {
             fragment: "nametag_fragment",
             vertices: 0..18,
             bindings: &bindings,
-            blend: Some(wgpu::BlendState {
-                alpha: wgpu::BlendComponent::REPLACE,
-                ..wgpu::BlendState::ALPHA_BLENDING
-            }),
+            blend: Some(nametag_shader::NAMETAG_BLEND),
             write_depth: false,
         }],
     );
@@ -123,8 +120,8 @@ fn transparent_nametag_plate_preserves_world_color_and_alpha() {
             .as_chunks::<4>()
             .0
             .iter()
-            .any(|pixel| pixel[3] == 204),
-        "the nonzero shadow opacity remains visible"
+            .all(|pixel| pixel[3] == 255),
+        "translucent plates and shadows must retain the opaque scene alpha"
     );
     let corner = &pixels[..4];
     // Inside the plate but outside the text and its one-pixel shadow.
@@ -135,4 +132,38 @@ fn transparent_nametag_plate_preserves_world_color_and_alpha() {
         corner,
         "a disabled background must preserve world RGBA, including compositor alpha"
     );
+    let translucent_plate = NametagRecord {
+        color: [0.0, 0.0, 0.0, 0.25],
+        ..plate
+    };
+    let plate_buffer = gpu.buffer(
+        bytemuck::cast_slice(&[translucent_plate]),
+        wgpu::BufferUsages::STORAGE,
+    );
+    let mut plate_bindings = bindings.clone();
+    plate_bindings[1].resource = plate_buffer.as_entire_binding();
+    let translucent = gpu.render(
+        &source,
+        "nametag_vertex",
+        &[gpu_snapshot::Draw {
+            fragment: "nametag_fragment",
+            vertices: 0..6,
+            bindings: &plate_bindings,
+            blend: Some(nametag_shader::NAMETAG_BLEND),
+            write_depth: false,
+        }],
+    );
+    assert_eq!(
+        translucent[center + 3],
+        corner[3],
+        "a nonzero plate must preserve opaque scene alpha"
+    );
+    for channel in 0..3 {
+        let expected = (f32::from(corner[channel]) * 0.75).round() as u8;
+        assert!(
+            translucent[center + channel].abs_diff(expected) <= 1,
+            "plate RGB still blends over the world"
+        );
+    }
+    gpu_snapshot::save("translucent-nametag-plate", &translucent);
 }

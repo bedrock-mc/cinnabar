@@ -51,7 +51,22 @@ pub(super) fn fixture_with_appearance(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
-    fixture_with_binding(main, clock, animated, true, false)
+    fixture_with_binding(main, clock, animated, true, false, false)
+}
+
+/// Separates the authored first-person hand pose from its full-body preview pose.
+pub(super) fn fixture_with_hidden_body(
+    main: Option<&str>,
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
+    fixture_with_binding(main, false, false, true, false, true)
 }
 
 /// Adds clamped head rotation channels to the shared original player fixture.
@@ -66,7 +81,7 @@ pub(super) fn fixture_with_rotation(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
-    fixture_with_binding(None, false, animated, true, true)
+    fixture_with_binding(None, false, animated, true, true, false)
 }
 
 /// Builds original player and item assets with optional binding, clock and rotation channels.
@@ -76,6 +91,7 @@ fn fixture_with_binding(
     animated: bool,
     bound: bool,
     turning: bool,
+    hide_body: bool,
 ) -> (
     (
         WorldStream,
@@ -128,6 +144,24 @@ fn fixture_with_binding(
             .replace("minecraft:shield", "minecraft:bow")
             .into_bytes(),
     ));
+    if hide_body {
+        let (_, animation) = files
+            .iter_mut()
+            .find(|(path, _)| &**path == "animations/player.animation.json")
+            .unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(animation).unwrap();
+        value["animations"]["animation.player_test.swing"]["bones"]["body"] =
+            serde_json::json!({"scale":"variable.is_first_person ? 0 : 1"});
+        *animation = serde_json::to_vec(&value).unwrap();
+        let (_, controller) = files
+            .iter_mut()
+            .find(|(path, _)| &**path == "render_controllers/test.json")
+            .unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(controller).unwrap();
+        value["render_controllers"]["controller.render.test"]["part_visibility"] =
+            serde_json::json!([{"body":"!variable.is_first_person"}]);
+        *controller = serde_json::to_vec(&value).unwrap();
+    }
     if clock {
         let shield = files
             .iter_mut()
@@ -416,6 +450,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
         for off_hand in [false, true] {
             let ((mut stream, mut equipment, artwork, mut input), _) = fixture_with_binding(
                 (!off_hand).then_some("minecraft:shield"),
+                false,
                 false,
                 false,
                 false,
@@ -828,6 +863,7 @@ pub(super) fn player_feed() -> client_world::LocalPlayerFeed {
         pitch: 5.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,

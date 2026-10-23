@@ -54,8 +54,20 @@ fn snowball_packets_each_emit_one_fragment_through_the_app_route() {
         icons: Some(&icons),
     };
     let mut system = system();
+    let mut break_echoes = client_audio::audio::EchoLedger::default();
     for _ in 0..ITEM_ICON_PARTICLES {
-        route_level_event(&mut system, &routing, 2009, [1.0, 2.0, 3.0], 15, 0);
+        route_level_event(
+            &mut system,
+            &routing,
+            &mut break_echoes,
+            &protocol::LevelParticleEvent {
+                event_id: 2009,
+                position: [1.0, 2.0, 3.0],
+                data: 15,
+            },
+            0.0,
+            0,
+        );
     }
     system.tick(0.001, &EmptyWorld);
     assert_eq!(system.live_particles(), ITEM_ICON_PARTICLES as usize);

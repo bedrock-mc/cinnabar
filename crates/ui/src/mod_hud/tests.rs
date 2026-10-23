@@ -444,6 +444,7 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
     for action in [
         "hud.undo",
         "hud.redo",
+        "hud.scale",
         "hud.scale_down",
         "hud.scale_up",
         "hud.save",
@@ -557,7 +558,11 @@ fn studio_native_placeholder_identity_survives_materialization_and_stays_out_of_
         id: "effects_preview".into(),
         editor_label: "Effects".into(),
         source: Some(super::RowSource {
-            kind: super::NativeRows::Effects { icons: true },
+            kind: super::NativeRows::Effects {
+                icons: true,
+                stacked: false,
+                warnings: false,
+            },
             limit: 4,
             color: [1.; 4],
             brackets: false,
@@ -588,4 +593,117 @@ fn studio_cancellation_cannot_replace_pending_reset_intent() {
         ..Default::default()
     };
     assert!(result.validate().is_err());
+}
+
+/// Background radii default to the original look and reject non-finite or out-of-range values.
+#[test]
+fn background_radii_default_to_the_original_look_and_are_bounded() {
+    let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","rows":[{"label":"","value":"60"}],"text_plate":{}}]
+    }))
+    .unwrap();
+    assert_eq!(
+        hud.cards[0].background_radius,
+        super::DEFAULT_CARD_BACKGROUND_RADIUS
+    );
+    assert_eq!(hud.cards[0].text_plate.as_ref().unwrap().style.radius, 0.);
+    hud.validate().unwrap();
+    for radius in [0., 8., super::MAX_CARD_BACKGROUND_RADIUS] {
+        hud.cards[0].background_radius = radius;
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = radius;
+        hud.validate().unwrap();
+    }
+    for radius in [
+        -0.5,
+        super::MAX_CARD_BACKGROUND_RADIUS + 0.5,
+        f32::NAN,
+        f32::INFINITY,
+    ] {
+        let mut card = hud.clone();
+        card.cards[0].background_radius = radius;
+        assert!(card.validate().is_err(), "card radius {radius}");
+        let mut plate = hud.clone();
+        plate.cards[0].text_plate.as_mut().unwrap().style.radius = radius;
+        assert!(plate.validate().is_err(), "plate radius {radius}");
+    }
+}
+
+/// Representative facts cannot be admitted as a real gameplay card.
+#[test]
+fn samples_require_preview_only_and_crosshairs_require_isolation() {
+    use super::{Crosshair, Hud};
+    let mut hud: Hud =
+        serde_json::from_str(r#"{"cards":[{"id":"sample","sample":true,"rows":[]}] }"#).unwrap();
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_only = true;
+    hud.validate().unwrap();
+    hud.cards[0].crosshair = Some(Crosshair::default());
+    hud.validate().unwrap();
+    hud.cards[0].preview_only = false;
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_only = true;
+    hud.cards[0]
+        .rows
+        .push(serde_json::from_value(serde_json::json!({"label":"","value":"1"})).unwrap());
+    assert!(hud.validate().is_err());
+}
+
+/// Aliases reserve their complete native output and cannot collide or recursively expand.
+#[test]
+fn native_sample_aliases_reserve_rows_and_unique_card_identities() {
+    use super::{Card, Hud, MAX_HUD_CARDS, MAX_HUD_ROWS};
+    let mut hud:Hud=serde_json::from_str(r#"{"cards":[{"id":"inventory","preview_id":"inventory_sample","rows":[],"source":{"kind":{"kind":"inventory","hotbar":true},"limit":36}}]}"#).unwrap();
+    hud.validate().unwrap();
+    hud.cards[0].preview_id = Some("inventory".into());
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_id = Some("preview".into());
+    hud.cards[0].sample = true;
+    hud.cards[0].preview_only = true;
+    assert!(hud.validate().is_err());
+    hud.cards[0].sample = false;
+    let template = hud.cards[0].clone();
+    hud.cards = (0..MAX_HUD_CARDS / 2 + 1)
+        .map(|index| Card {
+            id: format!("card_{index}"),
+            preview_id: Some(format!("sample_{index}")),
+            ..template.clone()
+        })
+        .collect();
+    assert!(hud.validate().is_err());
+    hud.cards.truncate(MAX_HUD_CARDS / 2);
+    assert!(
+        hud.cards
+            .iter()
+            .map(|card| usize::from(card.source.as_ref().unwrap().limit) * 2)
+            .sum::<usize>()
+            > MAX_HUD_ROWS
+    );
+    assert!(hud.validate().is_err());
+}
+
+/// Trusted host previews can exceed cell-content bounds without widening JSON admission.
+#[test]
+fn host_preview_size_is_validated_and_not_serialized() {
+    let mut hud = Hud {
+        cards: vec![Card {
+            id: "touch".into(),
+            width: 1.,
+            cells: vec![Cell {
+                rect: [0., 0., 1., 1.],
+                ..Default::default()
+            }],
+            editor_size: Some([2048., 1600.]),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(hud.validate().is_ok());
+    let encoded = serde_json::to_value(&hud).unwrap();
+    assert!(encoded["cards"][0].get("editor_size").is_none());
+    let decoded: Hud = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded.cards[0].editor_size, None);
+    for size in [[f32::NAN, 1.], [1., f32::INFINITY], [0., 1.], [-1., 1.]] {
+        hud.cards[0].editor_size = Some(size);
+        assert!(hud.validate().is_err());
+    }
 }

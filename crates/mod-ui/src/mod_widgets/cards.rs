@@ -164,7 +164,9 @@ impl ModWidgets {
             icons: &entry.icons,
             id_aux: &[],
         };
-        let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 1] = [&mut items];
+        let mut crosshair = crate::crosshair::PreviewRenderer;
+        let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 2] =
+            [&mut items, &mut crosshair];
         let mut target = frame.with_renderers(&mut renderers);
         let language = target.language;
         let laid = engine

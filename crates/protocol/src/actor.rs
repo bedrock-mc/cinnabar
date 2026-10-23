@@ -154,6 +154,8 @@ pub struct ActorMoveEvent {
     pub head_yaw: Option<f32>,
     pub on_ground: Option<bool>,
     pub teleported: bool,
+    /// Accept this move even when the actor is controlled by the local client.
+    pub force_local_move: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<u64>,
     pub interpolation: ActorInterpolation,
@@ -166,7 +168,17 @@ pub struct ActorInterpolation {
     pub force_completion: bool,
 }
 
+const MOVE_ON_GROUND: u8 = 1;
+const MOVE_TELEPORT: u8 = 1 << 1;
+const MOVE_FORCE_LOCAL: u8 = 1 << 2;
 const MOVE_FORCE_COMPLETION: u8 = 1 << 3;
+
+impl ActorMoveEvent {
+    /// Whether server actor movement may replace a locally controlled position.
+    pub const fn controls_local_actor(self) -> bool {
+        self.teleported || self.force_local_move
+    }
+}
 
 /// Coordinate space carried by an actor movement position.
 ///
@@ -450,8 +462,9 @@ pub(crate) fn normalize_move_entity(
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/packet/move_actor_absolute.go`:
         // `MoveFlagOnGround = 1 << iota`, `MoveFlagTeleport`.
-        on_ground: Some(move_data.header.0 & 1 != 0),
-        teleported: move_data.header.0 & 2 != 0,
+        on_ground: Some(move_data.header.0 & MOVE_ON_GROUND != 0),
+        teleported: move_data.header.0 & MOVE_TELEPORT != 0,
+        force_local_move: move_data.header.0 & MOVE_FORCE_LOCAL != 0,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
@@ -511,8 +524,9 @@ pub(crate) fn normalize_move_entity_body(
         pitch: Some(pitch),
         yaw: Some(yaw),
         head_yaw: Some(head_yaw),
-        on_ground: Some(flags & 1 != 0),
-        teleported: flags & 2 != 0,
+        on_ground: Some(flags & MOVE_ON_GROUND != 0),
+        teleported: flags & MOVE_TELEPORT != 0,
+        force_local_move: flags & MOVE_FORCE_LOCAL != 0,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
@@ -564,6 +578,7 @@ pub(crate) fn normalize_move_entity_delta(
         // whether the client should snap the entity to its new position without
         // interpolation."
         teleported: move_data.force_move,
+        force_local_move: move_data.force_move_local_entity,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
@@ -923,18 +938,12 @@ fn normalize_tick(tick: u64) -> u64 {
 }
 
 fn byte_rotation_degrees(value: u8) -> f32 {
-    f32::from(value) * (360.0 / 256.0)
+    signed_byte_rotation_degrees(value as i8)
 }
 
-/// Converts a rotation byte the generator types as `i8`.
-///
-/// Bedrock reads every rotation byte unsigned. gophertunnel
-/// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/reader.go`:
-/// `ByteFloat` reads a `uint8` and scales it by `360.0 / 256.0`. The generated
-/// `MoveActorDeltaData` stores the same byte as `i8`, so the bit pattern is
-/// reinterpreted rather than sign-extended.
+/// Converts a signed rotation byte to degrees in the half-turn range.
 fn signed_byte_rotation_degrees(value: i8) -> f32 {
-    byte_rotation_degrees(value as u8)
+    f32::from(value) * (360.0 / 256.0)
 }
 
 fn check_count(collection: &'static str, count: usize, max: usize) -> Result<(), ActorPacketError> {

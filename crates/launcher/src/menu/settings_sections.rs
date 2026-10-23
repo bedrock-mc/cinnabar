@@ -58,12 +58,15 @@ sections! {
     KeyboardAndMouse => "keyboard_and_mouse_forced_index", 14, Some("options.keyboardAndMouseSettings"), Some("menu.keyboardAndMouse.tab.title"), None;
     ControllerAndSwitch => "controller_and_switch_forced_index", 15, Some("options.controllerSettings"), Some("menu.controller.tab.title"), None;
     Touch => "touch_forced_index", 16, None, Some("menu.touch.tab.title"), None;
-    Party => "party_forced_index", 17, None, Some("options.party"), None;
+    Party => "party_forced_index", 17, None, None, None;
+    Chat => "cinnabar_chat_index", 47, Some("Chat"), Some("Chat"), Some(SettingsGroup::Chat);
+    Discord => "cinnabar_discord_index", 48, Some("Discord"), Some("Discord"), Some(SettingsGroup::Discord);
     General => "general_forced_index", 18, Some("options.generalTitle"), Some("menu.general.tab.title"), None;
     Video => "video_forced_index", 21, Some("options.videoTitle"), Some("menu.video.tab.title"), Some(SettingsGroup::Video);
     Sound => "sound_forced_index", 23, Some("options.sounds.title"), Some("menu.audio.tab.title"), Some(SettingsGroup::Audio);
     Account => "account_forced_index", 19, Some("options.accountTitle"), Some("menu.account.tab.title"), None;
     GlobalTexturePack => "global_texture_pack_forced_index", 24, Some("menu.globalpacks"), Some("menu.globalpacks"), None;
+    Shaders => "cinnabar_shaders_index", 46, Some("Shaders"), if super::settings_options::SHADER_PACK_BINDINGS { Some("Shaders") } else { None }, None;
     Mods => "cinnabar_mods_index", 44, Some("Mods"), Some("Mods"), None;
     StorageManagement => "storage_management_forced_index", 25, Some("menu.storageManagement"), Some("menu.storage.tab.title"), None;
     Language => "language_forced_index", 27, Some("options.language"), Some("menu.language.tab.title"), None;

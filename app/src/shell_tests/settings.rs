@@ -36,7 +36,7 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     let mut authority = client_presentation::camera::CameraSettingsAuthority::default();
     authority.replace(1, &user).unwrap();
     assert_eq!(authority.horizontal_fov_degrees(), 82.0);
-    assert!(!authority.feel().view_bobbing);
+    assert_eq!(authority.feel().view_bobbing, ui::ViewBobbing::Off);
     assert!(!authority.feel().camera_shake);
     assert_eq!(authority.feel().damage_bob, 0.25);
     assert_eq!(authority.feel().fov_effects_scale, 0.0);
@@ -54,11 +54,8 @@ fn camera_input_and_window_settings_read_the_saved_values() {
 
 #[test]
 fn saved_volumes_reach_the_mixer() {
-    use {
-        assets::audio_category::AudioCategory, client_audio::audio::AudioSettings,
-        client_shell::menu::MenuRuntime,
-    };
     use {bevy::prelude::App, bevy::prelude::ResMut, bevy::prelude::Update};
+    use {client_audio::audio::AudioSettings, client_shell::menu::MenuRuntime};
     /// Exercises the production sound adapter without writing settings to disk.
     fn sync(menu: ResMut<MenuRuntime>, audio: ResMut<AudioSettings>) {
         crate::shell_adapters::sync_audio_settings(&menu, Some(audio));
@@ -79,11 +76,7 @@ fn saved_volumes_reach_the_mixer() {
     app.update();
     let mixer = app.world().resource::<AudioSettings>();
     for (category, volume) in expected {
-        if category == AudioCategory::TextToSpeech {
-            assert_eq!(mixer.volume(category), 1.0);
-        } else {
-            assert_eq!(mixer.volume(category), volume, "{category:?}");
-        }
+        assert_eq!(mixer.volume(category), volume, "{category:?}");
     }
 }
 

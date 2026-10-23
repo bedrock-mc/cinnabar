@@ -427,7 +427,7 @@ impl ActorArtworkPages {
                 hasher.update([u8::from(color_mask)]);
                 hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
                 let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| rasters[*index].rgba8.as_ref()),
+                    indices.iter().map(|index| &rasters[*index].rgba8),
                     &mut hasher,
                 );
                 let page = ActorTexturePage {
@@ -499,7 +499,7 @@ impl ActorArtworkPages {
                 hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
                 hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
                 let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| textures[*index].rgba8.as_ref()),
+                    indices.iter().map(|index| &textures[*index].rgba8),
                     &mut hasher,
                 );
                 let page = ActorTexturePage {

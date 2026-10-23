@@ -8,21 +8,33 @@ use client_world::ActorSnapshot;
 
 use super::*;
 
+/// Suppresses authored hand geometry only when it comes from a server pack.
+fn should_fallback_to_icon(show_custom_item_models: bool, from_pack: bool) -> bool {
+    !show_custom_item_models && from_pack
+}
+
 /// A first-person definition admitted once for both hand placement and model drawing.
 pub(crate) struct HeldSelection {
     source: Option<pack::BindingSource>,
+    icon_fallback: bool,
 }
 
 impl HeldSelection {
     /// Reports whether this admitted definition supplies its own hand placement.
     pub(crate) fn uses_authored_hand(&self, item: &WornItem) -> bool {
-        self.source.as_ref().is_some_and(|source| {
-            java::keep_authored_hand(
-                &item.identifier,
-                source.catalog.bindings()[source.index].category,
-                source.from_pack,
-            )
-        })
+        !self.icon_fallback
+            && self.source.as_ref().is_some_and(|source| {
+                java::keep_authored_hand(
+                    &item.identifier,
+                    source.catalog.bindings()[source.index].category,
+                    source.from_pack,
+                )
+            })
+    }
+
+    /// Whether the selected server-pack model must fall back to the ordinary item sprite.
+    pub(crate) const fn uses_icon_fallback(&self) -> bool {
+        self.icon_fallback
     }
 }
 
@@ -35,21 +47,25 @@ impl EquipmentRuntime {
         rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
     ) -> HeldSelection {
+        let source = if self.uses_native_item_mesh(&item.identifier) {
+            None
+        } else {
+            self.selected_binding_source(
+                item,
+                EquipmentAnimation {
+                    owner,
+                    rig,
+                    frame_alpha: input.frame_alpha,
+                    delta_seconds: input.delta_seconds.unwrap_or_default(),
+                },
+                input,
+            )
+        };
         HeldSelection {
-            source: if self.uses_native_item_mesh(&item.identifier) {
-                None
-            } else {
-                self.selected_binding_source(
-                    item,
-                    EquipmentAnimation {
-                        owner,
-                        rig,
-                        frame_alpha: input.frame_alpha,
-                        delta_seconds: input.delta_seconds.unwrap_or_default(),
-                    },
-                    input,
-                )
-            },
+            icon_fallback: source.as_ref().is_some_and(|source| {
+                should_fallback_to_icon(self.show_custom_item_models, source.from_pack)
+            }),
+            source,
         }
     }
 
@@ -81,6 +97,9 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
+        if selected.uses_icon_fallback() {
+            return None;
+        }
         self.held_attachable_from_source(
             body,
             item,
@@ -117,7 +136,9 @@ impl EquipmentRuntime {
         });
         if !matches!(
             self.effective_category(&item.identifier, binding.category),
-            EquipmentCategory::Held | EquipmentCategory::Shield
+            EquipmentCategory::Held
+                | EquipmentCategory::ArmorAndHeld { .. }
+                | EquipmentCategory::Shield
         ) {
             return None;
         }
@@ -309,6 +330,12 @@ pub(super) fn parent_for_root(
                 .iter()
                 .position(|owner| owner.eq_ignore_ascii_case(name))?,
         ),
+        AttachableBoneParent::BindingExpression if input.worn => Some(
+            bones
+                .names
+                .iter()
+                .position(|owner| owner.eq_ignore_ascii_case(input.item_slot()))?,
+        ),
         AttachableBoneParent::BindingExpression => Some(if input.off_hand {
             bones.left_item?
         } else {
@@ -390,6 +417,13 @@ pub(super) fn compose_parent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_item_model_setting_downgrades_only_server_pack_models() {
+        assert!(should_fallback_to_icon(false, true));
+        assert!(!should_fallback_to_icon(false, false));
+        assert!(!should_fallback_to_icon(true, true));
+    }
 
     fn owner_parents() -> (BodyBones, [RenderBoneTransform; 3]) {
         let names = body_bones(["rightItem", "leftItem", "head"].map(Box::from).into());

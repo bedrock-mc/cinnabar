@@ -169,10 +169,33 @@ not identify an installable file. Successful installs report their version on th
 Mods tab and clear the available-update notice. App updates take priority in the corner.
 
 Players can disable **Install mod updates automatically** in **Settings →
-General** while retaining notifications, or disable **Check for mod updates**
+Updates**, under **Mods**, while retaining notifications, or disable **Check for mod updates**
 to stop both checks and downloads. Both mod settings work independently of the
 app updater, including development builds. Mods without either declaration make
 no update requests.
+
+## Click limiting and local weather
+
+`input.set-click-limits(attack, item-use)` retains separate optional press caps.
+Each cap accepts 1 through `mod_api::MAX_CLICK_RATE` (100) presses per second;
+`none` restores ordinary input for that channel. It requires `controls` authority
+and cannot generate clicks. Excess gestures are discarded through their release;
+accepted held mining and item-use gestures keep ordinary behavior. Ordered desktop
+bursts and aggregate input phases share the filter. Caps combine by taking the
+strictest active cap per channel. Cooldowns reset at gameplay, input-authority,
+session and dimension boundaries, with no delayed replay.
+
+`environment.set-weather-override(option<weather>)` selects `clear`, `rain` or
+`thunder` under the existing `environment` grant and output precedence. It affects
+local sky, fog, light and precipitation inputs. Authoritative weather and its
+normal display interpolation keep advancing independently, so `none` restores the
+current server presentation. Local presets suppress server lightning flashes;
+they do not create lightning entities or change server simulation or audio.
+
+Both policies publish only after successful callbacks, retain across deferred
+callbacks, clear on quarantine, and start fresh after a successful reload.
+No default setting changes. A component must opt into these APIs. Headless
+populated-world rendering and interaction acceptance remain to be completed.
 
 ## Visual time changer
 
@@ -1136,6 +1159,29 @@ through terrain without changing world or packet state. Results share the
 `mod_api::MAX_BLOCK_HIGHLIGHTS` nearest-block budget; the earliest active mod wins.
 `none`, unload, reload, or a trap clears the overlay. Output commits only after a
 successful callback; repeated unchanged input rebuilds no geometry.
+Packet `render-frame` scenes also accept an optional `outline` on each block:
+`{"position":[1,64,2],"colour":[0,1,1,0.3],"outline":{"colour":[0,1,1,0.85],"width":1.5}}`.
+The width is in physical pixels, greater than zero and at most 8. Both colours use
+independent linear RGBA; a zero fill alpha gives an outline-only block. These
+edges share the block-highlight budget and do not consume retained box slots.
+Guests must negotiate `native_render::BLOCK_OUTLINES` before sending `outline`;
+older hosts accept only the existing position and colour fields. The optional
+bit requires the same `block_highlights` consent, not another permission.
+Face-adjacent highlights form a continuous surface. Shared faces and coplanar
+outline seams are removed; isolated blocks and exterior creases retain their edges.
+
+Packet guests negotiating `native_render::ACTOR_ANCHORS` may set a line's
+`camera_start: true` and `entity_end: {"runtime_id":42,"offset":[0,1.62,0]}`.
+The host resolves these from the same interpolated actor body and camera used
+for rendering, dropping the line when its target is unavailable. Offsets use
+world axes. This bit requires entity observation and highlight consent in
+addition to the existing world drawing grants.
+An entity group selecting exactly one actor may also supply `position:[x,y,z]`
+to place its current animated mesh at those feet. `style.fill:[r,g,b,a]` adds
+translucent silhouette coverage independently of the outline and halo. A hidden
+local body is prepared only for requested coverage and stays out of main passes.
+Omit all these optional fields when the host does not advertise the bit.
+
 ## Fullbright
 
 The separate `fullbright` grant (`CINNABAR_MOD_FULLBRIGHT=1`) permits
@@ -1220,7 +1266,7 @@ they do not establish reference-client parity. Annotations retain native
 visibility, depth, font-atlas and record limits and leave server name text intact.
 
 A single plain-value card may set `text_plate` with `brackets`, `bracket_color`,
-`background`, `border_color`, and `border_width` (0–8). Colors are straight RGBA.
+`background`, `border_color`, `border_width` (0–8), and `radius` (0–16, default 0). Colors are straight RGBA.
 Optional `width` (1–512) and `height` (1–128) fix the background's size; omitting
 either fits that dimension to native font measurements and padding. Text stays
 centered and retains its row color and the card's shadow. Brackets have their
@@ -1244,7 +1290,8 @@ the player's effects. It remains active with empty `cards`; clearing the HUD,
 omitting the flag or setting it to false restores the ordinary icons.
 
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
-`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are
+`title`, `anchor`, `offset`, `scale`, `position`, `background_opacity`, and
+`background_radius` (0–16 GUI pixels, default 3). Background radii scale with the card. Anchors are
 `top_left`, `top_center`, `top_right`, `left`, `center`, `right`, `bottom_left`,
 `bottom_center`, and `bottom_right`. Offsets are finite GUI pixels measured inward
 from anchored edges; centered axes use signed offsets toward the right or bottom.
@@ -1326,11 +1373,20 @@ Each card edge and its center can align to a guide, including placement directly
 above or below the horizontal center line. Optional `reset_anchor`, `reset_offset`,
 and `reset_scale` supply factory layout without changing the current preview.
 These fields affect only the layout editor.
-Optional `editor_style` recolors the host-owned chrome: `outline` and `selected`
+Optional `editor_style` styles the host-owned chrome: `outline` and `selected`
 card outlines, resize `handle`, `handle_hover` and `handle_pressed` colors, the
-`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, and the
-built-in `grid`. Colors are RGBA from zero to one; omitted fields keep the
-built-in appearance.
+`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, the
+built-in `grid`, and the distance `measurement` pills. Colors are RGBA from zero to one; omitted fields keep the
+built-in appearance. `font` selects `native` or `sans`, and `text_scale` (0.25–0.8,
+default 0.8) controls editor labels independently of widget scale. Distance
+pills retain their compact 0.45 text scale in the selected font. Distance
+captions move clear of visible widgets and hide when there is no free space.
+`selection_caption: true` draws one measured name-and-scale tag for the selected
+widget, using `selected` as its background and `caption_text` for its RGBA text.
+It stays the same size as the widget is resized; the inspector and distance
+captions avoid its bounds. The option defaults to false for existing surfaces.
+`top_clearance` (0–128 GUI pixels, default zero) reserves an authored toolbar band
+from selection and distance captions. Measurements hide if no nearby free space remains.
 
 The editor captures native pointer dragging, clamps cards to the available
 viewport, supports one-pixel arrow nudges, and offers optional eight-GUI-pixel

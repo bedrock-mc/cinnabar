@@ -58,7 +58,7 @@ pub enum StorageAction {
 pub enum StorageFolder {
     Worlds,
     ResourcePacks,
-    /// Java shader packs, offered beside the Video renderer picker.
+    /// Java shader packs, offered in the Shaders tab.
     ShaderPacks,
 }
 
@@ -74,12 +74,13 @@ impl StorageFolder {
 }
 
 impl StorageView {
-    /// Returns the items represented by a vanilla storage category.
-    pub fn items(&self, category: &str) -> &[StorageItem] {
+    /// Returns the items of a vanilla storage category, or `None` for one the client does not
+    /// keep (world templates, resource, behavior and skin packs).
+    pub fn items(&self, category: &str) -> Option<&[StorageItem]> {
         match category {
-            "world" => &self.worlds,
-            "cache" => &self.cached,
-            _ => &[],
+            "world" => Some(&self.worlds),
+            "cache" => Some(&self.cached),
+            _ => None,
         }
     }
 }

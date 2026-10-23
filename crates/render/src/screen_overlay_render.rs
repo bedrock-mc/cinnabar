@@ -6,7 +6,7 @@ use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
-        query::ROQueryItem,
+        query::{Has, ROQueryItem},
         system::{SystemParamItem, lifetimeless::SRes},
     },
     prelude::{
@@ -534,6 +534,16 @@ fn prepare_bind_group(
     ));
 }
 
+/// Camera settings and pack membership used to place screen effects after the hand.
+type OverlayQueueView = (
+    Entity,
+    &'static MainEntity,
+    &'static ExtractedView,
+    &'static bevy::render::camera::ExtractedCamera,
+    &'static Msaa,
+    Has<render_scene::shaderpack::ShaderPackRendering>,
+);
+
 fn queue_overlay(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<OverlayPipeline>,
@@ -541,20 +551,14 @@ fn queue_overlay(
     (ui, mut gpu): (Option<Res<crate::ui_render::UiGpu>>, ResMut<OverlayGpu>),
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-    )>,
+    views: Query<OverlayQueueView>,
 ) {
     gpu.view_pipelines.clear();
     if scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
-    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, pack_view) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -563,12 +567,12 @@ fn queue_overlay(
             OverlayPipelineKey {
                 msaa: *msaa,
                 hdr: extracted_camera.hdr,
-                after_hand: ui.is_some(),
+                after_hand: ui.is_some() || (cfg!(feature = "shaderpacks") && pack_view),
             },
         ) else {
             continue;
         };
-        if ui.is_some() {
+        if ui.is_some() || (cfg!(feature = "shaderpacks") && pack_view) {
             gpu.view_pipelines.insert(view_entity, pipeline_id);
             continue;
         }

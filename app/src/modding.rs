@@ -406,6 +406,9 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
     };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.insert_resource(VisualTimeOverride(host.time_override()));
+    app.insert_resource(crate::environment::VisualWeatherOverride(
+        host.weather_override(),
+    ));
     let mut runtime = ModRuntime::new(host, metadata);
     for (host, metadata) in hosts {
         runtime.push_host(host, metadata);
@@ -419,6 +422,13 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<native_input::NativeInput>();
     app.init_resource::<packet_render::Drawing>();
+    app.init_resource::<render_scene::mod_scene::ActorCoverageRequests>();
+    app.add_systems(
+        Update,
+        packet_render::coverage_requests
+            .after(drive_mod)
+            .before(ClientFrameSet::ActorFinalization),
+    );
     app.init_resource::<ReservedControls>();
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));

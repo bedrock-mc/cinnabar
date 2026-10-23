@@ -43,6 +43,18 @@ impl PacketMod {
             if let Some(scene) = &scene {
                 let bits = guest.native_render_capabilities();
                 ensure!(
+                    bits & mod_api::native_render::ACTOR_ANCHORS != 0
+                        || (scene
+                            .lines
+                            .iter()
+                            .all(|l| !l.camera_start && l.entity_end.is_none())
+                            && scene
+                                .entities
+                                .iter()
+                                .all(|e| e.position.is_none() && e.style.fill.is_none())),
+                    "actor anchor authority denied"
+                );
+                ensure!(
                     scene.entities.is_empty()
                         || bits & mod_api::native_render::ENTITY_HIGHLIGHTS != 0,
                     "actor highlight authority denied"
@@ -69,6 +81,19 @@ mod tests {
             .replace("$START", "");
         source = source.trim_end().strip_suffix(')').unwrap().to_owned();
         let bytes: String = scene.bytes().map(|byte| format!("\\{byte:02x}")).collect();
+        let mask = if walls {
+            mod_api::native_render::CAPABILITY
+                | if highlights {
+                    mod_api::native_render::ENTITY_HIGHLIGHTS
+                        | mod_api::native_render::ACTOR_ANCHORS
+                        | mod_api::native_render::BLOCK_HIGHLIGHTS
+                        | mod_api::native_render::BLOCK_OUTLINES
+                } else {
+                    0
+                }
+        } else {
+            0
+        };
         source.push_str(&format!(r#"
           (data (i32.const 2048) "{bytes}") (data (i32.const 4096) "null")
           (func (export "native-init") (param i32)
@@ -79,7 +104,7 @@ mod tests {
             (i32.store (i32.const 136) (i32.const {length}))
             (if (i32.eq (i32.load8_u (local.get $input)) (i32.const 110)) (then
               (i32.store (i32.const 132) (i32.const 4096)) (i32.store (i32.const 136) (i32.const 4))))
-            (i32.const 128)))"#,length=scene.len(),mask=if walls {8 | if highlights {16 | 32} else {0}}else{0}));
+            (i32.const 128)))"#,length=scene.len()));
         CompiledPacketMod::compile(
             &wat::parse_str(source).unwrap(),
             &ModGrants {

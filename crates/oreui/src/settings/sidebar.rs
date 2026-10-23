@@ -39,6 +39,8 @@ enum Glyph {
     Chest,
     Shelves,
     Puzzle,
+    Chat,
+    Discord,
     Download,
 }
 
@@ -60,37 +62,34 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             None,
         ),
         Touch => (Some(SETTINGS_ICONS[3]), [147, 145, 132], Glyph::Grid, None),
-        Party => (
-            Some(SETTINGS_ICONS[4]),
-            [158, 101, 64],
-            Glyph::Grid,
-            Some("options.social"),
-        ),
+        Chat => (None, [74, 144, 226], Glyph::Chat, Some("options.social")),
+        Discord => (None, [88, 101, 242], Glyph::Discord, None),
         General => (
-            Some(SETTINGS_ICONS[5]),
+            Some(SETTINGS_ICONS[4]),
             [152, 100, 50],
             Glyph::Grid,
             Some("options.general"),
         ),
         Updates => (None, [64, 113, 78], Glyph::Download, None),
         Video => (
-            Some(SETTINGS_ICONS[6]),
+            Some(SETTINGS_ICONS[5]),
             [193, 142, 62],
             Glyph::Landscape,
             None,
         ),
-        Sound => (Some(SETTINGS_ICONS[7]), [141, 90, 59], Glyph::Grid, None),
-        Account => (Some(SETTINGS_ICONS[8]), [121, 76, 45], Glyph::Face, None),
-        GlobalTexturePack => (Some(SETTINGS_ICONS[9]), [159, 108, 44], Glyph::Chest, None),
+        Sound => (Some(SETTINGS_ICONS[6]), [141, 90, 59], Glyph::Grid, None),
+        Account => (Some(SETTINGS_ICONS[7]), [121, 76, 45], Glyph::Face, None),
+        GlobalTexturePack => (Some(SETTINGS_ICONS[8]), [159, 108, 44], Glyph::Chest, None),
+        Shaders => (None, [193, 142, 62], Glyph::Landscape, None),
         Mods => (None, [112, 76, 160], Glyph::Puzzle, None),
         StorageManagement => (
-            Some(SETTINGS_ICONS[10]),
+            Some(SETTINGS_ICONS[9]),
             [141, 126, 73],
             Glyph::Shelves,
             None,
         ),
-        Language => (Some(SETTINGS_ICONS[11]), [55, 110, 187], Glyph::Grid, None),
-        Creator => (Some(SETTINGS_ICONS[12]), [159, 105, 65], Glyph::Grid, None),
+        Language => (Some(SETTINGS_ICONS[10]), [55, 110, 187], Glyph::Grid, None),
+        Creator => (Some(SETTINGS_ICONS[11]), [159, 105, 65], Glyph::Grid, None),
         Server => (None, [65, 99, 216], Glyph::Grid, None),
         _ => panic!("visible settings section needs artwork"),
     };
@@ -360,6 +359,22 @@ fn icon(canvas: &mut Canvas<'_>, tab: &Tab, at: [f32; 2]) -> Result<(), PaintErr
             block(3.0, 5.0, 8.0, 8.0, TEXT)?;
             block(6.0, 3.0, 2.0, 2.0, TEXT)?;
             block(11.0, 8.0, 2.0, 2.0, TEXT)?;
+        }
+        Glyph::Chat => {
+            block(2.0, 3.0, 12.0, 7.0, theme::BORDER)?;
+            block(3.0, 4.0, 10.0, 5.0, [230, 230, 230, 255])?;
+            block(4.0, 10.0, 4.0, 2.0, theme::BORDER)?;
+            block(4.0, 10.0, 2.0, 1.0, [230, 230, 230, 255])?;
+        }
+        Glyph::Discord => {
+            block(3.0, 4.0, 10.0, 9.0, TEXT)?;
+            block(2.0, 6.0, 2.0, 5.0, TEXT)?;
+            block(4.0, 3.0, 2.0, 2.0, TEXT)?;
+            block(10.0, 3.0, 2.0, 2.0, TEXT)?;
+            block(5.0, 7.0, 2.0, 2.0, tab.fill)?;
+            block(9.0, 7.0, 2.0, 2.0, tab.fill)?;
+            block(4.0, 13.0, 2.0, 1.0, TEXT)?;
+            block(10.0, 13.0, 2.0, 1.0, TEXT)?;
         }
         Glyph::Download => {
             block(7.0, 2.0, 2.0, 7.0, TEXT)?;

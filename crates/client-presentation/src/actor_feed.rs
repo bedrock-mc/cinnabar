@@ -51,6 +51,7 @@ pub fn build_local_player_feed(
         pitch: pitch_degrees,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -111,7 +112,7 @@ pub fn prepare_local_player_feed(
         physics,
         view.rotation(),
         false,
-        settings.feel().view_bobbing,
+        settings.feel().view_bobbing.hand_enabled(),
         local_uuid,
         skin,
         local_use,
@@ -120,6 +121,15 @@ pub fn prepare_local_player_feed(
         view.apply_actor_presentation(feed);
         feed.game_mode = player.facts.player_game_mode();
         feed.prefer_client_skin = prefer_client_skin;
+        feed.equipment_count = (0..protocol::ARMOR_SLOTS)
+            .filter_map(|slot| {
+                player
+                    .inventory
+                    .ledger()
+                    .target_stack(inventory::inventory_ledger::InventoryTarget::Armor(slot))
+            })
+            .filter(|stack| !stack.is_empty())
+            .count() as u8;
         feed.held_network_ids = [
             equipment
                 .main

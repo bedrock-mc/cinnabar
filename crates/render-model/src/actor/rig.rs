@@ -1,7 +1,7 @@
 //! Actor rig contracts shared by CPU geometry builders and the GPU rig renderer.
 use std::{
     hash::{DefaultHasher, Hasher},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -112,12 +112,15 @@ pub struct ActorRigGeometry {
     prepared: Arc<PreparedGeometry>,
 }
 
+type BoneBounds = Option<([f32; 3], [f32; 3])>;
+
 /// Strong witnesses force public mutable access onto a different allocation.
 #[derive(Debug)]
 struct PreparedGeometry {
     vertices: Arc<[ActorRigVertex]>,
     bone_pivots: Arc<[[f32; 3]]>,
     fingerprint: u64,
+    bone_bounds: OnceLock<Box<[BoneBounds]>>,
 }
 
 impl PartialEq for ActorRigGeometry {
@@ -173,6 +176,7 @@ impl ActorRigGeometry {
             vertices: Arc::clone(&vertices),
             bone_pivots: Arc::clone(&bone_pivots),
             fingerprint: hasher.finish(),
+            bone_bounds: OnceLock::new(),
         });
         Ok(Self {
             id,
@@ -183,10 +187,41 @@ impl ActorRigGeometry {
         })
     }
 
+    /// The same geometry, sharing its allocations and preparation, under rig id `id`.
+    #[must_use]
+    pub fn with_id(&self, id: EntityRigId) -> Self {
+        Self { id, ..self.clone() }
+    }
+
     /// One past the highest bone any vertex uses; a pose needs at least this many bones.
     #[must_use]
     pub const fn bones_used(&self) -> usize {
         self.bones_used
+    }
+
+    /// Caches each drawn bone's rest bounds relative to its pivot; replaced data needs revalidation.
+    pub fn bone_bounds(&self, bone: usize) -> Option<([f32; 3], [f32; 3])> {
+        if !Arc::ptr_eq(&self.vertices, &self.prepared.vertices)
+            || !Arc::ptr_eq(&self.bone_pivots, &self.prepared.bone_pivots)
+        {
+            return None;
+        }
+        let bounds = self.prepared.bone_bounds.get_or_init(|| {
+            let mut bounds = vec![None::<([f32; 3], [f32; 3])>; self.bone_pivots.len()];
+            for vertex in self.vertices.iter() {
+                let index = vertex.bone_index as usize;
+                let point = std::array::from_fn(|axis| {
+                    vertex.position[axis] - self.bone_pivots[index][axis]
+                });
+                let entry = bounds[index].get_or_insert((point, point));
+                for (axis, value) in point.into_iter().enumerate() {
+                    entry.0[axis] = entry.0[axis].min(value);
+                    entry.1[axis] = entry.1[axis].max(value);
+                }
+            }
+            bounds.into_boxed_slice()
+        });
+        bounds.get(bone).copied().flatten()
     }
 
     /// Reuses the exact prepared vertex allocation; changed public data has no trusted fingerprint.
@@ -205,6 +240,16 @@ impl ActorRigGeometry {
         {
             return false;
         }
+        self.adopt_vertex_allocation(vertices);
+        true
+    }
+
+    /// Like [`Self::share_vertex_allocation`] for an allocation already known to hold these
+    /// exact bytes.
+    pub(crate) fn adopt_vertex_allocation(&mut self, vertices: &Arc<[ActorRigVertex]>) {
+        if Arc::ptr_eq(&self.vertices, vertices) {
+            return;
+        }
         let fingerprint = self.vertex_fingerprint();
         self.vertices = Arc::clone(vertices);
         if let Some(fingerprint) = fingerprint {
@@ -212,9 +257,9 @@ impl ActorRigGeometry {
                 vertices: Arc::clone(vertices),
                 bone_pivots: Arc::clone(&self.prepared.bone_pivots),
                 fingerprint,
+                bone_bounds: OnceLock::new(),
             });
         }
-        true
     }
 
     /// Rechecks replaced public data while preserving preparation for unchanged allocations.

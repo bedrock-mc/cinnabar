@@ -168,3 +168,46 @@ fn closing_before_first_paint_does_not_save_unmeasured_anchors() {
         );
     }
 }
+
+/// Empty live observations cannot replace the editor's explicitly authored sample artwork.
+#[test]
+fn hud_editor_keeps_mock_rows_until_an_explicit_preview_update() {
+    use ui::mod_hud::Card;
+    let (mut ui, mut hud) = editor();
+    hud.cards.push(Card {
+        id: "armor".into(),
+        sample: true,
+        preview_only: true,
+        rows: vec![
+            serde_json::from_value(
+                serde_json::json!({"label":"","value":"", "item":"minecraft:diamond_helmet"}),
+            )
+            .unwrap(),
+        ],
+        ..Default::default()
+    });
+    ui.update_mod_hud_editor(&hud).unwrap();
+    let live = Hud {
+        cards: vec![Card {
+            id: "armor".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    ui.set_mod_hud_sources(std::iter::once((PanelUiOwner::Environment(0), 1, &live)))
+        .unwrap();
+    let card = &ui.mod_hud_editor.as_ref().unwrap().draft.cards[0];
+    assert!(card.sample);
+    assert_eq!(
+        card.rows[0].item.as_deref(),
+        Some("minecraft:diamond_helmet")
+    );
+    hud.cards[0].rows[0].item = Some("minecraft:diamond_boots".into());
+    ui.update_mod_hud_editor(&hud).unwrap();
+    assert_eq!(
+        ui.mod_hud_editor.as_ref().unwrap().draft.cards[0].rows[0]
+            .item
+            .as_deref(),
+        Some("minecraft:diamond_boots")
+    );
+}

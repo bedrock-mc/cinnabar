@@ -708,6 +708,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,
                 candidate_count: 1,
+                default_candidate: None,
             }]),
             candidates: Box::new([entity::EntityRenderCandidate {
                 condition: None,

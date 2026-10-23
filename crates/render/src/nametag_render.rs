@@ -5,6 +5,8 @@ use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::DetectChanges;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
+#[cfg(test)]
+use bevy::render::render_resource::BlendState;
 use bevy::render::render_resource::ShaderType;
 #[cfg(test)]
 use bevy::render::renderer::RenderQueue;
@@ -34,14 +36,14 @@ use bevy::{
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendState, Buffer,
-            BufferBindingType, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
-            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, TexelCopyBufferLayout, TextureAspect, TextureDescriptor,
-            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-            TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
+            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
+            BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
+            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
+            PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TexelCopyBufferLayout,
+            TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
+            TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, Variants,
+            VertexState,
         },
         renderer::RenderDevice,
         sync_world::MainEntity,
@@ -53,17 +55,25 @@ use render_model::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagAtlasRect, Na
 
 const NAMETAG_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5d1f0c8e-2a47-4b93-9e6c-1f7a3b8d4c20");
 const RECORD_BYTES: usize = std::mem::size_of::<NametagRecord>();
-const NAMETAG_BLEND: BlendState = BlendState {
-    alpha: BlendComponent::REPLACE,
-    ..BlendState::ALPHA_BLENDING
-};
+use shader::NAMETAG_BLEND;
 
 #[path = "nametag_render/shader.rs"]
 mod shader;
 
+#[path = "nametag_render/overlay.rs"]
+pub(crate) mod overlay;
+
 #[cfg(test)]
 #[path = "nametag_render/cosmetics_tests.rs"]
 mod cosmetics_tests;
+
+#[cfg(test)]
+#[path = "nametag_render/composition_tests.rs"]
+mod composition_tests;
+
+#[cfg(all(test, feature = "shaderpacks"))]
+#[path = "nametag_render/overlay_tests.rs"]
+mod overlay_tests;
 
 #[derive(Debug, PartialEq)]
 struct NametagBatch {
@@ -118,7 +128,11 @@ pub(crate) fn install_nametag_render(app: &mut App) {
         .add_systems(
             Render,
             (
+                overlay::install_graph.in_set(RenderSystems::Prepare),
                 prepare_nametags.in_set(RenderSystems::PrepareResources),
+                overlay::prepare
+                    .in_set(RenderSystems::PrepareResources)
+                    .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                 prepare_nametag_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_nametags
                     .run_if(render_scene::panorama::world_passes_enabled)
@@ -421,6 +435,7 @@ type NametagQueueView = (
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
     Option<&'static render_scene::EnhancedRendering>,
+    Option<&'static render_scene::shaderpack::ShaderPackRendering>,
 );
 
 fn queue_nametags(
@@ -437,7 +452,8 @@ fn queue_nametags(
     let functions = draw_functions.read();
     // Preserve complete back-to-front labels and their individual passes after world alpha.
     // At this magnitude one float ULP is 64; 128 avoids losing the batch ordering.
-    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, pack) in &views {
+        let overlay = overlay::enabled(enhanced.is_some(), pack.is_some());
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -446,12 +462,13 @@ fn queue_nametags(
                 &pipeline_cache,
                 NametagPipelineKey {
                     msaa: *msaa,
-                    hdr: extracted_camera.hdr,
-                    gamma_blend: crate::chunk::transparent::gamma_pass::admitted(
-                        extracted_camera.hdr,
-                        *msaa,
-                        enhanced.is_some(),
-                    ),
+                    hdr: !overlay && extracted_camera.hdr,
+                    gamma_blend: overlay
+                        || crate::chunk::transparent::gamma_pass::admitted(
+                            extracted_camera.hdr,
+                            *msaa,
+                            enhanced.is_some(),
+                        ),
                     depth_tested: batch.depth_tested,
                     text: batch.text,
                 },
@@ -551,20 +568,30 @@ impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
         view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
-        let gamma_blend =
-            crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced);
-        for depth_tested in [false, true] {
-            for text in [false, true] {
-                ids.push(self.variants.specialize(
-                    cache,
-                    NametagPipelineKey {
-                        msaa: view.msaa,
-                        hdr: view.hdr,
-                        gamma_blend,
-                        depth_tested,
-                        text,
-                    },
-                )?);
+        let ordinary = (
+            view.msaa,
+            view.hdr,
+            crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced),
+        );
+        let overlay_mode = (view.msaa, false, true);
+        let warm_overlay =
+            overlay::enabled(view.enhanced, view.shader_pack) && ordinary != overlay_mode;
+        for (msaa, hdr, gamma_blend) in
+            std::iter::once(ordinary).chain(warm_overlay.then_some(overlay_mode))
+        {
+            for depth_tested in [false, true] {
+                for text in [false, true] {
+                    ids.push(self.variants.specialize(
+                        cache,
+                        NametagPipelineKey {
+                            msaa,
+                            hdr,
+                            gamma_blend,
+                            depth_tested,
+                            text,
+                        },
+                    )?);
+                }
             }
         }
         Ok(())

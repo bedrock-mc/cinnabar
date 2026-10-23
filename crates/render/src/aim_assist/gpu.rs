@@ -611,6 +611,7 @@ mod tests {
                     msaa,
                     hdr,
                     enhanced: false,
+                    shader_pack: false,
                     output: None,
                 };
                 pipeline.prewarm(cache, warm, &mut ids).unwrap();

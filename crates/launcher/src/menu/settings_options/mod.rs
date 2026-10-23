@@ -16,6 +16,7 @@ pub mod persistence;
 pub mod render_distance;
 pub mod reset;
 pub mod runtime;
+pub mod touch_layout;
 pub mod video_presets;
 pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
@@ -38,11 +39,13 @@ pub use command_macros::{
 pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, CINNABAR_VISIBILITY_OPTION,
-    DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
-    MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES,
-    SMAA_OPTION, SettingDefinition, SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
-    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    DISCORD_ALLOW_JOINS_OPTION, DISCORD_PARTY_SIZE_OPTION, DISCORD_PRESENCE_OPTION,
+    DISCORD_SERVER_DETAILS_OPTION, DISCORD_TIMESTAMP_OPTION, FRAME_RATE_UNLIMITED,
+    INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE,
+    MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
+    SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
+    THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VIEW_BOBBING_CHOICES, VRR_CHOICES,
+    VRR_OPTION, VSYNC_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -94,6 +97,7 @@ pub struct SettingsOptions {
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
     server_list: super::server_list::ServerListPreferences,
+    touch_layout: touch_layout::TouchLayout,
 }
 
 impl Default for SettingsOptions {
@@ -110,6 +114,7 @@ impl Default for SettingsOptions {
             command_macros: None,
             emote_slots: None,
             server_list: super::server_list::ServerListPreferences::default(),
+            touch_layout: Default::default(),
         }
     }
 }
@@ -241,6 +246,8 @@ impl SettingsOptions {
             .unwrap_or_else(|| self.option_default(definition))
             == value
             && (definition.id != SettingId::RenderDistance
+                || self.values.contains_key(definition.name))
+            && (definition.id != SettingId::MaxFramerate
                 || self.values.contains_key(definition.name))
         {
             return false;

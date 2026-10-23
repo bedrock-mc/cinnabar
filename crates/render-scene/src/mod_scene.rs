@@ -3,6 +3,14 @@ use mod_api::MAX_BLOCK_HIGHLIGHTS;
 use mod_render::{RenderOutput, block_highlights, geometry::ModVertex, position_box};
 use std::sync::Arc;
 
+/// Requests host-owned skin preparation for a selected actor even when its main body is hidden.
+#[derive(Resource, Default)]
+pub struct ActorCoverageRequests {
+    pub connection: u64,
+    pub dimension: i32,
+    pub runtime_ids: Vec<u64>,
+}
+
 /// Publishes incarnation keys and the admitted body/equipment cost without model or pose data.
 pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::MaskEntity, u64)> {
     let mut targets = std::collections::BTreeMap::<_, u64>::new();
@@ -111,14 +119,14 @@ impl ModRenderScene {
 
     /// Both producers share geometry, depth and the existing combined vertex budget.
     fn rebuild_block_highlights(&mut self) {
-        self.block_vertices = block_highlights::build_coloured(
+        self.block_vertices = block_highlights::build_styled(
             self.block_positions
                 .iter()
-                .map(|position| (*position, self.block_color))
+                .map(|position| (*position, self.block_color, None))
                 .chain(
                     self.drawn_blocks
                         .iter()
-                        .map(|block| (block.position, block.colour)),
+                        .map(|block| (block.position, block.colour, block.outline.as_ref())),
                 )
                 .take(MAX_BLOCK_HIGHLIGHTS),
         )

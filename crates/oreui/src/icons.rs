@@ -27,12 +27,18 @@ pub(super) enum Icon {
     Pencil,
     Check,
     Filter,
+    Lock,
+    Trash,
+    Sun,
+    Off,
+    Reload,
+    Info,
 }
 
 impl Icon {
     /// The install's atlas key for the local-originals mode.
-    fn original(self) -> &'static str {
-        match self {
+    fn original(self) -> Option<&'static str> {
+        Some(match self {
             Self::ArrowBack => ACTION_ICONS[0],
             Self::Cross => ACTION_ICONS[1],
             Self::Search => ACTION_ICONS[2],
@@ -40,12 +46,89 @@ impl Icon {
             Self::Pencil => ACTION_ICONS[4],
             Self::Check => ACTION_ICONS[5],
             Self::Filter => ACTION_ICONS[6],
-        }
+            Self::Lock | Self::Trash | Self::Sun | Self::Off | Self::Reload | Self::Info => {
+                return None;
+            }
+        })
     }
 
     /// Our pixel art: one row per string, `#` for a lit texel.
     fn pixels(self) -> &'static [&'static str] {
         match self {
+            Self::Sun => &[
+                ".....##.....",
+                ".....##.....",
+                ".##......##.",
+                ".##.####.##.",
+                "...######...",
+                "##.######.##",
+                "##.######.##",
+                "...######...",
+                ".##.####.##.",
+                ".##......##.",
+                ".....##.....",
+                ".....##.....",
+            ],
+            Self::Off => &[
+                "....####....",
+                "..##....##..",
+                ".#.......##.",
+                ".#......#.#.",
+                "#......#...#",
+                "#.....#....#",
+                "#....#.....#",
+                "#...#......#",
+                ".#.#......#.",
+                ".##.......#.",
+                "..##....##..",
+                "....####....",
+            ],
+            Self::Reload => &[
+                "....####....",
+                "..##....##.#",
+                ".#........##",
+                ".#.......###",
+                "#...........",
+                "#...........",
+                "#...........",
+                "#..........#",
+                ".#........#.",
+                ".#........#.",
+                "..##....##..",
+                "....####....",
+            ],
+            Self::Info => &[
+                ".##.", ".##.", "....", "###.", ".##.", ".##.", ".##.", ".##.", "####",
+            ],
+            Self::Trash => &[
+                ".........",
+                "..#####..",
+                "..#...#..",
+                "#########",
+                ".........",
+                ".#.....#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.#.#.#.",
+                ".#.....#.",
+                ".#######.",
+            ],
+            Self::Lock => &[
+                "....####....",
+                "...######...",
+                "..##....##..",
+                "..##....##..",
+                "..##....##..",
+                ".##########.",
+                ".##########.",
+                ".####..####.",
+                ".####..####.",
+                ".##########.",
+                ".##########.",
+                ".##########.",
+            ],
             Self::Filter => &[
                 "......##....",
                 "############",
@@ -138,7 +221,9 @@ pub(super) fn draw(
         at[0] + width as f32 * texel,
         at[1] + height as f32 * texel,
     ];
-    if canvas.masked_sprite(icon.original(), bounds, color)? {
+    if let Some(key) = icon.original()
+        && canvas.masked_sprite(key, bounds, color)?
+    {
         return Ok(());
     }
     for (row, line) in icon.pixels().iter().enumerate() {
@@ -169,6 +254,25 @@ pub(super) fn draw(
     Ok(())
 }
 
+/// Draws `icon` centred in `bounds`, snapped to whole pixels.
+pub(super) fn draw_centred(
+    canvas: &mut Canvas<'_>,
+    icon: Icon,
+    bounds: Bounds,
+    color: Rgba,
+) -> Result<(), PaintError> {
+    let [width, height] = icon.texels().map(|texels| canvas.r(texels as f32 * EDGE));
+    draw(
+        canvas,
+        icon,
+        [
+            ((bounds[0] + bounds[2] - width) * 0.5).round(),
+            ((bounds[1] + bounds[3] - height) * 0.5).round(),
+        ],
+        color,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +286,12 @@ mod tests {
             Icon::Player,
             Icon::Check,
             Icon::Filter,
+            Icon::Lock,
+            Icon::Trash,
+            Icon::Sun,
+            Icon::Off,
+            Icon::Reload,
+            Icon::Info,
         ] {
             let width = icon.pixels()[0].len();
             assert!(

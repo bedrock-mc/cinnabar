@@ -62,7 +62,18 @@ fn automatic_windows_reserve_both_protocols_and_release_every_port() {
     let _udp: Vec<UdpSocket> = (0..players)
         .map(|offset| {
             let port = u16::try_from(u32::from(port) + offset).expect("port");
-            UdpSocket::bind((LOCAL_SERVER_HOST, port)).expect("UDP released")
+            let mut socket = None;
+            test_time::eventually("released UDP transport port", || {
+                match UdpSocket::bind((LOCAL_SERVER_HOST, port)) {
+                    Ok(bound) => {
+                        socket = Some(bound);
+                        true
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => false,
+                    Err(error) => panic!("UDP released: {error}"),
+                }
+            });
+            socket.expect("UDP released")
         })
         .collect();
     for invalid in [0, 65_535] {

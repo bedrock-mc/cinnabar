@@ -1,5 +1,5 @@
 //! Shows the render host's shader-pack load state: a pressless standing toast while a slow
-//! load runs, an ordinary toast with the outcome, and the failure in the Video Renderer row
+//! load runs, an ordinary toast with the outcome, and the failure in the Shaders tab
 //! while the failed pack is selected.
 
 use std::{ops::DerefMut, sync::Arc, time::Duration};
@@ -17,6 +17,7 @@ const LOADING_TOAST: u64 = 0;
 pub(super) struct ShaderPackStatusUi {
     notices: PackNotices,
     failure: Option<Failure>,
+    loading: Option<String>, // the pack the render host is loading
 }
 
 /// The pack that failed, by name, with the Renderer row's description of why.
@@ -52,6 +53,14 @@ impl MenuRuntime {
                 }
             }
             _ => status.failure = None,
+        }
+        match load {
+            PackLoad::Loading { pack, .. } => {
+                if status.loading.as_deref() != Some(pack) {
+                    status.loading = Some(pack.to_owned());
+                }
+            }
+            _ => status.loading = None,
         }
         let millis = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
         let standing = runtime.hud().standing_toast();
@@ -100,6 +109,13 @@ impl MenuRuntime {
         (self.render_mode == RenderMode::ShaderPack
             && self.shader_pack.as_deref() == Some(failure.pack.as_str()))
         .then(|| Arc::clone(&failure.description))
+    }
+
+    /// Whether the render host is still loading the selected shader pack.
+    pub(super) fn renderer_loading(&self) -> bool {
+        self.render_mode == RenderMode::ShaderPack
+            && self.shader_pack_status.loading.is_some()
+            && self.shader_pack_status.loading == self.shader_pack
     }
 }
 
@@ -224,6 +240,9 @@ mod tests {
         };
         menu.sync_shader_pack_status(retry, &mut &mut runtime, Duration::from_secs(9));
         assert_eq!(menu.view().renderer_failure, None, "loading it again");
+        assert!(menu.view().shader_pack_loading, "the retry is loading");
+        menu.shader_pack = Some("Lumen".to_owned());
+        assert!(!menu.view().shader_pack_loading, "another pack is selected");
     }
 
     #[test]

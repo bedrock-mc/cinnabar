@@ -44,6 +44,15 @@ impl MenuRuntime {
         }
     }
 
+    /// Transfers editable-field ownership only after a settings slider captures input.
+    pub(super) fn capture_settings_slider(&mut self, index: u16) {
+        self.field = None;
+        self.focus_pointer(MenuAction::SettingsOption(
+            index,
+            self.settings_options.get(usize::from(index)),
+        ));
+    }
+
     pub fn move_focus(&mut self, direction: i32) {
         let actions = self.focus_actions();
         if actions.is_empty() {
@@ -80,6 +89,7 @@ impl MenuRuntime {
                 .map(|option| option.kind)
             {
                 Some(SettingKind::Slider) => {
+                    self.field = None;
                     self.settings.slider_selected =
                         (self.settings.slider_selected != Some(index)).then_some(index);
                     return;
@@ -400,6 +410,10 @@ impl MenuRuntime {
                 MenuDialog::DeathQuit => {
                     vec![MenuAction::ConfirmDeathQuit, MenuAction::DismissDialog]
                 }
+                MenuDialog::RemoveShaderPack(index, revision) => vec![
+                    MenuAction::DismissDialog,
+                    MenuAction::ConfirmRemoveShaderPack(index, revision),
+                ],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
@@ -632,7 +646,21 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Friends => {
+                let query = self.friend_query.as_str().to_lowercase();
+                let mut actions = vec![
+                    MenuAction::SearchFriends,
+                    MenuAction::Navigate(MenuScreen::Home),
+                ];
+                actions.extend(
+                    self.friends
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, friend)| friend.gamertag.to_lowercase().contains(&query))
+                        .map(|(index, _)| MenuAction::PlayFriend(index)),
+                );
+                actions
+            }
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }

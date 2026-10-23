@@ -185,6 +185,8 @@ pub(crate) struct BlockEntityGpu {
     #[cfg(test)]
     portal_uploads: u64,
     texture: Option<Texture>,
+    /// The raw-view setting `texture` was created with.
+    texture_raw_views: crate::actor::gpu::ArtworkRawViews,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
     atlas_size: [u32; 2],
@@ -216,6 +218,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         #[cfg(test)]
         portal_uploads: 0,
         texture: None,
+        texture_raw_views: default(),
         view: None,
         atlas_identity: [0; 32],
         atlas_size: [0; 2],
@@ -242,7 +245,9 @@ pub(crate) fn prepare_resources(
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
 ) {
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
     let [red, green, blue] = atmosphere.fog_color();
     let portal_parameters = [
@@ -267,7 +272,10 @@ pub(crate) fn prepare_resources(
         .atlas
         .as_ref()
         .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
-    if gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size || gpu.texture.is_none()
+    if gpu.atlas_identity != atlas.identity
+        || gpu.atlas_size != atlas.size
+        || gpu.texture.is_none()
+        || gpu.texture_raw_views != raw_views
     {
         let texture = uploads.device.create_texture(&TextureDescriptor {
             label: Some("block-entity atlas"),
@@ -281,7 +289,7 @@ pub(crate) fn prepare_resources(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: raw_views.view_formats(),
         });
         write_rows(
             &uploads.queue,
@@ -293,6 +301,7 @@ pub(crate) fn prepare_resources(
         );
         gpu.view = Some(texture.create_view(&TextureViewDescriptor::default()));
         gpu.texture = Some(texture);
+        gpu.texture_raw_views = raw_views;
         gpu.atlas_identity = atlas.identity;
         gpu.atlas_size = atlas.size;
         gpu.dynamic_revision = u64::MAX;
@@ -333,6 +342,9 @@ pub(crate) fn prepare_resources(
         selection_revision,
         ..
     } = &mut *gpu;
+    // Snapshots and revisions advance only for lists the GPU received, so a failed upload
+    // retries against what the GPU still holds.
+    let mut frame_published = true;
     if *frame_revision != frame.revision {
         for (list, previous, vertices, label) in [
             (
@@ -360,33 +372,44 @@ pub(crate) fn prepare_resources(
                 "block-entity overlay vertices",
             ),
         ] {
-            list.upload(previous, vertices, &uploads, label);
-            *previous = Arc::clone(vertices);
+            if list.upload(previous, vertices, &uploads, label) {
+                *previous = Arc::clone(vertices);
+            } else {
+                frame_published = false;
+            }
         }
     }
+    let mut selection_published = true;
     if *selection_revision != selection.revision {
-        outline.upload(
+        selection_published = outline.upload(
             &uploaded.outline,
             &selection.outline,
             &uploads,
             "block selection line vertices",
         );
-        uploaded.outline = Arc::clone(&selection.outline);
+        if selection_published {
+            uploaded.outline = Arc::clone(&selection.outline);
+        }
     }
     if *frame_revision != frame.revision || *selection_revision != selection.revision {
         crack_scratch.clear();
         crack_scratch.extend_from_slice(&frame.crack);
-        *frame_crack_count = frame.crack.len() as u32;
         crack_scratch.extend_from_slice(&selection.highlight);
-        crack.upload(
+        if crack.upload(
             &uploaded.crack,
             crack_scratch,
             &uploads,
             "block-entity crack vertices",
-        );
-        std::mem::swap(crack_scratch, &mut uploaded.crack);
-        *frame_revision = frame.revision;
-        *selection_revision = selection.revision;
+        ) {
+            *frame_crack_count = frame.crack.len() as u32;
+            std::mem::swap(crack_scratch, &mut uploaded.crack);
+            if frame_published {
+                *frame_revision = frame.revision;
+            }
+            if selection_published {
+                *selection_revision = selection.revision;
+            }
+        }
     }
 }
 
@@ -527,13 +550,6 @@ type BlockEntityView = (
     bevy::ecs::query::Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
-/// Whether the loaded shader pack draws block entities itself on its cameras.
-fn pack_draws_block_entities(
-    drawn: Option<&render_scene::shaderpack::ShaderPackDrawnCategories>,
-) -> bool {
-    drawn.is_some_and(|drawn| drawn.block_entities)
-}
-
 fn queue_solid(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<BlockEntityPipeline>,
@@ -541,12 +557,10 @@ fn queue_solid(
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<BlockEntityView>,
-    drawn: Option<Res<render_scene::shaderpack::ShaderPackDrawnCategories>>,
 ) {
     if gpu.solid.count == 0 && gpu.portal.count == 0 {
         return;
     }
-    let skip_pack_views = pack_draws_block_entities(drawn.as_deref());
     let functions = draw_functions.read();
     for (list, mode, draw_function) in [
         (
@@ -563,11 +577,7 @@ fn queue_solid(
         if list.count == 0 || list.bind_group.is_none() {
             continue;
         }
-        for (view_entity, main_entity, view, extracted_camera, msaa, pack_view) in &views {
-            // Portals stay Vanilla: the pack does not draw their encoded planes.
-            if pack_view && skip_pack_views && mode == PipelineMode::Solid {
-                continue;
-            }
+        for (view_entity, main_entity, view, extracted_camera, msaa, _pack_view) in &views {
             let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
                 continue;
             };
@@ -608,7 +618,6 @@ fn queue_overlay(
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<BlockEntityView>,
-    drawn: Option<Res<render_scene::shaderpack::ShaderPackDrawnCategories>>,
 ) {
     let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
     queue_blended(
@@ -619,7 +628,7 @@ fn queue_overlay(
         &mut pipeline,
         &mut phases,
         &views,
-        |_, pack_view| pack_view && pack_draws_block_entities(drawn.as_deref()),
+        |_, _| false,
     );
 }
 
@@ -821,8 +830,11 @@ fn crack_vertices(count: u32, damage: u32, highlight: bool) -> Range<u32> {
 struct DrawList<const LIST: u8>;
 
 impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
-    type Param = SRes<BlockEntityGpu>;
-    type ViewQuery = (Read<ViewUniformOffset>, Read<ExtractedView>);
+    type Param = (
+        SRes<BlockEntityGpu>,
+        crate::shaderpack::native_actors::NativeActorCoverage<'static>,
+    );
+    type ViewQuery = (Read<ViewUniformOffset>, Read<ExtractedView>, Entity);
     type ItemQuery = ();
 
     fn render<'w>(
@@ -832,6 +844,10 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let (gpu, coverage) = gpu;
+        if matches!(LIST, SOLID | OVERLAY) && coverage.blocks(view.2) {
+            return RenderCommandResult::Skip;
+        }
         let gpu = gpu.into_inner();
         let list = match LIST {
             OVERLAY => &gpu.overlay,
@@ -847,7 +863,7 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         if list.count == 0 {
             return RenderCommandResult::Skip;
         }
-        let (view_offset, view) = view;
+        let (view_offset, view, _) = view;
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         let count = if LIST == OUTLINE {
             list.count / 2 * BLOCK_SELECTION_VERTICES_PER_EDGE

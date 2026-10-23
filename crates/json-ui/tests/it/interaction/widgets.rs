@@ -31,6 +31,102 @@ fn toggles_keep_their_own_state() {
     assert!(screen.visible("t_off"));
 }
 
+/// Touch releases interact only with the control that accepted their corresponding press.
+#[test]
+fn touch_release_over_a_different_toggle_cannot_change_it() {
+    for start in [[150.0, 150.0], [5.0, 5.0], [55.0, 5.0]] {
+        let mut screen = Screen::new(page(vec![
+            toggle(
+                "a",
+                json!({"toggle_name":"a", "toggle_default_state":false}),
+            ),
+            toggle(
+                "b",
+                json!({"toggle_name":"b", "toggle_default_state":false, "offset":[50,0]}),
+            ),
+        ]));
+        for (down, point) in [(true, start), (false, [55.0, 5.0])] {
+            let regions = screen.regions();
+            screen.dispatcher.pointer(
+                &regions,
+                &mut screen.view,
+                PointerInput {
+                    point: Some(point),
+                    held: down,
+                    mode: InputMode::Touch,
+                    now: 0.0,
+                },
+            );
+            let output = screen.dispatcher.button(
+                &regions,
+                &mut screen.view,
+                json_ui::ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point: Some(point),
+                    mode: InputMode::Touch,
+                    now: 0.0,
+                },
+            );
+            let changed = output.events.iter().any(|event| matches!(event, ScreenEvent::Toggle { name, checked:true, .. } if name == "b"));
+            assert_eq!(
+                changed,
+                !down && start == [55.0, 5.0],
+                "start={start:?}, down={down}"
+            );
+        }
+    }
+}
+
+/// A consuming release ends all of that gesture's presses before the next finger begins.
+#[test]
+fn crossed_touch_gestures_cannot_reuse_an_earlier_down() {
+    let mut screen = Screen::new(page(vec![
+        toggle("a", json!({"toggle_default_state":false})),
+        toggle("b", json!({"toggle_default_state":false, "offset":[50,0]})),
+    ]));
+    let edges = [
+        (true, [5.0, 5.0]),
+        (false, [55.0, 5.0]),
+        (true, [55.0, 5.0]),
+        (false, [5.0, 5.0]),
+        (true, [5.0, 5.0]),
+        (false, [5.0, 5.0]),
+    ];
+    for (edge, (down, point)) in edges.into_iter().enumerate() {
+        let regions = screen.regions();
+        screen.dispatcher.pointer(
+            &regions,
+            &mut screen.view,
+            PointerInput {
+                point: Some(point),
+                held: down,
+                mode: InputMode::Touch,
+                now: 0.0,
+            },
+        );
+        let output = screen.dispatcher.button(
+            &regions,
+            &mut screen.view,
+            json_ui::ButtonInput {
+                id: "button.menu_select",
+                down,
+                point: Some(point),
+                mode: InputMode::Touch,
+                now: 0.0,
+            },
+        );
+        assert_eq!(
+            output
+                .events
+                .iter()
+                .any(|event| matches!(event, ScreenEvent::Toggle { checked: true, .. })),
+            edge == 5,
+            "edge={edge}"
+        );
+    }
+}
+
 // T3: selecting a radio member checks it and unchecks the rest of its group.
 #[test]
 fn radio_groups_stay_exclusive() {

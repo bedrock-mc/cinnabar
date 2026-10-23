@@ -4,6 +4,7 @@ use super::*;
 use ui::mod_panel::{Control, FieldModifiers};
 
 mod amendment;
+mod slider;
 
 struct Art;
 impl json_ui::TextMeasure for Art {
@@ -21,7 +22,8 @@ impl json_ui::TextureSource for Art {
 
 /// Builds actual scaled card hit regions and retains one action for a focused input test.
 fn frame(editor: &mut HudEditor, action: &str) -> [f32; 2] {
-    let catalog = template::catalog(&editor.draft, editor.viewport).unwrap();
+    let catalog =
+        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap();
     let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
         .control
         .unwrap();
@@ -545,6 +547,9 @@ fn studio_native_empty_preview_keeps_its_placeholder_across_gameplay_publication
             held: false,
             percent: true,
             empty: false,
+            compact: false,
+            offhand: false,
+            warning: 0.,
         },
         limit: 4,
         color: [1.; 4],

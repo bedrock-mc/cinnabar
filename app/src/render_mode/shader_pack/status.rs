@@ -1,5 +1,5 @@
 //! Hands the render host's shader-pack load state to the menu, which raises its toasts and
-//! explains a failure in the Video Renderer row.
+//! explains a failure in the Shaders tab.
 
 use std::path::Path;
 

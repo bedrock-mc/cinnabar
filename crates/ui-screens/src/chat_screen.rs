@@ -29,6 +29,9 @@ pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
 /// The open chat keeps the built-in presentation whatever server packs layer.
 pub fn register(registry: &mut ScreenRegistry) {
+    registry
+        .catalog_mut()
+        .extend(crate::settings_chat::keep_font_size_visible);
     registry.builtin_screen(CHAT_SCREEN);
 }
 
@@ -41,12 +44,14 @@ const MESSAGES_VIEW: &str = "messages_panel";
 /// What a pointer press on the chat screen means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChatHit {
+    TextInput,
     Suggestion(usize),
     Link(usize),
     ExtensionAction(usize),
     LinkOpen,
     LinkCancel,
     Send,
+    SubmitCommand(usize),
     CopyCoordinates,
     Paste,
     CoordinateDropdown,
@@ -68,6 +73,7 @@ struct LinkGeneration {
 /// The chat screen's cached layout and last frame's input geometry.
 #[derive(Default)]
 pub struct ChatScreen {
+    submissions: Vec<String>,
     links: Vec<String>,
     extension_events: Vec<String>,
     pending_link: Option<String>,
@@ -83,6 +89,7 @@ pub struct ChatScreen {
     edit_box: Option<String>,
     /// The messages view's key and extents from the last frame.
     scroll: Option<(String, ScrollMetrics)>,
+    history_bounds: Option<UiRect>,
     /// Virtual px scrolled up from the newest message.
     from_bottom: f64,
     messages: usize,
@@ -181,6 +188,7 @@ impl ChatScreen {
             )
         })?;
         self.hits.clear();
+        self.submissions.clear();
         self.hover_hits.clear();
         self.edit_box = None;
         let Some(drawn) = drawn else {
@@ -193,6 +201,22 @@ impl ChatScreen {
             .iter()
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
             .map(|(key, metrics)| (key.clone(), metrics.clone()));
+        self.history_bounds = self.scroll.as_ref().and_then(|(_, metrics)| {
+            let [x, y, w, h] = metrics.viewport_rect?;
+            ui::UiRect::new(
+                ui::UiPoint::new(
+                    drawn.origin[0] + x as f32 * drawn.scale,
+                    drawn.origin[1] + y as f32 * drawn.scale,
+                )
+                .ok()?,
+                ui::UiPoint::new(
+                    drawn.origin[0] + (x + w) as f32 * drawn.scale,
+                    drawn.origin[1] + (y + h) as f32 * drawn.scale,
+                )
+                .ok()?,
+            )
+            .ok()
+        });
         if !self.settings.open && self.pending_link.is_none() {
             let generation = LinkGeneration {
                 passes: self.screen.passes,
@@ -238,6 +262,10 @@ impl ChatScreen {
             if region.kind == HitKind::EditBox {
                 if !self.settings.open && !region.key.contains(MESSAGES_VIEW) {
                     self.edit_box = Some(region.key.clone());
+                    if let Some(bounds) = window_rect(region, drawn.scale, drawn.origin) {
+                        self.hits
+                            .push((ChatHit::TextInput, bounds, region.key.clone()));
+                    }
                 }
                 continue;
             }
@@ -257,9 +285,23 @@ impl ChatScreen {
                 .map(ChatHit::SettingsAction)
                 .or_else(|| crate::chat_coordinates::action(region))
                 .or_else(|| chat_hit(region));
-            let Some(hit) = hit else {
+            let Some(mut hit) = hit else {
                 continue;
             };
+            if hit == ChatHit::Send {
+                match crate::chat_submission::linked_command(
+                    region,
+                    &drawn.hits,
+                    region.key.contains(MESSAGES_VIEW),
+                ) {
+                    crate::chat_submission::Submission::Draft => {}
+                    crate::chat_submission::Submission::Ignore => continue,
+                    crate::chat_submission::Submission::Command(command) => {
+                        hit = ChatHit::SubmitCommand(self.submissions.len());
+                        self.submissions.push(command.to_owned());
+                    }
+                }
+            }
             if self.settings.open
                 && !matches!(hit, ChatHit::SettingsClose | ChatHit::SettingsAction(_))
             {
@@ -281,6 +323,7 @@ impl ChatScreen {
         let Some(url) = self.pending_link.as_ref() else {
             return Ok(());
         };
+        self.submissions.clear();
         self.hits.clear();
         self.hover_hits.clear();
         let model = json_ui::FormModel::Modal(json_ui::ModalForm {
@@ -325,13 +368,20 @@ impl ChatScreen {
         self.links.get(index).map(String::as_str)
     }
 
+    /// Returns only command text attached to a live Send hit in the last frame.
+    pub fn submission(&self, index: usize) -> Option<&str> {
+        self.submissions.get(index).map(String::as_str)
+    }
+
     /// Forget the open chat's scroll and hover once the screen closes.
     pub fn close(&mut self) {
         self.open = false;
+        self.history_bounds = None;
         self.settings.open = false;
         self.hits.clear();
         self.hover_hits.clear();
         self.links.clear();
+        self.submissions.clear();
         self.pending_link = None;
         self.link_hits.clear();
         self.link_generation = None;
@@ -349,6 +399,62 @@ impl ChatScreen {
     /// Track the pointer for next frame's hover state.
     pub fn set_pointer(&mut self, position: Option<UiPoint>) {
         self.pointer = position;
+    }
+
+    /// Identifies a settings slider from its current painted value segments.
+    pub fn slider_at(&self, point: UiPoint) -> Option<u16> {
+        use launcher::menu::{
+            MenuAction,
+            settings_options::{SETTINGS_OPTIONS, SettingKind},
+        };
+        if !self.settings.open || self.pending_link.is_some() {
+            return None;
+        }
+        let ChatHit::SettingsAction(MenuAction::SettingsOption(index, _)) = self.hit_test(point)?
+        else {
+            return None;
+        };
+        SETTINGS_OPTIONS
+            .get(usize::from(index))
+            .is_some_and(|option| matches!(option.kind, SettingKind::Slider))
+            .then_some(index)
+    }
+
+    /// Maps a captured slider finger horizontally, including beyond its painted endpoints.
+    pub fn slider_action(&self, index: u16, point: UiPoint) -> Option<launcher::menu::MenuAction> {
+        use launcher::menu::MenuAction;
+        if !self.settings.open || self.pending_link.is_some() {
+            return None;
+        }
+        let segments = || {
+            self.hits.iter().filter_map(|(hit, bounds, _)| match hit {
+                ChatHit::SettingsAction(action @ MenuAction::SettingsOption(at, _))
+                    if *at == index =>
+                {
+                    Some((*action, *bounds))
+                }
+                _ => None,
+            })
+        };
+        let left = segments()
+            .map(|(_, bounds)| bounds.min().x())
+            .reduce(f32::min)?;
+        let right = segments()
+            .map(|(_, bounds)| bounds.max().x())
+            .reduce(f32::max)?;
+        let x = point.x().clamp(left, right);
+        segments().rev().find_map(|(action, bounds)| {
+            (x >= bounds.min().x() && x <= bounds.max().x()).then_some(action)
+        })
+    }
+
+    /// Whether a finger may start scrolling history, excluding modal chat controls.
+    pub fn history_contains(&self, point: UiPoint) -> bool {
+        !self.settings.open
+            && self.pending_link.is_none()
+            && self
+                .history_bounds
+                .is_some_and(|bounds| bounds.contains(point))
     }
 
     /// Scroll the history by a wheel delta in notches, or logical px when
@@ -535,6 +641,7 @@ fn chat_data(
         text("accessibility.chat.tts.send", ""),
     );
     let messages = input.messages;
+    let chat_text = crate::settings_chat::chat_text(settings);
     let items = messages
         .iter()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
@@ -546,26 +653,9 @@ fn chat_data(
                     "#text",
                     Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
                 )
-                .var(
-                    "chat_font_type",
-                    Value::from(
-                        if !settings.chat_smooth_available()
-                            || settings.value(SettingId::ChatTypeface) == 0
-                        {
-                            "default"
-                        } else {
-                            "smooth"
-                        },
-                    ),
-                )
-                .var(
-                    "chat_font_scale_factor",
-                    Value::from(settings.chat_font_scale()),
-                )
-                .var(
-                    "chat_line_spacing",
-                    Value::from(settings.chat_line_padding()),
-                )
+                .var("chat_font_type", Value::from("default"))
+                .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
+                .var("chat_line_spacing", Value::from(chat_text.line_spacing))
         })
         .collect();
     data.set_factory("messages_factory", items);

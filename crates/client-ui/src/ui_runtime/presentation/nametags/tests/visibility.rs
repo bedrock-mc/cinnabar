@@ -4,6 +4,7 @@ use protocol_ids::ActorFlag;
 #[test]
 fn always_show_nametags_do_not_require_show_name_flag() {
     let mut actor = actor();
+    actor.metadata.remove(&METADATA_ALWAYS_SHOW_NAMETAG);
     let boards = ui::ScoreboardStore::default();
     for player in [true, false] {
         if !player {
@@ -17,7 +18,7 @@ fn always_show_nametags_do_not_require_show_name_flag() {
                 let always_flag = combination & 2 != 0;
                 let invisible = combination & 4 != 0;
                 let flags = (u64::from(show) << ActorFlag::ShowName.wire_value())
-                    | (u64::from(always_flag) << ACTOR_FLAG_ALWAYS_SHOW_NAME)
+                    | (u64::from(always_flag) << ActorFlag::AlwaysShowName.wire_value())
                     | (u64::from(invisible) << ActorFlag::Invisible.wire_value());
                 actor.metadata.insert(
                     0,
@@ -44,9 +45,8 @@ fn always_show_nametags_do_not_require_show_name_flag() {
                             1.0,
                         );
                         let expected = !invisible
-                            && (always_flag
-                                || always_byte.is_some_and(|byte| byte != 0 && byte != -1)
-                                || (show && (player || picked == Some(actor.runtime_id))));
+                            && (always_byte.is_some_and(|byte| byte != 0 && byte != -1)
+                                || picked == Some(actor.runtime_id));
                         assert_eq!(
                             tag.is_some(),
                             expected,
@@ -72,6 +72,7 @@ fn projected_player_tags_follow_always_show_metadata_updates() {
     let boards = ui::ScoreboardStore::default();
     for (index, (always, invisible, name, score, expected_lines)) in [
         (1, false, "§aPlayer\n§7Rank", "7 wins", 3),
+        (-1, false, "§aPlayer\n§7Rank", "7 wins", 3),
         (0, false, "§aPlayer\n§7Rank", "7 wins", 0),
         (-1, false, "§aPlayer\n§7Rank", "7 wins", 0),
         (1, false, "§aPlayer\n§7Rank", "", 2),
@@ -139,5 +140,134 @@ fn projected_player_tags_follow_always_show_metadata_updates() {
                 expected_lines * NAMETAG_RECORDS_PER_LINE
             );
         }
+    }
+}
+
+#[test]
+fn camera_position_controls_visibility_and_score_range() {
+    let actor = actor();
+    let boards = ui::ScoreboardStore::default();
+    for (camera_distance, visible, scored) in [
+        (5.0, true, true),
+        (10.0, true, false),
+        (40.0, true, false),
+        (65.0, false, false),
+    ] {
+        let mut actor = actor.clone();
+        actor
+            .metadata
+            .insert(METADATA_SCORE, ActorMetadataValue::String("7 wins".into()));
+        let tag = extract_nametag_at_feet(
+            &actor,
+            NametagView {
+                camera_position: Vec3::X * camera_distance,
+                camera_forward: Vec3::NEG_Z,
+            },
+            None,
+            "Player".into(),
+            Some(&boards),
+            Vec3::ZERO,
+        );
+        assert_eq!(tag.is_some(), visible, "camera distance {camera_distance}");
+        if let Some(tag) = tag {
+            assert_eq!(tag.lines.len(), if scored { 2 } else { 1 });
+        }
+    }
+}
+
+#[test]
+fn nameplate_depth_flag_keeps_full_alpha_unless_sneaking() {
+    let mut actor = actor();
+    actor.metadata.insert(
+        protocol_ids::ActorDataKey::FlagsThird.wire_value(),
+        ActorMetadataValue::FlagsExtended(
+            1 << (ActorFlag::NameplateDepthTested.wire_value() - 128),
+        ),
+    );
+    let boards = ui::ScoreboardStore::default();
+    for sneaking in [false, true] {
+        actor.metadata.insert(
+            0,
+            ActorMetadataValue::Flags(u64::from(sneaking) << ActorFlag::Sneaking.wire_value()),
+        );
+        let tag = extract_nametag(
+            &actor,
+            view(Vec3::ZERO),
+            None,
+            "Player".into(),
+            &boards,
+            1.0,
+        )
+        .unwrap();
+        assert!(tag.depth_tested);
+        assert_eq!(tag.sneaking, sneaking);
+        assert_eq!(tag.text_alpha, if sneaking { DIM_TEXT_ALPHA } else { 1.0 });
+    }
+}
+
+#[test]
+fn prone_players_use_live_height_even_when_sneaking() {
+    let mut actor = actor();
+    for flag in [ActorFlag::Swimming, ActorFlag::Crawling, ActorFlag::Gliding] {
+        let bit = flag.wire_value();
+        for sneaking in [false, true] {
+            let primary = (u64::from(sneaking) << ActorFlag::Sneaking.wire_value())
+                | if bit < 64 { 1 << bit } else { 0 };
+            actor.metadata.insert(0, ActorMetadataValue::Flags(primary));
+            actor.metadata.insert(
+                protocol_ids::ActorDataKey::FlagsTwo.wire_value(),
+                ActorMetadataValue::FlagsExtended(if bit >= 64 { 1 << (bit - 64) } else { 0 }),
+            );
+            actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(0.6));
+            for scale in [0.5, 1.0, 2.0] {
+                actor.metadata.insert(38, ActorMetadataValue::Float(scale));
+                assert!(
+                    (tag_height(&actor) - (0.6 + HEAD_CLEARANCE) * scale).abs() < 1e-6,
+                    "{flag:?}, sneaking={sneaking}, scale={scale}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn depth_tested_nameplates_keep_the_upright_quad_position() {
+    let mut actor = actor();
+    let boards = ui::ScoreboardStore::default();
+    let ordinary = extract_nametag(
+        &actor,
+        view(Vec3::ZERO),
+        None,
+        "Player".into(),
+        &boards,
+        1.0,
+    )
+    .unwrap();
+    actor.metadata.insert(
+        ActorDataKey::FlagsThird.wire_value(),
+        ActorMetadataValue::FlagsExtended(
+            1 << (ActorFlag::NameplateDepthTested.wire_value() - 128),
+        ),
+    );
+    let tested = extract_nametag(
+        &actor,
+        view(Vec3::ZERO),
+        None,
+        "Player".into(),
+        &boards,
+        1.0,
+    )
+    .unwrap();
+    for (ordinary, tested) in scene(&[ordinary])
+        .records
+        .iter()
+        .zip(&scene(&[tested]).records)
+    {
+        assert_eq!(ordinary.rect, tested.rect);
+        assert_eq!(ordinary.anchor, tested.anchor);
+        assert_eq!(ordinary.color, tested.color);
+        assert_eq!(tested.depth_tested, 1);
     }
 }

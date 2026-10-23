@@ -126,7 +126,7 @@ fn a_completed_guard_cannot_overwrite_the_next_startup() {
     let pending = attempt(Backend::Dx12, false);
     second.begin(pending.clone()).unwrap();
     assert!(first.begin(attempt(Backend::Gl, false)).is_err());
-    assert!(first.refresh_settings(1).is_err());
+    assert!(first.refresh_settings(1, false).is_err());
     assert!(first.failed().is_err());
     assert!(first.retry_exclusions(&[Backend::Vulkan]).is_err());
     first.presented().unwrap();
