@@ -48,6 +48,31 @@ impl<'de> Deserialize<'de> for PresentValue {
     }
 }
 
+/// Selects a material's explicit flipbook selector or its canonical default, independently
+/// of declaration order. Ambiguous defaults remain an asset error.
+pub fn select_flipbook_index(
+    candidates: impl IntoIterator<Item = (usize, u32, u32)>,
+    selector: Option<(u32, u32)>,
+    path: &str,
+) -> Result<Option<usize>, AssetError> {
+    let candidates: Vec<_> = candidates.into_iter().collect();
+    if let Some(selector) = selector {
+        return Ok(candidates
+            .iter()
+            .find(|(_, index, variant)| (*index, *variant) == selector)
+            .map(|entry| entry.0));
+    }
+    match candidates.as_slice() {
+        [] => Ok(None),
+        [(index, _, _)] => Ok(Some(*index)),
+        _ => candidates.iter().find(|(_, index, variant)| *index == 0 && *variant == 0)
+            .map(|entry| Some(entry.0))
+            .ok_or_else(|| AssetError::InvalidCompiledAssets {
+                detail: format!("texture {path} has multiple flipbook selectors and no canonical selector (0, 0)").into(),
+            }),
+    }
+}
+
 pub(super) fn read_flipbooks(
     path: &Path,
     terrain: &TerrainTextureMap,

@@ -45,11 +45,12 @@ pub(super) fn tile(
 pub(super) fn model_tile(
     blocks: &IconBlocks,
     root: &Path,
+    destination: &str,
     path: &str,
     overlay: Option<&str>,
 ) -> Result<Option<IconSprite>, AssetError> {
     let Some(mut sprite) = blocks
-        .model_frame_sprite(root, path)?
+        .model_frame_sprite(root, destination, path)?
         .filter(|sprite| sprite.width == sprite.height)
     else {
         return Ok(None);
@@ -63,9 +64,7 @@ pub(super) fn model_tile(
 /// Applies a carried color mask while retaining the source resolution.
 fn apply_overlay(sprite: &mut IconSprite, overlay: Option<&str>) -> Option<()> {
     if let Some(overlay) = overlay {
-        let Some(color) = overlay_rgb(overlay) else {
-            return None;
-        };
+        let color = overlay_rgb(overlay)?;
         let mut pixels = sprite.rgba8.to_vec();
         for pixel in pixels.as_chunks_mut::<4>().0 {
             let mask = f32::from(pixel[3]) / 255.0;
