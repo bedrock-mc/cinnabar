@@ -23,7 +23,7 @@ use ui_engine::engine::{
 use crate::chat_coordinates::ChatCoordinates;
 use crate::regions::{segments, window_rect};
 use crate::settings_chat::ChatSettings;
-use crate::text::{bounded_visible_text, resolve_chat_line};
+use crate::text::bounded_visible_text;
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
@@ -114,6 +114,7 @@ pub struct ChatInput<'a> {
     pub annotations: &'a [ui::mod_hud::ChatAction],
     pub clocks: &'a BTreeMap<String, f64>,
     pub now_millis: u64,
+    pub local_player_name: Option<&'a str>,
 }
 
 impl ChatScreen {
@@ -642,12 +643,20 @@ fn chat_data(
     );
     let messages = input.messages;
     let chat_text = crate::settings_chat::chat_text(settings);
+    let only_self = settings
+        .mentions_only_self()
+        .then(|| input.local_player_name.unwrap_or_default());
     let items = messages
         .iter()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
         .filter(|_| settings.value(SettingId::HideChat) == 0)
         .map(|line| {
-            let text = resolve_chat_line(line, translate);
+            let text = crate::text::resolve_chat_line_mentions(
+                line,
+                translate,
+                Some(settings.mentions_color_code()),
+                only_self,
+            );
             FactoryItem::new("chat_screen_messages", 0.0)
                 .value(
                     "#text",
@@ -656,6 +665,7 @@ fn chat_data(
                 .var("chat_font_type", Value::from("default"))
                 .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
                 .var("chat_line_spacing", Value::from(chat_text.line_spacing))
+                .var("chat_background_opacity", Value::from(crate::settings_chat::background_opacity(settings)))
         })
         .collect();
     data.set_factory("messages_factory", items);

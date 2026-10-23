@@ -132,7 +132,23 @@ pub(crate) fn drive_chat_ui_actions(
             }
             Some(ChatHit::LinkCancel) => presentation.cancel_chat_link(),
             _ if presentation.chat_link_confirmation_open() => {}
-            Some(ChatHit::SettingsOpen) => presentation.set_chat_settings_open(true),
+            Some(ChatHit::SettingsOpen) => {
+                if let Some(menu) = menu.as_deref_mut() {
+                    runtime.close_chat();
+                    menu.open_pause();
+                    menu.activate(launcher::menu::MenuAction::PauseSettings);
+                    menu.activate(launcher::menu::MenuAction::SettingsSection(
+                        launcher::menu::settings_sections::SettingSection::Chat
+                            .definition()
+                            .index,
+                    ));
+                    if let Some(focus) = focus.as_deref_mut() {
+                        focus.authorize_screen_return();
+                    }
+                } else {
+                    presentation.set_chat_settings_open(true);
+                }
+            }
             Some(ChatHit::SettingsClose) => presentation.set_chat_settings_open(false),
             Some(ChatHit::SettingsAction(action)) => {
                 if let Some(menu) = menu.as_deref_mut() {

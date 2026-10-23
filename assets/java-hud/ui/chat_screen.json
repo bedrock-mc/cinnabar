@@ -32,12 +32,106 @@
         }
       },
       {
+        "chat_settings_button": {
+          "type": "button",
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "offset": [ 2, -2 ],
+          "size": [ 12, 12 ],
+          "layer": 3,
+          "default_control": "default",
+          "hover_control": "hover",
+          "pressed_control": "pressed",
+          "button_mappings": [
+            {
+              "from_button_id": "button.menu_select",
+              "to_button_id": "button.open_chat_settings",
+              "mapping_type": "pressed"
+            }
+          ],
+          "controls": [
+            {
+              "default": {
+                "type": "panel",
+                "size": [ 12, 12 ],
+                "controls": [
+                  {
+                    "bg": {
+                      "type": "image",
+                      "texture": "textures/ui/Black",
+                      "alpha": 0.5019607843137255,
+                      "size": [ "100%", "100%" ]
+                    }
+                  },
+                  {
+                    "icon": {
+                      "type": "image",
+                      "texture": "textures/ui/socialbuttonicon/social-default-icon",
+                      "size": [ 9, 9 ],
+                      "layer": 1
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "hover": {
+                "type": "panel",
+                "size": [ 12, 12 ],
+                "controls": [
+                  {
+                    "bg": {
+                      "type": "image",
+                      "texture": "textures/ui/White",
+                      "alpha": 0.25,
+                      "size": [ "100%", "100%" ]
+                    }
+                  },
+                  {
+                    "icon": {
+                      "type": "image",
+                      "texture": "textures/ui/socialbuttonicon/social-hover-icon",
+                      "size": [ 9, 9 ],
+                      "layer": 1
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "pressed": {
+                "type": "panel",
+                "size": [ 12, 12 ],
+                "controls": [
+                  {
+                    "bg": {
+                      "type": "image",
+                      "texture": "textures/ui/White",
+                      "alpha": 0.4,
+                      "size": [ "100%", "100%" ]
+                    }
+                  },
+                  {
+                    "icon": {
+                      "type": "image",
+                      "texture": "textures/ui/socialbuttonicon/social-hover-icon",
+                      "size": [ 9, 9 ],
+                      "layer": 1
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
         "input_line": {
           "type": "panel",
           "anchor_from": "bottom_left",
           "anchor_to": "bottom_left",
-          "offset": [ 2, -2 ],
-          "size": [ "100% - 4px", 12 ],
+          "offset": [ 16, -2 ],
+          "size": [ "100% - 18px", 12 ],
           "max_size": [ "100%", "100%" ],
           "layer": 2,
           "clips_children": true,
@@ -170,6 +264,7 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
+            "alpha": "$chat_background_opacity",
             "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
             "size": [ "100%", "100%" ]
           } }
@@ -182,6 +277,9 @@
     "size": [ "100% - 8px", "default" ],
     "anchor_from": "top_left",
     "anchor_to": "top_left",
+    "font_type": "$chat_font_type",
+    "font_scale_factor": "$chat_font_scale_factor",
+    "line_padding": "($chat_line_spacing - 1)",
     "shadow": true,
     "layer": 1
   }

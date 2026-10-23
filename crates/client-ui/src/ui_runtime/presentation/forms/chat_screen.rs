@@ -53,6 +53,7 @@ impl UiPresentationRuntime {
                 annotations: &annotations,
                 clocks: &self.scene_clock,
                 now_millis,
+                local_player_name: runtime.local_player_chat_name(),
             },
             &mut paint_frame,
         )?;
