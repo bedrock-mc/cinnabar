@@ -20,8 +20,8 @@ use crate::{
     equipment_rig_id, geometry_from_geometry_index, geometry_from_runtime_assets,
     is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
-pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
+pub use catalog::{ActorRigVertexSegments, share_identical_vertices};
 
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 

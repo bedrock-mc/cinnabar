@@ -68,7 +68,7 @@ impl ServerLangOverlay {
                 let candidate = (|| {
                     let mut key = copy_text(key)?;
                     key.make_ascii_lowercase();
-                    let value = copy_text(value)?;
+                    let value = decode_value(value)?;
                     if let Some(previous) = entries.get_mut(&key) {
                         *previous = value;
                     } else {
@@ -119,6 +119,33 @@ fn copy_text(text: &str) -> Result<String, TryReserveError> {
     Ok(owned)
 }
 
+/// Decodes language-file newlines and backslashes once, keeping other escapes literal.
+fn decode_value(value: &str) -> Result<String, TryReserveError> {
+    if !value.contains('\\') {
+        return copy_text(value);
+    }
+    let mut decoded = String::new();
+    decoded.try_reserve_exact(value.len())?;
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => decoded.push('\n'),
+                Some('\\') => decoded.push('\\'),
+                next => {
+                    decoded.push('\\');
+                    if let Some(ch) = next {
+                        decoded.push(ch);
+                    }
+                }
+            }
+        } else {
+            decoded.push(ch);
+        }
+    }
+    Ok(decoded)
+}
+
 /// Borrows valid translations in source order without copying ignored rows.
 fn translation_rows(text: &str) -> impl Iterator<Item = (&str, &str)> {
     text.lines().filter_map(|line| {
@@ -139,6 +166,22 @@ fn translation_rows(text: &str) -> impl Iterator<Item = (&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_values_decode_newlines_and_backslashes_once() {
+        let table = ServerLangOverlay::from_layers([r"sidebar=First\nSecond\n§eThird
+literal=Keep \\n and \\ and \t and \q and trailing\
+placeholder=Before\n%1\nAfter
+"
+        .as_bytes()])
+        .unwrap();
+        assert_eq!(table.lookup("sidebar"), Some("First\nSecond\n§eThird"));
+        assert_eq!(
+            table.lookup("literal"),
+            Some(r"Keep \n and \ and \t and \q and trailing\")
+        );
+        assert_eq!(table.lookup("placeholder"), Some("Before\n%1\nAfter"));
+    }
 
     #[test]
     fn small_tables_fit_without_reserving_unused_rows() {

@@ -61,3 +61,17 @@ fn education_construction_blocks_compile_their_pack_faces_and_border_wall() {
         ([64, 0, 64], [192, 256, 192])
     );
 }
+
+#[test]
+fn chalkboard_terrain_defers_to_its_model_without_a_placeholder_cube() {
+    let directory = tempfile::tempdir().unwrap();
+    write_pack(directory.path(), "{}", r#"{"texture_data":{}}"#, "[]");
+    let mut record =
+        encoded_model_record(1, 1001, "minecraft:chalkboard", ModelFamily::Unknown, &[]);
+    record.canonical_state = r#"{"direction":{"type":"int","value":1}}"#.into();
+    let compiled = compile_pack(directory.path(), &[record]).unwrap();
+    let visual = compiled.visuals[1];
+    assert_eq!(visual.kind, VisualKind::Invisible);
+    assert!(!visual.flags.contains(BlockFlags::CUBE_GEOMETRY));
+    assert!(!visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
+}

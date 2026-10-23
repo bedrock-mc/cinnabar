@@ -100,6 +100,7 @@ impl ActorStore {
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
+            next_link_order: 0,
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -109,7 +110,7 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             pending_local_health: None,
-            local_server_swings: 0,
+            local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
             pending_local_death: Vec::new(),
@@ -126,6 +127,7 @@ impl ActorStore {
             local_view_bobbing: true,
             local_flying: false,
             local_hands: [None, None],
+            local_equipment_count: 0,
             local_held_network_ids: [0; 2],
             local_main_metadata: 0,
             local_held_variants: Default::default(),
@@ -149,7 +151,7 @@ impl ActorStore {
     }
 
     /// Arm swings the server sent for the local player since the last call.
-    pub(crate) fn take_local_server_swings(&mut self) -> u8 {
+    pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
     }
 
@@ -209,6 +211,8 @@ impl ActorStore {
         self.local_view_bobbing = feed.view_bobbing;
         self.local_flying = feed.flying;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
+        self.local_view_dirty |= self.local_equipment_count != feed.equipment_count;
+        self.local_equipment_count = feed.equipment_count;
         self.local_held_network_ids = feed.held_network_ids;
         self.local_main_metadata = feed.main_hand_metadata;
         self.local_held_variants = feed.held_variants;
@@ -379,7 +383,7 @@ impl ActorStore {
         self.ready_appearances = Default::default();
         self.items.clear();
         self.actions.clear();
-        self.local_server_swings = 0;
+        self.local_server_swings.clear();
         self.status_notices.clear();
         self.pickup_visuals.clear();
         self.particle_effects.clear();
@@ -396,7 +400,7 @@ impl ActorStore {
             return guard;
         }
         self.dimension = dimension;
-        self.local_server_swings = 0;
+        self.local_server_swings.clear();
         self.local_flying = false;
         self.retain_local_death();
         self.pending_local_health = self
@@ -531,7 +535,10 @@ impl ActorStore {
                 if movement.position[1].is_some_and(f32::is_finite) {
                     received.y_origin =
                         if movement.position_origin == ActorPositionOrigin::NetworkOffset {
-                            PoseYOrigin::NETWORK
+                            PoseYOrigin {
+                                native_y: movement.position[1],
+                                ..PoseYOrigin::NETWORK
+                            }
                         } else {
                             PoseYOrigin::default()
                         };
@@ -606,8 +613,9 @@ impl ActorStore {
                         std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
                     })
                 });
-                let rejected = actor.apply_metadata(&update.metadata, &mut self.hitbox_budget)
-                    | actor.apply_properties(&update.properties);
+                let rejected =
+                    actor.apply_metadata(&update.metadata, sequence, &mut self.hitbox_budget)
+                        | actor.apply_properties(&update.properties);
                 self.effect_members.update(actor);
                 if incompatible {
                     self.animation.mark_reset(update.runtime_id);
@@ -739,6 +747,7 @@ impl ActorStore {
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
                 teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
+                force_local_move: false,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
                 interpolation: Default::default(),
@@ -774,30 +783,45 @@ impl ActorStore {
         ActorApplyResult::Removed
     }
 
+    /// Retains passenger order, inserting a player ahead of a nonplayer first passenger.
     fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
-        Self::apply_link_to(&mut self.rider_to_ridden, self.max_actor_links, event)
-    }
-
-    fn apply_link_to(
-        rider_to_ridden: &mut FastHashMap<i64, i64>,
-        max_actor_links: usize,
-        event: ActorLinkEvent,
-    ) -> ActorApplyResult {
         match event.link_type {
             ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
             ActorLinkType::Remove => {
-                if rider_to_ridden.get(&event.rider_unique_id) == Some(&event.ridden_unique_id) {
-                    rider_to_ridden.remove(&event.rider_unique_id);
+                if self.ridden_unique_id(event.rider_unique_id) == Some(event.ridden_unique_id) {
+                    self.rider_to_ridden.remove(&event.rider_unique_id);
                 }
                 ActorApplyResult::Updated
             }
             ActorLinkType::Rider | ActorLinkType::Passenger => {
-                if !rider_to_ridden.contains_key(&event.rider_unique_id)
-                    && rider_to_ridden.len() >= max_actor_links
+                if self.ridden_unique_id(event.rider_unique_id) == Some(event.ridden_unique_id) {
+                    return ActorApplyResult::Updated;
+                }
+                if !self.rider_to_ridden.contains_key(&event.rider_unique_id)
+                    && self.rider_to_ridden.len() >= self.max_actor_links
                 {
                     return ActorApplyResult::CapacityRejected;
                 }
-                rider_to_ridden.insert(event.rider_unique_id, event.ridden_unique_id);
+                let first = self
+                    .rider_to_ridden
+                    .iter()
+                    .filter(|(_, link)| link.vehicle == event.ridden_unique_id)
+                    .min_by_key(|(_, link)| link.order);
+                let player = |id| {
+                    self.snapshot_by_unique(id)
+                        .is_some_and(|actor| matches!(actor.kind, ActorKind::Player { .. }))
+                };
+                let order = first
+                    .filter(|(id, _)| player(event.rider_unique_id) && !player(**id))
+                    .map_or(i128::from(self.next_link_order), |(_, link)| link.order - 1);
+                self.rider_to_ridden.insert(
+                    event.rider_unique_id,
+                    riding_control::RiderLink {
+                        vehicle: event.ridden_unique_id,
+                        order,
+                    },
+                );
+                self.next_link_order = self.next_link_order.saturating_add(1);
                 ActorApplyResult::Updated
             }
         }
@@ -806,7 +830,7 @@ impl ActorStore {
     fn remove_links_for(&mut self, unique_id: i64) {
         self.rider_to_ridden.remove(&unique_id);
         self.rider_to_ridden
-            .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
+            .retain(|_, link| link.vehicle != unique_id);
     }
 
     /// Layers a session's server-pack entity catalog over the vanilla one.
@@ -885,7 +909,7 @@ impl ActorStore {
                     if self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && matches!(action.kind, protocol::ActorActionKind::SwingArm)
                     {
-                        self.local_server_swings = self.local_server_swings.saturating_add(1);
+                        self.local_server_swings.push(action.swing_source.clone());
                     }
                     if (self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && !matches!(action.kind, protocol::ActorActionKind::Custom { .. }))

@@ -44,6 +44,24 @@ pub fn named_bunny(id: &str) -> Item {
     .unwrap()
 }
 
+/// Admits a paid synthetic item without granting session ownership.
+pub fn locked_bunny() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let mut descriptor = bunny().descriptor().clone();
+        descriptor.id = "fixture:locked_bunny".into();
+        descriptor.display_name = "Locked bunny ears".into();
+        descriptor.free = false;
+        super::admit(
+            descriptor,
+            include_bytes!("bunny_ears.geo.json"),
+            include_bytes!("bunny_ears.png"),
+            include_bytes!("fixture/animation.json"),
+        )
+        .unwrap()
+    })
+}
+
 /// Admits a second slot using the same original surface with no movement animation.
 pub fn rigid() -> Item {
     static ITEM: OnceLock<Item> = OnceLock::new();
@@ -248,5 +266,57 @@ pub fn sparkling_crown() -> Item {
         item.id = "fixture:sparkling_crown".into();
         item.assets.animation = Some(animation_asset(&animation));
         super::admit(item, include_bytes!("crown.geo.json"), include_bytes!("crown.png"), &animation).unwrap()
+    })
+}
+
+/// Admits a synthetic ground controller using existing fixture geometry and four simple clips.
+pub fn ground_companion() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let mut descriptor = crown().descriptor().clone();
+        descriptor.id = "fixture:independent_companion".into();
+        descriptor.slot = "pet".into();
+        let animations: serde_json::Map<_,_> = ["idle", "sit", "trot", "gallop"].into_iter().map(|name| {
+            (name.into(),serde_json::json!({"loop":true,"animation_length":1.0,"bones":{"head":{"rotation":{"0":[0,0,0],"1":[0,0,0]}}}}))
+        }).collect();
+        let animation = serde_json::to_vec(&serde_json::json!({"animations":animations,"companion":{"idle":"idle","sit":"sit","trot":"trot","gallop":"gallop","trot_stride":1.6,"gallop_stride":2.6}})).unwrap();
+        descriptor.assets.animation = Some(animation_asset(&animation));
+        super::admit(descriptor, include_bytes!("crown.geo.json"), include_bytes!("crown.png"), &animation).unwrap()
+    })
+}
+
+/// Admits a synthetic aura with one instant landing effect for contact-routing regressions.
+pub fn ground_effect() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let mut descriptor = crown().descriptor().clone();
+        descriptor.id = "fixture:ground_contact".into();
+        descriptor.slot = "aura".into();
+        let mut effect: serde_json::Value = serde_json::from_str(EMITTER_EFFECT).unwrap();
+        let parts = effect["particle_effect"]["components"]
+            .as_object_mut()
+            .unwrap();
+        parts.remove("minecraft:emitter_rate_steady");
+        parts.remove("minecraft:emitter_lifetime_looping");
+        parts.insert(
+            "minecraft:emitter_rate_instant".into(),
+            serde_json::json!({"num_particles": 1}),
+        );
+        parts.insert(
+            "minecraft:emitter_lifetime_once".into(),
+            serde_json::json!({"active_time": 0.1}),
+        );
+        let animation = serde_json::to_vec(&serde_json::json!({"particles": [
+            {"bone": "head", "offset": [0, 0, 0], "trigger": "landing", "effect": effect}
+        ]}))
+        .unwrap();
+        descriptor.assets.animation = Some(animation_asset(&animation));
+        super::admit(
+            descriptor,
+            include_bytes!("crown.geo.json"),
+            include_bytes!("crown.png"),
+            &animation,
+        )
+        .unwrap()
     })
 }

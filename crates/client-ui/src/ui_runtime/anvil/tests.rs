@@ -30,6 +30,18 @@ fn entry(identifier: &str, network_id: i32) -> ItemRegistryEntry {
     }
 }
 
+/// The name a take sends: the prediction's, else the target's take name.
+fn take_rename(runtime: &UiRuntime, player: &player_state::PlayerState) -> Option<Arc<str>> {
+    if let Some(preview) = runtime.anvil_preview(player) {
+        return preview.take_name.clone();
+    }
+    let target = runtime
+        .inventory_ledger(player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))?
+        .clone();
+    runtime.anvil_take_name(player, target.network_id, target.metadata)
+}
+
 /// Puts `stack` in anvil UI `slot`.
 fn place(
     runtime: &mut UiRuntime,
@@ -389,7 +401,7 @@ fn damage_corrections_do_not_overwrite_a_name_the_player_is_editing() {
                 .anvil_preview(&player)
                 .expect("the corrected target alone can be renamed");
             assert_eq!(renamed.outcome.custom_name, Some(Some("Typed".into())));
-            assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("Typed"));
+            assert_eq!(take_rename(&runtime, &player).as_deref(), Some("Typed"));
             assert_eq!(renamed.outcome.damage, None);
             assert_eq!(renamed.outcome.material_used, 0);
             assert_eq!(
@@ -422,7 +434,11 @@ fn unchanged_prefilled_names_keep_whitespace_and_do_not_charge_for_a_rename() {
             protocol::item_custom_name(&preview.stack.extra_data).as_deref(),
             Some(name)
         );
-        assert_eq!(runtime.anvil_rename(&player), None);
+        assert_eq!(
+            take_rename(&runtime, &player).as_deref(),
+            Some(name),
+            "an unchanged custom name is restated so the server keeps it"
+        );
         place(
             &mut runtime,
             &mut player,
@@ -437,9 +453,9 @@ fn unchanged_prefilled_names_keep_whitespace_and_do_not_charge_for_a_rename() {
         let renamed = runtime.anvil_preview(&player).unwrap();
         assert_eq!(renamed.outcome.custom_name, Some(Some(" New ".into())));
         assert_eq!(renamed.outcome.cost, 1);
-        assert_eq!(runtime.anvil_rename(&player).as_deref(), Some(" New "));
+        assert_eq!(take_rename(&runtime, &player).as_deref(), Some(" New "));
         runtime.screen_state_mut().anvil_name.clear();
-        assert_eq!(runtime.anvil_rename(&player).as_deref(), Some(""));
+        assert_eq!(take_rename(&runtime, &player).as_deref(), Some(""));
     }
 }
 
@@ -527,9 +543,9 @@ fn the_name_box_prefills_from_the_target_and_renames_cost_a_level() {
     assert!(runtime.anvil_affordable(&player, &preview));
     runtime.screen_state_mut().anvil_name.clear();
     assert_eq!(
-        runtime.anvil_rename(&player),
-        None,
-        "empty text does not clear a default name"
+        take_rename(&runtime, &player).as_deref(),
+        Some(""),
+        "empty text differs from the default name and is sent"
     );
 }
 
@@ -744,7 +760,7 @@ fn unsupported_enchantment_fields_on_either_input_decline_prediction() {
             " Blade ",
             "unsupported enchantments do not block name resolution"
         );
-        assert_eq!(runtime.anvil_rename(&player), None);
+        assert_eq!(take_rename(&runtime, &player).as_deref(), Some(" Blade "));
         runtime.screen_state_mut().anvil_name = "Blade".into();
         assert!(
             runtime.anvil_preview(&player).is_none(),
@@ -782,8 +798,7 @@ fn full_custom_names_are_kept_when_repairing_without_a_rename() {
 #[test]
 fn filtered_names_follow_actual_anvil_name_edits() {
     use protocol::{
-        CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
-        StackRequestSlot,
+        StackRequestAction as Action, StackRequestContainer as Container, StackRequestSlot,
     };
 
     for typed in [None, Some("Renamed"), Some("")] {
@@ -869,31 +884,22 @@ fn filtered_names_follow_actual_anvil_name_edits() {
         let (packet, requests) = ledger.pending_batch().unwrap().unwrap();
         assert_eq!(requests, 1);
         let request_id = ledger.pending_request_id().unwrap();
-        let filter_strings: Vec<String> = typed.into_iter().map(str::to_owned).collect();
+        // An untouched custom name is restated; the server reads no text as clearing it.
+        let filter_strings = vec![typed.unwrap_or(" Raw blade ").to_owned()];
         let expected = protocol::item_stack_request_packet_filtered(
             request_id,
             &[
                 Action::CraftRecipeOptional {
                     recipe_network_id: 0,
-                    filtered_string_index: if typed.is_some() { 0 } else { -1 },
-                },
-                Action::CraftResultsDeprecated {
-                    results: Arc::from([CraftResult {
-                        identifier: Arc::from("minecraft:diamond_sword"),
-                        aux: 0,
-                        count: 1,
-                        block_runtime_id: 0,
-                        user_data: expected_extra,
-                    }]),
-                    crafts: 1,
-                },
-                Action::Consume {
-                    amount: 1,
-                    source: target,
+                    filtered_string_index: 0,
                 },
                 Action::Consume {
                     amount: 3,
                     source: material,
+                },
+                Action::Consume {
+                    amount: 1,
+                    source: target,
                 },
                 Action::Take {
                     amount: 1,
@@ -960,4 +966,36 @@ fn overlay_only_names_survive_until_an_actual_rename() {
             assert_eq!(protocol::item_filtered_custom_name(&edited), None);
         }
     }
+}
+
+/// Typing the default name back over a custom name removes it in both the request and the
+/// prediction, as the server does for a missing name.
+#[test]
+fn typing_the_default_name_removes_a_custom_name_everywhere() {
+    let (mut runtime, mut player) = anvil();
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        NetworkItemStack::empty(),
+    );
+    runtime.sync_anvil_name(&player);
+    let default = runtime.screen_state().anvil_name.clone();
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            custom_name: Some(Some("Blade".into())),
+            ..Default::default()
+        },
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, "Blade");
+    runtime.screen_state_mut().anvil_name = default;
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.take_name, None);
+    assert_eq!(preview.outcome.custom_name, Some(None));
+    assert_eq!(protocol::item_custom_name(&preview.stack.extra_data), None);
+    assert_eq!(preview.outcome.cost, 1);
 }

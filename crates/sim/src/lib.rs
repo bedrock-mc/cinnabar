@@ -20,12 +20,13 @@ pub use fluid::sample_actor_liquids;
 pub use math::{Vec3, minecraft_cos, minecraft_sin, normalize_direction, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
-    AxisCollisions, ControlledTickResult, DEFAULT_MOVEMENT_SPEED, JUMP_DELAY_TICKS,
-    MAX_BLOCK_SAMPLES_PER_TICK, MAX_SAFE_LIQUID_VELOCITY, MovementEffects, MovementEnvironment,
-    MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState, ProcessedControls, RiptideLaunch,
-    SNEAKING_HEIGHT_CHANGE_VERSION, SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator,
-    SneakProfile, TickResult, VerticalPhysics, pose_fits, sample_actor_liquid_submersion,
-    sample_liquid_submersion, sample_water_head,
+    AxisCollisions, BoatBody, BoatBuoyancy, BoatFloat, BoatPaddles, BoatState, BoatTick,
+    ControlledTickResult, DEFAULT_MOVEMENT_SPEED, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
+    MAX_SAFE_LIQUID_VELOCITY, MovementEffects, MovementEnvironment, MovementInput, MovementMode,
+    NORMAL_GRAVITY, PlayerState, ProcessedControls, RiptideLaunch, SNEAKING_HEIGHT_CHANGE_VERSION,
+    SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, SneakProfile, TickResult, VerticalPhysics,
+    boat_paddle_power, pose_fits, sample_actor_liquid_submersion, sample_liquid_submersion,
+    sample_water_head, tick_boat,
 };
 
 pub use world::{

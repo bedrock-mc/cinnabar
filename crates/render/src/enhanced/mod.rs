@@ -158,7 +158,7 @@ impl Plugin for EnhancedRenderPlugin {
         render_app
             .init_resource::<EnhancedGpu>()
             .init_resource::<EnhancedPostPipelines>()
-            .init_resource::<EnhancedShadowPipelines>();
+            .add_systems(bevy::render::RenderStartup, bevy::render::init_gpu_resource::<EnhancedShadowPipelines>.after(bevy::render::init_gpu_resource::<crate::chunk::pipeline::layouts::ChunkPipeline>));
         install_graph(render_app.world_mut());
     }
 }

@@ -5,6 +5,9 @@ use super::*;
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 pub(super) struct ModObservation<'w, 's> {
+    weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
+    click_limiter: Local<'s, semantic_input::ClickLimiter>,
+    click_scope: Local<'s, Option<(u64, i32)>>,
     packets: Option<Res<'w, packets::PacketMods>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
@@ -44,6 +47,9 @@ pub(super) fn drive_mod(
     observation: ModObservation,
 ) {
     let ModObservation {
+        mut weather,
+        mut click_limiter,
+        mut click_scope,
         packets,
         watcher,
         mut render_scene,
@@ -55,6 +61,9 @@ pub(super) fn drive_mod(
         mut actor_style,
     } = observation;
     let (network, mut camera, cues, item_use) = outputs;
+    if let Some(weather) = weather.as_deref_mut() {
+        weather.0 = None;
+    }
     let user_freelook = gameplay
         .input
         .as_ref()
@@ -84,6 +93,8 @@ pub(super) fn drive_mod(
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
     else {
+        click_limiter.reset();
+        *click_scope = None;
         let effects = packets
             .as_ref()
             .filter(|packets| packets.native_frame_available())
@@ -121,6 +132,9 @@ pub(super) fn drive_mod(
         return;
     };
     if extension.suspended {
+        time_override.0 = None;
+        click_limiter.reset();
+        *click_scope = None;
         gameplay.apply_native_input(None, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
@@ -305,6 +319,27 @@ pub(super) fn drive_mod(
         policy.scope = merged.item_use_delay_fix;
     }
     time_override.0 = merged.time_override;
+    if let Some(weather) = weather.as_deref_mut() {
+        weather.0 = merged.weather_override;
+    }
+    let scope = world_observation
+        .as_ref()
+        .map(|world| (world.session, world.dimension));
+    if *click_scope != scope || !captured || absorbed {
+        click_limiter.reset();
+    }
+    *click_scope = scope;
+    if captured
+        && !absorbed
+        && scope.is_some()
+        && let Some(input) = gameplay.input.as_deref_mut()
+    {
+        input.limit_clicks(
+            &mut click_limiter,
+            merged.click_limits,
+            time.delta_secs_f64(),
+        );
+    }
     if let Err(error) = presentation
         .mod_ui_mut()
         .set_mod_label(extension.hosts.merged_label())

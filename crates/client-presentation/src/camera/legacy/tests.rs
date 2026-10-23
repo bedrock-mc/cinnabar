@@ -21,6 +21,7 @@ struct TestPhysics {
     ticks: Vec<CameraMovementTick>,
     alpha: f32,
     world_identity: Option<sim::WorldCollisionIdentity>,
+    sneaking: bool,
 }
 impl PhysicsObservation for TestPhysics {
     /// Returns the deterministic completed state.
@@ -35,9 +36,9 @@ impl PhysicsObservation for TestPhysics {
             }
         }
     }
-    /// The fixture never sneaks or sprints.
+    /// Reports the fixture's sneak flag; it never sprints.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
-        Some((false, false))
+        Some((self.sneaking, false))
     }
     /// The fixture uses ordinary walking.
     fn mode(&self) -> sim::MovementMode {
@@ -96,6 +97,31 @@ fn sample(
     );
 }
 
+/// Applies camera effects with the same world observation used to sample hand motion.
+#[allow(clippy::too_many_arguments)]
+fn present(
+    time: Res<Time>,
+    settings: Res<CameraSettingsAuthority>,
+    view: Res<LocalViewPose>,
+    world: Res<TestWorld>,
+    server: ResMut<ServerCameraView>,
+    cameras: Query<(&mut Transform, Option<&mut Projection>), With<FlyCamera>>,
+) {
+    crate::camera::presentation::apply_camera_presentation(
+        time,
+        settings,
+        None,
+        None,
+        view,
+        Some(WorldObservation {
+            stream: Some(&world.0),
+        }),
+        None,
+        server,
+        cameras,
+    );
+}
+
 /// Shares the late effect with the hand while retaining each owner's clock fraction.
 #[allow(clippy::too_many_arguments)]
 fn apply(
@@ -141,6 +167,7 @@ fn camera_app() -> App {
             ticks: Vec::new(),
             alpha: 0.5,
             world_identity: None,
+            sneaking: false,
         });
     app
 }
@@ -203,6 +230,45 @@ fn native_frame_bob_receives_the_real_dead_gate() {
         .advance_by(std::time::Duration::from_secs_f32(0.05));
     app.world_mut().run_system_cached(sample).unwrap();
     assert!(app.world().resource::<WalkBobState>().bob() < previous);
+}
+
+/// A crouched first-person camera stays on the gameplay eye that picks blocks, in both animation modes.
+#[test]
+fn crouched_camera_stays_on_the_interaction_eye() {
+    for java in [false, true] {
+        let mut app = camera_app();
+        let mut user = ui::UserSettings::default();
+        user.video.java_animations = java;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &user)
+            .unwrap();
+        app.world_mut().resource_mut::<TestPhysics>().sneaking = true;
+        let feet = Vec3::new(0.0, 64.0, 0.0);
+        let eye = feet + Vec3::Y * (protocol::PLAYER_NETWORK_OFFSET - 0.35);
+        app.world_mut()
+            .resource_mut::<LocalViewPose>()
+            .set_subject_position(eye, feet);
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Transform::from_translation(eye)))
+            .id();
+        for index in 0..4 {
+            tick(&mut app, index);
+            app.world_mut().run_system_cached(sample).unwrap();
+            *app.world_mut().get_mut::<Transform>(camera).unwrap() =
+                Transform::from_translation(eye);
+            app.world_mut().run_system_cached(present).unwrap();
+            let rendered = app.world().get::<Transform>(camera).unwrap().translation;
+            assert!(
+                rendered.abs_diff_eq(
+                    app.world().resource::<LocalViewPose>().eye_translation(),
+                    1e-5
+                ),
+                "java {java}, tick {index}: {rendered} != {eye}"
+            );
+        }
+    }
 }
 
 #[test]

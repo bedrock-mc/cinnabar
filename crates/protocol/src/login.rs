@@ -507,8 +507,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 .blob_cache
                 .as_mut()
                 .expect("enabled path owns a resolver");
-            if resolver.ordinary_lane_needs_drain() {
-                resolver.unblock_ordinary_lane()?;
+            // Retained ordinary work stops intake only while abandoning its blockers makes
+            // progress; a lane that cannot be unblocked keeps reading rather than spinning
+            // without ever awaiting the transport.
+            if resolver.ordinary_lane_needs_drain() && resolver.unblock_ordinary_lane()? {
                 continue;
             }
 

@@ -1,7 +1,9 @@
 //! Local-world forms, lifecycle state and service commands.
 
 pub mod form;
+pub mod in_world;
 pub mod model;
+pub mod options;
 pub mod progress;
 pub mod prompt;
 pub mod world;

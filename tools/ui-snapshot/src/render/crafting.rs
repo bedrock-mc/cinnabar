@@ -139,7 +139,7 @@ pub fn paint(
             .book_recipes(false, false, usize::from(index), 1)
             .pop()
             .ok_or_else(|| Error::Invalid("craft fixture selected recipe is absent".into()))?;
-        match player.inventory.begin_book_craft(&recipe.recipe) {
+        match player.inventory.begin_book_craft(&recipe.recipe, false) {
             Ok(_) | Err(InventoryGestureError::InvalidRequest) => {}
             Err(error) => {
                 return Err(Error::Invalid(format!(
@@ -247,8 +247,7 @@ fn draw(
         storage_durability: &durability.storage,
         ui_icons: &ui_icons,
         ui_durability: &durability.ui,
-        crafting_icons: &contents.crafting.icons,
-        crafting_output: contents.crafting.output.as_ref(),
+        crafting: &contents.crafting,
         armor_icons: &[None; 4],
         armor_durability: &[None; 4],
         offhand_icon: None,

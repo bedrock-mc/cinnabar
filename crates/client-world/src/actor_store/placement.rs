@@ -37,7 +37,9 @@ impl super::movement_interpolation::MotionState {
     /// Holds a rider on its seat: position and body follow the mount, the head within the lock.
     fn seat(&mut self, placement: &Placement) {
         self.received.position = placement.position;
+        self.received.y_origin = Default::default();
         self.pose.position = placement.position;
+        self.pose.y_origin = Default::default();
         self.pose.yaw = placement.body_yaw;
         self.received.yaw = placement.body_yaw;
         if let Some(limit) = placement.lock_degrees {
@@ -74,7 +76,9 @@ impl ActorStore {
         };
         actor.position = position;
         actor.previous_pose.position = position;
+        actor.previous_pose.y_origin = Default::default();
         actor.received_pose.position = position;
+        actor.received_pose.y_origin = Default::default();
         actor.interpolation_ticks_remaining = 0;
         actor.status.movement_interpolation = Default::default();
         self.effect_members.collidable.update(actor);
@@ -116,8 +120,8 @@ impl ActorStore {
         let mut riders = 0_u32;
         let mut index = 0_usize;
         let mut linked = false;
-        for (&id, &ridden) in &self.rider_to_ridden {
-            if ridden == mount.unique_id {
+        for (&id, link) in &self.rider_to_ridden {
+            if link.vehicle == mount.unique_id {
                 riders += 1;
                 index += usize::from(id < rider_unique_id);
                 linked |= id == rider_unique_id;
@@ -130,7 +134,7 @@ impl ActorStore {
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
     pub(crate) fn rider_seat_pose(&self, rider_unique_id: i64) -> Option<([f32; 3], f32)> {
-        let ridden = self.rider_to_ridden.get(&rider_unique_id)?;
+        let ridden = &self.rider_to_ridden.get(&rider_unique_id)?.vehicle;
         let rider = self
             .actors
             .get(self.unique_to_runtime.get(&rider_unique_id)?)?;
@@ -156,7 +160,9 @@ impl ActorStore {
                 if self.remote_state_excluded_runtime_id == Some(rider_id) {
                     return None;
                 }
-                let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
+                let mount = self
+                    .actors
+                    .get(self.unique_to_runtime.get(&ridden.vehicle)?)?;
                 let rider = self.actors.get(&rider_id)?;
                 let seat = self.seat_for(*rider_unique_id, rider, mount)?;
                 let (mount_position, mount_yaw) = mount_pose(mount);
@@ -323,8 +329,20 @@ mod tests {
             store.apply(1, sequence, spawn(runtime_id, runtime_id as i64 * 10));
         }
         // 90 rides 80, which rides 70; turned seats make every level depend on the one below.
-        store.rider_to_ridden.insert(80, 70);
-        store.rider_to_ridden.insert(90, 80);
+        store.rider_to_ridden.insert(
+            80,
+            crate::actor_store::riding_control::RiderLink {
+                vehicle: 70,
+                order: 0,
+            },
+        );
+        store.rider_to_ridden.insert(
+            90,
+            crate::actor_store::riding_control::RiderLink {
+                vehicle: 80,
+                order: 1,
+            },
+        );
         for runtime_id in [8, 9] {
             let rider = store.actors.get_mut(&runtime_id).unwrap();
             rider.metadata.insert(
@@ -349,6 +367,7 @@ mod tests {
                 head_yaw: Some(90.0),
                 on_ground: None,
                 teleported: false,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: protocol::ActorInterpolation {
@@ -359,7 +378,10 @@ mod tests {
         );
 
         store.predict_remote_motion(3);
-        let predicted = [8, 9].map(|runtime_id| store.pick_pose(runtime_id).unwrap());
+        let predicted = [8, 9].map(|runtime_id| {
+            let pose = store.pick_pose(runtime_id).unwrap();
+            (pose.position, pose.yaw)
+        });
         store.advance_interpolation_ticks(3);
         let live = [8, 9].map(|runtime_id| {
             let actor = &store.actors[&runtime_id];

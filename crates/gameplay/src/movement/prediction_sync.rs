@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use protocol::{ActorMetadataValue, MovementPredictionSync, client_movement_prediction_sync};
 
 use super::LocalPhysicsController;
-use super::physics::SyncPose;
 
 /// Attribute names in wire order; undefined values are sent as zero.
 const ATTRIBUTE_NAMES: [&str; 6] = [
@@ -34,12 +33,14 @@ const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 /// Sends a due correction sync and clears its countdown only after admission.
 /// `air_drag_modifier` is the session's last accepted finite value, which
 /// outlives the replay history that dimension waits and hard corrections clear.
+/// `movement_speed` is the accepted attribute current after local sprint and effect changes.
 /// `using_item` is the accepted local item use.
 pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
     air_drag_modifier: Option<f32>,
-    using_item: bool,
+    movement_speed: Option<f64>,
+    using_item: Option<bool>,
     send: impl FnOnce(protocol::Packet) -> bool,
 ) {
     if !physics.prediction_sync.due() {
@@ -48,7 +49,8 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    let attributes = attributes(
+    physics.note_server_dimensions(actor.explicit_dimensions_revision);
+    let mut attributes = attributes(
         |name| {
             actor
                 .attributes
@@ -57,60 +59,48 @@ pub fn send_movement_prediction_sync(
         },
         air_drag_modifier,
     );
+    if let Some(current) = movement_speed {
+        attributes[0] = current as f32;
+    }
     let actor_flags =
-        predicted_flag_words(&actor.metadata, physics.prediction_sync_pose(), using_item);
+        predicted_flag_words(&actor.metadata, physics.prediction_sync_flags(), using_item);
     let sync = MovementPredictionSync {
         actor_flags,
         bounding_box: predicted_bounding_box(
             &actor.metadata,
-            physics.prediction_sync_walking_height(),
+            physics.prediction_sync_size(),
+            physics.prediction_sync_explicit_size(),
             actor_flags,
         ),
         attributes,
         unique_id: stream.local_player_unique_id(),
-        flying: physics.mode() == sim::MovementMode::Flying,
+        flying: physics.prediction_sync_flying(),
     };
     if send(client_movement_prediction_sync(sync)) {
         physics.prediction_sync.clear();
     }
 }
 
-/// Overlays the flags the client owns onto the server's flag words.
-///
-/// Vanilla sends its own actor flag words. The client itself sets sneaking,
-/// sprinting, item use, movement, collision and the swimming, crawling and
-/// gliding poses, and adopts the server's changes to them. Cinnabar's local
-/// state adopts server sneak, sprint and pose ends but not a server-started
-/// pose, item use or riptide spin; the riptide spin, block-climber and every
-/// other flag remain the server's.
+/// Applies accepted individual writes to the remaining actor metadata.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
-    pose: Option<SyncPose>,
-    using_item: bool,
+    flags: client_world::MovementFlagUpdate,
+    using_item: Option<bool>,
 ) -> [u64; 3] {
     let mut words = flag_words(metadata);
-    set_flag(&mut words, ActorFlag::UsingItem, using_item);
-    let Some(pose) = pose else {
-        return words;
-    };
-    for (flag, enabled) in [
-        (ActorFlag::Sneaking, pose.sneaking),
-        (ActorFlag::Sprinting, pose.sprinting),
-        (ActorFlag::Moving, pose.moving),
-        (
-            ActorFlag::Swimming,
-            pose.mode == sim::MovementMode::Swimming,
-        ),
-        (
-            ActorFlag::Crawling,
-            pose.mode == sim::MovementMode::Crawling,
-        ),
-        (ActorFlag::Gliding, pose.mode == sim::MovementMode::Gliding),
+    for (flag, value) in [
+        (ActorFlag::UsingItem, using_item),
+        (ActorFlag::Sneaking, flags.sneaking),
+        (ActorFlag::Sprinting, flags.sprinting),
+        (ActorFlag::Moving, flags.moving),
+        (ActorFlag::HasCollision, flags.has_collision),
+        (ActorFlag::Swimming, flags.swimming),
+        (ActorFlag::Crawling, flags.crawling),
+        (ActorFlag::Gliding, flags.gliding),
     ] {
-        set_flag(&mut words, flag, enabled);
-    }
-    if let Some(has_collision) = pose.has_collision {
-        set_flag(&mut words, ActorFlag::HasCollision, has_collision);
+        if let Some(value) = value {
+            set_flag(&mut words, flag, value);
+        }
     }
     words
 }
@@ -149,7 +139,7 @@ fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
     ]
 }
 
-/// Flags that put a player in a horizontal pose: gliding, a riptide spin, swimming and crawling.
+/// Actor flags that request a horizontal player size.
 const HORIZONTAL_POSE_FLAGS: [ActorFlag; 4] = [
     ActorFlag::Gliding,
     ActorFlag::DamageNearbyMobs,
@@ -157,35 +147,27 @@ const HORIZONTAL_POSE_FLAGS: [ActorFlag; 4] = [
     ActorFlag::Crawling,
 ];
 
-/// Sizes the standard player model from the sent pose, as vanilla's player
-/// size update does: a horizontal pose uses the width as its height, otherwise
-/// the current accepted walking size applies once a sample exists. The sent
-/// size is unscaled, so any scale keeps the pose sizing. The walking size
-/// follows the level's sneak profile. Other models retain
-/// their supplied metadata until their local contracts are available.
+/// Uses the last owning resize, retaining explicit dimensions until it is replaced.
 fn predicted_bounding_box(
     metadata: &HashMap<u32, ActorMetadataValue>,
-    walking_height: Option<f32>,
+    local_size: Option<[f32; 2]>,
+    explicit: bool,
     flags: [u64; 3],
 ) -> [f32; 3] {
     let mut size = bounding_box(metadata);
-    let width = sim::PLAYER_WIDTH as f32;
-    // A legacy level's sneaking height is the standing height.
-    let pose_heights = [
-        sim::PLAYER_HEIGHT as f32,
-        sim::SneakProfile::Current.height() as f32,
-        width,
-    ];
-    if size[1] != width || !pose_heights.contains(&size[2]) {
+    if explicit {
         return size;
+    }
+    if let Some([width, height]) = local_size {
+        size[1] = width;
+        size[2] = height;
     }
     if HORIZONTAL_POSE_FLAGS
         .into_iter()
         .any(|flag| flag_set(&flags, flag))
     {
-        size[2] = width;
-    } else if let Some(height) = walking_height {
-        size[2] = height;
+        size[1] = local_size.map_or(sim::PLAYER_WIDTH as f32, |size| size[0]);
+        size[2] = size[1];
     }
     size
 }

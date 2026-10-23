@@ -1,4 +1,4 @@
-//! App update preferences and worker status have their own settings tab.
+//! App and mod update preferences share a settings tab with app worker status.
 
 use super::{Content, services};
 use launcher::menu::{
@@ -8,15 +8,27 @@ use launcher::menu::{
 };
 use ui_engine::engine::screen::PaintError;
 
-/// Presents the installed version, channel policy and one explicit fresh-check action.
+/// Groups app update controls and independently available mod update preferences.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    let view = content.view;
     content.heading("Updates", "")?;
+    app(content)?;
+    content.heading("Mods", "")?;
+    for option in SettingPanel::ModUpdates.options() {
+        content.option(option.id)?;
+    }
+    Ok(())
+}
+
+/// Presents app preferences and worker actions only when this window owns the updater.
+fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    let view = content.view;
     if !view.updates.active {
-        return content.label(
-            &installed_version(),
-            "Update controls are unavailable in this window.",
-        );
+        let message = if view.updates.manual_pending {
+            view.updates.status_text()
+        } else {
+            "App update controls are unavailable in this window.".into()
+        };
+        return content.label_text(&installed_version(), &message);
     }
     for option in SettingPanel::Updates.options() {
         content.option(option.id)?;
@@ -25,7 +37,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     if view.over_world {
         status.push_str(" Return to the home menu to check for updates.");
     }
-    services::action_row(
+    services::action_row_text(
         content,
         &installed_version(),
         &status,
@@ -35,7 +47,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     )?;
     if !view.over_world {
         if let Some(message) = &view.updates.message {
-            content.label("", message)?;
+            content.label_text("", message)?;
         }
         if view.updates.switch_available {
             services::action_row(

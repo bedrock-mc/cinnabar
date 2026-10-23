@@ -227,7 +227,7 @@ fn close_ack_retires_result_before_another_station() {
     assert_eq!(
         ledger.begin_screen_output(&ScreenCraft::Anvil {
             rename: None,
-            multi_recipe_id: 1,
+            recipe_network_id: 1,
             output: None,
             material_used: 0
         }),
@@ -247,7 +247,7 @@ fn same_generation_result_is_admissible() {
         ledger
             .begin_screen_output(&ScreenCraft::Anvil {
                 rename: None,
-                multi_recipe_id: 1,
+                recipe_network_id: 1,
                 output: None,
                 material_used: 0
             })

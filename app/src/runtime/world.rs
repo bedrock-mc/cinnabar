@@ -400,16 +400,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
 
+    respawn.synchronize_session(Some(clock.session_generation()));
+    let controls = stream.take_committed_controls();
+    respawn.retain_committed_input_hold(&controls);
     if network
         .as_ref()
         .is_some_and(|network| network.flush_latency_reply().is_err())
     {
         movement.set_control_fence_pending(true);
+        stream.restore_committed_controls(controls.into_iter());
         return;
     }
     movement.set_control_fence_pending(false);
-    respawn.synchronize_session(Some(clock.session_generation()));
-    let controls = stream.take_committed_controls();
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
 
     let mut controls = controls.into_iter();
@@ -485,6 +487,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
             );
         }
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
+            if let Some(item_use) = item_use.as_deref_mut() {
+                item_use.adopt_server_using_item(flags.using_item);
+            }
             let previous = player_runtime.facts.is_immobile();
             player_runtime
                 .facts

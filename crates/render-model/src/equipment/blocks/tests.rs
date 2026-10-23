@@ -48,6 +48,16 @@ fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
 }
 
 #[test]
+fn multi_page_overlay_face_sheets_reserve_all_base_pages() {
+    let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
+    let expected = overlay_face_sheet(&source, [1; 6], None).unwrap();
+    source.base_texture_pages = 2;
+    source.materials[1].texture = TextureRef::new(2, 1).unwrap();
+    let actual = overlay_face_sheet(&source, [1; 6], None).unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn carried_face_sheets_sample_every_overlay_shard() {
     let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
     for page in 2..assets::MAX_TEXTURE_PAGES as u32 {
@@ -628,6 +638,44 @@ fn pinned_non_cube_items_hold_their_inventory_model_and_flat_items_stay_sprites(
             "{name} is drawn flat in the inventory and stays a sprite in hand"
         );
     }
+}
+
+#[test]
+fn pinned_end_rod_is_carried_as_a_three_dimensional_model() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let visual = entities
+        .item_visuals()
+        .iter()
+        .find(|entry| entry.key.identifier.as_ref() == "minecraft:end_rod")
+        .and_then(|entry| match entry.route {
+            ItemVisualDefinitionRoute::BlockItem { block_visual } => Some(block_visual.0),
+            _ => None,
+        })
+        .expect("end rod has a reviewed block-item route");
+    let held = collect_held(&world, &entities, &icons);
+    let vertices = held
+        .models
+        .get(&visual)
+        .expect("end rod keeps its non-cube inventory model in hand");
+    assert_eq!(
+        vertices.len(),
+        72,
+        "the shaft and mounting plate are both held"
+    );
+    let (min, max) = vertices.iter().fold(
+        ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]),
+        |(mut min, mut max), vertex| {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(vertex.position[axis]);
+                max[axis] = max[axis].max(vertex.position[axis]);
+            }
+            (min, max)
+        },
+    );
+    assert_eq!(min, [-0.125, -0.5, -0.125]);
+    assert_eq!(max, [0.125, 0.5, 0.125]);
 }
 
 #[test]

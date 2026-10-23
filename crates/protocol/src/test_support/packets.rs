@@ -122,6 +122,15 @@ pub fn prediction_sync_flags(packet: &Packet) -> Option<[u64; 3]> {
     Some(sync.actor_data_flag.actor_flag_bitset_data.0)
 }
 
+/// Reads the effective flight ability carried by a prediction sync.
+#[must_use]
+pub fn prediction_sync_flying(packet: &Packet) -> Option<bool> {
+    let packets::Packet::ClientMovementPredictionSync(sync) = &*packet.data else {
+        return None;
+    };
+    Some(sync.actor_flying_state)
+}
+
 /// The held-item update a MobEquipment `packet` sends, or `None` for any other packet.
 #[must_use]
 pub fn equipment(packet: &Packet) -> Option<EquipmentObservation> {
@@ -367,4 +376,20 @@ pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
             )
         },
     )
+}
+
+/// Reads the actor runtime ID and swing source of an arm-swing animation.
+pub fn swing(packet: &Packet) -> Option<(u64, Option<String>)> {
+    let packets::Packet::Animate(animate) = &*packet.data else {
+        return None;
+    };
+    (animate.action == bedrock_protocol_1_26_51::enums::AnimateAction::Swing).then(|| {
+        (
+            animate.target_actor_runtime_id.0,
+            animate
+                .swing_source
+                .as_ref()
+                .map(|source| source.to_string_lossy().into_owned()),
+        )
+    })
 }

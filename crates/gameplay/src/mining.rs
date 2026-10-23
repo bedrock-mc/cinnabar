@@ -109,8 +109,22 @@ pub struct FrozenMiningTarget {
 /// One tick's committed block actions, item interaction and mining request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueuedMiningInteraction {
+    pub creative_destroy: Option<crate::survival_mining::CreativeDestroyBlock>,
     pub interactions: PlayerAuthInputInteractions,
     pub mining_request: Option<protocol::MineBlockRequest>,
+}
+
+impl QueuedMiningInteraction {
+    /// Moves a carried item interaction to the replayed position of the tick that carries it.
+    pub(crate) fn replay_at(&mut self, player_position: [f32; 3]) {
+        if let Some(
+            protocol::BlockItemInteraction::Use(request)
+            | protocol::BlockItemInteraction::Destroy(request),
+        ) = self.interactions.block_interaction.as_mut()
+        {
+            request.player_position = player_position;
+        }
+    }
 }
 
 pub const fn protocol_input_mode(input_mode: InputMode) -> PlayerInputMode {

@@ -15,6 +15,10 @@ impl PhysicsSampleContext {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    pub sync_state: posture::SyncState,
+    pub sync_server: client_world::MovementFlagUpdate,
+    /// Feet position before travel, retained independently of live position updates.
+    pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -36,6 +40,7 @@ pub(super) struct ControllerFrame {
     pub grounded_before_tick: bool,
     pub jump_repeated: bool,
     pub ride_delta: Option<[f32; 3]>,
+    pub actor_position: Option<super::actor_move::ActorPositionUpdate>,
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
@@ -63,6 +68,10 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        if let Some(position) = self.actor_position {
+            position.apply(state);
+            anchor_state.note_hard_anchor();
+        }
         input.no_clip = self.intent.no_clip;
         let previous_sprinting = input.sprinting;
         if let Some(sprinting) = self.server_sprinting {
@@ -138,7 +147,7 @@ impl ControllerFrame {
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,
-            sim::MovementMode::Crawling | sim::MovementMode::Gliding | sim::MovementMode::Riding
+            sim::MovementMode::Crawling | sim::MovementMode::Riding
         ) {
             input.sprinting = false;
         }
@@ -170,6 +179,7 @@ impl ControllerFrame {
             state.velocity.y as f32,
             state.velocity.z as f32,
         ];
+        self.position_before_tick = state.position;
         self.modes = *modes;
         self.anchor_state = *anchor_state;
         self.input = *input;
