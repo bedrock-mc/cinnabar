@@ -867,6 +867,7 @@ impl LocalPhysicsController {
                 }
                 Err(error) => {
                     self.modes = previous_modes;
+                    state.position = before; // Off the uncommitted seat, like the boat.
                     self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(
                         &error,

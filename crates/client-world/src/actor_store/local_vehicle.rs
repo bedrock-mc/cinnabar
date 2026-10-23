@@ -1,7 +1,7 @@
 //! The boat the local player steers. The client predicts its pose, so server movement lands
 //! on it only when the server teleports or forces the move; which boat that is follows the
-//! current links. Each server change the prediction must restart from, an admitted move or a
-//! respawn of the boat, advances the vehicle revision.
+//! current links. Each server change the prediction must restart from, an admitted move, new
+//! motion or a respawn of the boat, advances the vehicle revision.
 
 use protocol::ActorMoveEvent;
 

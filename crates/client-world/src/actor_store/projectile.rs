@@ -23,5 +23,7 @@ impl ActorStore {
                 }
             }
         }
+        // A predicted boat restarts from the server's motion.
+        self.note_local_vehicle_change(event.actor_runtime_id);
     }
 }

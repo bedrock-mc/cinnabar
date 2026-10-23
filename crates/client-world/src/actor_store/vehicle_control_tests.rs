@@ -492,3 +492,24 @@ fn a_respawned_boat_restarts_prediction() {
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     assert_ne!(store.local_vehicle_revision(), 0);
 }
+
+/// Server motion of the steered boat restarts prediction, so the impulse is not overwritten.
+#[test]
+fn server_motion_of_the_steered_boat_restarts_prediction() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    sequence += 1;
+    store.apply_motion(
+        sequence,
+        protocol::ActorMotionEvent {
+            actor_runtime_id: BOAT as u64,
+            motion: [0.5, 0.0, 0.0],
+            tick: 0,
+        },
+    );
+    assert_eq!(store.local_vehicle_revision(), 1);
+    assert_eq!(
+        store.snapshot_by_unique(BOAT).unwrap().native_velocity(),
+        [0.5, 0.0, 0.0]
+    );
+}

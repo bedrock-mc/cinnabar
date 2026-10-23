@@ -106,6 +106,66 @@ mod tests {
         }
     }
 
+    /// [`Ground`] whose terrain beyond x = 100 is unloaded.
+    struct EdgeGround;
+
+    impl CollisionWorld for EdgeGround {
+        fn ensure_movement_origin(&self, feet: Vec3) -> Result<(), WorldQueryError> {
+            if feet.x >= 100.0 {
+                return Err(WorldQueryError::UnloadedChunk(world::ChunkKey {
+                    dimension: 0,
+                    x: 6,
+                    z: 0,
+                }));
+            }
+            Ok(())
+        }
+
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ground.collision_boxes(query)
+        }
+    }
+
+    /// When the boat's step succeeds but the rider's tick fails, the rider stays where the
+    /// committed state left it rather than on the discarded seat.
+    #[test]
+    fn a_failed_tick_leaves_the_rider_off_the_uncommitted_seat() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.reanchor_network_position([99.95, protocol::PLAYER_NETWORK_OFFSET, 0.5], 100, true);
+        let ride = crate::movement::PhysicsSampleContext {
+            mode_intent: ModeIntent {
+                ride: Some(crate::movement::RideKind::Boat),
+                vehicle: Some(SteeredVehicle {
+                    runtime_id: 7,
+                    unique_id: -7,
+                    body: sim::BoatBody {
+                        width: 1.4,
+                        height: 0.455,
+                        height_offset: 0.375,
+                    },
+                    position: [99.95, 0.375, 0.5],
+                    yaw: 0.0,
+                    velocity: [0.6, 0.0, 0.0],
+                    seat: [0.0, 0.0, 0.0],
+                    revision: 0,
+                }),
+                ..ModeIntent::default()
+            },
+            ..Default::default()
+        };
+        let frame = physics.advance_with_context(
+            std::time::Duration::from_millis(50),
+            MovementInput::default(),
+            ride,
+            &EdgeGround,
+        );
+        assert!(frame.blocked.is_some());
+        assert_eq!(physics.network_position().unwrap()[0], 99.95);
+    }
+
     #[test]
     fn a_predicted_seat_is_retained_for_player_replay() {
         let mut intent = ModeIntent {
