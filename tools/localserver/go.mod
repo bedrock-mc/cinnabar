@@ -3,7 +3,7 @@ module github.com/cinnabar-mc/cinnabar/tools/localserver
 go 1.26.1
 
 require (
-	github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
+	github.com/df-mc/dragonfly v0.11.5
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0
