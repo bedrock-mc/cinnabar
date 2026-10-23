@@ -603,7 +603,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     let startup_vsync = present_mode_runtime
         .vsync_override()
-        .unwrap_or_else(|| saved_settings.user_settings().video.vsync);
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync.enabled());
     if feedback.cancelled() {
         return Ok(());
     }
@@ -646,12 +646,15 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ));
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
+        .init_resource::<crate::frame_pacing::PowerSource>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
+    #[cfg(target_os = "macos")]
+    crate::frame_pacing::macos_presentation::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {

@@ -5,6 +5,7 @@
 //! The layer is retained per view and redrawn only when what it holds changes.
 //! The last composite of a frame runs in place of the output blit, writing the
 //! camera's output directly.
+use super::target::{NativeUiTarget, UiTarget};
 use super::*;
 use bevy::{
     camera::{CameraOutputMode, ClearColor, ClearColorConfig},
@@ -34,7 +35,7 @@ pub(crate) const UI_COMPOSITE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f5b1f3c2-7a0e-4d0c-9c5e-3a8a4b1e6d21");
 /// The UI layer's format: raw bytes, so blending happens on sRGB-encoded values.
 pub(crate) const UI_LAYER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
-const UI_LAYER_BYTES_PER_TEXEL: u64 = {
+pub(super) const UI_LAYER_BYTES_PER_TEXEL: u64 = {
     assert!(matches!(UI_LAYER_FORMAT, TextureFormat::Rgba8Unorm));
     4
 };
@@ -275,6 +276,8 @@ impl CompositeBindings {
 pub(crate) struct UiLayerStore {
     device: Option<wgpu::Device>,
     views: HashMap<Entity, Vec<RetainedLayer>>,
+    /// Extent and segment count whose rasters ran out of memory.
+    failed: crate::gpu_allocation::FailedRequests<(Extent3d, usize)>,
 }
 
 impl UiLayerStore {
@@ -282,6 +285,7 @@ impl UiLayerStore {
     fn synchronize_device(&mut self, device: &RenderDevice) {
         if self.device.as_ref() != Some(device.wgpu_device()) {
             self.views.clear();
+            self.failed = Default::default();
             self.device = Some(device.wgpu_device().clone());
         }
     }
@@ -289,6 +293,7 @@ impl UiLayerStore {
     /// Releases rasters and their accepted publications when the owning view disappears.
     fn retain_live_views(&mut self, live: impl Fn(Entity) -> bool) {
         self.views.retain(|view, _| live(*view));
+        self.failed.retain(live);
     }
 }
 
@@ -301,9 +306,15 @@ pub(crate) fn prepare_ui_layers(
     mut commands: Commands,
     mut store: ResMut<UiLayerStore>,
     device: Res<RenderDevice>,
-    views: Query<(Entity, &ViewTarget, Option<&ExtractedCamera>)>,
+    views: Query<(
+        Entity,
+        &ViewTarget,
+        Option<&ExtractedCamera>,
+        Option<&NativeUiTarget>,
+    )>,
     gpu: Option<Res<UiGpu>>,
 ) {
+    let store = &mut *store;
     store.synchronize_device(&device);
     store.retain_live_views(|view| views.contains(view));
     let requested = gpu
@@ -322,12 +333,13 @@ pub(crate) fn prepare_ui_layers(
             super::segments::plan_ui_passes(&batches, false).layer_count()
         });
     let mut writers = HashMap::<_, usize>::new();
-    for (_, target, _) in &views {
+    for (_, target, _, _) in &views {
         if let Some(output) = target.out_texture() {
             *writers.entry(output.id()).or_default() += 1;
         }
     }
-    for (entity, target, camera) in &views {
+    for (entity, target, camera, native) in &views {
+        let target = UiTarget::new(target, native);
         let size = target.main_texture().size();
         let size = Extent3d {
             width: size.width,
@@ -336,7 +348,12 @@ pub(crate) fn prepare_ui_layers(
         };
         let count = retained_segment_count(requested.max(1), size);
         let layers = store.views.entry(entity).or_default();
-        synchronize_layers(layers, &device, size, count);
+        synchronize_view_layers(layers, &mut store.failed, entity, &device, size, count);
+        if layers.is_empty() {
+            // Out of memory: the UI skips until its raster can be retried.
+            commands.entity(entity).remove::<UiLayerTexture>();
+            continue;
+        }
         if requested == 0 {
             for layer in layers.iter() {
                 *layer.held.lock().expect("UI layer content lock") = None;
@@ -352,9 +369,10 @@ pub(crate) fn prepare_ui_layers(
             )
         });
         let direct_output = unblended
-            && target
-                .out_texture()
-                .is_some_and(|output| writers[&output.id()] == 1);
+            && target.out_texture().is_some_and(|output| {
+                writers[&output.id()] == 1
+                    && crate::render_bounds::extent(output) == [size.width, size.height]
+            });
         let mut frame = frame_layer(
             layers.last().expect("one scratch layer is always resident"),
             direct_output,
@@ -384,7 +402,23 @@ fn retained_segment_count(requested: usize, size: Extent3d) -> usize {
     }
 }
 
+/// Allocates the view's rasters with shared backoff, keeping single-layer replay when possible.
+fn synchronize_view_layers(
+    layers: &mut Vec<RetainedLayer>,
+    failed: &mut crate::gpu_allocation::FailedRequests<(Extent3d, usize)>,
+    view: Entity,
+    device: &RenderDevice,
+    size: Extent3d,
+    count: usize,
+) {
+    failed.attempt(view, (size, count), || {
+        synchronize_layers(layers, device, size, count);
+        (layers.len() == count).then_some(())
+    });
+}
+
 /// Drops removed rasters and every old extent before allocating the required bounded set.
+/// Out of memory falls back to the single-layer replay, or to no layer at all.
 fn synchronize_layers(
     layers: &mut Vec<RetainedLayer>,
     device: &RenderDevice,
@@ -399,7 +433,11 @@ fn synchronize_layers(
     }
     layers.truncate(count);
     while layers.len() < count {
-        layers.push(retained_layer(device, size));
+        let Some(layer) = retained_layer(device, size) else {
+            layers.truncate(1);
+            return;
+        };
+        layers.push(layer);
     }
 }
 
@@ -420,25 +458,30 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
     }
 }
 
-/// Allocates one gamma-space raster on the current view/device lifetime.
-fn retained_layer(device: &RenderDevice, size: Extent3d) -> RetainedLayer {
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("retained gamma-space UI layer"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: UI_LAYER_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
+/// Allocates one gamma-space raster on the current view/device lifetime; `None` when out of
+/// memory.
+fn retained_layer(device: &RenderDevice, size: Extent3d) -> Option<RetainedLayer> {
+    let bytes = u64::from(size.width) * u64::from(size.height) * UI_LAYER_BYTES_PER_TEXEL;
+    let texture =
+        crate::gpu_allocation::checked(device, "retained gamma-space UI layer", bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some("retained gamma-space UI layer"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: UI_LAYER_FORMAT,
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        })?;
     let view = texture.create_view(&TextureViewDescriptor::default());
-    RetainedLayer {
+    Some(RetainedLayer {
         texture,
         view,
         held: Arc::default(),
         bindings: Arc::default(),
-    }
+    })
 }
 
 #[derive(Resource)]
@@ -608,7 +651,7 @@ pub(crate) struct CompositePipelines {
 pub(crate) fn composite(
     context: &mut RenderContext,
     world: &World,
-    target: &ViewTarget,
+    target: UiTarget<'_>,
     layer: &UiLayerTexture,
     pipeline: &RenderPipeline,
     layout: &BindGroupLayout,
@@ -642,7 +685,7 @@ pub(crate) fn composite(
 struct CompositeSources<'a> {
     layer: &'a UiLayerTexture,
     scene: &'a TextureView,
-    target: &'a ViewTarget,
+    target: UiTarget<'a>,
 }
 
 /// Blends a raster over its current scene and releases bindings for retired scene targets.
@@ -707,79 +750,84 @@ fn encode_composite(
     pass.draw(0..3, 0..1);
 }
 
-/// Composites the deferred HUD directly into the camera output when its pipeline is ready.
+/// Attachments and native composition state needed by the final per-view presentation pass.
+type UiPresentQuery = (
+    &'static ViewTarget,
+    &'static bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
+    Option<&'static ExtractedCamera>,
+    Option<&'static UiLayerTexture>,
+    Option<&'static NativeUiTarget>,
+);
+
+/// Presents native screen UI after the world upscale, with or without a final alpha layer.
 pub(crate) fn ui_present(
     world: &World,
-    view: bevy::render::renderer::ViewQuery<(
-        &ViewTarget,
-        &bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
-        Option<&ExtractedCamera>,
-        Option<&UiLayerTexture>,
-    )>,
+    view: bevy::render::renderer::ViewQuery<UiPresentQuery>,
     mut context: RenderContext,
 ) {
     let entity = view.entity();
-    let (target, _, camera, layer) = view.into_inner();
-    let Some(layer) = layer else {
-        return;
-    };
-    layer.presented.store(false, Ordering::Relaxed);
-    layer.content_presented.store(false, Ordering::Relaxed);
-    layer.composited.store(false, Ordering::Relaxed);
-    if !layer.present.load(Ordering::Relaxed) {
-        return;
+    let (output, _, camera, layer, native) = view.into_inner();
+    if let Some(layer) = layer {
+        layer.presented.store(false, Ordering::Relaxed);
+        layer.content_presented.store(false, Ordering::Relaxed);
+        layer.composited.store(false, Ordering::Relaxed);
     }
-    let pipelines = world
+    let native = native.filter(|native| native.is_ready());
+    let target = UiTarget::new(output, native);
+    let resources = world
         .get_resource::<UiGpu>()
-        .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied());
-    let (Some(pipelines), Some(cache), Some(composite_pipeline)) = (
-        pipelines,
-        world.get_resource::<PipelineCache>(),
-        world.get_resource::<UiCompositePipeline>(),
-    ) else {
-        return;
-    };
-    let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
-    if layer.direct_output
-        && let Some(pipeline) = pipelines
-            .output
-            .and_then(|id| cache.get_render_pipeline(id))
+        .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied())
+        .zip(world.get_resource::<PipelineCache>())
+        .zip(world.get_resource::<UiCompositePipeline>());
+    if let Some(layer) = layer.filter(|layer| layer.present.load(Ordering::Relaxed))
+        && let Some(((pipelines, cache), composite_pipeline)) = resources
     {
-        let clear = match camera.map(|camera| &camera.output_mode) {
-            Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
-            _ => ClearColorConfig::Default,
-        };
-        let clear = match clear {
-            ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
-            ClearColorConfig::Custom(color) => Some(color.into()),
-            ClearColorConfig::None => None,
-        };
-        let Some(attachment) = target.out_texture_color_attachment(clear) else {
-            return;
-        };
-        let scissor = camera
-            .and_then(|camera| camera.viewport.as_ref())
-            .map(|viewport| (viewport.physical_position, viewport.physical_size));
-        encode_composite(
-            &mut context,
-            world,
-            CompositeSources {
-                layer,
-                scene: target.main_texture_view(),
-                target,
-            },
-            attachment,
-            scissor,
-            pipeline,
-            &layout,
-        );
-        layer.presented.store(true, Ordering::Relaxed);
-
-        return;
+        let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
+        if layer.direct_output
+            && let Some(pipeline) = pipelines
+                .output
+                .and_then(|id| cache.get_render_pipeline(id))
+        {
+            let clear = match camera.map(|camera| &camera.output_mode) {
+                Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
+                _ => ClearColorConfig::Default,
+            };
+            let clear = match clear {
+                ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
+                ClearColorConfig::Custom(color) => Some(color.into()),
+                ClearColorConfig::None => None,
+            };
+            if let Some(attachment) = target.out_texture_color_attachment(clear) {
+                let scissor = camera
+                    .and_then(|camera| camera.viewport.as_ref())
+                    .map(|viewport| (viewport.physical_position, viewport.physical_size));
+                encode_composite(
+                    &mut context,
+                    world,
+                    CompositeSources {
+                        layer,
+                        scene: target.main_texture_view(),
+                        target,
+                    },
+                    attachment,
+                    scissor,
+                    pipeline,
+                    &layout,
+                );
+                layer.presented.store(true, Ordering::Relaxed);
+                if let Some(native) = native {
+                    native.mark_presented();
+                }
+                return;
+            }
+        }
+        if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
+            composite(&mut context, world, target, layer, pipeline, &layout);
+            layer.composited.store(true, Ordering::Relaxed);
+        }
     }
-    if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-        composite(&mut context, world, target, layer, pipeline, &layout);
-        layer.composited.store(true, Ordering::Relaxed);
+    if let Some(native) = native {
+        native.present(world, &mut context, output);
     }
 }
 
@@ -789,6 +837,7 @@ type UiOutputQuery = (
     Option<&'static ExtractedCamera>,
     Option<&'static UiLayerTexture>,
     Option<&'static bevy::render::view::ResolvedCompositingSpace>,
+    Option<&'static NativeUiTarget>,
 );
 
 /// Qualifies content only after direct output or a successfully encoded ordinary output blit.
@@ -802,7 +851,7 @@ fn observe_ui_output(
         >,
     >,
 ) {
-    let (target, _, camera, layer, space) = view.into_inner();
+    let (target, _, camera, layer, space, native) = view.into_inner();
     let Some(layer) = layer else {
         return;
     };
@@ -814,6 +863,12 @@ fn observe_ui_output(
         return;
     }
     if layer.present.load(Ordering::Relaxed) && !layer.composited.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(native) = native.filter(|native| native.is_ready()) {
+        layer
+            .content_presented
+            .store(native.was_presented(), Ordering::Relaxed);
         return;
     }
     let blend_state = match camera.map(|camera| &camera.output_mode) {
@@ -844,11 +899,13 @@ fn observe_ui_output(
     );
 }
 
-/// Runs Bevy's output blit unless the HUD composite already wrote the final image.
-fn needs_output_blit(view: bevy::render::renderer::ViewQuery<Option<&UiLayerTexture>>) -> bool {
-    !view
-        .into_inner()
-        .is_some_and(|layer| layer.presented.load(Ordering::Relaxed))
+/// Runs Bevy's output blit only while neither native composition nor the HUD wrote the output.
+fn needs_output_blit(
+    view: bevy::render::renderer::ViewQuery<(Option<&UiLayerTexture>, Option<&NativeUiTarget>)>,
+) -> bool {
+    let (layer, native) = view.into_inner();
+    !layer.is_some_and(|layer| layer.presented.load(Ordering::Relaxed))
+        && !native.is_some_and(NativeUiTarget::was_presented)
 }
 
 /// Presents the HUD after post-processing, then blits only if direct output was unavailable.

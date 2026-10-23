@@ -56,7 +56,7 @@ pub use input_pacing::{FramePacing, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
-pub use media::MediaTexture;
+pub use media::{MediaTexture, MediaUpload};
 mod media_screen;
 
 mod material_shader;
@@ -86,6 +86,8 @@ mod present_mode;
 mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
+mod render_scale;
+pub use render_scale::{RenderScaleOutput, RenderScaleSharpen, RenderScaleSystems};
 
 mod runtime_profile_phases;
 

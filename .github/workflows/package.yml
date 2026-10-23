@@ -590,10 +590,10 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
           cargo install cargo-ndk --version "$(pin cargo_ndk)" --locked
-      - name: Install the Android icon renderer
+      - name: Install Android build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends librsvg2-bin
+          sudo apt-get install -y --no-install-recommends librsvg2-bin cmake ninja-build gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - name: Build and sign the release APK
         env:
           CINNABAR_ANDROID_KEYSTORE_BASE64: ${{ secrets.CINNABAR_ANDROID_KEYSTORE_BASE64 }}

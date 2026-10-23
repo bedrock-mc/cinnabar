@@ -84,7 +84,9 @@ pub(super) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
     views: Query<OverlayView>,
+    mut failed: Local<crate::gpu_allocation::FailedRequests<(Extent3d, TextureFormat, u32)>>,
 ) {
+    failed.retain(|view| views.contains(view));
     for (entity, target, depth, msaa, enhanced, pack, overlay) in &views {
         if !enabled(enhanced, pack) {
             if overlay.is_some() {
@@ -110,7 +112,20 @@ pub(super) fn prepare(
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         };
-        let layer = device.create_texture(&descriptor);
+        let size = target.main_texture().size();
+        let bytes = u64::from(size.width) * u64::from(size.height) * 4 * u64::from(msaa.samples());
+        let Some(layer) = failed.attempt(
+            entity,
+            (size, target.main_texture_format(), msaa.samples()),
+            || {
+                crate::gpu_allocation::checked(&device, "nametag encoded overlay", bytes, || {
+                    device.create_texture(&descriptor)
+                })
+            },
+        ) else {
+            commands.entity(entity).remove::<Overlay>();
+            continue;
+        };
         let view = layer.create_view(&default());
         let shader = device
             .wgpu_device()

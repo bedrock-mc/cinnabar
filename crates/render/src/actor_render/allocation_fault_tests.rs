@@ -377,17 +377,25 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 );
             }
             let attempts = calls.borrow().len();
+            if !first {
+                // Replacing incompatible artwork releases pages; completed work permits a retry.
+                app.sub_app(RenderApp)
+                    .world()
+                    .resource::<RenderDevice>()
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+            }
             let _ = draw_frame(&mut app, &next);
-            if !first && layers == 1 {
+            if !first {
                 assert!(
                     calls.borrow().len() > attempts,
-                    "compatible fallbacks remain retryable while demanded"
+                    "demanded artwork retries after a fallback or released pages retire"
                 );
             } else {
                 assert_eq!(
                     calls.borrow().len(),
                     attempts,
-                    "exhausted publication must not spin"
+                    "a failed first publication must back off without released pages"
                 );
             }
             drop(fault);

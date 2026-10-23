@@ -73,9 +73,9 @@ pub use nametag::{
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{
-    DisplayTiming, PresentModeKind, PresentationIntent, SurfacePresentModes, VrrStatus,
-    configured_present_mode, frame_rate_target, initial_present_mode, select_present_mode,
-    vrr_ceiling,
+    DisplayTiming, FrameRateContext, PresentModeKind, PresentationIntent, SurfacePresentModes,
+    VrrStatus, configured_present_mode, frame_rate_target, initial_present_mode,
+    select_present_mode, vrr_ceiling,
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
@@ -160,7 +160,6 @@ pub mod native_trig;
 pub mod spawner;
 pub mod viewmodel;
 pub mod weather;
-pub use actor::ActorRigVertexSegments;
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ACTOR_LAYER_FLAME,
     ACTOR_LAYER_SKIN_BASE, ActorDrawManifestEntry, ActorGpuInstance, ActorMaterial,
@@ -178,6 +177,7 @@ pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+pub use actor::{ActorRigVertexSegments, share_identical_vertices};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub use actor::{GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use block_entity::BeaconModel;

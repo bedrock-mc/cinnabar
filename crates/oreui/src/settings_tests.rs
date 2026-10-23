@@ -911,3 +911,81 @@ fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
         assert_eq!(tabs, expected, "from {name}");
     }
 }
+
+#[test]
+fn video_render_resolution_slider_edits_every_integer_percentage() {
+    use launcher::menu::settings_options::SettingId;
+    let index = SettingId::RenderResolution.index();
+    for size in [[640.0, 720.0], [1280.0, 720.0]] {
+        let mut view = settings_view("video_forced_index");
+        assert_eq!(
+            view.settings_options
+                .user_settings()
+                .video
+                .render_scale_percent,
+            ui::DEFAULT_RENDER_SCALE_PERCENT
+        );
+        let offsets = centered_option(&view, index, size);
+        let frame = paint(&view, size, offsets.clone());
+        assert!(
+            !frame
+                .hits
+                .iter()
+                .any(|(action, _)| { *action == MenuAction::SettingsDropdown(index as u16) })
+        );
+        for percent in ui::MIN_RENDER_SCALE_PERCENT..=ui::MAX_RENDER_SCALE_PERCENT {
+            let action = MenuAction::SettingsOption(index as u16, i32::from(percent));
+            let bounds = frame
+                .hits
+                .iter()
+                .find_map(|(found, bounds)| (*found == action).then_some(*bounds))
+                .expect("every integer render percentage is selectable");
+            assert_eq!(hit(&frame.hits, centre(bounds)), Some(action));
+            Arc::make_mut(&mut view.settings_options).set(index, i32::from(percent));
+            assert_eq!(
+                view.settings_options
+                    .user_settings()
+                    .video
+                    .render_scale_percent,
+                percent
+            );
+        }
+        for percent in [
+            ui::MIN_RENDER_SCALE_PERCENT,
+            37,
+            ui::MAX_RENDER_SCALE_PERCENT,
+        ] {
+            Arc::make_mut(&mut view.settings_options).set(index, i32::from(percent));
+            let (_, _, nodes) = super::review_tests::paint(offsets.clone(), |canvas| {
+                settings::draw(
+                    canvas,
+                    &view,
+                    size,
+                    &|_| None,
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
+            });
+            let caption = format!("{percent}%");
+            assert!(nodes.iter().any(|node| matches!(node.visual(),
+                ui::UiVisual::Text { layout, .. }
+                    if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == caption
+            )), "the slider must display the selected percentage");
+        }
+    }
+}
+
+#[test]
+fn enhanced_video_keeps_render_resolution_editable() {
+    use launcher::menu::settings_options::SettingId;
+    let size = [1280.0, 720.0];
+    let mut view = settings_view("video_forced_index");
+    let index = SettingId::RenderResolution.index();
+    view.render_mode = ui::RenderMode::Enhanced;
+    let offsets = centered_option(&view, index, size);
+    let frame = paint(&view, size, offsets);
+    assert!(frame.hits.iter().any(|(action, _)| matches!(action,
+        MenuAction::SettingsOption(at, _) if usize::from(*at) == index
+    )));
+}

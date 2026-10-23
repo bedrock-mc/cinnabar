@@ -10,6 +10,45 @@ use {
     render_scene::HandRigScene,
 };
 
+/// Missing hand depth backs off, recovers, and retries a resized request immediately.
+#[test]
+fn hand_depth_allocation_failure_backs_off_then_recovers() {
+    use bevy::ecs::system::RunSystemOnce;
+    let device = RenderDevice::from(wgpu::Device::noop(&default()).0);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            if label != "first-person rig private reverse-Z depth" {
+                return false;
+            }
+            attempts.set(attempts.get() + 1);
+            true
+        }
+    });
+    for _ in 0..3 {
+        ensure_depth(&mut gpu, &device, [4, 4], 1);
+        assert!(gpu.depth.is_none());
+    }
+    assert_eq!(attempts.get(), 1);
+    drop(failure);
+    ensure_depth(&mut gpu, &device, [4, 4], 1);
+    let depth = gpu.depth.as_ref().expect("hand depth recovers").view.id();
+    ensure_depth(&mut gpu, &device, [4, 4], 1);
+    assert_eq!(gpu.depth.as_ref().unwrap().view.id(), depth);
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        ensure_depth(&mut gpu, &device, [8, 4], 1);
+        assert!(gpu.depth.is_none(), "old depth cannot survive a resize");
+    }
+    ensure_depth(&mut gpu, &device, [8, 8], 1);
+    assert_eq!(gpu.depth.as_ref().unwrap().size, [8, 8]);
+}
+
 #[test]
 fn reshaped_hand_glint_reuploads_shared_pixels_and_retains_unchanged_shapes() {
     use bevy::ecs::system::RunSystemOnce;
@@ -154,6 +193,58 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
             "a changed hand pose must not allocate another Metal staging buffer"
         );
     }
+}
+
+/// A pose the device has no memory to resize must not be drawn with the previous bones.
+#[cfg(target_os = "macos")]
+#[test]
+fn failed_pose_resize_skips_the_hand_draw_and_retries() {
+    use bevy::{ecs::system::RunSystemOnce, render::view::RetainedViewEntity};
+    let Some(mut app) = crate::upload_allocation_tests::app(HandRigRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.spawn((
+        Msaa::Off,
+        crate::render_test_support::camera(false),
+        ExtractedView {
+            retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+            clip_from_view: Mat4::IDENTITY,
+            world_from_view: GlobalTransform::IDENTITY,
+            clip_from_world: None,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
+            viewport: UVec4::new(0, 0, 64, 64),
+            color_grading: default(),
+            invert_culling: false,
+        },
+    ));
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    world.insert_resource(scene);
+    world.run_system_once(prepare).unwrap();
+    assert_eq!(world.resource::<HandRigGpu>().instance_count, 1);
+
+    let mut rig = single_instance_frame();
+    rig.instances = Arc::from([ActorGpuInstance::default(); 2]);
+    assert!(
+        world
+            .resource_mut::<HandRigScene>()
+            .publish(rig, skin(), light(), 1.2, 2)
+    );
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "first-person rig instance");
+        world.run_system_once(prepare).unwrap();
+    }
+    let gpu = world.resource::<HandRigGpu>();
+    assert_eq!(gpu.instance_count, 0);
+    assert!(gpu.bind_group.is_none());
+    assert_eq!(gpu.revision, None);
+
+    world.run_system_once(prepare).unwrap();
+    let gpu = world.resource::<HandRigGpu>();
+    assert_eq!(gpu.revision, Some(2));
+    assert_eq!(gpu.instance_count, 2);
 }
 
 #[test]
@@ -362,7 +453,11 @@ fn pose_updates_reuse_their_buffers() {
     let mut buffers = Vec::new();
     for revision in 1..=3 {
         assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
-        upload_pose(&mut gpu, &uploads, scene.frame.as_ref().unwrap());
+        assert!(upload_pose(
+            &mut gpu,
+            &uploads,
+            scene.frame.as_ref().unwrap()
+        ));
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));

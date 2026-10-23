@@ -704,7 +704,7 @@ fn admitted_lethal_attribute_burst_retains_both_controls_without_overflow() {
             min: 0.0,
             max: 20.0,
             current,
-            default: None,
+            default: Some(current),
             modifiers: Default::default(),
         });
         stream

@@ -1,4 +1,4 @@
-use bevy::prelude::{App, DetectChanges, MinimalPlugins};
+use bevy::prelude::{App, Changed, IntoScheduleConfigs, MinimalPlugins};
 use render_model::{PresentModeKind, SurfacePresentModes};
 
 use super::*;
@@ -11,7 +11,10 @@ const MAILBOX_ONLY: SurfacePresentModes =
 fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
     let automatic = PresentModeRuntime::from_startup(false, false, false, false);
     assert!(!automatic.locked());
-    assert_eq!(automatic.policy.preference(), PresentModePreference::Auto);
+    assert_eq!(
+        automatic.policy.preference().intent() == PresentationIntent::Synchronized,
+        render_api::VsyncMode::DEFAULT.enabled()
+    );
     assert_eq!(automatic.window_present_mode(), PresentMode::Fifo);
 
     for (runtime, expected_preference, startup_mode) in [
@@ -22,7 +25,7 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
         ),
         (
             PresentModeRuntime::from_startup(false, true, false, false),
-            PresentModePreference::NoVsync,
+            PresentModePreference::AllowTearing,
             PresentMode::Fifo,
         ),
         (
@@ -37,27 +40,38 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
     }
 }
 
-/// Startup and runtime share one decision: a probed surface only changes which mode is chosen.
+/// The diagnostic flag prefers Immediate even when Mailbox is available.
 #[test]
-fn startup_flag_and_runtime_setting_select_the_same_mode_once_probed() {
-    for supported in [METAL, MAILBOX_ONLY, SurfacePresentModes::FIFO_ONLY] {
+fn the_explicit_diagnostic_flag_prefers_immediate() {
+    for (supported, expected) in [
+        (METAL, PresentMode::Immediate),
+        (MAILBOX_ONLY, PresentMode::Mailbox),
+        (
+            MAILBOX_ONLY.with(PresentModeKind::Immediate),
+            PresentMode::Immediate,
+        ),
+        (SurfacePresentModes::FIFO_ONLY, PresentMode::Fifo),
+    ] {
         let flag = PresentModeRuntime::from_startup(false, true, false, false);
         flag.policy.publish_capabilities(Some(supported));
-
-        let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
-        publish_capabilities(&app, supported);
-        publish_vsync(&mut app, false);
-        assert_eq!(primary_present_mode(&mut app), flag.window_present_mode());
+        assert_eq!(flag.window_present_mode(), expected, "{supported:?}");
     }
 }
 
+/// Applies an explicit On choice before tests publish feedback for synchronized presentation.
 fn vsync_app(runtime: PresentModeRuntime) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<RuntimeSettings>()
         .insert_resource(runtime)
         .add_systems(bevy::prelude::Update, apply_present_mode);
+    let mut settings = ui::UserSettings::default();
+    settings.video.vsync = render_api::VsyncMode::On;
+    app.world_mut()
+        .resource_mut::<RuntimeSettings>()
+        .replace_user_settings(settings);
     spawn_primary_window(&mut app);
+    app.update();
     app
 }
 
@@ -70,7 +84,7 @@ fn spawn_primary_window(app: &mut App) {
 }
 
 fn publish_vsync(app: &mut App, vsync: bool) {
-    publish_video(app, |video| video.vsync = vsync);
+    publish_video(app, |video| video.vsync = vsync.into());
 }
 
 fn publish_video(app: &mut App, edit: impl FnOnce(&mut ui::VideoSettings)) {
@@ -175,7 +189,7 @@ fn a_completed_probe_moves_no_vsync_to_mailbox() {
 
 /// The launch flag and the runtime setting both select nonblocking presentation when available.
 #[test]
-fn no_vsync_flag_and_setting_prefer_immediate() {
+fn no_vsync_flag_and_setting_use_immediate_without_mailbox() {
     let flag = PresentModeRuntime::from_startup(false, true, false, false);
     flag.policy.publish_capabilities(Some(METAL));
     assert_eq!(flag.window_present_mode(), PresentMode::Immediate);
@@ -256,7 +270,10 @@ fn a_setting_update_retries_until_the_primary_window_exists() {
 
     let runtime = app.world().resource::<PresentModeRuntime>();
     assert_eq!(runtime.observed_settings_generation(), 0);
-    assert_eq!(runtime.policy.preference(), PresentModePreference::Auto);
+    assert_eq!(
+        runtime.policy.preference().intent() == PresentationIntent::Synchronized,
+        render_api::VsyncMode::DEFAULT.enabled()
+    );
 
     spawn_primary_window(&mut app);
     app.update();
@@ -267,24 +284,38 @@ fn a_setting_update_retries_until_the_primary_window_exists() {
     assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
+/// Changes delivered to a window consumer after presentation policy runs.
+#[derive(Resource, Default)]
+struct WindowNotifications(usize);
+
+/// Records notifications rather than inspecting a component through a fresh query's tick range.
+fn observe_window_changes(
+    windows: Query<Entity, (With<PrimaryWindow>, Changed<Window>)>,
+    mut notifications: ResMut<WindowNotifications>,
+) {
+    notifications.0 += windows.iter().count();
+}
+
 #[test]
 fn a_stable_mode_never_requests_another_surface_reconfigure() {
     let runtime = PresentModeRuntime::from_startup(false, false, false, false);
     let render_policy = runtime.policy();
     let mut app = vsync_app(runtime);
+    app.init_resource::<WindowNotifications>().add_systems(
+        bevy::prelude::Update,
+        observe_window_changes.after(apply_present_mode),
+    );
     render_policy.publish_remedy(PresentModeRemedy::UseImmediate);
     app.update();
     assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 
-    app.world_mut().clear_trackers();
+    let notifications = app.world().resource::<WindowNotifications>().0;
     app.update();
-    let world = app.world_mut();
-    let mut windows = world.query_filtered::<bevy::prelude::Ref<Window>, With<PrimaryWindow>>();
-    let window = windows.single(world).unwrap();
-    assert_eq!(window.present_mode, PresentMode::Immediate);
-    assert!(
-        !window.is_changed(),
-        "a stable mode must not request another surface reconfigure"
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    assert_eq!(
+        app.world().resource::<WindowNotifications>().0,
+        notifications,
+        "an unchanged mode must not notify window consumers"
     );
 }
 
@@ -355,22 +386,33 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
     let policy = app.world().resource::<PresentModeRuntime>().policy();
     assert_eq!(policy.selection(), None);
 
-    publish_capabilities(&app, MAILBOX_ONLY);
+    publish_capabilities(&app, MAILBOX_ONLY.with(PresentModeKind::Immediate));
     app.update();
-    assert_eq!(policy.selection(), Some(PresentModeKind::Mailbox));
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+    assert_eq!(policy.selection(), Some(PresentModeKind::Immediate));
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 }
 
-/// VSync off falls back from Immediate to Mailbox and finally universal FIFO.
+/// VSync off prefers Mailbox and retains universal FIFO as its last fallback.
 #[test]
 fn vsync_off_uses_the_best_supported_nonblocking_mode() {
     for (supported, expected) in [
         (MAILBOX_ONLY, PresentMode::Mailbox),
+        (
+            MAILBOX_ONLY.with(PresentModeKind::Immediate),
+            PresentMode::Mailbox,
+        ),
+        (METAL, PresentMode::Immediate),
         (SurfacePresentModes::FIFO_ONLY, PresentMode::Fifo),
     ] {
         let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
         publish_capabilities(&app, supported);
         publish_vsync(&mut app, false);
         assert_eq!(primary_present_mode(&mut app), expected, "{supported:?}");
+        publish_vsync(&mut app, true);
+        assert_eq!(
+            primary_present_mode(&mut app),
+            PresentMode::Fifo,
+            "{supported:?}"
+        );
     }
 }

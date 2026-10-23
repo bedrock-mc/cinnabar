@@ -115,6 +115,7 @@ struct VisualCompiler {
     honey_templates: BTreeMap<[u32; 6], u32>,
     portal_templates: BTreeMap<[u32; 6], u32>,
     dragon_egg_templates: BTreeMap<[u32; 6], u32>,
+    heavy_core_templates: BTreeMap<[u32; 6], u32>,
     beacon_templates: BTreeMap<[u32; 3], u32>,
     anvil_templates: BTreeMap<super::anvil::TemplateKey, u32>,
     end_portal_frame_templates: BTreeMap<super::end_portal_frame::TemplateKey, u32>,
@@ -148,6 +149,7 @@ struct VisualCompiler {
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
+    stonecutter_templates: BTreeMap<([u32; 6], bool), u32>,
     sea_pickle_templates: BTreeMap<(u32, u8, bool), u32>,
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
@@ -162,7 +164,34 @@ struct VisualCompiler {
 }
 
 impl VisualCompiler {
+    /// Dedicated rules win over the provisional envelope; the plain cube is the last resort.
     fn compile_record(
+        &mut self,
+        record: &RegistryRecord,
+        inputs: &RuleInputs<'_>,
+        admissions: ExactAdmissions,
+        canonical_air: CanonicalAirIdentity,
+    ) -> Result<CompileRuleResult, AssetError> {
+        match self.compile_dedicated(record, inputs, admissions, canonical_air)? {
+            CompileRuleResult::NoMatch => {}
+            outcome => return Ok(outcome),
+        }
+        match super::fallback::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        )? {
+            CompileRuleResult::NoMatch => Ok(super::cube::compile_rule(record, inputs)),
+            outcome => Ok(outcome),
+        }
+    }
+
+    /// Returns the first dedicated rule result, leaving unmatched records for fallback handling.
+    fn compile_dedicated(
         &mut self,
         record: &RegistryRecord,
         inputs: &RuleInputs<'_>,
@@ -283,6 +312,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::heavy_core::compile_rule(
+            record,
+            inputs,
+            &mut self.heavy_core_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::entity_drawn::compile_rule(
             record,
             inputs,
@@ -341,6 +379,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.grindstone_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::stonecutter::compile_rule(
+            record,
+            inputs,
+            &mut self.stonecutter_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -454,15 +501,6 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.leaf_litter_templates,
-            &mut ModelStorage {
-                templates: &mut self.model_templates,
-                quads: &mut self.model_quads,
-            },
-        ));
-        ordered_rule!(super::fallback::compile_rule(
-            record,
-            inputs,
-            &mut self.cuboid_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -714,7 +752,7 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
-        Ok(super::cube::compile_rule(record, inputs))
+        Ok(CompileRuleResult::NoMatch)
     }
 }
 
@@ -783,6 +821,10 @@ pub(in crate::compiler) fn compile_visuals(
         compiler.model_quads.into_boxed_slice(),
     ))
 }
+
+#[cfg(test)]
+#[path = "dispatcher/precedence_tests.rs"]
+mod precedence_tests;
 
 #[cfg(test)]
 mod tests {

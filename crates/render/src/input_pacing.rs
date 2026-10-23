@@ -366,6 +366,20 @@ impl InputPacer {
         let executor = main
             .get_resource::<MainThreadExecutor>()
             .map(|executor| executor.0.clone());
+        // The cadence may open before the predicted render deadline. Wake precisely there
+        // so an already completed render can release input without another service slice.
+        if let Some(admission) = cadence
+            .max(gpu_ready)
+            .filter(|admission| *admission < deadline)
+        {
+            self.wait(
+                admission,
+                precise,
+                profiler.as_ref(),
+                || false,
+                executor.as_deref(),
+            );
+        }
         self.wait(
             deadline,
             precise,

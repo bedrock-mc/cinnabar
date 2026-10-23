@@ -201,6 +201,7 @@ fn particle_activation_uses_one_render_path_per_blend_mode() {
             atmosphere_textures: None,
             clouds_visible: false,
             particles: Some(world.resource::<render_scene::ParticleGpuFrame>()),
+            particle_atlas_side: textures.particle_atlas_size()[0] as u32,
             precipitation: None,
             lightning: None,
             selection: None,

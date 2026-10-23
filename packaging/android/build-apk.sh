@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a signed arm64-v8a APK. The client library, the Go core and assetc ship as native
+# Builds a signed arm64-v8a APK. The client, Go core, local server and assetc ship as native
 # libraries, the only files Android lets an app execute; the prep kit ships as APK assets. Game
 # assets never enter the APK: first launch downloads and compiles them on the device.
 #
@@ -65,11 +65,13 @@ install -m 0755 "$rust_out/lib$client_library.so" "$libs/lib$client_library.so"
 install -m 0755 "$rust_out/assetc" "$libs/$(pin compiler_library)"
 install -m 0644 "$toolchain/sysroot/usr/lib/$triple/libc++_shared.so" "$libs/libc++_shared.so"
 
-# Pion's Android interface lookup (anet) needs Go's private net linknames.
-CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$toolchain/bin/$triple$min_sdk-clang" \
-    go build -buildmode=pie -trimpath \
-    -ldflags "-s -w -checklinkname=0 -extldflags=$page_flags $(bash "$here/../common/core-ldflags.sh")" \
-    -o "$libs/$(pin core_library)" ./core/cmd/bedrock-core
+# shellcheck source=build-go-helpers.sh
+source "$here/build-go-helpers.sh"
+build_go_helpers
+
+# shellcheck source=build-box64.sh
+source "$here/build-box64.sh"
+build_box64
 
 # The desktop resource root, minus the kit's compiler: setup links it from the native libraries.
 stage_resources "$stage/assets/resources" "$libs/$(pin compiler_library)"
