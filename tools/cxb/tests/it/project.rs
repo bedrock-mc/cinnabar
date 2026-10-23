@@ -61,7 +61,7 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
     use std::io::Read;
     let mut component = Vec::new();
     client_archive
-        .by_name("component.wasm")
+        .by_name(cinnabar_cxb::bundle::COMPONENT_PATH)
         .unwrap()
         .read_to_end(&mut component)
         .unwrap();
@@ -70,15 +70,25 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
             .windows(private.len())
             .any(|window| window == private.as_bytes())
     );
-    let server = fs::read(package.join("server/server.wasm")).unwrap();
+    let server = fs::read(
+        package
+            .join("server")
+            .join(experience_sdk::artifact::SERVER_WASM),
+    )
+    .unwrap();
     assert!(
         server
             .windows(private.len())
             .any(|window| window == private.as_bytes())
     );
-    let pack =
+    let mut pack =
         zip::ZipArchive::new(fs::File::open(package.join("resource.mcpack")).unwrap()).unwrap();
-    assert!(pack.file_names().any(|path| path.ends_with("blocks.json")));
+    let atlas: serde_json::Value =
+        serde_json::from_reader(pack.by_name("textures/terrain_texture.json").unwrap()).unwrap();
+    let texture = atlas["texture_data"]["space.cube.all"]["textures"]
+        .as_str()
+        .unwrap();
+    assert!(pack.by_name(&format!("{texture}.png")).is_ok());
     let world = root.join("world");
     assert_eq!(
         project::install(&archive, &world).unwrap(),
