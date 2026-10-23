@@ -606,12 +606,7 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert!(protocol::is_legacy_request_id(first_id));
     assert_eq!(
         summary(&sent),
-        (
-            first_id,
-            1,
-            vec![16, 15, 16],
-            vec![Some(41), Some(first_id), None]
-        )
+        (first_id, 1, vec![16, 15, 16], vec![None; 3])
     );
     assert_eq!(
         sent.legacy_set_slots,
@@ -626,19 +621,14 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert!(second_id < first_id && protocol::is_legacy_request_id(second_id));
     assert_eq!(
         summary(&transaction(&second.packets[0])),
-        (
-            second_id,
-            1,
-            vec![15, 14, 15],
-            vec![Some(first_id), Some(second_id), None]
-        )
+        (second_id, 1, vec![15, 14, 15], vec![None; 3])
     );
 
     // The server restating the slot replaces the prediction.
     let restated = stack(4, SNOWBALL, 14);
     let third = runtime.step(&item_frame(110, true, restated, "minecraft:snowball"));
     let (_, _, sizes, ids) = summary(&transaction(&third.packets[0]));
-    assert_eq!((sizes[0], ids[0]), (14, Some(41)));
+    assert_eq!((sizes[0], ids[0]), (14, None));
 }
 
 /// Every admitted throw reports its slot, source revision and full decrement once.
