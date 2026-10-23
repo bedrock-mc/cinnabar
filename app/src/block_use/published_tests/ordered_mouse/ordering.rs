@@ -225,7 +225,8 @@ fn ordered_mouse_ui_cancellation_keeps_local_selection_and_drops_its_later_attac
             .resource::<client_state::PlayerRuntime>()
             .inventory
             .pending_hotbar_selection(),
-        None
+        Some(1),
+        "the local selection still awaits its tick announcement"
     );
     assert_eq!(
         world

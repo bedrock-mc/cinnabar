@@ -221,7 +221,7 @@ fn ordered_mouse_review_idle_desktop_announces_an_older_controller_selection_on_
     captured.drain();
     frame(&mut app);
     assert!(captured.drain().is_empty());
-    attack_progress_tests::ticks(app.world_mut(), 102, 102);
+    attack_progress_tests::ticks(app.world_mut(), 102, 103);
     frame(&mut app);
     let slots: Vec<_> = captured
         .drain()
