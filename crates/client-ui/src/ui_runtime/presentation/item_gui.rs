@@ -63,6 +63,7 @@ pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
                 corners,
                 uvs,
                 material: 0,
+                two_sided: false,
             },
             faces[face as usize],
         )

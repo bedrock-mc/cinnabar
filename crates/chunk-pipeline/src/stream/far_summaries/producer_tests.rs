@@ -390,6 +390,47 @@ fn manual_stream(owner: &Arc<Admission>, manual: &Manual) -> WorldStream {
     stream
 }
 
+/// A mass eviction captures bounded batches and delivers every column without worker scheduling.
+#[test]
+fn retiring_columns_are_admitted_a_bounded_batch_per_poll() {
+    let owner = owner(1);
+    let manual = Manual::default();
+    let mut live = manual_stream(&owner, &manual);
+    let columns: HashSet<_> = (0..100).map(|x| ChunkKey::new(0, x, 0)).collect();
+    live.far_terrain.retiring.extend(
+        columns
+            .iter()
+            .map(|&column| (column, ColumnSnapshot::new(Arc::default(), Vec::new()))),
+    );
+    live.dispatch_far_summaries();
+    let left = live.far_terrain.retiring.len();
+    assert!(left < columns.len());
+    assert!(columns.len() - left <= JOBS_PER_POLL);
+    live.dispatch_far_summaries();
+    assert_eq!(
+        live.far_terrain.retiring.len(),
+        left,
+        "unfinished work defers further source capture"
+    );
+    let mut summaries = Vec::new();
+    test_time::eventually("manually driven retirement summaries", || {
+        let before = live.far_terrain.retiring.len();
+        live.dispatch_far_summaries();
+        assert!(before - live.far_terrain.retiring.len() <= JOBS_PER_POLL);
+        while manual.run() {}
+        live.drain_far_summaries(&mut summaries);
+        live.far_summaries_idle()
+    });
+    assert_eq!(summaries.len(), columns.len());
+    assert_eq!(
+        summaries
+            .iter()
+            .map(|summary| summary.column)
+            .collect::<HashSet<_>>(),
+        columns
+    );
+}
+
 /// Every publication/cancellation ordering releases cancelled output while the live stream stays off.
 #[test]
 fn disabling_live_far_terrain_releases_results_without_polling_it() {
