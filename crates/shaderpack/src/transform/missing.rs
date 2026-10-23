@@ -2,7 +2,7 @@
 
 use super::TransformError;
 use super::items::{
-    Decl, func_params, layout_key, loc_size, local_declarators, mat_cols, parse_decl, split_items,
+    Decl, func_params, layout_key, loc_size, mat_cols, parse_decl, shadowed_bindings, split_items,
 };
 use crate::preprocess::Preprocessed;
 use crate::token::{Tok, id, lex, p};
@@ -26,7 +26,7 @@ pub(crate) fn vertex_outputs(
     let vertex_items = split_items(&vertex.tokens);
     for item in &vertex_items {
         if let Some(declaration) = parse_decl(item) {
-            declared.extend(declaration.decls.into_iter().map(|(name, _, _)| name));
+            register_names(declaration, &mut declared);
         } else if let Some((open, _)) = func_params(item)
             && open > 0
             && item[open - 1].ident() == Some("main")
@@ -101,6 +101,31 @@ pub(crate) fn vertex_outputs(
     Ok(())
 }
 
+/// Registers global variables, including struct instances and anonymous block members.
+fn register_names(declaration: Decl, names: &mut HashSet<String>) {
+    let mut declarations = vec![declaration];
+    while let Some(declaration) = declarations.pop() {
+        names.extend(declaration.decls.into_iter().map(|(name, _, _)| name));
+        let Some((name, members, instances)) = declaration.block else {
+            continue;
+        };
+        if declaration.ty == "block" && instances.is_empty() {
+            declarations.extend(
+                split_items(&members)
+                    .iter()
+                    .filter_map(|item| parse_decl(item)),
+            );
+        } else {
+            let mut tokens = vec![id(&name)];
+            tokens.extend(instances);
+            tokens.push(p(";"));
+            if let Some(instances) = parse_decl(&tokens) {
+                names.extend(instances.decls.into_iter().map(|(name, _, _)| name));
+            }
+        }
+    }
+}
+
 /// Recognizes the scalar, vector and matrix spellings supported by numeric interface repair.
 fn numeric(ty: &str) -> bool {
     matches!(ty, "float" | "double" | "int" | "uint" | "bool")
@@ -113,7 +138,7 @@ fn numeric(ty: &str) -> bool {
         || mat_cols(ty.strip_prefix('d').unwrap_or(ty)).is_some()
 }
 
-/// Collects reference expressions for the supplied names, excluding declarations and fields.
+/// Collects global reference expressions, excluding local bindings, fields and function calls.
 fn references(items: &[Vec<Tok>], names: &HashSet<&str>) -> HashSet<String> {
     let mut live = HashSet::new();
     for item in items {
@@ -130,18 +155,20 @@ fn references(items: &[Vec<Tok>], names: &HashSet<&str>) -> HashSet<String> {
             }
             continue;
         }
-        let Some(_) = func_params(item) else {
+        let Some((_, params)) = func_params(item) else {
             continue;
         };
         let Some(brace) = item.iter().position(|token| token.is("{")) else {
             continue;
         };
         let body = &item[brace..];
-        let declarations = local_declarators(body);
+        let parameters: HashSet<_> = params.into_iter().map(|param| param.name).collect();
+        let shadowed = shadowed_bindings(body, names.iter().copied());
         for (i, token) in body.iter().enumerate() {
             if let Some(name) = token.ident()
                 && names.contains(name)
-                && !declarations.contains(&i)
+                && !parameters.contains(name)
+                && !shadowed.contains(&i)
                 && !body.get(i + 1).is_some_and(|token| token.is("("))
                 && (i == 0 || !body[i - 1].is("."))
             {

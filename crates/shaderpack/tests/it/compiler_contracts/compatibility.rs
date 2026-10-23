@@ -143,6 +143,7 @@ fn compatibility_unused_fragment_inputs_do_not_declare_unknown_vertex_names() {
     for fragment in [
         "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(1.0); }",
         "#version 330\nin vec2 carry; struct Data { vec2 carry; }; out vec4 color; void main() { Data d=Data(vec2(1.0)); color=vec4(d.carry,0.0,1.0); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { vec2 carry=vec2(1.0); color=vec4(carry,0.0,1.0); }",
     ] {
         let translated = translate(
             "#version 330\nvoid main() { carry=vec2(0.25); gl_Position=vec4(0.0); }",
@@ -150,4 +151,63 @@ fn compatibility_unused_fragment_inputs_do_not_declare_unknown_vertex_names() {
         );
         assert!(!program(&translated, "composite").is_ok());
     }
+}
+
+#[test]
+fn compatibility_vertex_locals_and_parameters_do_not_create_outputs() {
+    for (helper, body) in [
+        ("", "vec2 uv=vec2(1.0); sourceUv=uv;"),
+        (
+            "vec2 readUv(vec2 uv) { return uv; }",
+            "sourceUv=readUv(vec2(1.0));",
+        ),
+        ("", "{ vec2 uv=vec2(1.0); sourceUv=uv; }"),
+        (
+            "",
+            "for (int uv=0; uv<2; uv++) { sourceUv=vec2(float(uv)); }",
+        ),
+    ] {
+        let translated = success(
+            &format!(
+                "#version 450\nlayout(location=0) out vec2 sourceUv; {helper} void main() {{ {body} gl_Position=vec4(0.0); }}"
+            ),
+            "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+        );
+        let module = &program(&translated, "composite").stages[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .module;
+        assert_eq!(interface_locations(module, true), [("sourceUv", 0)]);
+    }
+}
+
+#[test]
+fn compatibility_vertex_block_globals_do_not_create_outputs() {
+    for (declaration, value) in [
+        ("uniform Data { vec2 uv; };", "uv"),
+        ("uniform Data { vec2 value; } uv;", "uv.value"),
+        ("struct Data { vec2 value; } uv;", "uv.value"),
+    ] {
+        let translated = success(
+            &format!(
+                "#version 450\n{declaration} layout(location=0) out vec2 sourceUv; void main() {{ sourceUv={value}; gl_Position=vec4(0.0); }}"
+            ),
+            "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+        );
+        let module = &program(&translated, "composite").stages[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .module;
+        assert_eq!(interface_locations(module, true), [("sourceUv", 0)]);
+    }
+}
+
+#[test]
+fn compatibility_vertex_references_after_local_scope_still_create_outputs() {
+    success(
+        "#version 330\nvoid main() { { vec2 carry=vec2(1.0); gl_Position=vec4(carry,0.0,1.0); } carry=vec2(0.25,0.75); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
 }
