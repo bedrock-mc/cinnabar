@@ -21,6 +21,10 @@ use launcher_host::lifecycle::crash::{
     protocol::{self, Stage},
 };
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "support/guarded_stack.rs"]
+mod guarded_stack;
+
 const ROOT_ENV: &str = "CINNABAR_CRASH_FIXTURE";
 const KIND_ENV: &str = "CINNABAR_CRASH_FIXTURE_KIND";
 /// When set, the monitor fixture starts listening only once this file exists.
@@ -117,6 +121,14 @@ fn client_fixture() {
             "panic" => panic!("fixture panic"),
             "segfault" => sadness_generator::raise_segfault(),
             "stack_overflow" => sadness_generator::raise_stack_overflow(),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "stack_guard" => guarded_stack::crash(false),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "stack_below_guard" => guarded_stack::crash(true),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "unreadable_stack" => guarded_stack::unreadable(),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "lightweight_stack_guard" => guarded_stack::lightweight(),
             "abort" => std::process::abort(),
             "kill" => {
                 let _ = std::io::stdin().read_line(&mut String::new());
@@ -494,6 +506,42 @@ fn an_access_violation_is_reported_with_a_dump() {
 #[test]
 fn a_stack_overflow_is_reported_with_a_dump() {
     assert_one("stack_overflow", Kind::Native, true);
+}
+
+/// A stack pointer in a guard page must keep the readable stack and crash context.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn a_stack_pointer_in_a_guard_page_keeps_its_dump() {
+    guarded_stack::assert_dump(crash("stack_guard"), true);
+}
+
+/// A stack pointer beyond the guard search must still keep the dump and registers.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn a_stack_pointer_below_a_large_guard_keeps_its_dump() {
+    guarded_stack::assert_dump(crash("stack_below_guard"), false);
+}
+
+/// Even when every memory reader fails, the thread's registers and dump survive.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn an_unreadable_stack_keeps_its_dump() {
+    guarded_stack::assert_dump(crash("unreadable_stack"), false);
+}
+
+/// Lightweight Linux guards must preserve the readable stack above the faulting SP.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "names the unavailable kernel fixture when skipping"
+)]
+fn a_stack_pointer_in_a_lightweight_guard_keeps_its_dump() {
+    if !guarded_stack::lightweight_supported() {
+        eprintln!("SKIP: kernel fixture MADV_GUARD_INSTALL is unavailable");
+        return;
+    }
+    guarded_stack::assert_dump(crash("lightweight_stack_guard"), true);
 }
 
 /// Windows ends `abort` with a fail-fast that no handler sees; Unix raises `SIGABRT`.
