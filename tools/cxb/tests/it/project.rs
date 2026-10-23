@@ -22,6 +22,9 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
         "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;\nexperience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 42 }).unwrap();",
     );
     fs::write(&client, source).unwrap();
+    let shared = root.join("src/shared.rs");
+    fs::write(&shared, format!("{}\n#[message(id = \"space.notice\", schema = 1, to_client)]\npub struct Notice {{ pub trap: bool }}\n", fs::read_to_string(&shared).unwrap())).unwrap();
+    fs::write(&client, format!("{}\nimpl Client {{\n    /// Exercises a recoverable callback failure in the generated component.\n    fn receive(record: Vec<experience_sdk::Value>) {{\n        use experience_sdk::message::Message;\n        if crate::shared::Notice::decode(record).unwrap().trap {{ panic!(\"recoverable callback failure\"); }}\n    }}\n}}\n", fs::read_to_string(&client).unwrap().replace("impl ClientPart for Client {", "impl ClientPart for Client {\n    /// Processes the declared test notification.\n    fn dispatch(_channel: String, record: Vec<experience_sdk::Value>) { Self::receive(record); }\n    /// Proves callbacks run again after a fresh confirmation.\n    fn epoch() { experience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 43 }).unwrap(); }"))).unwrap();
     let package = project::build(&root, false).unwrap();
     let cxb = package.join("space.cxb");
     let bytes = fs::read(&cxb).unwrap();
@@ -153,7 +156,9 @@ fn runtime_acceptance_child() {
         matches!(host.take_transaction().commands.as_slice(), [Command::Send { channel, schema: 1, .. }] if channel == "space.registry_request"),
         "only the generated registry request runs before confirmation"
     );
-    assert!(host.dispatch(&Event::Epoch, 1).unwrap().commands.is_empty());
+    assert!(
+        matches!(host.dispatch(&Event::Epoch, 1).unwrap().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request")
+    );
     let schema: serde_json::Value =
         serde_json::from_slice(&fs::read(package.join("registry.json")).unwrap()).unwrap();
     let project_source = fs::read_to_string(
@@ -179,12 +184,31 @@ fn runtime_acceptance_child() {
         host.dispatch(&confirmation, 1).unwrap().commands.is_empty(),
         "duplicate confirmation never initializes twice"
     );
+    let trap = Event::Message {
+        channel: "space.notice".into(),
+        record: serde_json::to_vec(&vec![Scalar::Bool(true)]).unwrap(),
+    };
+    assert!(host.dispatch(&trap, 1).is_err());
+    let recovering = host.dispatch(&Event::Epoch, 1).unwrap();
+    assert!(
+        matches!(recovering.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
+        "guest recovery must publish a fresh registry request through a successful callback"
+    );
+    let restarted = host.dispatch(&confirmation, 1).unwrap();
+    assert!(
+        matches!(restarted.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.travel")
+    );
+    let active = host.dispatch(&Event::Epoch, 1).unwrap();
+    assert!(
+        matches!(active.commands.as_slice(), [Command::Send { record, .. }] if record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)])
+    );
     let mismatch = Event::Message {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text("different".into())]).unwrap(),
     };
     assert!(host.dispatch(&mismatch, 1).is_err());
-    assert!(host.dispatch(&Event::Epoch, 2).unwrap().commands.is_empty());
+    let refused = host.dispatch(&Event::Epoch, 2).unwrap();
+    assert!(refused.commands.iter().all(|command| matches!(command, Command::Send { channel, .. } if channel == "space.registry_request")), "a mismatch must not restore authored callbacks");
 }
 
 const RUST_CONFORMANCE: &str = r#"

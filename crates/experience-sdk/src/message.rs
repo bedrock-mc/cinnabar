@@ -202,6 +202,8 @@ pub struct Registry {
 pub enum RegistryState {
     #[default]
     Waiting,
+    /// A callback staged one additional request; wait for confirmation without flooding it.
+    RetrySent,
     Active,
     Refused,
 }
@@ -216,7 +218,7 @@ impl RegistryState {
             *self = Self::Refused;
             return Err("mod registry fingerprint mismatch; rebuild the client and server definitions together".into());
         }
-        let first = *self == Self::Waiting;
+        let first = *self != Self::Active;
         *self = Self::Active;
         Ok(first)
     }

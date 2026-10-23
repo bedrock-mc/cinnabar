@@ -62,6 +62,17 @@ fn ambiguous_or_unbounded_schemas_fail_generation() {
 }
 
 #[test]
+fn digit_leading_go_names_fail_generation() {
+    for source in [
+        SOURCE.replace("struct State", "struct _2d"),
+        SOURCE.replace("const HOME", "const _2D"),
+        SOURCE.replace("pub enabled", "pub _2d"),
+    ] {
+        assert!(go::generate(&Project::parse(&source).unwrap()).is_err());
+    }
+}
+
+#[test]
 fn asset_renames_remove_constants_and_collisions_fail() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir(root.path().join("src")).unwrap();

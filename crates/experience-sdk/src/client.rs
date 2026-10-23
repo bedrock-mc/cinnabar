@@ -90,11 +90,7 @@ pub fn initialize<T: ClientPart>() {
 pub fn initialize_with<T: ClientPart>(send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>) {
     REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
     if let Some(registry) = T::registry() {
-        send(
-            &registry.request,
-            &[Value::Text(registry.fingerprint.to_owned())],
-        )
-        .expect("registry request must be admitted before client code starts");
+        request_registry(registry, send);
     } else {
         T::init();
     }
@@ -104,6 +100,40 @@ pub fn initialize_with<T: ClientPart>(send: impl FnOnce(&Channel, &[Value]) -> R
 #[doc(hidden)]
 pub fn active<T: ClientPart>() -> bool {
     T::registry().is_none() || REGISTRY_STATE.get() == crate::message::RegistryState::Active
+}
+
+/// Gates a callback and stages one retry in case recovery discarded the guest's init output.
+#[doc(hidden)]
+pub fn begin_callback<T: ClientPart>() -> bool {
+    begin_callback_with::<T>(send)
+}
+
+/// Publishes a request through a successful callback at most once per waiting guest instance.
+fn begin_callback_with<T: ClientPart>(
+    send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>,
+) -> bool {
+    if active::<T>() {
+        return true;
+    }
+    if REGISTRY_STATE.get() == crate::message::RegistryState::Waiting
+        && let Some(registry) = T::registry()
+    {
+        request_registry(registry, send);
+        REGISTRY_STATE.set(crate::message::RegistryState::RetrySent);
+    }
+    false
+}
+
+/// Stages the generated fingerprint request without invoking any authored callback.
+fn request_registry(
+    registry: &crate::message::Registry,
+    send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>,
+) {
+    send(
+        &registry.request,
+        &[Value::Text(registry.fingerprint.to_owned())],
+    )
+    .expect("registry request must be admitted before client code starts");
 }
 
 /// Confirms the complete registry before initialization or dispatching application messages.
@@ -120,7 +150,7 @@ pub fn dispatch<T: ClientPart>(channel: String, record: Vec<Value>) {
             Ok(false) => {}
             Err(error) => panic!("{error}"),
         }
-    } else if active::<T>() {
+    } else if begin_callback::<T>() {
         T::dispatch(channel, record);
     }
 }
@@ -169,34 +199,34 @@ macro_rules! export_client_part {
             }
 
             fn action(id: ::std::string::String, collection_index: ::core::option::Option<u32>) {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::action(id, collection_index) }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::action(id, collection_index) }
             }
 
             fn epoch() {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::epoch() }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::epoch() }
             }
 
             fn modal_resized(size: $crate::client::ui::GuiSize) {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::modal_resized(size) }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::modal_resized(size) }
             }
 
             fn text_changed(control: ::std::string::String, text: ::std::string::String) {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::text_changed(control, text) }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::text_changed(control, text) }
             }
 
             fn secondary_action(
                 id: ::std::string::String,
                 collection_index: ::core::option::Option<u32>,
             ) {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index) }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index) }
             }
 
             fn scroll_changed(view: ::std::string::String, range: $crate::client::ui::ScrollRange) {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::scroll_changed(view, range) }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::scroll_changed(view, range) }
             }
 
             fn shift_changed(held: bool) {
-                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::shift_changed(held) }
+                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::shift_changed(held) }
             }
         }
 
@@ -206,7 +236,10 @@ macro_rules! export_client_part {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientPart, active, dispatch, initialize, initialize_with, record, record_json};
+    use super::{
+        ClientPart, active, begin_callback_with, dispatch, initialize, initialize_with, record,
+        record_json,
+    };
     use crate::{Channel, Direction, Field, Value, message::Registry};
 
     thread_local! { static INITIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -263,6 +296,20 @@ mod tests {
             assert_eq!(record, &[Value::Text(REGISTRY.fingerprint.into())]);
             Ok(())
         });
+        let retries = std::cell::Cell::new(0);
+        for _ in 0..4 {
+            assert!(!begin_callback_with::<Guarded>(|channel, record| {
+                assert_eq!(channel.id, REGISTRY.request.id);
+                assert_eq!(record, &[Value::Text(REGISTRY.fingerprint.into())]);
+                retries.set(retries.get() + 1);
+                Ok(())
+            }));
+        }
+        assert_eq!(
+            retries.get(),
+            1,
+            "waiting callbacks must not flood registry requests"
+        );
         dispatch::<Guarded>("test.data".into(), vec![]);
         assert!(!active::<Guarded>());
         assert_eq!(INITIALIZATIONS.get(), 0);

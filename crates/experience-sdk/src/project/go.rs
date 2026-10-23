@@ -142,8 +142,9 @@ pub fn generate(project: &Project) -> Result<String> {
 /// Rejects names that would produce ambiguous or invalid generated Go declarations.
 fn reserve(names: &mut BTreeSet<String>, name: &str) -> Result<()> {
     ensure!(
-        !name.is_empty() && name.is_ascii(),
-        "Go declarations need portable source names"
+        name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+            && name.bytes().all(|byte| byte.is_ascii_alphanumeric()),
+        "invalid generated Go identifier {name:?}: names must start with a letter and contain only ASCII letters and digits"
     );
     ensure!(
         names.insert(name.to_owned()),
