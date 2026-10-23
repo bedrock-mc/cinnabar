@@ -255,20 +255,28 @@ fn execute_draws(world: &mut World) {
     });
     queue.submit(commands);
     let gpu = world.resource::<ActorGpu>();
-    let drawn = world.resource::<ActorDrawTracker>().take_drawn();
-    let spans = if let Some(drawn) = drawn {
+    let tracker = world.resource::<ActorDrawTracker>();
+    let recorded = tracker.recorded_spans();
+    let spans = gpu
+        .spans
+        .iter()
+        .copied()
+        .filter(|span| recorded.contains(span))
+        .collect::<Vec<_>>();
+    assert_eq!(spans.len(), recorded.len());
+    assert_eq!(
+        gpu.executed_instances
+            .load(std::sync::atomic::Ordering::Relaxed),
+        spans.iter().map(|span| span.count).sum::<u32>()
+    );
+    if let Some(drawn) = tracker.take_drawn() {
         assert!(drawn.is_exact());
         assert_eq!(drawn.frame_generation, generation);
         assert_eq!(drawn.manifest.as_ref(), gpu.main_manifest.as_ref());
-        gpu.spans.clone()
+        assert_eq!(spans, gpu.spans);
     } else {
-        assert_eq!(
-            gpu.executed_instances
-                .load(std::sync::atomic::Ordering::Relaxed),
-            0
-        );
-        Vec::new()
-    };
+        assert!(spans.len() < gpu.spans.len() || spans.is_empty());
+    }
     world.resource_mut::<ExecutedSpans>().0 = spans;
 }
 
