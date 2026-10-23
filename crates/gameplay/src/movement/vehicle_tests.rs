@@ -93,7 +93,7 @@ fn boat() -> SteeredVehicle {
         yaw: 0.0,
         velocity: [0.0; 3],
         seat: [0.0, -0.2, 0.0],
-        revision: 0,
+        revision: client_world::VehicleRevision { pose: 0, motion: 0 },
     }
 }
 
@@ -146,7 +146,7 @@ fn a_server_teleport_restarts_prediction_from_the_new_pose() {
     let teleported = SteeredVehicle {
         position: [40.5, 62.6, 40.5],
         yaw: 90.0,
-        revision: 1,
+        revision: client_world::VehicleRevision { pose: 1, motion: 0 },
         ..boat()
     };
     let sample = drive(&mut prediction, teleported, 21, 1);
@@ -201,7 +201,7 @@ fn a_correction_restarts_prediction_from_the_newest_server_state() {
     let at = drive(&mut predicted, boat(), 1, 10);
     let correction = |tick, x: f32| VehicleCorrection {
         runtime_id: 7,
-        revision: 0,
+        revision: client_world::VehicleRevision { pose: 0, motion: 0 },
         tick,
         position: [x, at.position[1], at.position[2]],
         velocity: [0.0; 3],
@@ -238,7 +238,7 @@ fn a_correction_after_a_server_change_continues_at_its_revision() {
     let at = drive(&mut predicted, boat(), 1, 10);
     let correction = VehicleCorrection {
         runtime_id: 7,
-        revision: 1,
+        revision: client_world::VehicleRevision { pose: 1, motion: 0 },
         tick: 9,
         position: [2.0, at.position[1], at.position[2]],
         velocity: [0.0; 3],
@@ -247,16 +247,16 @@ fn a_correction_after_a_server_change_continues_at_its_revision() {
         on_ground: false,
     };
     predicted.correct(&correction).unwrap();
-    assert_eq!(predicted.feed(1.0).unwrap().revision, 1);
+    assert_eq!(predicted.feed(1.0).unwrap().revision.pose, 1);
     let changed = SteeredVehicle {
-        revision: 1,
+        revision: client_world::VehicleRevision { pose: 1, motion: 0 },
         ..boat()
     };
     let next = drive(&mut predicted, changed, 11, 1);
     assert!((next.position[0] - 2.0).abs() < 0.5);
     // A correction from before that change is ignored.
     let older = VehicleCorrection {
-        revision: 0,
+        revision: client_world::VehicleRevision { pose: 0, motion: 0 },
         tick: 12,
         ..correction
     };
@@ -283,14 +283,14 @@ fn a_correction_from_an_earlier_session_is_ignored() {
     let at = drive(&mut predicted, boat(), 1, 10);
     let teleported = SteeredVehicle {
         position: [40.5, 62.6, 0.5],
-        revision: 1,
+        revision: client_world::VehicleRevision { pose: 1, motion: 0 },
         ..boat()
     };
     drive(&mut predicted, teleported, 11, 2);
     let before = predicted.feed(1.0).unwrap();
     let stale = VehicleCorrection {
         runtime_id: 7,
-        revision: 0,
+        revision: client_world::VehicleRevision { pose: 0, motion: 0 },
         tick: 8,
         position: at.position,
         velocity: [0.0; 3],
@@ -343,4 +343,30 @@ fn the_rendered_heading_eases_through_the_current_tick() {
     assert!((prediction.render_yaw(1.0).unwrap() - current).abs() < 1.0e-4);
     let half = prediction.render_yaw(0.5).unwrap();
     assert!(previous < half && half < current);
+}
+
+/// Server motion that follows a correction in the same poll keeps the corrected pose and
+/// takes the new motion, rather than restarting from the boat's uncorrected pose.
+#[test]
+fn server_motion_after_a_correction_keeps_the_corrected_pose() {
+    let mut predicted = VehiclePrediction::default();
+    let at = drive(&mut predicted, boat(), 1, 10);
+    let correction = VehicleCorrection {
+        runtime_id: 7,
+        revision: client_world::VehicleRevision::default(),
+        tick: 9,
+        position: [2.0, at.position[1], at.position[2]],
+        velocity: [0.0; 3],
+        rotation: [0.0, 0.0],
+        angular_velocity: None,
+        on_ground: false,
+    };
+    predicted.correct(&correction).unwrap();
+    let pushed = SteeredVehicle {
+        revision: client_world::VehicleRevision { pose: 0, motion: 1 },
+        velocity: [0.3, 0.0, 0.0],
+        ..boat()
+    };
+    let next = drive(&mut predicted, pushed, 11, 1);
+    assert!(next.position[0] > 2.0 && next.position[0] < 2.5, "{next:?}");
 }

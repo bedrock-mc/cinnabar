@@ -352,7 +352,7 @@ impl WorldAuthority {
         self.actors.sync_local_vehicle(feed);
     }
     /// Counts server changes to the predicted vehicle that prediction restarts from.
-    pub const fn local_vehicle_revision(&self) -> u64 {
+    pub const fn local_vehicle_revision(&self) -> crate::VehicleRevision {
         self.actors.local_vehicle_revision()
     }
     /// Borrows the current actor with this persistent unique ID.

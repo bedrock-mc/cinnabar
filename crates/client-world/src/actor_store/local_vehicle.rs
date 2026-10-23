@@ -1,18 +1,27 @@
 //! The boat the local player steers. The client predicts its pose, so server movement lands
 //! on it only when the server teleports or forces the move; which boat that is follows the
-//! current links. Each server change the prediction must restart from, an admitted move, new
-//! motion or a respawn of the boat, advances the vehicle revision.
+//! current links. Server changes to the boat advance its [`VehicleRevision`], which
+//! prediction follows.
 
 use protocol::ActorMoveEvent;
 
 use super::{ActorPose, ActorStore};
 
+/// Server changes to the predicted vehicle that prediction follows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VehicleRevision {
+    /// Admitted moves and respawns; prediction restarts from the boat's retained pose.
+    pub pose: u64,
+    /// Motion updates; prediction keeps its pose and takes the new motion.
+    pub motion: u64,
+}
+
 /// One tick's predicted pose of the vehicle the local player steers.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LocalVehicleFeed {
     pub runtime_id: u64,
-    /// The vehicle revision this prediction started from.
-    pub revision: u64,
+    /// The vehicle revision this prediction follows.
+    pub revision: VehicleRevision,
     /// Collision feet: the bottom centre of the vehicle's box.
     pub position: [f32; 3],
     pub yaw: f32,
@@ -26,8 +35,8 @@ pub struct LocalVehicleFeed {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct LocalVehicle {
-    /// Server changes to the predicted vehicle, which prediction must restart from.
-    revision: u64,
+    /// Server changes to the predicted vehicle, which prediction follows.
+    revision: VehicleRevision,
     /// The vehicle the latest feed predicted. Its changes count even while the local player
     /// does not steer it, so a prediction resumed after regaining control restarts from them.
     predicted: Option<u64>,
@@ -140,23 +149,34 @@ impl ActorStore {
         {
             return false;
         }
-        self.note_local_vehicle_change(movement.runtime_id);
+        self.note_local_vehicle_pose(movement.runtime_id);
         true
     }
 
-    /// Advances the vehicle revision when the server changed the steered or last predicted
-    /// boat, so prediction restarts from the change.
-    pub(super) fn note_local_vehicle_change(&mut self, runtime_id: u64) {
-        if self.local_vehicle.predicted == Some(runtime_id)
-            || self.local_steered_boat() == Some(runtime_id)
-        {
-            self.local_vehicle.revision = self.local_vehicle.revision.wrapping_add(1);
+    /// Advances the pose revision when the server moved or respawned the steered or last
+    /// predicted boat, so prediction restarts from the change.
+    pub(super) fn note_local_vehicle_pose(&mut self, runtime_id: u64) {
+        if self.tracks_local_vehicle(runtime_id) {
+            self.local_vehicle.revision.pose = self.local_vehicle.revision.pose.wrapping_add(1);
             self.release_local_vehicle_render();
         }
     }
 
+    /// Advances the motion revision when the server set the steered or last predicted boat's
+    /// motion, so prediction takes it without losing its pose.
+    pub(super) fn note_local_vehicle_motion(&mut self, runtime_id: u64) {
+        if self.tracks_local_vehicle(runtime_id) {
+            self.local_vehicle.revision.motion = self.local_vehicle.revision.motion.wrapping_add(1);
+        }
+    }
+
+    fn tracks_local_vehicle(&self, runtime_id: u64) -> bool {
+        self.local_vehicle.predicted == Some(runtime_id)
+            || self.local_steered_boat() == Some(runtime_id)
+    }
+
     /// Counts server changes to the predicted vehicle.
-    pub(crate) const fn local_vehicle_revision(&self) -> u64 {
+    pub(crate) const fn local_vehicle_revision(&self) -> VehicleRevision {
         self.local_vehicle.revision
     }
 }

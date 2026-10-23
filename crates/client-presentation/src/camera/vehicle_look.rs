@@ -52,7 +52,7 @@ impl VehicleLookFollow {
 pub fn predicted_heading(
     mut lock: SeatViewLock,
     predicted: Option<client_world::LocalVehicleFeed>,
-    revision: u64,
+    revision: client_world::VehicleRevision,
 ) -> SeatViewLock {
     if let Some(feed) = predicted
         && feed.runtime_id == lock.vehicle_runtime_id
@@ -105,7 +105,7 @@ mod tests {
     fn a_prediction_of_another_vehicle_leaves_the_lock_alone() {
         let feed = client_world::LocalVehicleFeed {
             runtime_id: 7,
-            revision: 3,
+            revision: client_world::VehicleRevision { pose: 3, motion: 0 },
             position: [0.0; 3],
             yaw: 40.0,
             velocity: [0.0; 3],
@@ -113,14 +113,19 @@ mod tests {
             render_yaw: 35.0,
         };
         let lock = boat(10.0);
-        assert_eq!(predicted_heading(lock, Some(feed), 3).vehicle_yaw, 35.0);
+        let current = client_world::VehicleRevision { pose: 3, motion: 0 };
+        assert_eq!(
+            predicted_heading(lock, Some(feed), current).vehicle_yaw,
+            35.0
+        );
         let other = client_world::LocalVehicleFeed {
             runtime_id: 8,
             ..feed
         };
-        assert_eq!(predicted_heading(lock, Some(other), 3), lock);
-        assert_eq!(predicted_heading(lock, Some(feed), 4), lock);
-        assert_eq!(predicted_heading(lock, None, 3), lock);
+        assert_eq!(predicted_heading(lock, Some(other), current), lock);
+        let newer = client_world::VehicleRevision { pose: 4, motion: 0 };
+        assert_eq!(predicted_heading(lock, Some(feed), newer), lock);
+        assert_eq!(predicted_heading(lock, None, current), lock);
     }
 
     #[test]

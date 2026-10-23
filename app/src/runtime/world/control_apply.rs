@@ -195,7 +195,7 @@ mod tests {
                     vehicle_angular_velocity: None,
                 },
                 vehicle_runtime_id: 7,
-                vehicle_revision: 0,
+                vehicle_revision: client_world::VehicleRevision { pose: 0, motion: 0 },
             },
             &mut view,
             &mut settings,

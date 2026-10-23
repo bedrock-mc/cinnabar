@@ -147,7 +147,7 @@ mod tests {
                 yaw: 0.0,
                 velocity: [0.0; 3],
                 seat: [0.0; 3],
-                revision: 0,
+                revision: client_world::VehicleRevision { pose: 0, motion: 0 },
             },
             100,
         );
@@ -180,7 +180,7 @@ mod tests {
                     yaw: 0.0,
                     velocity: [0.6, 0.0, 0.0],
                     seat: [0.0, 0.0, 0.0],
-                    revision: 0,
+                    revision: client_world::VehicleRevision { pose: 0, motion: 0 },
                 }),
                 ..ModeIntent::default()
             },
@@ -211,7 +211,7 @@ mod tests {
                 yaw: 0.0,
                 velocity: [0.0; 3],
                 seat: [0.0, -0.2, 0.0],
-                revision: 0,
+                revision: client_world::VehicleRevision { pose: 0, motion: 0 },
             }),
             // The streamed seat sampled before the tick, which replay must not reuse.
             ride_seat: Some([9.0, 9.0, 9.0]),

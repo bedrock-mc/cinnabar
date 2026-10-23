@@ -168,7 +168,7 @@ fn a_predicted_vehicle_takes_revision_only_when_teleported() {
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     let feed = LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [12.0, 5.0, 10.0],
         yaw: 30.0,
         velocity: [0.1, 0.0, 0.0],
@@ -182,12 +182,12 @@ fn a_predicted_vehicle_takes_revision_only_when_teleported() {
     let boat = store.snapshot_by_unique(BOAT).unwrap();
     assert_eq!(boat.position, [12.0, 5.0, 10.0]);
     assert_eq!(boat.yaw, 30.0);
-    assert_eq!(store.local_vehicle_revision(), 0);
+    assert_eq!(store.local_vehicle_revision().pose, 0);
 
     sequence += 1;
     store.apply(1, sequence, boat_move(40.0, true));
     assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 40.0);
-    assert_eq!(store.local_vehicle_revision(), 1);
+    assert_eq!(store.local_vehicle_revision().pose, 1);
 
     // A frame without a new prediction keeps feeding the old pose; the teleport stays the
     // target until prediction restarts from it.
@@ -197,7 +197,7 @@ fn a_predicted_vehicle_takes_revision_only_when_teleported() {
     assert_eq!(boat.last_received_pose().position[0], 40.0);
     assert_eq!(boat.position[0], 40.0);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
-        revision: 1,
+        revision: crate::VehicleRevision { pose: 1, motion: 0 },
         position: [41.0, 5.0, 10.0],
         render_position: [41.0, 5.0, 10.0],
         ..feed
@@ -231,7 +231,7 @@ fn regaining_control_restarts_prediction_from_moves_made_meanwhile() {
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [12.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
@@ -246,7 +246,7 @@ fn regaining_control_restarts_prediction_from_moves_made_meanwhile() {
     sequence += 1;
     store.apply(1, sequence, boat_move(40.0, false));
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
-    assert_eq!(store.local_vehicle_revision(), 1);
+    assert_eq!(store.local_vehicle_revision().pose, 1);
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
     store.apply_link(1, 3, link(PLAYER, ActorLinkType::Rider));
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [10.0, 5.0, 10.0],
         yaw: 20.0,
         velocity: [0.0; 3],
@@ -400,7 +400,7 @@ fn a_feed_for_a_boat_the_player_does_not_steer_is_ignored() {
     );
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [30.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
@@ -479,7 +479,7 @@ fn a_respawned_boat_restarts_prediction() {
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [12.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
@@ -502,12 +502,12 @@ fn a_respawned_boat_restarts_prediction() {
         spawn(BOAT, entity("minecraft:boat"), Vec::new()),
     );
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
-    assert_ne!(store.local_vehicle_revision(), 0);
+    assert_ne!(store.local_vehicle_revision().pose, 0);
 }
 
-/// Server motion of the steered boat restarts prediction, so the impulse is not overwritten.
+/// Server motion of the steered boat reaches prediction, so the impulse is not overwritten.
 #[test]
-fn server_motion_of_the_steered_boat_restarts_prediction() {
+fn server_motion_of_the_steered_boat_reaches_prediction() {
     let (mut store, mut sequence) = harbour(Vec::new());
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     sequence += 1;
@@ -519,7 +519,10 @@ fn server_motion_of_the_steered_boat_restarts_prediction() {
             tick: 0,
         },
     );
-    assert_eq!(store.local_vehicle_revision(), 1);
+    assert_eq!(
+        store.local_vehicle_revision(),
+        crate::VehicleRevision { pose: 0, motion: 1 }
+    );
     assert_eq!(
         store.snapshot_by_unique(BOAT).unwrap().native_velocity(),
         [0.5, 0.0, 0.0]
@@ -579,7 +582,7 @@ fn a_predicted_boat_shows_its_render_pose_on_the_rider_s_clock() {
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [12.0, 5.0, 10.0],
         yaw: 30.0,
         velocity: [0.2, 0.0, 0.0],
@@ -635,7 +638,7 @@ fn a_predicted_boat_turns_the_seat_as_its_latest_feed_renders_it() {
     store.predict_remote_motion(1);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        revision: 0,
+        revision: crate::VehicleRevision { pose: 0, motion: 0 },
         position: [10.0, 5.0, 10.0],
         yaw: 40.0,
         velocity: [0.0; 3],

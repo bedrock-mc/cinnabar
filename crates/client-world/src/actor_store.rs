@@ -12,7 +12,7 @@ mod appearance_preparation;
 mod colliders;
 mod effect_members;
 pub use colliders::ActorCollisionBounds;
-pub use local_vehicle::LocalVehicleFeed;
+pub use local_vehicle::{LocalVehicleFeed, VehicleRevision};
 mod death_visibility;
 mod local_presentation;
 mod local_vehicle;

@@ -20,8 +20,9 @@ pub struct SteeredVehicle {
     pub velocity: [f32; 3],
     /// The rider's seat relative to the boat's feet, in the boat's frame.
     pub seat: [f32; 3],
-    /// Server changes to the boat; a new one restarts prediction.
-    pub revision: u64,
+    /// Server changes to the boat: a new pose revision restarts prediction, a new motion
+    /// revision replaces its motion.
+    pub revision: client_world::VehicleRevision,
 }
 
 /// The predicted vehicle reported in one tick's input.
@@ -55,8 +56,8 @@ pub struct VehicleCorrection {
     /// The vehicle the player steered when the correction arrived.
     pub runtime_id: u64,
     /// The vehicle revision when the correction arrived; the corrected session continues
-    /// from it.
-    pub revision: u64,
+    /// from it, and only server changes after the correction apply on top.
+    pub revision: client_world::VehicleRevision,
     pub tick: u64,
     /// Network position.
     pub position: [f32; 3],
@@ -67,13 +68,13 @@ pub struct VehicleCorrection {
     pub on_ground: bool,
 }
 
-/// Identifies one prediction session: the steered boat and the revision it started from.
+/// Identifies one prediction session: the steered boat and the pose revision it started from.
 /// A change of owner starts a new session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SessionOwner {
     runtime_id: u64,
     unique_id: i64,
-    revision: u64,
+    pose_revision: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +82,8 @@ struct Session {
     owner: SessionOwner,
     seat: [f32; 3],
     state: BoatState,
+    /// The motion revision the session's velocity follows.
+    motion_revision: u64,
     /// The yaw one tick before `state`, which rendering eases from.
     previous_yaw: f32,
     /// The network position one tick before `state`, which rendering eases from.
@@ -117,10 +120,17 @@ impl VehiclePrediction {
         let owner = SessionOwner {
             runtime_id: vehicle.runtime_id,
             unique_id: vehicle.unique_id,
-            revision: vehicle.revision,
+            pose_revision: vehicle.revision.pose,
         };
         let session = match &mut self.session {
-            Some(session) if session.owner == owner => session,
+            Some(session) if session.owner == owner => {
+                // New server motion replaces the predicted motion and keeps the pose.
+                if session.motion_revision != vehicle.revision.motion {
+                    session.motion_revision = vehicle.revision.motion;
+                    session.state.velocity = vehicle.velocity;
+                }
+                session
+            }
             slot => slot.insert(Session {
                 owner,
                 seat: vehicle.seat,
@@ -128,6 +138,7 @@ impl VehiclePrediction {
                     velocity: vehicle.velocity,
                     ..BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw)
                 },
+                motion_revision: vehicle.revision.motion,
                 previous_yaw: vehicle.yaw,
                 previous_position: vehicle.position,
                 stale_through: None,
@@ -199,7 +210,10 @@ impl VehiclePrediction {
         });
         Some(client_world::LocalVehicleFeed {
             runtime_id: session.owner.runtime_id,
-            revision: session.owner.revision,
+            revision: client_world::VehicleRevision {
+                pose: session.owner.pose_revision,
+                motion: session.motion_revision,
+            },
             position: feet(session.state.position),
             yaw: session.state.yaw,
             velocity: session.state.velocity,
@@ -222,13 +236,15 @@ impl VehiclePrediction {
             .all(|value| value.is_finite());
         if !finite
             || correction.runtime_id != session.owner.runtime_id
-            || correction.revision < session.owner.revision
+            || correction.revision.pose < session.owner.pose_revision
             || correction.tick <= session.stale_through?
         {
             return None;
         }
-        // The correction is newer than any server change it arrived after.
-        session.owner.revision = correction.revision;
+        // The correction is newer than any server change it arrived after; changes after it
+        // still apply.
+        session.owner.pose_revision = correction.revision.pose;
+        session.motion_revision = correction.revision.motion;
         session.stale_through = Some(correction.tick);
         session.previous_yaw = correction.rotation[1];
         session.previous_position = correction.position;
@@ -256,10 +272,11 @@ impl VehiclePrediction {
                 owner: SessionOwner {
                     runtime_id: vehicle.runtime_id,
                     unique_id: vehicle.unique_id,
-                    revision: vehicle.revision,
+                    pose_revision: vehicle.revision.pose,
                 },
                 seat: vehicle.seat,
                 state: BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw),
+                motion_revision: vehicle.revision.motion,
                 previous_yaw: vehicle.yaw,
                 previous_position: vehicle.position,
                 stale_through: Some(completed),

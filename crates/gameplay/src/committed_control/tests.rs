@@ -485,7 +485,7 @@ fn an_applied_vehicle_correction_resets_presentation() {
             yaw: 0.0,
             velocity: [0.0; 3],
             seat: [0.0, -0.2, 0.0],
-            revision: 0,
+            revision: client_world::VehicleRevision { pose: 0, motion: 0 },
         },
         100,
     );
@@ -502,7 +502,7 @@ fn an_applied_vehicle_correction_resets_presentation() {
             vehicle_angular_velocity: None,
         },
         vehicle_runtime_id: 7,
-        vehicle_revision: 0,
+        vehicle_revision: client_world::VehicleRevision { pose: 0, motion: 0 },
     };
     let mut apply = || {
         CommittedGameplayState {

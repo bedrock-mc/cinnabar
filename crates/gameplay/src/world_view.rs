@@ -31,10 +31,9 @@ pub trait GameplayWorld {
     ) -> Option<([f32; 3], f32)> {
         None
     }
-    /// Counts server changes to the vehicle the local player steers that prediction restarts
-    /// from.
-    fn local_vehicle_revision(&self) -> u64 {
-        0
+    /// Counts server changes to the vehicle the local player steers, which prediction follows.
+    fn local_vehicle_revision(&self) -> client_world::VehicleRevision {
+        client_world::VehicleRevision::default()
     }
     /// Reads the network palette's ID encoding mode.
     fn network_id_mode(&self) -> assets::NetworkIdMode;
