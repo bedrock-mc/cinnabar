@@ -51,7 +51,7 @@ func TestInstalledModPackage(t *testing.T) {
 // checkInstalledRegistry confirms that the generated server entry point answers the client's contract.
 func checkInstalledRegistry(t *testing.T, dir string) {
 	t.Helper()
-	sup, loaded, err := experience.StartSupervisor(os.Getenv("CINNABAR_EXPERIENCE_RUNTIME_BIN"), filepath.Join(dir, "mods", "space", "server"), slog.New(slog.DiscardHandler))
+	sup, loaded, err := experience.StartSupervisor(os.Getenv("CINNABAR_EXPERIENCE_RUNTIME_BIN"), filepath.Join(dir, "mods", "space", "server"), slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +62,10 @@ func checkInstalledRegistry(t *testing.T, dir string) {
 	fingerprint := os.Getenv("CINNABAR_TEST_REGISTRY_FINGERPRINT")
 	player := "00000000-0000-0000-0000-000000000001"
 	request := experience.CallbackRequest{
-		Info:  experience.Info{WorldID: "mod-test", DimensionID: "minecraft:overworld", Tick: 1, EventSequence: 1},
+		Info:  experience.Info{WorldID: "mod-test", DimensionID: "overworld", Tick: 1, EventSequence: 1},
 		Actor: &player, WorldMinY: -64, WorldMaxY: 319,
-		Call: experience.Call{ClientMessage: &experience.ClientMessageCall{Player: player, Channel: "space.registry_request", Schema: 1, Payload: []experience.Scalar{{Text: &fingerprint}}}},
+		Snapshot: []experience.Cell{},
+		Call:     experience.Call{ClientMessage: &experience.ClientMessageCall{Player: player, Channel: "space.registry_request", Schema: 1, Payload: []experience.Scalar{{Text: &fingerprint}}}},
 	}
 	outcome, err := sup.Call(request)
 	if err != nil {
