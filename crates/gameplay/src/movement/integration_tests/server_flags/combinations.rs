@@ -1,5 +1,34 @@
 use super::*;
 
+/// Mount travel preserves an accepted crawl without requesting a crawl stop.
+#[test]
+fn pose_size_regression_keeps_crawl_while_riding() {
+    let (mut physics, mut ticker) = airborne();
+    let context = PhysicsSampleContext {
+        mode_intent: super::super::super::ModeIntent {
+            ride: Some(crate::movement::RideKind::Boat),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let anchor = tick(&mut physics, &mut ticker, context);
+    physics.apply_server_movement_flags(0, flags(|flags| flags.crawling = Some(true)));
+    for _ in 0..2 {
+        let sample = tick(&mut physics, &mut ticker, context);
+        assert_eq!(sample.processed.mode, sim::MovementMode::Riding);
+        assert!(physics.pose_flags().crawling);
+        assert_eq!(count(&ticker, PlayerInputFlags::START_CRAWLING), 0);
+        assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 0);
+    }
+    for _ in 0..2 {
+        reconcile_timeline_rewind(&mut ticker, &mut physics, anchor.tick, &VersionedFloor(1))
+            .unwrap();
+        assert_eq!(physics.mode(), sim::MovementMode::Riding);
+        assert!(physics.pose_flags().crawling);
+        assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 0);
+    }
+}
+
 /// Independent server pose bits affect the swim blend even beside glide or flight.
 #[test]
 fn server_combination_keeps_swim_state_beside_glide_and_flight() {

@@ -3,6 +3,7 @@
 use super::*;
 
 mod authority_writes;
+mod pose_sizes;
 mod server_writes;
 
 #[test]

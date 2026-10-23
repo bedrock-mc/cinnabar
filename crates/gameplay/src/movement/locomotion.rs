@@ -249,14 +249,6 @@ impl ModeTracker {
         self.poses.set(mode, true);
     }
 
-    /// Ends `mode` when it is current, as a server flag clear does. The glide
-    /// counter resets when a tick processes the clear, as vanilla's does.
-    pub(super) fn end(&mut self, mode: MovementMode) {
-        let mut poses = self.poses;
-        poses.set(mode, false);
-        self.adopt_pose_flags(poses);
-    }
-
     /// Picks this tick's mode.
     pub(super) fn select(
         &mut self,
@@ -304,7 +296,9 @@ impl ModeTracker {
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.mode = MovementMode::Riding;
-            self.poses = Default::default();
+            // Mount travel leaves the accepted crawl flag alone.
+            self.poses.gliding = false;
+            self.poses.swimming = false;
             self.sprinting = false;
             self.sneaking = false;
             self.previous_feet = Some(observed.feet);

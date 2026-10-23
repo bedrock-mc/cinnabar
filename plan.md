@@ -302,8 +302,9 @@ corrects a conflicting stance through start/stop actions retained across tickles
 and replay. Server glide/swim/crawl and Riptide spin flags start or end the local state
 without start/stop actions. Each retained frame captures the flag word it starts with; a
 stamped write becomes a correction of the following frame where it differs from that
-capture without scheduling a replay itself (a future stamp joins the current frame), and
-replay keeps the starting frame's capture, refreshes later ones and copies the replayed
+capture and requests replay when that following frame is retained. Current stamps
+wait for the next frame; a future stamp joins the current frame without immediate replay.
+Replay keeps the starting frame's capture, refreshes later ones and copies the replayed
 word back to the live state, keeping the live spin and glide counters, swim blend and
 camera eye blend. Glide, swim and crawl retain independent bits beside flight;
 their own trigger transitions produce actions, and their combined state feeds

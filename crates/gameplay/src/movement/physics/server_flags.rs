@@ -4,7 +4,8 @@
 //! Every completed tick captures the flag word it started with. A server write
 //! stamped at a retained tick becomes a correction of the following frame: the
 //! bits that differ from that frame's capture, applied to the live state at
-//! once and again whenever replay passes the frame. Replay keeps the capture of
+//! once. Those changed bits request replay from the stamp, and apply again
+//! whenever replay passes the frame. Replay keeps the capture of
 //! the frame it starts from and refreshes every later capture from the replayed
 //! state before re-applying that frame's corrections; the replayed word then
 //! replaces the live one, as vanilla copies every client-owned flag back. A
@@ -40,6 +41,7 @@ impl FlagWord {
         Self(pose | if spinning { SPINNING } else { 0 })
     }
 
+    /// Whether the selected bit is set in this word.
     fn has(self, bit: u8) -> bool {
         self.0 & bit != 0
     }
@@ -58,6 +60,7 @@ pub(super) struct FlagWrite {
 }
 
 impl FlagWrite {
+    /// Packs only the pose and spin fields supplied by this server update.
     pub(super) fn from_flags(flags: &client_world::MovementFlagUpdate) -> Self {
         let mut write = Self::default();
         for (bit, flag) in [
@@ -93,6 +96,7 @@ impl FlagCorrection {
         }
     }
 
+    /// Whether no adopted bit differs from the selected comparison word.
     fn is_empty(self) -> bool {
         self.mask == 0
     }
@@ -382,9 +386,8 @@ impl LocalPhysicsController {
     }
 
     /// Attaches a write stamped at retained `tick` to the following frame as
-    /// the difference from that frame's capture, and applies it live. Like
-    /// vanilla's flag correction, whose pending type is zero, it schedules no
-    /// replay; a later replay through the frame applies it. Without a
+    /// the difference from that frame's capture, and applies it live. Changed
+    /// adopted bits request replay from the stamp. Without a
     /// following frame, as when a stale stamp clamps to the only retained
     /// tick, the write applies live and waits for the next capture. Returns
     /// whether a retained frame changed.

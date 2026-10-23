@@ -104,7 +104,7 @@ fn sync_reports_unsupported_received_speed() {
     }
 }
 
-/// A completed local pose producer clears an accepted pose even without a travel-mode edge.
+/// Local stop producers clear each accepted pose on an open, dry tick without an elytra.
 #[test]
 fn sync_local_tick_replaces_server_pose() {
     let mut physics = due_physics();
@@ -123,7 +123,11 @@ fn sync_local_tick_replaces_server_pose() {
             ..Default::default()
         },
     );
-    assert_eq!(physics.mode(), sim::MovementMode::Walking);
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let accepted = physics.prediction_sync_flags();
+    assert_eq!(accepted.gliding, Some(true));
+    assert_eq!(accepted.swimming, Some(true));
+    assert_eq!(accepted.crawling, Some(true));
     physics.advance(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
@@ -139,7 +143,7 @@ fn sync_local_tick_replaces_server_pose() {
     });
 }
 
-/// Replay keeps the order between completed pose writes and a newer unstamped server write.
+/// Replayed ticks copy their pose word back over newer unstamped writes and reporting caches.
 #[test]
 fn sync_pose_writes_keep_their_order_through_replay() {
     let mut physics = due_physics();
@@ -166,6 +170,10 @@ fn sync_pose_writes_keep_their_order_through_replay() {
     for newer_server_write in [false, true] {
         if newer_server_write {
             physics.apply_server_movement_flags(0, poses);
+            let accepted = physics.prediction_sync_flags();
+            assert_eq!(accepted.gliding, Some(true));
+            assert_eq!(accepted.swimming, Some(true));
+            assert_eq!(accepted.crawling, Some(true));
         }
         physics
             .apply_correction(
@@ -181,8 +189,16 @@ fn sync_pose_writes_keep_their_order_through_replay() {
             )
             .unwrap();
         let flags = physics.prediction_sync_flags();
-        assert_eq!(flags.gliding, Some(newer_server_write));
-        assert_eq!(flags.swimming, Some(newer_server_write));
-        assert_eq!(flags.crawling, Some(newer_server_write));
+        assert_eq!(flags.gliding, Some(false));
+        assert_eq!(flags.swimming, Some(false));
+        assert_eq!(flags.crawling, Some(false));
+        assert_eq!(physics.pose_flags(), crate::movement::PoseFlags::default());
+        send_movement_prediction_sync(&mut physics, &local_actor(), None, None, None, |packet| {
+            let words = protocol::test_support::packets::prediction_sync_flags(&packet).unwrap();
+            for flag in [ActorFlag::Gliding, ActorFlag::Swimming, ActorFlag::Crawling] {
+                assert!(!flag_set(&words, flag));
+            }
+            false
+        });
     }
 }

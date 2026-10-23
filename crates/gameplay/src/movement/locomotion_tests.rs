@@ -1090,7 +1090,10 @@ fn a_stamped_crawl_clear_lets_the_tunnel_restart_the_crawl() {
         ..Default::default()
     };
     let stamp = samples[0].tick;
-    assert_eq!(physics.apply_server_movement_flags(stamp, clear), None);
+    assert_eq!(
+        physics.apply_server_movement_flags(stamp, clear),
+        Some(stamp)
+    );
     super::reconcile_timeline_rewind(&mut ticker, &mut physics, stamp, &tunnel).unwrap();
     let pending = ticker.pending_snapshots();
     let after = pending
@@ -1136,7 +1139,10 @@ fn replaying_a_server_swim_start_keeps_the_live_swim_blend() {
         ..Default::default()
     };
     let stamp = samples[0].tick;
-    assert_eq!(physics.apply_server_movement_flags(stamp, swim), None);
+    assert_eq!(
+        physics.apply_server_movement_flags(stamp, swim),
+        Some(stamp)
+    );
     physics.queue_server_motion([0.0; 3], stamp);
     super::reconcile_timeline_rewind(&mut ticker, &mut physics, stamp, &world).unwrap();
     assert_eq!(physics.state().unwrap().swim_amount, blend);

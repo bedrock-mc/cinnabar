@@ -344,6 +344,10 @@ fn a_snap_ends_the_spin_of_a_cancelled_unsent_launch() {
     .unwrap();
     assert!(!ticker.has_held_release());
     assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    assert_eq!(
+        physics.prediction_sync_size(),
+        Some([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]),
+    );
 }
 
 /// A cancelled launch's spin ends with its snap only while it is still that

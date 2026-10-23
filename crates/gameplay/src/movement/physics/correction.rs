@@ -512,8 +512,11 @@ impl LocalPhysicsController {
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
         self.controller_history = controller_frames;
-        sync_state.restore_pending(self.sync_state);
-        self.sync_state = sync_state;
+        // Without replayed ticks, no producer superseded the live size or its owner.
+        if replay.replayed_ticks != 0 {
+            sync_state.restore_pending(self.sync_state);
+            self.sync_state = sync_state;
+        }
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history
