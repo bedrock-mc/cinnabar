@@ -171,10 +171,12 @@ pub(in crate::compiler) fn push_model_template(
     Ok(template)
 }
 
+/// Interns a placed cuboid while retaining its independently selected inventory shape.
 pub(in crate::compiler) fn intern_cuboid_template(
     materials: [u32; 6],
     min: [i16; 3],
     max: [i16; 3],
+    flags: u32,
     template_by_key: &mut BTreeMap<CuboidTemplateKey, u32>,
     model_templates: &mut Vec<ModelTemplate>,
     model_quads: &mut Vec<ModelQuad>,
@@ -183,7 +185,7 @@ pub(in crate::compiler) fn intern_cuboid_template(
         materials,
         min,
         max,
-        flags: 0,
+        flags,
     };
     intern_cuboid(key, template_by_key, model_templates, model_quads)
 }

@@ -59,35 +59,68 @@ pub fn block_gui_quads(
     templates: &[ModelTemplate],
     quads: &[ModelQuad],
 ) -> Result<Vec<GuiBlockQuad>, GuiBlockReject> {
-    if kind == VisualKind::Model
-        && template
-            .and_then(|id| templates.get(id as usize))
-            .is_some_and(|template| template.flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0)
-    {
-        let corners = carried_cuboid_faces([112, 0, 0], [144, 256, 256]);
-        return Ok(BlockFace::ALL
-            .into_iter()
-            .zip(corners)
-            .map(|(face, corners)| {
-                let corners = corners.map(|[x, y, z]| [x - 0.2, y, z]);
-                let uvs = corners.map(|[x, y, z]| match face {
-                    BlockFace::Up | BlockFace::Down => [x, z],
-                    BlockFace::North | BlockFace::South => [x, 1.0 - y],
-                    BlockFace::West | BlockFace::East => [z, 1.0 - y],
-                });
-                GuiBlockQuad {
-                    corners,
-                    uvs,
-                    material: faces[match face {
-                        BlockFace::West | BlockFace::East => face,
-                        _ => BlockFace::Up,
-                    } as usize],
-                    two_sided: false,
-                }
+    let flags = template
+        .and_then(|id| templates.get(id as usize))
+        .map_or(0, |part| part.flags);
+    if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0 {
+        let body = |face| faces[face as usize];
+        let materials = BlockFace::ALL.map(|face| {
+            body(match face {
+                BlockFace::West | BlockFace::East => face,
+                _ => BlockFace::Up,
             })
+        });
+        return Ok(inventory_cuboid_quads(
+            [7.0 / 16.0 - 0.2, 0.0, 0.0],
+            [9.0 / 16.0 - 0.2, 1.0, 1.0],
+            materials,
+        ));
+    }
+    if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_CHORUS != 0 {
+        let boxes = [
+            ([0.0; 3], [1.0; 3]),
+            ([0.125, 1.0, 0.125], [0.875, 1.125, 0.875]),
+            ([-0.125, 0.125, 0.125], [0.0, 0.875, 0.875]),
+            ([0.125, 0.125, 1.0], [0.875, 0.875, 1.125]),
+        ];
+        return Ok(boxes
+            .into_iter()
+            .flat_map(|(min, max)| inventory_cuboid_quads(min, max, faces))
             .collect());
     }
     block_item_quads(kind, faces, template, templates, quads)
+}
+
+/// Outward cuboid faces with position-derived UVs; overhanging spans start at the tile edge.
+fn inventory_cuboid_quads(min: [f32; 3], max: [f32; 3], materials: [u32; 6]) -> Vec<GuiBlockQuad> {
+    BlockFace::ALL
+        .into_iter()
+        .map(|face| {
+            let (unit, _) = cube_face(face);
+            let corners = unit.map(|point| {
+                std::array::from_fn(|axis| min[axis] + point[axis] * (max[axis] - min[axis]))
+            });
+            let mut uvs = corners.map(|[x, y, z]| match face {
+                BlockFace::Up | BlockFace::Down => [x, z],
+                BlockFace::North | BlockFace::South => [x, 1.0 - y],
+                BlockFace::West | BlockFace::East => [z, 1.0 - y],
+            });
+            for axis in 0..2 {
+                if uvs.iter().any(|uv| !(0.0..=1.0).contains(&uv[axis])) {
+                    let start = uvs.iter().map(|uv| uv[axis]).fold(f32::INFINITY, f32::min);
+                    for uv in &mut uvs {
+                        uv[axis] -= start;
+                    }
+                }
+            }
+            GuiBlockQuad {
+                corners,
+                uvs,
+                material: materials[face as usize],
+                two_sided: false,
+            }
+        })
+        .collect()
 }
 
 /// The quads a block item draws: a cube's camera-facing GUI surfaces, a fence's inventory
@@ -409,6 +442,60 @@ pub fn face_brightness(corners: [[f32; 3]; 4]) -> f32 {
 mod tests {
     use super::*;
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
+
+    #[test]
+    fn chorus_inventory_geometry_has_three_outward_protrusions() {
+        let source: Vec<_> = BlockFace::ALL
+            .into_iter()
+            .map(|face| {
+                let (corners, uvs) = cube_face(face);
+                ModelQuad {
+                    positions: corners.map(|p| p.map(|v| (v * 256.0) as i16)),
+                    uvs: uvs.map(|p| p.map(|v| (v * 4096.0) as u16)),
+                    material: 1,
+                    flags: face.model_quad_face_id(),
+                }
+            })
+            .collect();
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: source.len() as u32,
+            flags: crate::MODEL_TEMPLATE_FLAG_CHORUS,
+        }];
+        let inventory =
+            block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+        let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
+        for point in inventory.iter().flat_map(|quad| quad.corners) {
+            for axis in 0..3 {
+                bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                bounds[1][axis] = bounds[1][axis].max(point[axis]);
+            }
+        }
+        assert_eq!(bounds, [[-0.125, 0.0, 0.0], [1.0, 1.125, 1.125]]);
+        for (axis, edge) in [(0, -0.125), (1, 1.125), (2, 1.125)] {
+            assert!(
+                inventory.iter().any(|quad| {
+                    quad.visible_in_gui() && quad.corners.iter().all(|p| p[axis] == edge)
+                }),
+                "missing visible protrusion along axis {axis}"
+            );
+        }
+        assert!(
+            inventory
+                .iter()
+                .flat_map(|quad| quad.uvs)
+                .flatten()
+                .all(|v| (0.0..=1.0).contains(&v))
+        );
+        let held =
+            block_item_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+        assert!(
+            held.iter()
+                .flat_map(|quad| quad.corners)
+                .flatten()
+                .all(|v| (0.0..=1.0).contains(&v))
+        );
+    }
 
     #[test]
     fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
