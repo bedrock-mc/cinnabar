@@ -93,6 +93,19 @@ fn prepare_actor_kernels(world: &mut World, device: &RenderDevice) {
     });
 }
 
+#[test]
+fn pack_passes_require_a_loaded_pack() {
+    let mut world = ready_world();
+    let pack = world.remove_resource::<LoadedShaderPack>().unwrap();
+    assert!(!world.run_system_once(pack_loaded).unwrap());
+    world.init_resource::<LoadedShaderPack>();
+    assert!(!world.run_system_once(pack_loaded).unwrap());
+    world.insert_resource(pack);
+    assert!(world.run_system_once(pack_loaded).unwrap());
+    world.resource_mut::<LoadedShaderPack>().0 = None;
+    assert!(!world.run_system_once(pack_loaded).unwrap());
+}
+
 /// Runs the production queue decision and checks every replacement category.
 pub(super) fn assert_replacement(world: &mut World) {
     world.run_system_once(configure_replacement).unwrap();

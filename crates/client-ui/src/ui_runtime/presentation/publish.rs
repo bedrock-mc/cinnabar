@@ -169,17 +169,28 @@ pub fn hovered_stack(
             ),
             Hit::Storage(slot) => (ledger.storage_stack(slot), None),
             Hit::Craft(slot) => (
-                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Craft(slot)),
+                ledger
+                    .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(slot))
+                    .or_else(|| ledger.crafting_ghost_stack(slot)),
                 None,
             ),
             Hit::Armor(row) => (
                 ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Armor(row)),
                 None,
             ),
-            Hit::Offhand => (
-                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
-                None,
-            ),
+            Hit::Offhand => (runtime.local_offhand_stack(player_runtime), None),
+            Hit::CraftOutput
+                if matches!(
+                    ledger.window_kind(),
+                    None | Some(protocol::WindowKind::Workbench)
+                ) =>
+            {
+                return ui_screens::inventory_capture::crafting_output(
+                    ledger,
+                    player_runtime.inventory.crafting_match(),
+                )
+                .map(|(stack, _)| (stack, None));
+            }
             Hit::CraftOutput if ledger.window_kind() == Some(protocol::WindowKind::Anvil) => {
                 return runtime
                     .anvil_output(player_runtime)

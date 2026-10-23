@@ -22,6 +22,8 @@ impl Default for InventoryIcons {
 pub struct CraftingFrame {
     pub icons: [Option<IconRef>; 9],
     pub output: Option<(Option<IconRef>, protocol::NetworkItemStack)>,
+    /// The output is a selected recipe preview rather than a craftable result.
+    pub output_is_ghost: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,21 +91,16 @@ pub fn capture_contents(
             .zip(ledger.crafting_grid().slots())
         {
             let target = inventory::inventory_ledger::InventoryTarget::Craft(slot);
-            if let Some(stack) = ledger.target_stack(target) {
+            if let Some(stack) = ledger
+                .target_stack(target)
+                .or_else(|| ledger.crafting_ghost_stack(slot))
+            {
                 *icon = resolve_icon(stack, None);
             }
         }
-        if let inventory::CraftGridMatch::Unique(recipe) = crafting_match() {
-            let output = recipe.output();
-            let stack = protocol::NetworkItemStack {
-                network_id: output.network_id,
-                metadata: u32::from(output.aux),
-                count: u16::from(output.count),
-                block_runtime_id: output.block_runtime_id as i32,
-                ..protocol::NetworkItemStack::empty()
-            };
-            let icon = resolve_icon(&stack, None);
-            crafting.output = Some((icon, stack));
+        if let Some((stack, is_ghost)) = crafting_output(ledger, crafting_match()) {
+            crafting.output = Some((resolve_icon(&stack, None), stack));
+            crafting.output_is_ghost = is_ghost;
         }
     }
     // Hover names for the open container's cells (JSON-UI tooltips).
@@ -114,6 +111,12 @@ pub fn capture_contents(
                 (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
                     .filter_map(|slot| ledger.furnace_visual_stack(slot as u8)),
             )
+            .chain(ledger.crafting_grid().slots().filter_map(|slot| {
+                ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .or_else(|| ledger.crafting_ghost_stack(slot))
+            }))
+            .chain(crafting.output.as_ref().map(|(_, stack)| stack))
             .filter_map(|stack| {
                 let name = item_name(stack)?;
                 Some(((stack.network_id, stack.metadata), Arc::from(name)))
@@ -127,6 +130,31 @@ pub fn capture_contents(
         storage_icons,
         crafting,
         item_names,
+    }
+}
+
+/// Projects a real match before a selected recipe ghost, retaining which supplied the result.
+pub fn crafting_output(
+    ledger: &PlayerInventoryLedger,
+    matched: inventory::CraftGridMatch,
+) -> Option<(NetworkItemStack, bool)> {
+    if let inventory::CraftGridMatch::Unique(recipe) = matched {
+        let output = recipe.output();
+        Some((
+            NetworkItemStack {
+                network_id: output.network_id,
+                metadata: u32::from(output.aux),
+                count: u16::from(output.count),
+                block_runtime_id: output.block_runtime_id as i32,
+                ..NetworkItemStack::empty()
+            },
+            false,
+        ))
+    } else {
+        ledger
+            .crafting_ghost_output()
+            .cloned()
+            .map(|stack| (stack, true))
     }
 }
 

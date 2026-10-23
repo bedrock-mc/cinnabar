@@ -56,6 +56,14 @@ pub(crate) fn observe_destroy_target(
         return None;
     }
     let stream = context.client_world.stream.as_ref()?;
+    let held = stream.authority().held_edit_item(
+        &observed.selection.item,
+        protocol::ItemBlockList::CanDestroy,
+        observed.target.runtime_id,
+    );
+    if !caps.permits_edit(held) {
+        return None;
+    }
     let mode = stream.network_id_mode();
     let mut destroy_facts = stream
         .runtime_assets()

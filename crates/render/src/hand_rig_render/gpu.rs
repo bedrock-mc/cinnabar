@@ -6,6 +6,8 @@ use {
 };
 
 use super::*;
+use crate::actor::gpu::ArtworkRawViews;
+use bevy::prelude::Entity;
 
 pub(super) struct HandRigDepth {
     pub(super) _texture: Texture,
@@ -19,6 +21,7 @@ pub(super) struct HandRigAtlas {
     pub(super) view: TextureView,
     pub(super) pixels: Arc<[u8]>,
     pub(super) size: [u32; 3],
+    pub(super) raw_views: ArtworkRawViews,
 }
 
 /// The uploaded held-item glint, retained while its pixels are unchanged.
@@ -28,12 +31,14 @@ pub(super) struct HandRigGlint {
     pub(super) pixels: Option<Arc<[u8]>>,
     /// Original raster dimensions, before device fitting.
     pub(super) source_size: [u32; 2],
+    pub(super) raw_views: ArtworkRawViews,
 }
 
 pub(super) struct HandRigSkin {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
     pub(super) pixels: SkinRgba8,
+    pub(super) raw_views: ArtworkRawViews,
 }
 
 #[derive(Resource)]
@@ -53,10 +58,14 @@ pub(super) struct HandRigGpu {
     pub(super) current_bones: Option<Buffer>,
     pub(super) skin: Option<HandRigSkin>,
     pub(super) atlases: [Option<HandRigAtlas>; 2],
+    /// The raw-view setting new artwork textures are created with; artwork created under
+    /// another setting is replaced.
+    pub(super) raw_views: ArtworkRawViews,
     pub(super) glint_sampler: Sampler,
     pub(super) glint: Option<HandRigGlint>,
     pub(super) instance_count: u32,
     pub(super) depth: Option<HandRigDepth>,
+    failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
     pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; 8],
@@ -103,6 +112,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         current_bones: None,
         skin: None,
         atlases: [None, None],
+        raw_views: ArtworkRawViews::default(),
         glint_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person repeat glint sampler"),
             address_mode_u: AddressMode::Repeat,
@@ -114,6 +124,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         glint: None,
         instance_count: 0,
         depth: None,
+        failed_depth: default(),
         bind_group: None,
         pipeline: None,
         pipeline_variants: [None; 8],
@@ -135,7 +146,12 @@ pub(super) fn prepare(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    raw_views: Option<Res<ArtworkRawViews>>,
 ) {
+    let raw_views = ArtworkRawViews::current(raw_views);
+    if gpu.raw_views != raw_views {
+        gpu.raw_views = raw_views;
+    }
     if background.is_some_and(|background| !background.game_visible()) {
         deactivate(&mut gpu);
         return;
@@ -159,7 +175,11 @@ pub(super) fn prepare(
         deactivate(&mut gpu);
         return;
     }
-    upload_pose(&mut gpu, &uploads, frame);
+    // A pose that could not be resized would pair old bones with new geometry; skip the draw.
+    if !upload_pose(&mut gpu, &uploads, frame) {
+        deactivate(&mut gpu);
+        return;
+    }
     upload_skin(&mut gpu, &uploads.device, &uploads.queue, frame);
     upload_atlas(&mut gpu, &uploads.device, &uploads.queue, frame);
     upload_glint(&mut gpu, &uploads.device, &uploads.queue, frame);
@@ -261,58 +281,73 @@ pub(super) fn upload_geometry(
     true
 }
 
-/// Uploads the current rig pose and instance stream into retained buffers.
+/// Uploads the current rig pose and instance stream into retained buffers; false when out of
+/// memory kept the previous pose.
+#[must_use]
 pub(super) fn upload_pose(
     gpu: &mut HandRigGpu,
     uploads: &crate::upload_staging::FrameUploads<'_>,
     frame: &HandRigFrame,
-) {
+) -> bool {
     if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
-        return;
+        return true;
     }
     // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
-    let mut recreated = false;
-    for (slot, label, bytes) in [
+    let streams = [
         (
-            &mut gpu.instances,
             "first-person rig instance",
             bytemuck::cast_slice::<_, u8>(&frame.rig.instances),
         ),
         (
-            &mut gpu.previous_bones,
             "first-person rig previous bones",
             bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones),
         ),
         (
-            &mut gpu.current_bones,
             "first-person rig current bones",
             bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
         ),
-    ] {
+    ];
+    let slots = [&gpu.instances, &gpu.previous_bones, &gpu.current_bones];
+    // Resized streams are all allocated before any write, so out of memory keeps the last
+    // consistent pose and retries next frame.
+    let mut replacements: [Option<Buffer>; 3] = [None, None, None];
+    for ((slot, (label, bytes)), replacement) in slots.iter().zip(streams).zip(&mut replacements) {
+        if slot
+            .as_ref()
+            .is_some_and(|buffer| buffer.size() == bytes.len() as u64)
+        {
+            continue;
+        }
+        let Some(buffer) = crate::gpu_allocation::buffer_with_data(
+            &uploads.device,
+            &uploads.queue,
+            label,
+            bytes,
+            BufferUsages::STORAGE,
+        ) else {
+            return false;
+        };
+        *replacement = Some(buffer);
+    }
+    let recreated = replacements.iter().any(Option::is_some);
+    let slots = [
+        &mut gpu.instances,
+        &mut gpu.previous_bones,
+        &mut gpu.current_bones,
+    ];
+    for ((slot, (_label, bytes)), replacement) in slots.into_iter().zip(streams).zip(replacements) {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "hand.pose_upload",
-            label,
+            label = _label,
             revision = frame.revision,
             bytes = bytes.len()
         )
         .entered();
-        match slot {
-            Some(buffer) if buffer.size() == bytes.len() as u64 => {
-                uploads.write(buffer, 0, bytes);
-            }
-            _ => {
-                *slot = Some(
-                    uploads
-                        .device
-                        .create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some(label),
-                            contents: bytes,
-                            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                        }),
-                );
-                recreated = true;
-            }
+        match (replacement, slot.as_ref()) {
+            (Some(buffer), _) => *slot = Some(buffer),
+            (None, Some(buffer)) => uploads.write(buffer, 0, bytes),
+            (None, None) => unreachable!("a missing stream is always replaced"),
         }
     }
     gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;
@@ -321,6 +356,7 @@ pub(super) fn upload_pose(
     if recreated {
         gpu.bind_group = None;
     }
+    true
 }
 
 /// Reuses the skin texture until its artwork changes.
@@ -333,7 +369,7 @@ pub(super) fn upload_skin(
     if gpu
         .skin
         .as_ref()
-        .is_some_and(|skin| skin.pixels == frame.skin)
+        .is_some_and(|skin| skin.pixels == frame.skin && skin.raw_views == gpu.raw_views)
     {
         return;
     }
@@ -352,7 +388,7 @@ pub(super) fn upload_skin(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: gpu.raw_views.view_formats(),
         },
         TextureDataOrder::LayerMajor,
         &frame.skin,
@@ -366,6 +402,7 @@ pub(super) fn upload_skin(
         _texture: texture,
         view,
         pixels: frame.skin.clone(),
+        raw_views: gpu.raw_views,
     });
     gpu.bind_group = None;
 }
@@ -377,6 +414,7 @@ pub(super) fn upload_atlas(
     queue: &RenderQueue,
     frame: &HandRigFrame,
 ) {
+    let raw_views = gpu.raw_views;
     for (slot, atlas) in gpu.atlases.iter_mut().zip(&frame.item_atlases) {
         let Some(atlas) = atlas else {
             if slot.take().is_some() {
@@ -397,6 +435,7 @@ pub(super) fn upload_atlas(
         }
         if slot.as_ref().is_some_and(|current| {
             Arc::ptr_eq(&current.pixels, &atlas.rgba8)
+                && current.raw_views == raw_views
                 && current.size
                     == [
                         u32::from(atlas.width),
@@ -420,7 +459,7 @@ pub(super) fn upload_atlas(
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba8UnormSrgb,
                 usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+                view_formats: raw_views.view_formats(),
             },
             TextureDataOrder::LayerMajor,
             &atlas.rgba8,
@@ -439,6 +478,7 @@ pub(super) fn upload_atlas(
                 u32::from(atlas.height),
                 atlas.layers,
             ],
+            raw_views,
         });
         gpu.bind_group = None;
     }
@@ -459,6 +499,7 @@ pub(super) fn upload_glint(
     let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
     if let Some(current) = &gpu.glint
         && current.source_size == size
+        && current.raw_views == gpu.raw_views
         && match (&current.pixels, &pixels) {
             (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
             (None, None) => true,
@@ -490,7 +531,7 @@ pub(super) fn upload_glint(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: gpu.raw_views.view_formats(),
         },
         TextureDataOrder::LayerMajor,
         data,
@@ -501,6 +542,7 @@ pub(super) fn upload_glint(
         view,
         pixels,
         source_size: size,
+        raw_views: gpu.raw_views,
     });
     gpu.bind_group = None;
 }
@@ -520,20 +562,32 @@ pub(super) fn ensure_depth(
         return;
     }
     gpu.depth = None;
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("first-person rig private reverse-Z depth"),
-        size: Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: samples,
-        dimension: TextureDimension::D2,
-        format: CORE_3D_DEPTH_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
+    let bytes = u64::from(size[0]) * u64::from(size[1]) * 4 * u64::from(samples);
+    let label = "first-person rig private reverse-Z depth";
+    // This resource owns one shared hand attachment, independent of camera identity.
+    let Some(texture) = gpu
+        .failed_depth
+        .attempt(Entity::PLACEHOLDER, (size, samples), || {
+            crate::gpu_allocation::checked(device, label, bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some(label),
+                    size: Extent3d {
+                        width: size[0],
+                        height: size[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: TextureDimension::D2,
+                    format: CORE_3D_DEPTH_FORMAT,
+                    usage: TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+            })
+        })
+    else {
+        return;
+    };
     let view = texture.create_view(&TextureViewDescriptor::default());
     gpu.depth = Some(HandRigDepth {
         _texture: texture,

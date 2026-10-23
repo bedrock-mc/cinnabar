@@ -620,72 +620,98 @@ pub(super) fn hand_source(
         return Some(source);
     }
     let main_layer = main.as_ref().and_then(|item| {
-        let attachable =
-            (retained == selected && java_draws_attachable(&item.identifier)).then(|| {
-                item_animation?;
-                let (use_ticks, _) =
-                    use_clock(rig.hand[1].use_ticks, alpha, item_animation.as_ref());
-                let main_attachable_input = actor_animation::AttachableAnimationInput {
-                    animation_frame: java_bow_frame(use_ticks),
-                    ..main_attachable_input
-                };
-                let actor = stream.authority().actor(runtime_id)?;
-                cache.native_pose.apply(&mut inputs);
-                equipment.first_person_selected_attachable(
-                    &inputs.presentation.submission,
-                    item,
-                    main_selection.as_ref()?,
-                    actor,
-                    &rig,
-                    main_attachable_input,
-                    Some(hand),
-                )
-            });
-        let layer = attachable.flatten().or_else(|| {
-            equipment.first_person_java_item_with_use(
+        let icon_fallback = main_selection
+            .as_ref()
+            .is_some_and(|selected| selected.uses_icon_fallback());
+        let attachable = (!icon_fallback
+            && retained == selected
+            && java_draws_attachable(&item.identifier))
+        .then(|| {
+            item_animation?;
+            let (use_ticks, _) = use_clock(rig.hand[1].use_ticks, alpha, item_animation.as_ref());
+            let main_attachable_input = actor_animation::AttachableAnimationInput {
+                animation_frame: java_bow_frame(use_ticks),
+                ..main_attachable_input
+            };
+            let actor = stream.authority().actor(runtime_id)?;
+            cache.native_pose.apply(&mut inputs);
+            equipment.first_person_selected_attachable(
                 &inputs.presentation.submission,
                 item,
-                hand,
-                item_animation
-                    .map(|input| {
-                        super::hand::attachable_hand_input(
-                            &retained_equipment,
-                            owner_equipment,
-                            input,
-                            false,
-                        )
-                    })
-                    .map(|input| actor_animation::AttachableAnimationInput {
-                        held_item_scale: rig.held_item_scale,
-                        ..input
-                    })
-                    .unwrap_or(actor_animation::AttachableAnimationInput {
-                        held_item_scale: rig.held_item_scale,
-                        ..Default::default()
-                    }),
+                main_selection.as_ref()?,
+                actor,
+                &rig,
+                main_attachable_input,
+                Some(hand),
             )
+        });
+        let layer = attachable.flatten().or_else(|| {
+            let input = item_animation
+                .map(|input| {
+                    super::hand::attachable_hand_input(
+                        &retained_equipment,
+                        owner_equipment,
+                        input,
+                        false,
+                    )
+                })
+                .map(|input| actor_animation::AttachableAnimationInput {
+                    held_item_scale: rig.held_item_scale,
+                    ..input
+                })
+                .unwrap_or(actor_animation::AttachableAnimationInput {
+                    held_item_scale: rig.held_item_scale,
+                    ..Default::default()
+                });
+            if icon_fallback {
+                equipment.first_person_java_icon_with_use(
+                    &inputs.presentation.submission,
+                    item,
+                    hand,
+                    input,
+                )
+            } else {
+                equipment.first_person_java_item_with_use(
+                    &inputs.presentation.submission,
+                    item,
+                    hand,
+                    input,
+                )
+            }
         })?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
     let off_layer = equipment_input.off.as_ref().and_then(|item| {
+        let mut icon_fallback = false;
         let attachable = item_animation.and_then(|mut input| {
             input.frame_alpha = alpha;
             let input =
                 super::hand::attachable_hand_input(equipment_input, owner_equipment, input, true);
             let actor = stream.authority().actor(runtime_id)?;
+            let selected = equipment.select_held_item(item, actor, &rig, input);
+            icon_fallback = selected.uses_icon_fallback();
+            if icon_fallback {
+                return None;
+            }
             cache.native_pose.apply(&mut inputs);
-            equipment.first_person_attachable(
+            equipment.first_person_selected_attachable(
                 &inputs.presentation.submission,
                 item,
+                &selected,
                 actor,
                 &rig,
                 input,
                 None,
             )
         });
-        let layer = attachable
-            .or_else(|| equipment.first_person_offhand(&inputs.presentation.submission, item))?;
+        let layer = attachable.or_else(|| {
+            if icon_fallback {
+                equipment.first_person_offhand_icon(&inputs.presentation.submission, item)
+            } else {
+                equipment.first_person_offhand(&inputs.presentation.submission, item)
+            }
+        })?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });

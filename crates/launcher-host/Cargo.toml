@@ -10,6 +10,7 @@ platform-specific = ["macos", "windows"]
 reads = [
     "assets/bedrock-target.json",
     "core",
+    "packaging/android/runtime.json",
 ]
 
 [features]
@@ -48,6 +49,10 @@ zip = { version = "7", default-features = false, features = ["deflate-flate2-zli
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-io = "2"

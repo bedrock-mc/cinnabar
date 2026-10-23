@@ -34,11 +34,15 @@ pub struct ShutdownWatchdog {
 }
 
 impl ShutdownWatchdog {
-    /// Creates a watchdog that stops owned child processes before terminating the client.
+    /// Creates a watchdog that ends the client as `main` would after a finished teardown.
     pub fn process(timeout: Duration) -> Self {
         Self::new(timeout, |code| {
-            launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
-            launcher_host::lifecycle::crash::announce_exit(code);
+            end_cut_short(
+                code,
+                || launcher_host::lifecycle::children::stop_all(Duration::ZERO),
+                launcher_host::lifecycle::update::apply_after_exit,
+                launcher_host::lifecycle::crash::announce_exit,
+            );
             std::process::exit(code)
         })
     }
@@ -110,6 +114,22 @@ impl ShutdownWatchdog {
     }
 }
 
+/// Runs the exit steps a teardown cut short by the watchdog would otherwise skip: `stop` ends
+/// owned children, a successful exit still runs `hand_off_update` so an accepted update reaches
+/// its helper, and `announce` reports the status to the crash monitor last.
+fn end_cut_short(
+    code: i32,
+    stop: impl FnOnce(),
+    hand_off_update: impl FnOnce(),
+    announce: impl FnOnce(i32),
+) {
+    stop();
+    if code == 0 {
+        hand_off_update();
+    }
+    announce(code);
+}
+
 /// Arms the watchdog when the world is torn down without an `AppExit`, as macOS `terminate:`
 /// (Cmd+Q, Dock Quit) and a panic unwinding the main thread do; Bevy's pipelined-render teardown
 /// otherwise deadlocks there. Insert before the render plugins finish so it drops ahead of
@@ -161,5 +181,36 @@ pub fn arm_shutdown_watchdog(mut exits: MessageReader<AppExit>, watchdog: Res<Sh
     );
     if let Some(exit) = requested {
         begin_bounded_shutdown(&watchdog, &exit);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    fn cut_short(code: i32) -> Vec<String> {
+        let steps = RefCell::new(Vec::new());
+        end_cut_short(
+            code,
+            || steps.borrow_mut().push("stop".to_owned()),
+            || steps.borrow_mut().push("hand off update".to_owned()),
+            |code| steps.borrow_mut().push(format!("announce {code}")),
+        );
+        steps.into_inner()
+    }
+
+    #[test]
+    fn a_successful_exit_cut_short_still_hands_off_an_accepted_update() {
+        assert_eq!(cut_short(0), ["stop", "hand off update", "announce 0"]);
+    }
+
+    #[test]
+    fn a_failed_exit_cut_short_never_installs_an_update() {
+        assert_eq!(cut_short(1), ["stop", "announce 1"]);
+        assert_eq!(
+            cut_short(i32::from(PANIC_EXIT_CODE)),
+            ["stop", format!("announce {PANIC_EXIT_CODE}").as_str()]
+        );
     }
 }

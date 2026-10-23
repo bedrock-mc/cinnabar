@@ -8,13 +8,14 @@ mod modifiers;
 use modifiers::MenuModifiers;
 pub(super) mod fields;
 mod ime;
-pub use ime::drive_menu_ime;
+pub use ime::drive_window_ime;
 mod preview;
 mod remapping;
 mod scroll;
 mod server_list;
 mod settings_pointer;
 mod touch;
+mod touch_editor;
 
 use clipboard::MenuClipboard;
 use context::MenuInputContext;
@@ -84,6 +85,8 @@ pub struct GuiScaleDrag {
     server_list_touch: Option<u64>,
     scroll_touch: Option<u64>,
     menu_touch: Option<u64>,
+    editor_touch: Option<touch_editor::Capture>,
+    editor_mode: bool,
 }
 
 impl MenuRuntime {
@@ -290,9 +293,21 @@ pub fn drive_menu_input(
         player_runtime,
         time,
         mut keyboard_messages,
+        touch_messages,
+        mut touch_cursor,
         mut focus,
         driven,
     } = context;
+    let touch_events: Vec<_> = touch_messages
+        .as_deref()
+        .map(|messages| {
+            touch_cursor
+                .read(messages)
+                .filter(|event| event.window == window.0)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
     if driven.is_none()
         && (!window.1.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
         || !menu.is_visible()
@@ -314,6 +329,8 @@ pub fn drive_menu_input(
     }
     menu.settings.slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) {
+        presentation.cancel_touch_editor_pointer();
+        gui_scale_drag.editor_touch = None;
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -379,6 +396,8 @@ pub fn drive_menu_input(
             || runtime.server_forms().owns_input()
                 && (!menu.is_visible() || runtime.server_forms().settings_form_active())
     }) {
+        presentation.cancel_touch_editor_pointer();
+        gui_scale_drag.editor_touch = None;
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -398,6 +417,8 @@ pub fn drive_menu_input(
     if driven.is_none()
         && (!window.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
     {
+        presentation.cancel_touch_editor_pointer();
+        gui_scale_drag.editor_touch = None;
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -427,6 +448,40 @@ pub fn drive_menu_input(
         menu.pointer_down = false;
         return;
     }
+    if menu.touch_editor_active() {
+        if !gui_scale_drag.editor_mode {
+            let held = gui_scale_drag.left_held;
+            gui_scale_drag.cancel_pointer(&mut menu, &mut presentation);
+            gui_scale_drag.left_held = held;
+            gui_scale_drag.editor_mode = true;
+        }
+        modifiers.capture_pressed(&keys);
+        for input in keyboard_messages.read() {
+            modifiers.observe(input);
+            if input.state == ButtonState::Pressed {
+                presentation.touch_editor_key(&format!("{:?}", input.key_code), modifiers.field());
+            }
+        }
+        presentation.touch_editor_modifiers(modifiers.field());
+        touch_editor::drive(
+            &mut menu,
+            &mut presentation,
+            &touches,
+            &touch_events,
+            &mut gui_scale_drag,
+            window.cursor_position().map(|at| [at.x, at.y]),
+            &mouse_buttons,
+        );
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        crate::physical_input::release_cursor(&mut cursor);
+        return;
+    }
+    menu.touch_editor_open = false;
+    presentation.close_touch_editor();
+    gui_scale_drag.editor_touch = None;
+    gui_scale_drag.editor_mode = false;
     if !menu.is_visible()
         && runtime
             .as_ref()
@@ -445,6 +500,8 @@ pub fn drive_menu_input(
         }
     }
     if !menu.is_visible() {
+        presentation.cancel_touch_editor_pointer();
+        gui_scale_drag.editor_touch = None;
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;

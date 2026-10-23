@@ -26,6 +26,8 @@ mod device_poll;
 mod gpu_allocation;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+#[path = "../src/startup_presentation.rs"]
+mod startup_presentation;
 
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]

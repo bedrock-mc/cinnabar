@@ -590,6 +590,7 @@ pub fn engine_press_drops(frame: &EngineFrame, gui: [f32; 2]) -> bool {
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
 struct Cells<'a> {
     names: &'a std::collections::HashMap<(i32, u32), Arc<str>>,
+    facts: &'a inventory::SessionItemFacts,
     icons: &'a mut Vec<IconRef>,
 }
 
@@ -628,6 +629,12 @@ impl Cells<'_> {
             }),
         )
         .with("#hover_text", Scalar::Text(name))
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(
+                stack.map_or(-1, |stack| self.facts.id_aux(stack)),
+            )),
+        )
         .with("#is_selected_slot", Scalar::Bool(false))
         // The classic cell art; the controller always answers the background.
         .with("#container_item_background", Scalar::Int(0))
@@ -644,6 +651,17 @@ impl Cells<'_> {
     }
 }
 
+/// A recipe-book ghost: the missing item on the red cell art.
+fn ghost_cell(item: CollectionItem) -> CollectionItem {
+    item.with(
+        "#container_item_background",
+        Scalar::Int(GHOST_CELL_BACKGROUND),
+    )
+}
+
+/// `#container_item_background` for a cell the selected recipe still needs.
+const GHOST_CELL_BACKGROUND: i64 = 3;
+
 /// The player's main inventory (slots 9 to 35) and hotbar as vanilla's `inventory_items` and
 /// `hotbar_items` rows, reserving an icon entry even for empty cells.
 pub fn player_rows(
@@ -654,6 +672,7 @@ pub fn player_rows(
     let ledger = player_runtime.inventory.ledger();
     let mut cells = Cells {
         names: frame.item_names,
+        facts: ledger.item_facts(),
         icons,
     };
     let player_icon = |index: usize| frame.inventory_icons.get(index).copied().flatten();
@@ -708,6 +727,7 @@ pub fn screen_data(
     data.set_collection("hotbar_items", hotbar);
     let mut cells = Cells {
         names: frame.item_names,
+        facts: ledger.item_facts(),
         icons,
     };
     match layout {
@@ -718,18 +738,25 @@ pub fn screen_data(
                 2
             };
             let first = layout.craft_slot();
+            let icon = |index: usize| frame.crafting.icons.get(index).copied().flatten();
             let grid = (0..width * width)
                 .map(|index| {
                     let slot = first + index as u8;
-                    cells.cell(
-                        ledger.target_stack(InventoryTarget::Craft(slot)),
-                        frame.crafting_icons.get(index).copied().flatten(),
-                        None,
-                    )
+                    match ledger.target_stack(InventoryTarget::Craft(slot)) {
+                        Some(stack) => cells.cell(Some(stack), icon(index), None),
+                        None => match ledger.crafting_ghost_stack(slot) {
+                            Some(ghost) => ghost_cell(cells.cell(Some(ghost), icon(index), None)),
+                            None => cells.cell(None, icon(index), None),
+                        },
+                    }
                 })
                 .collect();
             data.set_collection("crafting_input_items", grid);
-            let output = match frame.crafting_output {
+            let output = match frame.crafting.output.as_ref() {
+                // An unfilled recipe-book selection shows its result as a ghost too.
+                Some((icon, stack)) if frame.crafting.output_is_ghost => {
+                    ghost_cell(cells.cell(Some(stack), *icon, None))
+                }
                 Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
                 None => cells.cell(None, None, None),
             };

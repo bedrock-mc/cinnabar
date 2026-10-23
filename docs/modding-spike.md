@@ -174,6 +174,29 @@ to stop both checks and downloads. Both mod settings work independently of the
 app updater, including development builds. Mods without either declaration make
 no update requests.
 
+## Click limiting and local weather
+
+`input.set-click-limits(attack, item-use)` retains separate optional press caps.
+Each cap accepts 1 through `mod_api::MAX_CLICK_RATE` (100) presses per second;
+`none` restores ordinary input for that channel. It requires `controls` authority
+and cannot generate clicks. Excess gestures are discarded through their release;
+accepted held mining and item-use gestures keep ordinary behavior. Ordered desktop
+bursts and aggregate input phases share the filter. Caps combine by taking the
+strictest active cap per channel. Cooldowns reset at gameplay, input-authority,
+session and dimension boundaries, with no delayed replay.
+
+`environment.set-weather-override(option<weather>)` selects `clear`, `rain` or
+`thunder` under the existing `environment` grant and output precedence. It affects
+local sky, fog, light and precipitation inputs. Authoritative weather and its
+normal display interpolation keep advancing independently, so `none` restores the
+current server presentation. Local presets suppress server lightning flashes;
+they do not create lightning entities or change server simulation or audio.
+
+Both policies publish only after successful callbacks, retain across deferred
+callbacks, clear on quarantine, and start fresh after a successful reload.
+No default setting changes. A component must opt into these APIs. Headless
+populated-world rendering and interaction acceptance remain to be completed.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one
