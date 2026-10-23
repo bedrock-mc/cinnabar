@@ -15,6 +15,7 @@ pub(crate) fn shadow_sources(
     Handle<Shader>,
     Handle<Shader>,
     bevy::mesh::VertexBufferLayout,
+    bool,
 ) {
     let pipeline = world.resource::<ChunkPipeline>();
     (
@@ -22,6 +23,7 @@ pub(crate) fn shadow_sources(
         CHUNK_SHADER_HANDLE,
         MODEL_SHADER_HANDLE,
         pipeline::layouts::draw_offsets_layout(),
+        pipeline.compact,
     )
 }
 

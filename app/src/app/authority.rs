@@ -105,5 +105,10 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         drain_committed_ui_before_authority
             .after(reconcile_world_stream_before_physics)
             .before(ClientFrameSet::UiAuthority),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::data_driven::publish_host_screens
+            .before(drain_committed_ui_before_authority),
     );
 }
