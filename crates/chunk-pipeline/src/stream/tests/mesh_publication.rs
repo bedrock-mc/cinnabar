@@ -309,9 +309,8 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
     assert!(stream.pop_mesh_change().is_none());
 }
 
-/// A staged mesh retains publication capacity while ready air fills a pressured frame.
-#[test]
-fn permit_denied_mesh_publishes_from_staging_amid_air_pressure() {
+/// Builds current worker completions held in staging by a zero publication allowance.
+fn stream_with_staged_meshes(count: usize) -> (WorldStream, render_api::PublicationAllowance) {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -321,19 +320,25 @@ fn permit_denied_mesh_publishes_from_staging_amid_air_pressure() {
         air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    let key = SubChunkKey::new(0, 0, -4, 0);
-    stream
-        .authority
-        .update_block(
-            key,
-            BlockUpdate::new(0, 0, 0, 0, 99),
-            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        )
-        .unwrap();
-    stream.resident.insert(key);
-    stream.mark_light_changed_sources([key]);
+    let keys = (0..count)
+        .map(|x| SubChunkKey::new(0, x as i32 * 2, -4, 0))
+        .collect::<Vec<_>>();
+    for &key in &keys {
+        stream
+            .authority
+            .update_block(
+                key,
+                BlockUpdate::new(0, 0, 0, 0, 99),
+                protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            )
+            .unwrap();
+        stream.resident.insert(key);
+    }
+    stream.mark_light_changed_sources(keys.iter().copied());
     light_scheduler::settle_light(&mut stream, [0.0; 3]);
-    stream.mark_dirty_exact(key, Instant::now());
+    for &key in &keys {
+        stream.mark_dirty_exact(key, Instant::now());
+    }
     let config = render_api::PublicationServiceConfig::DEFAULT;
     let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(1, 0, 0, 0, 0);
@@ -354,20 +359,29 @@ fn permit_denied_mesh_publishes_from_staging_amid_air_pressure() {
         dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
     }
     assert_eq!(
-        dispatched, 1,
+        dispatched, count,
         "a denied permit must not remesh the same revision"
     );
-    assert_eq!(stream.staged_mesh_completions.len(), 1);
+    assert_eq!(stream.staged_mesh_completions.len(), count);
     assert!(stream.take_mesh_changes().is_empty());
 
+    (stream, allowance)
+}
+
+/// A staged mesh retains publication capacity while ready air fills a pressured frame.
+#[test]
+fn permit_denied_mesh_publishes_from_staging_amid_air_pressure() {
+    let (mut stream, allowance) = stream_with_staged_meshes(1);
+    let key = stream.staged_mesh_completions.front().unwrap().key;
+    let config = render_api::PublicationServiceConfig::DEFAULT;
     for x in 10..18 {
         stream.mark_dirty_exact(SubChunkKey::new(0, x, 8, 0), Instant::now());
     }
 
     allowance.begin_frame(2, 8, config.maximum_frame_bytes, 8, 8);
-    dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
+    let dispatched = stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
     let changes = stream.take_mesh_changes();
-    assert_eq!(dispatched, 1);
+    assert_eq!(dispatched, 0);
     assert!(stream.staged_mesh_completions.is_empty());
     assert!(changes.iter().any(|change| matches!(
         change,
@@ -379,6 +393,45 @@ fn permit_denied_mesh_publishes_from_staging_amid_air_pressure() {
             .any(|change| matches!(change, WorldMeshChange::Remove { .. }))
     );
     assert!(changes.len() <= 8);
+}
+
+/// A staged empty result cannot hold later geometry behind sustained fresh removals.
+#[test]
+fn staged_empty_front_does_not_block_payloads_under_air_pressure() {
+    let (mut stream, allowance) = stream_with_staged_meshes(2);
+    let keys = stream
+        .staged_mesh_completions
+        .iter()
+        .map(|completion| completion.key)
+        .collect::<BTreeSet<_>>();
+    let empty = stream.staged_mesh_completions.front_mut().unwrap();
+    let old_bytes = chunk_publication_byte_len(&empty.mesh, &empty.biome);
+    empty.mesh = ChunkMesh::default();
+    let new_bytes = chunk_publication_byte_len(&empty.mesh, &empty.biome);
+    stream.staged_mesh_bytes -= old_bytes - new_bytes;
+    let config = render_api::PublicationServiceConfig::DEFAULT;
+    for x in 10..10 + config.maximum_zero_byte_operations_per_frame as i32 {
+        stream.mark_dirty_exact(SubChunkKey::new(0, x, 8, 0), Instant::now());
+    }
+    allowance.begin_frame(
+        2,
+        config.maximum_frame_items,
+        config.maximum_frame_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        config.maximum_frame_items,
+    );
+    stream.poll([0.0; 3], 32);
+    assert!(stream.staged_mesh_completions.is_empty());
+    let changes = stream.take_mesh_changes();
+    let published = changes
+        .iter()
+        .filter_map(|change| match change {
+            WorldMeshChange::Upsert { key, .. } => Some(*key),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(published, keys);
+    assert!(changes.len() <= config.maximum_frame_items);
 }
 
 /// An urgent retry publishes before ordinary air even when that ordinary section is closer.

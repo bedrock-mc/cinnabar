@@ -221,7 +221,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   withdrawals use their separate allowance without spending geometry credits;
   both still share the frame operation cap. Ready air and withdrawals bypass geometry
   scheduler ingress and receive bounded service before decode and lighting, using the
-  same publication limits and poll deadline. Sustained high-speed hardware
+  same publication limits and poll deadline. Ready worker completions receive a bounded
+  share first, so fresh removals cannot starve staged empty or geometry results.
+  Sustained high-speed hardware
   qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is

@@ -532,11 +532,12 @@ impl WorldStream {
             self.stage_denied_mesh_completion(denied);
         }
     }
-    /// Retries completions that were denied a publication permit, in arrival order.
-    pub(in crate::stream) fn retry_staged_mesh_completions(&mut self) {
-        let count = self.staged_mesh_completions.len();
+    /// Retries at most `limit` permit-denied completions in arrival order.
+    pub(in crate::stream) fn retry_staged_mesh_completions(&mut self, limit: usize) {
+        let count = self.staged_mesh_completions.len().min(limit);
         for index in 0..count {
-            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
+            if self.service_yield_requested()
+                || self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
                 || (index != 0 && self.poll_budget_exhausted())
                 || !self.retry_staged_front()
             {

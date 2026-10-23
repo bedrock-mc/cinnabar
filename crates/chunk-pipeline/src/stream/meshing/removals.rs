@@ -17,9 +17,7 @@ impl WorldStream {
             .publication_allowance
             .as_ref()
             .map_or(removal_budget, |allowance| {
-                let ready_payloads = self.staged_mesh_completions.len() + self.mesh_rx.len();
-                let reserve = ready_payloads.min(allowance.frame_remaining_items().div_ceil(2));
-                allowance.zero_byte_admission_capacity_reserving_payload(true, reserve)
+                allowance.zero_byte_admission_capacity_with_priority(true)
             })
             .min(removal_budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
