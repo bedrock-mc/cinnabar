@@ -102,6 +102,16 @@ impl IconBlocks {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if pack_compile_input::lightning_rod::is_record(record) {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if record.model_family != ModelFamily::Wall {
             return visual;
         }
@@ -302,6 +312,10 @@ impl IconBlocks {
 #[cfg(test)]
 #[path = "blocks/respawn_anchor_tests.rs"]
 mod respawn_anchor_tests;
+
+#[cfg(test)]
+#[path = "blocks/lightning_rod_tests.rs"]
+mod lightning_rod_tests;
 
 #[cfg(test)]
 mod tests {
