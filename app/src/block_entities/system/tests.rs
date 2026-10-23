@@ -125,3 +125,99 @@ fn framed_map_wire_colors_reach_the_rgba_canvas() {
         "framed map must preserve wire colors and alpha"
     );
 }
+
+#[test]
+fn accepted_map_requests_stay_known_until_the_session_changes() {
+    let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+    let mut runtime = BlockEntityRuntime::new();
+    runtime.bind_session(Some((1, 0)));
+    runtime.missing_maps.push(266);
+    let mut app = App::new();
+    app.insert_resource(runtime)
+        .insert_resource(network)
+        .init_resource::<Time<Real>>()
+        .init_resource::<ClientWorld>()
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .add_systems(Update, request_missing_maps);
+    app.update();
+    assert_eq!(packets.drain().len(), 1);
+
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(std::time::Duration::from_secs(60));
+    app.world_mut()
+        .resource_mut::<BlockEntityRuntime>()
+        .missing_maps
+        .push(266);
+    app.update();
+    assert!(packets.drain().is_empty(), "pending maps do not time out");
+
+    {
+        let mut runtime = app.world_mut().resource_mut::<BlockEntityRuntime>();
+        runtime.bind_session(Some((1, 1)));
+        runtime.missing_maps.push(266);
+    }
+    app.update();
+    assert!(
+        packets.drain().is_empty(),
+        "dimension changes retain known maps"
+    );
+
+    {
+        let mut runtime = app.world_mut().resource_mut::<BlockEntityRuntime>();
+        runtime.bind_session(Some((2, 0)));
+        runtime.missing_maps.push(266);
+    }
+    app.update();
+    assert_eq!(
+        packets.drain().len(),
+        1,
+        "a new session owns a new map table"
+    );
+}
+
+#[test]
+fn a_full_output_queue_does_not_mark_a_map_request_as_known() {
+    let (network, mut packets) =
+        NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(1);
+    network
+        .send_inventory_packet(protocol::map_info_request_packet(1))
+        .unwrap();
+    let mut runtime = BlockEntityRuntime::new();
+    runtime.missing_maps.push(266);
+    let mut app = App::new();
+    app.insert_resource(runtime)
+        .insert_resource(network)
+        .init_resource::<ClientWorld>()
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .add_systems(Update, request_missing_maps);
+    app.update();
+    assert_eq!(
+        packets.drain().len(),
+        1,
+        "only the earlier packet was admitted"
+    );
+    app.world_mut()
+        .resource_mut::<BlockEntityRuntime>()
+        .missing_maps
+        .push(266);
+    app.update();
+    assert_eq!(
+        packets.drain().len(),
+        1,
+        "the refused map can retry admission"
+    );
+    app.world_mut()
+        .resource_mut::<BlockEntityRuntime>()
+        .missing_maps
+        .push(266);
+    app.update();
+    assert!(
+        packets.drain().is_empty(),
+        "accepted requests stay deduplicated"
+    );
+}
