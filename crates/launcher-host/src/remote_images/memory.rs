@@ -51,6 +51,8 @@ struct Entries {
     asked: HashMap<String, Instant>,
     /// Total length of the `Ready` images in `states`.
     ready_bytes: usize,
+    #[cfg(test)]
+    trim_calls: usize,
 }
 
 struct Entry {
@@ -72,6 +74,10 @@ impl Entries {
     /// Reclaims abandoned bodies first, preserving loading and wanted entries at admission.
     /// Wanted bodies survive either limit until the engine receives them.
     fn trim(&mut self) {
+        #[cfg(test)]
+        {
+            self.trim_calls += 1;
+        }
         while self.order.len() > MAX_ENTRIES || self.ready_bytes > MAX_READY_BYTES {
             let eligible = |key: &String| {
                 !self.wanted(key)
@@ -164,11 +170,15 @@ impl RemoteImages {
             && !(needs_body && entry.state == RemoteState::ReadyWithoutBody)
         {
             let state = entry.state.clone();
-            if needs_body && matches!(state, RemoteState::Ready(_)) {
+            let newly_handed =
+                needs_body && !entry.handed && matches!(state, RemoteState::Ready(_));
+            if newly_handed {
                 entry.handed = true;
             }
             entries.asked.insert(url.to_owned(), Instant::now());
-            entries.trim();
+            if newly_handed {
+                entries.trim();
+            }
             return state;
         }
         let valid =
@@ -482,6 +492,48 @@ pub mod tests {
         images.0.finish(url.to_owned(), Some(vec![2]));
         assert_eq!(images.load(url), RemoteState::Ready(vec![2].into()));
         assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn readiness_polls_on_a_full_cache_never_trim() {
+        let images = RemoteImages::default();
+        let urls: Vec<_> = (0..MAX_ENTRIES + 8)
+            .map(|index| format!("fixture:{index}"))
+            .collect();
+        {
+            let mut entries = images.0.entries.lock().unwrap();
+            for (index, url) in urls.iter().enumerate() {
+                let state = match index % 4 {
+                    0 => RemoteState::Ready(vec![1].into()),
+                    1 => RemoteState::ReadyWithoutBody,
+                    2 => RemoteState::Loading,
+                    _ => RemoteState::Failed,
+                };
+                if let RemoteState::Ready(bytes) = &state {
+                    entries.ready_bytes += bytes.len();
+                }
+                entries.states.insert(url.clone(), Entry::new(state));
+                entries.order.push_back(url.clone());
+                entries.asked.insert(url.clone(), Instant::now());
+            }
+            entries.trim();
+            assert_eq!(entries.states.len(), urls.len());
+        }
+        let trim_calls = images.0.entries.lock().unwrap().trim_calls;
+        for _ in 0..3 {
+            for (index, url) in urls.iter().enumerate() {
+                let state = images.state(url);
+                match index % 4 {
+                    0 => assert_eq!(state, RemoteState::Ready(vec![1].into())),
+                    1 => assert_eq!(state, RemoteState::ReadyWithoutBody),
+                    2 => assert_eq!(state, RemoteState::Loading),
+                    _ => assert_eq!(state, RemoteState::Failed),
+                }
+            }
+        }
+        let entries = images.0.entries.lock().unwrap();
+        assert_eq!(entries.trim_calls, trim_calls);
+        assert_eq!(entries.states.len(), urls.len());
     }
 
     #[test]
