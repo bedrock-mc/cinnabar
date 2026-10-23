@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_item_quads, cube_face,
+    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads, cube_face,
     face_brightness, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TexturePage, VisualKind,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TexturePage, VisualKind,
 };
 
 use super::cube::Reject;
@@ -63,14 +63,8 @@ struct Tile<'a> {
 enum Textures<'a> {
     /// World carrier pages, indexed by each material's page.
     World(&'a [TexturePage]),
-    /// A session overlay's shards, addressed from page one.
-    Overlay(&'a [TextureArray], &'a [u8], Option<&'a RuntimeAssets>),
-}
-
-/// Selects the overlay shard a material's reference page addresses.
-fn overlayshard(shards: &[TextureArray], page: u32) -> Option<&TextureArray> {
-    let shard = page.checked_sub(1)? as usize;
-    shards.get(shard)
+    /// A session overlay's shards, addressed after its reserved base pages.
+    Overlay(&'a BlockOverlay, Option<&'a RuntimeAssets>),
 }
 
 #[derive(Clone, Copy)]
@@ -155,7 +149,7 @@ impl<'a> Model<'a> {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids, base),
+            textures: Textures::Overlay(overlay, base),
             tint,
         };
         let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
@@ -172,7 +166,7 @@ impl<'a> Model<'a> {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids, base),
+            textures: Textures::Overlay(overlay, base),
             tint: None,
         };
         Self::build(parts, VisualKind::Cube, faces, None)
@@ -194,9 +188,10 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
+        let faces = block_gui_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
+            .filter(|quad| quad.visible_in_gui())
             .map(|quad| {
                 let tile = match tiles.entry(quad.material) {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -316,14 +311,7 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
         material_tile(&[Material::unvaried(), sampled], 1, |page| {
             match parts.textures {
                 Textures::World(pages) => pages.get(page as usize).map(|page| &page.texture),
-                Textures::Overlay(shards, _, base) => {
-                    if page == 0 {
-                        base.and_then(|base| base.texture_pages().first())
-                            .map(|page| &page.texture)
-                    } else {
-                        overlayshard(shards, page)
-                    }
-                }
+                Textures::Overlay(overlay, base) => overlay.texture_page(page, base),
             }
         })
         .map_err(reject)?;
@@ -337,17 +325,11 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     };
     let grid = match parts.textures {
         Textures::World(_) => 0,
-        Textures::Overlay(_, _, _) if material.texture.page() == 0 => 0,
-        Textures::Overlay(shards, grids, _) => {
-            // Source grids are flat across the concatenated shards.
-            let shard = material.texture.page().saturating_sub(1) as usize;
-            let flat = shards[..shard.min(shards.len())]
-                .iter()
-                .map(|shard| shard.layers as usize)
-                .sum::<usize>()
-                .saturating_add(material.texture.layer() as usize);
-            grids.get(flat).copied().unwrap_or(0)
-        }
+        Textures::Overlay(overlay, _) => overlay
+            .flat_texture_layer(material.texture)
+            .and_then(|flat| overlay.texture_source_grids.get(flat))
+            .copied()
+            .unwrap_or(0),
     };
     if side
         .checked_shr(u32::from(grid))
@@ -532,9 +514,72 @@ mod review_tests {
     }
 
     #[test]
+    fn model_thumbnail_hides_rear_faces_but_preserves_two_sided_planes() {
+        let texture = assets::TextureArray {
+            layers: 1,
+            mips: vec![assets::TextureMip {
+                size: 1,
+                rgba8: vec![255, 0, 0, 255].into(),
+            }]
+            .into(),
+        };
+        let overlay = BlockOverlay {
+            textures: vec![texture],
+            ..Default::default()
+        };
+        let materials = [
+            Material::unvaried(),
+            Material {
+                texture: assets::TextureRef::new(1, 0).unwrap(),
+                flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                ..Material::unvaried()
+            },
+        ];
+        for two_sided in [false, true] {
+            let (corners, uvs) = cube_face(BlockFace::Down);
+            let quads = [ModelQuad {
+                positions: corners.map(|p| p.map(|v| (v * 256.0) as i16)),
+                uvs: uvs.map(|p| p.map(|v| (v * 4096.0) as u16)),
+                material: 1,
+                flags: if two_sided {
+                    assets::MODEL_QUAD_FLAG_TWO_SIDED
+                } else {
+                    0
+                },
+            }];
+            let templates = [ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            }];
+            let icon = Model::build(
+                Parts {
+                    materials: &materials,
+                    templates: &templates,
+                    quads: &quads,
+                    textures: Textures::Overlay(&overlay, None),
+                    tint: None,
+                },
+                VisualKind::Model,
+                [1; 6],
+                Some(0),
+            )
+            .unwrap()
+            .raster();
+            let visible = icon
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0);
+            assert_eq!(visible, two_sided, "one-sided rear faces stay transparent");
+        }
+    }
+
+    #[test]
     fn repeated_tinted_faces_share_one_material_tile() {
         let side = assets::gui_item::MAX_GUI_TILE_SIDE;
-        let texture = TextureArray {
+        let texture = assets::TextureArray {
             layers: 1,
             mips: vec![assets::TextureMip {
                 size: side as u32,
@@ -563,6 +608,10 @@ mod review_tests {
             flags: 0,
         }];
         let resolved = std::cell::Cell::new(0);
+        let overlay = BlockOverlay {
+            textures: vec![texture],
+            ..Default::default()
+        };
         let tint = |_| {
             resolved.set(resolved.get() + 1);
             Some([80, 180, 120])
@@ -572,7 +621,7 @@ mod review_tests {
                 materials: &materials,
                 templates: &templates,
                 quads: &quads,
-                textures: Textures::Overlay(std::slice::from_ref(&texture), &[], None),
+                textures: Textures::Overlay(&overlay, None),
                 tint: Some(&tint),
             },
             VisualKind::Model,

@@ -1,3 +1,4 @@
+use pack_compile_input::image::replicated_tile;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
@@ -498,31 +499,6 @@ fn slice_frames(image: &DecodedImage, replicate: u32) -> Result<Vec<Box<[u8]>>, 
     Ok(frames)
 }
 
-/// The upper-left `size / replicate` square of a `size`-pixel frame, enlarged by whole pixels to
-/// at least one tile when that square is smaller. Unreplicated frames and frames outside the tile
-/// size contract pass through unchanged for `normalize_texture_tile` to check.
-fn replicated_tile(frame: Vec<u8>, size: u32, replicate: u32) -> (Box<[u8]>, u32) {
-    if replicate <= 1 || size < assets::TILE_SIZE || !size.is_power_of_two() {
-        return (frame.into_boxed_slice(), size);
-    }
-    let crop = (size / replicate).max(1);
-    let tile_size = if crop.is_power_of_two() && crop >= assets::TILE_SIZE {
-        crop
-    } else {
-        assets::TILE_SIZE
-    };
-    let mut tile = Vec::with_capacity((tile_size * tile_size * 4) as usize);
-    for y in 0..tile_size {
-        let source_y = y * crop / tile_size;
-        for x in 0..tile_size {
-            let source_x = x * crop / tile_size;
-            let start = ((source_y * size + source_x) * 4) as usize;
-            tile.extend_from_slice(&frame[start..start + 4]);
-        }
-    }
-    (tile.into_boxed_slice(), tile_size)
-}
-
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
@@ -530,7 +506,8 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        AnimationLimits, DecodedImage, compile_animation_plan, texture_ref_from_linear_index,
+        AnimationLimits, DecodedImage, MAX_LAYERS_PER_PAGE, compile_animation_plan,
+        texture_ref_from_linear_index,
     };
     use assets::TextureRef;
     use assets::{AssetError, MIP_COUNT, TILE_SIZE};
@@ -870,22 +847,25 @@ mod tests {
     }
 
     #[test]
-    fn texture_page_ref_encodes_page_and_layer_and_rolls_at_2048() {
-        let limits = limits(2_048, 2);
-        let last_first_page = texture_ref_from_linear_index(2_047, limits).expect("page zero");
-        let first_second_page = texture_ref_from_linear_index(2_048, limits).expect("page one");
+    fn texture_page_ref_encodes_page_and_layer_and_rolls_at_the_page_budget() {
+        let page = MAX_LAYERS_PER_PAGE;
+        let limits = limits(page, 2);
+        let last_first_page =
+            texture_ref_from_linear_index(page as usize - 1, limits).expect("page zero");
+        let first_second_page =
+            texture_ref_from_linear_index(page as usize, limits).expect("page one");
 
         assert_eq!(
             (last_first_page.page(), last_first_page.layer()),
-            (0, 2_047)
+            (0, page - 1)
         );
-        assert_eq!(last_first_page.raw(), 2_047);
+        assert_eq!(last_first_page.raw(), page - 1);
         assert_eq!(
             (first_second_page.page(), first_second_page.layer()),
             (1, 0)
         );
         assert_eq!(first_second_page.raw(), 1_u32 << assets::TEXTURE_PAGE_SHIFT);
-        assert!(texture_ref_from_linear_index(4_096, limits).is_err());
+        assert!(texture_ref_from_linear_index(2 * page as usize, limits).is_err());
     }
 
     #[test]

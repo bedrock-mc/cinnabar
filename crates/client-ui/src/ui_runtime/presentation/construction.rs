@@ -95,6 +95,7 @@ impl UiPresentationRuntime {
             player_preview_pose: None,
             player_preview_raster_pose: None,
             player_preview_view: player_preview::PreviewView::default(),
+            hud_preview_view: player_preview::PreviewView::Hud,
             menu_preview_model: player_preview::model::MenuPreviewModel::default(),
             menu_preview: player_preview::controller::MenuPreview::default(),
             player_preview_drawn: None,

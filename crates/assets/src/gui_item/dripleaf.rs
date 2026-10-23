@@ -18,6 +18,7 @@ fn surface(corners: [[f32; 3]; 4], uvs: [[f32; 2]; 4], face: BlockFace) -> (GuiB
             corners,
             uvs,
             material: face as u32,
+            two_sided: true,
         },
         false,
     )
@@ -128,6 +129,7 @@ fn small_surface(face: BlockFace, offset: [f32; 3], flip: [bool; 2]) -> (GuiBloc
             } else {
                 BlockFace::Up
             } as u32,
+            two_sided: true,
         },
         horizontal,
     )

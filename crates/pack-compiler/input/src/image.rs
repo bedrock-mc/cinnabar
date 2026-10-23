@@ -71,6 +71,23 @@ pub fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>, AssetE
 }
 
 pub fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
+    decode_texture_file(path, key, false)
+}
+
+/// Decodes a declared animation strip with a dimension-derived allocation budget, retaining
+/// its first square frame before returning it to a static model consumer.
+pub fn decode_first_texture_frame(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
+    let mut decoded = decode_texture_file(path, key, true)?;
+    retain_first_strip_frame(&mut decoded);
+    Ok(decoded)
+}
+
+/// Reads a bounded texture source with the allocation policy of its consumer.
+fn decode_texture_file(
+    path: &Path,
+    key: &str,
+    first_frame: bool,
+) -> Result<DecodedTexture, AssetError> {
     static_texture_format(path, key)?;
     let file = File::open(path).map_err(|source| AssetError::TextureIo {
         key: key.into(),
@@ -85,7 +102,7 @@ pub fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, AssetErr
             path: path.to_path_buf(),
             source,
         })?;
-    decode_texture_bytes(path, key, &bytes)
+    decode_texture_bytes_with_frame(path, key, &bytes, first_frame)
 }
 
 /// Decodes an already verified texture source within the image decoder's bounds.
@@ -93,6 +110,16 @@ pub fn decode_texture_bytes(
     path: &Path,
     key: &str,
     bytes: &[u8],
+) -> Result<DecodedTexture, AssetError> {
+    decode_texture_bytes_with_frame(path, key, bytes, false)
+}
+
+/// Validates dimensions before allowing a strip's decoder and output allocation.
+fn decode_texture_bytes_with_frame(
+    path: &Path,
+    key: &str,
+    bytes: &[u8],
+    first_frame: bool,
 ) -> Result<DecodedTexture, AssetError> {
     let format = static_texture_format(path, key)?;
     if bytes.len() > MAX_TEXTURE_BYTES {
@@ -128,7 +155,12 @@ pub fn decode_texture_bytes(
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_TEXTURE_DIMENSION);
     limits.max_image_height = Some(MAX_TEXTURE_DIMENSION);
-    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    limits.max_alloc = Some(if first_frame {
+        // Reserve decoder working storage as well as the expanded RGBA output.
+        MAX_DECODE_ALLOC + u64::from(dimensions.0) * u64::from(dimensions.1) * 8
+    } else {
+        MAX_DECODE_ALLOC
+    });
     reader.limits(limits);
     let decoded = reader
         .decode()
@@ -191,6 +223,31 @@ fn static_texture_format(path: &Path, key: &str) -> Result<ImageFormat, AssetErr
             path: path.to_path_buf(),
         }),
     }
+}
+
+/// The upper-left `size / replicate` square of a `size`-pixel frame, enlarged by whole pixels to
+/// at least one tile when that square is smaller. Unreplicated frames and frames outside the tile
+/// size contract pass through unchanged for the caller to validate.
+pub fn replicated_tile(frame: Vec<u8>, size: u32, replicate: u32) -> (Box<[u8]>, u32) {
+    if replicate <= 1 || size < assets::TILE_SIZE || !size.is_power_of_two() {
+        return (frame.into_boxed_slice(), size);
+    }
+    let crop = (size / replicate).max(1);
+    let tile_size = if crop.is_power_of_two() && crop >= assets::TILE_SIZE {
+        crop
+    } else {
+        assets::TILE_SIZE
+    };
+    let mut tile = Vec::with_capacity((tile_size * tile_size * 4) as usize);
+    for y in 0..tile_size {
+        let source_y = y * crop / tile_size;
+        for x in 0..tile_size {
+            let source_x = x * crop / tile_size;
+            let start = ((source_y * size + source_x) * 4) as usize;
+            tile.extend_from_slice(&frame[start..start + 4]);
+        }
+    }
+    (tile.into_boxed_slice(), tile_size)
 }
 
 #[cfg(test)]

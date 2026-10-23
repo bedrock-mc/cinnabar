@@ -2,15 +2,27 @@ use super::*;
 
 #[test]
 fn sensor_inventory_keeps_body_tendrils_and_calibration_crystal() {
+    assert_sensor_artwork(false);
+}
+
+#[test]
+fn sensor_inventory_selects_the_first_tendril_animation_frame() {
+    assert_sensor_artwork(true);
+}
+
+/// Exercises both sensor materials through the inventory baker.
+fn assert_sensor_artwork(animated: bool) {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
     std::fs::write(root.path().join("blocks.json"), r#"{"sculk_sensor":{"textures":"body","carried_textures":{"up":"tendril","down":"tendril","side":"tendril"}},"calibrated_sculk_sensor":{"textures":"body","carried_textures":{"up":"tendril","down":"tendril","north":"tendril","south":"crystal","east":"tendril","west":"tendril"}}}"#).unwrap();
     std::fs::write(root.path().join("textures/terrain_texture.json"), r#"{"texture_data":{"body":{"textures":"textures/blocks/body"},"tendril":{"textures":"textures/blocks/tendril"},"crystal":{"textures":"textures/blocks/crystal"}}}"#).unwrap();
-    std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
+    std::fs::write(root.path().join("textures/flipbook_textures.json"), if animated { r#"[{"flipbook_texture":"textures/blocks/tendril","atlas_tile":"tendril","ticks_per_frame":1}]"# } else { "[]" }).unwrap();
     image::RgbaImage::from_pixel(16, 16, image::Rgba([255, 0, 0, 255]))
         .save(root.path().join("textures/blocks/body.png"))
         .unwrap();
-    let mut tendril = image::RgbaImage::new(16, 16);
+    let mut tendril = image::RgbaImage::from_fn(16, if animated { 256 } else { 16 }, |_, y| {
+        image::Rgba(if y < 16 { [0; 4] } else { [0, 255, 0, 255] })
+    });
     for x in [0, 1, 14, 15] {
         for y in 4..12 {
             tendril.put_pixel(x, y, image::Rgba([0, 0, 255, 255]));
@@ -48,7 +60,13 @@ fn sensor_inventory_keeps_body_tendrils_and_calibration_crystal() {
         .unwrap()
         .expect("sensor has an inventory preview");
         assert!(live.is_none());
-        let pixels: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+        let pixels: Vec<_> = icon
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .collect();
         assert!(
             pixels.iter().any(|p| p[0] > 0 && p[1] == 0 && p[2] == 0),
             "{name}: body artwork"

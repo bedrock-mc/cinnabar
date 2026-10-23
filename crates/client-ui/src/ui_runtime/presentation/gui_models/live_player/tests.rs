@@ -33,7 +33,7 @@ fn player_catalog(size: u32) -> Arc<assets::RuntimeEntityAssets> {
     player_catalog_geometry(geometry.into_bytes())
 }
 
-fn player_catalog_geometry(geometry: Vec<u8>) -> Arc<assets::RuntimeEntityAssets> {
+pub(super) fn player_catalog_geometry(geometry: Vec<u8>) -> Arc<assets::RuntimeEntityAssets> {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"entity"},"textures":{"default":"textures/entity/test_player"},"geometry":{"default":"geometry.test_player"},"render_controllers":["controller.render.test_player"]}}}"#;
     let render = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test_player":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
     let compiled = pack_entity_compiler::compile_entity_pack(vec![
