@@ -85,11 +85,7 @@ fn asset_renames_remove_constants_and_collisions_fail() {
 fn go_messages_round_trip_rust_records_with_exact_integer_and_text_bounds() {
     let project = Project::parse(SOURCE).unwrap();
     let root = tempfile::tempdir().unwrap();
-    fs::write(
-        root.path().join("go.mod"),
-        "module conformance.invalid/messages\ngo 1.22\n",
-    )
-    .unwrap();
+    fs::write(root.path().join("go.mod"), super::go_module(&project.id)).unwrap();
     fs::write(
         root.path().join("messages.go"),
         go::generate(&project).unwrap(),
@@ -113,6 +109,8 @@ func TestRustRecord(t *testing.T) {{
     var state State
     if err := state.DecodeRecord(raw); err != nil {{ t.Fatal(err) }}
     if state.World != Home || state.Count != 4294967295 || state.Signed != -9223372036854775808 {{ t.Fatal(state) }}
+    native, err := state.Encode(); if err != nil {{ t.Fatal(err) }}
+    decoded, err := StateType.Decode(native); if err != nil || decoded.World != state.World {{ t.Fatal(decoded, err) }}
     encoded, err := state.EncodeRecord(); if err != nil {{ t.Fatal(err) }}
     // Compare JSON values; escaping is intentionally left to each standard library.
     var a, b any; da := json.NewDecoder(bytes.NewReader(raw)); da.UseNumber(); db := json.NewDecoder(bytes.NewReader(encoded)); db.UseNumber()
@@ -134,7 +132,7 @@ func TestRustRecord(t *testing.T) {{
     );
     fs::write(root.path().join("messages_test.go"), test).unwrap();
     let output = Command::new("go")
-        .args(["test", "./..."])
+        .args(["test", "-mod=mod", "./..."])
         .env("GOWORK", "off")
         .current_dir(root.path())
         .output()

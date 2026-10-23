@@ -193,6 +193,7 @@ fn admits(field: &Field, value: &Value) -> bool {
 /// A generated registry confirmation channel and the schema digest it must carry.
 pub struct Registry {
     pub channel: Channel,
+    pub request: Channel,
     pub fingerprint: &'static str,
 }
 
@@ -240,6 +241,12 @@ mod tests {
                 id: "space.registry",
                 schema: 1,
                 direction: Direction::ToClient,
+                fields: &[Field::Text { max_bytes: 64 }],
+            },
+            request: Channel {
+                id: "space.registry_request",
+                schema: 1,
+                direction: Direction::ToServer,
                 fields: &[Field::Text { max_bytes: 64 }],
             },
             fingerprint: "one",

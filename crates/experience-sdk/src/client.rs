@@ -82,8 +82,20 @@ thread_local! {
 /// Initializes legacy parts immediately; generated projects wait for their registry confirmation.
 #[doc(hidden)]
 pub fn initialize<T: ClientPart>() {
+    initialize_with::<T>(send);
+}
+
+/// Requests registry confirmation through the supplied transport before authored initialization.
+#[doc(hidden)]
+pub fn initialize_with<T: ClientPart>(send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>) {
     REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
-    if T::registry().is_none() {
+    if let Some(registry) = T::registry() {
+        send(
+            &registry.request,
+            &[Value::Text(registry.fingerprint.to_owned())],
+        )
+        .expect("registry request must be admitted before client code starts");
+    } else {
         T::init();
     }
 }
@@ -194,7 +206,7 @@ macro_rules! export_client_part {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientPart, active, dispatch, initialize, record, record_json};
+    use super::{ClientPart, active, dispatch, initialize, initialize_with, record, record_json};
     use crate::{Channel, Direction, Field, Value, message::Registry};
 
     thread_local! { static INITIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -226,6 +238,12 @@ mod tests {
             direction: Direction::ToClient,
             fields: &[Field::Text { max_bytes: 64 }],
         },
+        request: Channel {
+            id: "test.registry_request",
+            schema: 1,
+            direction: Direction::ToServer,
+            fields: &[Field::Text { max_bytes: 64 }],
+        },
         fingerprint: "expected",
     };
 
@@ -240,7 +258,11 @@ mod tests {
     #[test]
     fn generated_parts_wait_for_exactly_one_confirmation() {
         INITIALIZATIONS.set(0);
-        initialize::<Guarded>();
+        initialize_with::<Guarded>(|channel, record| {
+            assert_eq!(channel.id, REGISTRY.request.id);
+            assert_eq!(record, &[Value::Text(REGISTRY.fingerprint.into())]);
+            Ok(())
+        });
         dispatch::<Guarded>("test.data".into(), vec![]);
         assert!(!active::<Guarded>());
         assert_eq!(INITIALIZATIONS.get(), 0);

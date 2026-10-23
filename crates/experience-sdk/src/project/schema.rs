@@ -95,6 +95,7 @@ impl Project {
         let mut names = BTreeSet::new();
         let mut ids = BTreeSet::new();
         ids.insert(format!("{}.registry", project.id));
+        ids.insert(format!("{}.registry_request", project.id));
         for item in file.items {
             match item {
                 Item::Struct(mut source) => {
@@ -259,6 +260,7 @@ impl Project {
     pub fn channels(&self) -> Vec<Value> {
         let mut channels: Vec<_> = self.messages.iter().map(Message::channel).collect();
         channels.push(json!({"id": format!("{}.registry", self.id), "schema": 1, "direction": "to_client", "fields": [{"type": "text", "max_bytes": self.fingerprint().len()}]}));
+        channels.push(json!({"id": format!("{}.registry_request", self.id), "schema": 1, "direction": "to_server", "fields": [{"type": "text", "max_bytes": self.fingerprint().len()}]}));
         channels
     }
 }

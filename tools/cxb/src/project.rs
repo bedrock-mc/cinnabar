@@ -149,7 +149,7 @@ pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
     )?;
     fs::write(
         staging.join("messages/go.mod"),
-        format!("module cinnabar.local/{}/messages\n\ngo 1.22\n", project.id),
+        experience_sdk::project::go_module(&project.id),
     )?;
     if destination.exists() {
         fs::remove_dir_all(&destination)?;

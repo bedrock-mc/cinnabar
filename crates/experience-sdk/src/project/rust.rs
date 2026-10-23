@@ -62,8 +62,10 @@ pub fn generate(project: &Project) -> Result<String> {
     let fingerprint = project.fingerprint();
     writeln!(
         out,
-        "/// The complete shared definition digest confirmed by the server.\npub const REGISTRY_FINGERPRINT: &str = {fingerprint:?};\n/// The confirmation required before authored client callbacks start.\npub static REGISTRY: experience_sdk::message::Registry = experience_sdk::message::Registry {{ fingerprint: REGISTRY_FINGERPRINT, channel: experience_sdk::Channel {{ id: {:?}, schema: 1, direction: experience_sdk::Direction::ToClient, fields: &[experience_sdk::Field::Text {{ max_bytes: {} }}] }} }};",
+        "/// The complete shared definition digest confirmed by the server.\npub const REGISTRY_FINGERPRINT: &str = {fingerprint:?};\n/// The confirmation required before authored client callbacks start.\npub static REGISTRY: experience_sdk::message::Registry = experience_sdk::message::Registry {{ fingerprint: REGISTRY_FINGERPRINT, channel: experience_sdk::Channel {{ id: {:?}, schema: 1, direction: experience_sdk::Direction::ToClient, fields: &[experience_sdk::Field::Text {{ max_bytes: {} }}] }}, request: experience_sdk::Channel {{ id: {:?}, schema: 1, direction: experience_sdk::Direction::ToServer, fields: &[experience_sdk::Field::Text {{ max_bytes: {} }}] }} }};",
         format!("{}.registry", project.id),
+        fingerprint.len(),
+        format!("{}.registry_request", project.id),
         fingerprint.len()
     )?;
     Ok(out)

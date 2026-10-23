@@ -89,7 +89,7 @@ impl ClientPart for Client {
     /// Confirms the generated definitions before client behavior starts.
     fn registry() -> Option<&'static Registry> { Some(&crate::shared::REGISTRY) }
 
-    /// Starts after the server sends messages.RegistryConfirmation on readiness.
+    /// Starts after messages.RegisterRegistry confirms the shared definitions.
     fn init() {
         let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;
         // Move portable personal-mod setup here. Use client::send_message for typed requests.

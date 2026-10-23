@@ -1,4 +1,4 @@
-//! Standard-library-only Go message bindings for any wire v2 server adapter.
+//! Go bindings use the server helper's native record types and canonical wire codec.
 
 use std::{collections::BTreeSet, fmt::Write};
 
@@ -6,53 +6,57 @@ use anyhow::{Result, ensure};
 
 use super::{FieldType, Project};
 
-/// Emits typed Go IDs, message structs and codecs from the same schema as Rust.
+const HELPER_MODULE: &str = "github.com/hashimthearab/rust-mcbe/tools/localserver";
+const HELPER_SOURCE: &str = "github.com/cinnabar-mc/cinnabar/tools/localserver";
+const HELPER_VERSION: &str = "v0.0.0-20261023202529-c66a1481fe2a";
+
+/// Pins the public helper contract and its supported upstream Dragonfly dependency.
+pub fn module(id: &str) -> String {
+    format!(
+        "module cinnabar.local/{id}/messages\n\ngo 1.26.1\n\nrequire (\n {HELPER_MODULE} {HELPER_VERSION}\n github.com/df-mc/dragonfly v0.11.5\n)\n\nreplace {HELPER_MODULE} => {HELPER_SOURCE} {HELPER_VERSION}\n"
+    )
+}
+
+/// Emits IDs, native typed messages, receiver descriptors and canonical payload codecs.
 pub fn generate(project: &Project) -> Result<String> {
-    let mut out = String::from(
-        "// Code generated from src/shared.rs; DO NOT EDIT.\npackage messages\n\nimport (\n\"bytes\"\n\"encoding/json\"\n\"fmt\"\n\"io\"\n\"reflect\"\n\"strconv\"\n\"strings\"\n\"unicode/utf8\"\n)\n\n",
+    let mut out = format!(
+        "// Code generated from src/shared.rs; DO NOT EDIT.\npackage messages\n\nimport (\n\"fmt\"\n\"strings\"\n\"unicode/utf8\"\n\"github.com/google/uuid\"\ncinnabarext \"{HELPER_MODULE}/cinnabarext\"\n)\n\n"
     );
     writeln!(
         out,
-        "// PackageID is the owning bundle's stable identity.\nconst PackageID = {:?}",
-        project.id
-    )?;
-    writeln!(
-        out,
-        "// RegistryFingerprint identifies all shared message and typed ID definitions.\nconst RegistryFingerprint = {:?}\n// RegistryChannel must be confirmed before authored client callbacks start.\nconst RegistryChannel = {:?}",
+        "// PackageID is the owning bundle's stable identity.\nconst PackageID = {:?}\n// RegistryFingerprint identifies all shared message and typed ID definitions.\nconst RegistryFingerprint = {:?}\n// RegistryChannel must be confirmed before authored client callbacks start.\nconst RegistryChannel = {:?}",
+        project.id,
         project.fingerprint(),
         format!("{}.registry", project.id)
     )?;
     writeln!(
         out,
-        "const registryFields = {:?}",
-        serde_json::to_string(&project.channels().last().expect("registry channel")["fields"])?
+        "// RegistryRequestChannel starts the generated definition handshake.\nconst RegistryRequestChannel = {:?}",
+        format!("{}.registry_request", project.id)
     )?;
-    let mut names = BTreeSet::from([
-        "PackageID".to_owned(),
-        "RegistryConfirmation".to_owned(),
-        "RegistryChannel".to_owned(),
-        "RegistryFingerprint".to_owned(),
-        "Message".to_owned(),
-        "EntityID".to_owned(),
-        "WorldID".to_owned(),
-        "ItemID".to_owned(),
-    ]);
+    let mut names = BTreeSet::from(
+        [
+            "PackageID",
+            "RegistryConfirmation",
+            "RegistryChannel",
+            "RegistryRequestChannel",
+            "RegistryFingerprint",
+            "RegisterRegistry",
+            "EntityID",
+            "WorldID",
+            "ItemID",
+        ]
+        .map(str::to_owned),
+    );
     for kind in ["EntityID", "WorldID", "ItemID"] {
         writeln!(
             out,
-            "// {kind} is a stable namespaced definition key.\ntype {kind} string\n// MarshalJSON rejects malformed stable identifiers.\nfunc (v {kind}) MarshalJSON() ([]byte,error) {{ if !validID(string(v)) {{ return nil, fmt.Errorf(\"invalid typed ID\") }}; return json.Marshal(string(v)) }}\n// UnmarshalJSON checks the key before assigning its domain type.\nfunc (v *{kind}) UnmarshalJSON(raw []byte) error {{ var s string; if err := json.Unmarshal(raw, &s); err != nil {{ return err }}; if !validID(s) {{ return fmt.Errorf(\"invalid typed ID\") }}; *v = {kind}(s); return nil }}"
+            "// {kind} is a stable namespaced definition key.\ntype {kind} string"
         )?;
     }
     for id in &project.definitions {
         let name = exported(&id.name);
-        ensure!(
-            !name.is_empty() && name.is_ascii(),
-            "Go IDs need portable source names"
-        );
-        ensure!(
-            names.insert(name.clone()),
-            "generated Go name collision: {name}"
-        );
+        reserve(&mut names, &name)?;
         writeln!(
             out,
             "// {name} is the shared stable definition key.\nconst {name} {} = {:?}",
@@ -62,20 +66,11 @@ pub fn generate(project: &Project) -> Result<String> {
     }
     for message in &project.messages {
         let name = exported(&message.source.ident.to_string());
-        ensure!(
-            !name.is_empty() && name.is_ascii(),
-            "Go messages need portable source names"
-        );
-        ensure!(
-            names.insert(name.clone()),
-            "generated Go name collision: {name}"
-        );
-        let mut field_names = BTreeSet::from([
-            "ChannelID".to_owned(),
-            "SchemaVersion".to_owned(),
-            "EncodeRecord".to_owned(),
-            "DecodeRecord".to_owned(),
-        ]);
+        for symbol in [&name, &format!("Decode{name}"), &format!("{name}Type")] {
+            reserve(&mut names, symbol)?;
+        }
+        let mut field_names =
+            BTreeSet::from(["Route", "Encode", "EncodeRecord", "DecodeRecord"].map(str::to_owned));
         let fields = message
             .source
             .fields
@@ -88,43 +83,73 @@ pub fn generate(project: &Project) -> Result<String> {
             message.id
         )?;
         for (field, ty) in fields.iter().zip(&message.fields) {
-            ensure!(
-                !field.is_empty() && field.is_ascii(),
-                "Go fields need portable source names"
-            );
-            ensure!(
-                field_names.insert(field.clone()),
-                "generated Go field or method collision: {name}.{field}"
-            );
+            reserve(&mut field_names, field)?;
             writeln!(out, "{field} {}", go_type(ty))?;
         }
         writeln!(
             out,
-            "}}\n// ChannelID selects this message's declared channel.\nfunc ({name}) ChannelID() string {{ return {:?} }}\n// SchemaVersion selects this message's declared revision.\nfunc ({name}) SchemaVersion() uint16 {{ return {} }}",
+            "}}\n// Route selects this message's generated bundle, channel and revision.\nfunc ({name}) Route() cinnabarext.Route {{ return cinnabarext.Route{{Bundle: PackageID, Channel: {:?}, Schema: {}}} }}",
             message.id, message.schema
         )?;
-        let schema = serde_json::to_string(
-            &message
-                .fields
-                .iter()
-                .map(FieldType::declaration)
-                .collect::<Vec<_>>(),
-        )?;
-        let values = fields
-            .iter()
-            .map(|name| format!(", v.{name}"))
-            .collect::<String>();
-        let pointers = fields
-            .iter()
-            .map(|name| format!(", &decoded.{name}"))
-            .collect::<String>();
         writeln!(
             out,
-            "// EncodeRecord validates bounds and returns a wire v2 positional payload.\nfunc (v {name}) EncodeRecord() ([]byte,error) {{ return encodeRecord({schema:?}{values}) }}\n// DecodeRecord assigns this message only after all fields validate.\nfunc (v *{name}) DecodeRecord(raw []byte) error {{ var decoded {name}; if err := decodeRecord(raw, {schema:?}{pointers}); err != nil {{ return err }}; *v = decoded; return nil }}"
+            "// Encode validates the typed fields and builds the helper's native record.\nfunc (v {name}) Encode() (cinnabarext.Record,error) {{\nrecord := cinnabarext.Record{{{}}}\nif err := validate{name}(record); err != nil {{ return nil, err }}\nreturn record, nil\n}}",
+            fields
+                .iter()
+                .zip(&message.fields)
+                .map(|(field, ty)| scalar(ty, &format!("v.{field}")))
+                .collect::<Vec<_>>()
+                .join(",")
+        )?;
+        writeln!(
+            out,
+            "// Decode{name} validates native records for typed receive callbacks.\nfunc Decode{name}(record cinnabarext.Record) ({name},error) {{\nvar decoded {name}\nif _, err := cinnabarext.Encode(record); err != nil {{ return decoded, err }}\nif err := validate{name}(record); err != nil {{ return decoded, err }}"
+        )?;
+        for (index, (field, ty)) in fields.iter().zip(&message.fields).enumerate() {
+            writeln!(
+                out,
+                "decoded.{field} = {}",
+                decoded(ty, &format!("record[{index}]"))
+            )?;
+        }
+        writeln!(
+            out,
+            "return decoded, nil\n}}\n// {name}Type registers this generated route and decoder with OnMessage.\nvar {name}Type = cinnabarext.MessageType[{name}]{{Route: {name}{{}}.Route(), Decode: Decode{name}}}\nvar _ cinnabarext.Message = {name}{{}}"
+        )?;
+        writeln!(
+            out,
+            "// validate{name} checks the exact positional types and every source-defined bound.\nfunc validate{name}(record cinnabarext.Record) error {{\nif err := checkFieldCount(record, {}); err != nil {{ return err }}",
+            fields.len()
+        )?;
+        for (index, ty) in message.fields.iter().enumerate() {
+            writeln!(
+                out,
+                "if !({}) {{ return fmt.Errorf(\"{} field {}: type or bounds mismatch\") }}",
+                admits(ty, &format!("record[{index}]")),
+                message.id,
+                index
+            )?;
+        }
+        writeln!(
+            out,
+            "return nil\n}}\n// EncodeRecord returns the canonical wire v2 payload for other transports.\nfunc (v {name}) EncodeRecord() ([]byte,error) {{ record, err := v.Encode(); if err != nil {{ return nil, err }}; return cinnabarext.Encode(record) }}\n// DecodeRecord assigns a message only after canonical parsing and full validation.\nfunc (v *{name}) DecodeRecord(raw []byte) error {{ var record cinnabarext.Record; if err := cinnabarext.Decode(raw, &record); err != nil {{ return err }}; decoded, err := Decode{name}(record); if err != nil {{ return err }}; *v = decoded; return nil }}"
         )?;
     }
     out.push_str(include_str!("codec.go.txt"));
     Ok(out)
+}
+
+/// Rejects names that would produce ambiguous or invalid generated Go declarations.
+fn reserve(names: &mut BTreeSet<String>, name: &str) -> Result<()> {
+    ensure!(
+        !name.is_empty() && name.is_ascii(),
+        "Go declarations need portable source names"
+    );
+    ensure!(
+        names.insert(name.to_owned()),
+        "generated Go name collision: {name}"
+    );
+    Ok(())
 }
 
 /// Converts a Rust source name to a stable exported Go identifier.
@@ -133,22 +158,17 @@ fn exported(name: &str) -> String {
         .split('_')
         .filter(|part| !part.is_empty())
         .map(|part| {
-            if part.bytes().all(|b| !b.is_ascii_lowercase()) {
-                let lower = part.to_ascii_lowercase();
-                let mut chars = lower.chars();
-                chars
-                    .next()
-                    .map(|c| c.to_ascii_uppercase().to_string())
-                    .unwrap_or_default()
-                    + chars.as_str()
+            let normalized = if part.bytes().all(|b| !b.is_ascii_lowercase()) {
+                part.to_ascii_lowercase()
             } else {
-                let mut chars = part.chars();
-                chars
-                    .next()
-                    .map(|c| c.to_ascii_uppercase().to_string())
-                    .unwrap_or_default()
-                    + chars.as_str()
-            }
+                part.to_owned()
+            };
+            let mut chars = normalized.chars();
+            chars
+                .next()
+                .map(|c| c.to_ascii_uppercase().to_string())
+                .unwrap_or_default()
+                + chars.as_str()
         })
         .collect()
 }
@@ -162,5 +182,59 @@ fn go_type(ty: &FieldType) -> String {
             .as_ref()
             .map_or_else(|| "string".into(), |id| id.replace("Id", "ID")),
         FieldType::List { item, .. } => format!("[]{}", go_type(item)),
+    }
+}
+
+/// Builds the helper's scalar variant directly, without a second JSON representation.
+fn scalar(ty: &FieldType, value: &str) -> String {
+    let field = match ty {
+        FieldType::Bool => format!("Bool: pointer({value})"),
+        FieldType::Integer { .. } => format!("Integer: pointer(int64({value}))"),
+        FieldType::Text { .. } => format!("Text: pointer(string({value}))"),
+        FieldType::List { item, .. } => {
+            return format!(
+                "func() cinnabarext.Scalar {{ items := make([]cinnabarext.Scalar,len({value})); for i,item := range {value} {{ items[i] = {} }}; return cinnabarext.Scalar{{List: &items}} }}()",
+                scalar(item, "item")
+            );
+        }
+    };
+    format!("cinnabarext.Scalar{{{field}}}")
+}
+
+/// Decodes a scalar only after its generated validator checked the tag and bounds.
+fn decoded(ty: &FieldType, value: &str) -> String {
+    match ty {
+        FieldType::Bool => format!("*{value}.Bool"),
+        FieldType::Integer { .. } => format!("{}(*{value}.Integer)", go_type(ty)),
+        FieldType::Text { id: None, .. } => format!("*{value}.Text"),
+        FieldType::Text { .. } => format!("{}(*{value}.Text)", go_type(ty)),
+        FieldType::List { item, .. } => format!(
+            "func() {} {{ items := make({},len(*{value}.List)); for i,item := range *{value}.List {{ items[i] = {} }}; return items }}()",
+            go_type(ty),
+            go_type(ty),
+            decoded(item, "item")
+        ),
+    }
+}
+
+/// Emits the bounds predicate from the same field model used by Rust and the signed manifest.
+fn admits(ty: &FieldType, value: &str) -> String {
+    match ty {
+        FieldType::Bool => format!("{value}.Bool != nil"),
+        FieldType::Integer { min, max, .. } => format!(
+            "{value}.Integer != nil && *{value}.Integer >= {min} && *{value}.Integer <= {max}"
+        ),
+        FieldType::Text { max_bytes, id } => format!(
+            "{value}.Text != nil && validText(*{value}.Text,{max_bytes}){}",
+            if id.is_some() {
+                format!(" && validID(*{value}.Text)")
+            } else {
+                String::new()
+            }
+        ),
+        FieldType::List { item, max_items } => format!(
+            "{value}.List != nil && len(*{value}.List) <= {max_items} && func() bool {{ for _,item := range *{value}.List {{ if !({}) {{ return false }} }}; return true }}()",
+            admits(item, "item")
+        ),
     }
 }

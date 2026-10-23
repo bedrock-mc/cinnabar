@@ -69,7 +69,7 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
     );
     fs::write(package.join("messages/messages_test.go"), GO_CONFORMANCE).unwrap();
     let output = Command::new("go")
-        .args(["test", "./..."])
+        .args(["test", "-mod=mod", "./..."])
         .env("GOWORK", "off")
         .current_dir(package.join("messages"))
         .output()
@@ -150,8 +150,8 @@ fn runtime_acceptance_child() {
         BundleHost::developer_in_process(bundle.component().unwrap(), owner, capabilities, 0)
             .unwrap();
     assert!(
-        host.take_transaction().commands.is_empty(),
-        "authored init waits for the registry"
+        matches!(host.take_transaction().commands.as_slice(), [Command::Send { channel, schema: 1, .. }] if channel == "space.registry_request"),
+        "only the generated registry request runs before confirmation"
     );
     assert!(host.dispatch(&Event::Epoch, 1).unwrap().commands.is_empty());
     let schema: serde_json::Value =

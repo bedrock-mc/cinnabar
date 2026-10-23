@@ -14,6 +14,11 @@ use std::{env, fs, path::Path};
 use anyhow::{Context, Result};
 pub use schema::{Definition, FieldType, Message, Project, valid_name};
 
+/// Generates the Go module manifest for the pinned native server-helper contract.
+pub fn go_module(id: &str) -> String {
+    go::module(id)
+}
+
 /// Generates this Cargo project's shared module and metadata in Cargo's output directory.
 /// Call from `build.rs`; the source is `src/shared.rs` and package files live in `assets/`.
 pub fn generate() -> Result<()> {

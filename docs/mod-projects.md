@@ -62,21 +62,30 @@ Both codecs check field counts, types and bounds; the host still validates signe
 Import the generated package into your Go server. Its module path is
 `cinnabar.local/<project>/messages`; use a local `replace` directive or move the
 generated package under your server module. Rebuild both together when definitions change.
+Keep the generated helper-source `replace` directive in the main server module too;
+Go does not inherit dependency modules' replacements.
 
-Each message exposes `ChannelID() string`, `SchemaVersion() uint16` and
-`EncodeRecord() ([]byte, error)`. `(*Travel).DecodeRecord([]byte) error` decodes its
-positional payload. The package uses only Go's standard library. Its bytes are the
-existing wire v2 record array. The server helper owns routing, epochs, sequences
-and fragmentation. Route by channel and revision before decoding a message.
-Use the generated `messages.PackageID` when the transport needs the owning bundle ID.
+Each message implements the Dragonfly helper's `cinnabarext.Message`: `Route()`
+selects its bundle, channel and revision, and `Encode()` returns its native record.
+Use `ext.Send` and `ext.Broadcast` directly with these messages. `messages.TravelType`
+provides the generated route and decoder for `cinnabarext.OnMessage`. The generated
+Go module pins the helper and a compatible upstream Dragonfly version. Import it as
+`github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext`.
 
-With `tools/localserver/extension`, use `extension.Decode` to read those bytes into
-`extension.Record` before `Server.Send`. Encode received values with
-`extension.Encode(extension.Record(payload))` before the generated decoder.
+Before listening, register the definition handshake with
+`messages.RegisterRegistry(ext)` and handle its returned error. Register application
+receivers with `cinnabarext.OnMessage(ext, messages.TravelType, callback)`. Player
+identity comes from the authenticated connection; schedule world access through
+Dragonfly transactions. The helper owns routing, epochs, sequences and fragmentation.
 
-After client-part readiness, send `messages.RegistryConfirmation{}` before any
-application data. The scaffold's `ClientPart::registry` returns `shared::REGISTRY`.
-Authored initialization and callbacks wait for the exact generated fingerprint.
+`EncodeRecord()` and `(*Travel).DecodeRecord([]byte)` expose the same canonical wire
+v2 positional payload for other transports. They use the helper's codec. Use the
+generated `messages.PackageID` when a transport needs the owning bundle ID.
+
+The scaffold's `ClientPart::registry` returns `shared::REGISTRY`. Initialization
+sends a generated registry request, which the existing client sends after Ready.
+`RegisterRegistry` answers it with the server's generated fingerprint. Authored
+initialization and callbacks wait for that exact fingerprint.
 A mismatch refuses initialization with a diagnostic; missing confirmation leaves
 it waiting. Duplicate matching confirmations do not initialize twice. Changes to
 fields, revisions, directions and typed IDs affect the digest. This check does not

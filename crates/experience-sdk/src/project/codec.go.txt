@@ -1,176 +1,9 @@
-// Message is a typed record for the existing wire v2 transport. The transport owns routing.
-type Message interface {
-    ChannelID() string
-    SchemaVersion() uint16
-    EncodeRecord() ([]byte, error)
-}
+// pointer gives each scalar an owned value of its exact wire type.
+func pointer[T any](value T) *T { return &value }
 
-// value is the existing tagged positional payload value, never an envelope.
-type value struct {
-    Type string `json:"type"`
-    Value json.RawMessage `json:"value"`
-}
-
-// encodeValue checks a typed field against its generated declaration before tagging it.
-func encodeValue(v any, field map[string]json.RawMessage) (value, error) {
-    if !validStrings(reflect.ValueOf(v)) { return value{}, fmt.Errorf("invalid UTF-8") }
-    raw, err := json.Marshal(v)
-    if err != nil { return value{}, err }
-    var kind string
-    if err := json.Unmarshal(field["type"], &kind); err != nil { return value{}, err }
-    tagged := value{Type: kind, Value: raw}
-    if kind == "list" {
-        var items []json.RawMessage
-        if err := json.Unmarshal(raw, &items); err != nil { return value{}, err }
-        // A nil slice is an empty positional list, never JSON null.
-        values := make([]value, len(items))
-        var itemField map[string]json.RawMessage
-        if err := json.Unmarshal(field["item"], &itemField); err != nil { return value{}, err }
-        for i, item := range items {
-            values[i], err = encodeValue(item, itemField)
-            if err != nil { return value{}, err }
-        }
-        tagged.Value, err = json.Marshal(values)
-        if err != nil { return value{}, err }
-    }
-    if _, err := decodeValue(tagged, field); err != nil { return value{}, err }
-    return tagged, nil
-}
-
-// decodeValue validates every bound and removes wire tags for typed Go decoding.
-func decodeValue(v value, field map[string]json.RawMessage) (json.RawMessage, error) {
-    var kind string
-    if err := json.Unmarshal(field["type"], &kind); err != nil { return nil, err }
-    if v.Type != kind || len(v.Value) == 0 || bytes.Equal(bytes.TrimSpace(v.Value), []byte("null")) {
-        return nil, fmt.Errorf("message field type mismatch")
-    }
-    switch kind {
-    case "bool":
-        var b bool
-        if err := json.Unmarshal(v.Value, &b); err != nil { return nil, err }
-    case "integer":
-        var n, low, high int64
-        if err := json.Unmarshal(v.Value, &n); err != nil { return nil, err }
-        if err := json.Unmarshal(field["min"], &low); err != nil { return nil, err }
-        if err := json.Unmarshal(field["max"], &high); err != nil { return nil, err }
-        if n < low || n > high { return nil, fmt.Errorf("integer out of bounds") }
-    case "text":
-        var text string
-        var max uint16
-        if err := json.Unmarshal(v.Value, &text); err != nil { return nil, err }
-        if err := json.Unmarshal(field["max_bytes"], &max); err != nil { return nil, err }
-        if !utf8.ValidString(text) || len(text) > int(max) { return nil, fmt.Errorf("text out of bounds") }
-    case "list":
-        var items []value
-        var max uint16
-        var itemField map[string]json.RawMessage
-        if err := strict(v.Value, &items); err != nil { return nil, err }
-        if err := json.Unmarshal(field["max_items"], &max); err != nil { return nil, err }
-        if err := json.Unmarshal(field["item"], &itemField); err != nil { return nil, err }
-        if len(items) > int(max) { return nil, fmt.Errorf("list out of bounds") }
-        raw := make([]json.RawMessage, len(items))
-        for i, item := range items {
-            var err error
-            raw[i], err = decodeValue(item, itemField)
-            if err != nil { return nil, err }
-        }
-        return json.Marshal(raw)
-    default:
-        return nil, fmt.Errorf("unsupported message field %q", kind)
-    }
-    return v.Value, nil
-}
-
-// validStrings prevents encoding/json from silently replacing invalid native strings.
-func validStrings(v reflect.Value) bool {
-    switch v.Kind() {
-    case reflect.String:
-        return utf8.ValidString(v.String())
-    case reflect.Slice, reflect.Array:
-        for i := 0; i < v.Len(); i++ { if !validStrings(v.Index(i)) { return false } }
-    }
-    return true
-}
-
-// uniqueJSON rejects repeated object keys before decoding into typed records.
-func uniqueJSON(d *json.Decoder) error {
-    token, err := d.Token()
-    if err != nil { return err }
-    switch token {
-    case json.Delim('{'):
-        keys := map[string]bool{}
-        for d.More() {
-            key, err := d.Token(); if err != nil { return err }
-            name, ok := key.(string); if !ok || keys[name] { return fmt.Errorf("duplicate or invalid JSON key") }
-            keys[name] = true
-            if err := uniqueJSON(d); err != nil { return err }
-        }
-        _, err = d.Token()
-    case json.Delim('['):
-        for d.More() { if err := uniqueJSON(d); err != nil { return err } }
-        _, err = d.Token()
-    }
-    return err
-}
-
-// validEscapes refuses unpaired UTF-16 surrogates rather than replacing them.
-func validEscapes(raw []byte) bool {
-    for i := 0; i < len(raw); i++ {
-        if raw[i] != '\\' { continue }
-        i++
-        if i >= len(raw) { return false }
-        if raw[i] != 'u' { continue }
-        if i+4 >= len(raw) { return false }
-        code, err := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
-        if err != nil { return false }; i += 4
-        if code >= 0xdc00 && code <= 0xdfff { return false }
-        if code < 0xd800 || code > 0xdbff { continue }
-        if i+6 >= len(raw) || raw[i+1] != '\\' || raw[i+2] != 'u' { return false }
-        low, err := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
-        if err != nil || low < 0xdc00 || low > 0xdfff { return false }; i += 6
-    }
-    return true
-}
-
-// strict rejects unknown or duplicate fields, trailing JSON and malformed Unicode.
-func strict(raw []byte, dst any) error {
-    if !utf8.Valid(raw) || !validEscapes(raw) { return fmt.Errorf("invalid Unicode") }
-    unique := json.NewDecoder(bytes.NewReader(raw)); unique.UseNumber()
-    if err := uniqueJSON(unique); err != nil { return err }
-    d := json.NewDecoder(bytes.NewReader(raw))
-    d.DisallowUnknownFields()
-    if err := d.Decode(dst); err != nil { return err }
-    var tail any
-    if err := d.Decode(&tail); err != io.EOF { return fmt.Errorf("trailing JSON") }
-    return nil
-}
-
-// encodeRecord tags and validates one ordered field per generated declaration.
-func encodeRecord(fieldsJSON string, values ...any) ([]byte, error) {
-    var fields []map[string]json.RawMessage
-    if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil { return nil, err }
-    if len(fields) != len(values) { return nil, fmt.Errorf("message field count mismatch") }
-    record := make([]value, len(fields))
-    for i, field := range fields {
-        var err error
-        record[i], err = encodeValue(values[i], field)
-        if err != nil { return nil, err }
-    }
-    return json.Marshal(record)
-}
-
-// decodeRecord requires the exact positional schema before exposing typed values.
-func decodeRecord(raw []byte, fieldsJSON string, values ...any) error {
-    var fields []map[string]json.RawMessage
-    if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil { return err }
-    var record []value
-    if err := strict(raw, &record); err != nil { return err }
-    if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || len(record) != len(fields) || len(fields) != len(values) { return fmt.Errorf("message field count mismatch") }
-    for i, field := range fields {
-        decoded, err := decodeValue(record[i], field)
-        if err != nil { return err }
-        if err := strict(decoded, values[i]); err != nil { return err }
-    }
+// checkFieldCount refuses missing and extra positional fields.
+func checkFieldCount(record cinnabarext.Record, want int) error {
+    if len(record) != want { return fmt.Errorf("message field count mismatch") }
     return nil
 }
 
@@ -184,14 +17,48 @@ func validID(s string) bool {
     return true
 }
 
-// RegistryConfirmation starts the matching client part after readiness. Send it before app data.
+// validText counts UTF-8 bytes and refuses strings Rust cannot represent.
+func validText(s string, max int) bool { return utf8.ValidString(s) && len(s) <= max }
+
+// RegistryConfirmation starts the matching client part. Send it before app data.
 type RegistryConfirmation struct{}
 
-// ChannelID selects the generated registry confirmation channel.
-func (RegistryConfirmation) ChannelID() string { return RegistryChannel }
-// SchemaVersion selects the registry record revision.
-func (RegistryConfirmation) SchemaVersion() uint16 { return 1 }
-// EncodeRecord confirms the schema generated alongside this package.
-func (RegistryConfirmation) EncodeRecord() ([]byte, error) {
-    return encodeRecord(registryFields, RegistryFingerprint)
+// Route selects the owning bundle's generated registry confirmation channel.
+func (RegistryConfirmation) Route() cinnabarext.Route {
+    return cinnabarext.Route{Bundle: PackageID, Channel: RegistryChannel, Schema: 1}
+}
+
+// Encode confirms the schema generated alongside this package.
+func (RegistryConfirmation) Encode() (cinnabarext.Record, error) {
+    return cinnabarext.Record{{Text: pointer(RegistryFingerprint)}}, nil
+}
+
+// EncodeRecord returns the existing wire v2 positional payload for other transports.
+func (v RegistryConfirmation) EncodeRecord() ([]byte, error) {
+    record, err := v.Encode(); if err != nil { return nil, err }
+    return cinnabarext.Encode(record)
+}
+
+var _ cinnabarext.Message = RegistryConfirmation{}
+
+// registryRequest carries the client's request without invoking authored callbacks.
+type registryRequest struct{}
+
+// decodeRegistryRequest checks the fixed request record; the client validates our confirmation.
+func decodeRegistryRequest(record cinnabarext.Record) (registryRequest, error) {
+    if err := checkFieldCount(record, 1); err != nil { return registryRequest{}, err }
+    if record[0].Text == nil || !validText(*record[0].Text, len(RegistryFingerprint)) { return registryRequest{}, fmt.Errorf("invalid registry request") }
+    return registryRequest{}, nil
+}
+
+// RegisterRegistry answers the client's initialization request through the typed helper.
+// Register it before the server listens, alongside the application's typed receivers.
+func RegisterRegistry(server *cinnabarext.Server) error {
+    kind := cinnabarext.MessageType[registryRequest]{
+        Route: cinnabarext.Route{Bundle: PackageID, Channel: RegistryRequestChannel, Schema: 1},
+        Decode: decodeRegistryRequest,
+    }
+    return cinnabarext.OnMessage(server, kind, func(player uuid.UUID, _ registryRequest) {
+        server.Send(player, RegistryConfirmation{})
+    })
 }
