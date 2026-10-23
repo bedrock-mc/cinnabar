@@ -23,7 +23,7 @@ pub(super) fn prepare(
     queue: &RenderQueue,
     gpu: &mut ParticleGpu,
     raw_views: crate::actor::gpu::ArtworkRawViews,
-    #[cfg(feature = "shaderpacks")] shared_atlases: &mut crate::shaderpack::SharedAtlasRelease,
+    #[cfg(feature = "shaderpacks")] shared_atlases: &mut SharedAtlasRelease,
 ) {
     if let Some(base) = &frame.base
         && (gpu.texture_raw_views != raw_views

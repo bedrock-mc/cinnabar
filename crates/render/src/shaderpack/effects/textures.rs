@@ -70,28 +70,32 @@ pub(crate) struct SharedAtlasRelease<'w> {
 impl SharedAtlasRelease<'_> {
     /// Drops shared views and cached draw bindings of `texture` before its replacement allocates.
     pub(crate) fn release(&mut self, texture: Option<&Texture>) {
-        let (Some(texture), Some(textures)) = (texture, self.textures.as_deref_mut()) else {
+        let Some(texture) = texture else {
             return;
         };
-        let particles = textures
-            .particles
-            .as_ref()
-            .is_some_and(|shared| shared.texture == texture.id());
-        let cracks = textures
-            .cracks
-            .as_ref()
-            .is_some_and(|shared| shared.texture == texture.id());
-        if !particles && !cracks {
-            return;
+        if let Some(textures) = self.textures.as_deref_mut() {
+            let mut changed = false;
+            if textures
+                .particles
+                .as_ref()
+                .is_some_and(|shared| shared.texture == texture.id())
+            {
+                textures.particles = None;
+                textures.particle_side = 0;
+                changed = true;
+            }
+            if textures
+                .cracks
+                .as_ref()
+                .is_some_and(|shared| shared.texture == texture.id())
+            {
+                textures.cracks = None;
+                changed = true;
+            }
+            if changed {
+                textures.generation += 1;
+            }
         }
-        if particles {
-            textures.particles = None;
-            textures.particle_side = 0;
-        }
-        if cracks {
-            textures.cracks = None;
-        }
-        textures.generation += 1;
         if let Some(views) = self.views.as_deref_mut() {
             for state in views
                 .states
@@ -99,19 +103,10 @@ impl SharedAtlasRelease<'_> {
                 .unwrap_or_else(|e| e.into_inner())
                 .values_mut()
             {
-                for (draw, binding) in state.pack.draws.iter().zip(&mut state.bindings.draws) {
-                    let affected = match draw.kind {
-                        DrawKind::Effect(Effect::DamagedBlock) => cracks,
-                        DrawKind::Effect(
-                            Effect::Particles
-                            | Effect::ParticlesTranslucent
-                            | Effect::ParticlesAdditive,
-                        ) => particles,
-                        _ => false,
-                    };
-                    if affected {
-                        binding.groups = Default::default();
-                    }
+                state.actors.release_texture(texture.id());
+                // Geometry bindings rebuild together when the texture generation changes.
+                for binding in &mut state.bindings.draws {
+                    binding.groups = Default::default();
                 }
                 state.atlas_generation = None;
             }
@@ -386,7 +381,7 @@ pub(crate) fn prepare_effect_textures(
 
 #[cfg(test)]
 #[path = "textures/release_tests.rs"]
-mod release_tests;
+pub(crate) mod release_tests;
 
 #[cfg(test)]
 mod gpu_tests {
