@@ -514,6 +514,10 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
+        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
+    RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
+        [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

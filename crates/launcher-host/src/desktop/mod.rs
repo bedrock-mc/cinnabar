@@ -41,11 +41,17 @@ pub fn open_url(url: &str) {
 
 /// Whether `open_folder` has a file manager to hand folders to on this OS.
 pub fn opens_folders() -> bool {
-    has_folder_opener(std::env::consts::OS)
+    is_desktop(std::env::consts::OS)
 }
 
-/// Android and other targets without a desktop opener get no folder buttons.
-fn has_folder_opener(os: &str) -> bool {
+/// Whether the game window receives files dragged onto it on this OS.
+pub fn accepts_file_drops() -> bool {
+    is_desktop(std::env::consts::OS)
+}
+
+/// Desktop systems have a file manager and windows that take dropped files. Android and other
+/// targets have neither, so they get no folder buttons and import only through the picker.
+fn is_desktop(os: &str) -> bool {
     matches!(os, "linux" | "macos" | "windows")
 }
 
@@ -86,7 +92,10 @@ fn show_folder(dir: &Path) -> bool {
     #[cfg(target_os = "macos")]
     return run_tool(dir);
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-    return false;
+    {
+        let _ = dir;
+        false
+    }
 }
 
 /// Opens `url` in the desktop's default handler; cancellation suppresses further handlers.
@@ -178,12 +187,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folder_buttons_exist_only_where_a_file_manager_can_open_them() {
+    fn folder_buttons_and_file_drops_exist_only_on_desktop_systems() {
         for os in ["linux", "macos", "windows"] {
-            assert!(has_folder_opener(os), "{os}");
+            assert!(is_desktop(os), "{os}");
         }
         for os in ["android", "ios", "freebsd"] {
-            assert!(!has_folder_opener(os), "{os}");
+            assert!(!is_desktop(os), "{os}");
         }
     }
 

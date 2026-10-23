@@ -755,6 +755,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
     };
     let empty = protocol::NetworkItemStack::empty();
     let press = PressContext {
+        refused_destroy: None,
         tick: 101,
         player_position: [0.0, 65.62, 0.0],
         input_mode: protocol::PlayerInputMode::Mouse,

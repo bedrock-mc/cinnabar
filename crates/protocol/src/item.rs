@@ -850,6 +850,7 @@ pub(crate) fn normalize_actor_attack(
     normalize_animate(AnimatePacket {
         action: AnimatePacketAction::Swing,
         target_actor_runtime_id: runtime_id,
+        swing_source: Some("attack".into()),
         ..Default::default()
     })
 }

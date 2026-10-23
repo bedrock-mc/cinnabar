@@ -3,24 +3,6 @@
 use super::*;
 use crate::local_worlds::process::HostGrant;
 
-/// A manager whose EULA is accepted, with one BDS world served by `runner`.
-fn bds_world(runner: &Arc<FakeRunner>) -> (Fixture, World) {
-    let runner: Arc<dyn Runner> = runner.clone();
-    let fixture = fixture(|parts, dir| {
-        parts.runners.bds = Some(runner);
-        parts.setup = Some(provisioner(dir, LINUX));
-    });
-    fixture.manager.accept_eula().expect("accept");
-    let world = fixture
-        .manager
-        .create(&NewWorld {
-            backend: Some(Backend::Bds),
-            ..flat("w")
-        })
-        .expect("create");
-    (fixture, world)
-}
-
 /// Each start hosts the account signed in at that moment, and a malformed XUID grants nobody. A
 /// host known at launch needs no reload once the server is ready.
 #[test]

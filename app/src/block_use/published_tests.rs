@@ -756,6 +756,7 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
     melee.resolve(
         crosshair,
         &gameplay::melee::PressContext {
+            refused_destroy: None,
             tick: 102,
             player_position: [4.5, 2.620_01, 8.5],
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -949,8 +950,9 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
     }
 }
 
+/// A held non-block item repeats the targeted block's own use with a simulation-tick trigger.
 #[test]
-fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
+fn a_held_nonblock_item_repeats_the_chest_use() {
     let (mut world, mut captured) = fixture();
     hold_use(&mut world);
     // An active physics clock lets this frame simulate the tick the repeat precedes.
@@ -996,25 +998,14 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
         },
     );
     world.run_system_cached(produce_block_use).unwrap();
-    assert!(
-        captured.drain().is_empty(),
-        "the locally denied repeat must not emit a chest interaction"
-    );
-    // The denied attempt used tick 102; the next tick keeps the admitted schedule.
-    assert_eq!(
-        world.resource::<BlockUseRuntime>().due(
-            true,
-            103,
-            RepeatClock {
-                now: Duration::from_millis(1_001),
-                sneaking: false,
-                speed: 0.0,
-                survival: true
-            },
-        ),
-        Some((ItemUseTrigger::SimulationTick, Duration::from_millis(700))),
-        "an unsent interaction must not change the last admitted placement's schedule"
-    );
+    let uses: Vec<_> = captured.drain().iter().filter_map(item_use).collect();
+    let [chest] = &uses[..] else {
+        panic!("expected one held chest use, got {uses:?}");
+    };
+    assert_eq!(chest.trigger, Some(ItemUseTrigger::SimulationTick));
+    assert!(chest.predicted_success);
+    assert_eq!(chest.position, [4, 2, 6]);
+    assert_eq!(chest.item.network_id, 42);
 }
 
 #[test]

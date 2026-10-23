@@ -2,6 +2,8 @@
 //! Models and portal planes draw in the opaque phase; overlays draw afterward.
 
 use crate::queue_writes::ProfiledQueue as _;
+#[cfg(feature = "shaderpacks")]
+use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -191,6 +193,7 @@ pub(crate) struct BlockEntityGpu {
     atlas_identity: [u8; 32],
     atlas_size: [u32; 2],
     dynamic_revision: u64,
+    atlas_upload: crate::gpu_allocation::UploadRetry,
     sampler: Sampler,
     view_buffer_id: Option<BufferId>,
     frame_revision: u64,
@@ -223,6 +226,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         atlas_identity: [0; 32],
         atlas_size: [0; 2],
         dynamic_revision: u64::MAX,
+        atlas_upload: crate::gpu_allocation::UploadRetry::default(),
         sampler: render_device.create_sampler(&SamplerDescriptor {
             label: Some("block-entity nearest atlas sampler"),
             address_mode_u: AddressMode::ClampToEdge,
@@ -246,6 +250,7 @@ pub(crate) fn prepare_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: SharedAtlasRelease,
 ) {
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
@@ -272,45 +277,33 @@ pub(crate) fn prepare_resources(
         .atlas
         .as_ref()
         .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
-    if gpu.atlas_identity != atlas.identity
+    let replaced = gpu.atlas_identity != atlas.identity
         || gpu.atlas_size != atlas.size
-        || gpu.texture.is_none()
-        || gpu.texture_raw_views != raw_views
-    {
-        let texture = uploads.device.create_texture(&TextureDescriptor {
-            label: Some("block-entity atlas"),
-            size: Extent3d {
-                width: atlas.size[0],
-                height: atlas.size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: raw_views.view_formats(),
-        });
-        write_rows(
-            &uploads.queue,
-            &texture,
-            0,
-            atlas.size[0],
-            atlas.static_height,
-            &atlas.static_rgba8,
-        );
-        gpu.view = Some(texture.create_view(&TextureViewDescriptor::default()));
-        gpu.texture = Some(texture);
-        gpu.texture_raw_views = raw_views;
-        gpu.atlas_identity = atlas.identity;
-        gpu.atlas_size = atlas.size;
-        gpu.dynamic_revision = u64::MAX;
+        || gpu.texture_raw_views != raw_views;
+    let failed = gpu.atlas_upload.failed();
+    if replaced || (failed && gpu.atlas_upload.take_ready()) || (!failed && gpu.texture.is_none()) {
+        // Released first: a resized or replaced atlas never draws through the old texture.
+        #[cfg(feature = "shaderpacks")]
+        shared_atlases.release(gpu.texture.as_ref());
+        let released = gpu.texture.take().is_some();
+        gpu.view = None;
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.outline.bind_group = None;
         gpu.crack.bind_group = None;
         gpu.portal.bind_group = None;
         gpu.additive.bind_group = None;
+        gpu.atlas_identity = atlas.identity;
+        gpu.atlas_size = atlas.size;
+        gpu.texture_raw_views = raw_views;
+        gpu.dynamic_revision = u64::MAX;
+        let uploaded = upload_atlas(&uploads.device, &uploads.queue, atlas, raw_views);
+        gpu.atlas_upload
+            .record(uploaded.is_some(), released.then_some(&*uploads.queue));
+        if let Some((texture, view)) = uploaded {
+            gpu.view = Some(view);
+            gpu.texture = Some(texture);
+        }
     }
     let dynamic_rows = atlas.size[1].saturating_sub(atlas.static_height);
     if gpu.dynamic_revision != frame.dynamic_revision
@@ -411,6 +404,48 @@ pub(crate) fn prepare_resources(
             }
         }
     }
+}
+
+/// Creates the atlas, then writes its static rows only once creation succeeded.
+fn upload_atlas(
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    atlas: &render_model::block_entity::BlockEntityAtlasImage,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
+) -> Option<(Texture, TextureView)> {
+    let [width, height] = atlas.size;
+    let texture = crate::gpu_allocation::texture(
+        device,
+        &TextureDescriptor {
+            label: Some("block-entity atlas"),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: raw_views.view_formats(),
+        },
+    )?;
+    let bytes = atlas.static_rgba8.len() as u64;
+    crate::gpu_allocation::checked(device, "block-entity atlas upload", bytes, || {
+        write_rows(
+            queue,
+            &texture,
+            0,
+            width,
+            atlas.static_height,
+            &atlas.static_rgba8,
+        );
+    })?;
+    let view = crate::gpu_allocation::checked(device, "block-entity atlas view", 0, || {
+        texture.create_view(&TextureViewDescriptor::default())
+    })?;
+    Some((texture, view))
 }
 
 fn write_rows(

@@ -70,6 +70,8 @@ pub enum Input {
     ImportFiles(Vec<PathBuf>),
     /// Cancels the current screen; while opening it also closes the world.
     Back,
+    /// A change to the open world `id` from its in-game settings.
+    InWorld(String, super::in_world::Action),
 }
 
 /// World-service work for the executor; each yields at most one [`Event`].
@@ -80,6 +82,12 @@ pub enum Effect {
     Delete(String),
     Update {
         id: String,
+        update: WorldUpdate,
+    },
+    /// Saves an in-game change and applies it to the world's running server.
+    Apply {
+        id: String,
+        revision: u64,
         update: WorldUpdate,
     },
     Open(String),
@@ -110,6 +118,17 @@ pub enum Event {
     Created(World),
     Deleted(String),
     Updated(World),
+    /// The world as an [`Effect::Apply`] saved it.
+    Applied {
+        revision: u64,
+        applied: super::in_world::Applied,
+    },
+    /// A particular in-game edit could not be saved; Settings handles it inline.
+    ApplyFailed {
+        id: String,
+        revision: u64,
+        error: String,
+    },
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
     EulaRequired,
@@ -234,6 +253,9 @@ pub struct WorldsMenu {
     /// A Docker probe is in flight behind the modal, which offers only Cancel meanwhile.
     checking: bool,
     eula_for: Option<String>,
+    /// The open world whose running server missed an in-game change this session.
+    missed_live: Option<String>,
+    in_world: super::in_world::Edits,
 }
 
 impl WorldsMenu {
@@ -297,6 +319,19 @@ impl WorldsMenu {
     /// Takes the id of a world that finished opening; the caller then joins the session endpoint.
     pub fn take_ready(&mut self) -> Option<String> {
         self.ready.take()
+    }
+
+    /// Whether world `id`'s running server missed an in-game change since it opened.
+    pub fn missed_live(&self, id: &str) -> bool {
+        self.missed_live.as_deref() == Some(id)
+    }
+
+    /// The played world's settings, including pending choices and inline save failures.
+    pub fn in_world_view(&self, id: &str) -> Option<super::in_world::View> {
+        let world = self.worlds.iter().find(|world| world.id == id)?;
+        let mut view = self.in_world.view(world)?;
+        view.missed = self.missed_live(id);
+        Some(view)
     }
 
     /// The open world's player limit, the host included, once its server reported one.
@@ -427,6 +462,8 @@ impl WorldsMenu {
     }
 
     fn begin_opening(&mut self, id: String) -> Vec<Effect> {
+        self.missed_live = None;
+        self.in_world.reset();
         self.opening = Some(id.clone());
         self.opening_status = None;
         self.ready = None;
@@ -468,6 +505,14 @@ impl WorldsMenu {
     }
 
     pub fn update(&mut self, input: Input) -> Vec<Effect> {
+        // The open world's settings are independent of the menu's screens and requests.
+        if let Input::InWorld(id, action) = input {
+            return self
+                .in_world
+                .change(&mut self.worlds, &id, action)
+                .into_iter()
+                .collect();
+        }
         if self.busy && !matches!(input, Input::Back) {
             return Vec::new();
         }
@@ -805,6 +850,27 @@ impl WorldsMenu {
                 self.busy = false;
                 self.screen = Screen::List;
                 self.play_edited()
+            }
+            Event::Applied { revision, applied } => {
+                if applied.missed {
+                    self.missed_live = Some(applied.world.id.clone());
+                }
+                self.in_world.finish(
+                    &mut self.worlds,
+                    &applied.world.id,
+                    revision,
+                    Ok(&applied.world),
+                );
+                Vec::new()
+            }
+            Event::ApplyFailed {
+                id,
+                revision,
+                error,
+            } => {
+                self.in_world
+                    .finish(&mut self.worlds, &id, revision, Err(error));
+                Vec::new()
             }
             Event::Status(status) => {
                 self.note_status(&status);

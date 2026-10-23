@@ -195,3 +195,39 @@ fn superseded_loads_retire_before_another_worker_can_start() {
         ShaderPackStatus::Idle
     ));
 }
+
+#[test]
+fn idle_shader_views_do_not_record_work() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.init_resource::<ShaderPackViews>();
+    let profiler = RuntimeStageProfiler::new(true);
+    world.insert_resource(profiler.clone());
+    world.run_system_once(prepare_views).unwrap();
+    let snapshot = profiler
+        .take_snapshot_if_due(std::time::Duration::ZERO)
+        .unwrap();
+    assert_eq!(
+        snapshot.samples[RuntimeStage::ShaderpackUniforms as usize].count,
+        0
+    );
+}
+
+#[test]
+fn shader_registration_keeps_builtin_assets_unprepared_until_requested() {
+    let mut app = App::new();
+    app.init_resource::<Assets<Shader>>();
+    let mut render = bevy::app::SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    build(&mut app);
+    assert!(app.world().resource::<Assets<Shader>>().is_empty());
+    assert!(
+        !app.sub_app(RenderApp)
+            .world()
+            .contains_resource::<super::super::kernels::Kernels>()
+    );
+}

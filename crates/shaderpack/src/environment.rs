@@ -2,7 +2,7 @@
 //! (<https://shaders.properties/current/reference/macros/>).
 
 /// Operating system macro (`MC_OS_*`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostOs {
     Windows,
     MacOs,
@@ -11,7 +11,7 @@ pub enum HostOs {
 }
 
 /// GPU vendor family, selecting `MC_GL_VENDOR_*` and `MC_GL_RENDERER_*`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuVendor {
     Nvidia,
     Amd,
@@ -38,7 +38,7 @@ pub fn iris_version_number(version: &str) -> Option<u32> {
 /// Values used to inspect pack metadata under a chosen compatibility environment.
 /// The macro set describes that environment, including a fixed set of core GL extensions
 /// and Iris features; it does not detect host capabilities or activate rendering.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct Environment {
     /// `MC_VERSION`, e.g. 260300 for 26.3.
     pub mc_version: u32,

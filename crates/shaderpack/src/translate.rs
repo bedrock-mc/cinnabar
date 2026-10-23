@@ -15,7 +15,7 @@ use crate::transform::{
 use std::collections::{BTreeMap, HashMap};
 
 /// The outcome for one stage file.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct StageTranslation {
     pub stage: StageKind,
     /// `shaders/`-relative path of the stage file.
@@ -24,7 +24,7 @@ pub struct StageTranslation {
 }
 
 /// The outcome for one program. A failing program never affects the others.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ProgramTranslation {
     pub program: ProgramSource,
     /// The pack's `program.*.enabled` rule holds for the configured options (true without a rule).

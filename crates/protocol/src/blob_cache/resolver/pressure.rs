@@ -7,27 +7,59 @@ impl BlobCacheResolver {
         !self.immediate_ready.is_empty()
     }
 
-    /// Abandons only cached transactions that block retained ordinary work.
+    /// Abandons the cached transactions that block retained ordinary work, including those
+    /// that block it through a reconstructed cached packet naming another column. Returns
+    /// whether anything was abandoned; a lane that cannot be unblocked is counted once.
     pub fn unblock_ordinary_lane(&mut self) -> Result<bool, BlobCacheError> {
-        let blocked_columns = self
-            .immediate_ready
-            .values()
-            .flat_map(|ready| ready.columns.iter())
-            .copied()
-            .collect::<HashSet<_>>();
+        let mut blocked_before = HashMap::<ColumnKey, u64>::new();
+        for ready in self.immediate_ready.values() {
+            for column in &ready.columns {
+                let bound = blocked_before.entry(*column).or_default();
+                *bound = (*bound).max(ready.sequence);
+            }
+        }
+        // Dependencies always point to earlier work. Walking backwards visits each dependent
+        // before its blockers, so one pass carries the sequence bounds through every column.
+        for ready in self.ready.values().rev() {
+            if ready.columns.iter().any(|column| {
+                blocked_before
+                    .get(column)
+                    .is_some_and(|bound| ready.sequence < *bound)
+            }) {
+                for column in &ready.columns {
+                    let bound = blocked_before.entry(*column).or_default();
+                    *bound = (*bound).max(ready.sequence);
+                }
+            }
+        }
         let blockers = self
             .pending
             .iter()
-            .filter(|(_, transaction)| {
-                transaction
-                    .columns
-                    .iter()
-                    .any(|column| blocked_columns.contains(column))
+            .filter(|(sequence, transaction)| {
+                transaction.columns.iter().any(|column| {
+                    blocked_before
+                        .get(column)
+                        .is_some_and(|bound| *sequence < bound)
+                })
             })
             .map(|(sequence, _)| *sequence)
             .collect::<Vec<_>>();
         for sequence in &blockers {
             self.abandon_pending_transaction(*sequence)?;
+        }
+        if blockers.is_empty() {
+            if !std::mem::replace(&mut self.ordinary_lane_stalled, true) {
+                self.stats.ordinary_lane_stalls = self.stats.ordinary_lane_stalls.saturating_add(1);
+                tracing::warn!(
+                    target: "cinnabar::blob_cache",
+                    immediate = self.immediate_ready.len(),
+                    ready = self.ready.len(),
+                    pending = self.pending.len(),
+                    "retained ordinary world events have no abandonable cached blocker"
+                );
+            }
+        } else {
+            self.ordinary_lane_stalled = false;
         }
         self.refresh_pending_accounting()?;
         Ok(!blockers.is_empty())

@@ -25,7 +25,7 @@ pub(in crate::ui_runtime::presentation) struct SemanticHud {
     // Keep the language tables alive so their addresses cannot be reused under this key.
     _translator: Translator,
     chat_rows: Vec<u64>,
-    chat_options: Option<(f64, char, bool)>,
+    chat_options: Option<(f64, char, char, bool)>,
     sidebar_key: Option<(u64, u64, bool)>,
     bosses: Vec<BossBarView>,
     world_text: components::WorldTextInput,
@@ -324,7 +324,13 @@ impl SemanticHud {
         reset: bool,
     ) -> bool {
         let hidden = settings.value(SettingId::HideChat) != 0;
-        let options = (settings.chat_lifetime(), settings.chat_color_code(), hidden);
+        let mention_code = settings.mentions_color_code();
+        let options = (
+            settings.chat_lifetime(),
+            settings.chat_color_code(),
+            mention_code,
+            hidden,
+        );
         let horizon = seconds(now) - options.0 - 1.0;
         let rows = || {
             runtime
@@ -343,6 +349,7 @@ impl SemanticHud {
             &mut self.model.chat_color,
             ui_screens::settings_chat::default_color(settings),
         );
+        changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         if reset
             || self.chat_options != Some(options)
             || !rows().map(|(id, _)| id).eq(self.chat_rows.iter().copied())

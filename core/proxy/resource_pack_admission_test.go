@@ -1539,7 +1539,14 @@ func TestAcquisitionBudgetDeclinesUndecodableOffer(t *testing.T) {
 	}
 }
 
+// admissionPackWithUUID builds an original pack at the default fixture version.
 func admissionPackWithUUID(t *testing.T, id string) *resource.Pack {
+	t.Helper()
+	return admissionPackWithVersion(t, id, [3]uint32{1, 0, 0})
+}
+
+// admissionPackWithVersion builds an original archive with the requested manifest identity.
+func admissionPackWithVersion(t *testing.T, id string, version [3]uint32) *resource.Pack {
 	t.Helper()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
@@ -1547,7 +1554,7 @@ func admissionPackWithUUID(t *testing.T, id string) *resource.Pack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"t","description":"t","uuid":"%s","version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id)
+	fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"t","description":"t","uuid":"%s","version":[%d,%d,%d],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id, version[0], version[1], version[2])
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -2012,6 +2019,12 @@ func TestSelectedStackPreservesRepeatedEntriesAndOrder(t *testing.T) {
 // negotiatedAdmissionPacks obtains real offer and stack snapshots, including repeated entries.
 func negotiatedAdmissionPacks(t *testing.T, packs []*resource.Pack, required bool) *minecraft.Conn {
 	t.Helper()
+	return negotiatedAdmissionPacksWithCache(t, packs, required, nil)
+}
+
+// negotiatedAdmissionPacksWithCache negotiates real snapshots with an optional archive cache.
+func negotiatedAdmissionPacksWithCache(t *testing.T, packs []*resource.Pack, required bool, cache minecraft.ResourcePackCache) *minecraft.Conn {
+	t.Helper()
 	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
 		return conn.ConfigureResourcePackOffer(packs, required)
 	})
@@ -2026,8 +2039,9 @@ func negotiatedAdmissionPacks(t *testing.T, packs []*resource.Pack, required boo
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, err := (minecraft.Dialer{
-		Handoff:      minecraft.HandoffAtStartGame,
-		IdentityData: login.IdentityData{DisplayName: "Selection"},
+		Handoff:           minecraft.HandoffAtStartGame,
+		ResourcePackCache: cache,
+		IdentityData:      login.IdentityData{DisplayName: "Selection"},
 	}).DialContextNetwork(ctx, network, "")
 	if err != nil {
 		t.Fatal(err)

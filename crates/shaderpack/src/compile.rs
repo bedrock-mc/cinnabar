@@ -12,7 +12,7 @@ mod order;
 mod tests;
 
 /// A validated stage module.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct CompiledStage {
     pub stage: StageKind,
     /// The translated GLSL 4.50 that naga parsed.
