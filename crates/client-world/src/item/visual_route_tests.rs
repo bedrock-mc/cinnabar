@@ -19,13 +19,21 @@ fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
 
 const TERRACOTTA: &str = "minecraft:blue_terracotta";
 
-/// Builds a small visual catalog without artwork or installed packs.
+/// Builds a small catalog, mapping alias metadata to dense visual indices.
+/// Sprite routes share one synthetic raster source.
 fn item_assets(
     identifier: &str,
     visuals: &[(u32, ItemVisualDefinitionRoute)],
     aliases: &[(u32, u32)],
 ) -> Arc<RuntimeEntityAssets> {
     let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
+    let mut sources = compiled.sources.into_vec();
+    let raster_source = sources.len() as u32;
+    sources.push(assets::EntityAssetSource {
+        path: "textures/items/fixture.png".into(),
+        ..sources[0].clone()
+    });
+    compiled.sources = sources.into();
     compiled.block_visual_count = visuals
         .iter()
         .filter_map(|(_, route)| match route {
@@ -42,7 +50,17 @@ fn item_assets(
                 metadata,
             },
             source: 0,
-            route,
+            route: match route {
+                ItemVisualDefinitionRoute::Sprite { texture } => {
+                    ItemVisualDefinitionRoute::Sprite {
+                        texture: ItemTextureReference {
+                            source: raster_source,
+                            ..texture
+                        },
+                    }
+                }
+                route => route,
+            },
             grip: assets::item::grip::ItemGrip::Unresolved,
             glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
