@@ -290,6 +290,15 @@ fn indirect_devices_select_the_best_gpu_cull_submission() {
     );
 }
 
+/// Android Mali drivers lose the device under the compute cull, so they cull on the CPU.
+#[test]
+fn android_mali_culls_terrain_on_the_cpu() {
+    const ADRENO_VENDOR_ID: u32 = 0x5143;
+    assert!(gpu_cull_unstable(ARM_MALI_VENDOR_ID, true));
+    assert!(!gpu_cull_unstable(ARM_MALI_VENDOR_ID, false));
+    assert!(!gpu_cull_unstable(ADRENO_VENDOR_ID, true));
+}
+
 #[test]
 fn slot_table_tracks_moves_removals_cave_visibility_and_tint() {
     let entity = |index: u32| Entity::from_raw_u32(index + 1).unwrap();

@@ -736,6 +736,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   The compact table still needs paging
   when its combined sources exceed one storage binding. Physical-device rendering and fallback
   performance acceptance remain incomplete.
+  rendering acceptance remains incomplete. Android Mali culls terrain on the CPU because the
+  compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
+  vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
+  vanilla page against their 1,024-layer array limit; smaller pages first need session block
+  overlays to accept multi-page base carriers.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
