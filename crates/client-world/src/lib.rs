@@ -23,7 +23,8 @@ pub use actor_store::{
     LightningBoltView, LocalItemUse, LocalPlayerFeed, LocalVehicleFeed, MAX_DROPPED_ITEM_COPIES,
     MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin,
     PropertyDefault, ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView,
-    SLEEPING_PLAYER_NETWORK_OFFSET, dropped_item_copy_count, seat_world_offset, tnt_presentation,
+    SLEEPING_PLAYER_NETWORK_OFFSET, SeatViewLock, dropped_item_copy_count, seat_world_offset,
+    tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,

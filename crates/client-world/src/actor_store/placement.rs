@@ -52,6 +52,15 @@ impl super::movement_interpolation::MotionState {
     }
 }
 
+/// How a locked seat holds its rider's view, in degrees: the vehicle's render yaw, the
+/// seat's facing, and how far either side of that facing the view may turn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SeatViewLock {
+    pub vehicle_yaw: f32,
+    pub facing: f32,
+    pub limit: f32,
+}
+
 /// Where a rider sits and how its body and head are held.
 struct Placement {
     runtime_id: u64,
@@ -158,6 +167,37 @@ impl ActorStore {
             std::array::from_fn(|axis| mount_feet[axis] + offset[axis]),
             wrap_degrees(mount_yaw + seat.rotate_by.unwrap_or(0.0)),
         ))
+    }
+
+    /// The view lock of `rider_unique_id`'s seat, with its vehicle's yaw `alpha` of the way
+    /// through the current tick; `None` unless the server locks the seat's rotation.
+    pub(crate) fn rider_view_lock(&self, rider_unique_id: i64, alpha: f32) -> Option<SeatViewLock> {
+        let rider = self.snapshot_by_unique(rider_unique_id)?;
+        let locked = match rider
+            .metadata
+            .get(&ActorDataKey::SeatLockPassengerRotation.wire_value())
+        {
+            Some(ActorMetadataValue::Byte(value)) => *value != 0,
+            Some(ActorMetadataValue::Int(value)) => *value != 0,
+            _ => false,
+        };
+        let degrees = |key: ActorDataKey| match rider.metadata.get(&key.wire_value()) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
+            _ => None,
+        };
+        let limit = degrees(ActorDataKey::SeatLockPassengerRotationDegrees)?;
+        if !locked || limit < 0.0 {
+            return None;
+        }
+        let offset = degrees(ActorDataKey::SeatRotationOffsetDegrees).unwrap_or(0.0);
+        let mount = self.snapshot_by_unique(*self.rider_to_ridden.get(&rider_unique_id)?)?;
+        let previous = mount.previous_pose.yaw;
+        let vehicle_yaw = previous + wrap_degrees(mount.yaw - previous) * alpha.clamp(0.0, 1.0);
+        vehicle_yaw.is_finite().then(|| SeatViewLock {
+            vehicle_yaw,
+            facing: wrap_degrees(vehicle_yaw + offset),
+            limit,
+        })
     }
 
     /// Seats for every linked rider from the mount poses `mount_pose` reports; the local rig is

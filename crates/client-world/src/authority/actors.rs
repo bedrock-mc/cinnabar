@@ -310,6 +310,12 @@ impl WorldAuthority {
         self.actors
             .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
     }
+    /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
+    /// through the current tick; `None` when the seat does not lock rotation.
+    pub fn local_seat_view_lock(&self, alpha: f32) -> Option<crate::SeatViewLock> {
+        self.actors
+            .rider_view_lock(self.local_player_unique_id, alpha)
+    }
     /// The vehicle the local player rides from its controlling seat, which it steers.
     pub fn local_controlled_vehicle(&self) -> Option<&ActorSnapshot> {
         let vehicle = self.actors.ridden_unique_id(self.local_player_unique_id)?;

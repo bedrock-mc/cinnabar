@@ -30,6 +30,7 @@ mod player_list_tests;
 mod service;
 mod sub_chunk_requests;
 mod terrain_generation;
+pub(crate) mod vehicle_look;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 pub(crate) use sub_chunk_requests::sub_chunk_request_center;

@@ -270,8 +270,9 @@ Speed-boosted glide camera motion remains outstanding.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants and vehicle-correction replay; rendered BDS acceptance covers straight and
-turning rows. Horse prediction, boat-to-boat collision and the rider's view following
-the boat remain open.
+turning rows. A seat that locks rotation turns the rider's view with its vehicle and
+holds it within the seat's range. Horse prediction and boat-to-boat collision remain
+open.
 
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.

@@ -879,7 +879,7 @@ pub use hurt::{
 };
 pub use lightning::LightningBoltView;
 
-pub use placement::{ActorFluidProbe, RideSeat, seat_world_offset};
+pub use placement::{ActorFluidProbe, RideSeat, SeatViewLock, seat_world_offset};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;
 

@@ -197,3 +197,44 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
         50.0
     );
 }
+
+#[test]
+fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
+    let mut store = ActorStore::new(1, 0);
+    let float = |key: ActorDataKey, value| ActorMetadata {
+        key: key.wire_value(),
+        value: ActorMetadataValue::Float(value),
+    };
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    store.apply(
+        1,
+        2,
+        spawn(
+            PLAYER,
+            player("Rider"),
+            vec![
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotation.wire_value(),
+                    value: ActorMetadataValue::Byte(1),
+                },
+                float(ActorDataKey::SeatLockPassengerRotationDegrees, 90.0),
+                float(ActorDataKey::SeatRotationOffsetDegrees, -90.0),
+            ],
+        ),
+    );
+    assert_eq!(store.rider_view_lock(PLAYER, 0.5), None);
+    store.apply_link(1, 3, link(PLAYER, ActorLinkType::Rider));
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        position: [10.0, 5.0, 10.0],
+        yaw: 20.0,
+        velocity: [0.0; 3],
+    }));
+    store.advance_interpolation_ticks(1);
+    let lock = store.rider_view_lock(PLAYER, 0.5).unwrap();
+    assert_eq!(lock.vehicle_yaw, 10.0);
+    assert_eq!(lock.facing, -80.0);
+    assert_eq!(lock.limit, 90.0);
+    // A free seat does not hold the view.
+    assert_eq!(store.rider_view_lock(PIG, 0.5), None);
+}

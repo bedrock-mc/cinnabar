@@ -196,6 +196,13 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(reconcile_world_stream_before_physics)
                 .before(ClientFrameSet::Physics),
         )
+        .init_resource::<client_presentation::camera::VehicleLookFollow>()
+        .add_systems(
+            Update,
+            crate::runtime::world::vehicle_look::follow_vehicle_look
+                .after(client_interaction::camera::update_look)
+                .before(ClientFrameSet::Physics),
+        )
         .add_systems(
             Update,
             advance_dials
