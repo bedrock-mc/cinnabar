@@ -20,8 +20,8 @@ const PACK_FILES: Filter = Filter {
     title: "Add shader packs",
     name: "Shader packs",
     extensions: &shaderpack::PACK_ARCHIVE_EXTENSIONS,
-    unavailable_hint: "Drop a pack onto the Shaders tab to add it.",
-    max_bytes: None,
+    unavailable_hint: "Try importing again from the Shaders tab.",
+    max_bytes: Some(shaderpack::MAX_ARCHIVE_BYTES as u64),
 };
 
 /// Opens a file picker and returns the chosen files, none on cancel, or a visible error.

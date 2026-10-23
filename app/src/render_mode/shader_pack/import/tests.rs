@@ -31,6 +31,7 @@ fn app_picking(packs: &Path, section: SettingSection, pick: Pick) -> App {
     let mut app = App::new();
     app.add_message::<FileDragAndDrop>()
         .init_resource::<Time<Real>>()
+        .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
         .insert_resource(config(packs))
         .insert_resource(menu);
     configure_with(&mut app, pick);
@@ -88,24 +89,77 @@ fn a_pack_dropped_on_shader_settings_is_copied_in_and_listed() {
 }
 
 #[test]
-fn a_picked_pack_is_copied_in_and_listed() {
+fn a_picked_zip_is_copied_in_listed_and_toasted_with_a_bounded_picker() {
+    use std::io::Write as _;
+
     let root = tempfile::tempdir().unwrap();
     let packs = root.path().join("shaderpacks");
-    let picked = pack_folder(root.path(), "Dusk");
+    let picked = root.path().join("Dusk.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&picked).unwrap());
+    zip.start_file(
+        "shaders/final.fsh",
+        zip::write::SimpleFileOptions::default(),
+    )
+    .unwrap();
+    zip.write_all(b"void main() {}").unwrap();
+    zip.finish().unwrap();
+    let expected = std::fs::read(&picked).unwrap();
     let mut app = app_picking(
         &packs,
         SettingSection::Shaders,
         Arc::new(move |filter: &Filter| {
             assert_eq!(filter.extensions, shaderpack::PACK_ARCHIVE_EXTENSIONS);
+            assert_eq!(filter.max_bytes, Some(shaderpack::MAX_ARCHIVE_BYTES as u64));
             Ok(vec![picked.clone()])
         }),
     );
     press_import(&mut app);
     test_time::eventually("the picked pack to be listed", || {
         app.update();
-        listed(&app) == ["Dusk"] && !importing(&app)
+        listed(&app) == ["Dusk.zip"] && !importing(&app)
     });
-    assert!(packs.join("Dusk/shaders").is_dir());
+    assert_eq!(std::fs::read(packs.join("Dusk.zip")).unwrap(), expected);
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .hud()
+            .toasts()
+            .back()
+            .unwrap()
+            .message
+            .as_ref(),
+        "Added Shader Pack \"Dusk.zip\""
+    );
+}
+
+#[test]
+fn a_failed_pick_toasts_the_error_without_installing_a_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let packs = root.path().join("shaderpacks");
+    let error = "Selected file exceeds the import limit";
+    let mut app = app_picking(
+        &packs,
+        SettingSection::Shaders,
+        Arc::new(move |_| Err(error.to_owned())),
+    );
+    press_import(&mut app);
+    test_time::eventually("the picker error to finish", || {
+        app.update();
+        !importing(&app)
+    });
+    assert!(!packs.exists());
+    assert!(listed(&app).is_empty());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .hud()
+            .toasts()
+            .back()
+            .unwrap()
+            .message
+            .as_ref(),
+        error
+    );
 }
 
 #[test]

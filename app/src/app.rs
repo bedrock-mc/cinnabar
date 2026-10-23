@@ -663,6 +663,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
     );
+
     #[cfg(feature = "shaderpacks")]
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,

@@ -290,6 +290,15 @@ fn indirect_devices_select_the_best_gpu_cull_submission() {
     );
 }
 
+/// Driver faults keep Mali and PowerVR terrain culling on the CPU.
+#[test]
+fn mali_and_powervr_cull_terrain_on_the_cpu() {
+    const ADRENO_VENDOR_ID: u32 = 0x5143;
+    assert!(gpu_cull_unstable(ARM_MALI_VENDOR_ID));
+    assert!(gpu_cull_unstable(POWERVR_VENDOR_ID));
+    assert!(!gpu_cull_unstable(ADRENO_VENDOR_ID));
+}
+
 #[test]
 fn slot_table_tracks_moves_removals_cave_visibility_and_tint() {
     let entity = |index: u32| Entity::from_raw_u32(index + 1).unwrap();

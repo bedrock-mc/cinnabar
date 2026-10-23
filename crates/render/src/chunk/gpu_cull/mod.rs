@@ -27,6 +27,8 @@ pub(in crate::chunk) mod storage;
 #[cfg(test)]
 mod tests;
 pub(in crate::chunk) mod unit_mask;
+#[cfg(test)]
+mod vendor_tests;
 mod visibility_admission;
 
 use bevy::{
@@ -47,6 +49,15 @@ use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull, upload_gpu_cull}
 
 /// Forces the CPU culling path for A/B measurement.
 const CPU_CULLING_ENV: &str = "CINNABAR_CPU_CULLING";
+/// ARM's PCI vendor ID, reported by Mali adapters.
+const ARM_MALI_VENDOR_ID: u32 = 0x13B5;
+/// Imagination Technologies' PCI vendor ID, reported by PowerVR adapters.
+const POWERVR_VENDOR_ID: u32 = 0x1010;
+
+/// Keeps drivers with terrain compute faults from compiling either culling path.
+fn gpu_cull_unstable(vendor: u32) -> bool {
+    matches!(vendor, ARM_MALI_VENDOR_ID | POWERVR_VENDOR_ID)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::chunk) enum GpuCullSubmission {
     Count,
@@ -109,7 +120,6 @@ pub(in crate::chunk) struct GpuCullFrame {
 }
 
 pub(in crate::chunk) fn install(app: &mut App) {
-    let forced_cpu = env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
@@ -119,12 +129,21 @@ pub(in crate::chunk) fn install(app: &mut App) {
     ) else {
         return;
     };
+    let info = render_app
+        .world()
+        .resource::<bevy::render::renderer::RenderAdapterInfo>();
+    let unstable = gpu_cull_unstable(info.vendor);
+    let forced_cpu =
+        unstable || env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
     let draw_mode = select_chunk_draw_mode(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
-        Backends::from(adapter.get_info().backend),
-        apple_gpu(&adapter.get_info()),
+        Backends::from(info.backend),
+        apple_gpu(info),
     );
+    // The optional cull kernels use more bindings than compact terrain drawing.
+    let forced_cpu = forced_cpu
+        || device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers();
     let submission = gpu_cull_submission(
         draw_mode,
         device.features(),
@@ -144,6 +163,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
         gpu_cull = ?submission,
         direct_occlusion = direct.0,
         forced_cpu,
+        gpu_cull_unstable = unstable,
         "terrain draw path"
     );
     render_app

@@ -49,7 +49,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             .then_some(content.view.shader_pack.as_deref())
             .flatten()
             .map_or("Off", pack_label);
-        super::services::action_row(
+        super::services::action_row_text(
             content,
             &format!("Shaders: {selected}"),
             "",
@@ -60,7 +60,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
-/// Draws Off and every pack as one pick-one list, ending in the drop zone that adds packs.
+/// Draws Off and every pack as one pick-one list, ending in the host's import controls.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     if !render_model::SHADER_PACKS_ENABLED {
         return Ok(());
@@ -155,7 +155,24 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             },
         )?;
     }
-    drop_zone(content)
+    if view.storage.accepts_file_drops || view.storage.opens_folders {
+        drop_zone(content)
+    } else {
+        super::resources::actions(
+            content,
+            &[(
+                if view.shader_pack_importing {
+                    "Adding shader packs…"
+                } else {
+                    "Import shader pack"
+                },
+                Variant::Primary,
+                (!view.shader_pack_importing).then_some(MenuAction::ImportShaderPacks),
+            )],
+        )?;
+        content.y += content.canvas.r(0.8);
+        super::resources::caption(content, "Tap to choose a .zip")
+    }
 }
 
 /// A short state or kind label beside a pack's name.

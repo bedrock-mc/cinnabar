@@ -7,6 +7,9 @@ use crate::reflection::ValueType;
 use naga::{Binding, TypeInner};
 use std::collections::BTreeMap;
 
+mod missing;
+pub(crate) use missing::supply_vertex_outputs;
+
 /// Requires compatible live buffer layouts and vertex outputs for every fragment input.
 pub(crate) fn validate(stages: &[&CompiledStage]) -> Result<(), String> {
     validate_buffers(stages)?;
