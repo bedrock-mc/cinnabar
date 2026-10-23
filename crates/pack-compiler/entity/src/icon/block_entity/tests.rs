@@ -176,3 +176,105 @@ fn dragon_and_piglin_heads_draw_their_mob_head_facing_the_south_side() {
         "a pack without the dragon geometry leaves its icon unresolved"
     );
 }
+
+#[test]
+fn copper_golem_statue_inventory_uses_standing_geometry_and_oxidation() {
+    let root = tempfile::tempdir().unwrap();
+    let geometries = [geometry(
+        "geometry.copper_golem",
+        64,
+        vec![
+            bone(
+                "body",
+                None,
+                None,
+                &[([-4.0, 0.0, -3.0], [8.0, 12.0, 6.0], [0.0, 0.0])],
+            ),
+            bone(
+                "head",
+                Some("body"),
+                None,
+                &[([-5.0, 12.0, -5.0], [10.0, 8.0, 10.0], [0.0, 0.0])],
+            ),
+        ],
+    )];
+    let colors = [
+        ("", [180, 90, 30, 255]),
+        ("_exposed", [130, 110, 70, 255]),
+        ("_weathered", [70, 150, 110, 255]),
+        ("_oxidized", [40, 190, 170, 255]),
+    ];
+    for (suffix, color) in colors {
+        let path = root.path().join(format!(
+            "textures/entity/copper_golem/copper_golem{suffix}.png"
+        ));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        image::RgbaImage::from_pixel(64, 64, image::Rgba(color))
+            .save(path)
+            .unwrap();
+        image::RgbaImage::new(64, 64)
+            .save(root.path().join(format!(
+                "textures/entity/copper_golem/copper_golem_eyes{suffix}.png"
+            )))
+            .unwrap();
+    }
+    let facts = assets::facts::BlockEntityFacts::pinned();
+    let mut seen = std::collections::BTreeSet::new();
+    for record in assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .iter()
+    {
+        if facts
+            .by_block_identifier(&record.name)
+            .is_none_or(|entry| entry.renderer != assets::facts::BlockEntityRenderer::Statue)
+            || !seen.insert(record.name.clone())
+        {
+            continue;
+        }
+        let icon = raster(root.path(), &record.name, 0, &geometries)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{} has an inventory icon", record.name));
+        let suffix = if record.name.contains("exposed") {
+            "_exposed"
+        } else if record.name.contains("weathered") {
+            "_weathered"
+        } else if record.name.contains("oxidized") {
+            "_oxidized"
+        } else {
+            ""
+        };
+        let expected = colors.iter().find(|(name, _)| *name == suffix).unwrap().1;
+        let pixels: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+        assert!(pixels.len() > SIDE * SIDE / 4);
+        assert!(
+            pixels.iter().all(|p| **p == expected),
+            "{} keeps its oxidation artwork",
+            record.name
+        );
+    }
+    assert_eq!(seen.len(), 8);
+    image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 0, 0, 255]))
+        .save(
+            root.path()
+                .join("textures/entity/copper_golem/copper_golem_eyes.png"),
+        )
+        .unwrap();
+    let eyes = raster(root.path(), "minecraft:copper_golem_statue", 0, &geometries)
+        .unwrap()
+        .unwrap();
+    assert!(
+        eyes.rgba8
+            .chunks_exact(4)
+            .filter(|p| p[3] != 0)
+            .all(|p| p == [255, 0, 0, 255]),
+        "eye artwork overlays equal-depth body faces"
+    );
+    assert!(
+        raster(root.path(), "minecraft:copper_golem_statue", 0, &[])
+            .unwrap()
+            .is_none()
+    );
+}

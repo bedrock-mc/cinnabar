@@ -359,9 +359,11 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
-- [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
-  registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
-  cushions) follow the atlas order but are not confirmed against that client.
+- [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
+  without one. Copper golem statue previews use the standing pack geometry, oxidation
+  artwork and eye layer; item pose metadata remains incomplete. Variant indices of
+  1.26.50 legacy icon rows (poplar boats, cushions) follow the atlas order but are not
+  confirmed against that client.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and

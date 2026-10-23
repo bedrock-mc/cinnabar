@@ -103,6 +103,19 @@ pub fn project_decorated_pot([x, y, z]: [f32; 3]) -> [f32; 3] {
     )
 }
 
+/// Standing statue rig coordinates through the serialized-actor inventory camera.
+#[must_use]
+pub fn project_statue([x, y, z]: [f32; 3]) -> [f32; 3] {
+    let origin_y = SHIELD_MODEL_PART_HEIGHT - 0.9 / SHIELD_MODEL_UNIT;
+    project_entity(
+        [x, y - origin_y, z],
+        [8.0, 9.0, -10.0],
+        9.0,
+        f32::from_bits(0xc027_8d36),
+        f32::from_bits(0xc01c_61aa),
+    )
+}
+
 /// Applies a model-part inventory matrix while retaining its view depth.
 fn project_entity(
     [x, y, z]: [f32; 3],
