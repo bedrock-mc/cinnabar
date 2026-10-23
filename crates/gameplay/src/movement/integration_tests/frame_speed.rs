@@ -110,6 +110,65 @@ fn gameplay_frame_applies_local_sprint_modifier_once() {
     }
 }
 
+/// Gliding keeps one sprint speed between fixed ticks, including with a Speed effect.
+#[test]
+fn gliding_sprint_speed_stays_stable_between_physics_ticks_and_after_replay() {
+    for base_speed in [sim::DEFAULT_MOVEMENT_SPEED as f32, 0.14_f32] {
+        let position = [0.0, 100.0, 0.0];
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position(position, 100, false);
+        let mut ticker = MovementTicker::default();
+        ticker.reset(7, 100, position);
+        ticker.set_source(MovementSource::Physics);
+        let mut locals = super::LocomotionState::default();
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        speed.begin_session(7, 0);
+        assert!(speed.apply(7, 1, 0, attribute(f64::from(base_speed), base_speed, None)));
+        let expected = f64::from(base_speed * sim::SPRINT_SPEED_MULTIPLIER as f32);
+        for index in 0..12 {
+            let mut frame = speed_frame(semantic_input::ActionPhase {
+                held: true,
+                ..Default::default()
+            });
+            frame.facts.elytra_ready = true;
+            frame.jump.pressed = index == 0;
+            frame.jump.held = index == 0;
+            frame.delta = Duration::from_millis(25);
+            frame.now += frame.delta * index;
+            assert!(locals.advance(
+                frame,
+                &mut physics,
+                &mut ticker,
+                &mut effects,
+                &mut speed,
+                &VersionedFloor(1),
+            ));
+            assert_eq!(speed.current(), Some(expected), "render frame {index}");
+            if index > 0 {
+                assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+                assert_eq!(physics.latest_sneak_sprint(), Some((false, true)));
+            }
+        }
+        reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+        assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+        assert_eq!(physics.latest_sneak_sprint(), Some((false, true)));
+        for snapshot in ticker.pending_snapshots() {
+            assert!(
+                physics
+                    .sample_at(snapshot.tick)
+                    .unwrap()
+                    .processed
+                    .sprinting
+            );
+            assert_eq!(
+                snapshot.flags.bits() & PlayerInputFlags::STOP_SPRINTING.bits(),
+                0
+            );
+        }
+    }
+}
+
 #[test]
 fn gameplay_frame_adopts_server_sprint_without_double_boosting() {
     let (mut physics, mut ticker) = walked_physics(0);

@@ -384,6 +384,21 @@ fn recipe_book_keeps_materials_from_locked_siblings_without_granting_selection()
             storage_item: NetworkItemStack::empty(),
         }),
     );
+    // The grid's log is a source too, so it has to go as well.
+    commit(
+        &mut session,
+        8,
+        InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ::protocol::ContainerIdentity::window(
+                    ::protocol::UI_INVENTORY_WINDOW_ID,
+                ),
+                slot: u16::from(*::protocol::CRAFTING_INPUT_SLOTS.start()),
+            },
+            stack: NetworkItemStack::empty(),
+            storage_item: None,
+        }),
+    );
     assert!(session.book_recipes(true, false, 0, 10).is_empty());
     assert!(!session.book_recipes(false, false, 0, 10)[0].craftable);
 }

@@ -7,7 +7,9 @@ use std::{
 };
 
 use bridge::{Backend, GameMode};
-use launcher::local_worlds::world::{Difficulty, Generator, NewWorld, World};
+use launcher::local_worlds::world::{
+    Difficulty, Generator, NATURAL_TERRAIN_REQUIRES_BDS, NewWorld, World,
+};
 
 use super::{
     store::Store,
@@ -57,6 +59,9 @@ pub(super) fn import(
     extract_archive(&unpacked, archive, limits, cancelled)?;
     let level = world_root(&unpacked)?;
     let settings = read_level_dat(&level.join(LEVEL_DAT));
+    if !settings.generator.supports_backend(backend) {
+        return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
+    }
     let name = [
         read_level_name(&level),
         settings.name.clone(),

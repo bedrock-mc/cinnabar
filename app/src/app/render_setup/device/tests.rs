@@ -49,3 +49,23 @@ fn configured_storage_limits_cover_the_renderer_without_lowering_existing_limits
         );
     }
 }
+
+/// A window wider than 8192 px must not fail target creation on an adapter that supports it.
+#[test]
+fn window_texture_limits_rise_to_the_adapter_and_never_fall() {
+    let adapter = wgpu::Limits {
+        max_texture_dimension_1d: 16384,
+        max_texture_dimension_2d: 16384,
+        ..wgpu::Limits::default()
+    };
+    let mut limits = wgpu::Limits::default();
+    raise_window_texture_limits(&mut limits, &adapter);
+    assert_eq!(limits.max_texture_dimension_1d, 16384);
+    assert_eq!(limits.max_texture_dimension_2d, 16384);
+    let requested = limits.clone();
+    raise_window_texture_limits(&mut limits, &wgpu::Limits::downlevel_webgl2_defaults());
+    assert_eq!(
+        limits.max_texture_dimension_2d,
+        requested.max_texture_dimension_2d
+    );
+}

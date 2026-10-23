@@ -674,6 +674,19 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     assert!(runtime.take_inventory_change().is_none());
 }
 
+#[test]
+fn fishing_rod_use_swings_without_consuming_the_stack() {
+    let rod = |tick, held| item_frame(tick, held, stack(2, MENU_ITEM, 1), "minecraft:fishing_rod");
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let outcome = runtime.step(&rod(100, true));
+
+    assert_eq!(kinds(&outcome), ["use"]);
+    assert_eq!(outcome.swung, Some(protocol::SwingSource::UseItem));
+    assert!(runtime.take_inventory_change().is_none());
+    assert!(runtime.step(&rod(105, true)).packets.is_empty());
+}
+
 /// Creative throws swing but change no stack, so they carry no action or legacy request.
 #[test]
 fn a_creative_throw_reports_no_inventory_change() {

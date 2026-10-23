@@ -19,6 +19,29 @@ fn entity(runtime: u64, unique: i64, identifier: &str) -> ActorEvent {
     ActorEvent::Spawn(event)
 }
 
+fn fishing_hook(runtime: u64, unique: i64, owner: i64) -> ActorEvent {
+    let ActorEvent::Spawn(mut event) = spawn(runtime, unique) else {
+        unreachable!()
+    };
+    event.kind = ActorKind::Entity {
+        identifier: "minecraft:fishing_hook".into(),
+    };
+    event.metadata = Arc::from([ActorMetadata {
+        key: ActorDataKey::Owner.wire_value(),
+        value: ActorMetadataValue::Long(owner),
+    }]);
+    ActorEvent::Spawn(event)
+}
+
+#[test]
+fn fishing_hook_ownership_is_available_to_item_presentation() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, fishing_hook(4, 40, 10));
+
+    assert!(store.has_fishing_hook(10));
+    assert!(!store.has_fishing_hook(11));
+}
+
 #[test]
 fn membership_follows_replacement_removal_metadata_and_reset() {
     let mut store = ActorStore::new(1, 0);

@@ -113,6 +113,8 @@ pub(crate) struct ParticleGpu {
     sampler: Sampler,
     texture_view: Option<TextureView>,
     texture: Option<Texture>,
+    /// The raw-view setting `texture` was created with.
+    texture_raw_views: crate::actor::gpu::ArtworkRawViews,
     base: Option<Arc<[u8]>>,
     uploaded_seq: u64,
     buffer: Option<Buffer>,
@@ -127,9 +129,10 @@ pub(crate) struct ParticleGpu {
 #[cfg(feature = "shaderpacks")]
 impl ParticleGpu {
     /// The uploaded particle atlas with its dynamic tiles, which shader-pack particle draws
-    /// read through a gamma-byte view rather than a copy of their own.
+    /// read through a gamma-byte view rather than a copy of their own; `None` until it is
+    /// recreated to allow that view.
     pub(crate) fn atlas_texture(&self) -> Option<&Texture> {
-        self.texture.as_ref()
+        self.texture.as_ref().filter(|_| self.texture_raw_views.0)
     }
 }
 
@@ -148,6 +151,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         texture_view: None,
         texture: None,
+        texture_raw_views: default(),
         base: None,
         uploaded_seq: 0,
         buffer: None,
@@ -164,9 +168,12 @@ pub(crate) fn prepare_particle_resources(
     frame: Res<ParticleGpuFrame>,
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
 ) {
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     if let Some(base) = &frame.base
-        && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
+        && (gpu.texture_raw_views != raw_views
+            || gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base)))
         && assets::texture::policy::TexturePolicy::for_device(
             uploads.device.limits().max_texture_dimension_2d,
         )
@@ -186,7 +193,7 @@ pub(crate) fn prepare_particle_resources(
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             // Shader packs read the stored gamma bytes through an `Rgba8Unorm` view.
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: raw_views.view_formats(),
         });
         write_rect(
             &uploads.queue,
@@ -197,6 +204,7 @@ pub(crate) fn prepare_particle_resources(
         );
         gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
         gpu.texture = Some(texture);
+        gpu.texture_raw_views = raw_views;
         gpu.base = Some(Arc::clone(base));
         gpu.uploaded_seq = 0;
         gpu.bind_group = None;

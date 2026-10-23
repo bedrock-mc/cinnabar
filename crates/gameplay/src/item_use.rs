@@ -99,7 +99,7 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// Why a projectile or rocket use swung the arm; its swing packet precedes `packets`.
+    /// Why an item use swung the arm; its swing packet precedes `packets`.
     pub swung: Option<protocol::SwingSource>,
     used: bool,
     released: bool,
@@ -549,8 +549,11 @@ impl ItemUseRuntime {
                     });
                 }
             }
+            Some(AirUse::Swing) => {
+                swung = Some(protocol::SwingSource::UseItem);
+            }
             Some(AirUse::GlideRocket) if frame.ready => {
-                swung = Some(protocol::SwingSource::UseItem)
+                swung = Some(protocol::SwingSource::UseItem);
             }
             _ => {}
         }
