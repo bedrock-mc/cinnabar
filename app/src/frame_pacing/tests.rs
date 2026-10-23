@@ -18,6 +18,22 @@ fn fixed(fps: u16) -> FrameRateLimit {
 /// `(launch cap, ignore window state)` for the session under test.
 type Session = (Option<u32>, bool);
 
+/// Supplies an empty diagnostic world without carriers, networking or server fixtures.
+fn playing_world() -> crate::runtime::world::ClientWorld {
+    crate::runtime::world::ClientWorld {
+        stream: Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            local_player_unique_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        })),
+        ..Default::default()
+    }
+}
+
 fn pacing_app(session: Session, limit: FrameRateLimit) -> (App, Entity) {
     pacing_app_with(session, limit, |_| {})
 }
@@ -32,6 +48,8 @@ fn pacing_app_with(
         .add_message::<WindowOccluded>()
         .init_resource::<RuntimeSettings>()
         .init_resource::<FramePacing>()
+        .init_resource::<PowerSource>()
+        .insert_resource(playing_world())
         .insert_resource(DisplayRefresh(DisplayTiming {
             refresh: FrameRate::from_hz(120),
             vrr: VrrStatus::Unknown,
@@ -44,6 +62,7 @@ fn pacing_app_with(
         .add_systems(Update, (apply_present_mode, update_frame_pacing).chain());
     let mut settings = ui::UserSettings::default();
     settings.video.frame_rate_limit = limit;
+    settings.video.vsync = render_api::VsyncMode::On;
     video(&mut settings.video);
     app.world_mut()
         .resource_mut::<RuntimeSettings>()
@@ -164,9 +183,66 @@ fn unlimited_limits_leave_pacing_to_the_display_or_rendering() {
     let (app, _) = pacing_app((None, false), FrameRateLimit::Unlimited);
     assert_eq!(pacing(&app).rate, None);
     let (app, _) = pacing_app_with((None, false), FrameRateLimit::Unlimited, |video| {
-        video.vsync = false
+        video.vsync = false.into()
     });
     assert_eq!(pacing(&app).rate, None);
+}
+
+#[test]
+fn leaving_a_world_caps_menus_and_hidden_runs_keep_the_requested_limit() {
+    for hidden in [false, true] {
+        let (mut app, _) = pacing_app((None, hidden), FrameRateLimit::Unlimited);
+        app.insert_resource(crate::runtime::world::ClientWorld::default());
+        app.update();
+        let expected = if hidden {
+            None
+        } else {
+            app.world().resource::<DisplayRefresh>().0.refresh
+        };
+        assert_eq!(pacing(&app).rate, expected);
+        app.world_mut()
+            .remove_resource::<crate::runtime::world::ClientWorld>();
+        app.update();
+        assert_eq!(pacing(&app).rate, expected);
+    }
+}
+
+#[test]
+fn changing_power_source_only_changes_an_untouched_gameplay_limit() {
+    for limit in [
+        FrameRateLimit::Automatic,
+        FrameRateLimit::Unlimited,
+        fixed(75),
+    ] {
+        let (mut app, _) = pacing_app((None, false), limit);
+        let mains = pacing(&app).rate;
+        app.world_mut().resource_mut::<PowerSource>().on_battery = true;
+        app.update();
+        assert_eq!(
+            pacing(&app).rate,
+            if limit == FrameRateLimit::Automatic {
+                app.world().resource::<DisplayRefresh>().0.refresh
+            } else {
+                mains
+            }
+        );
+        app.world_mut().resource_mut::<PowerSource>().on_battery = false;
+        app.update();
+        assert_eq!(pacing(&app).rate, mains);
+    }
+}
+
+#[test]
+fn a_disconnected_session_returns_to_the_menu_ceiling() {
+    let (mut app, _) = pacing_app((None, false), FrameRateLimit::Unlimited);
+    app.insert_resource(crate::runtime::shutdown::FatalError(Some(
+        "disconnected".into(),
+    )));
+    app.update();
+    assert_eq!(
+        pacing(&app).rate,
+        app.world().resource::<DisplayRefresh>().0.refresh
+    );
 }
 
 #[test]
@@ -182,7 +258,7 @@ fn gpu_prediction_follows_the_selected_surface_when_vsync_changes() {
     assert!(pacing(&app).display_sync);
     for vsync in [false, true, false] {
         let mut settings = ui::UserSettings::default();
-        settings.video.vsync = vsync;
+        settings.video.vsync = vsync.into();
         app.world_mut()
             .resource_mut::<RuntimeSettings>()
             .replace_user_settings(settings);
@@ -218,8 +294,9 @@ fn a_launch_cap_drives_both_the_present_mode_and_the_cadence() {
             hz(30),
         ),
     ] {
-        let (mut app, window) =
-            pacing_app_with((launch_cap, false), saved, |video| video.vsync = false);
+        let (mut app, window) = pacing_app_with((launch_cap, false), saved, |video| {
+            video.vsync = false.into()
+        });
         app.insert_resource(DisplayRefresh(DisplayTiming {
             refresh: FrameRate::from_hz(60),
             vrr: VrrStatus::Unknown,
@@ -258,7 +335,7 @@ fn vrr_preference_controls_low_latency_pacing_for_each_reported_state() {
             VrrPreference::Off,
         ] {
             let (mut app, _) = pacing_app_with((None, false), FrameRateLimit::Unlimited, |video| {
-                video.vsync = false;
+                video.vsync = false.into();
                 video.vrr = preference;
             });
             app.world_mut().resource_mut::<DisplayRefresh>().0.vrr = status;
@@ -282,6 +359,7 @@ fn missing_primary_display_clears_stale_vrr_and_refresh() {
             refresh: hz(120),
             vrr: VrrStatus::Active,
         }))
+        .init_resource::<PowerSource>()
         .add_systems(Update, track_display_refresh);
     app.update();
     assert_eq!(
@@ -352,7 +430,7 @@ fn native_refresh_releases_background_demand_and_restores_it_on_focus() {
 #[test]
 fn native_refresh_does_not_drive_unpaced_or_fixed_clock_surfaces() {
     let (app, window) = pacing_app_with((None, false), FrameRateLimit::Unlimited, |video| {
-        video.vsync = false;
+        video.vsync = false.into();
     });
     assert_eq!(display_link_rate(&app, window), None);
     let (mut app, window) = pacing_app((None, false), FrameRateLimit::Unlimited);

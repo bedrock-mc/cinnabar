@@ -24,7 +24,8 @@ pub use item::{
     ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
     FILLED_MAP_IDENTIFIER, FISHING_ROD_IDENTIFIER, HARNESS_TAG, ItemFact, ItemFactRecord,
     ItemFactsPayload, ItemRepairMaterial, ItemTag, ItemTagDefinition, ItemTagSet, ItemTier,
-    ItemTraits, ItemUseAnimationFact, PotionForm, TOTEM_IDENTIFIER, harness_color,
+    ItemTraits, ItemUseAnimationFact, PotionForm, TIPPED_ARROW_ATLAS_KEY, TOTEM_IDENTIFIER,
+    harness_color,
 };
 pub use item_carrier::{
     ITEM_FACTS_EXPANSION_PATH, ITEM_FACTS_FILENAME, ITEM_FACTS_INPUTS, ITEM_FACTS_SOURCE_PATH,

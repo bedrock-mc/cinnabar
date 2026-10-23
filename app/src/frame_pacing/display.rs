@@ -70,25 +70,33 @@ mod tests {
     #[test]
     fn adaptive_refresh_capability_does_not_cap_vsync_off() {
         use render_api::{FrameRateLimit, VrrPreference};
-        use render_model::{PresentationIntent, frame_rate_target};
+        use render_model::{FrameRateContext, PresentationIntent, frame_rate_target};
 
         let timing = timing_from_intervals(1.0 / 120.0, 1.0 / 48.0).unwrap();
-        assert_eq!(
-            frame_rate_target(
-                PresentationIntent::LowLatency,
-                FrameRateLimit::Unlimited,
-                timing.with_vrr_preference(VrrPreference::Automatic),
-            ),
-            None,
-        );
-        assert_eq!(
-            frame_rate_target(
-                PresentationIntent::LowLatency,
-                FrameRateLimit::Unlimited,
-                timing.with_vrr_preference(VrrPreference::On),
-            ),
-            FrameRate::from_hz(116),
-        );
+        let context = FrameRateContext::Gameplay { on_battery: false };
+        for intent in [
+            PresentationIntent::LowLatency,
+            PresentationIntent::AllowTearing,
+        ] {
+            assert_eq!(
+                frame_rate_target(
+                    intent,
+                    FrameRateLimit::Unlimited,
+                    timing.with_vrr_preference(VrrPreference::Automatic),
+                    context,
+                ),
+                None,
+            );
+            assert_eq!(
+                frame_rate_target(
+                    intent,
+                    FrameRateLimit::Unlimited,
+                    timing.with_vrr_preference(VrrPreference::On),
+                    context,
+                ),
+                FrameRate::from_hz(116),
+            );
+        }
     }
 
     #[test]
