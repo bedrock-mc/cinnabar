@@ -128,17 +128,18 @@ fn framed_map_wire_colors_reach_the_rgba_canvas() {
 
 /// Supplies a world session without installing optional block-entity artwork or its renderer.
 fn map_request_world() -> ClientWorld {
-    let mut world = ClientWorld::default();
-    world.stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 42,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 0,
-        block_network_ids_are_hashes: false,
-    }));
-    world
+    ClientWorld {
+        stream: Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 42,
+            local_player_unique_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        })),
+        ..ClientWorld::default()
+    }
 }
 
 #[test]
