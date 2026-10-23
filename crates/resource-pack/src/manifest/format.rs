@@ -28,7 +28,9 @@ impl SemVersion {
             Some((numbers, pre)) => (numbers, Some(pre)),
             None => (core, None),
         };
-        let parts: Vec<&str> = numbers.split('.').collect();
+        // A fourth component already rejects the version, so a dot-flooded server string never
+        // allocates past it.
+        let parts: Vec<&str> = numbers.split('.').take(4).collect();
         if parts.len() > 3 || ((pre_release.is_some() || build.is_some()) && parts.len() != 3) {
             return None;
         }
@@ -284,5 +286,16 @@ mod tests {
         ] {
             assert_eq!(SemVersion::parse(text), None, "{text:?}");
         }
+    }
+
+    /// A server version flooded with dots is rejected like any version with a fourth component.
+    #[test]
+    fn versions_with_extra_components_are_rejected() {
+        assert!(SemVersion::parse("1.2.3.4").is_none());
+        assert!(SemVersion::parse(&format!("1{}", ".0".repeat(1_000_000))).is_none());
+        assert_eq!(
+            SemVersion::parse("1.2.3").map(|version| version.triple),
+            Some([1, 2, 3])
+        );
     }
 }
