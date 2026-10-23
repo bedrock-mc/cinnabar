@@ -87,7 +87,7 @@ fn item_assets(
 /// Servers may still send a flattened block item with its legacy colour as the aux value;
 /// the item keeps drawing the block it places instead of an unresolved route.
 #[test]
-fn legacy_aux_values_on_block_items_draw_the_base_block() {
+fn legacy_aux_values_without_retained_blocks_draw_the_base_block() {
     let store = ItemStateStore::with_assets(item_assets(
         TERRACOTTA,
         &[(
@@ -103,20 +103,56 @@ fn legacy_aux_values_on_block_items_draw_the_base_block() {
         .find(|entry| entry.identifier.as_ref() == TERRACOTTA)
         .unwrap()
         .network_id;
-    for (metadata, block_runtime_id) in [(0, 0), (11, 0), (11, 0x1234_5678)] {
+    for metadata in [0, 11] {
         let stack = NetworkItemStack {
             network_id,
             metadata,
             stack_network_id: -1,
             count: 64,
             nbt_digest: Sha256::digest([]).into(),
-            block_runtime_id,
+            block_runtime_id: 0,
             extra_data: Arc::from([]),
         };
         assert_eq!(
             store.canonicalize(&stack).unwrap().visual,
             ItemVisualRoute::BlockItem(BlockVisualId(0)),
-            "aux {metadata} with block runtime id {block_runtime_id:#x}"
+            "aux {metadata} without a retained block"
+        );
+    }
+}
+
+/// Missing metadata routes must keep the block identity supplied by the stack.
+#[test]
+fn legacy_aux_values_preserve_a_retained_block() {
+    let identifier = "minecraft:oak_log";
+    let store = ItemStateStore::with_assets(item_assets(
+        identifier,
+        &[(
+            0,
+            ItemVisualDefinitionRoute::BlockItem {
+                block_visual: BlockVisualId(0),
+            },
+        )],
+        &[],
+    ));
+    let network_id = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == identifier)
+        .unwrap()
+        .network_id;
+    for block_runtime_id in [1, i32::MIN] {
+        let stack = NetworkItemStack {
+            network_id,
+            metadata: 1,
+            stack_network_id: -1,
+            count: 1,
+            nbt_digest: Sha256::digest([]).into(),
+            block_runtime_id,
+            extra_data: Arc::from([]),
+        };
+        assert_eq!(
+            store.canonicalize(&stack).unwrap().visual,
+            ItemVisualRoute::RetainedBlock { block_runtime_id },
         );
     }
 }
@@ -138,11 +174,11 @@ fn legacy_block_fallback_does_not_select_a_base_sprite() {
         &[],
     ));
     assert_eq!(
-        store.resolve_visual(identifier, 0),
+        store.resolve_visual(identifier, 0, 0),
         ItemVisualRoute::Compiled(ItemVisualId(0))
     );
     assert_eq!(
-        store.resolve_visual(identifier, 65),
+        store.resolve_visual(identifier, 65, 0),
         ItemVisualRoute::Missing
     );
 }
@@ -171,7 +207,7 @@ fn exact_alias_keeps_priority_over_a_base_block_visual() {
         &[(11, 1)],
     ));
     assert_eq!(
-        store.resolve_visual(TERRACOTTA, 11),
+        store.resolve_visual(TERRACOTTA, 11, 0),
         ItemVisualRoute::Compiled(ItemVisualId(1))
     );
 }

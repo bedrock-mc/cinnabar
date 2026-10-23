@@ -613,7 +613,7 @@ impl ItemStateStore {
             identifier
                 .as_deref()
                 .map_or(ItemVisualRoute::Missing, |identifier| {
-                    self.resolve_visual(identifier, identity.metadata)
+                    self.resolve_visual(identifier, identity.metadata, identity.block_runtime_id)
                 }),
             identity.block_runtime_id,
         );
@@ -640,12 +640,17 @@ impl ItemStateStore {
 
     /// Visual route for an item identifier with no stack context (e.g. the TNT block).
     pub(crate) fn visual_for_identifier(&self, identifier: &str) -> ItemVisualRoute {
-        self.resolve_visual(identifier, 0)
+        self.resolve_visual(identifier, 0, 0)
     }
 
-    /// Resolves an exact visual, using the base block visual for legacy aux values.
+    /// Resolves an exact visual, using the base block only without a retained block state.
     /// Sprite items keep their metadata-specific visual rules.
-    fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
+    fn resolve_visual(
+        &self,
+        identifier: &str,
+        metadata: u32,
+        block_runtime_id: i32,
+    ) -> ItemVisualRoute {
         let Some(assets) = self.assets.as_ref() else {
             return ItemVisualRoute::Missing;
         };
@@ -677,7 +682,7 @@ impl ItemStateStore {
         };
         exact(metadata)
             .or_else(|| {
-                (metadata != 0)
+                (metadata != 0 && block_runtime_id == 0)
                     .then(|| exact(0))
                     .flatten()
                     .filter(|route| matches!(route, ItemVisualRoute::BlockItem(_)))
