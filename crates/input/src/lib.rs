@@ -3,6 +3,8 @@
 mod action;
 mod click_limit;
 pub use click_limit::ClickLimiter;
+mod click_debounce;
+pub use click_debounce::ClickDebouncer;
 mod axes;
 mod binding;
 mod button_events;

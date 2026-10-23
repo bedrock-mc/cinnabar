@@ -96,6 +96,20 @@ impl FinalizedInput {
         }
     }
 
+    /// Coalesces switch chatter while preserving the first press and its continuous hold.
+    pub fn debounce_clicks(
+        &mut self,
+        debouncer: &mut crate::ClickDebouncer,
+        intervals_ms: [Option<u32>; 2],
+        seconds: f64,
+    ) {
+        if let Some(snapshot) = self.0.as_mut() {
+            debouncer.apply(snapshot, intervals_ms, seconds);
+        } else {
+            debouncer.reset();
+        }
+    }
+
     /// Publishes the router result for this frame.
     pub fn replace(&mut self, snapshot: ActionSnapshot) {
         self.0 = Some(snapshot);

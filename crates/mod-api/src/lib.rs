@@ -37,6 +37,9 @@ pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 /// Maximum accepted attack/use press cap per second.
 pub const MAX_CLICK_RATE: u32 = 100;
 
+/// Largest retained mouse debounce interval, in milliseconds.
+pub const MAX_CLICK_DEBOUNCE_MS: u32 = 1_000;
+
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
 /// Maximum remote players exposed by one local gameplay snapshot.

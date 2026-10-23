@@ -7,6 +7,7 @@ use super::*;
 pub(super) struct ModObservation<'w, 's> {
     weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
     click_limiter: Local<'s, semantic_input::ClickLimiter>,
+    click_debouncer: Local<'s, semantic_input::ClickDebouncer>,
     click_scope: Local<'s, Option<(u64, i32)>>,
     packets: Option<Res<'w, packets::PacketMods>>,
     watcher: Option<Res<'w, registration::Watcher>>,
@@ -49,6 +50,7 @@ pub(super) fn drive_mod(
     let ModObservation {
         mut weather,
         mut click_limiter,
+        mut click_debouncer,
         mut click_scope,
         packets,
         watcher,
@@ -94,6 +96,7 @@ pub(super) fn drive_mod(
         (extension, time_override, interaction)
     else {
         click_limiter.reset();
+        click_debouncer.reset();
         *click_scope = None;
         let effects = packets
             .as_ref()
@@ -134,6 +137,7 @@ pub(super) fn drive_mod(
     if extension.suspended {
         time_override.0 = None;
         click_limiter.reset();
+        click_debouncer.reset();
         *click_scope = None;
         gameplay.apply_native_input(None, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
@@ -327,6 +331,7 @@ pub(super) fn drive_mod(
         .map(|world| (world.session, world.dimension));
     if *click_scope != scope || !captured || absorbed {
         click_limiter.reset();
+        click_debouncer.reset();
     }
     *click_scope = scope;
     if captured
@@ -334,6 +339,11 @@ pub(super) fn drive_mod(
         && scope.is_some()
         && let Some(input) = gameplay.input.as_deref_mut()
     {
+        input.debounce_clicks(
+            &mut click_debouncer,
+            merged.click_debounce,
+            time.delta_secs_f64(),
+        );
         input.limit_clicks(
             &mut click_limiter,
             merged.click_limits,

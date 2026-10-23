@@ -609,9 +609,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
-- Native click caps and local weather overrides have transactional host APIs and
-  offline behavior coverage; populated-world interaction and rendering acceptance
-  remain unverified.
+- Native click caps, held-preserving switch debounce, and local weather overrides have
+  transactional host APIs and offline behavior coverage; populated-world interaction
+  and rendering acceptance remain unverified.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance. Packet extensions now

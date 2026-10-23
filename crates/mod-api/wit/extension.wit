@@ -221,6 +221,11 @@ interface input {
     /// Retained attack/use press caps, each 1–100 per second; none restores ordinary input.
     /// Only removes excess presses; never generates input. Requires controls authority.
     set-click-limits: func(attack: option<u32>, item-use: option<u32>) -> result<_, string>;
+    /// Retained attack/use switch debounce, each 1–1000 milliseconds; none disables it.
+    /// Presses pass immediately. Releases wait for the interval; re-presses within it
+    /// continue the same hold. Intervals advance with native input frames.
+    /// Requires controls authority. Independent of click caps.
+    set-click-debounce: func(attack-ms: option<u32>, item-use-ms: option<u32>) -> result<_, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     read-controls: func() -> result<controls, string>;

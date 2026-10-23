@@ -530,6 +530,7 @@ pub struct Merged {
     pub time_override: Option<u32>,
     pub weather_override: Option<[f32; 2]>,
     pub click_limits: [Option<u32>; 2],
+    pub click_debounce: [Option<u32>; 2],
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     pub jump_pulse: bool,
@@ -558,6 +559,12 @@ impl Merged {
         for (cap, next) in self.click_limits.iter_mut().zip(host.click_limits()) {
             *cap = match (*cap, next) {
                 (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+        for (interval, next) in self.click_debounce.iter_mut().zip(host.click_debounce()) {
+            *interval = match (*interval, next) {
+                (Some(a), Some(b)) => Some(a.max(b)),
                 (a, b) => a.or(b),
             };
         }

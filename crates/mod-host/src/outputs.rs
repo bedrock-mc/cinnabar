@@ -18,6 +18,11 @@ impl ModHost {
         self.instance.click_limits()
     }
 
+    /// Retained attack/use debounce intervals in milliseconds; none leaves a channel unfiltered.
+    pub fn click_debounce(&self) -> [Option<u32>; 2] {
+        self.instance.click_debounce()
+    }
+
     /// Current-frame ordinary input modes; absence restores the player's saved preferences.
     pub fn movement_toggles(&self) -> Option<&crate::MovementToggles> {
         self.instance.movement_toggles()
