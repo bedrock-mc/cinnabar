@@ -242,7 +242,7 @@ fn prepare(input: WorldInput, ui: WorldUi) -> Result<CommandQueue> {
         ));
         world.insert_resource(render_scene::ActorArtworkResource(artwork));
         world.insert_resource(flames);
-        world.insert_resource(actors);
+        crate::runtime::network::install_actor_scene(world, actors);
         world.insert_resource(equipment_runtime);
         world.insert_resource(hands);
         world.insert_resource(collision);

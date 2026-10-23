@@ -165,7 +165,6 @@ pub(super) fn install(
         .init_resource::<LocalMovementEffectTimeline>()
         .init_resource::<LocalMovementSpeedAuthority>()
         .insert_resource(collisions)
-        .insert_resource(scene)
         .insert_resource(equipment)
         .insert_resource(rig)
         .init_resource::<AtmosphereFrame>()
@@ -190,6 +189,7 @@ pub(super) fn install(
         ))
         .insert_resource(crate::particles::ParticleIcons(icons))
         .init_resource::<client_presentation::presentation::viewmodel::HandAdapter>();
+    network::install_actor_scene(app.world_mut(), scene);
     if let Some(geometry) = hand_geometry {
         app.insert_resource(render_scene::ViewmodelGeometryResource(geometry));
     }

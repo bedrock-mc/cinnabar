@@ -154,7 +154,9 @@ mod world_ingress;
 #[cfg(test)]
 pub(crate) use actor_test_support::{actor_render_source, update_actor_render_scene};
 
+mod actor_geometry_budget;
 mod actor_publication;
+pub(crate) use actor_geometry_budget::{initialize_actor_geometry_budget, install_actor_scene};
 #[cfg(test)]
 pub(crate) use actor_publication::custom_emotes::fixture as actor_publication_test_world;
 mod block_overlay;
@@ -184,8 +186,8 @@ pub(crate) mod resource_packs;
 pub(crate) mod session;
 pub(crate) mod session_registries;
 pub(crate) use actor_publication::{
-    advance_actor_frame, advance_actor_motion, initialize_actor_geometry_budget,
-    prepare_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
+    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
+    publish_local_actor_damage,
 };
 
 #[cfg(test)]
