@@ -25,8 +25,8 @@ pub struct MaterialOverride {
 
 /// Server block visuals whose indices are local to the overlay: face and quad
 /// material ids index `materials`, templates index `model_templates`, and
-/// texture references use overlay shards on higher pages, or static vanilla-fallback
-/// materials on the base carrier's page zero.
+/// texture references use overlay shards after all base pages, or static
+/// fallback materials on any base carrier page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockOverlay {
     pub visuals: Vec<BlockVisual>,
@@ -40,7 +40,9 @@ pub struct BlockOverlay {
     pub model_quads: Vec<ModelQuad>,
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
-    /// Overlay texture shards in reference page order, page zero excluded. A
+    /// Number of base carrier pages reserved before the overlay shards.
+    pub base_texture_pages: u32,
+    /// Overlay texture shards in reference page order, base pages excluded. A
     /// large server palette splits across these to stay inside the device's
     /// per-array layer limit; a single shard is the usual case.
     pub textures: Vec<TextureArray>,
@@ -75,6 +77,7 @@ impl Default for BlockOverlay {
             model_quads: Vec::new(),
             animations: Vec::new(),
             animation_frames: Vec::new(),
+            base_texture_pages: 1,
             textures: Vec::new(),
             texture_source_sizes: Vec::new(),
             texture_source_grids: Vec::new(),
@@ -84,6 +87,34 @@ impl Default for BlockOverlay {
             biomes: None,
             max_page_layers: MAX_TEXTURE_LAYERS as u32,
         }
+    }
+}
+
+impl BlockOverlay {
+    /// Returns the referenced base or overlay page without changing its layer address.
+    pub fn texture_page<'a>(
+        &'a self,
+        page: u32,
+        base: Option<&'a RuntimeAssets>,
+    ) -> Option<&'a TextureArray> {
+        if page < self.base_texture_pages {
+            Some(&base?.texture_pages().get(page as usize)?.texture)
+        } else {
+            self.textures.get((page - self.base_texture_pages) as usize)
+        }
+    }
+
+    /// Maps an overlay reference into its flat source metadata, excluding all base pages.
+    pub fn flat_texture_layer(&self, reference: TextureRef) -> Option<usize> {
+        let shard = reference.page().checked_sub(self.base_texture_pages)? as usize;
+        let texture = self.textures.get(shard)?;
+        (reference.layer() < texture.layers).then(|| {
+            self.textures[..shard]
+                .iter()
+                .map(|texture| texture.layers as usize)
+                .sum::<usize>()
+                + reference.layer() as usize
+        })
     }
 }
 
@@ -121,17 +152,15 @@ impl<'a> VanillaFallback<'a> {
             return None;
         }
         let material = self.materials.get(id as usize)?;
-        (material.texture.page() == 0
-            && material.animation == NO_ANIMATION
-            && material.variation_count == 0)
+        (material.animation == NO_ANIMATION && material.variation_count == 0)
             .then_some(material.texture)
     }
 }
 
 impl RuntimeAssets {
     /// Returns a copy of these assets whose sequential ids from `first_id` on
-    /// resolve to the overlay. The base carrier must use only page 0 and end
-    /// exactly at `first_id`, so overlay ids never shadow vanilla ids.
+    /// resolve to the overlay. The base carrier must end exactly at `first_id`
+    /// and match the reserved page count, so overlay ids and pages never shadow it.
     pub fn with_block_overlay(
         &self,
         first_id: u32,
@@ -143,8 +172,12 @@ impl RuntimeAssets {
         if self.visuals.len() != first_id as usize {
             return Err(invalid("overlay ids do not start after the base visuals"));
         }
-        if self.texture_pages.len() != 1 {
-            return Err(invalid("overlay requires a single-page base carrier"));
+        if !self.overlay_page_layer_counts.is_empty()
+            || self.texture_pages.len() != overlay.base_texture_pages as usize
+        {
+            return Err(invalid(
+                "overlay base texture pages do not match the carrier",
+            ));
         }
         if overlay.visuals.len() != overlay.light_properties.len() {
             return Err(invalid("overlay visuals and light properties disagree"));
@@ -153,12 +186,19 @@ impl RuntimeAssets {
             return Err(invalid("overlay hashes and visuals disagree"));
         }
         let shards = overlay.textures.len();
-        if shards + 1 > MAX_TEXTURE_PAGES {
+        if shards + self.texture_pages.len() > MAX_TEXTURE_PAGES {
             return Err(invalid("overlay texture shards are not bounded"));
         }
         let max_page_layers = overlay.max_page_layers;
         if max_page_layers == 0 {
             return Err(invalid("overlay shards were built against no array limit"));
+        }
+        if self
+            .texture_pages
+            .iter()
+            .any(|page| page.texture.layers > max_page_layers)
+        {
+            return Err(invalid("base texture page exceeds the device limit"));
         }
         let shard_layers = |shard: &TextureArray| -> Result<usize, AssetError> {
             let layers = shard.layers as usize;
@@ -221,14 +261,10 @@ impl RuntimeAssets {
         if self.materials.len() + overlay.materials.len() > MAX_MATERIALS {
             return Err(invalid("overlay materials exceed the material limit"));
         }
-        let base_layers = self
-            .texture_pages
-            .first()
-            .map_or(0, |page| page.texture.layers);
         let page_ref = |reference: TextureRef| -> Result<TextureRef, AssetError> {
             let shard = reference
                 .page()
-                .checked_sub(1)
+                .checked_sub(overlay.base_texture_pages)
                 .filter(|shard| (*shard as usize) < shards)
                 .ok_or_else(|| invalid("overlay texture reference is outside its page"))?;
             if reference.layer() >= overlay.textures[shard as usize].layers {
@@ -253,7 +289,10 @@ impl RuntimeAssets {
         // Vanilla-fallback materials borrow a static base-carrier layer, so
         // they validate against the base page and carry no overlay animation.
         let material_ref = |material: &Material| -> Result<(TextureRef, u32), AssetError> {
-            if material.texture.page() == 0 {
+            if material.texture.page() < overlay.base_texture_pages {
+                let base_layers = self.texture_pages[material.texture.page() as usize]
+                    .texture
+                    .layers;
                 if material.texture.layer() >= base_layers || material.animation != NO_ANIMATION {
                     return Err(invalid("overlay base texture reference is invalid"));
                 }
@@ -588,3 +627,6 @@ mod tests;
 
 #[cfg(test)]
 mod fallback_tests;
+
+#[cfg(test)]
+mod multi_page_tests;

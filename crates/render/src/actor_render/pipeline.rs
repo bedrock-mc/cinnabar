@@ -6,6 +6,8 @@ pub(super) struct ActorPipelineSpecializer;
 
 #[derive(Resource)]
 pub(crate) struct ActorPipeline {
+    pub(super) compact: bool,
+    pub(super) motion_supported: bool,
     pub(super) variants: Variants<RenderPipeline, ActorPipelineSpecializer>,
     pub(super) bind_group_layout: BindGroupLayoutDescriptor,
     draw_variants: std::collections::HashMap<
@@ -19,12 +21,26 @@ pub(crate) struct ActorPipeline {
 }
 
 impl FromWorld for ActorPipeline {
-    fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = actor_bind_group_layout();
+    fn from_world(world: &mut World) -> Self {
+        let limit = world
+            .get_resource::<RenderDevice>()
+            .map_or(u32::MAX, |device| {
+                device.limits().max_storage_buffers_per_shader_stage
+            });
+        let compact =
+            limit < crate::device_settings::vertex_storage_buffers(&actor_bind_group_layout());
+        let mut bind_group_layout = actor_bind_group_layout();
+        if compact {
+            bind_group_layout.entries.retain(|entry| entry.binding != 5);
+        }
         let descriptor = actor_pipeline_descriptor(bind_group_layout.clone());
         let mut motion_descriptor = descriptor.clone();
         motion_descriptor.layout.push(super::motion::layout());
         Self {
+            compact,
+            motion_supported: limit
+                >= crate::device_settings::vertex_storage_buffers(&actor_bind_group_layout())
+                    + crate::device_settings::vertex_storage_buffers(&super::motion::layout()),
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
@@ -36,6 +52,24 @@ impl FromWorld for ActorPipeline {
 }
 
 impl ActorPipeline {
+    /// Removes the separate current endpoint binding when both endpoints share one allocation.
+    pub(super) fn entries<'a, 'b>(
+        &self,
+        entries: &'b [BindGroupEntry<'a>],
+    ) -> std::borrow::Cow<'b, [BindGroupEntry<'a>]> {
+        if self.compact {
+            std::borrow::Cow::Owned(
+                entries
+                    .iter()
+                    .filter(|entry| entry.binding != 5)
+                    .cloned()
+                    .collect(),
+            )
+        } else {
+            std::borrow::Cow::Borrowed(entries)
+        }
+    }
+
     /// Queues draw and eligible motion contracts before actors enter a view.
     pub(super) fn prewarm(
         &mut self,
@@ -64,7 +98,7 @@ impl ActorPipeline {
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
-                if super::motion::eligible(material) {
+                if self.motion_supported && super::motion::eligible(material) {
                     let id = match self.motion_ids.entry(contract) {
                         Entry::Occupied(entry) => *entry.get(),
                         Entry::Vacant(entry) => {
@@ -383,7 +417,11 @@ pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
 pub(super) fn actor_pipeline_descriptor(
     bind_group_layout: BindGroupLayoutDescriptor,
 ) -> RenderPipelineDescriptor {
-    RenderPipelineDescriptor {
+    let compact = !bind_group_layout
+        .entries
+        .iter()
+        .any(|entry| entry.binding == 5);
+    let mut descriptor = RenderPipelineDescriptor {
         label: Some("bounded shared actor pipeline".into()),
         layout: vec![bind_group_layout, crate::lighting::layout()],
         vertex: VertexState {
@@ -410,7 +448,17 @@ pub(super) fn actor_pipeline_descriptor(
             bias: default(),
         }),
         ..default()
+    };
+    if compact {
+        descriptor.vertex.shader_defs.push("COMPACT_BONES".into());
+        descriptor
+            .fragment
+            .as_mut()
+            .unwrap()
+            .shader_defs
+            .push("COMPACT_BONES".into());
     }
+    descriptor
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

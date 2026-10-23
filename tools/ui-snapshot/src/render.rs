@@ -22,6 +22,8 @@ mod sprite_outline;
 mod tiled_image;
 #[cfg(feature = "test-support")]
 mod touch_editor;
+#[cfg(feature = "test-support")]
+mod touch_utilities;
 
 use std::{
     collections::HashMap,
@@ -156,6 +158,10 @@ fn png_fixture(
     if let Fixture::TouchEditor { phase } = &fixture {
         return touch_editor::png(state, dir, *phase, seconds);
     }
+    #[cfg(feature = "test-support")]
+    if let Fixture::TouchUtilities(view) = &fixture {
+        return touch_utilities::png(state, dir, *view);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -173,6 +179,7 @@ fn png_fixture(
         | Fixture::HudEditor { .. } => false,
         #[cfg(feature = "test-support")]
         Fixture::TouchEditor { .. }
+        | Fixture::TouchUtilities(..)
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
@@ -274,7 +281,7 @@ fn png_fixture(
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         #[cfg(feature = "test-support")]
-        Fixture::TouchEditor { .. } => {
+        Fixture::TouchEditor { .. } | Fixture::TouchUtilities(..) => {
             unreachable!("touch editor uses the complete presentation path")
         }
         Fixture::HudEditor { hud, edited } => {
@@ -444,7 +451,7 @@ fn png_fixture(
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
-                list.paint(&engine, &rows, &mut frame)
+                list.paint(&engine, &rows, &mut frame, 0. ..state.size[1] as f32)
                     .map_err(|error| error.to_string())?;
             }
             add_server_pages(&mut engine, &mut carriers.pages);

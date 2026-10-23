@@ -48,6 +48,16 @@ fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
 }
 
 #[test]
+fn multi_page_overlay_face_sheets_reserve_all_base_pages() {
+    let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
+    let expected = overlay_face_sheet(&source, [1; 6], None).unwrap();
+    source.base_texture_pages = 2;
+    source.materials[1].texture = TextureRef::new(2, 1).unwrap();
+    let actual = overlay_face_sheet(&source, [1; 6], None).unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn carried_face_sheets_sample_every_overlay_shard() {
     let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
     for page in 2..assets::MAX_TEXTURE_PAGES as u32 {

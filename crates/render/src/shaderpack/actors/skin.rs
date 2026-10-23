@@ -174,6 +174,30 @@ pub(crate) fn output_layout() -> BindGroupLayoutDescriptor {
     )
 }
 
+/// The complete layouts of the rig and block-entity kernels, including their outputs.
+fn pipeline_layouts() -> [[BindGroupLayoutDescriptor; 2]; 2] {
+    [
+        [rig_layout(), output_layout()],
+        [block_entity_layout(), output_layout()],
+    ]
+}
+
+/// The largest per-stage storage budget used by an actor conversion kernel.
+pub(crate) fn required_storage_buffers() -> u32 {
+    pipeline_layouts()
+        .iter()
+        .map(|layouts| {
+            layouts
+                .iter()
+                .map(|layout| {
+                    crate::device_settings::storage_buffers(layout, ShaderStages::COMPUTE)
+                })
+                .sum()
+        })
+        .max()
+        .unwrap_or_default()
+}
+
 /// The two cached kernels (rig skinning and block-entity conversion) and their layouts.
 #[derive(Resource)]
 pub(crate) struct ActorSkinPipelines {
@@ -187,25 +211,27 @@ pub(crate) struct ActorSkinPipelines {
 impl FromWorld for ActorSkinPipelines {
     fn from_world(world: &mut World) -> Self {
         let cache = &world.resource::<super::super::kernels::Kernels>().cache;
-        let pipeline = |label: &'static str, source, entry: &'static str| {
-            cache.queue_compute_pipeline(ComputePipelineDescriptor {
-                label: Some(label.into()),
-                layout: vec![source, output_layout()],
-                shader: SKIN_SHADER,
-                entry_point: Some(entry.into()),
-                ..default()
-            })
-        };
+        let [rig, block_entities] = pipeline_layouts();
+        let pipeline =
+            |label: &'static str, layouts: &[BindGroupLayoutDescriptor], entry: &'static str| {
+                cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some(label.into()),
+                    layout: layouts.to_vec(),
+                    shader: SKIN_SHADER,
+                    entry_point: Some(entry.into()),
+                    ..default()
+                })
+            };
         Self {
-            rig: pipeline("shader-pack actor skinning", rig_layout(), "skin_rig"),
+            rig: pipeline("shader-pack actor skinning", &rig, "skin_rig"),
             block_entities: pipeline(
                 "shader-pack block-entity conversion",
-                block_entity_layout(),
+                &block_entities,
                 "convert_block_entities",
             ),
-            rig_layout: cache.get_bind_group_layout(&rig_layout()),
-            block_entity_layout: cache.get_bind_group_layout(&block_entity_layout()),
-            output_layout: cache.get_bind_group_layout(&output_layout()),
+            rig_layout: cache.get_bind_group_layout(&rig[0]),
+            block_entity_layout: cache.get_bind_group_layout(&block_entities[0]),
+            output_layout: cache.get_bind_group_layout(&rig[1]),
         }
     }
 }

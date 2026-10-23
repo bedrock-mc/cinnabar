@@ -141,6 +141,10 @@ impl UiRuntime {
                 }
                 UiApplyOutcome::Applied
             }
+            UiEvent::DataDrivenUi(event) => {
+                let busy = self.data_driven_busy(player_runtime);
+                self.apply_data_driven_ui(event, busy)
+            }
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
