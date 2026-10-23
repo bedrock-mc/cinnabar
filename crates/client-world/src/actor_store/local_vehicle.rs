@@ -23,6 +23,10 @@ pub struct LocalVehicleFeed {
 pub(super) struct LocalVehicle {
     /// Server moves admitted for the predicted vehicle, which prediction must restart from.
     server_moves: u64,
+    /// The vehicle the latest feed predicted. Its server moves count even while the local
+    /// player does not steer it, so a prediction resumed after regaining control restarts
+    /// from them.
+    predicted: Option<u64>,
 }
 
 impl ActorStore {
@@ -52,8 +56,10 @@ impl ActorStore {
                 .chain(&[feed.yaw])
                 .all(|value| value.is_finite())
         }) else {
+            self.local_vehicle.predicted = None;
             return;
         };
+        self.local_vehicle.predicted = Some(feed.runtime_id);
         if self.local_steered_boat() != Some(feed.runtime_id)
             || feed.server_moves != self.local_vehicle.server_moves
         {
@@ -79,15 +85,16 @@ impl ActorStore {
     }
 
     /// Whether a server move applies. Moves of the boat the local player steers apply only
-    /// when they teleport or are forced, and then count as a restart for prediction.
+    /// when they teleport or are forced. Every admitted move of the steered or last predicted
+    /// boat counts as a restart for prediction.
     pub(super) fn admit_local_vehicle_move(&mut self, movement: &ActorMoveEvent) -> bool {
-        if self.local_steered_boat() != Some(movement.runtime_id) {
-            return true;
-        }
-        if !movement.teleported && !movement.force_local_move {
+        let steered = self.local_steered_boat() == Some(movement.runtime_id);
+        if steered && !movement.teleported && !movement.force_local_move {
             return false;
         }
-        self.local_vehicle.server_moves = self.local_vehicle.server_moves.wrapping_add(1);
+        if steered || self.local_vehicle.predicted == Some(movement.runtime_id) {
+            self.local_vehicle.server_moves = self.local_vehicle.server_moves.wrapping_add(1);
+        }
         true
     }
 

@@ -139,20 +139,26 @@ pub fn read(
 fn steered_vehicle(stream: &impl crate::GameplayWorld) -> Option<super::vehicle::SteeredVehicle> {
     let vehicle = stream.local_controlled_vehicle()?;
     let (seat, _) = stream.local_rider_seat_on([0.0; 3], 0.0)?;
-    let (min, max) = vehicle.bounding_box()?;
     Some(super::vehicle::SteeredVehicle {
         runtime_id: vehicle.runtime_id,
         unique_id: vehicle.unique_id,
-        body: sim::BoatBody {
-            width: max[0] - min[0],
-            height: max[1] - min[1],
-            height_offset: vehicle.network_position_offset(),
-        },
+        body: boat_body(vehicle)?,
         position: vehicle.last_received_native_position(),
         yaw: vehicle.last_received_pose().yaw,
         velocity: vehicle.native_velocity(),
         seat,
         server_moves: stream.local_vehicle_server_moves(),
+    })
+}
+
+/// The boat's collision body, measured at the origin so its size never depends on how
+/// precisely its world position is held.
+fn boat_body(vehicle: &client_world::ActorSnapshot) -> Option<sim::BoatBody> {
+    let (min, max) = vehicle.bounding_box_at([0.0; 3])?;
+    Some(sim::BoatBody {
+        width: max[0] - min[0],
+        height: max[1] - min[1],
+        height_offset: vehicle.network_position_offset(),
     })
 }
 
@@ -218,6 +224,60 @@ mod tests {
             command_permission: 0,
             layers: AbilityLayersEvidence::Received(layers.into()),
         }
+    }
+
+    /// A boat spawned at `x`, through the authority that admits it.
+    fn boat_at(x: f32) -> client_world::ActorSnapshot {
+        use std::sync::Arc;
+        let mut authority = client_world::WorldAuthority::new(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: protocol::air_network_id(false),
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            [0.0; 3],
+            None,
+        );
+        let spawn = protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 70,
+            runtime_id: 7,
+            kind: protocol::ActorKind::Entity {
+                identifier: "minecraft:boat".into(),
+            },
+            position: [x, 64.0, 0.0],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            body_yaw: 0.0,
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        };
+        authority
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+                Some(1),
+            )
+            .unwrap();
+        authority.actor(7).expect("spawn committed").clone()
+    }
+
+    #[test]
+    fn a_boat_far_from_the_origin_keeps_its_collision_size() {
+        let near = boat_body(&boat_at(0.0)).expect("near boat body");
+        let far = boat_body(&boat_at(16_777_216.0)).expect("far boat body");
+        assert!(near.width > 0.0);
+        assert_eq!(far, near);
     }
 
     #[test]

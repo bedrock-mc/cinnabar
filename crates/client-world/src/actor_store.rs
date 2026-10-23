@@ -818,9 +818,10 @@ pub(crate) struct ActorStore {
     camera_position: [f32; 3],
     /// Rigs outside this view hold their pose instead of animating.
     animation_view: Option<actor_animation::ActorAnimationView>,
-    /// Each boarded rider's seat key: boarding order, negative for a front-seat boarding.
-    seat_keys: FastHashMap<i64, i64>,
-    boardings: i64,
+    /// Each vehicle's boarded riders in seat order.
+    passengers: FastHashMap<i64, Vec<i64>>,
+    /// Linked riders waiting for their rider or vehicle actor, in link arrival order.
+    queued_riders: Vec<i64>,
     /// Seat descriptor per mount, for riders that stream no seat offset.
     seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,

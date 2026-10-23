@@ -220,6 +220,30 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     );
 }
 
+/// Server moves accepted while the player does not steer restart its prediction when it
+/// steers again, even with no prediction tick in between.
+#[test]
+fn regaining_control_restarts_prediction_from_moves_made_meanwhile() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        server_moves: 0,
+        position: [12.0, 5.0, 10.0],
+        yaw: 0.0,
+        velocity: [0.0; 3],
+    }));
+    board(
+        &mut store,
+        &mut sequence,
+        &[(PLAYER, ActorLinkType::Remove)],
+    );
+    sequence += 1;
+    store.apply(1, sequence, boat_move(40.0, false));
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    assert_eq!(store.local_vehicle_server_moves(), 1);
+}
+
 #[test]
 fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
     let mut store = ActorStore::new(1, 0);
@@ -280,6 +304,30 @@ fn a_player_linked_before_it_spawns_still_takes_the_front_seat() {
     assert_eq!(store.controlling_passenger(BOAT), Some(PIG));
     store.apply(1, sequence + 1, spawn(PLAYER, player("Rider"), Vec::new()));
     assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+}
+
+/// Links queued before their vehicle exists board in the order they arrived, not by id.
+#[test]
+fn riders_linked_before_their_vehicle_board_in_arrival_order() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(PLAYER, player("Rider"), Vec::new()));
+    store.apply(1, 2, spawn(OTHER_PLAYER, player("Other"), Vec::new()));
+    let mut sequence = 2;
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (OTHER_PLAYER, ActorLinkType::Rider),
+            (PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    assert_eq!(store.controlling_passenger(BOAT), None);
+    store.apply(
+        1,
+        sequence + 1,
+        spawn(BOAT, entity("minecraft:boat"), Vec::new()),
+    );
+    assert_eq!(store.controlling_passenger(BOAT), Some(OTHER_PLAYER));
 }
 
 #[test]
