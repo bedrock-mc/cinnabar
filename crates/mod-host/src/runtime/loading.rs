@@ -61,7 +61,7 @@ impl Instance {
     pub(crate) fn check(engine: &Engine, bytes: &[u8]) -> Result<()> {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
-        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         exports::Exports::check(&linker.instantiate_pre(&component)?)
     }
 
@@ -104,7 +104,7 @@ impl Instance {
         );
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
-        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
         if let Some(mut session) = policy {
@@ -148,6 +148,7 @@ impl Instance {
             status: InstanceStatus::Running,
             last_fuel,
             callback_budget: None,
+            filter_identity: super::action_filter::next_identity(),
         })
     }
 

@@ -1,3 +1,4 @@
+mod action_filter;
 mod input_host;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
@@ -20,7 +21,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/player-mod@0.1.0",
+    world: "cinnabar:extension/filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
 });
@@ -79,8 +80,6 @@ struct State {
     pending_weather: Option<Option<cinnabar::extension::environment::Weather>>,
     click_limits: [Option<u32>; 2],
     pending_click_limits: Option<[Option<u32>; 2]>,
-    click_debounce: [Option<u32>; 2],
-    pending_click_debounce: Option<[Option<u32>; 2]>,
     fullbright: bool,
     pending_fullbright: Option<bool>,
     environment_writes: u32,
@@ -155,8 +154,6 @@ impl State {
             pending_weather: None,
             click_limits: [None; 2],
             pending_click_limits: None,
-            click_debounce: [None; 2],
-            pending_click_debounce: None,
             fullbright: false,
             pending_fullbright: None,
             environment_writes: 0,
@@ -321,6 +318,7 @@ pub(super) struct Instance {
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
+    filter_identity: u64,
 }
 
 impl Instance {
@@ -641,8 +639,6 @@ impl Instance {
         state.pending_weather = None;
         state.click_limits = [None; 2];
         state.pending_click_limits = None;
-        state.click_debounce = [None; 2];
-        state.pending_click_debounce = None;
         state.fullbright = false;
         state.pending_fullbright = None;
         state.snapshot = None;
@@ -771,11 +767,6 @@ impl Instance {
     /// Reads committed subtractive input policy without entering the guest.
     pub(super) fn click_limits(&self) -> [Option<u32>; 2] {
         self.store.data().click_limits
-    }
-
-    /// Retained debounce intervals committed by a successful callback.
-    pub(super) fn click_debounce(&self) -> [Option<u32>; 2] {
-        self.store.data().click_debounce
     }
 
     /// Reads retained UI without entering the component.
@@ -965,9 +956,6 @@ fn commit_event(store: &mut Store<State>) {
     }
     if let Some(value) = state.pending_click_limits.take() {
         state.click_limits = value;
-    }
-    if let Some(value) = state.pending_click_debounce.take() {
-        state.click_debounce = value;
     }
     if let Some(ticks) = state.pending_time.take() {
         state.time_override = ticks;

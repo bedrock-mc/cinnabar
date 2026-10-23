@@ -29,6 +29,7 @@ const PACKAGE_ENV: &str = "CINNABAR_MOD_PACKAGE";
 const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
+mod action_filter;
 mod admission;
 mod anchors;
 mod drawing_policy;

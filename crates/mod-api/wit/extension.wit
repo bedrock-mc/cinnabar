@@ -218,15 +218,10 @@ interface input {
         keys-held: option<list<string>>,
         events: bool,
     }
+    /// Legacy compatibility API; new modules should export filter-actions.
     /// Retained attack/use press caps, each 1–100 per second; none restores ordinary input.
     /// Only removes excess presses; never generates input. Requires controls authority.
     set-click-limits: func(attack: option<u32>, item-use: option<u32>) -> result<_, string>;
-    /// Retained attack/use switch debounce, each 1–1000 milliseconds; none disables it.
-    /// Presses pass immediately. Releases wait for the interval; re-presses within it
-    /// continue the same hold. Intervals advance with native input frames.
-    /// Requires controls authority. Authorized attack pulses bypass physical debounce;
-    /// independent click caps still apply.
-    set-click-debounce: func(attack-ms: option<u32>, item-use-ms: option<u32>) -> result<_, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     read-controls: func() -> result<controls, string>;
@@ -298,7 +293,7 @@ interface gameplay {
     /// Bounded local actor attack range; none restores ordinary game-mode rules.
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
-    /// Bypasses physical switch debounce, but remains subject to click caps.
+    /// An active action filter receives it as a repeat; legacy click caps apply afterwards.
     pulse-attack: func() -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
@@ -569,6 +564,34 @@ world extension {
     export frame: func();
 }
 
+/// Policy-free decisions on resolved, source-backed button actions.
+interface action-filter {
+    /// Closed in this version; additional actions require a new optional export.
+    enum filtered-action { attack, item-use }
+    /// Repeat is an authorized pulse on physically held attack, not another device press.
+    enum transition-kind { press, release, repeat }
+    record transition { action: filtered-action, kind: transition-kind }
+    record held { attack: bool, item-use: bool }
+    record action-frame {
+        /// Changes on owner replacement, callback failure or input-authority interruption.
+        /// Clear guest policy state on a change. Suppressed gestures stay suppressed until
+        /// physical release; retained releases are completed before this batch.
+        epoch: u64,
+        /// Absolute monotonic real time, in microseconds; idle callbacks may be skipped.
+        time-us: u64,
+        /// Held states immediately before transitions, after reset reconciliation.
+        physical: held,
+        logical: held,
+        transitions: list<transition>,
+    }
+    record action-verdict {
+        /// Exactly one decision per transition, in order. False suppresses the edge.
+        accepted: list<bool>,
+        /// Completes retained releases before the batch. Ignored for physical holds.
+        release: held,
+    }
+}
+
 /// `extension` plus screens beside the container screens, the session's read-only items and
 /// recipes, declared keys and event callbacks. A mod package (`mod.toml`) targets this world.
 ///
@@ -616,6 +639,27 @@ world player-mod {
     export data-changed: func(sources: list<data-source>);
     /// The host closed the view (Escape, or the container closing), not the mod.
     export view-closed: func();
+}
+
+/// Explicit opt-in player-mod world for generic action filtering.
+/// Existing player-mod components remain supported and do not claim filter ownership.
+world filtered-player-mod {
+    include player-mod;
+
+    use action-filter.{action-frame, action-verdict};
+    /// Optional and explicitly exported by filtering modules; requires controls authority.
+    /// The earliest active exporting module is the sole owner. Runs after ordinary frame
+    /// callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+    /// frame with a retained hold. No callback is needed for an idle physical hold.
+    /// Suppressing a release retains its hold. Suppressing its following press joins that
+    /// hold; accepting that press completes the outstanding release before a fresh press.
+    /// Suppressing a fresh press blocks its gesture until release. Rejected repeats leave
+    /// the existing hold intact. Native never creates a press without an observed source.
+    /// Traps or invalid verdicts quarantine the module and complete retained releases;
+    /// owner loss and input-authority interruptions do the same. Suppressed physical holds
+    /// stay suppressed until release. No duration or filtering policy is imposed by the host.
+    export filter-actions: func(frame: action-frame) -> action-verdict;
+
 }
 
 /// Every session packet, relayed through one trusted mod. A batch is the session contract's batch

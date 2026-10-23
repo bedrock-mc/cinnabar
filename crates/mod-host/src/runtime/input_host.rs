@@ -32,34 +32,6 @@ impl cinnabar::extension::input::Host for State {
         Ok(Ok(()))
     }
 
-    /// Retains bounded switch debounce only after a successful callback.
-    fn set_click_debounce(
-        &mut self,
-        attack_ms: Option<u32>,
-        item_use_ms: Option<u32>,
-    ) -> Result<Result<(), String>> {
-        self.environment_writes += 1;
-        if self.environment_writes > super::MAX_IMPORT_WRITES {
-            anyhow::bail!("input policy budget exhausted");
-        }
-        if !self.grants.controls {
-            return Ok(Err("controls capability denied".into()));
-        }
-        let intervals = [attack_ms, item_use_ms];
-        if intervals
-            .iter()
-            .flatten()
-            .any(|ms| !(1..=mod_api::MAX_CLICK_DEBOUNCE_MS).contains(ms))
-        {
-            return Ok(Err(format!(
-                "click debounce must be between 1 and {} milliseconds",
-                mod_api::MAX_CLICK_DEBOUNCE_MS
-            )));
-        }
-        self.pending_click_debounce = Some(intervals);
-        Ok(Ok(()))
-    }
-
     /// Keeps native text payloads separate from the existing numeric event ABI.
     fn read_text_events(
         &mut self,

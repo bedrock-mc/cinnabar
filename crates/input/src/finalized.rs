@@ -82,6 +82,25 @@ impl FinalizedInput {
         true
     }
 
+    /// Applies one generic action filter after semantic authority has been resolved.
+    pub fn filter_actions(
+        &mut self,
+        state: &mut crate::action_filter::ActionFilterState,
+        owner: Option<u64>,
+        time_us: u64,
+        repeat: bool,
+        decide: impl FnMut(
+            &crate::action_filter::ActionFilterFrame,
+        ) -> Option<crate::action_filter::ActionVerdict>,
+    ) -> bool {
+        if let Some(snapshot) = self.0.as_mut() {
+            state.filter(snapshot, owner, time_us, repeat, decide)
+        } else {
+            state.reset();
+            false
+        }
+    }
+
     /// Removes excess attack/use presses from both ordered and projected input.
     pub fn limit_clicks(
         &mut self,
@@ -93,20 +112,6 @@ impl FinalizedInput {
             limiter.apply(snapshot, rates, seconds);
         } else {
             limiter.reset();
-        }
-    }
-
-    /// Coalesces switch chatter while preserving the first press and its continuous hold.
-    pub fn debounce_clicks(
-        &mut self,
-        debouncer: &mut crate::ClickDebouncer,
-        intervals_ms: [Option<u32>; 2],
-        seconds: f64,
-    ) {
-        if let Some(snapshot) = self.0.as_mut() {
-            debouncer.apply(snapshot, intervals_ms, seconds);
-        } else {
-            debouncer.reset();
         }
     }
 

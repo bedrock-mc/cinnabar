@@ -786,8 +786,6 @@ fn local_click_and_weather_policies_commit_and_revoke_together() {
         .run(FRAME_FUEL, commit_event, |_, store| {
             let state = store.data_mut();
             state.set_click_limits(Some(12), None)?.unwrap();
-            state.set_click_debounce(Some(25), Some(50))?.unwrap();
-            assert_eq!(state.click_debounce, [None; 2]);
             state.set_weather_override(Some(Weather::Rain))?.unwrap();
             assert_eq!(state.click_limits, [None; 2]);
             assert!(state.weather_override.is_none());
@@ -795,35 +793,27 @@ fn local_click_and_weather_policies_commit_and_revoke_together() {
         })
         .unwrap();
     assert_eq!(instance.click_limits(), [Some(12), None]);
-    assert_eq!(instance.click_debounce(), [Some(25), Some(50)]);
     assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
     instance.begin_frame();
     instance
         .run(FRAME_FUEL, commit_event, |_, _| Ok(()))
         .unwrap();
     assert_eq!(instance.click_limits(), [Some(12), None]);
-    assert_eq!(instance.click_debounce(), [Some(25), Some(50)]);
     assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
     instance
         .run(FRAME_FUEL, commit_event, |_, store| {
             store.data_mut().set_click_limits(None, None)?.unwrap();
-            store.data_mut().set_click_debounce(None, None)?.unwrap();
             store.data_mut().set_weather_override(None)?.unwrap();
             Ok(())
         })
         .unwrap();
     assert_eq!(instance.click_limits(), [None; 2]);
-    assert_eq!(instance.click_debounce(), [None; 2]);
     assert!(instance.weather_override().is_none());
     instance
         .run(FRAME_FUEL, commit_event, |_, store| {
             store
                 .data_mut()
                 .set_click_limits(Some(5), Some(10))?
-                .unwrap();
-            store
-                .data_mut()
-                .set_click_debounce(Some(10), Some(100))?
                 .unwrap();
             store
                 .data_mut()
@@ -844,7 +834,6 @@ fn local_click_and_weather_policies_commit_and_revoke_together() {
             .is_err()
     );
     assert_eq!(instance.click_limits(), [None; 2]);
-    assert_eq!(instance.click_debounce(), [None; 2]);
     assert!(instance.weather_override().is_none());
 }
 
@@ -883,32 +872,4 @@ fn click_and_weather_policy_admission_rejects_denied_or_invalid_writes() {
             .is_err()
     );
     assert!(allowed.pending_weather.is_none());
-}
-
-/// Invalid or ungranted debounce writes cannot alter the last staged policy.
-#[test]
-fn click_debounce_admission_and_write_budget_are_enforced() {
-    let mut denied = state(ModGrants::default());
-    assert!(denied.set_click_debounce(Some(25), None).unwrap().is_err());
-    assert!(denied.pending_click_debounce.is_none());
-    let mut allowed = state(ModGrants {
-        controls: true,
-        ..Default::default()
-    });
-    allowed
-        .set_click_debounce(Some(25), Some(50))
-        .unwrap()
-        .unwrap();
-    for bad in [0, mod_api::MAX_CLICK_DEBOUNCE_MS + 1, u32::MAX] {
-        assert!(
-            allowed
-                .set_click_debounce(None, Some(bad))
-                .unwrap()
-                .is_err()
-        );
-        assert_eq!(allowed.pending_click_debounce, Some([Some(25), Some(50)]));
-    }
-    allowed.environment_writes = super::super::MAX_IMPORT_WRITES;
-    assert!(allowed.set_click_debounce(None, None).is_err());
-    assert_eq!(allowed.pending_click_debounce, Some([Some(25), Some(50)]));
 }
