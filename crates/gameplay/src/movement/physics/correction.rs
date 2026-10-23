@@ -235,6 +235,7 @@ impl LocalPhysicsController {
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
         let climber_corrections = self.climber_corrections.clone();
+        let mut effective_climber = None;
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -256,7 +257,7 @@ impl LocalPhysicsController {
                         frame.climber = ClimberFlags::after_tick(
                             &frame.input,
                             &frame.environment,
-                            frame.entry_climber,
+                            effective_climber,
                         );
                         preceding_climber = Some(frame.climber);
                         frame.finish_eye(&mut eye, state);
@@ -278,12 +279,14 @@ impl LocalPhysicsController {
                     if let Some(climber) = frame.entry_climber {
                         climber.apply(state, ClimberFlags::mask());
                     }
+                    // Keep the comparison capture unchanged while input consumes its corrections.
+                    effective_climber = frame.entry_climber;
                     for correction in climber_corrections
                         .iter()
                         .filter(|correction| correction.tick == next_tick)
                     {
                         correction.apply(state);
-                        frame.entry_climber = correction.apply_flags(frame.entry_climber);
+                        effective_climber = correction.apply_flags(effective_climber);
                     }
                     boosts.apply(state.tick + 1, &mut input.effects);
                     let environment = previous.map_or(anchor_controller.environment, |output| {
@@ -324,7 +327,7 @@ impl LocalPhysicsController {
                 .expect("successful replay retains state");
             frame.environment = last.tick_result.environment;
             frame.climber =
-                ClimberFlags::after_tick(&frame.input, &frame.environment, frame.entry_climber);
+                ClimberFlags::after_tick(&frame.input, &frame.environment, effective_climber);
             frame.finish_eye(&mut eye, state);
             sync_state.server_flags(frame.sync_server);
             sync_state.take_pending();

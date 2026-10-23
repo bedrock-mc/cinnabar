@@ -261,3 +261,30 @@ fn climber_replay_keeps_the_first_entry_and_refreshes_later_entries() {
     assert_eq!(plan.replayed_samples[0].movement[1], -0.15_f32);
     assert_ne!(plan.replayed_samples[1].movement[1], -0.15_f32);
 }
+
+/// Replaying a correction keeps the original capture for later same-stamp comparisons.
+#[test]
+fn climber_replayed_correction_preserves_its_comparison_capture() {
+    let mut physics = due_physics();
+    let mut actor = local_actor();
+    let frame = physics.advance(
+        std::time::Duration::from_millis(150),
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    let stamp = frame.samples[0].tick;
+    let mut word = [0; 3];
+    set_flag(&mut word, ActorFlag::OverDescendingBlock, true);
+    assert_eq!(
+        accept(&mut physics, &mut actor, stamp, word[1]),
+        Some(stamp)
+    );
+    let plan = physics.replay_retained_from(stamp, &OpenWorld).unwrap();
+    assert_eq!(plan.replayed_samples[0].movement[1], -0.15_f32);
+    assert_eq!(accept(&mut physics, &mut actor, stamp, 0), None);
+    let plan = physics.replay_retained_from(stamp, &OpenWorld).unwrap();
+    assert_eq!(plan.replayed_samples[0].movement[1], -0.15_f32);
+}
