@@ -198,7 +198,13 @@ fn skull_inventory_preserves_texture_brightness() {
         "minecraft:creeper_head",
     ] {
         let icon = raster(root.path(), name, 0, &[]).unwrap().unwrap();
-        let shown: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+        let shown: Vec<_> = icon
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .collect();
         assert!(!shown.is_empty(), "{name}");
         assert!(
             shown.iter().all(|p| p[..3] == [255; 3]),
