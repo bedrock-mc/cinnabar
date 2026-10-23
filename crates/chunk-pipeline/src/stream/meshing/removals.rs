@@ -4,7 +4,7 @@ use super::super::*;
 const REMOVAL_ROUTING_BATCH: usize = 16;
 
 impl WorldStream {
-    /// Publishes and counts ready air and withdrawals without traversing geometry ingress.
+    /// Services staged results, then publishes and counts air without geometry ingress.
     pub(in crate::stream) fn dispatch_mesh_removals(
         &mut self,
         view: SchedulerView,
@@ -12,6 +12,12 @@ impl WorldStream {
     ) -> usize {
         if self.service_yield_requested() {
             return 0;
+        }
+        if !self.staged_mesh_completions.is_empty()
+            && let Some(allowance) = &self.publication_allowance
+        {
+            let staged_share = allowance.frame_remaining_operations().div_ceil(2);
+            self.retry_staged_mesh_completions(staged_share);
         }
         let authority = self
             .publication_allowance
