@@ -573,7 +573,7 @@ impl LocalPhysicsController {
         input.swift_sneak = context.mode_intent.swift_sneak;
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
-            let context = context.for_next_tick(state.tick);
+            let mut context = context.for_next_tick(state.tick);
             input.item_use_movement_modifier = context
                 .release_use_modifier
                 .map(|(_, modifier)| item_use_factor(modifier))
@@ -663,7 +663,7 @@ impl LocalPhysicsController {
                     &mut self.vehicle,
                     state,
                     &input,
-                    &context.mode_intent,
+                    &mut context.mode_intent,
                     world,
                     &mut mode_error,
                 )
@@ -780,7 +780,7 @@ impl LocalPhysicsController {
                         && input.mode != sim::MovementMode::Riding
                         && !input.spectator;
                     processed.ride = context.mode_intent.ride;
-                    processed.vehicle = self.vehicle.commit(state.tick, self.history_capacity);
+                    processed.vehicle = self.vehicle.commit();
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
                     if input.immobile || input.mode == sim::MovementMode::Riding {

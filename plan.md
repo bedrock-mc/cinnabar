@@ -98,7 +98,7 @@ and resource qualification; they do not imply these systems need to be written.
   presentation and animation. Identify unsupported states before adding implementation.
   Held end-rod models and narrow rod selection bounds are implemented; matched final-frame
   outlines and third-person held-item qualification remain incomplete.
-  Entity-drawn blocks retain pack face materials for destruction and mining particles;
+  Chests retain pack face materials for destruction and mining particles;
   matched chest-particle presentation and custom destruction overrides remain incomplete.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
   use pack geometry in all four directions; sleeping and picking remain unqualified.
@@ -122,9 +122,10 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
-  faces (and the loom's top/bottom flips) from their facing; other mapped-face cubes such as
-  carved pumpkins, observers, dispensers and droppers, and the stonecutter's east/west saw
-  axis, still need checking against their native tessellation, plus native-server captures.
+  faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
+  plane and top art with its direction; other mapped-face cubes such as carved pumpkins,
+  observers, dispensers and droppers still need checking against their native tessellation,
+  plus native-server captures.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -273,6 +274,10 @@ constants and vehicle-correction replay; rendered BDS acceptance covers straight
 turning rows. A seat that locks rotation turns the rider's view with its vehicle and
 holds it within the seat's range. Horse prediction and boat-to-boat collision remain
 open.
+constants; rendered BDS acceptance covers straight and turning rows. Incomplete: vanilla
+rewinds a vehicle correction and replays the recorded inputs, while Cinnabar restarts
+prediction from the corrected state and snaps the rider like a teleport. Horse
+prediction, boat-to-boat collision and the rider's view following the boat remain open.
 
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.

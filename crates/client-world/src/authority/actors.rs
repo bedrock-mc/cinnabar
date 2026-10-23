@@ -39,6 +39,11 @@ impl WorldAuthority {
     pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_name_tag(unique_id)
     }
+    /// The title an actor-backed container screen shows: its filtered name when set,
+    /// otherwise its name tag.
+    pub fn actor_container_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_container_name(unique_id)
+    }
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()

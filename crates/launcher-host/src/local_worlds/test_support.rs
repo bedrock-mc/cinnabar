@@ -18,11 +18,12 @@ use crossbeam_channel::{Receiver, Sender};
 use launcher::local_worlds::world::{Difficulty, Generator, World};
 use url::Url;
 
+#[cfg(unix)]
+use super::unpack::INSTALL_MANIFEST;
 use super::{
     Cancel, lock,
     process::{HostGrant, Instance, Runner, StartSpec},
     provision::{Platform, Provisioner},
-    unpack::INSTALL_MANIFEST,
     world::WorldError,
 };
 

@@ -332,9 +332,10 @@ class BudgetTests(unittest.TestCase):
                 self.assertTrue(bucket.startswith("build-v1-") and bucket.endswith("-"), bucket)
                 self.assertGreater(size, 0, bucket)
 
-    def test_observed_linux_archives_fit_their_budgets(self):
+    def test_observed_ci_archives_fit_their_budgets(self):
         """The largest observed Rust and Go archives must survive retention."""
         self.assertLessEqual(2_791_327_868, cache.budget("artifact", "build-v1-rust-Linux-X64-ci-"))
+        self.assertLessEqual(2_555_389_355, cache.budget("artifact", "build-v1-rust-Windows-X64-ci-"))
         self.assertLessEqual(857_488_115, cache.budget("artifact", "build-v1-go-Linux-X64-ci-"))
 
     def test_release_caches_stay_out_of_the_shared_cache(self):

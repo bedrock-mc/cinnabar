@@ -111,7 +111,7 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
         .run_system_cached(crate::item_use::produce_item_use)
         .unwrap();
     let release = captured.drain();
-    assert_eq!(release.len(), 2);
+    assert_eq!(release.len(), 1);
     assert!(
         protocol::test_support::transactions::observe_transaction(&release[0])
             .unwrap()
@@ -119,11 +119,11 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
             .is_some()
     );
     assert_eq!(
-        protocol::test_support::packets::equipment(&release[1])
-            .unwrap()
-            .selected_slot,
-        1,
-        "the deferred selection may follow its release in the same frame"
+        world
+            .resource::<client_state::PlayerRuntime>()
+            .selected_hotbar_slot(),
+        Some(1),
+        "the deferred selection becomes local after its release"
     );
     assert!(tick(&mut world).processed.spin_started);
     flush_and_acknowledge(&mut world);
@@ -135,13 +135,26 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
             .selected_hotbar_slot(),
         Some(2)
     );
+    assert!(captured.drain().is_empty());
+    assert!(
+        world
+            .run_system_cached(crate::hotbar::ordered::flush_existing)
+            .unwrap()
+    );
+    let equipment = captured.drain();
     assert_eq!(
-        captured
-            .drain()
+        equipment
             .iter()
             .filter_map(protocol::test_support::packets::equipment)
             .count(),
         1
+    );
+    assert_eq!(
+        protocol::test_support::packets::equipment(&equipment[0])
+            .unwrap()
+            .selected_slot,
+        2,
+        "the next announcement coalesces both later selections"
     );
 }
 

@@ -1,12 +1,11 @@
 //! Client prediction of the boat the local player steers.
 //!
 //! Each tick the rider's move input paddles the boat locally and the rider sits on its seat
-//! at the predicted pose. Inputs then report the boat's position and rotation, and a server
-//! correction of the vehicle rewinds to the corrected tick and replays the recorded paddling.
+//! at the predicted pose. Inputs then report the boat's position and rotation. A server
+//! correction of the vehicle restarts prediction from the corrected state, as a teleport does;
+//! vanilla instead rewinds and replays its recorded inputs, which is not implemented.
 
-use std::collections::VecDeque;
-
-use sim::{BoatBody, BoatBuoyancy, BoatFloat, BoatState, CollisionWorld, WorldQueryError};
+use sim::{BoatBody, BoatBuoyancy, BoatState, CollisionWorld, WorldQueryError};
 
 /// The boat the local player steers from its controlling seat.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,28 +61,6 @@ pub struct VehicleCorrection {
     pub on_ground: bool,
 }
 
-/// The outcome of an applied vehicle correction.
-#[derive(Debug, Clone, PartialEq)]
-pub struct VehicleReplay {
-    /// The rider's seat feet on the corrected boat.
-    pub seat: [f32; 3],
-    /// The corrected tick and each replayed tick, as their inputs must now report them.
-    pub samples: Vec<(u64, PredictedVehicleSample)>,
-}
-
-/// Squared position and velocity error the client accepts without replaying.
-const POSITION_TOLERANCE_SQUARED: f32 = 1.0e-5;
-/// Angular velocity error the client accepts without replaying.
-const ANGULAR_VELOCITY_TOLERANCE: f32 = 1.0e-4;
-
-#[derive(Debug, Clone, Copy)]
-struct RecordedTick {
-    tick: u64,
-    power: [f32; 2],
-    float: BoatFloat,
-    state: BoatState,
-}
-
 #[derive(Debug, Clone)]
 struct Predicted {
     runtime_id: u64,
@@ -91,13 +68,16 @@ struct Predicted {
     server_moves: u64,
     seat: [f32; 3],
     state: BoatState,
-    history: VecDeque<RecordedTick>,
+    /// At least one tick completed from this start.
+    committed: bool,
+    /// The newest correction applied; older ones are stale.
+    corrected_tick: u64,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct VehiclePrediction {
     predicted: Option<Predicted>,
-    pending: Option<RecordedTick>,
+    pending: Option<BoatState>,
     /// Xorshift state for the wave's big-wave draws.
     wave_seed: u32,
 }
@@ -129,7 +109,8 @@ impl VehiclePrediction {
                 server_moves: vehicle.server_moves,
                 seat: vehicle.seat,
                 state: BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw),
-                history: VecDeque::new(),
+                committed: false,
+                corrected_tick: 0,
             });
         }
         let Some(predicted) = self.predicted.as_mut() else {
@@ -137,36 +118,24 @@ impl VehiclePrediction {
         };
         predicted.seat = vehicle.seat;
         predicted.state.body = vehicle.body;
-        let power = sim::boat_paddle_power(move_vector);
         let wave_draw = next_draw(&mut self.wave_seed);
         let tick = sim::tick_boat(
             world,
             &predicted.state,
-            power,
+            sim::boat_paddle_power(move_vector),
             BoatBuoyancy::Live { wave_draw },
         )?;
-        let seat = seat_feet(&tick.state, predicted.seat);
-        self.pending = Some(RecordedTick {
-            tick: 0,
-            power,
-            float: tick.float,
-            state: tick.state,
-        });
-        Ok(Some(seat))
+        self.pending = Some(tick.state);
+        Ok(Some(seat_feet(&tick.state, predicted.seat)))
     }
 
-    /// Keeps the stepped boat under the completed input tick, retaining `capacity` ticks.
-    pub(super) fn commit(&mut self, tick: u64, capacity: usize) -> Option<PredictedVehicleSample> {
-        let pending = self.pending.take()?;
+    /// Keeps the stepped boat as the completed tick's state.
+    pub(super) fn commit(&mut self) -> Option<PredictedVehicleSample> {
+        let state = self.pending.take()?;
         let predicted = self.predicted.as_mut()?;
-        predicted.state = pending.state;
-        while predicted.history.len() >= capacity.max(1) {
-            predicted.history.pop_front();
-        }
-        predicted
-            .history
-            .push_back(RecordedTick { tick, ..pending });
-        Some(predicted_sample(predicted.unique_id, &pending.state))
+        predicted.state = state;
+        predicted.committed = true;
+        Some(predicted_sample(predicted.unique_id, &state))
     }
 
     /// Discards a stepped boat whose player tick failed.
@@ -182,8 +151,10 @@ impl VehiclePrediction {
 
     /// The predicted boat's latest pose for the actor store.
     pub(super) fn feed(&self) -> Option<client_world::LocalVehicleFeed> {
-        let predicted = self.predicted.as_ref()?;
-        predicted.history.back()?;
+        let predicted = self
+            .predicted
+            .as_ref()
+            .filter(|predicted| predicted.committed)?;
         let [x, _, z] = predicted.state.position;
         Some(client_world::LocalVehicleFeed {
             runtime_id: predicted.runtime_id,
@@ -194,14 +165,10 @@ impl VehiclePrediction {
         })
     }
 
-    /// Rewinds to a corrected tick and replays the recorded paddling after it. The replay
-    /// commits only when every tick replays; otherwise the prediction is left unchanged.
-    /// Returns `None` when the tick is not retained, already agrees, or cannot be replayed.
-    pub(super) fn correct(
-        &mut self,
-        correction: &VehicleCorrection,
-        world: &impl CollisionWorld,
-    ) -> Option<VehicleReplay> {
+    /// Restarts prediction from a server correction's vehicle state and returns the rider's
+    /// seat feet on it. Corrections no newer than one already applied, or with non-finite
+    /// state, are ignored.
+    pub(super) fn correct(&mut self, correction: &VehicleCorrection) -> Option<[f32; 3]> {
         let predicted = self.predicted.as_mut()?;
         let finite = correction
             .position
@@ -210,66 +177,23 @@ impl VehiclePrediction {
             .chain(&correction.rotation)
             .chain(correction.angular_velocity.as_ref())
             .all(|value| value.is_finite());
-        if correction.tick == 0 || !finite {
+        if !finite || correction.tick <= predicted.corrected_tick {
             return None;
         }
-        let index = predicted
-            .history
-            .iter()
-            .position(|recorded| recorded.tick == correction.tick)?;
-        let retained = predicted.history[index].state;
-        if agrees(&retained, correction) {
-            return None;
-        }
-        let mut state = BoatState {
+        predicted.corrected_tick = correction.tick;
+        predicted.state = BoatState {
             position: correction.position,
             velocity: correction.velocity,
             yaw: correction.rotation[1],
             angular_velocity: correction
                 .angular_velocity
-                .unwrap_or(retained.angular_velocity),
+                .unwrap_or(predicted.state.angular_velocity),
             on_ground: correction.on_ground,
-            ..retained
+            ..predicted.state
         };
-        let mut replayed = vec![state];
-        for recorded in predicted.history.iter().skip(index + 1) {
-            // Replay keeps each tick's recorded wave phase, as the live tick advanced it.
-            state.wave_timer = recorded.state.wave_timer;
-            state = sim::tick_boat(
-                world,
-                &state,
-                recorded.power,
-                BoatBuoyancy::Replay(recorded.float),
-            )
-            .ok()?
-            .state;
-            replayed.push(state);
-        }
-        let mut samples = Vec::with_capacity(replayed.len());
-        for (recorded, state) in predicted.history.iter_mut().skip(index).zip(replayed) {
-            recorded.state = state;
-            samples.push((recorded.tick, predicted_sample(predicted.unique_id, &state)));
-        }
-        predicted.state = state;
-        Some(VehicleReplay {
-            seat: seat_feet(&state, predicted.seat),
-            samples,
-        })
+        self.pending = None;
+        Some(seat_feet(&predicted.state, predicted.seat))
     }
-}
-
-/// Whether a retained tick already matches a correction's position, motion, turn and ground.
-fn agrees(retained: &BoatState, correction: &VehicleCorrection) -> bool {
-    let squared_error =
-        |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).map(|(a, b)| (a - b) * (a - b)).sum::<f32>();
-    let angular_error = correction
-        .angular_velocity
-        .map_or(0.0, |velocity| (velocity - retained.angular_velocity).abs());
-    squared_error(retained.position, correction.position) < POSITION_TOLERANCE_SQUARED
-        && squared_error(retained.velocity, correction.velocity) < POSITION_TOLERANCE_SQUARED
-        && angular_error < ANGULAR_VELOCITY_TOLERANCE
-        && retained.yaw == correction.rotation[1]
-        && retained.on_ground == correction.on_ground
 }
 
 fn predicted_sample(unique_id: i64, state: &BoatState) -> PredictedVehicleSample {
@@ -286,29 +210,6 @@ fn seat_feet(state: &BoatState, seat: [f32; 3]) -> [f32; 3] {
     let offset = client_world::seat_world_offset(seat, state.yaw);
     let [x, _, z] = state.position;
     [x + offset[0], state.feet_y() + offset[1], z + offset[2]]
-}
-
-impl super::MovementTicker {
-    /// Rewrites the vehicle reported by inputs not yet admitted to the network after a
-    /// vehicle correction replayed their ticks.
-    pub fn reconcile_vehicle_inputs(&mut self, samples: &[(u64, PredictedVehicleSample)]) {
-        let snapshots = self
-            .outbox
-            .iter_mut()
-            .map(|queued| &mut queued.snapshot)
-            .chain(
-                self.pending_sends
-                    .iter_mut()
-                    .map(|pending| &mut pending.sample.snapshot),
-            );
-        for snapshot in snapshots {
-            if snapshot.vehicle.is_some()
-                && let Some((_, sample)) = samples.iter().find(|(tick, _)| *tick == snapshot.tick)
-            {
-                snapshot.vehicle = Some(sample.input());
-            }
-        }
-    }
 }
 
 /// A uniform draw in `[0, 1)` for the wave's big-wave chance.

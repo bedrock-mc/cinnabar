@@ -527,49 +527,55 @@ fn deferred_burst_gets_one_guaranteed_heavy_step_per_poll() {
 
 /// A teleport committed mid-pass hands retention back to the server position, so a later
 /// correction in the same pass still waits for an earlier pending chunk.
+/// Player and vehicle corrections both wait for terrain committed ahead of them.
 #[test]
 fn correction_after_a_teleport_in_the_same_pass_waits_for_earlier_terrain() {
-    let mut stream = block_entity_visual_stream();
-    stream.local_player_chunk = Some(ChunkKey::new(0, 0, 0));
-    let context = stream.lane_context();
-    let ready = |stream: &mut WorldStream, sequence, event: WorldEvent, prepared| {
-        stream
-            .order
-            .admit(sequence, classify(&event, context), 0)
-            .unwrap();
-        if prepared {
+    for subject in [
+        MovementCorrectionSubject::Player,
+        MovementCorrectionSubject::Vehicle,
+    ] {
+        let mut stream = block_entity_visual_stream();
+        stream.local_player_chunk = Some(ChunkKey::new(0, 0, 0));
+        let context = stream.lane_context();
+        let ready = |stream: &mut WorldStream, sequence, event: WorldEvent, prepared| {
             stream
                 .order
-                .insert_ready(sequence, PreparedWorldEvent::Immediate(event))
+                .admit(sequence, classify(&event, context), 0)
                 .unwrap();
-        }
-    };
-    let teleport = WorldEvent::MovePlayer(MovePlayerEvent {
-        runtime_id: 1,
-        position: [100.5, 80.0, 100.5],
-        mode: MovePlayerMode::Teleport,
-        ..Default::default()
-    });
-    ready(&mut stream, 1, teleport, true);
-    ready(&mut stream, 2, inline_air_event(0), false);
-    let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
-        position: [0.5, 80.0, 0.5],
-        delta: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        subject: MovementCorrectionSubject::Player,
-        on_ground: true,
-        tick: 1,
-        vehicle_angular_velocity: None,
-    });
-    ready(&mut stream, 3, correction, true);
-    stream.apply_ready();
-    assert!(stream.order.is_finished(1), "the teleport committed");
-    assert!(stream.local_player_chunk.is_none());
-    assert!(
-        !stream.order.is_finished(3),
-        "the correction waits for the chunk"
-    );
+            if prepared {
+                stream
+                    .order
+                    .insert_ready(sequence, PreparedWorldEvent::Immediate(event))
+                    .unwrap();
+            }
+        };
+        let teleport = WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 1,
+            position: [100.5, 80.0, 100.5],
+            mode: MovePlayerMode::Teleport,
+            ..Default::default()
+        });
+        ready(&mut stream, 1, teleport, true);
+        ready(&mut stream, 2, inline_air_event(0), false);
+        let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+            position: [0.5, 80.0, 0.5],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject,
+            on_ground: true,
+            tick: 1,
+            vehicle_angular_velocity: None,
+        });
+        ready(&mut stream, 3, correction, true);
+        stream.apply_ready();
+        assert!(stream.order.is_finished(1), "the teleport committed");
+        assert!(stream.local_player_chunk.is_none());
+        assert!(
+            !stream.order.is_finished(3),
+            "the {subject:?} correction waits for the chunk"
+        );
+    }
 }
 
 /// Retained ingress supplies dependencies while its payload still waits outside admission.

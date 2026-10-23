@@ -170,20 +170,40 @@ impl CommittedGameplayState<'_> {
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::VehicleMovementCorrection { correction, .. } = control {
+            // Prediction restarts from the corrected boat and the rider snaps to its seat at
+            // the local tick, discarding stale inputs as a teleport does.
             if self.movement.physics_is_authorized()
-                && let Some(replay) = self.physics.correct_vehicle(
-                    &movement::vehicle::VehicleCorrection {
+                && let Some(seat) =
+                    self.physics
+                        .correct_vehicle(&movement::vehicle::VehicleCorrection {
+                            tick: correction.tick,
+                            position: correction.position,
+                            velocity: correction.delta,
+                            rotation: [correction.pitch, correction.yaw],
+                            angular_velocity: correction.vehicle_angular_velocity,
+                            on_ground: correction.on_ground,
+                        })
+                && let Err(fault) = movement::reconcile_physics_anchor(
+                    self.movement,
+                    self.physics,
+                    movement::PhysicsAnchor {
+                        network_position: [
+                            seat[0],
+                            seat[1] + protocol::PLAYER_NETWORK_OFFSET,
+                            seat[2],
+                        ],
                         tick: correction.tick,
-                        position: correction.position,
-                        velocity: correction.delta,
-                        rotation: [correction.pitch, correction.yaw],
-                        angular_velocity: correction.vehicle_angular_velocity,
-                        on_ground: correction.on_ground,
+                        on_ground: false,
+                        velocity: Some([0.0; 3]),
                     },
+                    movement::PhysicsCorrectionMode::Snap,
                     world,
                 )
             {
-                self.movement.reconcile_vehicle_inputs(&replay.samples);
+                warn!(
+                    ?fault,
+                    "local physics authority failed while applying a vehicle correction"
+                );
             }
             return ControlDisposition::Handled;
         }
