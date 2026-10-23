@@ -216,7 +216,8 @@ fn culled_draw_counts_never_reach_past_their_args_region() {
         index_counts: [6; STREAM_COUNT],
     };
     for phase in CullPhase::ALL {
-        let uniform = CullViewUniform::new(&input, phase, capacity, capacity);
+        let uniform =
+            CullViewUniform::new(&input, phase, capacity, capacity, model::CULL_WORKGROUP);
         for stream in CullStream::ALL {
             let limit = region_draws(capacity, stream);
             assert_eq!(limit, stream.draws_per_record() * capacity);
@@ -239,25 +240,52 @@ fn indirect_devices_select_the_best_gpu_cull_submission() {
     let compute = DownlevelFlags::COMPUTE_SHADERS;
     let mdi = ChunkDrawMode::MultiDrawIndirect;
     assert_eq!(
-        gpu_cull_submission(mdi, count, compute, false),
+        gpu_cull_submission(mdi, count, compute, false, &wgpu::Limits::default()),
         Some(GpuCullSubmission::Count)
     );
     assert_eq!(
-        gpu_cull_submission(mdi, fixed, compute, false),
+        gpu_cull_submission(mdi, fixed, compute, false, &wgpu::Limits::default()),
         Some(GpuCullSubmission::Fixed)
     );
-    assert!(gpu_cull_supported(mdi, fixed, compute, false));
+    assert!(gpu_cull_supported(
+        mdi,
+        fixed,
+        compute,
+        false,
+        &wgpu::Limits::default()
+    ));
     assert_eq!(
-        gpu_cull_submission(mdi, WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT, compute, false),
+        gpu_cull_submission(
+            mdi,
+            WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT,
+            compute,
+            false,
+            &wgpu::Limits::default()
+        ),
         None
     );
-    assert_eq!(gpu_cull_submission(mdi, count, compute, true), None);
     assert_eq!(
-        gpu_cull_submission(ChunkDrawMode::Direct, count, compute, false),
+        gpu_cull_submission(mdi, count, compute, true, &wgpu::Limits::default()),
         None
     );
     assert_eq!(
-        gpu_cull_submission(mdi, count, DownlevelFlags::empty(), false),
+        gpu_cull_submission(
+            ChunkDrawMode::Direct,
+            count,
+            compute,
+            false,
+            &wgpu::Limits::default()
+        ),
+        None
+    );
+    assert_eq!(
+        gpu_cull_submission(
+            mdi,
+            count,
+            DownlevelFlags::empty(),
+            false,
+            &wgpu::Limits::default()
+        ),
         None
     );
 }

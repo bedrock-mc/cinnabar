@@ -52,7 +52,7 @@ pub const SHADOW_SAMPLER_NAME: &str = "iris_samplerShadow";
 macro_rules! sampler_classes {
     ($($(#[$doc:meta])* $class:ident => ($binding:expr, $name:expr)),+ $(,)?) => {
         /// Filtering and addressing settings used by a sampled texture.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum SamplerClass { $($(#[$doc])* $class),+ }
 
         impl SamplerClass {
@@ -169,7 +169,7 @@ macro_rules! vertex_attributes {
     ($( $(#[$doc:meta])* $kind:ident => [$($name:literal),+]),+ $(,)?;
      $($(#[$dynamic_doc:meta])* $dynamic:ident => [$($dynamic_name:literal),+]),+ $(,)?) => {
         /// A per-vertex input the host's vertex buffers must provide.
-        #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
         pub enum VertexAttribute {
             $($(#[$doc])* $kind,)+
             $($(#[$dynamic_doc])* $dynamic,)+
@@ -232,7 +232,7 @@ vertex_attributes! {
 pub const FIRST_OTHER_ATTRIBUTE_LOCATION: u32 = SUPPLIED.len() as u32;
 
 /// Whether the host's vertex stream stores an attribute as floats or as integers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StoredNumbers {
     Float,
     Int,
@@ -272,7 +272,7 @@ impl VertexAttribute {
 }
 
 /// Scalar component type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScalarType {
     Bool,
     Int8,
@@ -289,7 +289,7 @@ pub enum ScalarType {
 }
 
 /// A value type in an interface or uniform block. Bool uniforms are stored as `Int`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ValueType {
     Scalar(ScalarType),
     Vector {
@@ -304,7 +304,7 @@ pub enum ValueType {
 }
 
 /// A vertex input of the program's vertex stage.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct VertexInput {
     pub location: u32,
     /// The input's name in translated GLSL.
@@ -314,7 +314,9 @@ pub struct VertexInput {
 }
 
 /// Which stages of a program use a binding.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash,
+)]
 pub struct StageMask {
     pub vertex: bool,
     pub fragment: bool,
@@ -333,7 +335,7 @@ impl StageMask {
 }
 
 /// One leaf of a uniform block: arrays of structs are expanded to `name[i].member`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct UniformMember {
     /// Path inside the block, e.g. `frameTimeCounter`, `iris_Fog.color`, `lights[2]`.
     pub name: String,
@@ -345,7 +347,7 @@ pub struct UniformMember {
 }
 
 /// A std140 uniform block. The loose-uniform block is identical in every stage of a program.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct UniformBlock {
     pub name: String,
     pub group: u32,
@@ -357,7 +359,7 @@ pub struct UniformBlock {
 }
 
 /// Texture shape.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureDimension {
     D1,
     D1Array,
@@ -369,7 +371,7 @@ pub enum TextureDimension {
 }
 
 /// How a sampled texture is read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SampleType {
     Float,
     Sint,
@@ -379,7 +381,7 @@ pub enum SampleType {
 }
 
 /// A sampled texture (`sampler2D colortex0` becomes a separate `texture2D`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct TextureBinding {
     /// The pack's sampler name (`colortex0`, `shadowtex1`, `noisetex`, a custom texture …).
     pub name: String,
@@ -392,7 +394,7 @@ pub struct TextureBinding {
 }
 
 /// One of the shared samplers: a [`SamplerClass`] or the comparison sampler.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct SamplerBinding {
     pub name: String,
     pub group: u32,
@@ -413,7 +415,7 @@ impl SamplerBinding {
 }
 
 /// A storage image (`image2D`, `uimage3D` …).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct StorageImageBinding {
     pub name: String,
     pub group: u32,
@@ -428,7 +430,7 @@ pub struct StorageImageBinding {
 }
 
 /// A pack-declared uniform or storage buffer block.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct BufferBinding {
     pub name: String,
     pub group: u32,
@@ -441,7 +443,7 @@ pub struct BufferBinding {
 }
 
 /// A fragment output and the colour buffer it lands in.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ColorOutput {
     pub location: u32,
     /// The output's name in translated GLSL.
@@ -456,7 +458,7 @@ pub struct ColorOutput {
 }
 
 /// Compute dispatch shape.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ComputeDispatch {
     /// `layout(local_size_x …)`.
     pub workgroup_size: [u32; 3],
@@ -468,7 +470,7 @@ pub struct ComputeDispatch {
 }
 
 /// Everything the host binds for one translated program.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ProgramReflection {
     pub kind: ProgramKind,
     /// Stages with their entry point names, in pipeline order.

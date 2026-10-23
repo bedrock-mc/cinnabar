@@ -41,6 +41,8 @@ pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
 mod gpu_allocation;
+mod gpu_error_policy;
+pub use gpu_error_policy::{GpuFailure, install_error_policy};
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 
@@ -96,6 +98,7 @@ mod scene_target;
 
 mod queue_writes;
 mod screen_overlay_render;
+mod shader_asset;
 mod shader_safety;
 #[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};

@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 /// An option discovered in the pack's shader sources.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PackOption {
     /// Macro or constant name.
     pub name: String,
@@ -22,7 +22,7 @@ pub struct PackOption {
 }
 
 /// The kind of a [`PackOption`], with its default value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum OptionKind {
     /// `#define NAME` (default on) or `//#define NAME` (default off).
     Bool {

@@ -65,6 +65,7 @@ fn install_result(
     match result {
         Ok(renderer) => {
             app.add_plugins(renderer);
+            render::install_error_policy(app);
         }
         Err(error) => {
             app.insert_resource(StartupFailure(error));

@@ -69,10 +69,11 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
-        // Folder buttons outside Storage (the Shaders tab folder) need this before
-        // Storage is first measured.
-        std::sync::Arc::make_mut(&mut initial.storage).opens_folders =
-            launcher_host::desktop::opens_folders();
+        // The Shaders tab's folder button and drop prompt need these before Storage is first
+        // measured.
+        let storage = std::sync::Arc::make_mut(&mut initial.storage);
+        storage.opens_folders = launcher_host::desktop::opens_folders();
+        storage.accepts_file_drops = launcher_host::desktop::accepts_file_drops();
         if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
             initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
         }
@@ -148,6 +149,7 @@ impl MenuRuntime {
             shader_pack_reload: false,
             shader_pack_removing: None,
             shader_pack_remove_request: None,
+            shader_pack_import: Default::default(),
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),

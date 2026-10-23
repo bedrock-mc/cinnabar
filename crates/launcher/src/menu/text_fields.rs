@@ -15,6 +15,9 @@ impl MenuAction {
             Self::SearchFriends => Some(MenuField::FriendQuery),
             Self::SearchSettings => Some(MenuField::SettingsQuery),
             Self::LocalWorld(action) => action.field(),
+            Self::WorldSettings(crate::local_worlds::in_world::Action::OptionField(id)) => {
+                Some(MenuField::WorldOption(id))
+            }
             _ => None,
         }
     }

@@ -121,8 +121,16 @@ fn explicit_varying_locations_link_different_names_and_skip_implicit_slots() {
         locations.sort_unstable();
         locations
     };
-    assert_eq!(locations(vertex, true), locations(fragment, false));
-    assert!(locations(vertex, true).contains(&0));
+    assert_eq!(locations(vertex, true), [0, 1]);
+    assert_eq!(locations(fragment, false), [0, 1]);
+    assert_eq!(
+        interface_locations(vertex, true),
+        [("automaticUv", 1), ("sourceUv", 0)]
+    );
+    assert_eq!(
+        interface_locations(fragment, false),
+        [("automaticUv", 1), ("uv", 0)]
+    );
 }
 
 #[test]
