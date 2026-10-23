@@ -115,24 +115,38 @@ impl ActorSnapshot {
     /// Interaction boxes at the actor's current pose.
     #[must_use]
     pub fn hit_boxes(&self) -> ActorHitBoxes<'_> {
-        self.hit_boxes_at(self.position)
+        self.hit_boxes_at_pose(self.current_pose())
     }
 
     /// Interaction boxes with collision feet at `position`. Custom pivots are relative
     /// to the native actor position and are independent of render scale and rotation.
     #[must_use]
     pub fn hit_boxes_at(&self, mut position: [f32; 3]) -> ActorHitBoxes<'_> {
+        let feet = position;
+        position[1] += self.network_position_offset();
+        self.hit_boxes_with_origin(feet, position)
+    }
+
+    /// Uses the exact native origin retained by a current or predicted actor pose.
+    pub(crate) fn hit_boxes_at_pose(&self, pose: ActorPose) -> ActorHitBoxes<'_> {
+        self.hit_boxes_with_origin(
+            pose.position,
+            pose.native_position(self.network_position_offset()),
+        )
+    }
+
+    /// Anchors collision boxes at feet and custom boxes at the matching native origin.
+    fn hit_boxes_with_origin(&self, feet: [f32; 3], native: [f32; 3]) -> ActorHitBoxes<'_> {
         let custom = self
             .hitboxes
             .as_ref()
             .map_or(&[][..], |state| state.boxes.as_slice());
         let fallback = if custom.is_empty() {
-            self.bounding_box_at(position)
+            self.bounding_box_at(feet)
         } else {
             None
         };
-        position[1] += self.network_position_offset();
-        ActorHitBoxes::new(custom, position, fallback)
+        ActorHitBoxes::new(custom, native, fallback)
     }
 
     /// Samples 0.66 of the body height above interpolated feet.
@@ -149,9 +163,7 @@ impl ActorSnapshot {
 
     /// Restores the native actor-state origin from stored collision feet.
     pub fn native_position(&self) -> [f32; 3] {
-        let mut position = self.position;
-        position[1] += self.network_position_offset();
-        position
+        self.current_native_position()
     }
 
     /// Native actor-state origin at supplied retained feet, preserving this class's decoded offset.

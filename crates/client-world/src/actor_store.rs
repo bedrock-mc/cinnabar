@@ -68,15 +68,19 @@ pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 pub struct PoseYOrigin {
     spawn: f32,
     network: f32,
+    /// Exact network height before the conversion to collision feet.
+    native_y: Option<f32>,
 }
 impl PoseYOrigin {
     const SPAWN: Self = Self {
         spawn: 1.0,
         network: 0.0,
+        native_y: None,
     };
     const NETWORK: Self = Self {
         spawn: 0.0,
         network: 1.0,
+        native_y: None,
     };
 
     /// Blends origin contributions with the same fraction as the vertical position.
@@ -84,6 +88,7 @@ impl PoseYOrigin {
         Self {
             spawn: self.spawn + (target.spawn - self.spawn) * fraction,
             network: self.network + (target.network - self.network) * fraction,
+            native_y: None,
         }
     }
 }
@@ -100,9 +105,13 @@ pub struct ActorPose {
 
 impl ActorPose {
     /// Applies only the offset deltas that contributed to this pose's vertical coordinate.
-    fn shift_y(&mut self, network_delta: f32, spawn_delta: f32) {
+    fn shift_y(&mut self, network_delta: f32, spawn_delta: f32, network_offset: f32) {
         let delta = self.y_origin.network * network_delta + self.y_origin.spawn * spawn_delta;
-        if delta != 0.0 {
+        if let Some(native_y) = self.y_origin.native_y {
+            let native_y = native_y + (delta - network_delta);
+            self.y_origin.native_y = Some(native_y);
+            self.position[1] = native_y - network_offset;
+        } else if delta != 0.0 {
             self.position[1] += delta;
         }
     }
@@ -201,10 +210,23 @@ impl ActorSnapshot {
     /// or `None` when a component is not finite.
     #[must_use]
     pub fn interpolated_position(&self, alpha: f32) -> Option<[f32; 3]> {
-        let position = std::array::from_fn(|axis| {
+        let mut position = std::array::from_fn(|axis| {
             self.previous_pose.position[axis]
                 + (self.position[axis] - self.previous_pose.position[axis]) * alpha
         });
+        if self.previous_pose.y_origin.native_y.is_some()
+            || self
+                .status
+                .movement_interpolation
+                .current_y_origin
+                .native_y
+                .is_some()
+        {
+            let offset = self.network_position_offset();
+            let from = self.previous_pose.native_position(offset)[1];
+            let to = self.native_position()[1];
+            position[1] = from + (to - from) * alpha - offset;
+        }
         position
             .iter()
             .all(|value| value.is_finite())
@@ -471,13 +493,14 @@ impl ActorSnapshot {
 
     /// Rebases retained poses and queued targets without moving collision-feet inputs.
     fn shift_poses_y(&mut self, network_delta: f32, spawn_delta: f32) {
+        let network_offset = self.network_position_offset();
         let mut current = self.current_pose();
         for pose in [
             &mut current,
             &mut self.previous_pose,
             &mut self.received_pose,
         ] {
-            pose.shift_y(network_delta, spawn_delta);
+            pose.shift_y(network_delta, spawn_delta, network_offset);
         }
         self.set_current_pose(current);
         self.shift_interpolation_targets_y(network_delta, spawn_delta);

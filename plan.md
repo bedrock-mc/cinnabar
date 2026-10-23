@@ -320,6 +320,10 @@ and rendered qualification remain incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Movement retains signed byte rotations and exact network heights through tick and
+  frame interpolation and predicted picking. Specialized projectile and vehicle movement,
+  remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
