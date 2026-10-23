@@ -70,10 +70,10 @@ pub fn descends_through_block(input: &MovementInput, over_descending_block: bool
 /// its contact for the next tick's descent action, climb jump and gravity.
 /// `start` is the contact the tick began with; an immobile tick's descent
 /// action reads it. Cells without usable facts count as neither scaffolding
-/// nor support. As an untraced recovery policy, an unavailable movement origin
-/// publishes the retained contact instead of failing the tick; a spectator,
-/// or such a tick without retained contact, is unsampled. Other query failures
-/// reject the tick, including identity conflicts discovered after movement.
+/// nor support. As an untraced recovery policy, unavailable origins and failed
+/// scans publish the retained contact; a spectator, or such a tick without
+/// retained contact, is unsampled. Identity conflicts still reject the tick,
+/// including conflicts discovered after movement.
 pub(super) fn finish_tick(
     world: &(impl CollisionWorld + ?Sized),
     state: &mut PlayerState,
@@ -114,7 +114,7 @@ pub(super) fn finish_tick(
 }
 
 /// Measures climber contact at `feet`, merging the reads into `identity`.
-/// An unavailable origin leaves contact unmeasured; other failures propagate.
+/// Unreadable terrain leaves contact unmeasured; identity conflicts propagate.
 fn measure(
     world: &(impl CollisionWorld + ?Sized),
     feet: crate::Vec3,
@@ -122,13 +122,21 @@ fn measure(
     input: &MovementInput,
     identity: &mut crate::WorldCollisionIdentity,
 ) -> Result<Option<ClimberContact>, WorldQueryError> {
-    if readable(world.ensure_movement_origin(feet))?.is_none() {
-        return Ok(None);
-    }
     let mut sampled = SampledEnvironment::unsampled(identity.clone());
-    let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled)?;
-    *identity = sampled.identity;
-    Ok(Some(contact))
+    let measured = world
+        .ensure_movement_origin(feet)
+        .and_then(|()| sample_climber(world, player, input.can_stand_on_snow, &mut sampled));
+    match measured {
+        Ok(contact) => {
+            *identity = sampled.identity;
+            Ok(Some(contact))
+        }
+        Err(
+            error @ (WorldQueryError::RegistryIdentityMismatch
+            | WorldQueryError::ChunkRevisionConflict { .. }),
+        ) => Err(error),
+        Err(_) => Ok(None),
+    }
 }
 
 /// Scaffolding and climbable-block facts of one footprint layer.
