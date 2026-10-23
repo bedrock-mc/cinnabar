@@ -22,9 +22,12 @@ pub(super) fn prepare(
     device: &RenderDevice,
     queue: &RenderQueue,
     gpu: &mut ParticleGpu,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
+    #[cfg(feature = "shaderpacks")] shared_atlases: &mut SharedAtlasRelease,
 ) {
     if let Some(base) = &frame.base
-        && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
+        && (gpu.texture_raw_views != raw_views
+            || gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base)))
         && assets::texture::policy::TexturePolicy::for_device(
             device.limits().max_texture_dimension_2d,
         )
@@ -32,10 +35,13 @@ pub(super) fn prepare(
             == Some(base.len())
     {
         // Old placements are invalid for the new base, so release its atlas before allocating.
+        #[cfg(feature = "shaderpacks")]
+        shared_atlases.release(gpu.texture.as_ref());
         let released = gpu.texture.take().is_some();
         gpu.texture_view = None;
         gpu.bind_group = None;
         gpu.base = Some(Arc::clone(base));
+        gpu.texture_raw_views = raw_views;
         gpu.uploaded_seq = 0;
         gpu.atlas = AtlasUpload {
             side: frame.atlas_side,
@@ -81,7 +87,9 @@ fn install(gpu: &mut ParticleGpu, device: &RenderDevice, queue: &RenderQueue, re
     };
     let mut factor = 1;
     loop {
-        if let Some((texture, view)) = upload(device, queue, side, &base, factor) {
+        if let Some((texture, view)) =
+            upload(device, queue, side, &base, factor, gpu.texture_raw_views)
+        {
             publish(gpu, texture, view, factor);
             return;
         }
@@ -108,6 +116,7 @@ fn upload(
     side: u32,
     base: &[u8],
     factor: u32,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
 ) -> Option<(Texture, TextureView)> {
     let reduced = reduced_base(side, base, factor);
     let (extent, pixels) = match &reduced {
@@ -130,7 +139,7 @@ fn upload(
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             // Shader packs read the stored gamma bytes through an `Rgba8Unorm` view.
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: raw_views.view_formats(),
         },
     )?;
     gpu_allocation::checked(device, "particle atlas upload", pixels.len() as u64, || {

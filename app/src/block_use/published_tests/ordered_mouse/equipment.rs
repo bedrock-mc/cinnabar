@@ -15,6 +15,7 @@ fn admissions(packets: &[protocol::Packet]) -> Vec<Admission> {
         .iter()
         .filter_map(|packet| {
             if let Some(report) = equipment(packet) {
+                assert_eq!(report.actor_runtime_id, 42);
                 assert_eq!(
                     i32::from(report.container_id),
                     protocol::PLAYER_INVENTORY_WINDOW_ID
@@ -83,8 +84,8 @@ fn ordered_equipment_full_prefix_keeps_only_accepted_actions_before_movement() {
             app.world()
                 .resource::<client_state::PlayerRuntime>()
                 .selected_hotbar_slot(),
-            Some(u8::from(available != 0)),
-            "Full must not publish a refused selection",
+            Some(1),
+            "selection is local even while its announcement waits",
         );
 
         for _ in 0..3 {
@@ -102,6 +103,10 @@ fn ordered_equipment_full_prefix_keeps_only_accepted_actions_before_movement() {
         frame(&mut app);
         packets.extend(captured.drain());
         let mut expected = expected_prefix;
+        if available == 0 {
+            // The refused announcement still reaches the server on the next tick.
+            expected.push(Admission::Equipment(1));
+        }
         expected.push(Admission::Input(102));
         assert_eq!(
             admissions(&packets),
@@ -109,4 +114,35 @@ fn ordered_equipment_full_prefix_keeps_only_accepted_actions_before_movement() {
             "the completed tick must preserve the accepted prefix: {available}",
         );
     }
+}
+
+/// Several selections before a tick announce only the final slot, once, ahead of that tick's input.
+#[test]
+fn ordered_scroll_within_one_tick_announces_only_the_final_slot() {
+    let (mut app, mut captured) = app_fixture(8);
+    next_slot(app.world_mut());
+    next_slot(app.world_mut());
+    frame(&mut app);
+    assert_eq!(
+        app.world()
+            .resource::<client_state::PlayerRuntime>()
+            .selected_hotbar_slot(),
+        Some(2)
+    );
+    assert_eq!(admissions(&captured.drain()), []);
+
+    attack_progress_tests::ticks(app.world_mut(), 102, 103);
+    frame(&mut app);
+    let packets = captured.drain();
+    let reports: Vec<_> = packets.iter().filter_map(equipment).collect();
+    let [report] = &reports[..] else {
+        panic!("expected one equipment report: {reports:?}");
+    };
+    assert_eq!(report.slot, 2);
+    assert_eq!(report.selected_slot, 2);
+    assert_eq!(report.stack_network_id, None);
+    assert_eq!(
+        admissions(&packets),
+        [Admission::Equipment(2), Admission::Input(102)],
+    );
 }

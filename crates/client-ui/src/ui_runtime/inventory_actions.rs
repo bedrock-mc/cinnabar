@@ -8,7 +8,6 @@ use super::UiRuntime;
 use super::inventory_drag::PointerAction;
 use super::presentation::inventory_pointer::InventoryScreen;
 use super::presentation::screens::{BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS};
-use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
     CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
     InventoryTarget, PlayerInventoryLedger, ScreenCraft,
@@ -143,20 +142,11 @@ pub fn recipe_book_entries<'a>(
         }
         return entries;
     }
-    let shown: std::collections::HashSet<i32> = ledger
-        .creative_catalog()
-        .map(|catalog| {
-            creative_entries(
-                catalog,
-                runtime.creative_tab(player_runtime),
-                &state.search,
-                |item| item_name(ledger, runtime, item),
-            )
-            .iter()
-            .map(|item| item.stack.network_id)
-            .collect()
-        })
-        .unwrap_or_default();
+    // The retained creative filter answers the same tab and search without renaming every item.
+    let shown: std::collections::HashSet<i32> = visible_creative_entries(player_runtime, runtime)
+        .iter()
+        .map(|item| item.stack.network_id)
+        .collect();
     runtime
         .book_recipes(player_runtime, 0, usize::MAX)
         .into_iter()
@@ -437,12 +427,12 @@ impl UiRuntime {
         if let InventoryCellHit::RecipeBook(index) = hit {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
-        if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+        if let InventoryCellHit::Widget(Widget::BookRecipe(index)) = hit {
             // A secondary click crafts once only with an empty cursor.
             if player_runtime.inventory.ledger().cursor_stack().is_some() {
                 return Err(InventoryGestureError::InvalidRequest);
             }
-            return self.activate_widget(player_runtime, widget);
+            return self.book_widget_craft(player_runtime, index, catalog::BookClick::CraftOnce);
         }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
@@ -553,7 +543,7 @@ impl UiRuntime {
                 self.recipe_book_click(player_runtime, index, true, None)
             }
             InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
-                self.book_widget_craft(player_runtime, index, true)
+                self.book_widget_craft(player_runtime, index, catalog::BookClick::CraftAll)
             }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
@@ -826,6 +816,8 @@ impl UiRuntime {
                         options.filtering = !options.filtering
                     });
                 }
+                self.inventory_ledger_mut(player_runtime)
+                    .clear_recipe_selection();
                 self.change_inventory_options(player_runtime, true, |controller| {
                     controller.options.filtering = !controller.options.filtering
                 })
@@ -863,7 +855,9 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
+            Widget::BookRecipe(index) => {
+                self.book_widget_craft(player_runtime, index, catalog::BookClick::Place)
+            }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),

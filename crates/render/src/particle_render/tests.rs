@@ -846,3 +846,33 @@ fn particle_keys_cannot_replace_later_retained_draws_and_expire_with_the_phase()
 
 #[path = "storage_tests.rs"]
 mod storage_tests;
+
+/// The particle atlas allows the pack's raw view only while a pack draws; switching recreates it.
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn the_particle_atlas_allows_raw_views_only_while_a_pack_draws() {
+    use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
+    use bevy::render::renderer::{RenderDevice, RenderQueue};
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_particle_gpu).unwrap();
+    let side = 16;
+    world.insert_resource(ParticleGpuFrame {
+        base: Some(vec![255; (side * side * 4) as usize].into()),
+        atlas_side: side,
+        ..Default::default()
+    });
+    world.run_system_once(prepare_particle_resources).unwrap();
+    assert!(world.resource::<ParticleGpu>().atlas_texture().is_none());
+    for pack in [true, false] {
+        world.insert_resource(ArtworkRawViews(pack));
+        world.run_system_once(prepare_particle_resources).unwrap();
+        let gpu = world.resource::<ParticleGpu>();
+        let texture = gpu.texture.as_ref().unwrap();
+        let device = world.resource::<RenderDevice>().wgpu_device();
+        assert_eq!(permits_raw_view(device, texture), pack);
+        assert_eq!(gpu.atlas_texture().is_some(), pack);
+    }
+}

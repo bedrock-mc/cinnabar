@@ -1,11 +1,13 @@
-//! First-run preparation of the Mojang-derived asset carriers, which installers never ship.
+//! First-run preparation of the game resources, which installers never ship.
 //!
 //! Runs before the game window: consent, a download of the pinned public pack, then one
-//! `assetc prepare`. A setup window in a child process shows it; without one, native dialogs do.
-//! Progress is mirrored to `logs/first-run-status.json`.
+//! `assetc prepare`. Android also tries to prepare local worlds before starting the game. A setup
+//! window in a child process shows desktop setup; without one, native dialogs do. Progress is
+//! mirrored to `logs/first-run-status.json`.
 
 mod download;
 mod fs_retry;
+mod headless;
 mod prepare;
 mod runner;
 mod screen;
@@ -19,6 +21,7 @@ use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
+pub use headless::prepare_headless;
 use prepare::prepare;
 use status::Status;
 pub use window::{SETUP_FLAG, run_setup_process};
@@ -28,7 +31,10 @@ use {
 };
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";
+#[cfg(not(target_os = "android"))]
 const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";
+#[cfg(target_os = "android")]
+const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack and dedicated server. They are downloaded from Mojang (a large one-time download) and prepared on this device for game assets and local worlds. Cinnabar never redistributes these downloads. Local worlds are prepared during setup and may need preparation again after an app update.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup takes a few minutes.";
 const EULA_URL: &str = "https://www.minecraft.net/eula";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,15 +45,15 @@ pub enum Outcome {
     Quit,
 }
 
-/// Prepares the per-user carriers when a packaged install has none or they predate the pins this
-/// build carries; a no-op for development checkouts.
+/// Prepares a packaged install's resources when they are missing or stale; a no-op for development
+/// checkouts. Android's setup activity also tries to prepare local worlds before starting the game.
 pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
     if cfg!(target_os = "android") {
         // Android's setup activity runs `prepare_headless` before the game activity starts.
-        bail!("game assets are not prepared; close and reopen the app to finish setup");
+        bail!("setup is incomplete; close and reopen the app to finish setup");
     }
     // An earlier run's report must not describe this one.
     let _ = fs::remove_file(progress_file(layout));
@@ -56,47 +62,16 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
         window::ChildOutcome::Quit => Ok(Outcome::Quit),
         window::ChildOutcome::Failed(code) => bail!(
             "first-time setup failed (exit {code}); details: {}",
-            layout.log_dir().join("first-run.log").display()
+            prepare::log_path(layout).display()
         ),
         window::ChildOutcome::Unavailable => ensure_with(layout, &NativePrompter, env_consent()),
     }
 }
 
-/// Prepares without a window or dialogs, as Android's setup activity does: `consent` asks with a
-/// title and body only when none is recorded, `progress` receives each status line, and setting
-/// `cancel` quits without publishing.
-pub fn prepare_headless(
-    layout: &InstallLayout,
-    cancel: &AtomicBool,
-    consent: impl FnOnce(&str, &str) -> bool,
-    mut progress: impl FnMut(&str),
-) -> Result<Outcome> {
-    if !needs_preparation(layout) {
-        return Ok(Outcome::NotNeeded);
-    }
-    let mut report = reporter(layout, |status: &Status| {
-        progress(status.summary().as_str())
-    });
-    if !consent_recorded(layout) {
-        report(Status::awaiting_consent());
-        if !consent(setup_title(None).as_str(), CONSENT_BODY) {
-            report(Status::failed("Declined", "setup declined"));
-            return Ok(Outcome::Quit);
-        }
-        record_consent(layout)?;
-    }
-    report(Status::starting());
-    match prepare(layout, cancel, &mut report) {
-        Ok(()) => Ok(Outcome::Prepared),
-        Err(error) if error.is::<runner::Cancelled>() => Ok(Outcome::Quit),
-        Err(error) => Err(error),
-    }
-}
-
-/// An unreadable kit counts as needing preparation, which then reports it.
+/// Whether the game must wait for setup. Only carriers gate it: local worlds are optional, so an
+/// unprepared server never blocks remote play. An unreadable kit is reported during setup.
 fn needs_preparation(layout: &InstallLayout) -> bool {
-    layout.is_installed()
-        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
+    headless::assets_needed(layout)
 }
 
 /// An earlier set exists, so this run updates rather than sets up.
@@ -218,7 +193,7 @@ fn ensure_with(
                 &title,
                 &format!(
                     "Setup failed: {message}\n\nDetails: {}",
-                    layout.log_dir().join("first-run.log").display()
+                    prepare::log_path(layout).display()
                 ),
             );
             Err(error)

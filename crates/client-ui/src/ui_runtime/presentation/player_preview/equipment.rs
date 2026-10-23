@@ -37,7 +37,7 @@ impl PreviewTexture {
 }
 
 /// The armor pieces worn (helmet, chestplate, leggings, boots) and the held item.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PreviewEquipment {
     pub armor: [Option<PreviewTexture>; 4],
     /// Effective shine already resolved for each worn stack.
@@ -45,6 +45,20 @@ pub struct PreviewEquipment {
     /// Small compatibility raster only; GPU previews use `hands` and real models.
     pub held: Option<PreviewTexture>,
     pub hands: [Option<PreviewHandItem>; 2],
+    /// Whether server-pack authored hand models may replace ordinary item sprites.
+    pub show_custom_item_models: bool,
+}
+
+impl Default for PreviewEquipment {
+    fn default() -> Self {
+        Self {
+            armor: [const { None }; 4],
+            armor_glint: [false; 4],
+            held: None,
+            hands: [None, None],
+            show_custom_item_models: ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
+        }
+    }
 }
 
 /// Identity and authoritative item state used to select each hand's native model.

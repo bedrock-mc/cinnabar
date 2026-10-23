@@ -38,8 +38,8 @@ use bevy::{
         },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query, Res,
-        ResMut, Resource, Result, Shader, Vec3, World, default,
+        App, Assets, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query,
+        Res, ResMut, Resource, Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -79,12 +79,20 @@ const ACTOR_RIG_SHADER_HANDLE: Handle<Shader> =
 
 /// Registers `render::actor_rig`, the rig skinning the actor and hand passes share.
 pub(crate) fn load_rig_shader(app: &mut App) {
-    load_internal_asset!(
-        app,
+    let (id, shader) = rig_shader_asset();
+    app.world_mut()
+        .resource_mut::<Assets<Shader>>()
+        .insert(id, shader)
+        .expect("the rig uses a stable shader ID");
+}
+
+/// Builds the shared rig module for a renderer-owned shader cache.
+pub(crate) fn rig_shader_asset() -> (AssetId<Shader>, Shader) {
+    crate::shader_asset::internal_shader_asset!(
         ACTOR_RIG_SHADER_HANDLE,
         "actor_rig.wesl",
         crate::shader_safety::from_wesl
-    );
+    )
 }
 
 #[cfg(test)]
@@ -354,9 +362,13 @@ fn prepare_actor_resources(
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
+    gpu.artwork.set_raw_views(raw_views);
+    gpu.skins.set_raw_views(raw_views);
     if gpu.skins.failed(&frame.skins) {
         gpu.instance_count = 0;
         gate.clear();

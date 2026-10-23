@@ -25,7 +25,7 @@ pub(crate) enum Directive {
 }
 
 /// One `const` directive line, as written (OptiFine/Iris read these even inside comments).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ConstDirective {
     pub ty: String,
     pub name: String,

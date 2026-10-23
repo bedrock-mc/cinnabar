@@ -321,3 +321,126 @@ fn ordinary_views_do_not_warm_shader_pack_label_variants() {
         .unwrap();
     assert_eq!(ids.len(), if cfg!(feature = "shaderpacks") { 8 } else { 4 });
 }
+
+/// Builds a noop view with compatible colour and depth for overlay preparation.
+#[cfg(feature = "shaderpacks")]
+fn overlay_world() -> (World, Entity) {
+    use bevy::{
+        camera::{CameraMainTextureUsages, ClearColorConfig},
+        ecs::system::RunSystemOnce,
+        render::{
+            texture::TextureCache,
+            view::{
+                ExtractedView, RetainedViewEntity, ViewDepthStencilTexture, ViewTargetAttachments,
+                prepare_view_targets,
+            },
+        },
+    };
+
+    let (device, _) = wgpu::Device::noop(&default());
+    let device = RenderDevice::from(device);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.init_resource::<ClearColor>();
+    world.init_resource::<TextureCache>();
+    world.init_resource::<ViewTargetAttachments>();
+    let depth = world.resource_mut::<TextureCache>().get(
+        &device,
+        TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+    );
+    let mut camera = crate::render_test_support::camera(false);
+    camera.physical_target_size = Some(UVec2::splat(4));
+    camera.clear_color = ClearColorConfig::None;
+    let view = world
+        .spawn((
+            camera,
+            CameraMainTextureUsages::default(),
+            Msaa::Off,
+            ViewDepthStencilTexture::new(depth, Some(0.0), None),
+            ExtractedView {
+                retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                target_format: render_scene::SCENE_COLOR_FORMAT,
+                viewport: UVec4::new(0, 0, 4, 4),
+                color_grading: default(),
+                invert_culling: false,
+            },
+        ))
+        .id();
+    world.run_system_once(prepare_view_targets).unwrap();
+    (world, view)
+}
+
+/// Leaving the pack releases the full-screen label layer; returning prepares a fresh one.
+#[test]
+#[cfg(feature = "shaderpacks")]
+fn leaving_the_pack_releases_the_label_overlay() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::shaderpack::ShaderPackRendering;
+    let (mut world, view) = overlay_world();
+    for pack in [false, true, false, true] {
+        if pack {
+            world.entity_mut(view).insert(ShaderPackRendering);
+        } else {
+            world.entity_mut(view).remove::<ShaderPackRendering>();
+        }
+        world.run_system_once(overlay::prepare).unwrap();
+        assert_eq!(world.entity(view).contains::<overlay::Overlay>(), pack);
+    }
+}
+
+/// Failed label overlays back off, then recover without reusing an incompatible layer.
+#[test]
+#[cfg(feature = "shaderpacks")]
+fn label_overlay_allocation_failure_backs_off_then_recovers() {
+    let (mut world, view) = overlay_world();
+    world
+        .entity_mut(view)
+        .insert(render_scene::shaderpack::ShaderPackRendering);
+    let mut schedule = Schedule::default();
+    schedule.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+    schedule.add_systems(overlay::prepare);
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            if label != "nametag encoded overlay" {
+                return false;
+            }
+            attempts.set(attempts.get() + 1);
+            true
+        }
+    });
+    for _ in 0..3 {
+        schedule.run(&mut world);
+        assert!(!world.entity(view).contains::<overlay::Overlay>());
+    }
+    assert_eq!(attempts.get(), 1);
+    drop(failure);
+    schedule.run(&mut world);
+    assert!(world.entity(view).contains::<overlay::Overlay>());
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        world.entity_mut(view).insert(Msaa::Sample4);
+        schedule.run(&mut world);
+        assert!(!world.entity(view).contains::<overlay::Overlay>());
+    }
+    world.entity_mut(view).insert(Msaa::Off);
+    schedule.run(&mut world);
+    assert!(world.entity(view).contains::<overlay::Overlay>());
+}

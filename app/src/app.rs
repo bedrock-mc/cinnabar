@@ -546,6 +546,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
+    #[cfg(feature = "shaderpacks")]
+    let shader_compiler = {
+        let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
+        if layout.is_installed() {
+            bundled
+        } else {
+            layout
+                .core_executable
+                .with_file_name(bundled.file_name().context("asset compiler basename")?)
+        }
+    };
     let renderer_data_root = layout.user_data_root.clone();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = MenuRuntime::new_with_import_snapshot(
@@ -594,7 +605,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     let startup_vsync = present_mode_runtime
         .vsync_override()
-        .unwrap_or_else(|| saved_settings.user_settings().video.vsync);
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync.enabled());
     if feedback.cancelled() {
         return Ok(());
     }
@@ -631,14 +642,21 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
     logging::add_default_plugins(&mut app, plugins);
+    #[cfg(feature = "shaderpacks")]
+    app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
+        shader_compiler,
+    ));
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
+        .init_resource::<crate::frame_pacing::PowerSource>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
+    #[cfg(target_os = "macos")]
+    crate::frame_pacing::macos_presentation::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {

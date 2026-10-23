@@ -1,6 +1,8 @@
 //! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
 use crate::queue_writes::ProfiledQueue as _;
+#[cfg(feature = "shaderpacks")]
+use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -120,6 +122,8 @@ pub(crate) struct ParticleGpu {
     sampler: Sampler,
     texture_view: Option<TextureView>,
     texture: Option<Texture>,
+    /// The raw-view setting `texture` was created with.
+    texture_raw_views: crate::actor::gpu::ArtworkRawViews,
     base: Option<Arc<[u8]>>,
     uploaded_seq: u64,
     buffer: Option<Buffer>,
@@ -135,9 +139,10 @@ pub(crate) struct ParticleGpu {
 #[cfg(feature = "shaderpacks")]
 impl ParticleGpu {
     /// The uploaded particle atlas with its dynamic tiles, which shader-pack particle draws
-    /// read through a gamma-byte view rather than a copy of their own.
+    /// read through a gamma-byte view rather than a copy of their own; `None` until it is
+    /// recreated to allow that view.
     pub(crate) fn atlas_texture(&self) -> Option<&Texture> {
-        self.texture.as_ref()
+        self.texture.as_ref().filter(|_| self.texture_raw_views.0)
     }
 }
 
@@ -156,6 +161,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         texture_view: None,
         texture: None,
+        texture_raw_views: default(),
         base: None,
         uploaded_seq: 0,
         buffer: None,
@@ -173,8 +179,19 @@ pub(crate) fn prepare_particle_resources(
     frame: Res<ParticleGpuFrame>,
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: SharedAtlasRelease,
 ) {
-    atlas::prepare(&frame, &uploads.device, &uploads.queue, &mut gpu);
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
+    atlas::prepare(
+        &frame,
+        &uploads.device,
+        &uploads.queue,
+        &mut gpu,
+        raw_views,
+        #[cfg(feature = "shaderpacks")]
+        &mut shared_atlases,
+    );
 
     let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
     gpu.opaque_range = 0..opaque as u32;

@@ -30,6 +30,7 @@ fn independent_updates_match_fresh_bindings_and_remove_retired_inputs() {
                     count: 64,
                     selected: true,
                     durability: Some(0.5),
+                    ..Default::default()
                 }];
                 model.offhand = Some(HudSlot::default());
                 HudChanges {

@@ -25,7 +25,7 @@ pub(crate) fn install_base(base: Option<Arc<RuntimeBlockEntityAssets>>, scene: &
 }
 
 /// Returns the already prepared startup fallback used by join and reload workers.
-pub(super) fn base() -> Option<&'static Arc<PreparedBlockEntityArtwork>> {
+pub(crate) fn base() -> Option<&'static Arc<PreparedBlockEntityArtwork>> {
     BASE.get().map(|base| &base.prepared)
 }
 

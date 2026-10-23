@@ -9,7 +9,7 @@ use std::{
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
-use pack_json::parse_jsonc;
+use pack_json::validate_jsonc;
 
 use crate::{
     AdmissionError,
@@ -212,10 +212,7 @@ impl ValidatedPack {
         let is_json = path
             .rsplit_once('.')
             .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("json"));
-        if is_json
-            && parse_jsonc::<serde::de::IgnoredAny>(&decrypted).is_err()
-            && parse_jsonc::<serde::de::IgnoredAny>(&raw).is_ok()
-        {
+        if is_json && validate_jsonc(&decrypted).is_err() && validate_jsonc(&raw).is_ok() {
             return Ok(raw);
         }
         Ok(decrypted.into_boxed_slice())
@@ -337,6 +334,15 @@ impl ValidatedPackStack {
     #[must_use]
     pub fn packs(&self) -> &[ValidatedPack] {
         &self.packs
+    }
+
+    /// Detaches inflated and decrypted reads for off-frame destruction, keeping admission
+    /// metadata and file hashes. Later reads inflate again.
+    pub fn take_cached_reads(&self) -> impl Send + 'static + use<> {
+        self.packs
+            .iter()
+            .map(|pack| pack.reads.take_retained())
+            .collect::<Vec<_>>()
     }
 
     /// Returns the admission-time archive digests without hashing composed copies again.

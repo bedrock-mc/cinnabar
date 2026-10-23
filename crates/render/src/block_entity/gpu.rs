@@ -2,6 +2,8 @@
 //! Models and portal planes draw in the opaque phase; overlays draw afterward.
 
 use crate::queue_writes::ProfiledQueue as _;
+#[cfg(feature = "shaderpacks")]
+use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -185,6 +187,8 @@ pub(crate) struct BlockEntityGpu {
     #[cfg(test)]
     portal_uploads: u64,
     texture: Option<Texture>,
+    /// The raw-view setting `texture` was created with.
+    texture_raw_views: crate::actor::gpu::ArtworkRawViews,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
     atlas_size: [u32; 2],
@@ -217,6 +221,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         #[cfg(test)]
         portal_uploads: 0,
         texture: None,
+        texture_raw_views: default(),
         view: None,
         atlas_identity: [0; 32],
         atlas_size: [0; 2],
@@ -244,7 +249,10 @@ pub(crate) fn prepare_resources(
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: SharedAtlasRelease,
 ) {
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
     let [red, green, blue] = atmosphere.fog_color();
     let portal_parameters = [
@@ -269,10 +277,14 @@ pub(crate) fn prepare_resources(
         .atlas
         .as_ref()
         .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
-    let replaced = gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size;
+    let replaced = gpu.atlas_identity != atlas.identity
+        || gpu.atlas_size != atlas.size
+        || gpu.texture_raw_views != raw_views;
     let failed = gpu.atlas_upload.failed();
     if replaced || (failed && gpu.atlas_upload.take_ready()) || (!failed && gpu.texture.is_none()) {
         // Released first: a resized or replaced atlas never draws through the old texture.
+        #[cfg(feature = "shaderpacks")]
+        shared_atlases.release(gpu.texture.as_ref());
         let released = gpu.texture.take().is_some();
         gpu.view = None;
         gpu.solid.bind_group = None;
@@ -283,8 +295,9 @@ pub(crate) fn prepare_resources(
         gpu.additive.bind_group = None;
         gpu.atlas_identity = atlas.identity;
         gpu.atlas_size = atlas.size;
+        gpu.texture_raw_views = raw_views;
         gpu.dynamic_revision = u64::MAX;
-        let uploaded = upload_atlas(&uploads.device, &uploads.queue, atlas);
+        let uploaded = upload_atlas(&uploads.device, &uploads.queue, atlas, raw_views);
         gpu.atlas_upload
             .record(uploaded.is_some(), released.then_some(&*uploads.queue));
         if let Some((texture, view)) = uploaded {
@@ -322,6 +335,9 @@ pub(crate) fn prepare_resources(
         selection_revision,
         ..
     } = &mut *gpu;
+    // Snapshots and revisions advance only for lists the GPU received, so a failed upload
+    // retries against what the GPU still holds.
+    let mut frame_published = true;
     if *frame_revision != frame.revision {
         for (list, previous, vertices, label) in [
             (
@@ -349,33 +365,44 @@ pub(crate) fn prepare_resources(
                 "block-entity overlay vertices",
             ),
         ] {
-            list.upload(previous, vertices, &uploads, label);
-            *previous = Arc::clone(vertices);
+            if list.upload(previous, vertices, &uploads, label) {
+                *previous = Arc::clone(vertices);
+            } else {
+                frame_published = false;
+            }
         }
     }
+    let mut selection_published = true;
     if *selection_revision != selection.revision {
-        outline.upload(
+        selection_published = outline.upload(
             &uploaded.outline,
             &selection.outline,
             &uploads,
             "block selection line vertices",
         );
-        uploaded.outline = Arc::clone(&selection.outline);
+        if selection_published {
+            uploaded.outline = Arc::clone(&selection.outline);
+        }
     }
     if *frame_revision != frame.revision || *selection_revision != selection.revision {
         crack_scratch.clear();
         crack_scratch.extend_from_slice(&frame.crack);
-        *frame_crack_count = frame.crack.len() as u32;
         crack_scratch.extend_from_slice(&selection.highlight);
-        crack.upload(
+        if crack.upload(
             &uploaded.crack,
             crack_scratch,
             &uploads,
             "block-entity crack vertices",
-        );
-        std::mem::swap(crack_scratch, &mut uploaded.crack);
-        *frame_revision = frame.revision;
-        *selection_revision = selection.revision;
+        ) {
+            *frame_crack_count = frame.crack.len() as u32;
+            std::mem::swap(crack_scratch, &mut uploaded.crack);
+            if frame_published {
+                *frame_revision = frame.revision;
+            }
+            if selection_published {
+                *selection_revision = selection.revision;
+            }
+        }
     }
 }
 
@@ -384,6 +411,7 @@ fn upload_atlas(
     device: &RenderDevice,
     queue: &RenderQueue,
     atlas: &render_model::block_entity::BlockEntityAtlasImage,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
 ) -> Option<(Texture, TextureView)> {
     let [width, height] = atlas.size;
     let texture = crate::gpu_allocation::texture(
@@ -400,7 +428,7 @@ fn upload_atlas(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: raw_views.view_formats(),
         },
     )?;
     let bytes = atlas.static_rgba8.len() as u64;

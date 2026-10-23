@@ -1,13 +1,14 @@
 use super::*;
+#[cfg(unix)]
+use crate::local_worlds::{
+    process::HostGrant,
+    provision::Platform,
+    test_support::{FAKE_DOCKER, installed_provisioner, write_script},
+};
 use crate::local_worlds::{
     process::Runner,
     provision::{Provisioner, RuntimeKind},
     test_support::{VERSION, scratch, spec},
-};
-#[cfg(unix)]
-use crate::local_worlds::{
-    provision::Platform,
-    test_support::{FAKE_DOCKER, installed_provisioner, write_script},
 };
 
 const IMAGE: &str = "itzg/minecraft-bedrock-server:2026.9.2@sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -116,15 +117,23 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     );
 }
 
-/// The image serves the mounted install's operator list, which names only the host.
+/// The image serves the mounted install's operator list, which names only the host. Its console
+/// is not attached, so the host is resolved before launch and cannot be granted later.
 #[cfg(unix)]
 #[test]
 fn the_container_runner_makes_only_the_host_an_operator() {
     let dir = scratch();
     let (runner, log) = container_runner(dir.path(), IMAGE, false);
+    assert_eq!(runner.host_grant(), HostGrant::AtLaunch);
     let mut spec = spec(&dir.path().join("world"));
     spec.host_xuid = Some("2535400000000001".to_owned());
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    assert!(
+        instance
+            .grant_host(Some("2535400000000002"), &Cancel::never())
+            .is_err(),
+        "a container cannot reload its operators"
+    );
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     let install = runner.provisioner.root.join(VERSION);
     let file = fs::read(install.join(super::super::bds::PERMISSIONS_FILE)).expect("permissions");

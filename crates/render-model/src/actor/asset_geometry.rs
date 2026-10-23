@@ -51,15 +51,22 @@ pub fn equipment_geometry(
 
 /// Rig geometry for every binding of a session pack catalog, under pack rig ids;
 /// an unbuildable binding is omitted so its actors take the missing-rig route.
+/// Bindings and layers naming one catalog geometry share one vertex allocation.
 pub fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeometry> {
+    let mut built = std::collections::HashMap::<usize, Option<ActorRigGeometry>>::new();
     let mut geometries: Vec<_> = (0..assets.rig_geometries().len())
         .filter_map(|binding| {
             let id = super::pack_rig_id(u32::try_from(binding).ok()?);
             let geometry = assets.rig_geometries().get(binding)?.geometry as usize;
-            geometry_from_geometry_index(assets, geometry, id).ok()
+            built
+                .entry(geometry)
+                .or_insert_with(|| geometry_from_geometry_index(assets, geometry, id).ok())
+                .as_ref()
+                .map(|built| built.with_id(id))
         })
         .collect();
     geometries.extend(super::layer_geometries(assets, super::pack_rig_id(0)));
+    super::share_identical_vertices(&mut geometries);
     geometries
 }
 

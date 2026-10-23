@@ -1,10 +1,11 @@
-//! Recipe-book crafting: the auto-craft request draws ingredients straight from
-//! the player inventory and places the result back into it, hotbar first.
+//! Recipe-book crafting: the auto-craft request draws ingredients from the crafting grid and
+//! the player inventory and places the result into the inventory, hotbar first.
 
 use std::sync::Arc;
 
 use protocol::{
-    AutoCraftIngredient, NetworkItemStack, RecipeHandle, StackItemDescriptor, StackRequestAction,
+    AutoCraftIngredient, NetworkItemStack, RecipeHandle, RecipeIngredientView, StackItemDescriptor,
+    StackRequestAction,
 };
 
 use super::cells::{Cell, Held};
@@ -12,11 +13,12 @@ use super::crafting::{ExtraDestination, OutputPlanner, action_amounts, created_s
 use super::gesture::Submission;
 use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
+use super::recipe_allocation::{IngredientSources, RecipeInputs};
 use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
-mod allocation;
-mod inputs;
+mod materials;
+pub(crate) use materials::AutoCraftMaterials;
 
 #[cfg(test)]
 thread_local! {
@@ -30,12 +32,22 @@ pub(crate) fn take_source_validations() -> usize {
 }
 
 impl PlayerInventoryLedger {
+    /// Cells recipe-book availability, placement and crafting draw from, in order: the open
+    /// grid, then the player inventory hotbar first.
+    pub(super) fn recipe_source_cells(&self) -> Vec<Cell> {
+        self.crafting_grid()
+            .slots()
+            .map(Cell::Craft)
+            .chain((0..PLAYER_INVENTORY_SLOT_COUNT as u8).map(Cell::Inventory))
+            .collect()
+    }
+
     /// Settled stacks with intact retained bytes and a negotiated binding can supply ingredients.
-    fn auto_craft_stack(
+    pub(super) fn auto_craft_stack(
         &self,
-        slot: u8,
+        cell: Cell,
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
-        let held = self.view().get(Cell::Inventory(slot))?;
+        let held = self.view().get(cell)?;
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
         #[cfg(test)]
         SOURCE_VALIDATIONS.with(|count| count.set(count.get() + 1));
@@ -45,60 +57,87 @@ impl PlayerInventoryLedger {
         .then_some((&held.stack, entry))
     }
 
-    /// Admits each settled source once for all candidates in a recipe projection.
-    pub(crate) fn auto_craft_inputs(&self) -> inputs::AutoCraftInputs<'_> {
-        inputs::AutoCraftInputs {
-            stacks: std::array::from_fn(|slot| self.auto_craft_stack(slot as u8)),
-        }
-    }
-
-    /// Plans a request from one consistent snapshot of settled ingredient sources.
-    fn auto_craft_sources(&self, recipe: &RecipeHandle, crafts: u8) -> Option<Vec<(u8, u16, i32)>> {
-        self.auto_craft_inputs().sources(recipe, crafts)
-    }
-
-    /// Whether any inventory stack is one of `recipe`'s ingredients.
-    #[must_use]
-    pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
-        let views = recipe.ingredient_views();
-        (0..PLAYER_INVENTORY_SLOT_COUNT as u8).any(|slot| {
-            let Some(held) = self.view().get(Cell::Inventory(slot)) else {
-                return false;
-            };
-            let Some(entry) = self.negotiated_item_entry(held.stack.network_id) else {
-                return false;
-            };
-            views.iter().flatten().any(|ingredient| {
-                crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    held.stack.metadata,
-                    &entry.item_tags,
-                )
-            })
+    /// Whether the source stack in `cell` is one `ingredient` accepts.
+    pub(super) fn source_accepts(&self, cell: Cell, ingredient: &RecipeIngredientView) -> bool {
+        self.auto_craft_stack(cell).is_some_and(|(stack, entry)| {
+            crate::ingredient_accepts(
+                ingredient,
+                &entry.identifier,
+                stack.metadata,
+                &entry.item_tags,
+            )
         })
     }
 
-    /// Whether the inventory holds every ingredient of `recipe`.
+    /// Whether the grid or inventory holds any of `recipe`'s ingredients.
+    #[must_use]
+    pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
+        self.auto_craft_inputs().holds_any(recipe)
+    }
+
+    /// Admits source stacks once for all candidates in one recipe-book projection.
+    pub(crate) fn auto_craft_inputs(&self) -> RecipeInputs<'_> {
+        RecipeInputs::new(self)
+    }
+
+    /// Whether the grid and inventory together hold every ingredient of `recipe`.
     #[must_use]
     pub fn can_auto_craft(&self, recipe: &RecipeHandle) -> bool {
         self.auto_craft_sources(recipe, 1).is_some()
     }
 
-    /// How many times the inventory can craft `recipe` at once, capped so every result fits
-    /// one stack.
-    fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
-        let per_stack = self.crafts_per_request(recipe).unwrap_or(0);
-        let (mut low, mut high) = (0u8, per_stack);
-        while low < high {
-            let middle = low + (high - low).div_ceil(2);
-            if self.auto_craft_sources(recipe, middle).is_some() {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
+    /// Shares deterministic ingredient allocation between craftability and request construction:
+    /// each ingredient's sources, in ingredient order.
+    pub(super) fn auto_craft_sources(
+        &self,
+        recipe: &RecipeHandle,
+        crafts: u8,
+    ) -> Option<Vec<IngredientSources>> {
+        let views = recipe.ingredient_views();
+        let sources = self
+            .auto_craft_inputs()
+            .allocation(&views)
+            .plan(crafts, false)?;
+        Some(
+            views
+                .iter()
+                .zip(sources)
+                .filter_map(|(view, sources)| view.as_ref().map(|_| sources))
+                .collect(),
+        )
+    }
+
+    /// Names `ingredient` as the request declares it: a tag by its sources' shared item,
+    /// since servers match consumed items against concrete names, anything else as listed.
+    fn auto_craft_descriptor(
+        &self,
+        ingredient: &RecipeIngredientView,
+        sources: &[(Cell, u16, i32)],
+    ) -> StackItemDescriptor {
+        let held = sources
+            .first()
+            .and_then(|(cell, _, _)| self.auto_craft_stack(*cell));
+        match held {
+            Some((_, entry)) if ingredient.tag => StackItemDescriptor::Name {
+                identifier: Arc::clone(&entry.identifier),
+                aux: i32::from(protocol::RECIPE_ANY_AUX),
+            },
+            _ if ingredient.tag => StackItemDescriptor::Tag(Arc::clone(&ingredient.name)),
+            _ => StackItemDescriptor::Name {
+                identifier: Arc::clone(&ingredient.name),
+                aux: i32::from(ingredient.aux),
+            },
         }
-        low
+    }
+
+    /// The highest repeat count one output stack and one variant per ingredient can supply.
+    fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
+        let inputs = self.auto_craft_inputs();
+        let allocation = inputs.allocation(&recipe.ingredient_views());
+        (1..=self.crafts_per_request(recipe).unwrap_or(0))
+            .rev()
+            .find(|crafts| allocation.plan(*crafts, false).is_some())
+            .unwrap_or(0)
     }
 
     /// Crafts `recipe` from inventory ingredients once, or with `all` as many times as one
@@ -166,15 +205,9 @@ impl PlayerInventoryLedger {
             .ingredient_views()
             .iter()
             .flatten()
-            .map(|ingredient| AutoCraftIngredient {
-                descriptor: if ingredient.tag {
-                    StackItemDescriptor::Tag(Arc::clone(&ingredient.name))
-                } else {
-                    StackItemDescriptor::Name {
-                        identifier: Arc::clone(&ingredient.name),
-                        aux: i32::from(ingredient.aux),
-                    }
-                },
+            .zip(&sources)
+            .map(|(ingredient, sources)| AutoCraftIngredient {
+                descriptor: self.auto_craft_descriptor(ingredient, sources),
                 count: 1,
             })
             .collect();
@@ -194,15 +227,17 @@ impl PlayerInventoryLedger {
         ];
         let mut groups = Vec::new();
         let mut consumed = Vec::new();
-        for (slot, total, id) in sources {
-            let cell = Cell::Inventory(slot);
+        for (cell, total, id) in sources.into_iter().flatten() {
             // Crafting accepts ingredients only from the combined inventory name, and each
             // consume carries at most one action's amount.
             for amount in action_amounts(total) {
                 actions.push(StackRequestAction::Consume {
                     amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
-                    source: combined_request_slot(slot, id)?,
+                    source: match cell {
+                        Cell::Inventory(slot) => combined_request_slot(slot, id)?,
+                        cell => request_slot(cell, id, None)?,
+                    },
                 });
                 groups.push(DeltaGroup::Shrink {
                     source: cell,

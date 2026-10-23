@@ -580,6 +580,7 @@ fn face_facing() -> protocol::CustomBlocks {
     protocol::CustomBlocks {
         blocks: Arc::from([protocol::CustomBlock {
             name: Arc::from("test:face_facing"),
+            sound: None,
             tags: Arc::default(),
             state_count: 6,
             collides: true,

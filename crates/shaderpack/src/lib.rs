@@ -57,6 +57,7 @@ mod source;
 mod token;
 mod transform;
 mod translate;
+pub mod worker;
 
 pub use biomes::{BiomeCategory, BiomeUniforms};
 pub use buffers::{
