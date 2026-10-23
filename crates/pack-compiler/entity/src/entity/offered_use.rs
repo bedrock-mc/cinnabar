@@ -193,6 +193,7 @@ fn components(
             "minecraft:inventory"
             | "minecraft:economy_trade_table"
             | "minecraft:trade_table"
+            | "minecraft:trusting"
             | "minecraft:npc"
             | "minecraft:sittable"
             | "minecraft:interact_with" => C::Unresolved,

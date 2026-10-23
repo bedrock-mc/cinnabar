@@ -37,6 +37,24 @@ fn ride_trade_feed_and_equipment_candidates_keep_throwable_use_unresolved() {
 }
 
 #[test]
+fn trusting_candidates_keep_throwable_use_unresolved_in_base_and_conditional_components() {
+    let trusting = serde_json::json!({
+        "minecraft:trusting": {"trust_items": ["minecraft:snowball"]}
+    });
+    for entity in [
+        serde_json::json!({"components": trusting}),
+        serde_json::json!({"components": {}, "component_groups": {
+            "fixture:conditional": trusting
+        }}),
+    ] {
+        assert_eq!(
+            outcome(entity, "minecraft:snowball"),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
+#[test]
 fn interaction_filters_preserve_unknown_state_and_exclude_incompatible_held_items() {
     let entity = serde_json::json!({"components": {"minecraft:interact": {"interactions": [{"on_interact": {
         "filters": {"all_of": [
