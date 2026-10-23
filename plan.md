@@ -944,6 +944,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   directives and unclosed groups at end of source. Settings properties keep their directive
   diagnostics. Compiler results carry shader modules without duplicate validation data;
   the host revalidates them when decoding.
+  of negative float literals, separates shared-memory array declarations, sizes unsized
+  arrays from their constructors and inlines function-local constants in array sizes. Missing
+  vertex varying locations receive zero outputs. Compiler results carry shader modules without
+  duplicate validation data; the host revalidates them when decoding.
   The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
