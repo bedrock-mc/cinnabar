@@ -98,13 +98,15 @@ impl IconBlocks {
                 && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// Selects the carried pose: walls have two arms and barrels face south while closed.
+    /// Selects the carried pose for walls and directional inventory cubes.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
-        if assets::facts::block_render_fact(&record.name).kind
-            == assets::facts::BlockRenderKind::Barrel
+        let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
+        if crafter
+            || assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::Barrel
         {
             return self
                 .records
@@ -119,8 +121,14 @@ impl IconBlocks {
                         return false;
                     };
                     use assets::facts::BlockProperty;
-                    state[BlockProperty::FacingDirection.name()]["value"] == 3
-                        && state[BlockProperty::OpenBit.name()]["value"] == 0
+                    if crafter {
+                        state[BlockProperty::Orientation.name()]["value"] == "south_up"
+                            && state[BlockProperty::Crafting.name()]["value"] == 0
+                            && state[BlockProperty::TriggeredBit.name()]["value"] == 0
+                    } else {
+                        state[BlockProperty::FacingDirection.name()]["value"] == 3
+                            && state[BlockProperty::OpenBit.name()]["value"] == 0
+                    }
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -154,9 +162,10 @@ impl IconBlocks {
         }
         if block.support() == VisualSupport::VanillaFallback
             && self.records.get(visual.0 as usize).is_some_and(|record| {
-                record
-                    .traits
-                    .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
+                record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
+                    || record
+                        .traits
+                        .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
             })
         {
             return true;
@@ -223,6 +232,16 @@ impl IconBlocks {
                     return Ok(None);
                 };
                 transform
+            } else if record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier() {
+                // The inventory pose faces south with its top upright.
+                match face {
+                    BlockFace::Down => (face, 3),
+                    BlockFace::Up => (face, 0),
+                    BlockFace::West => (BlockFace::East, 0),
+                    BlockFace::East => (BlockFace::West, 0),
+                    BlockFace::North => (BlockFace::South, 0),
+                    BlockFace::South => (BlockFace::North, 0),
+                }
             } else {
                 (face, 0)
             };
@@ -370,6 +389,10 @@ mod respawn_anchor_tests;
 #[cfg(test)]
 #[path = "blocks/piston_tests.rs"]
 mod piston_tests;
+
+#[cfg(test)]
+#[path = "blocks/crafter_tests.rs"]
+mod crafter_tests;
 
 #[cfg(test)]
 mod tests {

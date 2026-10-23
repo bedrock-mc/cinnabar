@@ -361,7 +361,8 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Furnace-family inventory faces use the
   unrotated carried texture slots. Barrel previews use a closed south-facing pose with
   authored face mapping and UV turns. Piston bodies use their carried face textures
-  despite the placed fallback; other special shapes and animation still need matched comparisons. Shared cube face sheets are bounded coverage.
+  despite the placed fallback. Crafter previews use an idle south-facing upright pose
+  and retain the authored face artwork; other special shapes and animation still need matched comparisons. Shared cube face sheets are bounded coverage.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
