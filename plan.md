@@ -733,10 +733,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
-  The compact table still needs paging
-  when its combined sources exceed one storage binding. Physical-device rendering and fallback
+  The compact table still needs paging when its combined sources exceed one storage binding.
+  Physical-device rendering and fallback
   performance acceptance remain incomplete.
-  rendering acceptance remains incomplete. Android Mali culls terrain on the CPU because the
+  Android Mali culls terrain on the CPU because the
   compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
   vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
   vanilla page against their 1,024-layer array limit; smaller pages first need session block
