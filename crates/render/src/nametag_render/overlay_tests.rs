@@ -322,10 +322,9 @@ fn ordinary_views_do_not_warm_shader_pack_label_variants() {
     assert_eq!(ids.len(), if cfg!(feature = "shaderpacks") { 8 } else { 4 });
 }
 
-/// Leaving the pack releases the full-screen label layer; returning prepares a fresh one.
-#[test]
+/// Builds a noop view with compatible colour and depth for overlay preparation.
 #[cfg(feature = "shaderpacks")]
-fn leaving_the_pack_releases_the_label_overlay() {
+fn overlay_world() -> (World, Entity) {
     use bevy::{
         camera::{CameraMainTextureUsages, ClearColorConfig},
         ecs::system::RunSystemOnce,
@@ -337,7 +336,6 @@ fn leaving_the_pack_releases_the_label_overlay() {
             },
         },
     };
-    use render_scene::shaderpack::ShaderPackRendering;
 
     let (device, _) = wgpu::Device::noop(&default());
     let device = RenderDevice::from(device);
@@ -385,6 +383,16 @@ fn leaving_the_pack_releases_the_label_overlay() {
         ))
         .id();
     world.run_system_once(prepare_view_targets).unwrap();
+    (world, view)
+}
+
+/// Leaving the pack releases the full-screen label layer; returning prepares a fresh one.
+#[test]
+#[cfg(feature = "shaderpacks")]
+fn leaving_the_pack_releases_the_label_overlay() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::shaderpack::ShaderPackRendering;
+    let (mut world, view) = overlay_world();
     for pack in [false, true, false, true] {
         if pack {
             world.entity_mut(view).insert(ShaderPackRendering);
@@ -394,4 +402,45 @@ fn leaving_the_pack_releases_the_label_overlay() {
         world.run_system_once(overlay::prepare).unwrap();
         assert_eq!(world.entity(view).contains::<overlay::Overlay>(), pack);
     }
+}
+
+/// Failed label overlays back off, then recover without reusing an incompatible layer.
+#[test]
+#[cfg(feature = "shaderpacks")]
+fn label_overlay_allocation_failure_backs_off_then_recovers() {
+    let (mut world, view) = overlay_world();
+    world
+        .entity_mut(view)
+        .insert(render_scene::shaderpack::ShaderPackRendering);
+    let mut schedule = Schedule::default();
+    schedule.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+    schedule.add_systems(overlay::prepare);
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            if label != "nametag encoded overlay" {
+                return false;
+            }
+            attempts.set(attempts.get() + 1);
+            true
+        }
+    });
+    for _ in 0..3 {
+        schedule.run(&mut world);
+        assert!(!world.entity(view).contains::<overlay::Overlay>());
+    }
+    assert_eq!(attempts.get(), 1);
+    drop(failure);
+    schedule.run(&mut world);
+    assert!(world.entity(view).contains::<overlay::Overlay>());
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        world.entity_mut(view).insert(Msaa::Sample4);
+        schedule.run(&mut world);
+        assert!(!world.entity(view).contains::<overlay::Overlay>());
+    }
+    world.entity_mut(view).insert(Msaa::Off);
+    schedule.run(&mut world);
+    assert!(world.entity(view).contains::<overlay::Overlay>());
 }

@@ -10,6 +10,7 @@ platform-specific = ["macos", "windows"]
 reads = [
     "assets/bedrock-target.json",
     "core",
+    "packaging/android/runtime.json",
 ]
 
 [features]

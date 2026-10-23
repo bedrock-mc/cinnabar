@@ -1,5 +1,6 @@
 //! Builds equipment rig layers (held sprite meshes and worn armor) for a body submission.
 
+use crate::presentation::equipment::LAYER_MAIN_HAND;
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{
@@ -57,7 +58,7 @@ use {
         atlas::{Placement, SpriteAtlas},
         display::{
             FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
-            LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, head_block_display, view_bone,
+            LAYER_LEGGINGS, LAYER_OFF_HAND, head_block_display, view_bone,
         },
     },
     render_model::equipment::{self as attachable, blocks::BlockSheets},

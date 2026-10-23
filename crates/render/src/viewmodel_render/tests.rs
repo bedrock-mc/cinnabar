@@ -389,6 +389,45 @@ fn test_token() -> ViewmodelToken {
     }
 }
 
+/// Neutral-hand depth backs off and retries changed requests without retaining stale targets.
+#[test]
+fn neutral_depth_allocation_failure_backs_off_then_recovers() {
+    let mut world = empty_hand_world();
+    let device = world.resource::<RenderDevice>().clone();
+    let mut gpu = world.remove_resource::<HandGpu>().unwrap();
+    let mut token = test_token();
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            if label != "bounded private hand reverse-Z depth" {
+                return false;
+            }
+            attempts.set(attempts.get() + 1);
+            true
+        }
+    });
+    for _ in 0..3 {
+        assert!(!ensure_depth(&mut gpu, &device, token));
+        assert!(gpu.depth.is_none());
+    }
+    assert_eq!(attempts.get(), 1);
+    drop(failure);
+    assert!(ensure_depth(&mut gpu, &device, token));
+    let depth = gpu.depth.as_ref().unwrap().view.id();
+    assert!(ensure_depth(&mut gpu, &device, token));
+    assert_eq!(gpu.depth.as_ref().unwrap().view.id(), depth);
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        token.viewport[0] *= 2;
+        assert!(!ensure_depth(&mut gpu, &device, token));
+        assert!(gpu.depth.is_none());
+    }
+    token.viewport[1] *= 2;
+    assert!(ensure_depth(&mut gpu, &device, token));
+    assert_eq!(gpu.depth.as_ref().unwrap().size, token.viewport);
+}
+
 #[test]
 fn actual_renderer_startup_revokes_pending_callback_and_equal_token_publish_recovers() {
     use bevy::{

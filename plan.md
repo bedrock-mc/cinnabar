@@ -26,6 +26,8 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
+   Capped input admission wakes at its own deadline before considering a later render
+   prediction, so completed rendering cannot hide the requested cadence.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
@@ -88,6 +90,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+  Held end-rod models and narrow rod selection bounds are implemented; matched final-frame
+  outlines and third-person held-item qualification remain incomplete.
   Entity-drawn blocks retain pack face materials for destruction and mining particles;
   matched chest-particle presentation and custom destruction overrides remain incomplete.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
@@ -251,6 +255,9 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Elytra gliding retains the sprint state and its movement-speed modifier through
+completed ticks and correction replay. Rendered acceptance of sprinting and
+Speed-boosted glide camera motion remains outstanding.
 Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
@@ -308,6 +315,9 @@ and rendered qualification remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
+  Geometry with matching resolved inheritance chains and identical animation or controller
+  definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
+  controllers) still reject the rig: native file load order is unverified.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
@@ -428,6 +438,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   acceptance remain incomplete.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  Server language values decode newline and backslash escapes before text arguments
+  are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
@@ -445,9 +457,16 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
+  each ingredient draws from one concrete variant. Missing grid ingredients and their
+  result use distinct ghost cells in both renderers and retain hover names.
+  Broader crafting and container acceptance remains incomplete.
   Hover reports and actor use share the attack's game-mode actor cap. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
+  Desktop input retains every transition in a complete arrival batch, including
+  repeated attack taps. Refused interaction admission and comparative combat
+  animation/audio latency acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
@@ -459,6 +478,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   DenyDestroyBlock action, Attack swing source and missed swing remain incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
+  Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
+  and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
   explicit server fuel declarations keep priority. Named station responses retain
   accepted stacks at their window indices. Broader custom-fuel and matched server
@@ -584,13 +606,22 @@ not establish full vanilla world-generation parity. Dragonfly supports only flat
 natural terrain requires BDS.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
 catalog and generated server properties and level data. Pack and experiment configuration,
-hardcore, flat presets, Education Edition, operator status for a signed-out host and live
+hardcore, flat presets, Education Edition, operator status for a signed-out or offline-fallback host and live
 acceptance of every option on supported platforms remain incomplete.
-hardcore, flat presets, Education Edition and live acceptance of every option on supported
-platforms remain incomplete.
+The Android translated runtime supplies a loopback route and passes two consecutive offline
+transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
+Signed-in local HTTP joins retry once with local identity when account services fail before transport
+or the launcher's own server reports missing verification keys; other rejections and external or
+transferred servers retain their authentication policy. Player-data continuity between account-backed
+and local identities, offline acceptance in the full APK and physical-phone retesting remain open. Other BDS hosts can still
+offer no NetherNet route with every external interface down, producing an explanatory error.
 Local HTTP and LAN joins include client loopback ICE candidates. Full offline play of native
 BDS worlds is still a confirmed gap: without a non-loopback network interface BDS
 offers no NetherNet route, so the join fails with an explanation instead of connecting.
+Startup logs report milestone elapsed times and child-process CPU time when available.
+Native and translated BDS startup overlaps host-profile loading and confirms any changed
+operator grant before reporting running; container servers still resolve it before launch.
+Physical-phone startup profiling and the ten-second join target remain open.
 
 See [local worlds](docs/local-worlds.md).
 
@@ -603,6 +634,9 @@ Native audio follows changes to the system default output on its owner thread, r
 active and queued sounds across output replacement and retrying unavailable devices.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+Startup sound prewarming prioritizes routed attack and player-hurt samples, including
+their finite alternatives within the prewarm byte budget. Comparative combat sound
+latency, server-pack prewarming and physical output latency remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
 stone fallback. Per-permutation sound components and matched native fallback
@@ -611,7 +645,7 @@ qualification remain incomplete.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
-Desktop startup feedback runs independently while resources and graphics initialize. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. Activity responsiveness during native initialization and broader device acceptance remain pending.
+Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. Activity responsiveness during native initialization and broader device acceptance remain pending.
 
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
@@ -630,6 +664,33 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete.
+  Android packages the Dragonfly local-world server and resolves it from the APK's native-library
+  directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
+  for new worlds. An Android-adapted GNU runtime starts BDS, creates
+  and saves a world, shuts down cleanly and reopens it in a target-SDK-35 test app on an
+  Android 15 VM with SELinux enforcing.
+  Production protocol login and spawn also pass with an extended diagnostic deadline, including
+  two consecutive runs with all external interfaces down. Translation requests stronger x86
+  memory ordering, adds a loopback route and uses Android's resolver for host names. Earlier
+  startup aborts leave reliability acceptance open. Full APK, physical-device, offline lifecycle,
+  performance and 4/16 KB compatibility acceptance remain incomplete.
+  Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
+  Setup refreshes a private export of Android's default accepted certificate authorities and supplies it
+  to the translated server's TLS stack. An emulator check confirms the server reads the bundle;
+  its effect on service authentication and startup time needs acceptance;
+  the ten-second startup and join target is unverified.
+  The guest library is downloaded directly and hash-checked, with valid cached copies reused;
+  the source archive is needed only by the build toolchain.
+  Translated code is cached for the matching server and packaged runtime, with later starts
+  loading it without rewriting it at each stop.
+  Android asset setup downloads the server and prepares reusable startup code in an isolated
+  temporary world before reporting Ready. The first saved-world open uses that prepared code;
+  the same server and runtime reuse it across worlds, and updates invalidate it. Missing game
+  assets and cancellation still block client startup. Local-world preparation failures are logged
+  and allow the client to start for remote play or Dragonfly; BDS opens can run uncached without
+  another scratch preparation. Cache writes are skipped before creating a file if
+  they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
+  and executable-cache acceptance remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
   The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
@@ -774,6 +835,11 @@ retained memory, allocations, uploads and unnecessary rebuilds. Measure release
 performance on hardware; existing source refactors and unmeasured optimizations
 remain incomplete performance evidence. Preserve packed terrain storage and shared
 render resources while measuring implementation choices under the architecture policy.
+Window-sized client targets share bounded allocation retries after memory exhaustion,
+including hands, labels and the base UI raster. Enhanced water, shadows and shafts
+disable sampling while their required targets are unavailable. Injected failures cover
+recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
+remain incomplete.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,
