@@ -133,7 +133,7 @@ fn rowing_moves_the_boat_and_seats_the_rider_on_it() {
     assert_eq!(seat[0], after.position[0]);
     assert!((seat[1] - (after.position[1] - OAK.height_offset - 0.2)).abs() < 1.0e-6);
 
-    let feed = prediction.feed().unwrap();
+    let feed = prediction.feed(1.0).unwrap();
     assert_eq!(feed.runtime_id, 7);
     assert_eq!(feed.position[0], after.position[0]);
     assert!((feed.position[1] - (after.position[1] - OAK.height_offset)).abs() < 1.0e-6);
@@ -160,7 +160,7 @@ fn leaving_the_boat_stops_predicting_it() {
     drive(&mut prediction, boat(), 1, 3);
     assert_eq!(prediction.step(None, FORWARD, &Lake), Ok(None));
     assert_eq!(prediction.commit(4), None);
-    assert_eq!(prediction.feed(), None);
+    assert_eq!(prediction.feed(1.0), None);
 }
 
 #[test]
@@ -217,14 +217,14 @@ fn a_correction_restarts_prediction_from_the_newest_server_state() {
     assert_eq!(predicted.correct(&other), None);
     let seat = predicted.correct(&correction(9, 2.0)).unwrap();
     assert_eq!(seat[0], 2.0);
-    let feed = predicted.feed().unwrap();
+    let feed = predicted.feed(1.0).unwrap();
     assert_eq!(
         (feed.position[0], feed.yaw, feed.velocity),
         (2.0, 45.0, [0.0; 3])
     );
     // An older correction arriving later does not undo the newer one.
     assert_eq!(predicted.correct(&correction(8, 5.0)), None);
-    assert_eq!(predicted.feed().unwrap().position[0], 2.0);
+    assert_eq!(predicted.feed(1.0).unwrap().position[0], 2.0);
     // Prediction continues from the corrected boat.
     let next = drive(&mut predicted, boat(), 11, 1);
     assert!((next.position[0] - 2.0).abs() < 0.5);
@@ -247,7 +247,7 @@ fn a_correction_after_a_server_change_continues_at_its_revision() {
         on_ground: false,
     };
     predicted.correct(&correction).unwrap();
-    assert_eq!(predicted.feed().unwrap().revision, 1);
+    assert_eq!(predicted.feed(1.0).unwrap().revision, 1);
     let changed = SteeredVehicle {
         revision: 1,
         ..boat()
@@ -287,7 +287,7 @@ fn a_correction_from_an_earlier_session_is_ignored() {
         ..boat()
     };
     drive(&mut predicted, teleported, 11, 2);
-    let before = predicted.feed().unwrap();
+    let before = predicted.feed(1.0).unwrap();
     let stale = VehicleCorrection {
         runtime_id: 7,
         revision: 0,
@@ -299,7 +299,33 @@ fn a_correction_from_an_earlier_session_is_ignored() {
         on_ground: false,
     };
     assert_eq!(predicted.correct(&stale), None);
-    assert_eq!(predicted.feed().unwrap(), before);
+    assert_eq!(predicted.feed(1.0).unwrap(), before);
+}
+
+/// The boat renders between its last two ticks on the rider's clock.
+#[test]
+fn the_fed_boat_renders_between_its_last_two_ticks() {
+    let mut prediction = VehiclePrediction::default();
+    assert_eq!(prediction.feed(0.5), None);
+    for tick in 1..=6 {
+        prediction.step(Some(boat()), [-1.0, 1.0], &Lake).unwrap();
+        prediction.commit(tick);
+    }
+    let start = prediction.feed(0.0).unwrap();
+    let end = prediction.feed(1.0).unwrap();
+    let half = prediction.feed(0.5).unwrap();
+    for axis in 0..3 {
+        assert!((end.render_position[axis] - end.position[axis]).abs() < 1.0e-4);
+    }
+    assert!((end.render_yaw - end.yaw).abs() < 1.0e-4);
+    assert_ne!(start.render_position, end.render_position);
+    for axis in 0..3 {
+        let midpoint = (start.render_position[axis] + end.render_position[axis]) / 2.0;
+        assert!((half.render_position[axis] - midpoint).abs() < 1.0e-4);
+    }
+    assert!(start.render_yaw < half.render_yaw && half.render_yaw < end.render_yaw);
+    // The latest tick's pose is fed whatever the render point.
+    assert_eq!(half.position, end.position);
 }
 
 #[test]

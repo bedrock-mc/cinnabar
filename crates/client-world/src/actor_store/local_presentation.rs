@@ -60,19 +60,22 @@ impl super::ActorStore {
         }
     }
 
-    /// Applies held local metadata once the local actor exists.
+    /// Applies held local metadata once the local actor exists, under any newer value its
+    /// spawn already carries.
     pub(super) fn apply_held_local_metadata(&mut self, runtime_id: u64) {
         if self.pending_local_metadata.is_empty() {
             return;
         }
+        let Some(actor) = self.actors.get_mut(&runtime_id) else {
+            return;
+        };
         let held: Vec<_> = self
             .pending_local_metadata
             .drain()
+            .filter(|(key, _)| !actor.metadata.contains_key(key))
             .map(|(key, value)| protocol::ActorMetadata { key, value })
             .collect();
-        if let Some(actor) = self.actors.get_mut(&runtime_id) {
-            let _ = actor.apply_metadata(&held, &mut self.hitbox_budget);
-            self.effect_members.update(actor);
-        }
+        let _ = actor.apply_metadata(&held, &mut self.hitbox_budget);
+        self.effect_members.update(actor);
     }
 }

@@ -52,7 +52,12 @@ impl super::LocalPhysicsController {
     /// The predicted pose of the boat the player steers, for the actor store.
     #[must_use]
     pub fn predicted_vehicle_feed(&self) -> Option<client_world::LocalVehicleFeed> {
-        self.vehicle.feed()
+        self.vehicle.feed(self.tick_alpha())
+    }
+
+    /// Forgets the steered boat's prediction; the next steered tick starts a new one.
+    pub fn end_vehicle_prediction(&mut self) {
+        self.vehicle.reset();
     }
 
     /// The steered boat's predicted yaw at this frame's point between ticks.
@@ -131,6 +136,37 @@ mod tests {
 
     /// When the boat's step succeeds but the rider's tick fails, the rider stays where the
     /// committed state left it rather than on the discarded seat.
+    /// A replacement StartGame ends the previous session's boat prediction.
+    #[test]
+    fn start_game_ends_the_previous_session_s_boat_prediction() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.steer_completed(
+            SteeredVehicle {
+                runtime_id: 7,
+                unique_id: -7,
+                body: sim::BoatBody {
+                    width: 1.4,
+                    height: 0.455,
+                    height_offset: 0.375,
+                },
+                position: [0.5, 0.375, 0.5],
+                yaw: 0.0,
+                velocity: [0.0; 3],
+                seat: [0.0; 3],
+                revision: 0,
+            },
+            100,
+        );
+        assert!(physics.predicted_vehicle_feed().is_some());
+        crate::movement::reset_start_game_prediction(
+            &mut crate::movement::MovementTicker::default(),
+            &mut physics,
+            8,
+            [0.5, 2.0, 0.5],
+        );
+        assert_eq!(physics.predicted_vehicle_feed(), None);
+    }
+
     #[test]
     fn a_failed_tick_leaves_the_rider_off_the_uncommitted_seat() {
         let mut physics = super::super::LocalPhysicsController::default();

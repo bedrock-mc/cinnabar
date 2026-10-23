@@ -18,6 +18,10 @@ pub struct LocalVehicleFeed {
     pub yaw: f32,
     /// Displacement per tick.
     pub velocity: [f32; 3],
+    /// Where the boat renders this frame, on the rider's physics clock rather than the
+    /// remote actors' clock, so it stays under its rider.
+    pub render_position: [f32; 3],
+    pub render_yaw: f32,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -27,6 +31,9 @@ pub(super) struct LocalVehicle {
     /// The vehicle the latest feed predicted. Its changes count even while the local player
     /// does not steer it, so a prediction resumed after regaining control restarts from them.
     predicted: Option<u64>,
+    /// The accepted feed's render pose, which holds the boat's displayed pose through actor
+    /// ticks.
+    render: Option<(u64, ActorPose)>,
 }
 
 impl ActorStore {
@@ -47,13 +54,17 @@ impl ActorStore {
     }
 
     /// Drives the predicted pose of the boat the local player steers. A feed for another
-    /// actor, or one predicted before the latest server move, is ignored.
+    /// actor, or one predicted before the latest server move, is ignored. Actor ticks land on
+    /// the fed tick pose, which prediction restarts from, while the boat displays the fed
+    /// render pose.
     pub(crate) fn sync_local_vehicle(&mut self, feed: Option<LocalVehicleFeed>) {
+        self.local_vehicle.render = None;
         let Some(feed) = feed.filter(|feed| {
             feed.position
                 .iter()
                 .chain(&feed.velocity)
-                .chain(&[feed.yaw])
+                .chain(&feed.render_position)
+                .chain(&[feed.yaw, feed.render_yaw])
                 .all(|value| value.is_finite())
         }) else {
             self.local_vehicle.predicted = None;
@@ -68,20 +79,36 @@ impl ActorStore {
         let Some(actor) = self.actors.get_mut(&feed.runtime_id) else {
             return;
         };
-        actor.received_pose = ActorPose {
+        let pitch = actor.received_pose.pitch;
+        let pose = |position, yaw| ActorPose {
             y_origin: Default::default(),
-            position: feed.position,
-            pitch: actor.received_pose.pitch,
-            yaw: feed.yaw,
-            head_yaw: feed.yaw,
+            position,
+            pitch,
+            yaw,
+            head_yaw: yaw,
         };
+        actor.received_pose = pose(feed.position, feed.yaw);
         actor.status.movement_interpolation = Default::default();
-        // Each actor tick lands on the fed pose, as the local player's does.
         actor.interpolation_ticks_remaining = 0;
         let ticks_per_second = 1.0 / simulation_clock::TICK_DURATION.as_secs_f32();
         actor.velocity = feed.velocity.map(|axis| axis * ticks_per_second);
         actor.status.native_velocity = feed.velocity;
-        self.effect_members.collidable.update(actor);
+        self.local_vehicle.render =
+            Some((feed.runtime_id, pose(feed.render_position, feed.render_yaw)));
+        self.show_local_vehicle_render();
+    }
+
+    /// Holds the predicted boat at its fed render pose, whatever the actor clock's point
+    /// between ticks.
+    pub(super) fn show_local_vehicle_render(&mut self) {
+        let Some((runtime_id, pose)) = self.local_vehicle.render else {
+            return;
+        };
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.previous_pose = pose;
+            actor.set_current_pose(pose);
+            self.effect_members.collidable.update(actor);
+        }
     }
 
     /// Whether a server move applies. Moves of the boat the local player steers and the
@@ -106,6 +133,7 @@ impl ActorStore {
             || self.local_steered_boat() == Some(runtime_id)
         {
             self.local_vehicle.revision = self.local_vehicle.revision.wrapping_add(1);
+            self.local_vehicle.render = None;
         }
     }
 

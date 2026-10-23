@@ -959,6 +959,8 @@ pub fn reset_start_game_prediction(
         START_GAME_PREDICTION_ANCHOR_TICK,
         false,
     );
+    // A new session's boat, even one with the old ids, starts its own prediction.
+    local_physics.end_vehicle_prediction();
 }
 
 #[cfg(test)]

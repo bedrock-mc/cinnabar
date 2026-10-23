@@ -155,6 +155,7 @@ impl ActorStore {
                     pending.tick();
                 }
                 self.step_motion();
+                self.show_local_vehicle_render();
                 self.seat_riders();
             }
             if !prepare_frame {

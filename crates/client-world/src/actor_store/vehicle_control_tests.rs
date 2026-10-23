@@ -172,6 +172,8 @@ fn a_predicted_vehicle_takes_revision_only_when_teleported() {
         position: [12.0, 5.0, 10.0],
         yaw: 30.0,
         velocity: [0.1, 0.0, 0.0],
+        render_position: [12.0, 5.0, 10.0],
+        render_yaw: 30.0,
     };
     store.sync_local_vehicle(Some(feed));
     sequence += 1;
@@ -197,6 +199,7 @@ fn a_predicted_vehicle_takes_revision_only_when_teleported() {
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         revision: 1,
         position: [41.0, 5.0, 10.0],
+        render_position: [41.0, 5.0, 10.0],
         ..feed
     }));
     store.advance_interpolation_ticks(1);
@@ -232,6 +235,8 @@ fn regaining_control_restarts_prediction_from_moves_made_meanwhile() {
         position: [12.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
+        render_position: [12.0, 5.0, 10.0],
+        render_yaw: 0.0,
     }));
     board(
         &mut store,
@@ -277,6 +282,9 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
         position: [10.0, 5.0, 10.0],
         yaw: 20.0,
         velocity: [0.0; 3],
+        // Halfway through the tick on the rider's clock.
+        render_position: [10.0, 5.0, 10.0],
+        render_yaw: 10.0,
     }));
     store.advance_interpolation_ticks(1);
     let lock = store.rider_view_lock(PLAYER, 0.5).unwrap();
@@ -396,6 +404,8 @@ fn a_feed_for_a_boat_the_player_does_not_steer_is_ignored() {
         position: [30.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
+        render_position: [30.0, 5.0, 10.0],
+        render_yaw: 0.0,
     }));
     store.advance_interpolation_ticks(1);
     assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 10.0);
@@ -473,6 +483,8 @@ fn a_respawned_boat_restarts_prediction() {
         position: [12.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
+        render_position: [12.0, 5.0, 10.0],
+        render_yaw: 0.0,
     }));
     sequence += 1;
     store.apply(
@@ -530,4 +542,55 @@ fn a_steered_boat_without_prediction_keeps_streamed_moves() {
             .position[0],
         40.0
     );
+}
+
+/// A local spawn's own metadata is newer than values held while its actor was absent.
+#[test]
+fn a_local_spawn_keeps_its_metadata_over_held_values() {
+    let seat = |y| ActorMetadata {
+        key: ActorDataKey::SeatOffset.wire_value(),
+        value: ActorMetadataValue::Vector([0.0, y, 0.0]),
+    };
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(PLAYER as u64);
+    store.apply(
+        1,
+        1,
+        ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: PLAYER as u64,
+            metadata: Arc::from([seat(-0.2)]),
+            properties: Arc::from([]),
+            tick: 0,
+        }),
+    );
+    store.apply(1, 2, spawn(PLAYER, player("Rider"), vec![seat(0.5)]));
+    assert_eq!(
+        store.get(PLAYER as u64).unwrap().metadata[&ActorDataKey::SeatOffset.wire_value()],
+        ActorMetadataValue::Vector([0.0, 0.5, 0.0])
+    );
+}
+
+/// The predicted boat displays its fed render pose through actor ticks, at any point of the
+/// actor clock, while actor ticks keep the fed tick pose for restarts.
+#[test]
+fn a_predicted_boat_shows_its_render_pose_on_the_rider_s_clock() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        revision: 0,
+        position: [12.0, 5.0, 10.0],
+        yaw: 30.0,
+        velocity: [0.2, 0.0, 0.0],
+        render_position: [11.9, 5.0, 10.0],
+        render_yaw: 25.0,
+    }));
+    store.advance_interpolation_ticks(2);
+    let boat = store.snapshot_by_unique(BOAT).unwrap();
+    for alpha in [0.0, 0.4, 1.0] {
+        assert_eq!(boat.interpolated_position(alpha), Some([11.9, 5.0, 10.0]));
+    }
+    assert_eq!(boat.yaw, 25.0);
+    assert_eq!(boat.last_received_pose().position, [12.0, 5.0, 10.0]);
 }
