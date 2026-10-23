@@ -49,7 +49,7 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    physics.note_server_dimensions(actor.explicit_dimensions_revision);
+    physics.note_server_dimensions(actor.explicit_dimensions);
     let mut attributes = attributes(
         |name| {
             actor
@@ -155,12 +155,12 @@ fn predicted_bounding_box(
     flags: [u64; 3],
 ) -> [f32; 3] {
     let mut size = bounding_box(metadata);
-    if explicit {
-        return size;
-    }
     if let Some([width, height]) = local_size {
         size[1] = width;
         size[2] = height;
+    }
+    if explicit {
+        return size;
     }
     if HORIZONTAL_POSE_FLAGS
         .into_iter()
