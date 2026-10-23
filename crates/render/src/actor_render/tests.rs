@@ -521,6 +521,38 @@ fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency()
     assert!(gpu.is_synced(&retry));
 }
 
+/// Skin arrays allow the pack's raw view only while a pack draws, re-homed by GPU copies.
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn skin_arrays_allow_raw_views_only_while_a_pack_draws() {
+    use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut gpu = super::GpuSkinArrays::new(&device).unwrap();
+    let skins = one_resident_skin();
+    gpu.sync(&skins, &device, &queue);
+    assert!(
+        gpu.raw_texture(0).is_none(),
+        "Vanilla arrays keep one view format"
+    );
+    let uploaded = gpu.uploaded_bytes;
+    for pack in [true, false] {
+        gpu.set_raw_views(ArtworkRawViews(pack));
+        assert!(!gpu.is_synced(&skins), "a change resyncs");
+        assert!(gpu.sync(&skins, &device, &queue), "the array is replaced");
+        assert!(gpu.is_synced(&skins));
+        assert_eq!(gpu.raw_texture(0).is_some(), pack);
+        assert_eq!(gpu.uploaded_bytes, uploaded, "layers move by GPU copy");
+    }
+    gpu.set_raw_views(ArtworkRawViews(true));
+    gpu.sync(&skins, &device, &queue);
+    assert!(permits_raw_view(
+        device.wgpu_device(),
+        gpu.raw_texture(0).unwrap()
+    ));
+}
+
 #[test]
 fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
     use bevy::prelude::Msaa;

@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.GeneralSecurityException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -121,6 +122,14 @@ public final class BootstrapActivity extends Activity {
         });
         answer.await();
         return accepted.get();
+    }
+
+    /**
+     * Called by the native setup on its worker thread; returns {@link PlatformTrust#pem} for the
+     * translated local server's TLS and throws when the platform trust cannot be exported.
+     */
+    public String platformTrustPem() throws GeneralSecurityException {
+        return PlatformTrust.pem();
     }
 
     /** Called by the native setup on its worker thread. */

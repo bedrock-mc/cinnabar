@@ -7,6 +7,7 @@ fn block() -> CustomBlock {
         name: "test:block".into(),
         tags: Arc::default(),
         state_count: 2,
+        sound: None,
         collides: true,
         collision_boxes: None,
         selection: CustomSelection::Default,

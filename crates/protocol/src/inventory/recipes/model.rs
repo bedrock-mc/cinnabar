@@ -200,6 +200,11 @@ impl RecipeHandle {
             .and_then(|index| self.batch.identities.get(index))
     }
 
+    /// Owners of this handle's decoded batch, so tests can prove a cache released it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn batch_owners(&self) -> usize {
+        Arc::strong_count(&self.batch)
+    }
     pub fn network_id(&self) -> u32 {
         self.batch.records[self.index].id
     }

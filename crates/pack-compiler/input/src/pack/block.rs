@@ -7,10 +7,14 @@ use serde_json::{Map, Value};
 
 use super::parse::{BoundedMapIssue, BoundedUniqueMap, MAX_TEXTURE_KEYS, read_json};
 
-#[path = "block/furnace.rs"]
-mod furnace;
+#[path = "block/facing.rs"]
+mod facing;
+#[path = "block/facing_cube.rs"]
+mod facing_cube;
 #[path = "block/leaf_metadata.rs"]
 mod leaf_metadata;
+
+pub use facing_cube::facing_cube_face;
 
 /// A source texture key and the pillar UV transform needed for the face.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,8 +287,15 @@ pub fn resolve_texture_key(
     match &entry.textures {
         TextureValue::Key(key) => TextureKey::resolved(key, false),
         TextureValue::Faces(faces) => {
-            if furnace::is_record(record) {
-                return furnace::source_face(record, face)
+            if facing_cube::is_record(record) {
+                return facing_cube_face(record, face)
+                    .and_then(|(source_face, _)| faces.resolve(source_face))
+                    .map_or_else(TextureKey::diagnostic, |key| {
+                        TextureKey::resolved(key, false)
+                    });
+            }
+            if facing::is_record(record) {
+                return facing::source_face(record, face)
                     .and_then(|source_face| faces.resolve(source_face))
                     .map_or_else(TextureKey::diagnostic, |key| {
                         TextureKey::resolved(key, false)

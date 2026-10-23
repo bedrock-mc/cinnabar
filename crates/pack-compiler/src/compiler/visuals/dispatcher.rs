@@ -115,6 +115,7 @@ struct VisualCompiler {
     honey_templates: BTreeMap<[u32; 6], u32>,
     portal_templates: BTreeMap<[u32; 6], u32>,
     dragon_egg_templates: BTreeMap<[u32; 6], u32>,
+    heavy_core_templates: BTreeMap<[u32; 6], u32>,
     beacon_templates: BTreeMap<[u32; 3], u32>,
     anvil_templates: BTreeMap<super::anvil::TemplateKey, u32>,
     end_portal_frame_templates: BTreeMap<super::end_portal_frame::TemplateKey, u32>,
@@ -152,6 +153,7 @@ struct VisualCompiler {
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
+    facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
@@ -228,6 +230,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads
             },
         ));
+        ordered_rule!(super::facing_cube::compile_rule(
+            record,
+            inputs,
+            &mut self.facing_cube_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
         ordered_rule!(super::command_block::compile_rule(
             record,
             inputs,
@@ -268,6 +279,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.dragon_egg_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::heavy_core::compile_rule(
+            record,
+            inputs,
+            &mut self.heavy_core_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

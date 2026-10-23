@@ -40,6 +40,7 @@ pub enum FormError {
     NameTooLong,
     ControlCharacters,
     SeedTooLong,
+    NaturalTerrainRequiresBds,
 }
 
 impl FormError {
@@ -49,6 +50,7 @@ impl FormError {
             Self::NameTooLong => "World name is too long",
             Self::ControlCharacters => "World name has invalid characters",
             Self::SeedTooLong => "World seed is too long",
+            Self::NaturalTerrainRequiresBds => super::world::NATURAL_TERRAIN_REQUIRES_BDS,
         }
     }
 }
@@ -113,6 +115,9 @@ impl CreateForm {
         if self.seed_text.chars().count() > MAX_SEED_CHARS {
             return Err(FormError::SeedTooLong);
         }
+        if !self.generator.supports_backend(self.backend) {
+            return Err(FormError::NaturalTerrainRequiresBds);
+        }
         Ok(NewWorld {
             name: validate_name(&self.name)?,
             game_mode: self.game_mode,
@@ -125,7 +130,7 @@ impl CreateForm {
     }
 }
 
-/// Terrain choices are independent of the server hosting them.
+/// Label for natural terrain hosted by BDS.
 pub const NORMAL_WORLD_LABEL: &str = "Infinite";
 pub const FLAT_WORLD_LABEL: &str = "Flat";
 
@@ -217,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_and_generator_build_independently() {
+    fn natural_terrain_requires_bds() {
         for backend in [Backend::Dragonfly, Backend::Bds] {
             for generator in [Generator::Normal, Generator::Flat] {
                 let form = CreateForm {
@@ -225,6 +230,10 @@ mod tests {
                     generator,
                     ..Default::default()
                 };
+                if backend == Backend::Dragonfly && generator == Generator::Normal {
+                    assert_eq!(form.build(), Err(FormError::NaturalTerrainRequiresBds));
+                    continue;
+                }
                 let built = form.build().unwrap();
                 assert_eq!(built.backend, Some(backend));
                 assert_eq!(built.generator, generator);
