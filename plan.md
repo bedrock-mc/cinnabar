@@ -28,7 +28,7 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    missing GPU samples leave the cadence policy running.
    Desktop VSync defaults to Off, preferring Mailbox, then Immediate, then FIFO;
    Android defaults to On. The diagnostic `--no-vsync` flag prefers Immediate.
-   Menus use a display-refresh ceiling, and untouched in-world limits use that ceiling on battery. Saved limits remain authoritative.
+   Menus use a display-refresh ceiling. In-game frame-rate limits default to Unlimited; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
    macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native

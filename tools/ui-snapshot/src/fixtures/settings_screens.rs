@@ -5,6 +5,16 @@ use super::*;
 /// Search results, an empty result and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
     State {
+        name: "settings-framerate",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::Video.definition().name);
+            view.settings_query = "framerate".to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
         name: "settings-search",
         size: SIZE,
         gui_scale: GUI_SCALE,

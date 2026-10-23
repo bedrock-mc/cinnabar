@@ -586,7 +586,7 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.renderClouds" => "Render Clouds",
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
-            "In game, the default is Unlimited when plugged in and display refresh on battery. Choose Unlimited explicitly to keep it on battery. Menus stay within display refresh; VSync and Variable Refresh Rate may lower the rate."
+            "Menus stay within display refresh. VSync and Variable Refresh Rate may lower the rate."
         }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",

@@ -631,7 +631,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     logging::add_default_plugins(&mut app, plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
-        .init_resource::<crate::frame_pacing::PowerSource>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]

@@ -249,9 +249,7 @@ impl SettingsOptions {
             && (self.values.contains_key(definition.name)
                 || !matches!(
                     definition.id,
-                    SettingId::RenderDistance
-                        | SettingId::RenderResolution
-                        | SettingId::MaxFramerate
+                    SettingId::RenderDistance | SettingId::RenderResolution
                 ))
         {
             return false;
