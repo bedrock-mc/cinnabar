@@ -124,8 +124,12 @@ fn category_images_keep_native_pixel_steps_at_odd_gui_scales() {
 fn category_bevels_follow_selection_hover_and_press() {
     use super::super::super::{review_tests::paint, test_support::solids};
 
-    let action =
-        MenuAction::SettingsSection(section_index(TABS[at("cinnabar_discord_index")].section));
+    let tab = &TABS[at("cinnabar_discord_index")];
+    let other_tab = TABS
+        .iter()
+        .find(|other| other.section != tab.section)
+        .expect("another registered category");
+    let action = MenuAction::SettingsSection(section_index(tab.section));
     for (selected, hovered, pressed, fill, edges) in [
         (false, false, false, NEUTRAL80.fill, None),
         (false, false, true, NEUTRAL80.fill, None),
@@ -159,14 +163,11 @@ fn category_bevels_follow_selection_hover_and_press() {
         ),
     ] {
         let mut view = MenuView::new(true, "Player".into());
-        view.settings.section = section_index(
-            TABS[at(if selected {
-                "cinnabar_discord_index"
-            } else {
-                "party_forced_index"
-            })]
-            .section,
-        );
+        view.settings.section = section_index(if selected {
+            tab.section
+        } else {
+            other_tab.section
+        });
         view.hovered = hovered.then_some(action);
         view.pressed = pressed.then_some(action);
         let mut edge = 0.0;

@@ -887,18 +887,22 @@ fn server_settings_tab_is_available_only_over_a_session() {
 }
 
 /// Party offered only inert Xbox party rows and is gone from the sidebar. Every remaining page
-/// still paints and lists every remaining tab, so navigation between them is unchanged.
+/// still paints and lists every available tab, so navigation between them is unchanged.
 #[test]
 fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
     use launcher::menu::settings_sections::{SETTINGS_TABS, SettingSection};
-    let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
-        .iter()
-        .map(|(name, _)| settings::section_index(name))
-        .collect();
-    assert!(!expected.contains(&SettingSection::Party.definition().index));
     for (name, _) in SETTINGS_TABS {
         let mut view = settings_view(name);
         view.over_world = true;
+        let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
+            .iter()
+            .filter_map(|(name, _)| {
+                let section = SettingSection::from_name(name).expect("registered settings tab");
+                view.settings_section_shown(section)
+                    .then_some(section.definition().index)
+            })
+            .collect();
+        assert!(!expected.contains(&SettingSection::Party.definition().index));
         let frame = paint(&view, [1280.0, 4000.0], HashMap::new());
         let tabs: std::collections::BTreeSet<_> = frame
             .hits
