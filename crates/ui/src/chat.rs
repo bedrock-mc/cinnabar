@@ -857,6 +857,11 @@ impl ChatStore {
         self.last_sequence = None;
     }
 
+    pub fn clear_messages(&mut self) {
+        self.messages.clear();
+        self.retained_bytes = 0;
+    }
+
     pub fn push(&mut self, message: ChatMessage) -> ChatApplyResult {
         if self
             .last_sequence

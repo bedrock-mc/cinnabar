@@ -26,6 +26,15 @@ pub fn resolve_chat_line_formatted<'a>(
     translate: impl Fn(&str) -> Option<Arc<str>>,
     mention_color: Option<char>,
 ) -> Cow<'a, str> {
+    resolve_chat_line_mentions(node, translate, mention_color, None)
+}
+
+pub fn resolve_chat_line_mentions<'a>(
+    node: &'a ChatMessage,
+    translate: impl Fn(&str) -> Option<Arc<str>>,
+    mention_color: Option<char>,
+    only_self: Option<&str>,
+) -> Cow<'a, str> {
     let raw = match node.kind {
         ChatMessageKind::Translation => {
             let template = json_ui::localize_text_chars(&node.message, &translate);
@@ -53,7 +62,7 @@ pub fn resolve_chat_line_formatted<'a>(
     };
 
     if let Some(code) = mention_color {
-        let with_mentions = highlight_mentions(raw.as_ref(), code);
+        let with_mentions = highlight_mentions_filtered(raw.as_ref(), code, only_self);
         match with_mentions {
             Cow::Owned(s) => Cow::Owned(s),
             Cow::Borrowed(_) => raw,
@@ -65,7 +74,21 @@ pub fn resolve_chat_line_formatted<'a>(
 
 /// Highlights @mentions with §{mention_code}@mention§r.
 pub fn highlight_mentions(text: &str, mention_code: char) -> Cow<'_, str> {
+    highlight_mentions_filtered(text, mention_code, None)
+}
+
+/// Highlights @mentions with §{mention_code}@mention§r, optionally filtering to `only_self`.
+pub fn highlight_mentions_filtered<'a>(
+    text: &'a str,
+    mention_code: char,
+    only_self: Option<&str>,
+) -> Cow<'a, str> {
     if !text.contains('@') {
+        return Cow::Borrowed(text);
+    }
+    if let Some(target) = only_self
+        && target.trim().is_empty()
+    {
         return Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len() + 16);
@@ -91,13 +114,21 @@ pub fn highlight_mentions(text: &str, mention_code: char) -> Cow<'_, str> {
                     }
                 }
                 if end > start + 1 {
-                    out.push_str(&text[last_end..start]);
-                    out.push('§');
-                    out.push(mention_code);
-                    out.push_str(&text[start..end]);
-                    out.push('§');
-                    out.push('r');
-                    last_end = end;
+                    let mentioned_name = &text[start + 1..end];
+                    let matches_target = only_self.is_none_or(|target| {
+                        let clean_target = target.trim().replace(' ', "_");
+                        mentioned_name.eq_ignore_ascii_case(target.trim())
+                            || mentioned_name.eq_ignore_ascii_case(&clean_target)
+                    });
+                    if matches_target {
+                        out.push_str(&text[last_end..start]);
+                        out.push('§');
+                        out.push(mention_code);
+                        out.push_str(&text[start..end]);
+                        out.push('§');
+                        out.push('r');
+                        last_end = end;
+                    }
                 }
             }
         }

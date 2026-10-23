@@ -76,6 +76,7 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         && let Some(original) = builtin.lookup("hud", "chat_grid_item")
     {
         content::retain_fallback_filters(row, original, &visibility[&ordinary_label]);
+        content::preserve_chat_settings_vars(row);
     }
     for control in catalog.controls_mut().filter(|control| {
         content_scope

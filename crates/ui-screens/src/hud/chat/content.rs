@@ -29,6 +29,37 @@ pub(super) fn retain_fallback_filters(row: &mut RawControl, builtin: &RawControl
     }
 }
 
+/// Ensures resource-pack overrides of `hud.chat_grid_item` still honor the player's
+/// configured `$chat_font_scale_factor`, `$chat_line_spacing`, and `$chat_background_opacity`
+/// on the closed HUD chat instead of hardcoding fixed scale or alpha values.
+pub(super) fn preserve_chat_settings_vars(control: &mut RawControl) {
+    if control.name == "chat_background" {
+        control.props.insert(
+            "alpha".to_owned(),
+            serde_json::Value::String("$chat_background_opacity".to_owned()),
+        );
+    }
+    if control.name == "chat_text"
+        || control.name == "chat_label"
+        || control
+            .base
+            .as_deref()
+            .is_some_and(|base| base.ends_with("chat_label"))
+    {
+        control.props.insert(
+            "font_scale_factor".to_owned(),
+            serde_json::Value::String("$chat_font_scale_factor".to_owned()),
+        );
+        control.props.insert(
+            "line_padding".to_owned(),
+            serde_json::Value::String("($chat_line_spacing - 1)".to_owned()),
+        );
+    }
+    for child in &mut control.children {
+        preserve_chat_settings_vars(child);
+    }
+}
+
 /// Whether control names, inheritance and child placement still follow the built-in row.
 fn same_hierarchy(control: &RawControl, builtin: &RawControl) -> bool {
     control.name == builtin.name

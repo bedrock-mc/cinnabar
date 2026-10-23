@@ -28,6 +28,17 @@ impl UiRuntime {
         self.local_player_display_name = name;
     }
 
+    /// Returns the local player's plain username for self-mention matching.
+    pub fn local_player_chat_name(&self) -> Option<&str> {
+        if !self.chat_source_name.is_empty() {
+            Some(self.chat_source_name.as_ref())
+        } else if !self.local_player_display_name.is_empty() {
+            Some(self.local_player_display_name.as_ref())
+        } else {
+            None
+        }
+    }
+
     /// Queues an editor submission after removing leading ASCII whitespace.
     pub fn queue_chat_send(&mut self, now_millis: u64) -> Result<ChatSendRequest, ChatSendError> {
         let message = self

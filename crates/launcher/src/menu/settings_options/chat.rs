@@ -20,6 +20,17 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
     },
 ];
 
+pub const MENTIONS_TARGETS: &[SettingChoice] = &[
+    SettingChoice {
+        name: "mentions_target_everyone",
+        label: "chat.settings.mentionsTarget.everyone",
+    },
+    SettingChoice {
+        name: "mentions_target_self",
+        label: "chat.settings.mentionsTarget.self",
+    },
+];
+
 /// One color's text code and rendered swatch.
 #[derive(Clone, Copy, Debug)]
 pub struct ChatColor {
@@ -85,6 +96,10 @@ impl SettingsOptions {
     pub fn mentions_color_code(&self) -> char {
         let val = self.value(SettingId::MentionsColor) as usize;
         CHAT_PALETTE.get(val).map_or('e', |c| c.code)
+    }
+
+    pub fn mentions_only_self(&self) -> bool {
+        self.value(SettingId::MentionsTarget) == 1
     }
 
     /// Matches the three authored notification-duration radio choices.
