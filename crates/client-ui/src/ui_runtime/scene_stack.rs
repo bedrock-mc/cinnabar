@@ -30,6 +30,8 @@ pub enum Scene {
     Loading,
     SignEditor,
     ServerForm,
+    /// A script form shown through data-driven UI.
+    DataDriven,
     Menu(MenuScreen),
     /// The server settings form, which opens over the settings menu.
     ServerSettingsForm,
@@ -46,6 +48,7 @@ impl Scene {
             | Self::Emote
             | Self::SignEditor
             | Self::ServerForm
+            | Self::DataDriven
             | Self::ServerSettingsForm
             | Self::Credits => true,
             Self::Gameplay
@@ -208,6 +211,13 @@ impl UiRuntime {
         self.scenes(player_runtime, SceneHost::of(menu, self))
             .top()
             .is_none_or(|scene| scene.settings.should_steal_mouse)
+    }
+
+    /// Whether the top scene shows a menu, as its screen definition or host policy declares.
+    pub fn shows_menu(&self, player_runtime: &player_state::PlayerState, host: SceneHost) -> bool {
+        self.scenes(player_runtime, host)
+            .top()
+            .is_some_and(|scene| scene.settings.is_showing_menu)
     }
 
     /// Whether an open container screen counts as a menu. Vanilla answers a server form busy
