@@ -360,7 +360,9 @@ and rendered qualification remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
-  and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+  and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
+  carried sprites; remaining special shapes and animation still need matched comparisons.
+  Shared cube face sheets are bounded coverage.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
@@ -553,6 +555,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   write the paths and counters the server accepts. Panel geometry, Escape closing,
   message-box layout, images, gamepad and touch input, pack-defined DDUI screens and
   reloads remain incomplete; a matched native capture remains open.
+  removals and update counters. Screen requests are answered `UserBusy` while another
+  screen is busy and otherwise closed at once: drawing DDUI screens, their client writes,
+  server closes, reloads and pack-defined DDUI screens remain incomplete.
   URL images use the UI texture-file allowance. The download cache evicts its oldest
   handed-off bodies beyond the aggregate byte budget while preserving display readiness;
   atlas misses fetch released bodies again. Unclaimed bodies remain until first handoff.
@@ -738,7 +743,21 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
-  rendering acceptance remains incomplete. Android Mali culls terrain on the CPU because the
+  rendering acceptance remains incomplete. Carrier texture pages hold at most 1,024 layers to fit
+  Mali's array limit. Server block overlays reserve every base carrier page before allocating
+  device-bounded shards; world textures, fallback faces and carried items share page/layer addresses.
+  Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
+  The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
+  tombstone shows a driver shader compiler abort. The driver faults are not isolated,
+  so these vendor workarounds and target-device visual acceptance stay incomplete.
+  rendering acceptance remains incomplete. Terrain has a four-storage-buffer layout for constrained
+  devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  startup error through the desktop dialog or Android activity. Shader packs report a load error and
+  keep native rendering when their helper kernels exceed the device's per-stage storage budget.
+  The compact table still needs paging when its combined sources exceed one storage binding.
+  Physical-device rendering and fallback
+  performance acceptance remain incomplete.
+  Android Mali culls terrain on the CPU because the
   compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
   vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
   vanilla page against their 1,024-layer array limit; smaller pages first need session block
@@ -866,8 +885,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
   one list ending in an import target that opens the file picker for `.zip` packs and, on
-  desktop, takes dropped zips and folders; the selected pack's card shows its load state and
-  holds settings, reload and confirmed removal of imported copies and their saved settings.
+  desktop, takes dropped zips and folders. Android shows an Import shader pack button and
+  passes the loader's archive size bound to the document picker. The selected pack's card shows
+  its load state and holds settings, reload and confirmed removal of imported copies and their saved settings.
   Incomplete: Android can add only `.zip` packs, because its document picker selects files
   and folder packs need a folder picker.
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
@@ -875,14 +895,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated
-  helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
+  helpers. Compatibility rewriting accepts empty top-level declarations, defers square roots
+  of negative float literals and separates shared-memory array declarations. Missing vertex
+  varying locations receive zero outputs. Compiler results carry shader modules without
+  duplicate validation data; the host revalidates them when decoding.
+  The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
-  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  Incomplete: geometry shader translation, comma expressions containing void calls and full
+  GLSL preprocessing compatibility; in-game acceptance across packs and platforms (Metal is
+  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
   of celestial layers, effects without depth writes and private-depth first-person scenes,
   which keep the native scene copy; actor colour masks, multitexture materials, dissolve

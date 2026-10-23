@@ -6,6 +6,35 @@ use bevy::render::settings::WgpuSettings;
 /// holds about one full-screen target and anything larger gets memory of its own.
 const SUBALLOCATED_BLOCK_BYTES: std::ops::Range<u64> = (4 << 20)..(16 << 20);
 
+/// Counts vertex-visible storage bindings directly from a renderer layout.
+pub(crate) fn vertex_storage_buffers(
+    layout: &bevy::render::render_resource::BindGroupLayoutDescriptor,
+) -> u32 {
+    storage_buffers(layout, bevy::render::render_resource::ShaderStages::VERTEX)
+}
+
+/// Counts storage bindings visible to one stage in a renderer layout.
+pub(crate) fn storage_buffers(
+    layout: &bevy::render::render_resource::BindGroupLayoutDescriptor,
+    stage: bevy::render::render_resource::ShaderStages,
+) -> u32 {
+    use bevy::render::render_resource::{BindingType, BufferBindingType};
+    layout
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.visibility.contains(stage)
+                && matches!(
+                    entry.ty,
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Storage { .. },
+                        ..
+                    }
+                )
+        })
+        .count() as u32
+}
+
 /// Applies the renderer's storage limits, allocator policy and the platform's device policy.
 pub fn configure(settings: &mut WgpuSettings) {
     #[cfg(target_arch = "wasm32")]

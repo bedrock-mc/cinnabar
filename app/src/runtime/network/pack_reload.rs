@@ -260,7 +260,10 @@ impl PackReload {
                         if biome_overlay.biomes.is_some() {
                             let overlay = application.block_overlay.get_or_insert_with(|| {
                                 Arc::new(super::block_overlay::CompiledBlockOverlay {
-                                    overlay: Default::default(),
+                                    overlay: assets::BlockOverlay {
+                                        base_texture_pages: base.texture_pages().len() as u32,
+                                        ..Default::default()
+                                    },
                                     gaps: Default::default(),
                                     vanilla_carried: Vec::new(),
                                 })

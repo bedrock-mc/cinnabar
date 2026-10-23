@@ -290,13 +290,13 @@ fn indirect_devices_select_the_best_gpu_cull_submission() {
     );
 }
 
-/// Android Mali drivers lose the device under the compute cull, so they cull on the CPU.
+/// Driver faults keep Mali and PowerVR terrain culling on the CPU.
 #[test]
-fn android_mali_culls_terrain_on_the_cpu() {
+fn mali_and_powervr_cull_terrain_on_the_cpu() {
     const ADRENO_VENDOR_ID: u32 = 0x5143;
-    assert!(gpu_cull_unstable(ARM_MALI_VENDOR_ID, true));
-    assert!(!gpu_cull_unstable(ARM_MALI_VENDOR_ID, false));
-    assert!(!gpu_cull_unstable(ADRENO_VENDOR_ID, true));
+    assert!(gpu_cull_unstable(ARM_MALI_VENDOR_ID));
+    assert!(gpu_cull_unstable(POWERVR_VENDOR_ID));
+    assert!(!gpu_cull_unstable(ADRENO_VENDOR_ID));
 }
 
 #[test]

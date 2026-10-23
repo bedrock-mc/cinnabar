@@ -1,3 +1,5 @@
+import render::chunk_records::{chunk_origins, animations, animation_frames, clock};
+
 import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
@@ -17,21 +19,6 @@ struct PackedQuad {
     material_id: u32,
 }
 
-struct ChunkOrigin {
-    value: vec4<i32>,
-    stream_bases: vec4<u32>,
-}
-
-
-// ANIMATION_GPU_LAYOUT
-
-struct AnimationClockGpu {
-    tick: u32,
-    partial_tick: f32,
-    padding_0: u32,
-    padding_1: u32,
-}
-
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>,
     moon_direction_phase: vec4<f32>,
@@ -45,16 +32,12 @@ struct AtmosphereUniform {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
-@group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(19) var block_textures_page_2: texture_2d_array<f32>;
 @group(0) @binding(20) var block_textures_page_3: texture_2d_array<f32>;
 @group(0) @binding(21) var block_textures_page_4: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
-@group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
-@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var native_leaf_textures_page_0: texture_2d_array<f32>;
@@ -74,15 +57,15 @@ fn select_animation_frames_gpu(material: MaterialGpu) -> AnimationFrameSampleGpu
     if (material.animation == 0xffffffffu) {
         return AnimationFrameSampleGpu(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = animations(material.animation);
     let current_index =
         (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current_texture = animation_frames[animation.frame_start + current_index];
+    let current_texture = animation_frames(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return AnimationFrameSampleGpu(current_texture, current_texture, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
-    let next_texture = animation_frames[animation.frame_start + next_index];
+    let next_texture = animation_frames(animation.frame_start + next_index);
     let frame_tick = clock.tick % animation.ticks_per_frame;
     let blend = (f32(frame_tick) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
         f32(animation.ticks_per_frame);
@@ -347,7 +330,7 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
         f32((geometry >> 5u) & 0x1fu),
         f32((geometry >> 10u) & 0x1fu),
     );
-    let chunk_origin = chunk_origins[metadata_index];
+    let chunk_origin = chunk_origins(metadata_index);
     let local_quad_index = instance_index - chunk_origin.stream_bases.x;
     return CubeQuad(
         local_origin,
@@ -381,7 +364,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(cube.chunk_origin.xyz) + local_position;
     let camera_offset = section_camera_offset(cube.chunk_origin.xyz, local_position, view.world_position);
-    let material = materials[cube.selected_material_id];
+    let material = materials(cube.selected_material_id);
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;

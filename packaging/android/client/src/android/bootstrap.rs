@@ -222,7 +222,7 @@ fn call_activity(
             .iter()
             .map(|arg| env.new_string(*arg).map(JObject::from))
             .collect::<jni::errors::Result<Vec<_>>>()?;
-        let values: Vec<JValue<'_, '_>> = strings.iter().map(|arg| JValue::Object(arg)).collect();
+        let values: Vec<JValue<'_, '_>> = strings.iter().map(JValue::Object).collect();
         let value = env.call_method(activity, name, signature, &values)?;
         Ok(if signature.ends_with('Z') {
             value.z()?

@@ -27,6 +27,8 @@ pub(in crate::chunk) mod storage;
 #[cfg(test)]
 mod tests;
 pub(in crate::chunk) mod unit_mask;
+#[cfg(test)]
+mod vendor_tests;
 mod visibility_admission;
 
 use bevy::{
@@ -49,12 +51,12 @@ use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull, upload_gpu_cull}
 const CPU_CULLING_ENV: &str = "CINNABAR_CPU_CULLING";
 /// ARM's PCI vendor ID, reported by Mali adapters.
 const ARM_MALI_VENDOR_ID: u32 = 0x13B5;
+/// Imagination Technologies' PCI vendor ID, reported by PowerVR adapters.
+const POWERVR_VENDOR_ID: u32 = 0x1010;
 
-/// Whether the driver loses the device under the compute terrain cull.
-///
-/// Android Mali drivers do; their CPU-culled indirect draws stay stable.
-fn gpu_cull_unstable(vendor: u32, android: bool) -> bool {
-    android && vendor == ARM_MALI_VENDOR_ID
+/// Keeps drivers with terrain compute faults from compiling either culling path.
+fn gpu_cull_unstable(vendor: u32) -> bool {
+    matches!(vendor, ARM_MALI_VENDOR_ID | POWERVR_VENDOR_ID)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::chunk) enum GpuCullSubmission {
@@ -127,16 +129,21 @@ pub(in crate::chunk) fn install(app: &mut App) {
     ) else {
         return;
     };
-    let info = adapter.get_info();
-    let unstable = gpu_cull_unstable(info.vendor, cfg!(target_os = "android"));
+    let info = render_app
+        .world()
+        .resource::<bevy::render::renderer::RenderAdapterInfo>();
+    let unstable = gpu_cull_unstable(info.vendor);
     let forced_cpu =
         unstable || env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
     let draw_mode = select_chunk_draw_mode(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(info.backend),
-        apple_gpu(&info),
+        apple_gpu(info),
     );
+    // The optional cull kernels use more bindings than compact terrain drawing.
+    let forced_cpu = forced_cpu
+        || device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers();
     let submission = gpu_cull_submission(
         draw_mode,
         device.features(),

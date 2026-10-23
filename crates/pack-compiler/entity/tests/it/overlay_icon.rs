@@ -78,24 +78,27 @@ fn geometry_blocks_without_ambient_occlusion_get_thumbnails() {
 
 #[test]
 fn carried_cube_icons_sample_the_referenced_overlay_shard() {
-    let mut overlay = geometry_block(0);
-    let mut second = overlay.textures[0].clone();
-    second.mips[0].rgba8 = [50, 160, 220, 255].repeat(16 * 16).into();
-    overlay.textures.push(second.clone());
-    overlay.materials[1].texture = TextureRef::new(2, 0).unwrap();
-    let actual = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6], None).unwrap();
-    overlay.textures = vec![second];
-    overlay.materials[1].texture = TextureRef::new(1, 0).unwrap();
-    let expected = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6], None).unwrap();
-    assert_eq!(actual.rgba8, expected.rgba8);
-    assert!(
-        actual
-            .rgba8
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|pixel| pixel[3] != 0)
-    );
+    for base_pages in [1, 2] {
+        let mut overlay = geometry_block(0);
+        overlay.base_texture_pages = base_pages;
+        let mut second = overlay.textures[0].clone();
+        second.mips[0].rgba8 = [50, 160, 220, 255].repeat(16 * 16).into();
+        overlay.textures.push(second.clone());
+        overlay.materials[1].texture = TextureRef::new(base_pages + 1, 0).unwrap();
+        let actual = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6], None).unwrap();
+        overlay.textures = vec![second];
+        overlay.materials[1].texture = TextureRef::new(base_pages, 0).unwrap();
+        let expected = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6], None).unwrap();
+        assert_eq!(actual.rgba8, expected.rgba8);
+        assert!(
+            actual
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0)
+        );
+    }
 }
 
 #[test]
