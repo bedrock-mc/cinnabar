@@ -89,6 +89,19 @@ fn compiled_modules_and_reflection_survive_the_process_boundary() {
 }
 
 #[test]
+fn compiler_runs_from_the_packaged_prep_kit_path() {
+    let (_root, request) =
+        fixture("#version 330\nout vec4 color; void main() { color=vec4(1.0); }");
+    let install = tempfile::tempdir().unwrap();
+    let kit = install.path().join("Cinnabar — test/resources/prep-kit");
+    let executable = assets::carriers::kit_compiler(&kit);
+    std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_shaderpack-worker"), &executable).unwrap();
+    let mut worker = Running::start(&executable, &request).unwrap();
+    assert!(finish(&mut worker).unwrap().translation.programs[0].is_ok());
+}
+
+#[test]
 fn deeply_nested_glsl_cannot_crash_the_host_or_poison_the_next_load() {
     let fragment = format!(
         "#version 330\nout vec4 color; void main() {{ {} color=vec4(1.0); {} }}",

@@ -42,10 +42,16 @@ pub fn discover_packs(dir: &Path) -> Vec<DiscoveredPack> {
     packs
 }
 
-/// Whether `path` names a `.zip` file, ignoring case.
+/// File extensions of packs added as one archive; other packs are folders.
+pub const PACK_ARCHIVE_EXTENSIONS: [&str; 1] = ["zip"];
+
+/// Whether `path` names a pack archive, ignoring case.
 pub(crate) fn is_zip_name(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+    path.extension().is_some_and(|extension| {
+        PACK_ARCHIVE_EXTENSIONS
+            .iter()
+            .any(|accepted| extension.eq_ignore_ascii_case(accepted))
+    })
 }
 
 /// The folder holding `shaders/`: `folder` itself, or its only sub-folder when that holds it.

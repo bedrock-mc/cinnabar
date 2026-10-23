@@ -17,6 +17,8 @@ mod shader_options;
 mod shader_pack;
 mod social_settings;
 mod touch_editor;
+#[cfg(feature = "test-support")]
+pub(crate) use touch_editor::TouchUtilityView;
 mod updates;
 
 use std::sync::Arc;
@@ -70,6 +72,9 @@ pub enum Fixture {
     TouchEditor {
         phase: u8,
     },
+    /// Gameplay touch controls and their utility overlays.
+    #[cfg(feature = "test-support")]
+    TouchUtilities(TouchUtilityView),
     Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,
@@ -789,12 +794,6 @@ const STATES: &[State] = &[
         fixture: || settings_screens::settings_video_culling(false),
     },
     State {
-        name: "settings-video",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::settings_video,
-    },
-    State {
         name: "settings-video-shader-shortcut",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -817,6 +816,12 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: shader_pack::empty_library,
+    },
+    State {
+        name: "settings-shaders-empty-without-drops",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library_without_drops,
     },
     State {
         name: "settings-shaders-narrow-library",

@@ -86,6 +86,9 @@ fn device_requirements(
         }
     }
     raise_window_texture_limits(&mut limits, &adapter.limits());
+    limits.max_storage_buffers_per_shader_stage = limits
+        .max_storage_buffers_per_shader_stage
+        .min(adapter.limits().max_storage_buffers_per_shader_stage);
     if let Some(disabled) = settings.disabled_features {
         features.remove(disabled);
     }
@@ -204,8 +207,10 @@ pub(super) fn meets_requirements(adapter: impl Into<AdapterCapabilities>) -> Res
     );
     anyhow::ensure!(
         adapter.limits.max_storage_buffers_per_shader_stage
-            >= render::required_vertex_storage_buffers(),
-        "GPU has too few vertex-stage storage buffers for the renderer"
+            >= render::minimum_vertex_storage_buffers(),
+        "GPU supports {} storage buffers per shader stage; terrain requires at least {}",
+        adapter.limits.max_storage_buffers_per_shader_stage,
+        render::minimum_vertex_storage_buffers()
     );
     Ok(())
 }
