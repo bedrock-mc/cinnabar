@@ -189,6 +189,7 @@ fn control_preview_player_demand_keeps_hidden_doll_settings_and_survives_only_it
     presentation.set_server_ui_pack(&pack());
     assert!(!presentation.hud_frame.paper_doll_visible);
     presentation.hud_frame.player_preview = Some(IconRef {
+        color_mask: None,
         page: presentation.solid_texture_page,
         uv: [0, 0, u16::MAX, u16::MAX],
         glint: false,
@@ -221,6 +222,7 @@ fn control_preview_demand_and_measurements_yield_to_the_builtin_hud_editor() {
     let mut presentation = mini_engine_presentation();
     presentation.set_server_ui_pack(&pack());
     presentation.hud_frame.player_preview = Some(IconRef {
+        color_mask: None,
         page: presentation.solid_texture_page,
         uv: [0, 0, u16::MAX, u16::MAX],
         glint: false,

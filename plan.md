@@ -373,6 +373,7 @@ and rendered qualification remain incomplete.
   Dried-ghast previews keep separate body and tentacle artwork and preserve the held model.
   Barrel previews use a closed south-facing pose with authored face mapping and UV turns.
   Shared cube face sheets are bounded coverage.
+  Firework-star previews preserve their mask artwork and per-stack colors.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.

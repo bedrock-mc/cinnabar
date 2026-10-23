@@ -122,6 +122,7 @@ fn cache_hits_still_require_evicted_images_and_resolve_overrides_and_replaced_so
     let images = HashMap::from([(
         "textures/a.png".into(),
         IconRef {
+            color_mask: None,
             page: 99,
             uv: [0, 0, 16, 16],
             glint: false,

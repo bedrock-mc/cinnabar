@@ -31,6 +31,7 @@ fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
 #[test]
 fn carried_sheet_refs_preserve_face_order_and_pixel_edges() {
     let sheet = IconRef {
+        color_mask: None,
         page: 5,
         uv: [
             7,
@@ -59,6 +60,7 @@ fn atlas_rejects_invalid_sources_and_page_exhaustion() {
 #[test]
 fn mesh_modulation_preserves_geometry_and_adds_glint_without_baking() {
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -82,6 +84,7 @@ fn geometry_replacement_preserves_json_control_state_and_flat_sprites() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -127,11 +130,13 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
     use std::cell::Cell;
     use ui::{UiNodeId, UiPoint, UiRect};
     let preview = IconRef {
+        color_mask: None,
         page: 2,
         uv: [0, 0, 32, 32],
         glint: false,
     };
     let other = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -240,6 +245,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,

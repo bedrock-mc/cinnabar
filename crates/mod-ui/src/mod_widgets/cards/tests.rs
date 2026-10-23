@@ -789,6 +789,7 @@ fn hud_card_preview_aligns_the_card_geometry_and_clips_painted_overflow() {
 #[test]
 fn hud_card_preview_preserves_per_control_pixel_phase_against_direct_rendering() {
     let icon = ui::IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
