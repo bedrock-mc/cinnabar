@@ -144,13 +144,8 @@ pub(super) fn build(
             icons: packs.item_icons.clone(),
         },
     ));
-    let digger_filters = Arc::new(pack_runtime::DiggerFilters::new(
-        item_registry
-            .iter()
-            .flat_map(|registry| registry.entries.iter()),
-    ));
-    let old = std::mem::replace(&mut client_world.digger_filters, digger_filters);
-    client_runtime::session::release_off_frame(old);
+    let old = std::mem::replace(&mut client_world.digger_filters, registries.digger_filters);
+    client_runtime::session::release_off_frame((old, client_world.pending_digger_registry.take()));
     if let Some(registry) = item_registry
         && !stream.seed_item_registry(registry)
     {
@@ -158,17 +153,6 @@ pub(super) fn build(
     }
     stream.set_publication_allowance(publication.allowance());
     stream
-}
-
-/// Prepares tag programs for digger queries that a later item registry introduces.
-pub(super) fn admit_item_registry_diggers(
-    client_world: &mut ClientWorld,
-    entries: &[protocol::ItemRegistryEntry],
-) {
-    if let Some(extended) = client_world.digger_filters.extended(entries) {
-        let old = std::mem::replace(&mut client_world.digger_filters, Arc::new(extended));
-        client_runtime::session::release_off_frame(old);
-    }
 }
 
 /// Publishes the artwork the join prepared its actor resources over, which a reload during the

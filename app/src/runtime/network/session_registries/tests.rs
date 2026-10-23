@@ -35,7 +35,7 @@ pub(crate) fn prepared_packs(
     hashed: bool,
 ) -> PackApplication {
     let mut packs = PackApplication::default();
-    packs.registries = base.prepare(generation, hashed, custom, &packs, &|| false);
+    packs.registries = base.prepare(generation, hashed, custom, None, &packs, &|| false);
     packs
 }
 
@@ -54,10 +54,46 @@ fn prepare(
         SessionGeneration::new(7),
         hashed,
         custom,
+        None,
         &PackApplication::default(),
         &|| false,
     )
     .unwrap()
+}
+
+#[test]
+fn digger_queries_are_ready_in_the_worker_prepared_session_bundle() {
+    let digger = protocol::ItemDigger {
+        use_efficiency: false,
+        destroy_speeds: Arc::new([protocol::DiggerSpeed {
+            block: protocol::DiggerBlock::Tags("q.any_tag('test:stone')".into()),
+            speed: 8,
+        }]),
+    };
+    let registry = protocol::ItemRegistryEvent {
+        entries: Arc::new([protocol::ItemRegistryEntry {
+            components: Some(Arc::new(protocol::ItemComponents {
+                digger: Some(Arc::new(digger.clone())),
+                ..Default::default()
+            })),
+            ..protocol::vanilla_item_registry()[0].clone()
+        }]),
+    };
+    let prepared = registry_base()
+        .prepare(
+            SessionGeneration::new(7),
+            false,
+            &protocol::CustomBlocks::default(),
+            Some(&registry),
+            &PackApplication::default(),
+            &|| false,
+        )
+        .unwrap();
+    assert_eq!(
+        pack_runtime::digger_match(&digger, &prepared.digger_filters, "test:block", &|tag| tag
+            == "test:stone"),
+        pack_runtime::DiggerMatch::Speed(8)
+    );
 }
 
 #[test]
@@ -199,6 +235,7 @@ fn cancellation_never_publishes_partially_prepared_registries() {
                     SessionGeneration::new(7),
                     true,
                     &blocks,
+                    None,
                     &PackApplication::default(),
                     &cancelled
                 )
@@ -283,7 +320,14 @@ fn overlay_assets_are_materialized_before_commit_and_keep_the_exact_base() {
     };
     let prepared = base
         .clone()
-        .prepare(SessionGeneration::new(7), true, &blocks, &packs, &|| false)
+        .prepare(
+            SessionGeneration::new(7),
+            true,
+            &blocks,
+            None,
+            &packs,
+            &|| false,
+        )
         .unwrap();
     assert!(!Arc::ptr_eq(&prepared.assets, &base.assets));
     assert!(Arc::ptr_eq(&prepared.source_assets, &base.assets));

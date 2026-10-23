@@ -55,21 +55,47 @@ pub(super) fn drain(
 ) {
     let mut drain = WorldIngressDrain::new(Instant::now() + WORLD_INGRESS_DRAIN_BUDGET);
     loop {
-        let (receiver, pending) = network.world_ingress_mut();
-        let ingress = match drain.next(
-            receiver,
-            pending,
-            client_world.stream.as_mut(),
-            Instant::now,
-        ) {
-            Ok(Some(ingress)) => ingress,
-            Ok(None) => break,
-            Err(error) => {
-                record_fatal_error(fatal_error, format!("world ingress rejected data: {error}"));
-                break;
-            }
-        };
-        if let Some(trace) = bridge::latency_trace::active() {
+        let (ingress, prepared_filters) =
+            if let Some(pending) = client_world.pending_digger_registry.as_mut() {
+                match pending.poll(|event| {
+                    client_world
+                        .stream
+                        .as_ref()
+                        .is_none_or(|stream| stream.can_admit(&event.event))
+                }) {
+                    Ok(Some((event, filters))) => {
+                        client_world.pending_digger_registry = None;
+                        (client_session::WorldIngress::Event(event), Some(filters))
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        record_fatal_error(fatal_error, error.to_owned());
+                        break;
+                    }
+                }
+            } else {
+                let (receiver, pending) = network.world_ingress_mut();
+                let ingress = match drain.next(
+                    receiver,
+                    pending,
+                    client_world.stream.as_mut(),
+                    Instant::now,
+                ) {
+                    Ok(Some(ingress)) => ingress,
+                    Ok(None) => break,
+                    Err(error) => {
+                        record_fatal_error(
+                            fatal_error,
+                            format!("world ingress rejected data: {error}"),
+                        );
+                        break;
+                    }
+                };
+                (ingress, None)
+            };
+        if prepared_filters.is_none()
+            && let Some(trace) = bridge::latency_trace::active()
+        {
             let (session, fifo) = ingress.identity();
             trace.record(
                 bridge::latency_trace::kind::DRAINED,
@@ -78,7 +104,9 @@ pub(super) fn drain(
         }
         let sequenced = match ingress {
             client_session::WorldIngress::Event(sequenced) => {
-                network.record_readiness_event_consumed(&sequenced.event);
+                if prepared_filters.is_none() {
+                    network.record_readiness_event_consumed(&sequenced.event);
+                }
                 sequenced
             }
             client_session::WorldIngress::LevelChunk {
@@ -182,10 +210,18 @@ pub(super) fn drain(
             );
             continue;
         }
-        if let WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(registry)) =
-            &sequenced.event
+        if prepared_filters.is_none()
+            && matches!(
+                &sequenced.event,
+                WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(_))
+            )
         {
-            super::bootstrap_world::admit_item_registry_diggers(client_world, &registry.entries);
+            client_world.pending_digger_registry =
+                Some(super::digger_registry::PendingRegistry::start(
+                    sequenced,
+                    std::sync::Arc::clone(&client_world.digger_filters),
+                ));
+            break;
         }
         let Some(stream) = client_world.stream.as_mut() else {
             *fatal_error = Some("received world data before StartGame bootstrap".to_owned());
@@ -199,6 +235,10 @@ pub(super) fn drain(
                 continue;
             }
         };
+        if let Some(filters) = prepared_filters {
+            let old = std::mem::replace(&mut client_world.digger_filters, filters);
+            client_runtime::session::release_off_frame(old);
+        }
         if matches!(&sequenced.event, WorldEvent::Actor(protocol::ActorEvent::Status(status))
             if status.runtime_id == stream.authority().local_player_runtime_id()
                 && status.kind == protocol::ActorStatusKind::TotemActivate)

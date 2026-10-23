@@ -149,6 +149,7 @@ mod bootstrap;
 mod bootstrap_presentation;
 mod bootstrap_world;
 mod controls;
+pub(crate) mod digger_registry;
 pub(crate) mod equipment;
 mod world_ingress;
 #[cfg(test)]

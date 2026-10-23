@@ -14,26 +14,22 @@ pub enum DiggerMatch {
     Unresolved,
 }
 
-/// Session-owned block tag programs for every digger the item registry declares.
+/// Block tag programs owned by one active item registry.
 ///
-/// Programs are shared, so extending the set for a later registry is cheap and leaves earlier
-/// queries' results unchanged.
+/// Replacement registries share programs for live queries and release obsolete ones.
 #[derive(Debug, Default, Clone)]
 pub struct DiggerFilters(HashMap<Arc<str>, Arc<Option<pack_entity_compiler::ItemTagMolang>>>);
 
 impl DiggerFilters {
-    /// Compiles each distinct tag query once, when the session's item registry is installed.
+    /// Compiles each distinct query in an item registry on the caller's preparation worker.
     pub fn new<'a>(entries: impl IntoIterator<Item = &'a ItemRegistryEntry>) -> Self {
-        Self::default().extended(entries).unwrap_or_default()
+        Self::default().replaced(entries)
     }
 
-    /// Returns these programs plus ones for tag queries that `entries` declare and this set
-    /// lacks, or `None` when every query is already prepared.
-    pub fn extended<'a>(
-        &self,
-        entries: impl IntoIterator<Item = &'a ItemRegistryEntry>,
-    ) -> Option<Self> {
-        let mut extended: Option<Self> = None;
+    /// Prepares exactly the replacement registry's queries, reusing programs still in use.
+    /// Must run on a preparation worker because new queries require parsing.
+    pub fn replaced<'a>(&self, entries: impl IntoIterator<Item = &'a ItemRegistryEntry>) -> Self {
+        let mut replacement = Self::default();
         let diggers = entries
             .into_iter()
             .filter_map(|entry| entry.components.as_ref()?.digger.as_deref());
@@ -42,16 +38,17 @@ impl DiggerFilters {
                 let DiggerBlock::Tags(expression) = &entry.block else {
                     continue;
                 };
-                if extended.as_ref().unwrap_or(self).0.contains_key(expression) {
-                    continue;
-                }
-                extended.get_or_insert_with(|| self.clone()).0.insert(
-                    Arc::clone(expression),
-                    Arc::new(pack_entity_compiler::ItemTagMolang::parse(expression)),
-                );
+                replacement
+                    .0
+                    .entry(Arc::clone(expression))
+                    .or_insert_with(|| {
+                        self.0.get(expression).cloned().unwrap_or_else(|| {
+                            Arc::new(pack_entity_compiler::ItemTagMolang::parse(expression))
+                        })
+                    });
             }
         }
-        extended
+        replacement
     }
 
     /// Evaluates only prepared programs; a missing or unsupported query stays unresolved.
@@ -180,27 +177,29 @@ mod tests {
     }
 
     #[test]
-    fn a_later_registry_adds_its_queries_and_keeps_earlier_ones() {
+    fn replacement_retires_removed_queries_and_shares_live_programs() {
         let first = digger(&[(DiggerBlock::Tags("q.any_tag('stone')".into()), 12)]);
         let later = digger(&[(DiggerBlock::Tags("q.any_tag('dirt')".into()), 4)]);
+        let shared = registry_entry(&first);
+        let added = registry_entry(&later);
         let initial = filters(&first);
+        let both = initial.replaced([&shared, &added]);
+        assert!(Arc::ptr_eq(
+            initial.0.get("q.any_tag('stone')").unwrap(),
+            both.0.get("q.any_tag('stone')").unwrap(),
+        ));
+        let replacement = both.replaced([&added]);
         assert_eq!(
-            digger_match(&later, &initial, "minecraft:dirt", &tags(&["dirt"])),
-            DiggerMatch::Unresolved
-        );
-        let entry = registry_entry(&later);
-        let extended = initial
-            .extended([&entry])
-            .expect("a new query extends the set");
-        assert_eq!(
-            digger_match(&later, &extended, "minecraft:dirt", &tags(&["dirt"])),
+            digger_match(&later, &replacement, "minecraft:dirt", &tags(&["dirt"])),
             DiggerMatch::Speed(4)
         );
         assert_eq!(
-            digger_match(&first, &extended, "minecraft:stone", &tags(&["stone"])),
-            DiggerMatch::Speed(12)
+            digger_match(&first, &replacement, "minecraft:stone", &tags(&["stone"])),
+            DiggerMatch::Unresolved
         );
-        assert!(extended.extended([&entry]).is_none());
+        assert_eq!(replacement.0.len(), 1);
+        let empty = replacement.replaced([]);
+        assert!(empty.0.is_empty());
     }
 
     #[test]

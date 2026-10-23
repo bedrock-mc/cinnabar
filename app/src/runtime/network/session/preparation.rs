@@ -56,6 +56,7 @@ impl Preparation {
             self.session_generation,
             game_data.world.block_network_ids_are_hashes,
             &preparation.inputs.blocks,
+            game_data.items.registry.as_ref().ok(),
             &packs,
             cancelled,
         )?);
