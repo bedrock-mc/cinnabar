@@ -274,7 +274,8 @@ constants; rendered BDS acceptance covers straight and turning rows. A seat that
 rotation turns the rider's view with its vehicle and holds it within the seat's range.
 Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs, while
 Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
-Horse prediction and boat-to-boat collision remain open.
+Server motion of a predicted boat replaces its predicted motion; vanilla's handling is
+unverified. Horse prediction and boat-to-boat collision remain open.
 
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
