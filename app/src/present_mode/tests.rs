@@ -25,7 +25,7 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
         ),
         (
             PresentModeRuntime::from_startup(false, true, false, false),
-            PresentModePreference::AllowTearing,
+            PresentModePreference::NoVsync,
             PresentMode::Fifo,
         ),
         (
@@ -392,27 +392,48 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
     assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 }
 
-/// VSync off prefers Mailbox and retains universal FIFO as its last fallback.
+/// Saved VSync Off stays uncapped: Mailbox throughput can be bounded at refresh × frame latency.
 #[test]
-fn vsync_off_uses_the_best_supported_nonblocking_mode() {
-    for (supported, expected) in [
-        (MAILBOX_ONLY, PresentMode::Mailbox),
+fn saved_vsync_off_prefers_immediate_over_mailbox() {
+    let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
+    publish_capabilities(&app, MAILBOX_ONLY.with(PresentModeKind::Immediate));
+    publish_video(&mut app, |video| video.vsync = render_api::VsyncMode::Off);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+}
+
+/// Both VSync-off choices fall back across nonblocking modes and keep FIFO as the last resort.
+#[test]
+fn vsync_off_choices_use_their_best_supported_nonblocking_mode() {
+    use render_api::VsyncMode::{Off, OffNoTearing};
+    for (mode, supported, expected) in [
+        (Off, MAILBOX_ONLY, PresentMode::Mailbox),
+        (Off, METAL, PresentMode::Immediate),
+        (Off, SurfacePresentModes::FIFO_ONLY, PresentMode::Fifo),
         (
+            OffNoTearing,
             MAILBOX_ONLY.with(PresentModeKind::Immediate),
             PresentMode::Mailbox,
         ),
-        (METAL, PresentMode::Immediate),
-        (SurfacePresentModes::FIFO_ONLY, PresentMode::Fifo),
+        (OffNoTearing, METAL, PresentMode::Immediate),
+        (
+            OffNoTearing,
+            SurfacePresentModes::FIFO_ONLY,
+            PresentMode::Fifo,
+        ),
     ] {
         let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
         publish_capabilities(&app, supported);
-        publish_vsync(&mut app, false);
-        assert_eq!(primary_present_mode(&mut app), expected, "{supported:?}");
+        publish_video(&mut app, |video| video.vsync = mode);
+        assert_eq!(
+            primary_present_mode(&mut app),
+            expected,
+            "{mode:?} {supported:?}"
+        );
         publish_vsync(&mut app, true);
         assert_eq!(
             primary_present_mode(&mut app),
             PresentMode::Fifo,
-            "{supported:?}"
+            "{mode:?} {supported:?}"
         );
     }
 }

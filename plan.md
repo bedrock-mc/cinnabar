@@ -26,8 +26,10 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
-   Desktop VSync defaults to Off, preferring Mailbox, then Immediate, then FIFO;
-   Android defaults to On. The diagnostic `--no-vsync` flag prefers Immediate.
+   Desktop VSync defaults to Off, preferring Immediate, then Mailbox, then FIFO, the same
+   order as the `--no-vsync` session lock; Off (no tearing) prefers Mailbox, then Immediate,
+   then FIFO. Mailbox can be bounded at refresh × frame latency on some Windows setups.
+   Android defaults to On.
    Menus use a display-refresh ceiling. In-game frame-rate limits default to Unlimited; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
