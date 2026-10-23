@@ -56,10 +56,19 @@ pub fn collect_held(
     entities: &RuntimeEntityAssets,
     icons: &assets::RuntimeIconCatalog,
 ) -> BlockSheets {
-    let states: BTreeMap<u32, u32> = icons
+    let states: BTreeMap<u32, HeldDisplay> = icons
         .block_models()
         .iter()
-        .map(|model| (model.sprite, model.visual.0))
+        .map(|model| {
+            (
+                model.sprite,
+                if model.held_sprite.is_some() {
+                    HeldDisplay::Sprite
+                } else {
+                    HeldDisplay::Block(model.visual.0)
+                },
+            )
+        })
         .collect();
     let display = |key: &assets::ItemVisualKey| {
         let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
@@ -68,8 +77,15 @@ pub fn collect_held(
     collect_shapes(world, entities, Some(&display))
 }
 
-/// Resolves an item's inventory display state while borrowing its startup catalog.
-type DisplayState<'a> = dyn Fn(&assets::ItemVisualKey) -> Option<u32> + 'a;
+/// An explicit carried presentation retained by the icon catalog.
+#[derive(Clone, Copy)]
+enum HeldDisplay {
+    Block(u32),
+    Sprite,
+}
+
+/// Resolves an item's carried presentation while borrowing its startup catalog.
+type DisplayState<'a> = dyn Fn(&assets::ItemVisualKey) -> Option<HeldDisplay> + 'a;
 
 /// Collects cube sheets, and template models when `display` is given.
 fn collect_shapes(
@@ -96,6 +112,10 @@ fn collect_shapes(
         if by_visual.contains_key(&visual) || visual as usize >= world.visual_count() {
             continue;
         }
+        let display_state = display.and_then(|display| display(&definition.key));
+        if matches!(display_state, Some(HeldDisplay::Sprite)) {
+            continue;
+        }
         let model = (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
             .then(|| frame_model(world, visual))
             .flatten()
@@ -106,9 +126,15 @@ fn collect_shapes(
             .flatten();
         let model = model.or_else(|| {
             // Items the inventory draws flat (torches, plants, panes) stay sprites in hand.
-            let display = display.filter(|_| cube.is_none())?;
-            let shown = display(&definition.key)
-                .filter(|shown| (*shown as usize) < world.visual_count())?;
+            if cube.is_some() {
+                return None;
+            }
+            let HeldDisplay::Block(shown) = display_state? else {
+                return None;
+            };
+            if shown as usize >= world.visual_count() {
+                return None;
+            }
             template_model(world, shown)
         });
         let Some(materials) = model.as_ref().map(|(materials, _)| *materials).or(cube) else {
