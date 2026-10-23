@@ -720,6 +720,15 @@ fn creative_no_break_tags_include_mace() {
 }
 
 #[test]
+fn creative_sword_trait_also_blocks_destroy_prediction() {
+    let fact = assets::facts::ItemFact {
+        traits: assets::facts::ItemTraits::SWORD,
+        ..Default::default()
+    };
+    assert!(!destroys_in_creative(&fact));
+}
+
+#[test]
 fn tagged_session_tool_uses_its_admitted_tier_after_id_remapping() {
     let pinned = assets::facts::ItemFacts::builtin().unwrap();
     let mut entry = protocol::vanilla_item_registry()

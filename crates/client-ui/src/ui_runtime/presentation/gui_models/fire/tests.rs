@@ -45,20 +45,34 @@ fn flame_frames_retain_original_texels_and_animate_without_texture_rebuilds() {
             .fire
             .observe((1, 1, 1), true, frames.len());
         assert_eq!(
-            presentation.gui_fire_frame().unwrap().texture,
+            presentation
+                .gui_fire_frame(presentation.player_preview_view)
+                .unwrap()
+                .texture,
             frames[frame]
         );
         assert_eq!(
-            presentation.gui_fire_frame().unwrap().outer_y,
+            presentation
+                .gui_fire_frame(presentation.player_preview_view)
+                .unwrap()
+                .outer_y,
             player_preview::HUD_SWIM_OFFSET
         );
     }
     assert!(Arc::ptr_eq(&textures, &presentation.textures));
     presentation.gui_models.live_player.fire_size = None;
-    assert!(presentation.gui_fire_frame().is_none());
+    assert!(
+        presentation
+            .gui_fire_frame(presentation.player_preview_view)
+            .is_none()
+    );
     presentation.gui_models.live_player.fire_size = Some([0.6, 1.8]);
     presentation.player_preview_view = player_preview::PreviewView::default();
-    assert!(presentation.gui_fire_frame().is_none());
+    assert!(
+        presentation
+            .gui_fire_frame(presentation.player_preview_view)
+            .is_none()
+    );
 }
 
 #[test]

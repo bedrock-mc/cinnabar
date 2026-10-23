@@ -67,6 +67,18 @@ pub(crate) fn dispatch_bound_inventory_hotbar(
     matched
 }
 
+/// Returns whether a mouse button is assigned to one or more hotbar slots.
+fn mouse_button_bound_to_hotbar(
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    button: MouseButton,
+) -> bool {
+    client_shell::physical_input::mouse_button_code(button).is_some_and(|code| {
+        hotbar_control_slots(menu, semantic_input::PhysicalControl::MouseButton(code))
+            .next()
+            .is_some()
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_inventory_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
@@ -110,7 +122,10 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input()
+        || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
+    {
         runtime.screen_state_mut().container_close_armed = false;
         runtime.screen_state_mut().container_scroll_drag = None;
         return;
@@ -187,6 +202,7 @@ fn route_press(
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
     if button == MouseButton::Back
+        && !mouse_button_bound_to_hotbar(menu, button)
         && inventory::cancel_from_mouse_back(player_runtime, runtime, presentation.as_deref())
     {
         return (PressRoute::Binding, true);
@@ -375,6 +391,7 @@ pub(crate) fn drive_chat_keyboard_input(
     }
     if runtime.sign_editor().is_open()
         || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
@@ -450,11 +467,12 @@ pub(crate) fn drive_chat_keyboard_input(
         .iter()
         .any(crate::ui_runtime::platform_back::is_platform_back);
     if mouse_bindings && !platform_back && mouse_buttons.just_pressed(MouseButton::Back) {
-        let inventory_cancelled = inventory::cancel_from_mouse_back(
-            &mut player_runtime,
-            &mut runtime,
-            presentation.as_deref().map(|view| &view.0),
-        );
+        let inventory_cancelled = !mouse_button_bound_to_hotbar(menu.as_deref(), MouseButton::Back)
+            && inventory::cancel_from_mouse_back(
+                &mut player_runtime,
+                &mut runtime,
+                presentation.as_deref().map(|view| &view.0),
+            );
         if inventory_cancelled
             || chat::cancel_from_mouse_back(
                 &mut runtime,
