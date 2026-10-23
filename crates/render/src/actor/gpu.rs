@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Res, Resource};
 
 use render_model::ActorArtworkPageId;
 
@@ -13,15 +13,56 @@ mod geometry;
 pub(crate) use geometry::SegmentedVertexBuffer;
 pub use geometry::storage_binding_bytes;
 
-/// The non-sRGB view sRGB actor, item and block-entity artwork also allows when shader packs
-/// are compiled in: packs read texels as the raw gamma bytes Java's textures hold. Without
-/// them the artwork keeps no extra view format.
-pub(crate) const ARTWORK_VIEW_FORMATS: &[bevy::render::render_resource::TextureFormat] =
-    if cfg!(feature = "shaderpacks") {
-        &[bevy::render::render_resource::TextureFormat::Rgba8Unorm]
-    } else {
-        &[]
-    };
+/// Whether sRGB actor, item, particle and block-entity artwork also allows the `Rgba8Unorm`
+/// view shader packs read Java's raw gamma bytes through. Set only while a camera draws a
+/// loaded pack, since the extra format changes the allocation on some backends; artwork
+/// owners recreate their textures when it changes.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ArtworkRawViews(pub(crate) bool);
+
+impl ArtworkRawViews {
+    /// The current setting; absent before any shader-pack renderer installs it.
+    pub(crate) fn current(raw: Option<Res<Self>>) -> Self {
+        raw.as_deref().copied().unwrap_or_default()
+    }
+
+    /// The view formats artwork textures are created with.
+    pub(crate) fn view_formats(self) -> &'static [bevy::render::render_resource::TextureFormat] {
+        if cfg!(feature = "shaderpacks") && self.0 {
+            &[bevy::render::render_resource::TextureFormat::Rgba8Unorm]
+        } else {
+            &[]
+        }
+    }
+}
+
+/// Whether `texture` allows the raw view packs read: creating one raises no validation error.
+#[cfg(all(test, feature = "shaderpacks"))]
+pub(crate) fn permits_raw_view(device: &wgpu::Device, texture: &wgpu::Texture) -> bool {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _view = texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        ..Default::default()
+    });
+    bevy::tasks::block_on(scope.pop()).is_none()
+}
+
+/// Follows the main world's pack cameras during extraction, before any artwork owner prepares.
+#[cfg(feature = "shaderpacks")]
+pub(crate) fn extract_artwork_raw_views(
+    cameras: bevy::render::Extract<
+        bevy::prelude::Query<
+            (),
+            bevy::prelude::With<render_scene::shaderpack::ShaderPackRendering>,
+        >,
+    >,
+    mut raw: bevy::prelude::ResMut<ArtworkRawViews>,
+) {
+    let wanted = ArtworkRawViews(!cameras.is_empty());
+    if *raw != wanted {
+        *raw = wanted;
+    }
+}
 
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {
@@ -172,6 +213,47 @@ mod tests {
     use render_model::EntityRigId;
     use render_model::{ActorRenderIdentity, ActorRigRoute};
     use render_scene::ActorPresentationGate;
+
+    #[test]
+    fn artwork_raw_view_formats_require_the_feature_and_camera_demand() {
+        assert!(ArtworkRawViews::default().view_formats().is_empty());
+        let formats = ArtworkRawViews(true).view_formats();
+        if cfg!(feature = "shaderpacks") {
+            assert_eq!(formats, [wgpu::TextureFormat::Rgba8Unorm]);
+        } else {
+            assert!(formats.is_empty());
+        }
+    }
+
+    #[cfg(feature = "shaderpacks")]
+    #[test]
+    fn artwork_raw_views_follow_the_last_pack_camera() {
+        use bevy::{ecs::system::RunSystemOnce, prelude::*, render::MainWorld};
+        use render_scene::shaderpack::ShaderPackRendering;
+
+        let mut main = MainWorld::default();
+        let first = main.spawn_empty().id();
+        let second = main.spawn_empty().id();
+        let mut render = World::new();
+        render.insert_resource(main);
+        render.init_resource::<ArtworkRawViews>();
+        for (camera, enabled, expected) in [
+            (first, false, false),
+            (first, true, true),
+            (second, true, true),
+            (first, false, true),
+            (second, false, false),
+        ] {
+            let mut main = render.resource_mut::<MainWorld>();
+            if enabled {
+                main.entity_mut(camera).insert(ShaderPackRendering);
+            } else {
+                main.entity_mut(camera).remove::<ShaderPackRendering>();
+            }
+            render.run_system_once(extract_artwork_raw_views).unwrap();
+            assert_eq!(render.resource::<ArtworkRawViews>().0, expected);
+        }
+    }
 
     /// An exact single-instance frame for receipt and GPU-completion regressions.
     fn draw(generation: u64) -> ActorDrawFrame {

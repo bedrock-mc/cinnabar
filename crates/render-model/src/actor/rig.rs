@@ -187,6 +187,12 @@ impl ActorRigGeometry {
         })
     }
 
+    /// The same geometry, sharing its allocations and preparation, under rig id `id`.
+    #[must_use]
+    pub fn with_id(&self, id: EntityRigId) -> Self {
+        Self { id, ..self.clone() }
+    }
+
     /// One past the highest bone any vertex uses; a pose needs at least this many bones.
     #[must_use]
     pub const fn bones_used(&self) -> usize {
@@ -234,6 +240,16 @@ impl ActorRigGeometry {
         {
             return false;
         }
+        self.adopt_vertex_allocation(vertices);
+        true
+    }
+
+    /// Like [`Self::share_vertex_allocation`] for an allocation already known to hold these
+    /// exact bytes.
+    pub(crate) fn adopt_vertex_allocation(&mut self, vertices: &Arc<[ActorRigVertex]>) {
+        if Arc::ptr_eq(&self.vertices, vertices) {
+            return;
+        }
         let fingerprint = self.vertex_fingerprint();
         self.vertices = Arc::clone(vertices);
         if let Some(fingerprint) = fingerprint {
@@ -244,7 +260,6 @@ impl ActorRigGeometry {
                 bone_bounds: OnceLock::new(),
             });
         }
-        true
     }
 
     /// Rechecks replaced public data while preserving preparation for unchanged allocations.

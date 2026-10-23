@@ -72,11 +72,9 @@ fn read_json(path: &Path, required: bool) -> Result<Vec<u8>, AudioBankCompileErr
         ));
     }
     let bytes = fs::read(path).map_err(io_error(path))?;
-    pack_json::parse_jsonc::<serde::de::IgnoredAny>(&bytes).map_err(|source| {
-        AudioBankCompileError::JsonFile {
-            path: path.to_path_buf(),
-            source,
-        }
+    pack_json::validate_jsonc(&bytes).map_err(|source| AudioBankCompileError::JsonFile {
+        path: path.to_path_buf(),
+        source,
     })?;
     Ok(bytes)
 }

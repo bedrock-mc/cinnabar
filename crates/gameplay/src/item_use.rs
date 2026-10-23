@@ -99,8 +99,10 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// A projectile use swung the arm; its swing packet precedes `packets`.
+    /// A swing-only or projectile use swung the arm; its swing packet precedes `packets`.
     pub swung: bool,
+    /// The Bedrock reason attached to the locally predicted swing, when one was emitted.
+    pub swing_source: Option<protocol::SwingSource>,
     used: bool,
     released: bool,
 }
@@ -512,6 +514,7 @@ impl ItemUseRuntime {
         let mut active_use = None;
         let mut predicted_stack = None;
         let mut swung = false;
+        let mut swing_source = None;
         match air_use {
             Some(AirUse::Hold {
                 max_ticks,
@@ -535,6 +538,7 @@ impl ItemUseRuntime {
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
                 swung = true;
+                swing_source = Some(protocol::SwingSource::ThrowItem);
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
@@ -549,7 +553,14 @@ impl ItemUseRuntime {
                     });
                 }
             }
-            Some(AirUse::GlideRocket) if frame.ready => swung = true,
+            Some(AirUse::Swing) => {
+                swung = true;
+                swing_source = Some(protocol::SwingSource::UseItem);
+            }
+            Some(AirUse::GlideRocket) if frame.ready => {
+                swung = true;
+                swing_source = Some(protocol::SwingSource::ThrowItem);
+            }
             _ => {}
         }
         let inventory_change = change.as_ref().and_then(|change| {
@@ -563,6 +574,7 @@ impl ItemUseRuntime {
             outcome.started = active_use.is_some();
             self.active = active_use;
             outcome.swung = swung;
+            outcome.swing_source = swing_source;
             if (outcome.started || swung)
                 && let Some(Cooldown { category, ticks }) = cooldown
             {

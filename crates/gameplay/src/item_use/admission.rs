@@ -49,7 +49,12 @@ pub fn step_and_send(
     if outcome.swung && candidate_swings.try_swing(frame.tick, swing_duration) {
         packets.insert(
             0,
-            protocol::swing_arm_packet(local_runtime_id, protocol::SwingSource::ThrowItem),
+            protocol::swing_arm_packet(
+                local_runtime_id,
+                outcome
+                    .swing_source
+                    .unwrap_or(protocol::SwingSource::ThrowItem),
+            ),
         );
     }
     let admission = if packets.is_empty() {

@@ -1,3 +1,5 @@
+/// Canonical fishing-rod identity used by its cast presentation.
+pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
 /// Item atlas key whose variants are the tipped arrow icons.

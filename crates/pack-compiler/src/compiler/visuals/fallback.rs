@@ -1,4 +1,4 @@
-use assets::facts::{BlockRenderKind as R, block_render_fact};
+use assets::facts::block_render_fact;
 use std::sync::OnceLock;
 
 use super::context::{
@@ -147,7 +147,11 @@ impl<'a> FallbackInventory<'a> {
         self.entry_unfiltered(record)
     }
 
-    fn entry_unfiltered(&self, record: &RegistryRecord) -> Option<([i16; 3], [i16; 3], u8)> {
+    /// Inventory hit for `record`, including families with an exact route.
+    pub(in crate::compiler) fn entry_unfiltered(
+        &self,
+        record: &RegistryRecord,
+    ) -> Option<([i16; 3], [i16; 3], u8)> {
         let mut left = 0;
         let mut right = self.entry_count;
         while left < right {
@@ -239,10 +243,6 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
-        )
-        || matches!(
-            block_render_fact(&record.name).kind,
-            R::Ice | R::FrostedIce | R::SnowLayer
         )
 }
 

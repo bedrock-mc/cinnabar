@@ -6,6 +6,7 @@ mod cape_tests;
 mod cloth_contacts;
 mod commit;
 mod companions;
+pub(crate) mod fishing_line;
 mod flames;
 mod geometry;
 mod ground_effects;
@@ -18,7 +19,7 @@ mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;
 mod views;
-use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
+use geometry::{SessionGeometryReady, SessionIconInput, apply_session_pack, register_geometries};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;
@@ -401,6 +402,36 @@ pub fn prepare_actor_render_frame(
             &mut batch,
         );
     }
+    let owner_holds_rod = |runtime_id| {
+        fishing_line::owner_holds_fishing_rod(
+            stream,
+            runtime_id,
+            bodies.local_runtime_id,
+            &input.local_equipment,
+        )
+    };
+    let first_person_fishing_line_anchor = (!input.hide_hand
+        && owner_holds_rod(bodies.local_runtime_id))
+    .then(|| params.presentation.camera.single().ok())
+    .flatten()
+    .and_then(|(camera, projection)| {
+        hand_source.as_ref().and_then(|source| {
+            fishing_line::first_person_fishing_line_anchor_for(
+                source,
+                step.partial_tick,
+                camera,
+                projection,
+                state.captured_aspect,
+                hand_camera_fov?,
+            )
+        })
+    });
+    let mut fishing_line_anchors =
+        fishing_line::fishing_line_anchors_for(&batch, step.partial_tick, owner_holds_rod);
+    if let Some(anchor) = first_person_fishing_line_anchor {
+        fishing_line_anchors.retain(|known| known.runtime_id != anchor.runtime_id);
+        fishing_line_anchors.push(anchor);
+    }
     drop(preparation);
     register_geometries(
         &mut params.hand_builder.0,
@@ -449,7 +480,10 @@ pub fn prepare_actor_render_frame(
             }),
             cull_view,
         ),
-        step.partial_tick,
+        crate::dropped_items::DroppedItemFrame {
+            partial_tick: step.partial_tick,
+            fishing_line_anchors: &fishing_line_anchors,
+        },
         (
             artwork.item_glint.clone(),
             render_model::ActorGlint {

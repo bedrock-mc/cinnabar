@@ -3911,7 +3911,6 @@
       "members": [
         "minecraft:ladder",
         "minecraft:waterlily",
-        "minecraft:end_rod",
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
@@ -6858,6 +6857,7 @@
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
+      "HeavyCore": "minecraft:heavy_core",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {
@@ -7019,6 +7019,9 @@
       "flattened_tnt_side": "textures/blocks/tnt_side",
       "flattened_tnt_top": "textures/blocks/tnt_top"
     },
-    "empty_hand": "Air"
+    "empty_hand": "Air",
+    "omitted_render_controllers": {
+      "controller.render.iron_golem": "controller.render.default"
+    }
   }
 }

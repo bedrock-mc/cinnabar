@@ -156,6 +156,58 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
     }
 }
 
+/// A pose the device has no memory to resize must not be drawn with the previous bones.
+#[cfg(target_os = "macos")]
+#[test]
+fn failed_pose_resize_skips_the_hand_draw_and_retries() {
+    use bevy::{ecs::system::RunSystemOnce, render::view::RetainedViewEntity};
+    let Some(mut app) = crate::upload_allocation_tests::app(HandRigRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.spawn((
+        Msaa::Off,
+        crate::render_test_support::camera(false),
+        ExtractedView {
+            retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+            clip_from_view: Mat4::IDENTITY,
+            world_from_view: GlobalTransform::IDENTITY,
+            clip_from_world: None,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
+            viewport: UVec4::new(0, 0, 64, 64),
+            color_grading: default(),
+            invert_culling: false,
+        },
+    ));
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    world.insert_resource(scene);
+    world.run_system_once(prepare).unwrap();
+    assert_eq!(world.resource::<HandRigGpu>().instance_count, 1);
+
+    let mut rig = single_instance_frame();
+    rig.instances = Arc::from([ActorGpuInstance::default(); 2]);
+    assert!(
+        world
+            .resource_mut::<HandRigScene>()
+            .publish(rig, skin(), light(), 1.2, 2)
+    );
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "first-person rig instance");
+        world.run_system_once(prepare).unwrap();
+    }
+    let gpu = world.resource::<HandRigGpu>();
+    assert_eq!(gpu.instance_count, 0);
+    assert!(gpu.bind_group.is_none());
+    assert_eq!(gpu.revision, None);
+
+    world.run_system_once(prepare).unwrap();
+    let gpu = world.resource::<HandRigGpu>();
+    assert_eq!(gpu.revision, Some(2));
+    assert_eq!(gpu.instance_count, 2);
+}
+
 #[test]
 fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     use bevy::ecs::system::RunSystemOnce;
@@ -362,7 +414,11 @@ fn pose_updates_reuse_their_buffers() {
     let mut buffers = Vec::new();
     for revision in 1..=3 {
         assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
-        upload_pose(&mut gpu, &uploads, scene.frame.as_ref().unwrap());
+        assert!(upload_pose(
+            &mut gpu,
+            &uploads,
+            scene.frame.as_ref().unwrap()
+        ));
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
@@ -505,6 +561,47 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
                     render_scene::SCENE_COLOR_FORMAT
                 }
             );
+        }
+    }
+}
+
+/// Hand artwork allows the pack's raw view only while a pack draws; switching recreates it.
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
+    use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    scene.set_item_atlases([
+        Some(HandItemAtlas {
+            width: 2,
+            height: 2,
+            layers: 1,
+            rgba8: vec![255; 16].into(),
+        }),
+        None,
+    ]);
+    for pack in [false, true, false] {
+        gpu.raw_views = ArtworkRawViews(pack);
+        let frame = scene.frame.as_ref().unwrap();
+        upload_skin(&mut gpu, &device, &queue, frame);
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        upload_glint(&mut gpu, &device, &queue, frame);
+        let textures = [
+            &gpu.skin.as_ref().unwrap()._texture,
+            &gpu.atlases[0].as_ref().unwrap()._texture,
+            &gpu.glint.as_ref().unwrap()._texture,
+        ];
+        for texture in textures {
+            assert_eq!(permits_raw_view(device.wgpu_device(), texture), pack);
         }
     }
 }
