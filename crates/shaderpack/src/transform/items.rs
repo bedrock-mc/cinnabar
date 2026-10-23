@@ -150,8 +150,9 @@ pub(super) fn func_params(toks: &[Tok]) -> Option<(usize, Vec<Param>)> {
     Some((lp, params))
 }
 
-/// Gives `T[] x = T[](a, b)` / `T x[] = T[](...)` explicit sizes. GLSL infers them from the
-/// initializer; naga's GLSL frontend would make a runtime-sized array instead.
+/// Gives `T[] x = T[](a, b)` / `T x[] = T[N](...)` explicit sizes: the constructor's own size,
+/// or its argument count when that is unsized too. GLSL infers them from the initializer;
+/// naga's GLSL frontend would make a runtime-sized array instead.
 pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
     let ctor_len = |open: usize| -> usize {
         let close = matching(src, open, "(", ")");
@@ -168,13 +169,16 @@ pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
             continue;
         }
         let mut j = i + 2;
-        while j + 3 < src.len() && !src[j].is(";") {
-            if src[j].is("=")
-                && src[j + 2].is("[")
-                && src[j + 3].is("]")
-                && src.get(j + 4).is_some_and(|t| t.is("("))
-            {
-                out.push(int(ctor_len(j + 4)).at(src[i].line));
+        while j + 2 < src.len() && !src[j].is(";") {
+            if src[j].is("=") && src[j + 1].ident().is_some() && src[j + 2].is("[") {
+                let close = matching(src, j + 2, "[", "]");
+                if src.get(close + 1).is_some_and(|t| t.is("(")) {
+                    if close == j + 3 {
+                        out.push(int(ctor_len(close + 1)).at(src[i].line));
+                    } else {
+                        out.extend_from_slice(&src[j + 3..close]);
+                    }
+                }
                 break;
             }
             j += 1;

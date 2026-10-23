@@ -378,3 +378,13 @@ fn compatibility_missing_variables_use_resolved_fragment_reads() {
         success(vertex, fragment);
     }
 }
+
+#[test]
+fn compatibility_unsized_array_declarations_take_sized_initializer_lengths() {
+    success(
+        VERTEX,
+        "#version 330\nuniform int index; out vec4 color;
+        void main() { const float[] weights = float[3](0.25, 0.5, 1.0); float scale[] = float[2](2.0, 3.0);
+        color = vec4(weights[index] * scale[index]); }",
+    );
+}
