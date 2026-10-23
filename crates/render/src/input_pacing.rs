@@ -7,10 +7,7 @@ mod gpu;
 mod wait;
 
 use std::{
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -45,11 +42,17 @@ const MEDIAN: usize = HISTORY / 2;
 /// background windows check less often.
 const SERVICE_SLICE: Duration = Duration::from_millis(1);
 const BACKGROUND_SERVICE_SLICE: Duration = Duration::from_millis(4);
-/// Spin before a focused deadline: starts here, then tracks observed sleep overshoot.
+/// Spin before a focused deadline: starts here, then covers recent sleep overshoot.
 const INITIAL_SPIN: Duration = Duration::from_micros(200);
 const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);
 const SPIN_HEADROOM: Duration = Duration::from_micros(25);
+/// Final sleeps whose overshoot sets the spin.
+const OVERSHOOT_WINDOW: usize = 256;
+/// Largest overshoots of a full window the spin leaves uncovered, under 1% of wakes: an
+/// isolated OS wake hiccup does not hold a long spin over the following frames, while a
+/// burst of late wakes raises it.
+const UNCOVERED_OVERSHOOTS: usize = 2;
 
 use crate::{FrameEnd, FrameStart};
 
@@ -74,32 +77,77 @@ pub(crate) trait PacingClock: Send + Sync + 'static {
 
 /// Sleeps on the OS's absolute monotonic timer, then spins the stretch its wakes overshoot by.
 struct SystemClock {
-    /// Current spin allowance in nanoseconds, raised at once on a late wake and relaxed slowly.
-    spin_nanos: AtomicU64,
+    spin: Mutex<SpinEstimate>,
 }
 
 impl SystemClock {
     fn new() -> Self {
         Self {
-            spin_nanos: AtomicU64::new(INITIAL_SPIN.as_nanos() as u64),
+            spin: Mutex::default(),
         }
     }
 
+    fn estimate(&self) -> std::sync::MutexGuard<'_, SpinEstimate> {
+        self.spin.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn spin(&self) -> Duration {
-        Duration::from_nanos(self.spin_nanos.load(Ordering::Relaxed))
+        self.estimate().spin
     }
 
     fn record_overshoot(&self, overshoot: Duration) {
-        let wanted = (overshoot + SPIN_HEADROOM).clamp(MIN_SPIN, MAX_SPIN);
-        let current = self.spin();
-        let next = if wanted > current {
-            wanted
-        } else {
-            current.saturating_sub(Duration::from_micros(1)).max(wanted)
-        };
-        self.spin_nanos
-            .store(next.as_nanos() as u64, Ordering::Relaxed);
+        self.estimate().record(overshoot);
     }
+}
+
+/// Recent final-sleep overshoots and the spin that covers all but the rarest of them.
+#[derive(Debug)]
+struct SpinEstimate {
+    overshoots: [Duration; OVERSHOOT_WINDOW],
+    len: usize,
+    next: usize,
+    spin: Duration,
+}
+
+impl Default for SpinEstimate {
+    fn default() -> Self {
+        Self {
+            overshoots: [Duration::ZERO; OVERSHOOT_WINDOW],
+            len: 0,
+            next: 0,
+            spin: INITIAL_SPIN,
+        }
+    }
+}
+
+impl SpinEstimate {
+    /// Records how far past its target a final sleep woke, then spins for the largest recent
+    /// overshoot after the uncovered ones, plus headroom. The uncovered count scales with the
+    /// samples held, so the first wakes cover every overshoot seen.
+    fn record(&mut self, overshoot: Duration) {
+        self.overshoots[self.next] = overshoot;
+        self.next = (self.next + 1) % OVERSHOOT_WINDOW;
+        self.len = (self.len + 1).min(OVERSHOOT_WINDOW);
+        let uncovered = UNCOVERED_OVERSHOOTS * self.len / OVERSHOOT_WINDOW;
+        let covered = nth_largest(&self.overshoots[..self.len], uncovered);
+        self.spin = (covered + SPIN_HEADROOM).clamp(MIN_SPIN, MAX_SPIN);
+    }
+}
+
+/// The sample ranked after `skipped` larger ones; `skipped` is at most `UNCOVERED_OVERSHOOTS`.
+fn nth_largest(samples: &[Duration], skipped: usize) -> Duration {
+    let mut largest = [Duration::ZERO; UNCOVERED_OVERSHOOTS + 1];
+    for &sample in samples {
+        let mut slot = largest.len();
+        while slot > 0 && largest[slot - 1] < sample {
+            slot -= 1;
+        }
+        if slot < largest.len() {
+            largest.copy_within(slot..largest.len() - 1, slot + 1);
+            largest[slot] = sample;
+        }
+    }
+    largest[skipped]
 }
 
 impl PacingClock for SystemClock {
