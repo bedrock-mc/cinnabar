@@ -10,6 +10,8 @@ struct Pool {
     surface_y: i32,
     ground_friction: f64,
     wall_x: Option<i32>,
+    /// The boat's origin column has not streamed in.
+    unloaded_origin: bool,
 }
 
 impl Pool {
@@ -19,6 +21,7 @@ impl Pool {
             surface_y: 62,
             ground_friction: 0.6,
             wall_x: None,
+            unloaded_origin: false,
         }
     }
 
@@ -28,6 +31,7 @@ impl Pool {
             surface_y: 61,
             ground_friction: friction,
             wall_x: None,
+            unloaded_origin: false,
         }
     }
 
@@ -41,6 +45,17 @@ impl Pool {
 }
 
 impl CollisionWorld for Pool {
+    fn ensure_movement_origin(&self, feet: Vec3) -> Result<(), WorldQueryError> {
+        if self.unloaded_origin {
+            return Err(WorldQueryError::UnloadedChunk(world::ChunkKey {
+                dimension: 0,
+                x: (feet.x.floor() as i32) >> 4,
+                z: (feet.z.floor() as i32) >> 4,
+            }));
+        }
+        Ok(())
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Ok(CollisionQuery::synthetic(
             self.collision_boxes_with_provenance(query)?
@@ -107,6 +122,12 @@ impl CollisionWorld for Pool {
     }
 }
 
+/// An oak boat's collision box and origin, as its entity facts give them.
+const OAK: BoatBody = BoatBody {
+    width: 1.4,
+    height: 0.455,
+    height_offset: 0.375,
+};
 const FORWARD: [f32; 2] = [0.0, 1.0];
 const CALM: BoatBuoyancy = BoatBuoyancy::Live { wave_draw: 0.5 };
 
@@ -165,7 +186,7 @@ fn rowing_forward_on_still_water_reaches_cruising_speed_along_the_boat_axis() {
     let world = Pool::water();
     let state = run(
         &world,
-        BoatState::at_rest([0.5, 62.6, 0.5], 0.0),
+        BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 0.0),
         FORWARD,
         200,
     );
@@ -178,7 +199,7 @@ fn rowing_forward_on_still_water_reaches_cruising_speed_along_the_boat_axis() {
 
     let state = run(
         &world,
-        BoatState::at_rest([0.5, 62.6, 0.5], 90.0),
+        BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 90.0),
         FORWARD,
         50,
     );
@@ -189,7 +210,7 @@ fn rowing_forward_on_still_water_reaches_cruising_speed_along_the_boat_axis() {
 #[test]
 fn a_floating_boat_settles_in_the_surface_block() {
     let world = Pool::water();
-    let mut state = BoatState::at_rest([0.5, 62.0, 0.5], 0.0);
+    let mut state = BoatState::at_rest(OAK, [0.5, 62.0, 0.5], 0.0);
     let mut float = BoatFloat::default();
     for _ in 0..400 {
         let tick = tick_boat(&world, &state, [0.0; 2], CALM).unwrap();
@@ -206,7 +227,7 @@ fn a_submerged_boat_resurfaces() {
     let world = Pool::water();
     let state = run(
         &world,
-        BoatState::at_rest([0.5, 60.5, 0.5], 0.0),
+        BoatState::at_rest(OAK, [0.5, 60.5, 0.5], 0.0),
         [0.0; 2],
         60,
     );
@@ -218,14 +239,14 @@ fn turning_right_rotates_the_boat_clockwise() {
     let world = Pool::water();
     let state = run(
         &world,
-        BoatState::at_rest([0.5, 62.6, 0.5], 0.0),
+        BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 0.0),
         [-1.0, 0.0],
         40,
     );
     assert!(state.yaw > 30.0, "{state:?}");
     let state = run(
         &world,
-        BoatState::at_rest([0.5, 62.6, 0.5], 0.0),
+        BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 0.0),
         [1.0, 0.0],
         40,
     );
@@ -235,13 +256,13 @@ fn turning_right_rotates_the_boat_clockwise() {
 #[test]
 fn a_dropped_boat_falls_and_lands() {
     let world = Pool::land(0.6);
-    let start = BoatState::at_rest([0.5, 66.375, 0.5], 0.0);
+    let start = BoatState::at_rest(OAK, [0.5, 66.375, 0.5], 0.0);
     let first = tick_boat(&world, &start, [0.0; 2], CALM).unwrap().state;
     assert!((first.velocity[1] + 0.0392).abs() < 1.0e-6);
     assert!(!first.on_ground);
     let landed = run(&world, first, [0.0; 2], 60);
     assert!(landed.on_ground);
-    assert!((landed.position[1] - (63.0 + BOAT_HEIGHT_OFFSET)).abs() < 1.0e-4);
+    assert!((landed.position[1] - (63.0 + OAK.height_offset)).abs() < 1.0e-4);
 }
 
 #[test]
@@ -250,7 +271,7 @@ fn ground_friction_sets_the_momentum_on_land() {
         let world = Pool::land(friction);
         let mut state = run(
             &world,
-            BoatState::at_rest([0.5, 63.375, 0.5], 0.0),
+            BoatState::at_rest(OAK, [0.5, 63.375, 0.5], 0.0),
             [0.0; 2],
             2,
         );
@@ -267,7 +288,7 @@ fn a_wall_stops_the_boat_and_clears_its_speed_on_that_axis() {
         wall_x: Some(4),
         ..Pool::water()
     };
-    let mut state = BoatState::at_rest([0.5, 62.6, 0.5], 0.0);
+    let mut state = BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 0.0);
     let mut collided = false;
     for _ in 0..60 {
         let tick = tick_boat(&world, &state, boat_paddle_power(FORWARD), CALM).unwrap();
@@ -275,7 +296,7 @@ fn a_wall_stops_the_boat_and_clears_its_speed_on_that_axis() {
         state = tick.state;
     }
     assert!(collided);
-    assert!(state.position[0] <= 4.0 - BOAT_WIDTH * 0.5 + 1.0e-4);
+    assert!(state.position[0] <= 4.0 - OAK.width * 0.5 + 1.0e-4);
 }
 
 #[test]
@@ -283,7 +304,7 @@ fn a_replayed_tick_keeps_the_recorded_float_and_wave() {
     let world = Pool::water();
     let state = run(
         &world,
-        BoatState::at_rest([0.5, 62.6, 0.5], 0.0),
+        BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 0.0),
         FORWARD,
         20,
     );
@@ -305,4 +326,17 @@ fn a_replayed_tick_keeps_the_recorded_float_and_wave() {
     assert_eq!(replayed.float, live.float);
     assert_eq!(replayed.state.wave_timer, state.wave_timer);
     assert_eq!(replayed.state.position, live.state.position);
+}
+
+#[test]
+fn an_unloaded_origin_pauses_the_boat_instead_of_moving_it() {
+    let world = Pool {
+        unloaded_origin: true,
+        ..Pool::water()
+    };
+    let state = BoatState::at_rest(OAK, [0.5, 62.6, 0.5], 0.0);
+    assert!(matches!(
+        tick_boat(&world, &state, boat_paddle_power(FORWARD), CALM),
+        Err(WorldQueryError::UnloadedChunk(_))
+    ));
 }

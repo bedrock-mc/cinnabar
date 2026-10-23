@@ -11,12 +11,16 @@ use crate::{
 
 use super::collision::resolve_unstepped_motion;
 
-/// The boat's position sits this far above the bottom of its collision box.
-pub const BOAT_HEIGHT_OFFSET: f32 = 0.375;
-/// Collision box width and depth.
-pub const BOAT_WIDTH: f32 = 1.4;
-/// Collision box height.
-pub const BOAT_HEIGHT: f32 = 0.455;
+/// A boat's collision box and position origin, from its actor facts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoatBody {
+    /// Collision box width and depth.
+    pub width: f32,
+    /// Collision box height.
+    pub height: f32,
+    /// How far the network position sits above the bottom of the box.
+    pub height_offset: f32,
+}
 
 /// Paddle force for full input.
 const PADDLE_FORCE: f32 = 3.0;
@@ -80,7 +84,9 @@ impl Default for BoatPaddles {
 /// The predicted state of one boat.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoatState {
-    /// Network position: centre of the box, `BOAT_HEIGHT_OFFSET` above its bottom.
+    /// Collision box and position origin.
+    pub body: BoatBody,
+    /// Network position: centre of the box, `body.height_offset` above its bottom.
     pub position: [f32; 3],
     /// Displacement applied next tick.
     pub velocity: [f32; 3],
@@ -99,8 +105,9 @@ pub struct BoatState {
 impl BoatState {
     /// A resting boat at a network position.
     #[must_use]
-    pub fn at_rest(position: [f32; 3], yaw: f32) -> Self {
+    pub fn at_rest(body: BoatBody, position: [f32; 3], yaw: f32) -> Self {
         Self {
+            body,
             position,
             velocity: [0.0; 3],
             yaw,
@@ -115,17 +122,23 @@ impl BoatState {
     /// Collision box at the current position.
     #[must_use]
     pub fn collision_box(&self) -> Aabb {
-        let half = BOAT_WIDTH * 0.5;
-        let [x, y, z] = self.position;
-        let bottom = y - BOAT_HEIGHT_OFFSET;
+        let half = self.body.width * 0.5;
+        let [x, _, z] = self.position;
+        let bottom = self.feet_y();
         Aabb::new(
             Vec3::new(f64::from(x - half), f64::from(bottom), f64::from(z - half)),
             Vec3::new(
                 f64::from(x + half),
-                f64::from(bottom + BOAT_HEIGHT),
+                f64::from(bottom + self.body.height),
                 f64::from(z + half),
             ),
         )
+    }
+
+    /// Height of the bottom of the collision box.
+    #[must_use]
+    pub fn feet_y(&self) -> f32 {
+        self.position[1] - self.body.height_offset
     }
 
     fn block(&self) -> [i32; 3] {
@@ -189,6 +202,12 @@ pub fn tick_boat(
     paddle_power: [f32; 2],
     buoyancy: BoatBuoyancy,
 ) -> Result<BoatTick, WorldQueryError> {
+    let [x, _, z] = previous.position;
+    world.ensure_movement_origin(Vec3::new(
+        f64::from(x),
+        f64::from(previous.feet_y()),
+        f64::from(z),
+    ))?;
     let mut state = *previous;
     drive_paddles(&mut state.paddles, paddle_power);
 
@@ -224,7 +243,7 @@ pub fn tick_boat(
     });
     state.position = [
         motion.position.x as f32,
-        motion.aabb.min.y as f32 + BOAT_HEIGHT_OFFSET,
+        motion.aabb.min.y as f32 + state.body.height_offset,
         motion.position.z as f32,
     ];
     state.on_ground = if collided[1] {

@@ -139,9 +139,15 @@ pub fn read(
 fn steered_vehicle(stream: &impl crate::GameplayWorld) -> Option<super::vehicle::SteeredVehicle> {
     let vehicle = stream.local_controlled_vehicle()?;
     let (seat, _) = stream.local_rider_seat_on([0.0; 3], 0.0)?;
+    let (min, max) = vehicle.bounding_box()?;
     Some(super::vehicle::SteeredVehicle {
         runtime_id: vehicle.runtime_id,
         unique_id: vehicle.unique_id,
+        body: sim::BoatBody {
+            width: max[0] - min[0],
+            height: max[1] - min[1],
+            height_offset: vehicle.network_position_offset(),
+        },
         position: vehicle.last_received_native_position(),
         yaw: vehicle.last_received_pose().yaw,
         seat,

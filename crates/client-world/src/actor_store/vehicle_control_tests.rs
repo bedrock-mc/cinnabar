@@ -166,6 +166,7 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     let (mut store, mut sequence) = harbour(Vec::new());
     let feed = LocalVehicleFeed {
         runtime_id: BOAT as u64,
+        server_moves: 0,
         position: [12.0, 5.0, 10.0],
         yaw: 30.0,
         velocity: [0.1, 0.0, 0.0],
@@ -183,6 +184,21 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     store.apply(1, sequence, boat_move(40.0, true));
     assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 40.0);
     assert_eq!(store.local_vehicle_server_moves(), 1);
+
+    // A frame without a new prediction keeps feeding the old pose; the teleport stays the
+    // target until prediction restarts from it.
+    store.sync_local_vehicle(Some(feed));
+    store.advance_interpolation_ticks(1);
+    let boat = store.snapshot_by_unique(BOAT).unwrap();
+    assert_eq!(boat.last_received_pose().position[0], 40.0);
+    assert_eq!(boat.position[0], 40.0);
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        server_moves: 1,
+        position: [41.0, 5.0, 10.0],
+        ..feed
+    }));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 41.0);
 
     // A released vehicle follows the server again.
     store.sync_local_vehicle(None);

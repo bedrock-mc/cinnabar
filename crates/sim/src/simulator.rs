@@ -26,8 +26,8 @@ use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
 pub use boat::{
-    BOAT_HEIGHT, BOAT_HEIGHT_OFFSET, BOAT_WIDTH, BoatBuoyancy, BoatFloat, BoatPaddles, BoatState,
-    BoatTick, boat_paddle_power, tick_boat,
+    BoatBody, BoatBuoyancy, BoatFloat, BoatPaddles, BoatState, BoatTick, boat_paddle_power,
+    tick_boat,
 };
 pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::{MovementEffects, VerticalPhysics};

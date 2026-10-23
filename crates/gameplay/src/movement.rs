@@ -461,12 +461,11 @@ impl MovementTicker {
             .next_tick_rotation
             .take()
             .unwrap_or((sample.pitch, sample.yaw));
-        let (position, delta, vehicle) = vehicle::reported_motion(sample);
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
-            position,
+            position: sample.position,
             // Vanilla sends the end-of-tick velocity as the position delta.
-            delta,
+            delta: sample.velocity,
             move_vector,
             analogue_move_vector,
             raw_move_vector,
@@ -478,7 +477,7 @@ impl MovementTicker {
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
             input_mode: sample.input_mode,
-            vehicle,
+            vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;

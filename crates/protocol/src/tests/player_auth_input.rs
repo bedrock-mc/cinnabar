@@ -277,6 +277,8 @@ fn a_predicted_vehicle_adds_its_rotation_id_and_flag() {
     let mut input = snapshot();
     input.vehicle = Some(protocol::PredictedVehicleInput {
         unique_id: -42,
+        position: [10.5, 62.375, -4.0],
+        delta: [0.25, -0.01, 0.0],
         rotation: [0.0, 135.5],
     });
     let packet = player_auth_input(input).expect("valid vehicle input");
@@ -291,6 +293,15 @@ fn a_predicted_vehicle_adds_its_rotation_id_and_flag() {
     let rotation = input.vehicle_rotation.expect("vehicle rotation");
     assert_eq!((rotation.x, rotation.y), (0.0, 135.5));
     assert_eq!(input.client_predicted_vehicle.map(|id| id.0), Some(-42));
+    // The wire reports the vehicle's position and motion in place of the rider's.
+    assert_eq!(
+        (input.position.x, input.position.y, input.position.z),
+        (10.5, 62.375, -4.0)
+    );
+    assert_eq!(
+        (input.pos_delta.x, input.pos_delta.y, input.pos_delta.z),
+        (0.25, -0.01, 0.0)
+    );
 }
 
 #[test]

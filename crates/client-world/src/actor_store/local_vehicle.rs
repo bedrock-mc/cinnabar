@@ -9,6 +9,8 @@ use super::{ActorPose, ActorStore};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LocalVehicleFeed {
     pub runtime_id: u64,
+    /// The count of admitted server moves this prediction started from.
+    pub server_moves: u64,
     /// Collision feet: the bottom centre of the vehicle's box.
     pub position: [f32; 3],
     pub yaw: f32,
@@ -37,6 +39,11 @@ impl ActorStore {
         let Some(feed) = feed else {
             return;
         };
+        // A feed predicted before the latest server move would overwrite that move's
+        // target before prediction restarts from it.
+        if feed.server_moves != self.local_vehicle.server_moves {
+            return;
+        }
         let Some(actor) = self.actors.get_mut(&feed.runtime_id) else {
             return;
         };

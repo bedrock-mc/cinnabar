@@ -170,8 +170,8 @@ impl CommittedGameplayState<'_> {
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::VehicleMovementCorrection { correction, .. } = control {
-            if self.movement.physics_is_authorized() {
-                self.physics.correct_vehicle(
+            if self.movement.physics_is_authorized()
+                && let Some(replay) = self.physics.correct_vehicle(
                     &movement::vehicle::VehicleCorrection {
                         tick: correction.tick,
                         position: correction.position,
@@ -181,7 +181,9 @@ impl CommittedGameplayState<'_> {
                         on_ground: correction.on_ground,
                     },
                     world,
-                );
+                )
+            {
+                self.movement.reconcile_vehicle_inputs(&replay.samples);
             }
             return ControlDisposition::Handled;
         }

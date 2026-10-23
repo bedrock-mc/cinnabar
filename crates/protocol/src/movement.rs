@@ -155,7 +155,8 @@ pub struct PlayerAuthInputSnapshot {
     pub camera_orientation: [f32; 3],
     pub flags: PlayerInputFlags,
     pub input_mode: PlayerInputMode,
-    /// The vehicle the client predicts; `position` and `delta` are then the vehicle's.
+    /// The vehicle the client predicts. The wire then carries its position and delta in
+    /// place of the player's, which this snapshot keeps for local consumers.
     pub vehicle: Option<PredictedVehicleInput>,
 }
 
@@ -163,6 +164,10 @@ pub struct PlayerAuthInputSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PredictedVehicleInput {
     pub unique_id: i64,
+    /// Network position.
+    pub position: [f32; 3],
+    /// End-of-tick velocity.
+    pub delta: [f32; 3],
     /// Vehicle pitch and yaw in degrees.
     pub rotation: [f32; 2],
 }
@@ -218,7 +223,13 @@ pub fn player_auth_input_with_mining_request(
         .chain(snapshot.raw_move_vector)
         .chain([snapshot.pitch, snapshot.yaw, snapshot.head_yaw])
         .chain(snapshot.camera_orientation)
-        .chain(snapshot.vehicle.iter().flat_map(|vehicle| vehicle.rotation))
+        .chain(snapshot.vehicle.iter().flat_map(|vehicle| {
+            vehicle
+                .position
+                .into_iter()
+                .chain(vehicle.delta)
+                .chain(vehicle.rotation)
+        }))
         .all(f32::is_finite);
     if !finite {
         return Err(PlayerAuthInputError::NonFiniteState);
@@ -256,7 +267,10 @@ pub fn player_auth_input_with_mining_request(
 
     Ok(crate::Packet::new(PlayerAuthInput {
         player_rotation: [snapshot.pitch, snapshot.yaw].into(),
-        position: snapshot.position.into(),
+        position: snapshot
+            .vehicle
+            .map_or(snapshot.position, |vehicle| vehicle.position)
+            .into(),
         move_vector: snapshot.move_vector.into(),
         player_head_rotation: wire::F32LE(snapshot.head_yaw),
         input_data: input_data_items(flags),
@@ -274,7 +288,10 @@ pub fn player_auth_input_with_mining_request(
         new_interaction_model: NewInteractionModel::Crosshair,
         interact_rotation: [snapshot.pitch, snapshot.yaw].into(),
         client_tick: PlayerInputTick(tick),
-        pos_delta: snapshot.delta.into(),
+        pos_delta: snapshot
+            .vehicle
+            .map_or(snapshot.delta, |vehicle| vehicle.delta)
+            .into(),
         item_use_transaction,
         item_stack_request,
         player_block_actions,

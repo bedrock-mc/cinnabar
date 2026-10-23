@@ -164,7 +164,7 @@ impl ActorSnapshot {
     }
 
     /// Offset from stored collision feet to the native actor-state position.
-    pub(crate) fn network_position_offset(&self) -> f32 {
+    pub fn network_position_offset(&self) -> f32 {
         match &self.kind {
             ActorKind::Player { .. } => {
                 if self.player_is_sleeping() {

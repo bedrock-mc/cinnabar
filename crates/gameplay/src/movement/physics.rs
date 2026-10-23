@@ -665,6 +665,7 @@ impl LocalPhysicsController {
                     &input,
                     &context.mode_intent,
                     world,
+                    &mut mode_error,
                 )
             } else {
                 self.vehicle.reset();
