@@ -147,7 +147,8 @@ impl UiRuntime {
                 let busy = self.chat_focused
                     || self.container_shows_menu(player_runtime)
                     || self.forms.owns_input()
-                    || self.sign_editor.is_open();
+                    || self.sign_editor.is_open()
+                    || self.data_driven.menu_visible();
                 self.apply_data_driven_ui(event, busy)
             }
         };

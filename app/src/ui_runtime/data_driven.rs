@@ -1,4 +1,5 @@
-//! Pointer and keyboard input for the showing data-driven form; its state lives in client-ui.
+//! Input for the showing data-driven form and the host state its requests read; the form's state
+//! lives in client-ui.
 
 use bevy::{
     ecs::message::{MessageCursor, Messages},
@@ -23,6 +24,18 @@ use protocol::ddui::DataDrivenScreenCloseReason;
 use crate::ui_runtime::interaction::input_capture::{
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
 };
+
+/// Publishes whether a host menu shows over the world, so screen requests arriving meanwhile
+/// answer busy.
+pub(crate) fn publish_menu_visibility(
+    menu: Option<Res<MenuRuntime>>,
+    mut runtime: ResMut<UiRuntimeResource>,
+) {
+    let visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
+    if runtime.data_driven_ui().menu_visible() != visible {
+        runtime.set_menu_visible(visible);
+    }
+}
 
 /// Logical px a wheel line scrolls the form's column.
 const WHEEL_LINE: f32 = 40.0;

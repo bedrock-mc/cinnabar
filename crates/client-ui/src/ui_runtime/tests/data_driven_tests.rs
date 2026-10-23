@@ -344,6 +344,21 @@ fn death_and_session_end_dismiss_the_form() {
 }
 
 #[test]
+fn a_visible_host_menu_answers_screen_requests_busy() {
+    let mut session = Session::new();
+    session.runtime.set_menu_visible(true);
+    session.show_form(4);
+    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert_eq!(
+        sent(&mut session.runtime),
+        [closed(4, DataDrivenScreenCloseReason::UserBusy)]
+    );
+    session.runtime.set_menu_visible(false);
+    session.show_form(5);
+    assert!(session.runtime.data_driven_ui().owns_input());
+}
+
+#[test]
 fn screen_answers_wait_out_a_full_client_queue() {
     let mut session = Session::new();
     let filler = closed(1, DataDrivenScreenCloseReason::UserBusy);
