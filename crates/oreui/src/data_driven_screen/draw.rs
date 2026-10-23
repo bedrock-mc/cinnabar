@@ -149,12 +149,21 @@ pub(super) fn form(
             drawn.travels.push((*key, slider_travel(canvas, target)));
         }
         if let Some(target) = target {
+            // An open list follows its face only while that face shows in the column.
             if state.open == Some(*key)
+                && target[3] > viewport[1]
+                && target[1] < viewport[3]
                 && let FormItem::Dropdown {
                     options, selected, ..
                 } = item
             {
-                open = Some((target, options, *selected));
+                let anchor = [
+                    target[0],
+                    target[1].max(viewport[1]),
+                    target[2],
+                    target[3].min(viewport[3]),
+                ];
+                open = Some((anchor, options, *selected));
             }
             push(&mut drawn.hits, hit, target, Some(viewport))?;
         }

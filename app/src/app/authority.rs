@@ -50,8 +50,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_sign_editor.run_if(client_extensions::server_experiences::input::ordinary_input),
             drive_server_form_input
                 .run_if(client_extensions::server_experiences::input::ordinary_input),
-            crate::ui_runtime::data_driven::drive_data_driven_input
-                .run_if(client_extensions::server_experiences::input::ordinary_input),
+            // Runs while consent owns input too, to drain the ordered events it must not replay.
+            crate::ui_runtime::data_driven::drive_data_driven_input,
             crate::ui_runtime::emotes::drive_emote_input,
             drive_chat_ui_actions
                 .run_if(client_extensions::server_experiences::input::ordinary_input),

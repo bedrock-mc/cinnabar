@@ -304,6 +304,9 @@ impl UiPresentationRuntime {
             if !scenes.contains(&Scene::Chat) {
                 self.close_chat_screen();
             }
+            if !scenes.contains(&Scene::DataDriven) {
+                self.retire_data_driven_screen();
+            }
             if !scenes.contains(&Scene::Emote) {
                 self.close_emote_screen();
             }

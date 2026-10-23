@@ -1005,3 +1005,75 @@ fn text_typed_after_a_click_in_one_frame_reaches_the_clicked_field() {
     });
     assert_eq!(sent, Some(protocol::encode(&expected).unwrap()));
 }
+
+#[test]
+fn ordered_events_from_a_consent_frame_are_not_replayed_to_the_form() {
+    let (mut app, window) = data_driven_app();
+    app.update();
+    app.insert_resource(client_state::ConsentInput(true));
+    app.world_mut()
+        .write_message(window_key(window, KeyCode::Escape, None));
+    app.update();
+    app.insert_resource(client_state::ConsentInput(false));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .data_driven_ui()
+            .active()
+            .is_some()
+    );
+}
+
+#[test]
+fn a_press_and_release_resolve_where_the_cursor_was_for_each() {
+    use bevy::{
+        input::{ButtonState, mouse::MouseButtonInput},
+        window::CursorMoved,
+    };
+    use oreui::data_driven_screen::FormHit;
+    let (mut app, window) = data_driven_app();
+    // Layout entry 9 is the fixture's "Click me" button.
+    let button = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .data_driven_target(FormHit::Item(9))
+        .unwrap();
+    let on_button = Vec2::new(
+        (button.min().x() + button.max().x()) * 0.5,
+        (button.min().y() + button.max().y()) * 0.5,
+    );
+    let outside = Vec2::new(20.0, 20.0);
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(outside));
+    app.update();
+    let edge = |state| {
+        WindowEvent::MouseButtonInput(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window,
+        })
+    };
+    app.world_mut().write_message(edge(ButtonState::Pressed));
+    app.world_mut()
+        .write_message(WindowEvent::CursorMoved(CursorMoved {
+            window,
+            position: on_button,
+            delta: None,
+        }));
+    app.world_mut().write_message(edge(ButtonState::Released));
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(on_button));
+    app.update();
+    // The press began off the form, so releasing over the button does not press it.
+    assert!(
+        app.world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .take_client_packet()
+            .is_none()
+    );
+}

@@ -56,6 +56,15 @@ impl UiPresentationRuntime {
         self.screens.data_driven_form
     }
 
+    /// Forgets the closed form's targets, scroll and instance, so a later form starts fresh even
+    /// if the server reuses its id.
+    pub(in super::super) fn retire_data_driven_screen(&mut self) {
+        if self.screens.data_driven_form.is_some() {
+            self.screens.data_driven.reset();
+            self.screens.data_driven_form = None;
+        }
+    }
+
     /// What a press at the window-logical `position` hits on the data-driven form.
     pub fn hit_test_data_driven(&self, position: UiPoint) -> Option<FormHit> {
         self.screens.data_driven.hit(position)

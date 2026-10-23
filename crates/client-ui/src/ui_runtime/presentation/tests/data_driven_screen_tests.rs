@@ -166,3 +166,54 @@ fn a_non_finite_slider_value_still_paints_the_form() {
     build(&player, &mut presentation, &runtime);
     assert!(!presentation.data_driven_hits().is_empty());
 }
+
+#[test]
+fn a_closed_form_leaves_no_targets_for_a_form_reusing_its_id() {
+    use protocol::ddui::DataDrivenUiEvent;
+    let (mut player, mut runtime) = shown(3);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    build(&player, &mut presentation, &runtime);
+    assert_eq!(presentation.data_driven_painted_form(), Some(4));
+    runtime
+        .apply(
+            &mut player,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 10,
+                local_millis: 100,
+                server_tick: None,
+                event: protocol::UiEvent::DataDrivenUi(DataDrivenUiEvent::Close {
+                    form_id: Some(4),
+                }),
+            },
+        )
+        .unwrap();
+    build(&player, &mut presentation, &runtime);
+    assert_eq!(presentation.data_driven_painted_form(), None);
+    assert!(presentation.data_driven_hits().is_empty());
+}
+
+#[test]
+fn an_open_list_hides_while_its_dropdown_scrolls_out_of_view() {
+    const SHORT: [u32; 2] = [1280, 140];
+    let (player, mut runtime) = shown(3);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let dropdown = item(&runtime, |item| matches!(item, FormItem::Dropdown { .. }));
+    runtime.data_driven_action(DataDrivenAction::Activate(dropdown));
+    let build_short = |presentation: &mut UiPresentationRuntime| {
+        presentation
+            .build(&player, &runtime, 1_000, SHORT, DpiScale::new(1.0).unwrap())
+            .unwrap();
+    };
+    build_short(&mut presentation);
+    // Scroll the column to its end, past the dropdown near its top.
+    presentation.scroll_data_driven(None, 100_000.0);
+    build_short(&mut presentation);
+    assert!(bounds(&presentation, FormHit::Item(dropdown)).is_none());
+    assert!(
+        presentation
+            .data_driven_hits()
+            .iter()
+            .all(|(hit, _)| !matches!(hit, FormHit::Option(_)))
+    );
+}

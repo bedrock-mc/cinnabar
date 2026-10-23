@@ -51,6 +51,8 @@ pub(crate) struct FormGesture {
     held: Option<FormHit>,
     form_id: Option<u32>,
     owned_last_frame: bool,
+    /// Where the cursor ended last frame, which this frame's ordered moves start from.
+    cursor: Option<ui::UiPoint>,
 }
 
 impl FormGesture {
@@ -82,6 +84,7 @@ pub(crate) fn drive_data_driven_input(
     mut presentation: ResMut<UiPresentationResource>,
     mut runtime: ResMut<UiRuntimeResource>,
     mut gesture: Local<FormGesture>,
+    consent: Option<Res<client_state::ConsentInput>>,
 ) {
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
@@ -97,6 +100,13 @@ pub(crate) fn drive_data_driven_input(
                 .collect()
         })
         .unwrap_or_default();
+    if consent.is_some_and(|consent| consent.0) {
+        // A consent or experience modal owns this frame; its events were read above and are
+        // dropped, so the form never replays them.
+        wheel.clear();
+        gesture.held = None;
+        return;
+    }
     if runtime.credits().owns_input() || !runtime.data_driven_ui().owns_input() {
         wheel.clear();
         if gesture.owned_last_frame {
@@ -152,21 +162,25 @@ pub(crate) fn drive_data_driven_input(
     if mouse.just_pressed(MouseButton::Back) {
         runtime.data_driven_action(DataDrivenAction::Dismiss);
     }
+    // Each button edge hits where the cursor was when it arrived.
+    let mut at = gesture.cursor.or(pointer);
+    gesture.cursor = pointer;
     for input in inputs {
         if runtime.data_driven_ui().active().is_none() {
             break;
         }
         match input {
+            FormInput::Cursor(point) => at = Some(point),
             FormInput::Key(key_code, text, repeat) => {
                 type_key(&mut runtime, key_code, text.as_deref(), repeat);
             }
             FormInput::Pointer(down) => {
-                let hit = pointer
+                let hit = at
                     .filter(|_| painted)
                     .and_then(|point| presentation.hit_test_data_driven(point));
                 if down {
                     gesture.held = hit;
-                    press(&mut runtime, &presentation, form.as_ref(), hit, pointer);
+                    press(&mut runtime, &presentation, form.as_ref(), hit, at);
                 } else {
                     if let (Some(held), Some(released)) = (gesture.held, hit)
                         && held == released
@@ -217,6 +231,8 @@ enum FormInput {
     Key(KeyCode, Option<String>, bool),
     /// A left-button edge; `true` when pressed.
     Pointer(bool),
+    /// The cursor moved here, in window-logical px.
+    Cursor(ui::UiPoint),
 }
 
 impl FormInput {
@@ -232,6 +248,9 @@ impl FormInput {
             WindowEvent::MouseButtonInput(input) if input.button == MouseButton::Left => {
                 Some(Self::Pointer(input.state == ButtonState::Pressed))
             }
+            WindowEvent::CursorMoved(moved) => ui::UiPoint::new(moved.position.x, moved.position.y)
+                .ok()
+                .map(Self::Cursor),
             _ => None,
         }
     }
