@@ -47,7 +47,6 @@ fn legacy_sample_replaces_separate_bob_and_hurt_before_hand_sway() {
         },
         sway_pitch_radians: 0.04,
         sway_yaw_radians: -0.06,
-        ..Default::default()
     };
     let expected = effect
         * Mat4::from_rotation_x(motion.sway_pitch_radians)

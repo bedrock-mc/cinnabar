@@ -126,6 +126,13 @@ pub struct WeatherState {
 }
 
 impl WeatherState {
+    /// Copies bounded visual targets while retaining server identity and update metadata.
+    pub fn with_visual_weather(mut self, levels: [f32; 2]) -> Self {
+        self.rain_level = levels[0].clamp(0., 1.);
+        self.lightning_level = levels[1].clamp(0., 1.);
+        self
+    }
+
     /// Returns the transport session identity bound to this snapshot.
     #[must_use]
     pub const fn session_generation(self) -> u64 {
@@ -245,6 +252,7 @@ pub fn apply_environment_control(
             true
         }
         CommittedControlEvent::MovePlayer { .. }
+        | CommittedControlEvent::LocalActorMove { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }
@@ -256,6 +264,7 @@ pub fn apply_environment_control(
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
+        | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. }
         | CommittedControlEvent::ClientInputLocks { .. } => false,

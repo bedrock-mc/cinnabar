@@ -192,6 +192,7 @@ pub fn reconcile_move_player_teleport(
         } else {
             PhysicsCorrectionMode::Snap
         };
+    physics.discard_server_actor_positions();
     let outcome = reconcile_physics_anchor(
         ticker,
         physics,
@@ -261,11 +262,9 @@ pub fn reconcile_physics_anchor(
     let apply_candidate = |anchor: PhysicsAnchor, mode| {
         let aligned_tick = match mode {
             PhysicsCorrectionMode::ReplayIfRetained => anchor.tick,
-            // A stamp without a representable successor cannot anchor the simulation clock.
-            PhysicsCorrectionMode::Snap => ticker
-                .next_tick
-                .max(anchor.tick.checked_add(1).unwrap_or(ticker.next_tick))
-                .saturating_sub(1),
+            // As in vanilla, an unretained stamp applies at the local tick; a server's
+            // own clock (often ahead of ours) never replaces the input tick.
+            PhysicsCorrectionMode::Snap => ticker.next_tick.saturating_sub(1),
         };
         let mut candidate_physics = physics.clone();
         let mut candidate_ticker = ticker.clone();

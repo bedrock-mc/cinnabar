@@ -57,11 +57,6 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.accessibility.tab.description",
     )?;
     content.heading(
-        "menu.accessibility.tab.tts.title",
-        "menu.accessibility.tab.tts.description",
-    )?;
-    options(content, SettingPanel::AccessibilityTts)?;
-    content.heading(
         "menu.accessibility.tab.gameplay.title",
         "menu.accessibility.tab.gameplay.description",
     )?;
@@ -81,7 +76,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
     super::presets::draw(content)?;
-    content.option(SettingId::GraphicsApi)?;
+    options(content, SettingPanel::VideoBackend)?;
     content.heading(
         "menu.video.group.general",
         "menu.video.group.general.description",
@@ -171,7 +166,10 @@ fn draw_macros(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 }
 
 /// One macro slot: its title with the bound key, then the command box beneath.
-fn draw_macro_slot(content: &mut Content<'_, '_>, slot: usize) -> Result<(), PaintError> {
+pub(super) fn draw_macro_slot(
+    content: &mut Content<'_, '_>,
+    slot: usize,
+) -> Result<(), PaintError> {
     draw_macro_binding(content, slot)?;
     draw_macro_command(content, slot)
 }
@@ -386,7 +384,8 @@ fn bindings(content: &mut Content<'_, '_>, gamepad: bool) -> Result<(), PaintErr
     Ok(())
 }
 
-fn binding(
+/// Draws one binding with its existing capture and reset actions.
+pub(super) fn binding(
     content: &mut Content<'_, '_>,
     defaults: &SettingsOptions,
     index: usize,
@@ -502,7 +501,6 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.general.tab.miscellaneous.title",
         "menu.general.tab.miscellaneous.description",
     )?;
-    options(content, SettingPanel::GeneralMisc)?;
     super::services::action_row(
         content,
         "Import from Minecraft",
@@ -554,36 +552,9 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 }
 
 fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    content.heading("menu.creator.tab.title", "menu.creator.tab.description")?;
-    options(content, SettingPanel::CreatorCoordinates)?;
-    for (title, panel) in [
-        (
-            "menu.creator.group.contentLog",
-            SettingPanel::CreatorContentLog,
-        ),
-        (
-            "menu.creator.group.scriptDebugger",
-            SettingPanel::CreatorDebugger,
-        ),
-        (
-            "menu.creator.group.scriptDiagnostic",
-            SettingPanel::CreatorDiagnostic,
-        ),
-        (
-            "menu.creator.group.scriptWatchdog",
-            SettingPanel::CreatorWatchdog,
-        ),
-        ("menu.creator.group.deviceInfo", SettingPanel::CreatorDevice),
-        ("menu.creator.group.editor", SettingPanel::CreatorEditor),
-        (
-            "menu.creator.group.textFiltering",
-            SettingPanel::CreatorFiltering,
-        ),
-    ] {
-        content.heading(title, "")?;
-        options(content, panel)?;
-    }
-    Ok(())
+    // Vanilla's tab description lists content-log and script tools the client does not have.
+    content.heading("menu.creator.tab.title", "")?;
+    options(content, SettingPanel::CreatorCoordinates)
 }
 
 /// Exposes the existing chat preferences and their shared reset route in the launcher.
@@ -615,7 +586,7 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.renderClouds" => "Render Clouds",
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
-            "Choose an FPS limit or Unlimited. VSync and Variable Refresh Rate may still limit the frame rate."
+            "In game, the default is Unlimited when plugged in and display refresh on battery. Choose Unlimited explicitly to keep it on battery. Menus stay within display refresh; VSync and Variable Refresh Rate may lower the rate."
         }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
@@ -703,8 +674,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "hbui.Settings.category.general" => "General",
         "menu.accessibility.tab.title" | "options.accessibility" => "Accessibility",
         "menu.accessibility.tab.description" => "Minecraft is for everyone, including you",
-        "menu.accessibility.tab.tts.title" => "Text to Speech",
-        "menu.accessibility.tab.tts.description" => "Adjust how you hear on-screen text",
         "menu.accessibility.tab.gameplay.title" => "Gameplay",
         "menu.accessibility.tab.gameplay.description" => {
             "Change accessibility options for in-game visuals and camera movements"
@@ -745,14 +714,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "menu.general.tab.tutorial.title" => "Tutorial",
         "menu.general.tab.tutorial.description" => "Help learning the game",
         "menu.creator.tab.title" | "options.creator" => "Creator",
-        "menu.creator.tab.description" => "Adjust logs, debuggers, diagnostics, and more",
-        "menu.creator.group.contentLog" => "Content log settings",
-        "menu.creator.group.scriptDebugger" => "Script debugger settings",
-        "menu.creator.group.scriptDiagnostic" => "Script diagnostics settings",
-        "menu.creator.group.scriptWatchdog" => "Script watchdog settings",
-        "menu.creator.group.deviceInfo" => "Device info settings",
-        "menu.creator.group.editor" => "Editor settings",
-        "menu.creator.group.textFiltering" => "Text Filtering",
         "menu.video.tab.title" | "options.video" => "Video",
         "menu.video.tab.description" => "Adjust graphics and visual quality",
         "menu.video.group.general" => "General",
@@ -777,14 +738,11 @@ pub(super) fn fallback(key: &str) -> &str {
         "menu.account.gamertag.title" => "Gamertag",
         "menu.account.changeGamertag.title" => "Change Gamertag",
         "menu.account.manageAccount.title" => "Manage Account",
-        "menu.account.privacyAndSafety.title" => "Privacy & online safety",
-        "menu.account.realmMembershipInvites.title" => "Manage Realms membership invites",
         "menu.account.signOutOfMicrosoft.title" => "Sign out of your Microsoft account",
         "menu.account.signIn.title" => "Sign in for free",
-        "menu.account.changeGamertag.buttonLabel"
-        | "menu.account.manageAccount.buttonLabel"
-        | "menu.account.privacyAndSafety.buttonLabel" => "Open",
-        "menu.account.realmMembershipInvites.buttonLabel" => "Manage",
+        "menu.account.changeGamertag.buttonLabel" | "menu.account.manageAccount.buttonLabel" => {
+            "Open"
+        }
         "menu.account.signOutOfMicrosoft.buttonLabel" => "Sign Out",
         "menu.account.signIn.buttonLabel" => "Sign In",
         "menu.account.clearSignInData.buttonLabel" => "Clear data",
@@ -830,10 +788,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "hudScreen.controlCustomization.tooltip.notouch" => {
             "Use a touch device to customize controls"
         }
-        "menu.party.tab.title" | "options.party" => "Party",
-        "options.partyInviteReceivedFilter" => "Receive party invites from",
-        "options.partyPrivacy" => "Default party privacy",
-        "options.partyInviteSendPrivileges" => "Who can send party invites in your party",
         "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => {
             "Global Resources"
         }

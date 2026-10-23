@@ -6,9 +6,9 @@ use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
     SwingSource, VerifiedNetworkItemStack, click_air_packet, click_block_packet,
-    click_block_transaction_packet, decode_batch, destroy_block_packet, encode,
-    release_item_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet,
+    click_block_transaction_packet, creative_destroy_block_packet, decode_batch,
+    destroy_block_packet, encode, release_item_packet, respawn_request_packet,
+    stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 
@@ -652,6 +652,7 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         (SwingSource::Mine, "mine"),
         (SwingSource::Build, "build"),
         (SwingSource::Interact, "interact"),
+        (SwingSource::UseItem, "useitem"),
         (SwingSource::ThrowItem, "throwitem"),
     ] {
         let packet = swing_arm_packet(0x1_0000_0001, source);
@@ -699,6 +700,22 @@ fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
     };
     assert_eq!(action.action, PlayerActionType::Stopsleeping);
     assert_eq!(action.player_runtime_id.0, 7);
+}
+
+#[test]
+fn creative_destroy_block_packet_uses_the_target_and_creative_action() {
+    let encoded = encode(&creative_destroy_block_packet(7, [13, 71, -29], 5)).unwrap();
+    let decoded = decode_batch(encoded).unwrap().remove(0);
+    let packets::Packet::PlayerAction(action) = *decoded.data else {
+        panic!("player action packet");
+    };
+    assert_eq!(action.action, PlayerActionType::Creativedestroyblock);
+    assert_eq!(action.player_runtime_id.0, 7);
+    assert_eq!(action.block_position.x.0, 13);
+    assert_eq!(action.block_position.y.0, 71);
+    assert_eq!(action.block_position.z.0, -29);
+    assert_eq!(action.result_pos, Default::default());
+    assert_eq!(action.face.0, 5);
 }
 
 #[test]
@@ -922,11 +939,11 @@ fn click_air_with_a_throw_carries_the_inventory_action_and_legacy_request() {
             action.from_item.stack_size.0,
             action.from_item.net_id_variant
         ),
-        (16, Some(wire::ZigZag32(57)))
+        (16, None)
     );
     assert_eq!(
         (action.to_item.stack_size.0, action.to_item.net_id_variant),
-        (15, Some(wire::ZigZag32(-6)))
+        (15, None)
     );
     assert_eq!(transaction.item.stack_size.0, 16);
 }

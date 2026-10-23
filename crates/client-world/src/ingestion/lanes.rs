@@ -197,9 +197,13 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             retention: true,
             ..Footprint::session(C::NONE)
         },
-        WorldEvent::Respawn(_) => Footprint {
+        WorldEvent::Respawn(respawn) => Footprint {
             retention: true,
-            ..Footprint::session(C::CONTROLS)
+            ..Footprint::session(if respawn.ready_to_spawn() {
+                C::CONTROLS.with(C::UI)
+            } else {
+                C::CONTROLS
+            })
         },
         WorldEvent::MovePlayer(movement) if !local(movement.runtime_id) => {
             Footprint::session(C::ACTORS)
@@ -213,6 +217,18 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             local_authority: true,
             ..Footprint::session(C::CONTROLS.with(C::ACTORS))
         },
+        WorldEvent::Actor(ActorEvent::Move(movement))
+            if local(movement.runtime_id)
+                && movement.dimension == context.dimension
+                && movement.player_mode.is_none()
+                && movement.controls_local_actor() =>
+        {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
+            }
+        }
         WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_player() => {
             Footprint {
                 positional: true,
@@ -362,6 +378,9 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         }
         WorldEvent::Ui(UiEvent::PlayerGameMode { .. }) => Footprint::session(C::UI.with(C::ACTORS)),
         WorldEvent::Ui(UiEvent::GameMode(_)) => Footprint::session(C::UI.with(C::CONTROLS)),
+        WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { .. })) => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
+        }
         WorldEvent::Ui(UiEvent::Boss(_)) => Footprint::session(C::UI.with(C::ACTORS)),
         WorldEvent::Ui(_) | WorldEvent::Experience(_) | WorldEvent::MapData(_) => {
             Footprint::session(C::UI)
@@ -380,6 +399,13 @@ fn actor_consumers(event: &ActorEvent, context: LaneContext) -> Consumers {
     let local_runtime = |runtime_id: u64| runtime_id == context.local_runtime_id;
     match event {
         ActorEvent::Move(_) | ActorEvent::Identifiers(_) => C::ACTORS,
+        ActorEvent::Spawn(spawn)
+        | ActorEvent::PlayerSpawn { spawn, .. }
+        | ActorEvent::PaintingSpawn { spawn, .. }
+            if local_runtime(spawn.runtime_id) =>
+        {
+            C::ACTORS.with(C::CONTROLS).with(C::UI)
+        }
         ActorEvent::Metadata(update) if local_runtime(update.runtime_id) => {
             C::ACTORS.with(C::CONTROLS).with(C::UI)
         }

@@ -16,6 +16,7 @@ pub(crate) fn apply_committed_control(
     pending_surface_spawn: &mut Option<[i32; 2]>,
 ) {
     let resolved = match control {
+        CommittedControlEvent::LocalActorMove { resolved, .. } => resolved,
         CommittedControlEvent::MovePlayer {
             movement, resolved, ..
         } => {
@@ -70,6 +71,7 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
+        | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. }
         | CommittedControlEvent::ClientInputLocks { .. } => return,

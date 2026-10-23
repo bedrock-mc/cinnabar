@@ -60,6 +60,30 @@ const HELMET_PLAYER: &str = r#"{"format_version":"1.10.0","minecraft:attachable"
     "animations":{"offset":"animation.armor.helmet.offset"},
     "render_controllers":["controller.render.armor"]}}}"#;
 
+const CUSTOM_HELMET: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+    "identifier":"geyser_custom:fixture_helmet",
+    "materials":{"default":"entity_alphatest_one_sided"},
+    "textures":{"default":"textures/atlas/page_11"},
+    "geometry":{"default":"geometry.geyser_custom.fixture_helmet"},
+    "scripts":{"pre_animation":["v.head = c.item_slot == 'head';"],"animate":[{"thirdperson_head":"v.head&&!c.is_first_person"}]},
+    "render_controllers":["controller.render.item_default"]}}}"#;
+
+const CUSTOM_DUAL_HELMET: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+    "identifier":"geyser_custom:fixture_dual_helmet",
+    "materials":{"default":"entity_alphatest_one_sided"},
+    "textures":{"default":"textures/atlas/page_11"},
+    "geometry":{"default":"geometry.geyser_custom.fixture_dual_helmet"},
+    "scripts":{"pre_animation":["v.main_hand = c.item_slot == 'main_hand';","v.head = c.item_slot == 'head';"],"animate":[{"thirdperson_hand":"v.main_hand&&!c.is_first_person","thirdperson_head":"v.head&&!c.is_first_person"}]},
+    "render_controllers":["controller.render.item_default"]}}}"#;
+
+const CUSTOM_HELD_WITH_HEAD_CONTEXT: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+    "identifier":"geyser_custom:fixture_tool",
+    "materials":{"default":"entity_alphatest_one_sided"},
+    "textures":{"default":"textures/atlas/page_11"},
+    "geometry":{"default":"geometry.geyser_custom.fixture_tool"},
+    "scripts":{"pre_animation":["v.main_hand = c.item_slot == 'main_hand';","v.head = c.item_slot == 'head';"],"animate":[{"thirdperson_hand":"v.main_hand&&!c.is_first_person"},{"firstperson_head":"v.head"}]},
+    "render_controllers":["controller.render.item_default"]}}}"#;
+
 #[test]
 fn trident_carries_literal_first_and_third_person_transforms() {
     let payloads = payloads(&[
@@ -482,6 +506,74 @@ fn equipment_category_uses_the_admitted_slot_with_neutral_geometry() {
             EquipmentCategory::Armor { slot: expected }
         );
     }
+}
+
+#[test]
+fn player_armor_geometry_admits_custom_attachables_to_the_wearable_slot() {
+    assert_eq!(
+        category(
+            "geyser_custom:fixture_chestplate",
+            "geometry.player.armor.chestplate"
+        ),
+        EquipmentCategory::Armor {
+            slot: ArmorSlot::Chestplate
+        }
+    );
+}
+
+#[test]
+fn head_item_slot_script_admits_custom_geometry_as_a_helmet() {
+    let payloads = payloads(&[("attachables/custom_helmet.json", CUSTOM_HELMET)]);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &[],
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        bindings[0].category,
+        EquipmentCategory::Armor {
+            slot: ArmorSlot::Helmet
+        }
+    );
+}
+
+#[test]
+fn head_context_without_a_thirdperson_head_branch_stays_held() {
+    let payloads = payloads(&[(
+        "attachables/custom_tool.json",
+        CUSTOM_HELD_WITH_HEAD_CONTEXT,
+    )]);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &[],
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(bindings[0].category, EquipmentCategory::Held);
+}
+
+#[test]
+fn head_and_hand_branches_admit_a_dual_purpose_helmet() {
+    let payloads = payloads(&[("attachables/custom_dual_helmet.json", CUSTOM_DUAL_HELMET)]);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &[],
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        bindings[0].category,
+        EquipmentCategory::ArmorAndHeld {
+            slot: ArmorSlot::Helmet
+        }
+    );
 }
 
 #[test]

@@ -1,14 +1,12 @@
-//! Ordered selection publishes only after its immediate transport admission.
+//! Ordered selection is local until a tick or a same-frame hand action announces it.
 
 use super::*;
 use bevy::prelude::In;
 
-/// Attempts one selection before publishing it to later edges in this frame.
+/// Selects locally; the tick path or a later hand edge in this frame announces it.
 pub(crate) fn select(
     In(action): In<semantic_input::Action>,
     mut player: ResMut<client_state::PlayerRuntime>,
-    network: Res<NetworkHandle<PackApplication>>,
-    mut fatal: ResMut<FatalError>,
     mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let current = player.selected_hotbar_slot().unwrap_or(0);
@@ -18,30 +16,11 @@ pub(crate) fn select(
     if current == target {
         return;
     }
-    let proposal = match player.inventory.prepare_hotbar_selection(target) {
-        Ok(Some(proposal)) => proposal,
-        Ok(None) => return,
-        Err(error) => {
-            record_fatal_error(
-                &mut fatal.0,
-                format!("hotbar selection packet validation failed: {error}"),
-            );
-            return;
-        }
-    };
-    match network.send_hotbar_packet(proposal.packet().clone()) {
-        Ok(()) => {
-            player.inventory.set_local_selected_slot(target);
-            player.inventory.clear_pending_hotbar_selection(target);
-            item_use.retire_reselected_use(target);
-        }
-        Err(PacketSendError::Full(_)) => {}
-        Err(PacketSendError::Closed(_)) if network.closed_command_has_pending_control() => {}
-        Err(PacketSendError::Closed(_)) => record_fatal_error(
-            &mut fatal.0,
-            "hotbar selection send failed because the network command channel closed".to_owned(),
-        ),
-    }
+    let game_mode = player.facts.player_game_mode();
+    player
+        .inventory
+        .queue_local_hotbar_selection(target, game_mode);
+    item_use.retire_reselected_use(target);
 }
 
 /// Finishes a pre-existing selection before an ordered press attempts to capture its item.

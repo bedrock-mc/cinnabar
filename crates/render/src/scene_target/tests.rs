@@ -46,8 +46,8 @@ fn shared_colour_retains_samples_until_one_discarding_resolve() {
             eprintln!("missing fixture: shared scene {samples}x MSAA format support");
             continue;
         }
-        let scene = SceneTarget::new(&device, size(), format, samples);
-        let resolved = SceneTarget::new(&device, size(), format, 1);
+        let scene = SceneTarget::new(&device, size(), format, samples).unwrap();
+        let resolved = SceneTarget::new(&device, size(), format, 1).unwrap();
         let mut resolves = 0;
         for encoded in [false, true, false, true, false] {
             let attachment = scene.attachment(encoded, LoadOp::Load, None);
@@ -269,8 +269,8 @@ struct Hand { @location(0) colour: vec4f, @builtin(sample_mask) coverage: u32 }
                 .into(),
             ),
         });
-    let scene = SceneTarget::new(device, size(), format, samples);
-    let resolved = SceneTarget::new(device, size(), format, 1);
+    let scene = SceneTarget::new(device, size(), format, samples).unwrap();
+    let resolved = SceneTarget::new(device, size(), format, 1).unwrap();
     let opaque = pipeline(device, &shader, format, samples, "opaque", None);
     let transparent = pipeline(
         device,
@@ -381,9 +381,8 @@ fn an_unprepared_view_submits_no_scene_work_after_repeated_installation() {
     crate::render_test_support::assert_empty_render(&mut world);
 }
 
-/// An MSAA view keeps exactly one multisampled colour texture: the shared scene attachment.
-#[test]
-fn msaa_view_allocates_one_multisampled_colour_target() {
+/// A noop-device MSAA camera with Bevy's view targets and the scene attachment systems.
+fn msaa_view_fixture() -> (World, Entity, Schedule) {
     use bevy::{
         camera::{
             CameraOutputMode, ClearColorConfig, MsaaWriteback, NormalizedRenderTarget, RenderTarget,
@@ -410,8 +409,8 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
     let device = RenderDevice::from(device);
-    let mut world = World::new();
-    let world = &mut world;
+    let mut owned = World::new();
+    let world = &mut owned;
     world.insert_resource(device.clone());
     let output = device.create_texture(&TextureDescriptor {
         label: Some("scene sample ownership output"),
@@ -436,6 +435,7 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
     world.insert_resource(TextureCache::default());
     world.insert_resource(ClearColor::default());
     world.init_resource::<WithheldSamples>();
+    world.init_resource::<MultisampleFallback>();
     world.init_resource::<CameraMainPassTextureFormats>();
     let view = world
         .spawn((
@@ -476,6 +476,15 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
         prepare_view_targets.in_set(RenderSystems::PrepareViews),
         render_systems(),
     ));
+    (owned, view, schedule)
+}
+
+/// An MSAA view keeps exactly one multisampled colour texture: the shared scene attachment.
+#[test]
+fn msaa_view_allocates_one_multisampled_colour_target() {
+    use bevy::render::{camera::ExtractedCamera, view::ViewTarget};
+    let (mut owned, view, mut schedule) = msaa_view_fixture();
+    let world = &mut owned;
     schedule.run(world);
     let view = world.entity(view);
     assert_eq!(
@@ -536,4 +545,80 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
             .main_texture_format(),
         render_scene::SCENE_HDR_FORMAT
     );
+}
+
+/// Running out of memory for multisampled scene colour must not quit: the view skips its world
+/// passes for that frame, renders single-sampled after, and retries MSAA on a resize.
+#[test]
+fn scene_colour_out_of_memory_falls_back_to_single_sample_until_resize() {
+    use bevy::{ecs::schedule::SingleThreadedExecutor, render::camera::ExtractedCamera};
+    let (mut owned, view, mut schedule) = msaa_view_fixture();
+    schedule.set_executor(SingleThreadedExecutor::new());
+    let world = &mut owned;
+    {
+        let _failure = crate::gpu_allocation::inject(|label, _| label == "shared main-pass colour");
+        schedule.run(world);
+    }
+    assert!(world.get::<SceneTarget>(view).is_none());
+    assert!(world.get::<SceneTargetUnavailable>(view).is_some());
+
+    schedule.run(world);
+    assert_eq!(world.get::<Msaa>(view), Some(&Msaa::Off));
+    assert_eq!(
+        world
+            .get::<SceneTarget>(view)
+            .unwrap()
+            .texture
+            .sample_count(),
+        1
+    );
+    assert!(world.get::<SceneTargetUnavailable>(view).is_none());
+
+    // Extraction restores the requested samples each frame; a new extent retries them.
+    *world.get_mut::<Msaa>(view).unwrap() = Msaa::Sample4;
+    world
+        .get_mut::<ExtractedCamera>(view)
+        .unwrap()
+        .physical_target_size = Some(UVec2::new(3, 3));
+    schedule.run(world);
+    assert_eq!(
+        world
+            .get::<SceneTarget>(view)
+            .unwrap()
+            .texture
+            .sample_count(),
+        4
+    );
+}
+
+/// A single-sample failure backs off instead of retrying every frame, then recovers.
+#[test]
+fn failed_scene_colour_backs_off_then_recovers() {
+    use bevy::ecs::schedule::SingleThreadedExecutor;
+    let (mut owned, view, mut schedule) = msaa_view_fixture();
+    schedule.set_executor(SingleThreadedExecutor::new());
+    let world = &mut owned;
+    *world.get_mut::<Msaa>(view).unwrap() = Msaa::Off;
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            let scene = label == "shared main-pass colour";
+            attempts.set(attempts.get() + usize::from(scene));
+            scene
+        }
+    });
+    for _ in 0..3 {
+        *world.get_mut::<Msaa>(view).unwrap() = Msaa::Off;
+        schedule.run(world);
+    }
+    assert_eq!(attempts.get(), 1);
+    assert!(world.get::<SceneTarget>(view).is_none());
+    drop(failure);
+    for _ in 0..8 {
+        *world.get_mut::<Msaa>(view).unwrap() = Msaa::Off;
+        schedule.run(world);
+    }
+    assert!(world.get::<SceneTarget>(view).is_some());
+    assert!(world.get::<SceneTargetUnavailable>(view).is_none());
 }

@@ -261,6 +261,7 @@ impl LocalPhysicsController {
         let mut baselines = Vec::new();
         // The item-use bit the last replayed word carries.
         let mut replayed_using: Option<bool> = None;
+        let boosts = self.boosts.clone();
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -293,6 +294,7 @@ impl LocalPhysicsController {
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
+                    boosts.apply(state.tick + 1, &mut input.effects);
                     let frame = controller_frames
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)
@@ -522,6 +524,9 @@ impl LocalPhysicsController {
         };
 
         self.refresh_motion_ticks();
+        if let (Some(position), Some(state)) = (self.actor_position_pending, self.state.as_mut()) {
+            position.apply(state);
+        }
         let state = self
             .state
             .as_ref()

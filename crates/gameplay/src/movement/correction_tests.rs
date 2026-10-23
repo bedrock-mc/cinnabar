@@ -14,6 +14,7 @@ use super::{
 use sim::{Aabb, BlockPhysicsSample, CollisionQuery, CollisionWorld, WorldQueryError};
 use world::{ChunkCollisionRevision, ChunkKey};
 
+mod actor_placement;
 mod prediction_packets;
 
 fn collided_prediction(

@@ -103,8 +103,8 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// A projectile use swung the arm; its swing packet precedes `packets`.
-    pub swung: bool,
+    /// Why an item use swung the arm; its swing packet precedes `packets`.
+    pub swung: Option<protocol::SwingSource>,
     used: bool,
     released: bool,
 }
@@ -170,12 +170,18 @@ pub struct ItemUseRuntime {
     local_using: Option<bool>,
     /// Gameplay had input focus on the last observed frame.
     gameplay_focused: bool,
+    /// A gliding rocket's use was admitted; its boost is predicted before the server answers.
+    rocket_boost: bool,
 }
 
 impl ItemUseRuntime {
     /// Takes one admitted launch for the next successful movement tick.
     pub fn take_riptide_launch(&mut self) -> Option<RiptideLaunch> {
         self.riptide_launch.take()
+    }
+    /// Takes one admitted gliding rocket use, whose glide boost the client predicts.
+    pub fn take_rocket_boost(&mut self) -> bool {
+        std::mem::take(&mut self.rocket_boost)
     }
     /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
     pub fn set_delay_fix(&mut self, enabled: bool) {
@@ -344,6 +350,7 @@ impl ItemUseRuntime {
         self.server_using = None;
         self.local_using = None;
         self.button_held = false;
+        self.rocket_boost = false;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -555,7 +562,7 @@ impl ItemUseRuntime {
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
-        let mut swung = false;
+        let mut swung = None;
         match air_use {
             Some(AirUse::Hold {
                 max_ticks,
@@ -579,7 +586,7 @@ impl ItemUseRuntime {
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
-                swung = true;
+                swung = Some(protocol::SwingSource::ThrowItem);
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
@@ -594,7 +601,12 @@ impl ItemUseRuntime {
                     });
                 }
             }
-            Some(AirUse::GlideRocket) if frame.ready => swung = true,
+            Some(AirUse::Swing) => {
+                swung = Some(protocol::SwingSource::UseItem);
+            }
+            Some(AirUse::GlideRocket) if frame.ready => {
+                swung = Some(protocol::SwingSource::UseItem);
+            }
             _ => {}
         }
         let inventory_change = change.as_ref().and_then(|change| {
@@ -608,12 +620,13 @@ impl ItemUseRuntime {
             outcome.started = active_use.is_some();
             self.active = active_use;
             outcome.swung = swung;
-            if (outcome.started || swung)
+            if (outcome.started || swung.is_some())
                 && let Some(Cooldown { category, ticks }) = cooldown
             {
                 self.cooldowns
                     .push((category, frame.tick.saturating_add(u64::from(ticks))));
             }
+            self.rocket_boost |= swung.is_some() && matches!(air_use, Some(AirUse::GlideRocket));
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
             }

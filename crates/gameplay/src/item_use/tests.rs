@@ -579,7 +579,7 @@ fn a_custom_menu_item_sends_click_air_and_repeats_while_held() {
     runtime.observe_press(true);
     let pressed = runtime.step(&menu(100, true));
     assert_eq!(kinds(&pressed), ["use"]);
-    assert!(!pressed.started && !pressed.swung && !runtime.is_using());
+    assert!(!pressed.started && pressed.swung.is_none() && !runtime.is_using());
     let sent = transaction(&pressed.packets[0]);
     let (legacy, actions, _, _) = summary(&sent);
     assert_eq!((legacy, actions), (0, 0));
@@ -606,18 +606,14 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     runtime.observe_press(true);
     let first = runtime.step(&throw(100, true));
     assert_eq!(kinds(&first), ["use"]);
-    assert!(first.swung && !first.started);
+    assert_eq!(first.swung, Some(protocol::SwingSource::ThrowItem));
+    assert!(!first.started);
     let sent = transaction(&first.packets[0]);
     let first_id = sent.legacy_request_id;
     assert!(protocol::is_legacy_request_id(first_id));
     assert_eq!(
         summary(&sent),
-        (
-            first_id,
-            1,
-            vec![16, 15, 16],
-            vec![Some(41), Some(first_id), None]
-        )
+        (first_id, 1, vec![16, 15, 16], vec![None; 3])
     );
     assert_eq!(
         sent.legacy_set_slots,
@@ -632,19 +628,14 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert!(second_id < first_id && protocol::is_legacy_request_id(second_id));
     assert_eq!(
         summary(&transaction(&second.packets[0])),
-        (
-            second_id,
-            1,
-            vec![15, 14, 15],
-            vec![Some(first_id), Some(second_id), None]
-        )
+        (second_id, 1, vec![15, 14, 15], vec![None; 3])
     );
 
     // The server restating the slot replaces the prediction.
     let restated = stack(4, SNOWBALL, 14);
     let third = runtime.step(&item_frame(110, true, restated, "minecraft:snowball"));
     let (_, _, sizes, ids) = summary(&transaction(&third.packets[0]));
-    assert_eq!((sizes[0], ids[0]), (14, Some(41)));
+    assert_eq!((sizes[0], ids[0]), (14, None));
 }
 
 /// Every admitted throw reports its slot, source revision and full decrement once.
@@ -656,7 +647,7 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     };
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
-    assert!(runtime.step(&snowballs(100, 2)).swung);
+    assert!(runtime.step(&snowballs(100, 2)).swung.is_some());
     let (slot, revision, change) = runtime.take_inventory_change().unwrap();
     assert_eq!(
         (slot, revision, change.from.count(), change.to.count()),
@@ -665,7 +656,7 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     assert!(runtime.take_inventory_change().is_none());
     // The server has not restated the slot, so this throws the predicted last snowball.
     runtime.observe_press(true);
-    assert!(runtime.step(&snowballs(110, 2)).swung);
+    assert!(runtime.step(&snowballs(110, 2)).swung.is_some());
     let (slot, revision, change) = runtime.take_inventory_change().unwrap();
     assert_eq!((slot, revision), (3, 7));
     assert!(change.to.is_empty());
@@ -680,6 +671,19 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     assert!(runtime.take_inventory_change().is_none());
 }
 
+#[test]
+fn fishing_rod_use_swings_without_consuming_the_stack() {
+    let rod = |tick, held| item_frame(tick, held, stack(2, MENU_ITEM, 1), "minecraft:fishing_rod");
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let outcome = runtime.step(&rod(100, true));
+
+    assert_eq!(kinds(&outcome), ["use"]);
+    assert_eq!(outcome.swung, Some(protocol::SwingSource::UseItem));
+    assert!(runtime.take_inventory_change().is_none());
+    assert!(runtime.step(&rod(105, true)).packets.is_empty());
+}
+
 /// Creative throws swing but change no stack, so they carry no action or legacy request.
 #[test]
 fn a_creative_throw_reports_no_inventory_change() {
@@ -689,7 +693,7 @@ fn a_creative_throw_reports_no_inventory_change() {
         creative: true,
         ..item_frame(100, true, stack(1, SNOWBALL, 16), "minecraft:snowball")
     });
-    assert!(outcome.swung);
+    assert!(outcome.swung.is_some());
     let (legacy, actions, _, _) = summary(&transaction(&outcome.packets[0]));
     assert_eq!((legacy, actions), (0, 0));
 }
@@ -709,14 +713,14 @@ fn an_ender_pearl_on_cooldown_sends_a_plain_click_air() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     let thrown = runtime.step(&pearl(100, 16));
-    assert!(thrown.swung);
+    assert!(thrown.swung.is_some());
     runtime.observe_press(true);
     let cooling = runtime.step(&pearl(110, 15));
     assert_eq!(kinds(&cooling), ["use"]);
-    assert!(!cooling.swung);
+    assert!(cooling.swung.is_none());
     assert_eq!(summary(&transaction(&cooling.packets[0])).1, 0);
     runtime.observe_press(true);
-    assert!(runtime.step(&pearl(120, 15)).swung);
+    assert!(runtime.step(&pearl(120, 15)).swung.is_some());
 }
 
 /// Eating runs its duration, completes silently and, still held, starts again after the re-arm;
@@ -896,7 +900,7 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
     runtime.synchronize(1);
     runtime.set_delay_fix(true);
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
+    assert!(runtime.step(&first).swung.is_some());
     runtime.observe_press(true);
     assert_eq!(
         runtime.press_drop_reason(&first),
@@ -910,10 +914,10 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
         ..first.clone()
     };
     runtime.observe_press(true);
-    assert!(runtime.step(&next).swung);
+    assert!(runtime.step(&next).swung.is_some());
     runtime.synchronize(2);
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
+    assert!(runtime.step(&first).swung.is_some());
     runtime.observe_press(true);
-    assert!(!runtime.step(&next).swung);
+    assert!(runtime.step(&next).swung.is_none());
 }

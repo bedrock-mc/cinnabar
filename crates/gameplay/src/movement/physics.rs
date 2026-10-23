@@ -10,6 +10,7 @@ use {
     simulation_clock::TICKS_PER_SECOND,
 };
 
+mod actor_move;
 mod aim_pose;
 mod controller_frame;
 mod correction;
@@ -275,6 +276,7 @@ pub struct LocalPhysicsController {
     motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
+    actor_position_pending: Option<actor_move::ActorPositionUpdate>,
     deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
@@ -285,6 +287,7 @@ pub struct LocalPhysicsController {
     server_flags: server_flags::ServerFlagAuthority,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
+    boosts: super::boosts::BoostTimeline,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -324,12 +327,14 @@ impl Default for LocalPhysicsController {
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
             motion_anchor: None,
             server_motions: VecDeque::new(),
+            actor_position_pending: None,
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             live_posture: Default::default(),
             server_flags: Default::default(),
             riptide_pending: None,
+            boosts: Default::default(),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
@@ -386,11 +391,13 @@ impl LocalPhysicsController {
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
         self.server_flags = Default::default();
         self.riptide_pending = None;
+        self.boosts.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
@@ -453,6 +460,7 @@ impl LocalPhysicsController {
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
         self.server_flags.reset_history();
+        self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();
@@ -589,6 +597,7 @@ impl LocalPhysicsController {
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || self.jump_pulse_pending || jump_repeated;
             input.effects = effects.snapshot();
+            self.boosts.apply(state.tick + 1, &mut input.effects);
             input.sprinting = sprint_request;
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(
@@ -755,6 +764,7 @@ impl LocalPhysicsController {
                         grounded_before_tick,
                         jump_repeated,
                         ride_delta,
+                        actor_position: self.actor_position_pending.take(),
                         input,
                         modes: self.modes,
                         environment: result.environment,

@@ -171,6 +171,11 @@ impl UiPresentationRuntime {
         });
     }
 
+    /// Chooses between server-pack hand models and their ordinary item sprites in previews.
+    pub fn set_player_preview_custom_item_models(&mut self, enabled: bool) {
+        self.player_preview_gear.show_custom_item_models = enabled;
+    }
+
     /// Dresses armor and held items using session attachables first, then the base catalog.
     /// Without an actor context, only unrestricted ordinary definitions are admitted.
     pub fn set_player_preview_gear(
@@ -194,6 +199,7 @@ impl UiPresentationRuntime {
     ) {
         let pack = self.gui_models.pack_equipment.source.clone();
         let base = self.equipment_catalog.clone();
+        let show_custom_item_models = self.player_preview_gear.show_custom_item_models;
         self.gui_models.wearing_elytra = false;
         let selected: [_; 4] = std::array::from_fn(|slot| {
             let (identifier, _, enchanted) = armor[slot]?;
@@ -210,12 +216,12 @@ impl UiPresentationRuntime {
         });
         let resolved: [_; 4] = std::array::from_fn(|slot| {
             let (_, dye, _) = armor[slot]?;
-            worn_armor(
-                selected[slot].as_ref()?.binding,
-                pack.as_deref(),
-                base.as_deref(),
-                dye,
-            )
+            let selection = selected[slot].as_ref()?;
+            worn_armor(selection.binding, pack.as_deref(), base.as_deref(), dye).or_else(|| {
+                selection
+                    .startup
+                    .and_then(|binding| worn_armor(binding, None, base.as_deref(), dye))
+            })
         });
         self.prepare_preview_hands(
             &hands,
@@ -272,6 +278,7 @@ impl UiPresentationRuntime {
             armor_glint: [false; 4],
             held,
             hands: hands.map(|hand| hand.map(|(hand, _)| hand)),
+            show_custom_item_models,
         };
     }
 

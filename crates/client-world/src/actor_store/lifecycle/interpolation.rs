@@ -72,12 +72,11 @@ impl ActorStore {
     }
 
     /// The predicted pose picks read this frame, or `None` when the live pose is current.
-    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<([f32; 3], f32)> {
+    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<ActorPose> {
         if !self.picks_ahead {
             return None;
         }
-        self.pick_state(runtime_id)
-            .map(|state| (state.pose.position, state.pose.yaw))
+        self.pick_state(runtime_id).map(|state| state.pose)
     }
 
     pub(in crate::actor_store) fn pick_state(
@@ -107,6 +106,8 @@ impl ActorStore {
             }
             actor.advance_creeper_swell();
             actor.status.tick();
+            actor.tick_boat_hurt();
+            actor.finish_player_death(self.world_default_game_mode);
             let using_item = actor.is_using_item();
             actor.status.advance_kinetic_hit(using_item);
         }
@@ -181,6 +182,7 @@ impl ActorStore {
             let local_flying = self.local_flying;
             let world_game_mode = self.world_default_game_mode;
             let local_hands = self.local_hands.clone();
+            let local_equipment_count = self.local_equipment_count;
             let local_held_network_ids = self.local_held_network_ids;
             let local_item_use = self.local_item_use;
             let local_main_metadata = self.local_main_metadata;
@@ -359,6 +361,7 @@ impl ActorStore {
                     camera_rotation,
                     camera_position,
                     armor: worn_armor(items, items.armor(actor.runtime_id)),
+                    equipment_count: if is_local { local_equipment_count } else { items.armor(actor.runtime_id).map_or(0, |armor| armor.equipment_count()) },
                     properties: property_registry.for_kind(&actor.kind),
                     skin_geometry: match &actor.kind {
                         ActorKind::Player { uuid, .. } => players.get(uuid).or_else(|| unlisted.get(uuid)).and_then(|profile| {
@@ -408,15 +411,7 @@ fn worn_armor(
             dye_rgb: piece.dye_rgb,
         })
     };
-    snapshot.map_or_else(Default::default, |armor| {
-        [
-            piece(&armor.helmet),
-            piece(&armor.chestplate),
-            piece(&armor.leggings),
-            piece(&armor.boots),
-            piece(&armor.body),
-        ]
-    })
+    snapshot.map_or_else(Default::default, |armor| armor.pieces().map(piece))
 }
 
 /// Aggregates the rider flags used by each actor's animation context.

@@ -74,6 +74,8 @@ pub struct ActorEquipmentInput {
     pub off: Option<WornItem>,
     /// Helmet, chestplate, leggings, boots.
     pub armor: [Option<WornItem>; 4],
+    /// Equipment replicated in the separate body slot.
+    pub body: Option<WornItem>,
     pub sneaking: bool,
     pub sleeping: bool,
     /// Java 1.7 grips the main hand, when that mode poses this actor.

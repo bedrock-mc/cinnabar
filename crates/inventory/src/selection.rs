@@ -103,6 +103,19 @@ impl InventorySession {
     pub fn set_local_selected_slot(&mut self, slot: u8) {
         self.local_selected_slot = Some(slot);
     }
+
+    /// Applies a server-selected hotbar slot and retires any local prediction.
+    pub(crate) fn apply_server_selected_slot(&mut self, slot: u8) {
+        debug_assert!(slot < protocol::HOTBAR_SLOT_COUNT);
+        self.selection_generation = self
+            .selection_generation
+            .checked_add(1)
+            .expect("selection authority generation exhausted");
+        self.server_selected_slot = Some(slot);
+        self.local_selected_slot = None;
+        self.pending_hotbar_selection = None;
+    }
+
     /// The StartGame runtime identity used by inventory commands.
     pub fn local_runtime_id(&self) -> Option<u64> {
         self.equipment_router.local_runtime_id()
@@ -124,10 +137,13 @@ impl InventorySession {
     ) -> Result<EquipmentRouteResult, InventoryRouterError> {
         Arc::make_mut(&mut self.equipment_router).route(session, sequence, event)
     }
-    /// Retain a main-hand echo without allowing offhand traffic to change selection.
+    /// Retain a main-hand server selection without allowing offhand traffic to change selection.
     pub fn retain_local_selected_equipment(&mut self, fifo_sequence: u64, event: EquipmentEvent) {
         if event.handedness == Some(protocol::ActorHandedness::Left) {
             return;
+        }
+        if event.selected_slot < protocol::HOTBAR_SLOT_COUNT {
+            self.apply_server_selected_slot(event.selected_slot);
         }
         self.local_selected_equipment = Some(SequencedLocalEquipment {
             session_id: self.session_id,
@@ -278,12 +294,10 @@ impl InventorySession {
         self.pending_hotbar_selection = None;
         true
     }
-    /// Resolve selection using local prediction, server correction, equipment, then startup mode.
+    /// Resolve selection using local prediction, server authority, equipment, then startup mode.
     pub fn selected_hotbar_slot(&self, game_mode: Option<protocol::PlayerGameMode>) -> Option<u8> {
-        // Local selection is client-authoritative in Bedrock: once the player picks a slot
-        // (number key / scroll / controller) that prediction wins over the server-echoed
-        // equipment slot. A server PlayerHotbar with select_slot clears the local
-        // prediction when it drains, so it takes effect at its FIFO position.
+        // Local input is shown immediately. `apply_server_selected_slot` retires that
+        // prediction when a server PlayerHotbar or main-hand MobEquipment update arrives.
         self.local_selected_slot
             .or(self.server_selected_slot)
             .or_else(|| {

@@ -27,6 +27,7 @@ pub(super) struct StreamResources<'a> {
     pub collisions: &'a mut PhysicsCollisionRegistries,
     pub chunk_textures: Option<Mut<'a, ChunkTextureAssets>>,
     pub block_entity_scene: Option<Mut<'a, BlockEntitySceneResource>>,
+    pub actor_artwork: Option<Mut<'a, render_scene::ActorArtworkResource>>,
     pub publication: &'a PublicationController,
     pub display_interval: Duration,
 }
@@ -53,6 +54,7 @@ pub(super) fn build(
         collisions,
         chunk_textures,
         block_entity_scene,
+        actor_artwork,
         publication,
         display_interval,
     } = resources;
@@ -131,6 +133,13 @@ pub(super) fn build(
     }
     client_world.pack_entities = packs.entities.clone();
     client_world.terrain_resource_identity = packs.terrain_identity;
+    if let Some(mut artwork) = actor_artwork {
+        install_prepared_artwork(
+            &mut artwork.0,
+            packs.prepared_actor_artwork.as_deref(),
+            packs.entity_artwork.as_deref(),
+        );
+    }
     client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
     client_world.session_items = Some(Arc::new(
         client_presentation::session_assets::SessionItems {
@@ -145,4 +154,95 @@ pub(super) fn build(
     }
     stream.set_publication_allowance(publication.allowance());
     stream
+}
+
+/// Publishes the artwork the join prepared its actor resources over, which a reload during the
+/// join may have replaced, so the first world frame reuses them instead of rebuilding them.
+/// Only a base with the joined stack's own artwork identity is installed: one captured from a
+/// retired server is never republished, and its prepared resources are rebuilt instead.
+fn install_prepared_artwork(
+    current: &mut render_model::ActorArtworkPages,
+    prepared: Option<&client_presentation::prepared_actor_artwork::PreparedActorArtwork>,
+    stack: Option<&render_model::ActorArtworkPages>,
+) {
+    if let (Some(prepared), Some(stack)) = (prepared, stack)
+        && prepared.base().identity() == stack.identity()
+        && !prepared.base().shares_storage_with(current)
+    {
+        *current = prepared.base().clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client_presentation::prepared_actor_artwork::PreparedActorArtwork;
+    use render_model::{ActorArtworkPages, EquipmentRaster};
+
+    /// Startup pages with one stack texture, compiled into fresh storage on each call.
+    fn stack_artwork(seed: u8) -> ActorArtworkPages {
+        ActorArtworkPages::default()
+            .with_equipment_rasters(&[EquipmentRaster {
+                width: 2,
+                height: 2,
+                rgba8: vec![seed; 16].into(),
+            }])
+            .0
+    }
+
+    /// A transfer whose leave reload restored the startup artwork mid-join still publishes the
+    /// join's worker-prepared resources, so the frame never rebuilds them.
+    #[test]
+    fn transfer_publishes_actor_resources_prepared_by_the_join() {
+        for seed in [1, 2] {
+            let captured = stack_artwork(1);
+            let stack = stack_artwork(seed);
+            let base = super::super::resource_packs::entity_artwork_base(&captured, Some(&stack));
+            let prepared = PreparedActorArtwork::new_with_block_entity_artwork(base, None, None);
+            let mut current = ActorArtworkPages::default();
+            assert!(!prepared.matches_sources(&current, None, None));
+            install_prepared_artwork(&mut current, Some(&prepared), Some(&stack));
+            assert!(prepared.matches_sources(&current, None, None));
+            assert_eq!(current.identity(), stack.identity());
+        }
+    }
+
+    /// Artwork the join already prepared over stays the same snapshot.
+    #[test]
+    fn matching_artwork_is_not_replaced() {
+        let current = stack_artwork(3);
+        let prepared = PreparedActorArtwork::new_with_block_entity_artwork(&current, None, None);
+        let mut live = current.clone();
+        install_prepared_artwork(&mut live, Some(&prepared), Some(&current));
+        assert!(live.shares_storage_with(&current));
+    }
+
+    /// A transfer that captured the retired server's artwork, to a destination without stack
+    /// artwork, keeps the startup artwork the leave reload restored instead of reinstalling the
+    /// retired server's textures.
+    #[test]
+    fn packless_transfer_never_reinstalls_the_retired_servers_artwork() {
+        let retired = stack_artwork(1);
+        let base = super::super::resource_packs::entity_artwork_base(&retired, None);
+        let prepared = PreparedActorArtwork::new_with_block_entity_artwork(base, None, None);
+        let startup = ActorArtworkPages::default();
+        let mut current = startup.clone();
+        install_prepared_artwork(&mut current, Some(&prepared), None);
+        assert!(current.shares_storage_with(&startup));
+        assert_ne!(current.identity(), retired.identity());
+    }
+
+    /// Stack artwork with the same identity as the captured snapshot, as on a transfer between
+    /// servers sharing one pack stack, still installs so the frame reuses the join's resources.
+    #[test]
+    fn same_stack_transfer_installs_the_prepared_base() {
+        let captured = stack_artwork(4);
+        let stack = stack_artwork(4);
+        let base = super::super::resource_packs::entity_artwork_base(&captured, Some(&stack));
+        let prepared = PreparedActorArtwork::new_with_block_entity_artwork(base, None, None);
+        let mut current = ActorArtworkPages::default();
+        install_prepared_artwork(&mut current, Some(&prepared), Some(&stack));
+        assert!(prepared.matches_sources(&current, None, None));
+        assert_eq!(current.identity(), stack.identity());
+    }
 }

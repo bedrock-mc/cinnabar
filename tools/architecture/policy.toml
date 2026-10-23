@@ -421,7 +421,7 @@ forbidden_transitive_dependencies = ["asset-compiler"]
 [[crates]]
 name = "cinnabar-android"
 path = "packaging/android/client"
-allowed_dependencies = ["app", "assets", "first-run", "launcher"]
+allowed_dependencies = ["app", "assets", "first-run", "launcher", "launcher-host"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
@@ -1304,7 +1304,7 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["cosmetics", "bridge", "crash-report", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
+allowed_dependencies = ["cosmetics", "bridge", "crash-report", "launcher", "protocol", "render-api", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -1318,7 +1318,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "
 [[crates]]
 name = "bootstrap-ui"
 path = "crates/bootstrap-ui"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
@@ -1369,6 +1369,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/sound_events.rs"
+literal = "stone"
+reason = "Fallback audio material key in sounds.json, independent of the block identifier vocabulary."
 
 [[identifier_literal_exceptions]]
 path = "crates/mod-host/src/hud/samples.rs"
@@ -1931,22 +1936,22 @@ literal = "minecraft:is_spear"
 reason = "Authored component tag vocabulary parsed at the assets-free protocol boundary and checked against the pinned tag fixture."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "block_face"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "vertical_half"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "cardinal_direction"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "facing_direction"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
@@ -1956,22 +1961,27 @@ literal = "minecraft:crafting_table"
 reason = "Custom-block component name admitted from the wire, not the vanilla block."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
+literal = "sixteen_way_rotation"
+reason = "Custom-block placement-state schema names admitted from the wire."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_north"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_east"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_south"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 
 [[identifier_literal_exceptions]]
-path = "crates/protocol/src/world/custom_blocks.rs"
+path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "connection_west"
 reason = "Custom-block connection trait state key admitted from enabled_states at the assets-free protocol boundary."
 

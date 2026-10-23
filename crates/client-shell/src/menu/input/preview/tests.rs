@@ -236,3 +236,91 @@ fn a_modal_revokes_character_capture_after_the_background_repaints() {
         Some(ButtonState::Released),
     );
 }
+
+/// A finger on a clipped gallery tile starts a possible pan without revealing or equipping it.
+#[test]
+fn cosmetic_swipe_does_not_jump_to_the_pressed_tile() {
+    use launcher::dressing_room::{Action, DressingRoomSection};
+    use launcher::menu::settings_options::SettingId;
+
+    let items = render_model::hats::fixture::gallery();
+    let (mut app, window) = fixture();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.set_named_option(SettingId::ScreenAnimations, 0);
+        std::sync::Arc::make_mut(&mut menu.dressing_room).busy = false;
+        menu.activate(MenuAction::DressingRoom(Action::SetSection(
+            DressingRoomSection::Cosmetics,
+        )));
+        menu.focus_pointer(MenuAction::AddBack);
+    }
+    frame(&mut app);
+    let action = MenuAction::DressingRoom(Action::SelectCosmetic(Some(items[0])));
+    let initial = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(action)
+        .unwrap();
+    let filter = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::DressingRoom(Action::ToggleCosmeticFilter))
+        .unwrap();
+    let delta = initial.min().y() - filter.min().y() + initial.height() * 0.5;
+    app.world_mut()
+        .resource_mut::<UiPresentationResource>()
+        .scroll_menu(
+            UiPoint::new(centre(initial).x, centre(initial).y).unwrap(),
+            -delta,
+            true,
+        );
+    frame(&mut app);
+    let clipped = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(action)
+        .unwrap();
+    assert!(clipped.height() < initial.height());
+    let start = centre(clipped);
+    touch(&mut app, window, TouchPhase::Started, start);
+    frame(&mut app);
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .menu_action_bounds(action),
+        Some(clipped),
+        "touch-down must leave manually scrolled content under the finger"
+    );
+    touch(&mut app, window, TouchPhase::Moved, start - Vec2::Y * 80.0);
+    frame(&mut app);
+    touch(&mut app, window, TouchPhase::Ended, start - Vec2::Y * 80.0);
+    assert!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .dressing_room
+            .selected_cosmetics
+            .values()
+            .all(Option::is_none),
+        "the swipe must not equip its starting tile"
+    );
+    assert!(!app.world().resource::<MenuRuntime>().dressing_room.busy);
+    frame(&mut app);
+    let target = items
+        .iter()
+        .find_map(|item| {
+            let action = MenuAction::DressingRoom(Action::SelectCosmetic(Some(*item)));
+            app.world()
+                .resource::<UiPresentationResource>()
+                .menu_action_bounds(action)
+                .filter(|bounds| bounds.height() >= initial.height() - 0.5)
+        })
+        .expect("a fully visible tile remains tappable after the swipe");
+    touch(&mut app, window, TouchPhase::Started, centre(target));
+    frame(&mut app);
+    touch(&mut app, window, TouchPhase::Ended, centre(target));
+    assert!(
+        app.world().resource::<MenuRuntime>().dressing_room.busy,
+        "a completed tap still requests equipping the cosmetic"
+    );
+}
