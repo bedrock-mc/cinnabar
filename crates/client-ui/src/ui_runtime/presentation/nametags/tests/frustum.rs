@@ -388,10 +388,19 @@ fn static_behind_camera_labels_do_not_reshape_after_warmup() {
     }
     cache.finish_frame();
     let built = layouts.built_layout_count();
-    for _ in 0..2 {
+    for rotation in [
+        Quat::IDENTITY,
+        Quat::from_rotation_y(std::f32::consts::PI),
+        Quat::IDENTITY,
+    ] {
+        let visible = rotation != Quat::IDENTITY;
+        let clip = self::clip(Vec3::new(0.0, 2.5, 0.0), rotation);
         cache.begin_frame();
         for tag in &tags {
-            assert!(!cache.intersects_view(tag, clip, Quat::IDENTITY, &font, &mut layouts, None));
+            assert_eq!(
+                cache.intersects_view(tag, clip, rotation, &font, &mut layouts, None),
+                visible
+            );
         }
         cache.finish_frame();
         assert_eq!(layouts.built_layout_count(), built);
