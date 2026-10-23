@@ -376,14 +376,14 @@ fn hit_position_packets_follow_the_mounted_simulation_box() {
         .unwrap();
     world
         .apply_ordered_event(
-            WorldEvent::Actor(ActorEvent::Link(protocol::ActorLinkEvent {
+            WorldEvent::ActorLink(protocol::ActorLinkEvent {
                 dimension: 0,
                 ridden_unique_id: 2,
                 rider_unique_id: 1,
                 link_type: protocol::ActorLinkType::Rider,
                 immediate: false,
                 rider_initiated: false,
-            })),
+            }),
             Some(4),
         )
         .unwrap();
