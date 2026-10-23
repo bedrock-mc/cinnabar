@@ -268,6 +268,7 @@ pub(crate) fn load(
     progress: &LoadProgress,
     compiler: Option<&Path>,
 ) -> Result<PackGpu, String> {
+    super::kernels::validate_device(&gpu.device.limits())?;
     check_cancelled(progress)?;
     let started = std::time::Instant::now();
     let request = shaderpack::worker::Request {
@@ -370,6 +371,7 @@ fn build_translation(
     progress: &LoadProgress,
     started: std::time::Instant,
 ) -> Result<PackGpu, String> {
+    super::kernels::validate_device(&gpu.device.limits())?;
     let shaderpack::worker::Output {
         pack,
         config,

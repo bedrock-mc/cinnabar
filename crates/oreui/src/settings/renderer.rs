@@ -1,6 +1,7 @@
 //! Video renderer choices and the shader-pack library use separate settings tabs.
 
 use super::super::icons::Icon;
+use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, CAPTION, EDGE, TEXT, TEXT_DIMMER};
 use super::super::widgets::{self, Variant};
@@ -48,7 +49,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             .then_some(content.view.shader_pack.as_deref())
             .flatten()
             .map_or("Off", pack_label);
-        super::services::action_row(
+        super::services::action_row_text(
             content,
             &format!("Shaders: {selected}"),
             "",
@@ -59,7 +60,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
-/// Draws Off and every pack as one pick-one list, ending in the drop zone that adds packs.
+/// Draws Off and every pack as one pick-one list, ending in the host's import controls.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     if !render_model::SHADER_PACKS_ENABLED {
         return Ok(());
@@ -154,7 +155,24 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             },
         )?;
     }
-    drop_zone(content)
+    if view.storage.accepts_file_drops || view.storage.opens_folders {
+        drop_zone(content)
+    } else {
+        super::resources::actions(
+            content,
+            &[(
+                if view.shader_pack_importing {
+                    "Adding shader packs…"
+                } else {
+                    "Import shader pack"
+                },
+                Variant::Primary,
+                (!view.shader_pack_importing).then_some(MenuAction::ImportShaderPacks),
+            )],
+        )?;
+        content.y += content.canvas.r(0.8);
+        super::resources::caption(content, "Tap to choose a .zip")
+    }
 }
 
 /// A short state or kind label beside a pack's name.
@@ -562,7 +580,8 @@ fn banner(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
     Ok(())
 }
 
-/// The dashed import target closing the list, with the folder shortcut where the host has one.
+/// The dashed import target closing the list: pressing it opens the file picker, files dropped
+/// on hosts that take them import too, and the folder shortcut drawn over it wins its presses.
 /// An empty library centres it as a larger first-use prompt.
 fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
@@ -574,7 +593,14 @@ fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     } else {
         1.6
     });
-    let title = "Drop a .zip or folder here";
+    let pick = (!view.shader_pack_importing).then_some(MenuAction::ImportShaderPacks);
+    let title = if view.shader_pack_importing {
+        "Adding shader packs…"
+    } else if view.storage.accepts_file_drops {
+        "Drop a .zip or folder here, or click to browse"
+    } else {
+        "Tap to add a .zip shader pack"
+    };
     let caption = empty.then_some("Shader packs you add appear in this list.");
     let open = view
         .storage
@@ -610,7 +636,39 @@ fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         (Some(_), false) => stack + gap + button[1],
     };
     let bounds = [left, content.y, right, content.y + body + 2.0 * pad];
-    dashed_frame(canvas, bounds, theme::TEXT_DIMMEST)?;
+    let state = canvas.interaction(view, pick);
+    let motion = canvas.feedback(state, pick.is_some(), false, Kind::Surface);
+    if pick.is_some() {
+        let role = canvas.role(theme::NEUTRAL);
+        canvas.fill(
+            bounds,
+            opacity(
+                motion.color(role.hovered, role.hovered, role.pressed),
+                motion.hover.max(motion.press),
+            ),
+        )?;
+    }
+    dashed_frame(
+        canvas,
+        bounds,
+        mix(theme::TEXT_DIMMEST, TEXT_DIMMER, motion.hover),
+    )?;
+    if motion.focus > 0.0 {
+        let ring = canvas.r(0.4);
+        canvas.frame(
+            [
+                bounds[0] - ring,
+                bounds[1] - ring,
+                bounds[2] + ring,
+                bounds[3] + ring,
+            ],
+            EDGE,
+            opacity(theme::OUTLINE, motion.focus),
+        )?;
+    }
+    if let Some(pick) = pick {
+        canvas.hit(pick, bounds)?;
+    }
     let text_top = if inline {
         (bounds[1] + bounds[3] - stack) * 0.5
     } else {

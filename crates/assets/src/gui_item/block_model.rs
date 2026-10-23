@@ -28,6 +28,19 @@ pub struct GuiBlockQuad {
     pub corners: [[f32; 3]; 4],
     pub uvs: [[f32; 2]; 4],
     pub material: u32,
+    pub two_sided: bool,
+}
+
+impl GuiBlockQuad {
+    /// Keeps outward faces visible to the fixed inventory camera and authored two-sided planes.
+    #[must_use]
+    pub fn visible_in_gui(&self) -> bool {
+        if self.two_sided {
+            return true;
+        }
+        let [a, b, c, _] = self.corners.map(super::project_cube);
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0.0
+    }
 }
 
 /// Why a block item's geometry or texels cannot be drawn.
@@ -55,6 +68,7 @@ pub fn block_item_quads(
                     corners,
                     uvs,
                     material: faces[face as usize],
+                    two_sided: false,
                 });
             }
         }
@@ -89,6 +103,7 @@ pub fn block_item_quads(
                                 .uvs
                                 .map(|uv| uv.map(|component| f32::from(component) / 4096.0)),
                             material: quad.material,
+                            two_sided: quad.flags & crate::MODEL_QUAD_FLAG_TWO_SIDED != 0,
                         }
                     }));
                 }
@@ -145,6 +160,7 @@ fn inventory_fence_quads(material: u32) -> impl Iterator<Item = GuiBlockQuad> {
                     corners,
                     uvs,
                     material,
+                    two_sided: false,
                 }
             })
         })
@@ -194,6 +210,7 @@ fn carried_wall_quads(materials: [u32; 6]) -> Vec<GuiBlockQuad> {
                     BlockFace::South => BlockFace::East,
                     vertical => vertical,
                 } as usize],
+                two_sided: false,
             });
         }
     }

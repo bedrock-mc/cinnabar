@@ -25,6 +25,15 @@ pub(in crate::chunk) fn render_plugin(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
 ) -> Option<RenderPlugin> {
+    render_plugin_with_limits(backends, required_features, None)
+}
+
+/// Creates a renderer with explicit limits so startup tests exercise device-dependent layouts.
+fn render_plugin_with_limits(
+    backends: wgpu::Backends,
+    required_features: WgpuFeatures,
+    limits: Option<wgpu::Limits>,
+) -> Option<RenderPlugin> {
     let noop = backends == wgpu::Backends::NOOP;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
@@ -53,7 +62,7 @@ pub(in crate::chunk) fn render_plugin(
     };
     let descriptor = wgpu::DeviceDescriptor {
         required_features,
-        required_limits,
+        required_limits: limits.unwrap_or(required_limits),
         ..Default::default()
     };
     let adapter_info = adapter.get_info();
@@ -73,6 +82,30 @@ pub(in crate::chunk) fn render_plugin(
 
 pub(crate) fn noop_render_plugin(required_features: WgpuFeatures) -> RenderPlugin {
     render_plugin(wgpu::Backends::NOOP, required_features).expect("the NOOP adapter is built in")
+}
+
+#[test]
+fn minimum_storage_device_selects_compact_pipelines_after_device_initialization() {
+    let render = render_plugin_with_limits(
+        wgpu::Backends::NOOP,
+        WgpuFeatures::empty(),
+        Some(wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    let (mut app, _) = chunk_app_with(render, Msaa::Off, camera_transform(), |app| {
+        app.add_plugins((crate::ActorRenderPlugin, crate::HandRigRenderPlugin));
+    });
+    frame(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    let pipeline = world.resource::<ChunkPipeline>();
+    assert!(pipeline.compact);
+    assert!(!pipeline.unit_supported);
+    assert!(!world.resource::<GpuCullSupport>().0);
+    assert!(!world.resource::<DirectOcclusionSupport>().0);
+    assert!(world.contains_resource::<crate::actor_render::pipeline::ActorPipeline>());
 }
 
 /// A sub-chunk filled with one solid block.

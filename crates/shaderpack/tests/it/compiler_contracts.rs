@@ -3,6 +3,8 @@
 use crate::{program, reflection};
 use shaderpack::{PackSource, PackTranslation, Phase, ShaderPack, StageMask, TranslateConfig};
 
+mod compatibility;
+
 const VERTEX: &str = "#version 330\nvoid main() { gl_Position = vec4(0.0); }";
 const FRAGMENT: &str = "#version 330\nout vec4 color; void main() { color = vec4(1.0); }";
 
@@ -80,21 +82,13 @@ fn resource_overloads_keep_opaque_types_and_nonopaque_signatures() {
 
 #[test]
 fn stage_interface_requires_compatible_vertex_outputs() {
-    for (vertex, fragment) in [
-        (
-            "#version 330\nout vec2 uv; void main() { uv = vec2(0.0); gl_Position = vec4(0.0); }",
-            "#version 330\nin vec3 uv; out vec4 color; void main() { color = vec4(uv, 1.0); }",
-        ),
-        (
-            VERTEX,
-            "#version 330\nin vec2 missing; out vec4 color; void main() { color = vec4(missing, 0.0, 1.0); }",
-        ),
-    ] {
-        let translation = translate(vertex, fragment);
-        let failed = program(&translation, "composite");
-        assert!(!failed.is_ok());
-        assert!(failed.diagnostics.iter().any(|d| d.phase == Phase::Link));
-    }
+    let translation = translate(
+        "#version 330\nout vec2 uv; void main() { uv = vec2(0.0); gl_Position = vec4(0.0); }",
+        "#version 330\nin vec3 uv; out vec4 color; void main() { color = vec4(uv, 1.0); }",
+    );
+    let failed = program(&translation, "composite");
+    assert!(!failed.is_ok());
+    assert!(failed.diagnostics.iter().any(|d| d.phase == Phase::Link));
 }
 
 #[test]
@@ -121,8 +115,16 @@ fn explicit_varying_locations_link_different_names_and_skip_implicit_slots() {
         locations.sort_unstable();
         locations
     };
-    assert_eq!(locations(vertex, true), locations(fragment, false));
-    assert!(locations(vertex, true).contains(&0));
+    assert_eq!(locations(vertex, true), [0, 1]);
+    assert_eq!(locations(fragment, false), [0, 1]);
+    assert_eq!(
+        interface_locations(vertex, true),
+        [("automaticUv", 1), ("sourceUv", 0)]
+    );
+    assert_eq!(
+        interface_locations(fragment, false),
+        [("automaticUv", 1), ("uv", 0)]
+    );
 }
 
 #[test]

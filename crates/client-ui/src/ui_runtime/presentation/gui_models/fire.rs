@@ -80,8 +80,12 @@ impl UiPresentationRuntime {
         Ok(())
     }
 
-    pub(super) fn gui_fire_frame(&self) -> Option<player_preview::geometry::PreviewFire> {
-        if self.player_preview_view != player_preview::PreviewView::Hud {
+    /// The HUD doll's flame frame; other views draw no flames.
+    pub(super) fn gui_fire_frame(
+        &self,
+        view: player_preview::PreviewView,
+    ) -> Option<player_preview::geometry::PreviewFire> {
+        if view != player_preview::PreviewView::Hud {
             return None;
         }
         let size = self.gui_models.live_player.fire_size?;
