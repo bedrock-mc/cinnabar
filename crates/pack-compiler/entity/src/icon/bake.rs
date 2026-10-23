@@ -719,3 +719,7 @@ mod block_entity_tests {
 #[cfg(test)]
 #[path = "bake/dried_ghast_tests.rs"]
 mod dried_ghast_tests;
+
+#[cfg(test)]
+#[path = "bake/sensor_tests.rs"]
+mod sensor_tests;

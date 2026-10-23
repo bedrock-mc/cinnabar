@@ -6887,6 +6887,8 @@
       "Stone": "minecraft:stone",
       "HeavyCore": "minecraft:heavy_core",
       "DriedGhast": "minecraft:dried_ghast",
+      "SculkSensor": "minecraft:sculk_sensor",
+      "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {

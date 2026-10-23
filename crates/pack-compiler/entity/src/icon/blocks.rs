@@ -230,6 +230,24 @@ impl IconBlocks {
             .map(Into::into)
     }
 
+    /// Resolves one explicitly carried attachment texture without assuming a cube-sized image.
+    pub(super) fn attachment_path(
+        &self,
+        visual: BlockVisualId,
+        face: BlockFace,
+    ) -> Option<Box<str>> {
+        let pack = self.pack.as_ref()?;
+        let record = self.records.get(visual.0 as usize)?;
+        let key = resolve_carried_face_key(&pack.blocks, record, face)?;
+        let variant = resolve_texture_key(&pack.blocks, record, face)
+            .key
+            .and_then(|key| pack.terrain.get_for_model_record(&key, record))
+            .map_or(0, |(_, variant)| variant as usize);
+        pack.terrain
+            .get_clamped_untinted(&key, variant)
+            .map(Into::into)
+    }
+
     /// A flat block icon; a flipbook texture shows its first frame, as the terrain atlas holds it.
     pub(super) fn flat_sprite(
         &self,

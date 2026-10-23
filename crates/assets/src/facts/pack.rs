@@ -66,6 +66,8 @@ domain!(PackBlock {
     Stone,
     HeavyCore,
     DriedGhast,
+    SculkSensor,
+    CalibratedSculkSensor,
     StrawBed
 });
 domain!(TextureSelector {

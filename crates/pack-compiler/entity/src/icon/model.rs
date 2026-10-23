@@ -25,6 +25,14 @@ struct Face<'a> {
     face_dimming: bool,
 }
 
+/// A source-textured quad with independently controlled face dimming.
+pub(super) struct TexturedQuad<'a> {
+    pub corners: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
+    pub texture: &'a IconSprite,
+    pub face_dimming: bool,
+}
+
 /// Carrier texels remain borrowed; processed texels share one immutable allocation.
 #[derive(Clone)]
 enum Pixels<'a> {
@@ -84,19 +92,22 @@ pub(super) struct Model<'a> {
 impl<'a> Model<'a> {
     /// Builds a model from source rectangles and its own inventory projection.
     pub(super) fn textured(
-        quads: impl IntoIterator<Item = ([[f32; 3]; 4], [[f32; 2]; 4], &'a IconSprite)>,
+        quads: impl IntoIterator<Item = TexturedQuad<'a>>,
         projection: fn([f32; 3]) -> [f32; 3],
         light: f32,
     ) -> Self {
         let faces = quads
             .into_iter()
-            .map(|(corners, uvs, sprite)| Face {
-                corners,
-                uvs,
-                tile: Pixels::Borrowed(&sprite.rgba8),
-                size: [usize::from(sprite.width), usize::from(sprite.height)],
+            .map(|quad| Face {
+                corners: quad.corners,
+                uvs: quad.uvs,
+                tile: Pixels::Borrowed(&quad.texture.rgba8),
+                size: [
+                    usize::from(quad.texture.width),
+                    usize::from(quad.texture.height),
+                ],
                 blend: false,
-                face_dimming: true,
+                face_dimming: quad.face_dimming,
             })
             .collect();
         Self {

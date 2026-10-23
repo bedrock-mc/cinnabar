@@ -4,7 +4,10 @@ use std::path::Path;
 
 use assets::{AssetError, EntityGeometry, IconSprite, block_entity_geometry as geometry};
 
-use super::{blocks::IconBlocks, model::Model};
+use super::{
+    blocks::IconBlocks,
+    model::{Model, TexturedQuad},
+};
 
 struct Part {
     texture: String,
@@ -173,7 +176,12 @@ pub(super) fn raster(
             }
             let uvs = [[u, v], [u + w, v], [u + w, v + h], [u, v + h]]
                 .map(|[u, v]| [u / width, v / height]);
-            quads.push((corners, uvs, texture));
+            quads.push(TexturedQuad {
+                corners,
+                uvs,
+                texture,
+                face_dimming: true,
+            });
         }
     }
     let model = Model::textured(quads, projection, light);
