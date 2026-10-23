@@ -103,7 +103,7 @@ impl Fixture {
         } = self;
         let mut frame = PaintFrame {
             layouts,
-            font: &**font,
+            font,
             metrics,
             solid_page: *solid_page,
             safe_area: SafeArea::ZERO,
