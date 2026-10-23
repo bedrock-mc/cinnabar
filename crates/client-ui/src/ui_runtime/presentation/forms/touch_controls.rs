@@ -268,6 +268,7 @@ impl UiPresentationRuntime {
             });
         }
         utilities::place_dropdown(state.base.as_ref(), &mut view, content, px);
+        let screen = &mut state.screen;
         let art = ScreenArt {
             view: Some(&view),
             ..ScreenArt::default()

@@ -36,7 +36,7 @@ impl UiPresentationRuntime {
         place_controls(state, &mut view, content, px);
         let mut occupied = Vec::new();
         if let Some(frame) = &state.base {
-            for hit in &frame.hits {
+            for hit in frame.hits.iter() {
                 if !matches!(
                     control_id(hit.pressed.as_deref()),
                     Some(touch::UTILITIES | touch::CHAT | touch::MENU)
