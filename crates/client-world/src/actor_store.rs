@@ -777,6 +777,8 @@ pub(crate) struct ActorStore {
     /// The local player's last-death data held while its actor is absent (a dimension change),
     /// since servers need not resend it.
     pending_local_death: Vec<protocol::ActorMetadata>,
+    /// The latest metadata the server sent for the local player before its actor existed.
+    pending_local_metadata: Vec<protocol::ActorMetadata>,
     /// Server PlayerSpawn has enabled local health-drop animations in this session.
     local_player_spawned: bool,
     /// Key of the synthetic local-player profile, present only while the player list carries no

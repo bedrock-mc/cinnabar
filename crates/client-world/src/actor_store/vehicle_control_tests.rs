@@ -308,3 +308,37 @@ fn a_feed_for_a_boat_the_player_does_not_steer_is_ignored() {
     store.advance_interpolation_ticks(1);
     assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 10.0);
 }
+
+/// A ride restored on join sends the rider's seat before the local actor exists.
+#[test]
+fn a_seat_sent_before_the_local_actor_exists_still_seats_it() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(PLAYER as u64);
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: PLAYER as u64,
+            metadata: Arc::from([ActorMetadata {
+                key: ActorDataKey::SeatOffset.wire_value(),
+                value: ActorMetadataValue::Vector([0.0, -0.2, 0.0]),
+            }]),
+            properties: Arc::from([]),
+            tick: 0,
+        }),
+    );
+    store.apply_link(1, 3, link(PLAYER, ActorLinkType::Rider));
+    assert_eq!(store.rider_seat_pose(PLAYER), None);
+    store.sync_local_player(
+        PLAYER as u64,
+        PLAYER,
+        &super::local_tests::local_feed(0.0, 0.0),
+    );
+    let (feet, _) = store
+        .rider_seat_pose(PLAYER)
+        .expect("the held seat applies");
+    assert_eq!([feet[0], feet[2]], [10.0, 10.0]);
+    assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+}

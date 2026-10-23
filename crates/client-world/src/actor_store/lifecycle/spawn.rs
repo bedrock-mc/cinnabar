@@ -74,6 +74,7 @@ impl ActorStore {
                 self.apply_pending_local_health(runtime_id);
             }
             self.apply_pending_local_death(runtime_id);
+            self.apply_held_local_metadata(runtime_id);
         }
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.board_linked_riders();

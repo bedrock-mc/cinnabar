@@ -43,3 +43,27 @@ impl ActorSnapshot {
         self.local_presentation_flags = Some(flags);
     }
 }
+
+impl super::ActorStore {
+    /// Keeps the latest value of each metadata key the server sends for the local player
+    /// before its actor exists, such as the seat a restored ride puts it in.
+    pub(super) fn hold_local_metadata(&mut self, metadata: &[protocol::ActorMetadata]) {
+        for entry in metadata {
+            self.pending_local_metadata
+                .retain(|held| held.key != entry.key);
+            self.pending_local_metadata.push(entry.clone());
+        }
+    }
+
+    /// Applies held local metadata once the local actor exists.
+    pub(super) fn apply_held_local_metadata(&mut self, runtime_id: u64) {
+        let held = std::mem::take(&mut self.pending_local_metadata);
+        if held.is_empty() {
+            return;
+        }
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            let _ = actor.apply_metadata(&held, &mut self.hitbox_budget);
+            self.effect_members.update(actor);
+        }
+    }
+}

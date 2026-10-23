@@ -116,6 +116,7 @@ impl ActorStore {
             pending_local_damage: None,
             local_health_skips: 0,
             pending_local_death: Vec::new(),
+            pending_local_metadata: Vec::new(),
             local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
@@ -277,6 +278,7 @@ impl ActorStore {
         self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
+        self.apply_held_local_metadata(runtime_id);
         self.board_linked_riders();
         self.apply_pending_local_health(runtime_id);
         self.apply_pending_local_death(runtime_id);
@@ -358,6 +360,7 @@ impl ActorStore {
         self.session_id = session_id;
         self.pending_local_health = None;
         self.pending_local_death.clear();
+        self.pending_local_metadata.clear();
         self.pending_local_damage = None;
         self.local_health_skips = 0;
         self.local_player_spawned = false;
@@ -611,6 +614,7 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     if self.remote_state_excluded_runtime_id == Some(update.runtime_id) {
                         self.merge_pending_local_death(&update.metadata);
+                        self.hold_local_metadata(&update.metadata);
                     }
                     return ActorApplyResult::MissingActor;
                 };
