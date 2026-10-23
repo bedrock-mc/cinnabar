@@ -108,7 +108,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     )
     .add_systems(
         Update,
-        crate::ui_runtime::data_driven::publish_menu_visibility
+        crate::ui_runtime::data_driven::publish_host_screens
             .before(drain_committed_ui_before_authority),
     );
 }

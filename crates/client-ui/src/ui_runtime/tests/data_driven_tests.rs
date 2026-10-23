@@ -58,20 +58,49 @@ fn every_screen_request_is_answered_so_server_scripts_finish() {
 }
 
 #[test]
-fn a_visible_host_menu_answers_screen_requests_busy() {
-    let mut runtime = UiRuntime::new(1);
-    let mut player = player_state::PlayerState::new(1);
-    runtime.set_menu_visible(true);
-    runtime.apply(&mut player, envelope(1, 1, show(4))).unwrap();
-    runtime.set_menu_visible(false);
-    runtime.apply(&mut player, envelope(1, 2, show(5))).unwrap();
-    assert_eq!(
-        sent(&mut runtime),
-        [
-            closed(4, DataDrivenScreenCloseReason::UserBusy),
-            closed(5, DataDrivenScreenCloseReason::ClientCanceled),
-        ]
-    );
+fn screen_requests_answer_busy_while_any_menu_screen_shows() {
+    use crate::ui_runtime::scene_stack::SceneHost;
+    use launcher::menu::MenuScreen;
+    type Open = fn(&mut UiRuntime, &mut player_state::PlayerState);
+    let screens: [(&str, Open); 4] = [
+        ("pause menu", |runtime, _| {
+            runtime.observe_host_screens(SceneHost {
+                menu: Some(MenuScreen::Pause),
+                over_world: true,
+                loading: None,
+            });
+        }),
+        ("sign editor", |runtime, _| {
+            runtime
+                .sign_editor_mut()
+                .open(crate::ui_runtime::sign_editor::SignEdit::new(
+                    [0, 64, 0],
+                    true,
+                    Default::default(),
+                ));
+        }),
+        ("credits", |runtime, _| {
+            assert!(runtime.credits_mut().open(42, 8, 0));
+        }),
+        ("chat", |runtime, player| {
+            runtime.open_chat(player);
+        }),
+    ];
+    for (name, open) in screens {
+        let mut runtime = UiRuntime::new(1);
+        let mut player = player_state::PlayerState::new(1);
+        runtime.apply(&mut player, envelope(1, 1, show(4))).unwrap();
+        open(&mut runtime, &mut player);
+        runtime.apply(&mut player, envelope(1, 2, show(5))).unwrap();
+        assert_eq!(
+            sent(&mut runtime),
+            [
+                closed(4, DataDrivenScreenCloseReason::ClientCanceled),
+                closed(5, DataDrivenScreenCloseReason::UserBusy),
+            ],
+            "{name}"
+        );
+    }
 }
 
 #[test]
