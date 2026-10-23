@@ -96,6 +96,7 @@ fn append_face(
         uvs: uvs
             .map(|uv| std::array::from_fn(|axis| low[axis] + uv[axis] * (high[axis] - low[axis]))),
         material,
+        two_sided: false,
     });
 }
 
