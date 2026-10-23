@@ -66,7 +66,11 @@ fn sprite_emitters_draw_their_own_cosmetic_tile() {
         .into_bytes()
         .into();
     let side = render_model::hats::COSMETIC_SPRITE_SIDE as usize;
-    sprite.sprite = Some((0x5EED, vec![180; side * side * 4].into()));
+    sprite.sprite = Some(render_model::hats::CosmeticSprite {
+        key: 0x5EED,
+        side: side as u32,
+        pixels: vec![180; side * side * 4].into(),
+    });
     tracker.sync(&mut system, &[sprite]);
     system.tick(0.3, &EmptyWorld);
     let uvs = drawn_uvs(&mut system);

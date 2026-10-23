@@ -53,7 +53,7 @@ impl DrawContext {
 }
 
 /// Conversion planes and viewport rectangle uploaded to the host scene-copy shaders.
-pub(super) type SceneDepthParameters = [f32; 12];
+pub(super) type SceneDepthParameters = [f32; 8];
 
 /// One view's resources and per-frame state for a loaded pack.
 pub(crate) struct ViewState {
@@ -103,14 +103,7 @@ impl ViewState {
         }
         let bindings =
             bindings.ok_or_else(|| "shader pack view bindings ran out of GPU memory".to_owned())?;
-        let (custom, errors) = CustomUniforms::new(&pack.custom_uniforms);
-        for error in errors {
-            bevy::log::debug!(
-                target: "cinnabar::shaderpack",
-                pack = %pack.name, line = error.line, name = %error.name,
-                "custom uniform dropped: {}", error.message
-            );
-        }
+        let custom = pack.custom_uniforms.clone();
         Ok(Self {
             depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack view depth parameters"),
@@ -144,34 +137,31 @@ impl ViewState {
 
     /// Keeps native queues available when a geometry draw would reject its attachments.
     pub(crate) fn geometry_targets_ready(&self) -> bool {
-        !self.actors.allocation_failed
-            && self.pack.draws.iter().all(|draw| {
-                let shadow = self.pack.shadow.as_ref().filter(|_| draw.kind.shadow());
-                let mut size = draw.kind.depth().then(|| {
-                    shadow.map_or(self.targets.screen_size, |shadow| {
-                        [shadow.slots.resolution; 2]
-                    })
-                });
-                draw.outputs.iter().flatten().all(|index| {
-                    let extent = if let Some(shadow) = shadow {
-                        shadow
-                            .slots
-                            .color
-                            .iter()
-                            .find(|(buffer, ..)| buffer == index)
-                            .map(|_| [shadow.slots.resolution; 2])
-                    } else {
-                        self.targets
-                            .buffers
-                            .get(*index as usize)
-                            .and_then(|buffer| buffer.as_ref())
-                            .map(|buffer| buffer.size)
-                    };
-                    extent.is_some_and(|extent| {
-                        super::frame_geometry::admit_extent(&mut size, extent)
-                    })
+        self.pack.draws.iter().all(|draw| {
+            let shadow = self.pack.shadow.as_ref().filter(|_| draw.kind.shadow());
+            let mut size = draw.kind.depth().then(|| {
+                shadow.map_or(self.targets.screen_size, |shadow| {
+                    [shadow.slots.resolution; 2]
                 })
+            });
+            draw.outputs.iter().flatten().all(|index| {
+                let extent = if let Some(shadow) = shadow {
+                    shadow
+                        .slots
+                        .color
+                        .iter()
+                        .find(|(buffer, ..)| buffer == index)
+                        .map(|_| [shadow.slots.resolution; 2])
+                } else {
+                    self.targets
+                        .buffers
+                        .get(*index as usize)
+                        .and_then(|buffer| buffer.as_ref())
+                        .map(|buffer| buffer.size)
+                };
+                extent.is_some_and(|extent| super::frame_geometry::admit_extent(&mut size, extent))
             })
+        })
     }
 
     /// Refreshes atlas dimensions after native texture preparation and before recording draws.
@@ -337,8 +327,6 @@ pub(crate) struct FrameIo<'a> {
     pub scene_depth: &'a TextureView,
     /// Near plane of the scene projection.
     pub scene_near: f32,
-    /// `1 /` the scene projection's x and y scales.
-    pub inverse_focal: [f32; 2],
     /// `far`: the render distance in blocks.
     pub render_distance: f32,
     /// `fogColor`, which `colortex0` clears to by default.
@@ -516,13 +504,7 @@ pub(crate) fn record_frame(
             RuntimeStage::GpuShaderpackTranslucent,
             encoder,
             |encoder| {
-                record_translucent(
-                    device,
-                    encoder,
-                    state,
-                    geometry,
-                    (io.scene_colour, io.scene_depth),
-                );
+                record_translucent(device, encoder, state, geometry);
             },
         );
     }
@@ -612,31 +594,11 @@ fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &Fr
     }
 }
 
-/// Writes the planes and limits the host's depth conversions and the Vanilla overlay use.
+/// Writes the projection planes and viewport used by depth conversion.
 fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>) {
     let far = io.render_distance.max(16.0) * FAR_PLANE_SCALE;
-    // Vanilla content beyond `far` (its far-terrain impostors) has no pack geometry behind it
-    // and never comes through; inside, only what lies within the fully expanded radius does.
-    let overlay_radius = io
-        .geometry
-        .as_ref()
-        .map_or(f32::MAX, |g| g.overlay_radius)
-        .min(io.render_distance.max(16.0));
     let [x, y, w, h] = io.viewport.map(|v| v as f32);
-    let parameters: SceneDepthParameters = [
-        io.scene_near,
-        GL_NEAR,
-        far,
-        overlay_radius,
-        io.inverse_focal[0],
-        io.inverse_focal[1],
-        0.0,
-        0.0,
-        x,
-        y,
-        w,
-        h,
-    ];
+    let parameters: SceneDepthParameters = [io.scene_near, GL_NEAR, far, 0.0, x, y, w, h];
     queue.write_buffer(buffer, 0, bytemuck::bytes_of(&parameters));
 }
 

@@ -24,7 +24,7 @@ use std::path::Path;
 const SHADER_EXTENSIONS: &[&str] = &["glsl", "vsh", "fsh", "gsh", "csh", "tcs", "tes", "inc", "h"];
 
 /// What to translate and with which settings.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TranslateConfig {
     /// Program folder, e.g. `world0`; see [`ShaderPack::dimension_folder`]. A folder the pack
     /// lacks selects its base program set, as in [`ShaderPack::programs`].
@@ -51,7 +51,7 @@ impl Default for TranslateConfig {
 }
 
 /// A whole-pack translation result.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PackTranslation {
     /// `shaders.properties` evaluated with the configured options.
     pub properties: ShaderProperties,
@@ -62,7 +62,7 @@ pub struct PackTranslation {
 }
 
 /// A shader pack opened from a folder or zip, with its options discovered.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ShaderPack {
     source: PackSource,
     options: Vec<PackOption>,
@@ -175,6 +175,21 @@ impl ShaderPack {
         config: &TranslateConfig,
         progress: impl Fn(usize, usize) + Sync,
     ) -> PackTranslation {
+        self.translate_cancellable(config, progress, || false)
+            .expect("an uncancelled translation produces a result")
+    }
+
+    /// Translates with progress, stopping between programs when `cancelled` returns true.
+    /// Programs already translating may finish; a cancelled load returns no partial pack.
+    pub fn translate_cancellable(
+        &self,
+        config: &TranslateConfig,
+        progress: impl Fn(usize, usize) + Sync,
+        cancelled: impl Fn() -> bool + Sync,
+    ) -> Option<PackTranslation> {
+        if cancelled() {
+            return None;
+        }
         let properties = self.properties(&config.environment, &config.options);
         let programs = self.programs(&config.folder, &config.environment);
         let profile_disabled = self.profile_disabled_programs(&config.options);
@@ -183,14 +198,20 @@ impl ShaderPack {
         let mut programs: Vec<ProgramTranslation> = programs
             .par_iter()
             .map(|program| {
+                if cancelled() {
+                    return None;
+                }
                 let translated =
                     self.translate_one(program, config, &properties, &profile_disabled);
                 let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
                 *done += 1;
                 progress(*done, programs.len());
-                translated
+                Some(translated)
             })
-            .collect();
+            .collect::<Option<Vec<_>>>()?;
+        if cancelled() {
+            return None;
+        }
         let mut buffers = BufferDirectives::default();
         for c in programs
             .iter()
@@ -210,11 +231,11 @@ impl ShaderPack {
                 }
             }
         }
-        PackTranslation {
+        Some(PackTranslation {
             properties,
             buffers,
             programs,
-        }
+        })
     }
 
     /// Programs (`[<folder>/]<name>`) the profile matching `options` disables with

@@ -33,13 +33,13 @@ use super::resources::{
 };
 use super::shadow_maps::{ShadowMaps, shadow_maps};
 use super::uniforms::PackSettings;
-use bevy::log::warn;
 use render_scene::shaderpack::LoadProgress;
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use shaderpack::OptionValues;
 use shaderpack::{
-    CustomUniform, Environment, OptionValues, ProgramGroup, ProgramKind, ProgramReflection,
-    ProgramTranslation, SamplerBinding, SamplerClass, ScaleRule, ShaderPack, StageKind,
-    TranslateConfig,
+    Environment, ProgramGroup, ProgramKind, ProgramReflection, ProgramTranslation, SamplerBinding,
+    SamplerClass, ScaleRule, ShaderPack, StageKind, TranslateConfig,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -139,7 +139,7 @@ pub(crate) struct PackGpu {
     /// Storage-buffer bindings with their byte sizes.
     pub shader_storage: Vec<(u32, u64)>,
     pub settings: PackSettings,
-    pub custom_uniforms: Vec<CustomUniform>,
+    pub custom_uniforms: shaderpack::CustomUniforms,
     /// One filtering sampler per [`SamplerClass`], in [`SamplerClass::ALL`] order.
     pub filtering: [wgpu::Sampler; SamplerClass::ALL.len()],
     pub comparison: wgpu::Sampler,
@@ -214,8 +214,19 @@ pub(crate) fn content_key(pack: &ShaderPack, config: &TranslateConfig) -> String
 }
 
 /// The translation settings for this host.
+#[cfg(test)]
 pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateConfig {
-    let environment = Environment {
+    let environment = host_environment();
+    TranslateConfig {
+        folder: pack.dimension_folder(dimension, &environment),
+        environment,
+        ..TranslateConfig::default()
+    }
+}
+
+/// Supplies the current host's macros to both local fixtures and the isolated compiler.
+fn host_environment() -> Environment {
+    Environment {
         os: if cfg!(target_os = "windows") {
             shaderpack::HostOs::Windows
         } else if cfg!(target_os = "macos") {
@@ -226,11 +237,15 @@ pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateC
             shaderpack::HostOs::Other
         },
         ..Environment::default()
-    };
-    TranslateConfig {
-        folder: pack.dimension_folder(dimension, &environment),
-        environment,
-        ..TranslateConfig::default()
+    }
+}
+
+/// Stops retired workers before opening files or submitting another GPU construction batch.
+fn check_cancelled(progress: &LoadProgress) -> Result<(), String> {
+    if progress.is_cancelled() {
+        Err("shader pack load cancelled".to_owned())
+    } else {
+        Ok(())
     }
 }
 
@@ -239,6 +254,10 @@ pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateC
 /// `minecraft:` texture references. Saved values are normalized in memory; the option editor
 /// owns file writes so a load worker cannot overwrite a newer edit. Translation reports into
 /// `progress`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the load's paths, GPU and cancellation inputs"
+)]
 pub(crate) fn load(
     path: &Path,
     options: Option<&Path>,
@@ -247,33 +266,30 @@ pub(crate) fn load(
     gpu: &GpuContext,
     vanilla: &VanillaTextures,
     progress: &LoadProgress,
+    compiler: Option<&Path>,
 ) -> Result<PackGpu, String> {
-    let pack = ShaderPack::open(path).map_err(|e| e.to_string())?;
+    check_cancelled(progress)?;
+    let started = std::time::Instant::now();
+    let request = shaderpack::worker::Request {
+        pack: path.to_owned(),
+        options: options.map(Path::to_owned),
+        dimension: dimension.to_owned(),
+        environment: host_environment(),
+        purpose: shaderpack::worker::Purpose::Render,
+    };
+    let executable = compiler.ok_or("the isolated shader compiler is unavailable")?;
+    let mut worker = shaderpack::worker::Running::start(executable, &request)?;
+    let compiled = loop {
+        if let Some(result) = worker.poll(started.elapsed(), progress.is_cancelled()) {
+            break result?.into_translation()?;
+        }
+        std::thread::park_timeout(std::time::Duration::from_millis(10));
+    };
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
+        |name| name.to_string_lossy().into_owned(),
     );
-    let values = options.map_or_else(OptionValues::new, |file| saved_options(&pack, file));
-    build(
-        &pack, &name, dimension, &values, cache_dir, gpu, vanilla, progress,
-    )
-}
-
-/// Reads and normalizes the pack's saved values without changing the file; unreadable files
-/// load the defaults.
-fn saved_options(pack: &ShaderPack, file: &Path) -> OptionValues {
-    let saved = match shaderpack::read_option_file(file) {
-        Ok(saved) => saved,
-        Err(error) => {
-            warn!(
-                target: "cinnabar::shaderpack",
-                file = %file.display(),
-                "shader pack options unreadable, using defaults: {error}"
-            );
-            return OptionValues::new();
-        }
-    };
-    shaderpack::normalize_values(pack.options(), &saved)
+    build_translation(compiled, &name, cache_dir, gpu, vanilla, progress, started)
 }
 
 /// The enabled programs this host runs, in frame order, with validated destinations.
@@ -309,6 +325,7 @@ pub(crate) fn runnable_programs(
     clippy::too_many_arguments,
     reason = "the pack, its option values and the load's host inputs"
 )]
+#[cfg(test)]
 pub(crate) fn build(
     pack: &ShaderPack,
     name: &str,
@@ -324,9 +341,54 @@ pub(crate) fn build(
         ..translate_config(pack, dimension)
     };
     let started = std::time::Instant::now();
-    let translation = pack.translate_reporting(&config, |translated, programs| {
-        progress.record(translated, programs);
-    });
+    check_cancelled(progress)?;
+    let translation = pack
+        .translate_cancellable(
+            &config,
+            |translated, programs| progress.record(translated, programs),
+            || progress.is_cancelled(),
+        )
+        .ok_or_else(|| "shader pack load cancelled".to_owned())?;
+    build_translation(
+        shaderpack::worker::prepare_translation(pack.clone(), config, translation),
+        name,
+        cache_dir,
+        gpu,
+        vanilla,
+        progress,
+        started,
+    )
+}
+
+/// Builds GPU resources from a completed CPU translation; no pack metadata is compiled here.
+fn build_translation(
+    compiled: shaderpack::worker::Output,
+    name: &str,
+    cache_dir: Option<&Path>,
+    gpu: &GpuContext,
+    vanilla: &VanillaTextures,
+    progress: &LoadProgress,
+    started: std::time::Instant,
+) -> Result<PackGpu, String> {
+    let shaderpack::worker::Output {
+        pack,
+        config,
+        translation,
+        custom_uniforms: (custom_uniforms, errors),
+        ids,
+        block_ids,
+        options_warning,
+    } = compiled;
+    let pack = &pack;
+    if let Some(error) = options_warning {
+        bevy::log::warn!(target: "cinnabar::shaderpack", pack = name,
+            "shader pack options unreadable, using defaults: {error}");
+    }
+    for error in errors {
+        bevy::log::debug!(target: "cinnabar::shaderpack", pack = name, line = error.line,
+            name = %error.name, "custom uniform dropped: {}", error.message);
+    }
+    check_cancelled(progress)?;
     for diagnostic in &translation.properties.diagnostics {
         bevy::log::debug!(
             target: "cinnabar::shaderpack",
@@ -346,8 +408,7 @@ pub(crate) fn build(
                 .map_err(|error| format!("{}: {error}", program.program.name))?;
         }
     }
-    let (block_ids, actor_ids) =
-        super::ids::id_tables(pack.id_maps(&config.environment, &config.options), name);
+    let (block_ids, actor_ids) = super::ids::id_tables(ids, block_ids, name);
     let effects = EffectSettings::read(
         &translation.properties,
         runnable
@@ -450,6 +511,7 @@ pub(crate) fn build(
                 .any(|s| s.stage == shaderpack::StageKind::Geometry)
     });
 
+    check_cancelled(progress)?;
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
     let loaded = crate::gpu_allocation::checked(&render_device, "shader pack load", 0, || {
@@ -476,6 +538,7 @@ pub(crate) fn build(
         // Per geometry program: its pipeline layout, vertex module and fragment stage.
         let mut geometry_stages = vec![];
         for (program, reflection) in all.iter().zip(&reflections) {
+            check_cancelled(progress)?;
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
@@ -666,6 +729,7 @@ pub(crate) fn build(
             });
         }
         let shadow_slots = constants.shadow_slots();
+        check_cancelled(progress)?;
         let draws = geometry_draws(
             gpu,
             pipeline_cache.as_ref().map(|c| &c.cache),
@@ -718,6 +782,7 @@ pub(crate) fn build(
             .flat_map(|shadow| shadow.slots.float.iter().flatten())
             .map(|slot| constants.constant(*slot).texture.format())
             .collect();
+        check_cancelled(progress)?;
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,
@@ -777,7 +842,7 @@ pub(crate) fn build(
             atomic_images,
             shader_storage,
             settings,
-            custom_uniforms: translation.properties.custom_uniforms.clone(),
+            custom_uniforms,
             filtering,
             comparison,
             zero_uniforms,
@@ -808,6 +873,7 @@ pub(crate) fn build(
     if let Some(error) = validation_error {
         return Err(format!("the device rejected the pack: {error}"));
     }
+    check_cancelled(progress)?;
     if let Some(cache) = pipeline_cache {
         cache.store();
     }
@@ -821,35 +887,3 @@ pub(crate) fn build(
 #[cfg(test)]
 #[path = "loader_validation_tests.rs"]
 mod validation_tests;
-
-#[cfg(test)]
-mod option_tests {
-    use super::*;
-
-    #[test]
-    fn loading_normalizes_options_without_writing_over_editor_saves() {
-        let pack = ShaderPack::new(shaderpack::PackSource::from_files([(
-            "final.fsh",
-            "#define QUALITY 2 // [1 2 3]\nvoid main() {}\n",
-        )]));
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("options.txt");
-        let saved = b"QUALITY=3\nREMOVED=true\n";
-        std::fs::write(&file, saved).unwrap();
-        assert_eq!(
-            saved_options(&pack, &file),
-            OptionValues::from([("QUALITY".into(), "3".into())])
-        );
-        assert_eq!(std::fs::read(&file).unwrap(), saved);
-        shaderpack::write_option_file(
-            &file,
-            pack.options(),
-            &OptionValues::from([("QUALITY".into(), "1".into())]),
-        )
-        .unwrap();
-        assert_eq!(
-            saved_options(&pack, &file),
-            OptionValues::from([("QUALITY".into(), "1".into())])
-        );
-    }
-}

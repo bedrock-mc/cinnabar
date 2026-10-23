@@ -25,6 +25,7 @@ mod transport_tests;
 mod crouch_camera;
 mod input_lock_sources;
 mod riptide;
+mod sneak_sync;
 
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {
@@ -152,6 +153,7 @@ include!("integration_tests/vector_carriers.rs");
 include!("integration_tests/timeline.rs");
 include!("integration_tests/frame_speed.rs");
 mod sample_time;
+mod sprint_hold;
 include!("integration_tests/dismount.rs");
 include!("integration_tests/immobile.rs");
 include!("integration_tests/input_locks.rs");

@@ -29,6 +29,7 @@ pub(super) struct BootstrapResources<'a> {
     pub pack_reload: Option<Mut<'a, PackReload>>,
     pub chunk_textures: Option<Mut<'a, ChunkTextureAssets>>,
     pub block_entity_scene: Option<Mut<'a, BlockEntitySceneResource>>,
+    pub actor_artwork: Option<Mut<'a, render_scene::ActorArtworkResource>>,
     pub acknowledgements: &'a ChunkUploadAcknowledgements,
     pub publication: &'a PublicationController,
     pub display_interval: Duration,
@@ -49,6 +50,7 @@ pub(super) fn apply(
         pack_reload,
         chunk_textures,
         block_entity_scene,
+        actor_artwork,
         acknowledgements,
         publication,
         display_interval,
@@ -81,6 +83,7 @@ pub(super) fn apply(
     } = local_player;
     let NetworkControlEvent::Bootstrap {
         session_generation,
+        identity,
         world: bootstrap,
         environment,
         custom_blocks,
@@ -165,6 +168,7 @@ pub(super) fn apply(
     replace_session(clock, weather, environment, time.elapsed_secs_f64());
     bind_session_generation(clock, weather, session_generation);
     client_runtime::session::begin_session(ui_runtime, &mut player_runtime, session_generation);
+    ui_runtime.set_chat_identity(identity.display_name.into(), identity.xuid.into());
     movement_effects.begin_session(session_generation);
     movement_speed.begin_session(session_generation, bootstrap.dimension);
     client_runtime::item_diagnostics::session_registry(item_registry.as_ref());
@@ -230,6 +234,7 @@ pub(super) fn apply(
             collisions,
             chunk_textures,
             block_entity_scene,
+            actor_artwork,
             publication,
             display_interval,
         },

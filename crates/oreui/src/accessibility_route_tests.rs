@@ -240,3 +240,199 @@ fn extra_large_noninteractive_loading_keeps_title_and_details_visible() {
         }
     }
 }
+
+/// Narrow, enlarged settings must reflow the selected shader card instead of pushing
+/// its controls past the panel, where scrolling can't reach them.
+#[test]
+fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
+    use launcher::menu::{
+        RendererChoice,
+        settings_sections::SettingSection,
+        settings_storage::{StorageAction, StorageFolder},
+    };
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [240.0, 720.0], [400.0, 250.0]] {
+        for (enabled, failed) in [(0, false), (0, true), (1, false), (1, true)] {
+            let chip = if failed { "Failed" } else { "Loading…" };
+            let mut view =
+                crate::test_support::settings_view(SettingSection::Shaders.definition().name);
+            view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+            view.render_mode = ui::RenderMode::ShaderPack;
+            view.shader_pack = Some("Dusk.zip".into());
+            let selected = RendererChoice::ShaderPack(0, view.shader_packs_revision);
+            view.renderer = Some(selected);
+            view.shader_options_available = true;
+            if failed {
+                view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+            } else {
+                view.shader_pack_loading = true;
+            }
+            Arc::make_mut(&mut view.storage).opens_folders = true;
+            Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), enabled);
+            let metrics = TextMetrics::for_viewport(
+                size.map(|value| value as u32),
+                DpiScale::new(1.0).unwrap(),
+                Some(2),
+            );
+            let mut screen = OreUiScreen::default();
+            let painted = paint_with_scrolls(
+                &mut screen,
+                &view,
+                metrics,
+                size,
+                &mut MenuScrolls::default(),
+            );
+            let paint = screen.take_paint().unwrap();
+            let panel = paint
+                .scrolls
+                .iter()
+                .find(|area| area.key.starts_with("oreui_settings/"))
+                .expect("settings content scroll view")
+                .viewport;
+            for action in [
+                MenuAction::SelectRenderer(RendererChoice::Vanilla),
+                MenuAction::SelectRenderer(selected),
+                MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+                    1,
+                    view.shader_packs_revision,
+                )),
+                MenuAction::RemoveShaderPackDialog(0, view.shader_packs_revision),
+                MenuAction::ShaderOptions(launcher::shader_options::Action::Open),
+                MenuAction::ReloadShaders,
+                MenuAction::SettingsStorage(StorageAction::OpenFolder(StorageFolder::ShaderPacks)),
+            ] {
+                let bounds = paint
+                    .geometry
+                    .focus_targets
+                    .iter()
+                    .find(|target| target.action == action)
+                    .unwrap_or_else(|| panic!("{size:?} xl={enabled}: {action:?} is focusable"))
+                    .bounds;
+                assert!(bounds.width() > 0.0, "{size:?} xl={enabled}: {action:?}");
+                assert!(
+                    bounds.min().x() >= panel.min().x() && bounds.max().x() <= panel.max().x(),
+                    "{size:?} xl={enabled}: {action:?} at {bounds:?} leaves {panel:?}"
+                );
+            }
+            let ink = chip_ink(&painted.nodes, chip);
+            assert!(!ink.is_empty(), "{size:?} xl={enabled}: {chip} is drawn");
+            for [left, right] in ink {
+                assert!(
+                    left >= panel.min().x() && right <= panel.max().x(),
+                    "{size:?} xl={enabled}: {chip} glyph at {left}..{right} leaves {panel:?}"
+                );
+            }
+            let radios = radio_rects(&painted.nodes);
+            assert!(
+                !radios.is_empty(),
+                "{size:?} xl={enabled}: radios are drawn"
+            );
+            for chip_rect in chip_rects(&painted.nodes, chip) {
+                for radio in &radios {
+                    assert!(
+                        !overlaps(chip_rect, *radio),
+                        "{size:?} xl={enabled}: {chip} at {chip_rect:?} covers a radio at {radio:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// `node`'s bounds in window coordinates, through its clipping parents.
+fn window_rect(nodes: &[UiNode], node: &UiNode) -> [f32; 4] {
+    let (mut x, mut y, mut parent) = (0.0, 0.0, node.parent());
+    while let Some(clip) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+        x += clip.bounds().min().x();
+        y += clip.bounds().min().y();
+        parent = clip.parent();
+    }
+    let bounds = node.bounds();
+    [
+        x + bounds.min().x(),
+        y + bounds.min().y(),
+        x + bounds.max().x(),
+        y + bounds.max().y(),
+    ]
+}
+
+/// Whether `node` is text reading `label`, ignoring wrapping.
+fn reads(node: &UiNode, label: &str) -> bool {
+    matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout
+        .glyphs()
+        .iter()
+        .zip(layout.glyph_source_indices())
+        .filter(|(glyph, source)| source.is_some() && !glyph.codepoint.is_whitespace())
+        .map(|(glyph, _)| glyph.codepoint)
+        .eq(label.chars().filter(|codepoint| !codepoint.is_whitespace())))
+}
+
+fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// Each chip's face: the smallest solid fill holding a `label` text node.
+fn chip_rects(nodes: &[UiNode], label: &str) -> Vec<[f32; 4]> {
+    nodes
+        .iter()
+        .filter(|node| reads(node, label))
+        .filter_map(|text| {
+            let text = window_rect(nodes, text);
+            nodes
+                .iter()
+                .filter(|node| matches!(node.visual(), ui::UiVisual::Solid { .. }))
+                .map(|node| window_rect(nodes, node))
+                .filter(|face| {
+                    face[0] <= text[0] + 0.5
+                        && face[1] <= text[1] + 0.5
+                        && face[2] >= text[2] - 0.5
+                        && face[3] >= text[3] - 0.5
+                })
+                .min_by(|a, b| {
+                    ((a[2] - a[0]) * (a[3] - a[1])).total_cmp(&((b[2] - b[0]) * (b[3] - b[1])))
+                })
+        })
+        .collect()
+}
+
+/// The axis-aligned extent of every turned square, which only radios draw here.
+fn radio_rects(nodes: &[UiNode]) -> Vec<[f32; 4]> {
+    nodes
+        .iter()
+        .filter(|node| matches!(node.visual(), ui::UiVisual::RotatedSprite { .. }))
+        .map(|node| {
+            let [x0, y0, x1, y1] = window_rect(nodes, node);
+            let reach = ((x1 - x0) + (y1 - y0)) * 0.5 * std::f32::consts::FRAC_1_SQRT_2;
+            let centre = [(x0 + x1) * 0.5, (y0 + y1) * 0.5];
+            [
+                centre[0] - reach,
+                centre[1] - reach,
+                centre[0] + reach,
+                centre[1] + reach,
+            ]
+        })
+        .collect()
+}
+
+/// The window-x extent of every glyph in text nodes reading `label`.
+fn chip_ink(nodes: &[UiNode], label: &str) -> Vec<[f32; 2]> {
+    nodes
+        .iter()
+        .filter(|node| reads(node, label))
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => {
+                let x = window_rect(nodes, node)[0];
+                Some(layout.glyphs().iter().map(move |glyph| {
+                    [
+                        x + glyph.bounds_64[0] as f32 / 64.0,
+                        x + glyph.bounds_64[2] as f32 / 64.0,
+                    ]
+                }))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}

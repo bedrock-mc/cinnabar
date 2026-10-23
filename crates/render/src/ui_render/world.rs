@@ -9,14 +9,18 @@ pub(crate) type UiViewQuery = (
     &'static ExtractedCamera,
     Option<&'static ViewDepthStencilTexture>,
     Option<&'static MainPassResolutionOverride>,
+    Option<&'static crate::render_scale::RenderScaleOutput>,
 );
 
 /// Draws projected UI in authored order after world filtering.
-pub(super) fn ui_world(
+pub(crate) fn ui_world<const AFTER_PACK: bool>(
     world: &World,
     view: bevy::render::renderer::ViewQuery<UiViewQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    if !crate::shaderpack::native_pass_enabled(world, view.entity(), AFTER_PACK) {
+        return Ok(());
+    }
     let Some(gpu) = world.get_resource::<UiGpu>() else {
         return Ok(());
     };
@@ -34,7 +38,7 @@ pub(super) fn ui_world(
 pub(crate) fn draw_ui_view(
     view_entity: Entity,
     context: &mut RenderContext,
-    (target, scene_target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
+    (target, scene_target, _, camera, depth, resolution_override, output): QueryItem<UiViewQuery>,
     world: &World,
     gpu: &UiGpu,
     batches: &[UiRenderBatch],
@@ -174,10 +178,14 @@ pub(crate) fn draw_ui_view(
                     .unwrap(),
                 &[],
             );
-            let Some(scissor) = crate::render_bounds::scissor(
-                batch.scissor,
-                crate::render_bounds::extent(scene_target.color_view(false)),
-            ) else {
+            let extent = crate::render_bounds::extent(scene_target.color_view(false));
+            let scissor = match output {
+                Some(output) => {
+                    super::layer::scaled_scissor(batch.scissor, output.0.to_array(), extent)
+                }
+                None => crate::render_bounds::scissor(batch.scissor, extent),
+            };
+            let Some(scissor) = scissor else {
                 continue;
             };
             pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);

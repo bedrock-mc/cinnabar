@@ -1,249 +1,280 @@
-//! Recipe-book crafting: the vanilla auto-craft request draws ingredients
-//! straight from the player inventory and hands the result to the cursor.
+//! Recipe-book crafting: the auto-craft request draws ingredients from the crafting grid and
+//! the player inventory and places the result into the inventory, hotbar first.
 
 use std::sync::Arc;
 
 use protocol::{
-    AutoCraftIngredient, CraftResult, NetworkItemStack, RecipeHandle, RecipeIngredientView,
-    StackItemDescriptor, StackRequestAction,
+    AutoCraftIngredient, NetworkItemStack, RecipeHandle, RecipeIngredientView, StackItemDescriptor,
+    StackRequestAction,
 };
-use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, Held};
+use super::crafting::{ExtraDestination, OutputPlanner, action_amounts, created_stack};
 use super::gesture::Submission;
-use super::helpers::request_slot;
+use super::helpers::{combined_request_slot, request_slot};
 use super::overlay::DeltaGroup;
+use super::recipe_allocation::{IngredientSources, RecipeInputs};
 use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
-mod allocation;
+mod materials;
+pub(crate) use materials::AutoCraftMaterials;
+
+#[cfg(test)]
+thread_local! {
+    static SOURCE_VALIDATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Takes the current thread's count of ingredient source byte validations.
+#[cfg(test)]
+pub(crate) fn take_source_validations() -> usize {
+    SOURCE_VALIDATIONS.with(|count| count.replace(0))
+}
 
 impl PlayerInventoryLedger {
+    /// Cells recipe-book availability, placement and crafting draw from, in order: the open
+    /// grid, then the player inventory hotbar first.
+    pub(super) fn recipe_source_cells(&self) -> Vec<Cell> {
+        self.crafting_grid()
+            .slots()
+            .map(Cell::Craft)
+            .chain((0..PLAYER_INVENTORY_SLOT_COUNT as u8).map(Cell::Inventory))
+            .collect()
+    }
+
     /// Settled stacks with intact retained bytes and a negotiated binding can supply ingredients.
-    fn auto_craft_stack(
+    pub(super) fn auto_craft_stack(
         &self,
-        slot: u8,
+        cell: Cell,
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
-        let held = self.view().get(Cell::Inventory(slot))?;
+        let held = self.view().get(cell)?;
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
+        #[cfg(test)]
+        SOURCE_VALIDATIONS.with(|count| count.set(count.get() + 1));
         (recipe_input_valid(&held.stack)
             && !crate::item_permissions::special_removal_locked(&held.stack.extra_data)
             && !self.awaiting_identity(held))
         .then_some((&held.stack, entry))
     }
 
-    /// Player cells to draw `ingredient` from: `(cell, amount, stack id)`.
-    fn ingredient_sources(
-        &self,
-        ingredient: &RecipeIngredientView,
-        taken: &[(u8, u16)],
-    ) -> Option<Vec<(u8, u16, i32)>> {
-        let mut needed = u16::from(ingredient.count);
-        let mut sources = Vec::new();
-        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT as u8 {
-            if needed == 0 {
-                break;
-            }
-            let Some((stack, entry)) = self.auto_craft_stack(slot) else {
-                continue;
-            };
-            let already: u16 = taken
-                .iter()
-                .filter(|(cell, _)| *cell == slot)
-                .map(|(_, amount)| *amount)
-                .sum();
-            if !crate::ingredient_accepts(
+    /// Whether the source stack in `cell` is one `ingredient` accepts.
+    pub(super) fn source_accepts(&self, cell: Cell, ingredient: &RecipeIngredientView) -> bool {
+        self.auto_craft_stack(cell).is_some_and(|(stack, entry)| {
+            crate::ingredient_accepts(
                 ingredient,
                 &entry.identifier,
                 stack.metadata,
                 &entry.item_tags,
-            ) {
-                continue;
-            }
-            let amount = needed.min(stack.count.saturating_sub(already));
-            if amount > 0 {
-                needed -= amount;
-                sources.push((slot, amount, stack.stack_network_id));
-            }
-        }
-        (needed == 0).then_some(sources)
-    }
-
-    /// Whether any inventory stack is one of `recipe`'s ingredients.
-    #[must_use]
-    pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
-        let views = recipe.ingredient_views();
-        (0..PLAYER_INVENTORY_SLOT_COUNT as u8).any(|slot| {
-            let Some(held) = self.view().get(Cell::Inventory(slot)) else {
-                return false;
-            };
-            let Some(entry) = self.negotiated_item_entry(held.stack.network_id) else {
-                return false;
-            };
-            views.iter().flatten().any(|ingredient| {
-                crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    held.stack.metadata,
-                    &entry.item_tags,
-                )
-            })
+            )
         })
     }
 
-    /// Whether the inventory holds every ingredient of `recipe`.
+    /// Whether the grid or inventory holds any of `recipe`'s ingredients.
+    #[must_use]
+    pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
+        self.auto_craft_inputs().holds_any(recipe)
+    }
+
+    /// Admits source stacks once for all candidates in one recipe-book projection.
+    pub(crate) fn auto_craft_inputs(&self) -> RecipeInputs<'_> {
+        RecipeInputs::new(self)
+    }
+
+    /// Whether the grid and inventory together hold every ingredient of `recipe`.
     #[must_use]
     pub fn can_auto_craft(&self, recipe: &RecipeHandle) -> bool {
-        self.auto_craft_sources(recipe).is_some()
+        self.auto_craft_sources(recipe, 1).is_some()
     }
 
-    /// Shares deterministic ingredient allocation between craftability and request construction.
-    fn auto_craft_sources(&self, recipe: &RecipeHandle) -> Option<Vec<(u8, u16, i32)>> {
-        let mut taken: Vec<(u8, u16)> = Vec::new();
-        let mut all = Vec::new();
-        let ingredients = recipe.ingredient_views();
-        for ingredient in ingredients.iter().flatten() {
-            let Some(sources) = self.ingredient_sources(ingredient, &taken) else {
-                return self.reassigned_sources(&ingredients);
-            };
-            taken.extend(sources.iter().map(|(cell, amount, _)| (*cell, *amount)));
-            all.extend(sources);
-        }
-        Some(all)
-    }
-
-    /// Reassigns quantities only when the ordinary first-choice plan cannot satisfy every input.
-    fn reassigned_sources(
+    /// Shares deterministic ingredient allocation between craftability and request construction:
+    /// each ingredient's sources, in ingredient order.
+    pub(super) fn auto_craft_sources(
         &self,
-        views: &[Option<RecipeIngredientView>],
-    ) -> Option<Vec<(u8, u16, i32)>> {
-        let ingredients: Vec<_> = views.iter().flatten().collect();
-        let demands: Vec<_> = ingredients
-            .iter()
-            .map(|ingredient| u16::from(ingredient.count))
-            .collect();
-        let mut counts = [0; PLAYER_INVENTORY_SLOT_COUNT];
-        let mut identities = [0; PLAYER_INVENTORY_SLOT_COUNT];
-        let mut accepts = [[false; PLAYER_INVENTORY_SLOT_COUNT]; protocol::MAX_RECIPE_INGREDIENTS];
-        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
-            let Some((stack, entry)) = self.auto_craft_stack(slot as u8) else {
-                continue;
-            };
-            counts[slot] = stack.count;
-            identities[slot] = stack.stack_network_id;
-            for (index, ingredient) in ingredients.iter().enumerate() {
-                accepts[index][slot] = crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    stack.metadata,
-                    &entry.item_tags,
-                );
-            }
-        }
-        let assigned = allocation::plan(&demands, &counts, &accepts)?;
-        let mut sources = Vec::new();
-        for row in assigned.iter().take(ingredients.len()) {
-            for (slot, amount) in row
+        recipe: &RecipeHandle,
+        crafts: u8,
+    ) -> Option<Vec<IngredientSources>> {
+        let views = recipe.ingredient_views();
+        let sources = self
+            .auto_craft_inputs()
+            .allocation(&views)
+            .plan(crafts, false)?;
+        Some(
+            views
                 .iter()
-                .copied()
-                .enumerate()
-                .filter(|(_, amount)| *amount > 0)
-            {
-                sources.push((slot as u8, amount, identities[slot]));
-            }
-        }
-        Some(sources)
+                .zip(sources)
+                .filter_map(|(view, sources)| view.as_ref().map(|_| sources))
+                .collect(),
+        )
     }
 
-    /// Crafts `recipe` once from inventory ingredients into an empty cursor.
+    /// Names `ingredient` as the request declares it: a tag by its sources' shared item,
+    /// since servers match consumed items against concrete names, anything else as listed.
+    fn auto_craft_descriptor(
+        &self,
+        ingredient: &RecipeIngredientView,
+        sources: &[(Cell, u16, i32)],
+    ) -> StackItemDescriptor {
+        let held = sources
+            .first()
+            .and_then(|(cell, _, _)| self.auto_craft_stack(*cell));
+        match held {
+            Some((_, entry)) if ingredient.tag => StackItemDescriptor::Name {
+                identifier: Arc::clone(&entry.identifier),
+                aux: i32::from(protocol::RECIPE_ANY_AUX),
+            },
+            _ if ingredient.tag => StackItemDescriptor::Tag(Arc::clone(&ingredient.name)),
+            _ => StackItemDescriptor::Name {
+                identifier: Arc::clone(&ingredient.name),
+                aux: i32::from(ingredient.aux),
+            },
+        }
+    }
+
+    /// The highest repeat count one output stack and one variant per ingredient can supply.
+    fn max_auto_crafts(&self, recipe: &RecipeHandle) -> u8 {
+        let inputs = self.auto_craft_inputs();
+        let allocation = inputs.allocation(&recipe.ingredient_views());
+        (1..=self.crafts_per_request(recipe).unwrap_or(0))
+            .rev()
+            .find(|crafts| allocation.plan(*crafts, false).is_some())
+            .unwrap_or(0)
+    }
+
+    /// Crafts `recipe` from inventory ingredients once, or with `all` as many times as one
+    /// output stack allows, placing the output into the inventory and any remainder on an
+    /// empty cursor.
     pub fn begin_auto_craft(
         &mut self,
         recipe: &RecipeHandle,
+        all: bool,
     ) -> Result<i32, InventoryGestureError> {
-        let personal_generation = self.gesture_preflight(true)?;
-        self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
-        if self.view().get(Cell::Cursor).is_some() {
+        let crafts = if all { self.max_auto_crafts(recipe) } else { 1 };
+        if crafts == 0 {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        let sources = self
-            .auto_craft_sources(recipe)
-            .ok_or(InventoryGestureError::InvalidRequest)?;
+        // Craft as many times as one encodable request allows; the rest waits for another click.
+        let mut submission = self.auto_craft_submission(recipe, crafts);
+        if matches!(submission, Err(InventoryGestureError::InvalidRequest)) && crafts > 1 {
+            let (mut low, mut high) = (1u8, crafts - 1);
+            submission = self.auto_craft_submission(recipe, 1);
+            while low < high && submission.is_ok() {
+                let middle = low + (high - low).div_ceil(2);
+                match self.auto_craft_submission(recipe, middle) {
+                    Ok(fits) => {
+                        low = middle;
+                        submission = Ok(fits);
+                    }
+                    Err(InventoryGestureError::InvalidRequest) => high = middle - 1,
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        self.submit(submission?)
+    }
+
+    /// Plans one recipe-book request of `crafts` without reserving an ID or changing cells;
+    /// `InvalidRequest` when it cannot be made or would not fit one encodable request.
+    fn auto_craft_submission(
+        &self,
+        recipe: &RecipeHandle,
+        crafts: u8,
+    ) -> Result<Submission, InventoryGestureError> {
+        let personal_generation = self.gesture_preflight(true)?;
+        self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
         let output = recipe.output();
         let entry = self
             .negotiated_item_entry(output.network_id)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let total = Some(output.count)
-            .filter(|total| entry_capacity(entry).is_some_and(|capacity| *total <= capacity))
+        let capacity = entry_capacity(entry)
+            .filter(|capacity| output.count != 0 && output.count <= *capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
+        let one_craft = created_stack(output, u16::from(output.count), 0);
+        // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
+        if !self.player_cell_fits(&one_craft, capacity) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let sources = self
+            .auto_craft_sources(recipe, crafts)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let total = output.count * crafts;
         let request_id = self.peek_request_id()?;
-        let user_data: Arc<[u8]> = if output.empty_envelope {
-            Arc::from([0; 10])
-        } else {
-            Arc::from([])
-        };
-        let created = NetworkItemStack {
-            network_id: output.network_id,
-            metadata: u32::from(output.aux),
-            stack_network_id: request_id,
-            count: u16::from(total),
-            nbt_digest: Sha256::digest(&user_data).into(),
-            block_runtime_id: i32::try_from(output.block_runtime_id)
-                .map_err(|_| InventoryGestureError::InvalidRequest)?,
-            extra_data: Arc::clone(&user_data),
-        };
-        // Vanilla lists only the recipe's real ingredients, each with count 1, and skips empty
-        // grid cells; the sources above still consume each ingredient's full count.
+        let created = created_stack(output, u16::from(total), request_id);
+        // Each ingredient is listed once with count 1 and empty grid cells are skipped;
+        // the sources above still consume every ingredient's full count per craft.
         let ingredients: Arc<[AutoCraftIngredient]> = recipe
             .ingredient_views()
             .iter()
             .flatten()
-            .map(|ingredient| AutoCraftIngredient {
-                descriptor: if ingredient.tag {
-                    StackItemDescriptor::Tag(Arc::clone(&ingredient.name))
-                } else {
-                    StackItemDescriptor::Name {
-                        identifier: Arc::clone(&ingredient.name),
-                        aux: i32::from(ingredient.aux),
-                    }
-                },
+            .zip(&sources)
+            .map(|(ingredient, sources)| AutoCraftIngredient {
+                descriptor: self.auto_craft_descriptor(ingredient, sources),
                 count: 1,
             })
             .collect();
         let mut actions = vec![
             StackRequestAction::AutoCraft {
                 recipe_network_id: recipe.network_id(),
-                crafts: 1,
+                crafts,
                 ingredients,
             },
+            // Declares one craft's results; the times-crafted field carries the repeat.
             StackRequestAction::CraftResultsDeprecated {
-                results: Arc::from([CraftResult {
-                    identifier: Arc::clone(&entry.identifier),
-                    aux: i32::from(output.aux),
-                    count: u16::from(output.count),
-                    block_runtime_id: output.block_runtime_id,
-                    user_data,
-                }]),
-                crafts: 1,
+                results: self
+                    .craft_results(recipe)
+                    .ok_or(InventoryGestureError::InvalidRequest)?,
+                crafts,
             },
         ];
         let mut groups = Vec::new();
-        for (slot, amount, id) in sources {
-            let cell = Cell::Inventory(slot);
-            actions.push(StackRequestAction::Consume {
-                amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,
-                source: request_slot(cell, id, None)?,
-            });
-            groups.push(DeltaGroup::Shrink {
-                source: cell,
-                amount,
-                source_id: id,
-            });
+        let mut consumed = Vec::new();
+        for (cell, total, id) in sources.into_iter().flatten() {
+            // Crafting accepts ingredients only from the combined inventory name, and each
+            // consume carries at most one action's amount.
+            for amount in action_amounts(total) {
+                actions.push(StackRequestAction::Consume {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: match cell {
+                        Cell::Inventory(slot) => combined_request_slot(slot, id)?,
+                        cell => request_slot(cell, id, None)?,
+                    },
+                });
+                groups.push(DeltaGroup::Shrink {
+                    source: cell,
+                    amount,
+                    source_id: id,
+                });
+            }
+            consumed.push(cell);
         }
-        actions.push(StackRequestAction::Take {
-            amount: total,
-            source: request_slot(Cell::CreatedOutput, request_id, None)?,
-            destination: request_slot(Cell::Cursor, 0, None)?,
-        });
+        // Extra results are placed before the main one, which is then created by index too.
+        // Neither goes into a cell this request empties: a queued earlier request may still
+        // rename it.
+        let mut planner = OutputPlanner::new(consumed);
+        let mut registry_bound_merge = false;
+        if recipe.extra_outputs().len() != 0 {
+            registry_bound_merge = self.push_extra_outputs(
+                recipe,
+                crafts,
+                request_id,
+                ExtraDestination::Inventory,
+                &mut planner,
+                &mut actions,
+                &mut groups,
+            )?;
+            actions.push(StackRequestAction::Create { results_index: 0 });
+        }
+        let plan = planner.plan(self, &created, capacity, &self.player_cells(), false);
+        let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
+        let remainder = created.count - placed;
+        // A remainder goes to an empty cursor in one action.
+        if remainder != 0
+            && (self.view().get(Cell::Cursor).is_some()
+                || remainder > u16::from(protocol::MAX_STACK_REQUEST_AMOUNT))
+        {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let output_slot = request_slot(Cell::CreatedOutput, request_id, None)?;
         groups.push(DeltaGroup::Set {
             cell: Cell::CreatedOutput,
             held: Held {
@@ -254,20 +285,50 @@ impl PlayerInventoryLedger {
                 acknowledged_request_id: None,
             },
         });
-        groups.push(DeltaGroup::Transfer {
-            source: Cell::CreatedOutput,
-            destination: Cell::Cursor,
-            amount: u16::from(total),
-            source_id: request_id,
-            destination_id: None,
-            capacity: None,
-        });
-        self.submit(Submission {
+        registry_bound_merge |= plan.iter().any(|(_, _, into)| into.is_some());
+        for (cell, amount, into) in plan {
+            let Cell::Inventory(slot) = cell else {
+                return Err(InventoryGestureError::InvalidRequest);
+            };
+            actions.push(StackRequestAction::Place {
+                amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,
+                source: output_slot,
+                destination: combined_request_slot(slot, into.map_or(0, |(id, _)| id))?,
+            });
+            groups.push(DeltaGroup::Transfer {
+                source: Cell::CreatedOutput,
+                destination: cell,
+                amount,
+                source_id: request_id,
+                destination_id: into.map(|(id, _)| id),
+                capacity: into.map(|_| u16::from(capacity)),
+            });
+        }
+        if remainder != 0 {
+            actions.push(StackRequestAction::Take {
+                amount: u8::try_from(remainder)
+                    .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                source: output_slot,
+                destination: request_slot(Cell::Cursor, 0, None)?,
+            });
+            groups.push(DeltaGroup::Transfer {
+                source: Cell::CreatedOutput,
+                destination: Cell::Cursor,
+                amount: remainder,
+                source_id: request_id,
+                destination_id: None,
+                capacity: None,
+            });
+        }
+        if actions.len() > protocol::MAX_STACK_REQUEST_ACTIONS {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        Ok(Submission {
             actions,
             groups,
             personal_generation,
             requires_distinct_stack_ids: true,
-            registry_bound_merge: false,
+            registry_bound_merge,
         })
     }
 }

@@ -594,6 +594,40 @@ fn studio_cancellation_cannot_replace_pending_reset_intent() {
     };
     assert!(result.validate().is_err());
 }
+
+/// Background radii default to the original look and reject non-finite or out-of-range values.
+#[test]
+fn background_radii_default_to_the_original_look_and_are_bounded() {
+    let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","rows":[{"label":"","value":"60"}],"text_plate":{}}]
+    }))
+    .unwrap();
+    assert_eq!(
+        hud.cards[0].background_radius,
+        super::DEFAULT_CARD_BACKGROUND_RADIUS
+    );
+    assert_eq!(hud.cards[0].text_plate.as_ref().unwrap().style.radius, 0.);
+    hud.validate().unwrap();
+    for radius in [0., 8., super::MAX_CARD_BACKGROUND_RADIUS] {
+        hud.cards[0].background_radius = radius;
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = radius;
+        hud.validate().unwrap();
+    }
+    for radius in [
+        -0.5,
+        super::MAX_CARD_BACKGROUND_RADIUS + 0.5,
+        f32::NAN,
+        f32::INFINITY,
+    ] {
+        let mut card = hud.clone();
+        card.cards[0].background_radius = radius;
+        assert!(card.validate().is_err(), "card radius {radius}");
+        let mut plate = hud.clone();
+        plate.cards[0].text_plate.as_mut().unwrap().style.radius = radius;
+        assert!(plate.validate().is_err(), "plate radius {radius}");
+    }
+}
+
 /// Representative facts cannot be admitted as a real gameplay card.
 #[test]
 fn samples_require_preview_only_and_crosshairs_require_isolation() {
@@ -645,4 +679,31 @@ fn native_sample_aliases_reserve_rows_and_unique_card_identities() {
             > MAX_HUD_ROWS
     );
     assert!(hud.validate().is_err());
+}
+
+/// Trusted host previews can exceed cell-content bounds without widening JSON admission.
+#[test]
+fn host_preview_size_is_validated_and_not_serialized() {
+    let mut hud = Hud {
+        cards: vec![Card {
+            id: "touch".into(),
+            width: 1.,
+            cells: vec![Cell {
+                rect: [0., 0., 1., 1.],
+                ..Default::default()
+            }],
+            editor_size: Some([2048., 1600.]),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(hud.validate().is_ok());
+    let encoded = serde_json::to_value(&hud).unwrap();
+    assert!(encoded["cards"][0].get("editor_size").is_none());
+    let decoded: Hud = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded.cards[0].editor_size, None);
+    for size in [[f32::NAN, 1.], [1., f32::INFINITY], [0., 1.], [-1., 1.]] {
+        hud.cards[0].editor_size = Some(size);
+        assert!(hud.validate().is_err());
+    }
 }

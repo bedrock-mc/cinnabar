@@ -15,6 +15,27 @@ impl MenuRuntime {
     /// Applies settings navigation and edits without starting a game session.
     pub(in crate::menu) fn activate_settings(&mut self, action: MenuAction) {
         match action {
+            MenuAction::EditTouchControls
+                if self.touch_available && self.screen == launcher::menu::MenuScreen::Settings =>
+            {
+                self.field = None;
+                self.touch_editor_open = true;
+            }
+            MenuAction::SearchSettings => {
+                self.settings.slider_selected = None;
+                self.settings.dropdown = None;
+                self.settings.scale_picker = false;
+                self.settings.key_remap = None;
+            }
+            MenuAction::ClearSettingsSearch => {
+                self.settings_query.set_text("");
+                self.settings.slider_selected = None;
+                self.settings.dropdown = None;
+                self.settings.scale_picker = false;
+                self.focus_field(MenuField::SettingsQuery);
+                self.settings_input.actions = vec![MenuAction::SearchSettings];
+                self.focused = 0;
+            }
             MenuAction::SettingsResetChat => self.reset_chat_settings(),
             MenuAction::SettingsAdvancedGraphics => {
                 self.settings.advanced_graphics = !self.settings.advanced_graphics;
@@ -42,6 +63,7 @@ impl MenuRuntime {
                 self.fullscreen_change = Some(fullscreen);
             }
             MenuAction::SettingsSection(section) => {
+                self.settings_query.set_text("");
                 self.settings.slider_selected = None;
                 self.settings.section = section;
                 if section == launcher::menu::settings_storage::SECTION_INDEX {

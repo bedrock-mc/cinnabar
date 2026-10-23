@@ -8,7 +8,7 @@ use crate::properties::PropertiesDiagnostic;
 use crate::properties::reader::RawEntry;
 
 /// A render layer a block can be moved to with `layer.<layer>=<blocks>`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RenderLayer {
     /// `layer.solid`: opaque geometry.
     Solid,
@@ -41,7 +41,7 @@ impl RenderLayer {
 /// the listed alternatives; filters on properties the block lacks are ignored. The id of a
 /// state is that of the first matching plain entry in file order; only when none matches,
 /// that of the first matching tag entry in file order (Iris/OptiFine precedence).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct BlockIdMap {
     /// Plain entries by full block name, in precedence order.
     by_name: HashMap<String, Vec<Entry>>,
@@ -54,21 +54,21 @@ pub struct BlockIdMap {
 }
 
 /// One entry's id and state filters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Entry {
     id: i32,
     filters: Vec<Filter>,
 }
 
 /// `key=v1,v2,...`: the state's `key` must have one of `values`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Filter {
     key: String,
     values: Vec<String>,
 }
 
 /// An entry applying to every block of a tag.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct TagEntry {
     /// Index into [`BlockIdMap::tags`].
     tag: usize,

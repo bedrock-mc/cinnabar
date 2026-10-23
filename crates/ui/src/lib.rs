@@ -15,7 +15,7 @@ mod settings;
 pub mod settings_state;
 mod text;
 
-pub use action::{PointerPhase, UiAction, UiLimits};
+pub use action::{PointerPhase, TOUCH_DRAG_DISTANCE, UiAction, UiLimits};
 pub use chat::{
     ChatApplyResult, ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta,
     ChatAutocompleteError, ChatAutocompleteRequest, ChatAutocompleteResponse,
@@ -52,18 +52,19 @@ pub use scoreboard::{
 pub use settings::{
     ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
     DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION,
-    DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES,
-    MIN_RENDER_DISTANCE_CHUNKS, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality,
-    RenderDistanceDefaults, RenderDistanceDevice, RenderMode, SmaaMode, UserSettings,
-    VideoSettings, ViewBobbing,
+    DEFAULT_RENDER_SCALE_PERCENT, DEFAULT_RENDER_SCALE_SHARPEN, DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
+    DEFAULT_SMAA_MODE, FSR_SHARPNESS_STOPS, GameplaySettings, MAX_FOV_DEGREES,
+    MAX_RENDER_SCALE_PERCENT, MIN_FOV_DEGREES, MIN_RENDER_DISTANCE_CHUNKS,
+    MIN_RENDER_SCALE_PERCENT, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality, RenderDistanceDefaults,
+    RenderDistanceDevice, RenderMode, SmaaMode, UserSettings, VideoSettings, ViewBobbing,
 };
 pub use text::{
     BedrockColor, ColorDescriptor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS,
     FORMATTING_COLORS, FormattingPalette, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS,
-    MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_LINE_HEIGHT_64,
-    TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache, TextLayoutKey,
-    TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap, WordChop,
-    parse_bedrock_text,
+    MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_ITALIC_SHEAR_PX,
+    TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache,
+    TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap,
+    WordChop, parse_bedrock_text,
 };
 
 // Ties the action limits to the model types they size; tests include `action.rs` without the model.

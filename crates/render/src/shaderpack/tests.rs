@@ -307,7 +307,6 @@ fn render_frame_options(
         scene_colour: &scene.create_view(&Default::default()),
         scene_depth: &depth.create_view(&Default::default()),
         scene_near: 0.1,
-        inverse_focal: [1.0, 1.0],
         render_distance: game.render_distance,
         fog_color: super::uniforms::sky_fog(&game, Quat::IDENTITY, Vec3::new(0.0, 64.0, 0.0)).fog,
         destination: &output.create_view(&Default::default()),
@@ -319,6 +318,7 @@ fn render_frame_options(
             effect_textures: None,
             actors: super::actors::ActorSources::default(),
             effects: super::effects::EffectInputs {
+                coverage: Default::default(),
                 camera: super::effects::EffectCamera {
                     position: Vec3::new(0., 64., 0.),
                     model_view: bevy::math::Mat4::IDENTITY,
@@ -331,6 +331,7 @@ fn render_frame_options(
                 atmosphere_textures: None,
                 clouds_visible: false,
                 particles: None,
+                particle_atlas_side: 0,
                 precipitation: None,
                 lightning: None,
                 selection: None,
@@ -345,7 +346,6 @@ fn render_frame_options(
                 camera_y: 64.,
                 sunrise: false,
             },
-            overlay_radius: f32::MAX,
         }),
         timestamps: None,
     };

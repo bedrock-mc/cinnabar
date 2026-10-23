@@ -333,3 +333,156 @@ fn world_entry_loading_ignores_the_server_progress_screen_policy() {
     assert!(dimension.steals_mouse());
     assert!(dimension.input_targets().contains(&Scene::Gameplay));
 }
+
+/// Requests a server form and reports whether it was admitted rather than answered busy.
+fn form_admitted(runtime: &mut UiRuntime, player_runtime: &mut player_state::PlayerState) -> bool {
+    runtime
+        .apply(
+            player_runtime,
+            crate::ui_runtime::SequencedUiEvent {
+                session_id: runtime.session_id(),
+                fifo_sequence: 1,
+                local_millis: 1,
+                server_tick: None,
+                event: protocol::UiEvent::Form(protocol::FormRequestEvent {
+                    form_id: 3,
+                    kind: protocol::FormKind::Menu,
+                    title: None,
+                    json: "{}".into(),
+                    model: protocol::ServerFormModel::Unsupported(
+                        protocol::UnsupportedForm::Family,
+                    ),
+                }),
+            },
+        )
+        .unwrap();
+    let admitted = runtime.server_forms().active().is_some();
+    assert_eq!(
+        runtime.server_forms().queued_busy_count(),
+        usize::from(!admitted)
+    );
+    admitted
+}
+
+/// A server menu built from a container answers a form only when the container is a menu.
+#[test]
+fn forms_open_over_containers_that_are_not_menus() {
+    for (showing_menu, admitted) in [(None, false), (Some(true), false), (Some(false), true)] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut table = HashMap::new();
+        if let Some(flag) = showing_menu {
+            table.insert(
+                "crafting.inventory_screen",
+                settings(json!({ "is_showing_menu": flag })),
+            );
+        }
+        let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+        runtime.toggle_inventory(&mut player_runtime, None);
+        assert!(runtime.inventory_open());
+        assert_eq!(
+            form_admitted(&mut runtime, &mut player_runtime),
+            admitted,
+            "is_showing_menu {showing_menu:?}"
+        );
+    }
+}
+
+/// Storage windows answer with the variant their block entity draws, not the small chest's.
+#[test]
+fn form_admission_follows_the_drawn_storage_variant() {
+    for (block_entity, admitted) in [(None, false), (Some("Barrel"), true)] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let table = HashMap::from([
+            (
+                "chest.small_chest_screen",
+                settings(json!({ "is_showing_menu": true })),
+            ),
+            (
+                "chest.barrel_screen",
+                settings(json!({ "is_showing_menu": false })),
+            ),
+        ]);
+        let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+        let position = [3, 64, -2];
+        runtime
+            .enqueue_inventory_event(
+                &mut player_runtime,
+                1,
+                1,
+                protocol::InventoryEvent::Open(protocol::ContainerOpenEvent {
+                    container: protocol::ContainerIdentity::window(7),
+                    window_type: protocol::WINDOW_TYPE_CONTAINER,
+                    position,
+                    runtime_entity_id: -1,
+                }),
+            )
+            .unwrap();
+        runtime
+            .enqueue_inventory_event(
+                &mut player_runtime,
+                1,
+                2,
+                protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+                    container: protocol::ContainerIdentity {
+                        slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                        ..protocol::ContainerIdentity::window(7)
+                    },
+                    slots: vec![protocol::NetworkItemStack::empty(); 27].into(),
+                    storage_item: protocol::NetworkItemStack::empty(),
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player_runtime);
+        assert!(runtime.inventory_open());
+        runtime.storage_block = block_entity.map(|id| (position, Arc::from(id)));
+        assert_eq!(
+            form_admitted(&mut runtime, &mut player_runtime),
+            admitted,
+            "block entity {block_entity:?}"
+        );
+    }
+}
+
+/// A form admitted over a non-menu container mid-drag ends the drag: the container never saw the
+/// release, so hovering another cell after the form closes must not keep distributing.
+#[test]
+fn a_form_over_a_container_ends_the_drag_in_flight() {
+    use crate::ui_runtime::inventory_drag::{PointerAction, PointerFrame};
+    use ui_screens::container_actions::InventoryCellHit;
+    let frame = |hit, primary_pressed| PointerFrame {
+        primary_pressed,
+        primary_released: false,
+        secondary_pressed: false,
+        secondary_released: false,
+        shift: false,
+        holding: true,
+        hit: Some(hit),
+        now_millis: 0,
+    };
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let table = HashMap::from([(
+        "crafting.inventory_screen",
+        settings(json!({ "is_showing_menu": false })),
+    )]);
+    let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+    runtime.toggle_inventory(&mut player_runtime, None);
+    let pointer = &mut runtime.screen_state_mut().pointer;
+    assert_eq!(
+        pointer.step(frame(InventoryCellHit::Player(9), true)),
+        [PointerAction::Click(InventoryCellHit::Player(9))]
+    );
+    assert!(form_admitted(&mut runtime, &mut player_runtime));
+    // The release lands while the form owns input, then the form closes.
+    let identity = runtime.server_forms().active().unwrap().identity;
+    runtime
+        .respond_to_server_form(identity, crate::ui_runtime::LocalFormAction::Dismiss)
+        .unwrap();
+    assert!(
+        runtime
+            .screen_state_mut()
+            .pointer
+            .step(frame(InventoryCellHit::Player(10), false))
+            .is_empty(),
+        "no distribution resumes without a held button"
+    );
+}

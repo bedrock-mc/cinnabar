@@ -147,7 +147,7 @@ impl UiRuntime {
         &mut self.credits
     }
     pub fn credits_player_name(&self) -> &str {
-        &self.chat_source_name
+        &self.local_player_display_name
     }
 }
 

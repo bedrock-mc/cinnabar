@@ -68,14 +68,14 @@ pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ALPHA_CUTOFF, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
     NAMETAG_DIM_TEXT_ALPHA, NAMETAG_LINE_PITCH_PX, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
-    NametagRecord, NametagScene, java_nametag_line_backgrounds, nametag_line_backgrounds,
-    nametag_line_left,
+    NametagLabel, NametagRecord, NametagScene, java_nametag_line_backgrounds,
+    nametag_line_backgrounds, nametag_line_left,
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{
-    DisplayTiming, PresentModeKind, PresentationIntent, SurfacePresentModes, VrrStatus,
-    configured_present_mode, frame_rate_target, initial_present_mode, select_present_mode,
-    vrr_ceiling,
+    DisplayTiming, FrameRateContext, PresentModeKind, PresentationIntent, SurfacePresentModes,
+    VrrStatus, configured_present_mode, frame_rate_target, initial_present_mode,
+    select_present_mode, vrr_ceiling,
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
@@ -160,7 +160,6 @@ pub mod native_trig;
 pub mod spawner;
 pub mod viewmodel;
 pub mod weather;
-pub use actor::ActorRigVertexSegments;
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ACTOR_LAYER_FLAME,
     ACTOR_LAYER_SKIN_BASE, ActorDrawManifestEntry, ActorGpuInstance, ActorMaterial,
@@ -178,9 +177,11 @@ pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+pub use actor::{ActorRigVertexSegments, share_identical_vertices};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub use actor::{GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use block_entity::BeaconModel;
+pub use block_entity::ChalkboardModel;
 pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
@@ -210,7 +211,7 @@ pub use block_entity::{
 };
 pub use block_entity::{DecoratedPotModel, sherd_pattern};
 pub use block_entity::{
-    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
+    FramedMap, ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
     item_frame_item_transform,
 };
 pub use block_entity::{Oxidation, StatueModel, StatuePose};

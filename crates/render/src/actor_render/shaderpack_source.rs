@@ -43,6 +43,9 @@ impl RigSource for ShaderpackActors<'_> {
         let gpu = self.gpu;
         let camera_count = gpu.manifest.len() as u32;
         for span in &gpu.spans {
+            if !gpu.pack_supports_span(span) {
+                continue;
+            }
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
@@ -55,9 +58,9 @@ impl RigSource for ShaderpackActors<'_> {
                 };
                 let layer = data.texture_layer & 0x00ff_ffff;
                 let texture = match page {
-                    Some(page) => Some(page.texture()),
+                    Some(page) => page.raw_texture(),
                     None if span.page == 0 => {
-                        gpu.skins.texture((data.texture_layer >> 24) as usize)
+                        gpu.skins.raw_texture((data.texture_layer >> 24) as usize)
                     }
                     None => None,
                 };
@@ -88,7 +91,7 @@ impl RigSource for ShaderpackActors<'_> {
         } else {
             &self.gpu.artwork.glint
         };
-        glint.texture.as_ref().map(|(texture, _)| texture)
+        glint.raw_texture()
     }
 }
 
@@ -104,5 +107,36 @@ mod tests {
             light_levels(render_model::pack_actor_light_without_lightmap()),
             [15, 15]
         );
+    }
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn unsupported_actor_material_leaves_only_its_span_native() {
+        use crate::actor_render::tests::allocation_fault_tests::{
+            draw_frame, fixture, publication,
+        };
+        let mut app = fixture();
+        // A drawing pack lets artwork take the raw views the pack reads.
+        app.sub_app_mut(RenderApp)
+            .insert_resource(crate::actor::gpu::ArtworkRawViews(true));
+        let mut frame = publication(1, &[55, 77], 1);
+        Arc::make_mut(&mut frame.rig.instances)[1].material =
+            render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG;
+        draw_frame(&mut app, &frame);
+        let world = app.sub_app(RenderApp).world();
+        let gpu = world.resource::<ActorGpu>();
+        assert_eq!(gpu.spans.len(), 2);
+        assert!(gpu.pack_supports_span(&gpu.spans[0]));
+        assert!(!gpu.pack_supports_span(&gpu.spans[1]));
+        let mut replaced = Vec::new();
+        shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| replaced.push(instance.index));
+        assert_eq!(replaced, [0]);
     }
 }

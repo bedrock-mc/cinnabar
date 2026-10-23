@@ -28,6 +28,12 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_menu_view(&mut self, view: Option<MenuView>) {
+        if !view
+            .as_ref()
+            .is_some_and(|view| view.visible && view.touch_editor_open)
+        {
+            self.close_touch_editor();
+        }
         if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
             && current.as_ref() == incoming
         {
@@ -72,8 +78,12 @@ impl UiPresentationRuntime {
         &mut self.hud_frame
     }
 
-    /// Supplies the world-query adapter's projected nametag anchors for this frame.
-    pub fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
+    /// Installs this frame's anchors and returns the retired buffer for reuse.
+    pub fn set_nametag_anchors(
+        &mut self,
+        anchors: Vec<nametags::NametagAnchor>,
+    ) -> Vec<nametags::NametagAnchor> {
+        self.nametag_bounds.finish_frame();
         if tracing::enabled!(tracing::Level::DEBUG) {
             let badges = anchors.iter().filter(|tag| tag.cinnabar_badge).count();
             let previous = self
@@ -89,7 +99,7 @@ impl UiPresentationRuntime {
                 );
             }
         }
-        self.nametag_anchors = anchors;
+        std::mem::replace(&mut self.nametag_anchors, anchors)
     }
 
     /// Selects the local actor identity for a separate own-tag cosmetic colour.
@@ -110,7 +120,7 @@ impl UiPresentationRuntime {
             .and_then(|style| style.nametags.as_ref());
         let mut scene = nametags::build_nametag_scene(
             &self.nametag_anchors,
-            style.map_or(1.0, |style| style.scale),
+            style,
             font,
             &mut self.layouts,
             &mut self.nametag_atlas,
@@ -119,9 +129,38 @@ impl UiPresentationRuntime {
             },
         );
         if let Some(style) = style {
-            nametags::style_scene(&mut scene, style, self.nametag_local_actor);
+            nametags::style::style_scene(&mut scene, style, self.nametag_local_actor);
         }
         scene
+    }
+
+    /// Installs this session's font before label bounds reserve presentation resources.
+    pub fn prepare_nametag_layout(&mut self, runtime: &UiRuntime) {
+        dynamic_textures::observe_session(self, runtime.session_id());
+        session_glyphs::observe(self, runtime.session_glyphs());
+        self.nametag_bounds.begin_frame();
+    }
+
+    /// Tests painted label bounds without changing actor eligibility or depth policy.
+    pub fn nametag_intersects_view(
+        &mut self,
+        anchor: &nametags::NametagAnchor,
+        clip_from_world: glam::Mat4,
+        rotation: glam::Quat,
+    ) -> bool {
+        let style = self
+            .screens
+            .mod_ui
+            .mod_actor_style()
+            .and_then(|style| style.nametags.as_ref());
+        self.nametag_bounds.intersects_view(
+            anchor,
+            clip_from_world,
+            rotation,
+            &self.font,
+            &mut self.layouts,
+            style,
+        )
     }
 
     /// Retained text-layout cache entries, exposed for the bounded-memory

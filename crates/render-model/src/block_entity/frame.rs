@@ -1,7 +1,9 @@
 //! Item and glow item frames: a wooden rim around a recessed backing; the item is drawn by
 //! the dropped-item renderer at the pose from [`item_frame_item_transform`].
 //!
-//! Map presentation and special contained-item materials remain incomplete.
+//! A frame whose block state carries the map or photo bit widens its rim to the whole block
+//! face, and a filled map covers that face so neighbouring framed maps join edge to edge.
+//! Special contained-item materials remain incomplete.
 
 use glam::{Mat4, Vec3};
 
@@ -15,8 +17,17 @@ const PANEL_HALF: f32 = 6.0;
 /// Frame-local depth of the rim front and item plane, in pixels from the block center.
 pub const ITEM_FRAME_PANEL_FRONT_PIXELS: f32 = 7.0;
 const PANEL_BACK: f32 = 8.0;
+/// Width of each rim strip, in pixels.
+const RIM_WIDTH: f32 = 1.0;
+/// Depth of the backing in front of the supporting wall, in pixels.
+const BACKING_DEPTH: f32 = 0.5;
+/// Half-width of a map frame's rim, which reaches the block face edges.
+const MAP_PANEL_HALF: f32 = 8.0;
+/// Depth of a map frame's rim in front of the supporting wall, in pixels.
+const MAP_RIM_DEPTH: f32 = 0.9;
+/// Depth of a framed map image in front of the supporting wall, in pixels.
+const MAP_DEPTH: f32 = 1.0;
 const ITEM_SCALE: f32 = 0.5;
-const MAP_LIFT: f32 = 0.05;
 /// Degrees per legacy item-frame rotation turn.
 pub const ITEM_FRAME_ROTATION_STEP_DEGREES: f32 = 45.0;
 
@@ -26,8 +37,19 @@ pub struct ItemFrameModel {
     /// Direction the frame faces, as a Bedrock face id: 0 down, 1 up, 2 north, 3 south, 4 west,
     /// 5 east; other values read as north.
     pub outward: u8,
-    /// The atlas cell of a filled map's image, shown in place of an item sprite.
-    pub map: Option<AtlasRect>,
+    /// Whether the block state's map or photo bit selects the full-face rim.
+    pub full_face: bool,
+    /// A filled map shown in place of an item sprite.
+    pub map: Option<FramedMap>,
+}
+
+/// A filled map's image in a frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FramedMap {
+    /// The atlas cell holding the map's image.
+    pub image: AtlasRect,
+    /// The frame's item rotation; a map turns twice as far, so each legacy step is a quarter turn.
+    pub rotation_degrees: f32,
 }
 
 /// Maps frame-local block-center space (front toward -Z, pixels scaled to blocks) into the world.
@@ -99,7 +121,7 @@ fn emit_frame_cuboid(
     }
 }
 
-/// Emits the ordinary frame artwork while retaining the existing incomplete map presentation.
+/// Emits the frame's rim and backing, and a filled map over its face.
 pub(super) fn emit(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
@@ -111,68 +133,74 @@ pub(super) fn emit(
         return;
     };
     let matrix = frame_matrix(block, model.outward) * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
-    if let Some(rect) = model.map {
-        builder.tile_cuboid(
-            Layer::Solid,
-            matrix,
-            [-PANEL_HALF, -PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS],
-            [PANEL_HALF, PANEL_HALF, PANEL_BACK],
-            [backing.rect; 6],
-            WHITE,
-        );
-        let z = ITEM_FRAME_PANEL_FRONT_PIXELS - MAP_LIFT;
-        let corners = [
-            [PANEL_HALF, PANEL_HALF, z],
-            [-PANEL_HALF, PANEL_HALF, z],
-            [-PANEL_HALF, -PANEL_HALF, z],
-            [PANEL_HALF, -PANEL_HALF, z],
-        ]
-        .map(|corner| matrix.transform_point3(Vec3::from_array(corner)).to_array());
-        builder.textured_quad(Layer::Solid, corners, rect, WHITE);
-        return;
-    }
     let light = builder.light;
     if model.glow {
         builder.light = 1.0;
     }
-    let inner = PANEL_HALF - (PANEL_BACK - ITEM_FRAME_PANEL_FRONT_PIXELS);
+    let (half, rim_front) = if model.full_face {
+        (MAP_PANEL_HALF, PANEL_BACK - MAP_RIM_DEPTH)
+    } else {
+        (PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS)
+    };
+    let inner = half - RIM_WIDTH;
     if let Some(wood) = atlas.texture(textures[0], [16.0; 2]) {
         let full = [0, 1, 2, 3, 4, 5];
         let horizontal = [2, 3, 4, 5];
         for (min, max, faces) in [
             (
-                [-PANEL_HALF, -PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS],
-                [-inner, PANEL_HALF, PANEL_BACK],
+                [-half, -half, rim_front],
+                [-inner, half, PANEL_BACK],
                 full.as_slice(),
             ),
             (
-                [inner, -PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS],
-                [PANEL_HALF, PANEL_HALF, PANEL_BACK],
+                [inner, -half, rim_front],
+                [half, half, PANEL_BACK],
                 full.as_slice(),
             ),
             (
-                [-inner, -PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS],
+                [-inner, -half, rim_front],
                 [inner, -inner, PANEL_BACK],
                 horizontal.as_slice(),
             ),
             (
-                [-inner, inner, ITEM_FRAME_PANEL_FRONT_PIXELS],
-                [inner, PANEL_HALF, PANEL_BACK],
+                [-inner, inner, rim_front],
+                [inner, half, PANEL_BACK],
                 horizontal.as_slice(),
             ),
         ] {
             emit_frame_cuboid(builder, &wood, matrix, [min, max], faces);
         }
     }
-    let front = (ITEM_FRAME_PANEL_FRONT_PIXELS + PANEL_BACK) / 2.0;
     emit_frame_cuboid(
         builder,
         &backing,
         matrix,
-        [[-inner, -inner, front], [inner, inner, PANEL_BACK]],
+        [
+            [-inner, -inner, PANEL_BACK - BACKING_DEPTH],
+            [inner, inner, PANEL_BACK],
+        ],
         &[4, 5],
     );
+    if let Some(map) = model.map {
+        emit_map(builder, matrix, map);
+    }
     builder.light = light;
+}
+
+/// Covers the whole block face with the map image, turned in quarter steps of the frame rotation.
+fn emit_map(builder: &mut MeshBuilder, frame: Mat4, map: FramedMap) {
+    let degrees = (map.rotation_degrees * 2.0).rem_euclid(360.0);
+    let matrix = frame * Mat4::from_rotation_z(degrees.to_radians());
+    let z = PANEL_BACK - MAP_DEPTH;
+    let half = MAP_PANEL_HALF;
+    let corners = [
+        [half, half, z],
+        [-half, half, z],
+        [-half, -half, z],
+        [half, -half, z],
+    ]
+    .map(|corner| matrix.transform_point3(Vec3::from_array(corner)).to_array());
+    builder.textured_quad(Layer::Solid, corners, map.image, WHITE);
 }
 
 /// Pose of the framed item, rotated clockwise by `rotation_degrees` in its face plane.
@@ -222,6 +250,11 @@ mod tests {
 
     /// Samples the nearest triangle along a ray, retaining interpolated texture and lighting.
     fn sample(builder: &MeshBuilder, origin: Vec3, direction: Vec3) -> (Vec3, Vec3) {
+        try_sample(builder, origin, direction).expect("frame surface must intersect the ray")
+    }
+
+    /// The nearest surface along a ray as its atlas UV and ray depth, plus its interpolated color.
+    fn try_sample(builder: &MeshBuilder, origin: Vec3, direction: Vec3) -> Option<(Vec3, Vec3)> {
         let mut hit = None;
         for [a, b, c] in builder.solid.as_chunks::<3>().0 {
             let edge1 = Vec3::from_array(b.position) - Vec3::from_array(a.position);
@@ -255,8 +288,8 @@ mod tests {
             );
             hit = Some((depth, uv, color));
         }
-        let (depth, uv, color) = hit.expect("frame surface must intersect the ray");
-        (Vec3::new(uv.x, uv.y, depth), color)
+        let (depth, uv, color) = hit?;
+        Some((Vec3::new(uv.x, uv.y, depth), color))
     }
 
     #[test]
@@ -273,6 +306,7 @@ mod tests {
                     &ItemFrameModel {
                         glow,
                         outward,
+                        full_face: false,
                         map: None,
                     },
                 );
@@ -322,6 +356,7 @@ mod tests {
             &ItemFrameModel {
                 glow: false,
                 outward: 2,
+                full_face: false,
                 map: None,
             },
         );
@@ -334,6 +369,152 @@ mod tests {
             (uv_depth.y * atlas.size()[1] as f32 - 14.0).abs() < 1.0e-4,
             "backing must crop block Y at the replacement texture scale"
         );
+    }
+
+    /// A map image cell to the right of the test atlas's frame textures.
+    const MAP_IMAGE: AtlasRect = AtlasRect {
+        x: 96.0,
+        y: 0.0,
+        width: 128.0,
+        height: 128.0,
+    };
+
+    /// A frame whose block state selects the map rim, optionally holding a map image.
+    fn map_frame(outward: u8, glow: bool, rotation_degrees: Option<f32>) -> ItemFrameModel {
+        ItemFrameModel {
+            glow,
+            outward,
+            full_face: true,
+            map: rotation_degrees.map(|rotation_degrees| FramedMap {
+                image: MAP_IMAGE,
+                rotation_degrees,
+            }),
+        }
+    }
+
+    #[test]
+    fn framed_maps_cover_the_whole_block_face_on_every_mount() {
+        let atlas = test_atlas();
+        for outward in 0..6 {
+            for glow in [false, true] {
+                let mut builder = MeshBuilder::new(atlas.size());
+                emit(
+                    &mut builder,
+                    &atlas,
+                    [0; 3],
+                    &map_frame(outward, glow, Some(0.0)),
+                );
+                let pose = frame_matrix([0; 3], outward);
+                let direction = pose.transform_vector3(Vec3::Z);
+                for [x, y] in [[7.9, 7.9], [-7.9, 0.0], [0.0, 0.0], [3.0, -7.9]] {
+                    let origin = pose.transform_point3(Vec3::new(x, y, 0.0) / 16.0);
+                    let (uv_depth, _) = sample(&builder, origin, direction);
+                    assert!(
+                        uv_depth.x * atlas.size()[0] as f32 >= MAP_IMAGE.x,
+                        "facing {outward}, glow {glow}: ({x}, {y}) must show the map"
+                    );
+                    assert!(
+                        (uv_depth.z * 16.0 - (PANEL_BACK - MAP_DEPTH)).abs() < 1.0e-4,
+                        "the map lies one pixel in front of the supporting wall"
+                    );
+                }
+                let outside = pose.transform_point3(Vec3::new(8.1, 0.0, 0.0) / 16.0);
+                assert!(try_sample(&builder, outside, direction).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn neighbouring_framed_maps_meet_without_a_gap() {
+        let atlas = test_atlas();
+        let mut builder = MeshBuilder::new(atlas.size());
+        for block in [[0, 0, 0], [1, 0, 0]] {
+            emit(&mut builder, &atlas, block, &map_frame(2, false, Some(0.0)));
+        }
+        for x in [0.999, 1.001] {
+            let (uv_depth, _) = sample(&builder, Vec3::new(x, 0.5, 0.0), Vec3::Z);
+            assert!(
+                uv_depth.x * atlas.size()[0] as f32 >= MAP_IMAGE.x,
+                "x {x} must show a map at the shared edge"
+            );
+            assert!((uv_depth.z - (1.0 - MAP_DEPTH / 16.0)).abs() < 1.0e-5);
+        }
+    }
+
+    #[test]
+    fn map_frames_widen_the_rim_before_their_image_arrives() {
+        let atlas = test_atlas();
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(&mut builder, &atlas, [0; 3], &map_frame(2, false, None));
+        let pose = frame_matrix([0; 3], 2);
+        let direction = pose.transform_vector3(Vec3::Z);
+        for (x, material, depth) in [
+            (7.5, 0, PANEL_BACK - MAP_RIM_DEPTH),
+            (0.0, 1, PANEL_BACK - BACKING_DEPTH),
+        ] {
+            let origin = pose.transform_point3(Vec3::new(x, 0.0, 0.0) / 16.0);
+            let (uv_depth, _) = sample(&builder, origin, direction);
+            let texel_x = uv_depth.x * atlas.size()[0] as f32;
+            assert!(
+                (material as f32 * 32.0..(material + 1) as f32 * 32.0).contains(&texel_x),
+                "x {x}: rim and backing must select separate textures ({texel_x})"
+            );
+            assert!((uv_depth.z * 16.0 - depth).abs() < 1.0e-4);
+        }
+    }
+
+    #[test]
+    fn framed_maps_turn_a_quarter_per_legacy_step() {
+        let atlas = test_atlas();
+        for outward in 0..6 {
+            for step in 0..8_u8 {
+                let degrees = f32::from(step) * ITEM_FRAME_ROTATION_STEP_DEGREES;
+                let mut builder = MeshBuilder::new(atlas.size());
+                emit(
+                    &mut builder,
+                    &atlas,
+                    [0; 3],
+                    &map_frame(outward, false, Some(degrees)),
+                );
+                let map: Vec<_> = builder
+                    .solid
+                    .iter()
+                    .filter(|vertex| vertex.uv[0] * atlas.size()[0] as f32 >= MAP_IMAGE.x)
+                    .collect();
+                assert!(!map.is_empty());
+                let edge = |top: bool| {
+                    let v = if top {
+                        MAP_IMAGE.y
+                    } else {
+                        MAP_IMAGE.y + MAP_IMAGE.height
+                    };
+                    // Triangles repeat corners, so average each distinct corner once.
+                    let mut corners: Vec<Vec3> = Vec::new();
+                    for vertex in map
+                        .iter()
+                        .filter(|vertex| (vertex.uv[1] * atlas.size()[1] as f32 - v).abs() < 1.0e-3)
+                    {
+                        let corner = Vec3::from_array(vertex.position);
+                        if !corners
+                            .iter()
+                            .any(|known| known.abs_diff_eq(corner, 1.0e-6))
+                        {
+                            corners.push(corner);
+                        }
+                    }
+                    assert_eq!(corners.len(), 2, "one map edge has two corners");
+                    corners.iter().sum::<Vec3>() / 2.0
+                };
+                let top = (edge(true) - edge(false)).normalize();
+                let item = item_frame_item_transform([0; 3], outward, degrees * 2.0);
+                let expected = apply(item, Vec3::Y, false).normalize();
+                assert!(
+                    top.abs_diff_eq(expected, 1.0e-4),
+                    "facing {outward}, step {step}: the map top {top} must turn twice as far as \
+                     an item's {expected}"
+                );
+            }
+        }
     }
 
     /// Applies an item pose to a point or vector without changing its published row layout.

@@ -67,10 +67,6 @@ impl FrameAffine {
     }
 }
 
-/// Design-pixel lean of an italic glyph's top edge, scaled by the layout
-/// scale. Native visual confirmation pending.
-const ITALIC_SHEAR_PX: f32 = 1.0;
-
 /// Emits `visual` at `bounds`, then moves its vertices by the space's paint transform; the
 /// batch clip stays a frame-space scissor.
 pub(super) fn emit_visual(
@@ -438,9 +434,9 @@ fn emit_text(
             };
             // §k swaps to a same-width raster, stable within a frame
             // (so both passes agree) and animated across frames.
-            let (page, uv) = obfuscated_raster(glyph, index, layout_id, effects);
+            let (page, uv) = effects.glyph_raster(glyph, index, layout_id);
             let shear = if glyph.style.italic {
-                ITALIC_SHEAR_PX * effect_scale
+                crate::TEXT_ITALIC_SHEAR_PX * effect_scale
             } else {
                 0.0
             };
@@ -469,24 +465,21 @@ fn emit_text(
     Ok(())
 }
 
-/// The `(page, uv)` to draw for one glyph: a same-width scramble target when
-/// obfuscated and a pool is present, otherwise the glyph's own raster.
-fn obfuscated_raster(
-    glyph: &GlyphQuad,
-    index: usize,
-    layout_id: u64,
-    effects: TextEffects<'_>,
-) -> (u16, [u16; 4]) {
-    if glyph.style.obfuscated
-        && let Some(pool) = effects.obfuscation
-    {
-        let width = glyph.uv[2].saturating_sub(glyph.uv[0]);
-        let selector = obfuscation_selector(effects.obfuscation_seed, layout_id, index);
-        if let Some(swapped) = pool.pick(width, selector) {
-            return swapped;
+impl TextEffects<'_> {
+    /// The `(page, uv)` to draw for one glyph: a same-width scramble target when
+    /// obfuscated and a pool is present, otherwise the glyph's own raster.
+    pub fn glyph_raster(self, glyph: &GlyphQuad, index: usize, layout_id: u64) -> (u16, [u16; 4]) {
+        if glyph.style.obfuscated
+            && let Some(pool) = self.obfuscation
+        {
+            let width = glyph.uv[2].saturating_sub(glyph.uv[0]);
+            let selector = obfuscation_selector(self.obfuscation_seed, layout_id, index);
+            if let Some(swapped) = pool.pick(width, selector) {
+                return swapped;
+            }
         }
+        (glyph.page, glyph.uv)
     }
-    (glyph.page, glyph.uv)
 }
 
 /// splitmix64 mix so a `(seed, layout, glyph)` triple selects one pool slot;

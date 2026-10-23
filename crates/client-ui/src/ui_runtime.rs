@@ -18,6 +18,7 @@ pub use error::UiRuntimeError;
 pub mod forms;
 pub mod gameplay_authority;
 pub mod gameplay_hud;
+pub mod grindstone;
 pub mod hud_adapter;
 pub mod interaction;
 pub mod inventory_actions;
@@ -140,6 +141,8 @@ pub struct UiRuntime {
     pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
+    /// The open window's position and the block entity id found there.
+    storage_block: Option<([i32; 3], Arc<str>)>,
     last_fifo_sequence: Option<u64>,
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
@@ -174,6 +177,7 @@ pub struct UiRuntime {
     in_flight_chat_sends: usize,
     chat_source_name: Arc<str>,
     chat_xuid: Arc<str>,
+    local_player_display_name: Arc<str>,
     dropped_unsent_chat_messages: u64,
     block_cracks: crate::block_cracks::BlockCracks,
     gameplay_hud: GameplayHudState,
@@ -188,6 +192,7 @@ pub struct UiRuntime {
     inventory_keys: interaction::InventoryKeys,
     screen: screen_state::ScreenState,
     furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
+    recipe_book_icons: Arc<std::sync::Mutex<presentation::forms::BookIconCache>>,
     emotes: emotes::EmoteState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
@@ -197,6 +202,8 @@ pub struct UiRuntime {
     /// Last known life state also retains the dead-to-alive reason retirement history.
     last_known_local_player_alive: Option<bool>,
     local_player_health_available: bool,
+    local_player_respawn_ready: bool,
+    local_player_death_generation: u64,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
@@ -213,6 +220,7 @@ pub struct UiRuntime {
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
     anvil_cache: anvil::cache::PreviewCache,
+    grindstone_cache: grindstone::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -234,6 +242,7 @@ impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
         Self {
             item_fuel_catalog: None,
+            storage_block: None,
             session_id,
             #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
@@ -282,6 +291,7 @@ impl UiRuntime {
             in_flight_chat_sends: 0,
             chat_source_name: Arc::from(""),
             chat_xuid: Arc::from(""),
+            local_player_display_name: Arc::from(""),
             dropped_unsent_chat_messages: 0,
             block_cracks: crate::block_cracks::BlockCracks::default(),
             gameplay_hud: GameplayHudState::default(),
@@ -302,10 +312,13 @@ impl UiRuntime {
             local_actor_damage: None,
             last_known_local_player_alive: None,
             local_player_health_available: false,
+            local_player_respawn_ready: false,
+            local_player_death_generation: 0,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
             furnace_projection: Arc::default(),
+            recipe_book_icons: Arc::default(),
             lang_catalog: None,
             active_lang: None,
             server_lang: None,
@@ -314,6 +327,7 @@ impl UiRuntime {
             food_catalog: None,
             stack_facts: Default::default(),
             anvil_cache: Default::default(),
+            grindstone_cache: Default::default(),
             item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
@@ -380,15 +394,14 @@ impl UiRuntime {
             .route_equipment(session_id, fifo_sequence, event)
     }
 
+    /// Retains the local player's own MobEquipment echo. Like vanilla, an offhand echo changes
+    /// nothing: the local offhand is only ever read from the inventory ledger.
     pub fn retain_local_selected_equipment(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         fifo_sequence: u64,
         event: EquipmentEvent,
     ) {
-        if self.gameplay_hud.apply_offhand_equipment(&event) {
-            return;
-        }
         player_runtime
             .inventory
             .retain_local_selected_equipment(fifo_sequence, event);
@@ -468,6 +481,9 @@ impl UiRuntime {
         let ledger = player_runtime.inventory_commands();
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
+        }
+        if let Some((position, block_entity)) = &self.storage_block {
+            ledger.name_storage_block(*position, Some(&**block_entity));
         }
         ledger
     }
@@ -643,6 +659,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        self.grindstone_cache = Default::default();
         #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;
@@ -658,6 +675,7 @@ impl UiRuntime {
         self.presentation_tick_anchor = None;
         self.chat_source_name = Arc::from("");
         self.chat_xuid = Arc::from("");
+        self.local_player_display_name = Arc::from("");
         self.chat_focused = false;
         self.inventory_open = false;
         self.score_owner_names.clear();
@@ -701,6 +719,8 @@ impl UiRuntime {
         self.local_actor_damage = None;
         self.last_known_local_player_alive = None;
         self.local_player_health_available = false;
+        self.local_player_respawn_ready = false;
+        self.local_player_death_generation = 0;
         self.hurt_pending = false;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;

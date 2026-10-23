@@ -26,6 +26,21 @@ struct Resize {
     fixed: [f64; 2],
 }
 
+/// Card index named by a `hud.card:N` or `hud.resize:N:corner` action.
+fn card_action_index(action: &str) -> Option<usize> {
+    action
+        .strip_prefix("hud.card:")
+        .and_then(|index| index.parse().ok())
+        .or_else(|| {
+            action
+                .strip_prefix("hud.resize:")?
+                .split_once(':')?
+                .0
+                .parse()
+                .ok()
+        })
+}
+
 impl HudEditor {
     /// Retains capture across content updates and card reordering when its geometry still matches.
     pub(super) fn reconcile_drag(&mut self, next: &[ui::mod_hud::Card]) -> Option<usize> {
@@ -113,6 +128,7 @@ impl HudEditor {
         self.frame = None;
         self.drag = None;
         self.view = ViewState::default();
+        self.hovered = None;
     }
     /// Releases input and snapshots once, retaining only explicitly animated closing chrome.
     pub(in super::super) fn close(&mut self, animate: bool) {
@@ -151,20 +167,27 @@ impl HudEditor {
                         } else {
                             (c.anchor, c.offset)
                         };
+                        let factory_preview = c.editor_size.is_some()
+                            && c.position.is_none()
+                            && c.anchor == c.reset_anchor.unwrap_or(c.anchor)
+                            && c.offset == c.reset_offset.unwrap_or(c.offset)
+                            && c.scale == c.reset_scale.unwrap_or(c.scale);
                         Placement {
                             id: c.id.clone(),
                             anchor,
                             offset,
-                            position: Some(c.position.unwrap_or_else(|| {
-                                std::array::from_fn(|axis| {
-                                    let available = (self.viewport[axis] - size[axis]).max(0.);
-                                    if available > 0. {
-                                        (at[axis] / available) as f32
-                                    } else {
-                                        0.
-                                    }
+                            position: (!factory_preview).then(|| {
+                                c.position.unwrap_or_else(|| {
+                                    std::array::from_fn(|axis| {
+                                        let available = (self.viewport[axis] - size[axis]).max(0.);
+                                        if available > 0. {
+                                            (at[axis] / available) as f32
+                                        } else {
+                                            0.
+                                        }
+                                    })
                                 })
-                            })),
+                            }),
                             scale: c.scale,
                         }
                     })
@@ -226,6 +249,7 @@ impl HudEditor {
         self.view.hovered = None;
         self.view.pressed = None;
         self.view.pointer = None;
+        self.hovered = None;
     }
     /// Converts a clamped GUI-pixel top-left into normalized available travel.
     fn move_card(&mut self, index: usize, at: [f64; 2]) {
@@ -356,6 +380,11 @@ impl HudEditor {
         if self.view.hovered.as_deref() != hovered {
             self.data_dirty = true;
             self.view.hovered = hovered.map(str::to_owned);
+        }
+        let hovered_card = hit.and_then(|hit| card_action_index(hit.pressed.as_deref()?));
+        if self.hovered != hovered_card {
+            self.data_dirty = true;
+            self.hovered = hovered_card;
         }
         if pressed {
             self.data_dirty = true;

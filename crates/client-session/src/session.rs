@@ -83,6 +83,8 @@ pub struct SessionTransferTarget {
 pub enum NetworkControlEvent<P = ()> {
     Bootstrap {
         session_generation: SessionGeneration,
+        /// The login identity for this connection, independent of actor display names.
+        identity: protocol::session_wire::SessionIdentity,
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         custom_blocks: CustomBlocks,

@@ -1,5 +1,19 @@
+/// Canonical fishing-rod identity used by its cast presentation.
+pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
+/// Item atlas key whose variants are the tipped arrow icons.
+pub const TIPPED_ARROW_ATLAS_KEY: &str = "tipped_arrow";
+/// Identifies harness items independently of their color and runtime network ID.
+pub const HARNESS_TAG: &str = "minecraft:harness";
+
+/// Returns a canonical harness identifier's color; item tags determine membership.
+pub fn harness_color(identifier: &str) -> Option<&str> {
+    identifier
+        .strip_prefix("minecraft:")?
+        .strip_suffix("_harness")
+}
+
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.

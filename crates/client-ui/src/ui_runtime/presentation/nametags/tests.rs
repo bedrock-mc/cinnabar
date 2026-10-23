@@ -1,8 +1,11 @@
+use super::style::style_scene;
 use super::*;
 mod counter;
 use protocol_ids::ActorFlag;
 
 mod badges;
+mod budget;
+mod frustum;
 mod opacity;
 mod own_tag;
 mod view_depth;
@@ -123,7 +126,7 @@ fn scene(anchors: &[NametagAnchor]) -> NametagScene {
 fn scene_with_font(anchors: &[NametagAnchor], font: &RuntimeFontCatalog) -> NametagScene {
     build_nametag_scene(
         anchors,
-        1.0,
+        None,
         font,
         &mut TextLayoutCache::new(8, 1 << 20),
         &mut NametagAtlas::default(),
@@ -139,7 +142,7 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
     actor
         .metadata
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
-    assert_eq!(tag_height(&actor), 2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * (3.6 + HEAD_CLEARANCE));
     let player_kind = actor.kind.clone();
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:zombie".into(),
@@ -155,6 +158,32 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
         tag_height(&actor),
         2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
     );
+}
+
+#[test]
+fn upright_players_follow_a_server_published_box_height() {
+    let mut actor = actor();
+    let feet = Vec3::new(0.0, 0.0, -5.0);
+    for (published, expected) in [
+        (None, DEFAULT_HEIGHT),
+        (Some(1.8), 1.8),
+        (Some(3.2), 3.2),
+        (Some(0.9), 0.9),
+    ] {
+        match published {
+            Some(height) => actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(height)),
+            None => actor.metadata.remove(&METADATA_HEIGHT),
+        };
+        let tag = extract_nametag_at_feet(&actor, view(Vec3::ZERO), None, "Npc".into(), None, feet)
+            .unwrap();
+        assert!(
+            (tag.position.y - (feet.y + expected + HEAD_CLEARANCE)).abs() < 1e-6,
+            "published height {published:?} placed the label at {}",
+            tag.position.y
+        );
+    }
 }
 
 #[test]
@@ -361,7 +390,16 @@ fn projected_tags_keep_mount_names_and_hide_only_their_score() {
     let mut cache = NametagTextCache::default();
     let boards = ui::ScoreboardStore::default();
     let project = |cache: &mut NametagTextCache, stream: &chunk_pipeline::WorldStream| {
-        project_nametags(cache, &boards, stream, view(Vec3::ZERO), None, 1.0, true)
+        project_nametags(
+            cache,
+            &boards,
+            stream,
+            view(Vec3::ZERO),
+            None,
+            1.0,
+            true,
+            |_| true,
+        )
     };
     let tags = project(&mut cache, &stream);
     assert_eq!(
@@ -475,10 +513,10 @@ fn oversized_tags_render_a_prefix_within_the_scene_budget() {
 }
 
 #[test]
-fn oversized_tags_use_the_budget_left_by_earlier_tags() {
+fn nearest_tags_take_the_budget_before_farther_tags() {
     let mut first = anchor("AB");
     first.position.x = 1.0;
-    first.view_depth = 8.0;
+    first.view_depth = 2.0;
     let first_records = NAMETAG_RECORDS_PER_LINE;
     let remaining_lines = (MAX_NAMETAG_RECORDS - first_records) / NAMETAG_RECORDS_PER_LINE;
     let mut oversized = anchor(&"A\n".repeat(remaining_lines + 2));
@@ -816,6 +854,7 @@ fn projection_limits_extraction_to_the_nearest_tags_and_reuses_their_text() {
             None,
             0.5,
             show_players,
+            |_| true,
         )
     };
     let (first, cold_allocations) = test_alloc::count(|| project(&mut cache, true));

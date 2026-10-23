@@ -259,7 +259,6 @@ mod tests {
                 sprites: sprites.clone(),
                 loading_frames: Default::default(),
                 animations: Default::default(),
-                source: None,
             },
             sprites,
             masks: HashMap::from([(

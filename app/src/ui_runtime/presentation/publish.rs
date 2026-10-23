@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::resource_packs::PackApplication;
-use bevy::prelude::{Local, Transform};
+use bevy::prelude::{Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -86,7 +86,7 @@ pub(crate) fn prepare_ui_runtime(
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
     // The camera's Transform is this frame's; its GlobalTransform is propagated after Update.
-    cameras: Query<(&Camera, &Transform), With<Camera3d>>,
+    cameras: Query<(&Camera, &Transform, &Projection), With<Camera3d>>,
     time: Res<Time<Real>>,
     extras: PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
@@ -189,6 +189,21 @@ pub(crate) fn prepare_ui_runtime(
             return;
         }
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bottom =
+            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
+        let safe = platform_safe_area_insets();
+        presentation.set_safe_area(
+            SafeArea::new(
+                safe.left(),
+                safe.top(),
+                safe.right(),
+                safe.bottom().max(bottom),
+            )
+            .unwrap_or(safe),
+        );
+    }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(
@@ -250,6 +265,9 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .and_then(|pack| pack.equipment.clone()),
     );
+    let settings = Arc::clone(&settings_snapshot.0);
+    let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
+    presentation.set_player_preview_custom_item_models(show_custom_item_models);
     // The model wears the local player's armor and held item.
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
@@ -277,7 +295,6 @@ pub(crate) fn prepare_ui_runtime(
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
-    let settings = Arc::clone(&settings_snapshot.0);
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
         && settings.value(SettingId::HideHud) == 0
         && settings.value(SettingId::HidePaperdoll) == 0
@@ -361,6 +378,13 @@ pub(crate) fn prepare_ui_runtime(
                 position,
             )
         },
+        |position| {
+            beacon_level(
+                client_world.stream.as_ref()?,
+                collisions.as_deref()?,
+                position,
+            )
+        },
         now_millis,
     );
     let icon_frames = ItemIconFrames(std::array::from_fn(|slot| {
@@ -429,10 +453,13 @@ pub(crate) fn prepare_ui_runtime(
         .player_roster
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
-    let tag_style = presentation
+    presentation.prepare_nametag_layout(&runtime);
+    let tag_style_owned = presentation
         .mod_ui()
         .mod_actor_style()
-        .and_then(|style| style.nametags.as_ref());
+        .and_then(|style| style.nametags.as_ref())
+        .cloned();
+    let tag_style = tag_style_owned.as_ref();
     let show_counter_self = totem_style
         .as_ref()
         .is_some_and(|style| style.show_self && style.show_nametag)
@@ -455,17 +482,36 @@ pub(crate) fn prepare_ui_runtime(
                     && settings.value(SettingId::HideHud) != 0
                     && !menu_visible)
         })
-        .zip(
-            cameras
-                .single()
-                .ok()
-                .map(|(_, transform)| GlobalTransform::from(*transform)),
-        )
-        .map(|(stream, transform)| {
+        .zip(cameras.single().ok().map(|(_, transform, projection)| {
+            (
+                GlobalTransform::from(*transform),
+                projection.get_clip_from_view(),
+            )
+        }))
+        .map(|(stream, (transform, clip_from_view))| {
             let authority = stream.authority();
             let nametag_view = nametags::NametagView {
                 camera_position: transform.translation(),
                 camera_forward: *transform.forward(),
+            };
+            let clip_from_world = clip_from_view * transform.to_matrix().inverse();
+            let rotation = transform.rotation();
+            let mut admit = |tag: &mut nametags::NametagAnchor| {
+                tag.set_cinnabar_badge(
+                    authority
+                        .actor_player_roster_identity(tag.runtime_id())
+                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
+                );
+                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
+                    && let Some(actor) = authority.actor(tag.runtime_id())
+                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
+                {
+                    tag.set_counter_annotation(
+                        runtime.player_roster.totem_annotation(uuid).cloned(),
+                    );
+                }
+
+                presentation.nametag_intersects_view(tag, clip_from_world, rotation)
             };
             let mut tags = nametags::project_nametags(
                 &mut nametag_cache,
@@ -475,6 +521,7 @@ pub(crate) fn prepare_ui_runtime(
                 picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
                 show_names && !tag_style.is_some_and(|style| style.hide_players),
+                &mut admit,
             );
             if tag_style.is_some_and(|style| style.hide_passengers) {
                 let authority = stream.authority();
@@ -497,7 +544,7 @@ pub(crate) fn prepare_ui_runtime(
                             || authority.ridden_unique_id(actor.unique_id).is_none()
                     })
                     && let Some(name) = authority.actor_name_tag(actor.unique_id)
-                    && let Some(tag) = nametags::extract_nametag_at_feet(
+                    && let Some(mut tag) = nametags::extract_nametag_at_feet(
                         actor,
                         nametag_view,
                         None,
@@ -508,25 +555,12 @@ pub(crate) fn prepare_ui_runtime(
                         .then_some(runtime.scoreboards()),
                         visibility.feet(),
                     )
+                    && admit(&mut tag)
                 {
                     tags.push(tag);
                 }
             }
-            for tag in &mut tags {
-                tag.set_cinnabar_badge(
-                    authority
-                        .actor_player_roster_identity(tag.runtime_id())
-                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
-                );
-                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
-                    && let Some(actor) = authority.actor(tag.runtime_id())
-                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
-                {
-                    tag.set_counter_annotation(
-                        runtime.player_roster.totem_annotation(uuid).cloned(),
-                    );
-                }
-            }
+
             tags
         })
         .unwrap_or_default();
@@ -536,7 +570,7 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .map(|stream| stream.authority().local_player_runtime_id()),
     );
-    presentation.set_nametag_anchors(nametags);
+    nametag_cache.recycle_anchors(presentation.set_nametag_anchors(nametags));
     presentation.set_chat_settings_snapshot(settings_snapshot);
     #[cfg(not(target_arch = "wasm32"))]
     let menu_view = menu_visible.then(|| {
@@ -614,6 +648,29 @@ fn station_triggered(
     assets::block_presentation_state::pinned_block_presentation_states()
         .get(mode, runtime_id)
         .crafter_triggered
+}
+
+/// Counts the beacon pyramid's layers of base blocks from the loaded world.
+fn beacon_level(
+    stream: &chunk_pipeline::WorldStream,
+    collisions: &client_interaction::movement::PhysicsCollisionRegistries,
+    position: [i32; 3],
+) -> Option<u8> {
+    let mode = stream.network_id_mode();
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    let states = assets::block_presentation_state::pinned_block_presentation_states();
+    // Unloaded terrain leaves the level unknown rather than reading as a broken pyramid.
+    client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
+        world
+            .primary_runtime_id(block)
+            .ok()
+            .map(|runtime_id| states.get(mode, runtime_id).beacon_base)
+    })
 }
 
 #[cfg(test)]

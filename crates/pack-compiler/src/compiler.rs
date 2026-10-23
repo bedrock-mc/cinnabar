@@ -338,12 +338,25 @@ fn compile_pack_sources(
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
+            || matches!(
+                assets::facts::block_render_fact(&record.name).variant,
+                Some(assets::facts::BlockModelVariant::Chest(_))
+            )
             || assets::facts::block_render_fact(&record.name).kind
                 == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
             || visuals::bubble_column::is_record(record)
+            || visuals::beacon::is_record(record)
             || fallback.contains(record)
     }) {
+        if visuals::beacon::is_record(record) {
+            if let Some(descriptors) = visuals::beacon::descriptors(&pack, record) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
         if visuals::hollow_containers::is_name(&record.name) {
             if let Some(descriptors) = visuals::hollow_containers::descriptors(&pack, record) {
                 for (descriptor, key) in descriptors {

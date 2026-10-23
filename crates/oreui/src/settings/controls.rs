@@ -57,7 +57,7 @@ fn thumb(
     Ok(())
 }
 
-pub(super) fn toggle_control(
+pub(crate) fn toggle_control(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     at: [f32; 2],

@@ -136,6 +136,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hardware_conversion_keeps_the_owner_unboosted() {
+        std::thread::spawn(|| {
+            let (controller, mixer) =
+                rodio::dynamic_mixer::mixer::<f32>(2, super::super::MIXER_RATE);
+            controller.add(rodio::buffer::SamplesBuffer::new(
+                2,
+                super::super::MIXER_RATE,
+                vec![0.25; 128],
+            ));
+            // Hardware conversion may pull samples before the stream starts.
+            let mut converted = rodio::source::UniformSourceIterator::<_, f32>::new(
+                CallbackSource::new(mixer),
+                2,
+                44_100,
+            );
+            assert!(REGISTRATION.with(|registration| registration.get().is_none()));
+            std::thread::spawn(move || {
+                for _ in 0..32 {
+                    assert_eq!(converted.next(), Some(0.25));
+                }
+                assert_eq!(ATTEMPTS.with(std::cell::Cell::get), 1);
+            })
+            .join()
+            .unwrap();
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
     fn resampling_submission_stays_unboosted_and_callback_registers_once() {
         std::thread::spawn(|| {
             let (controller, mixer) =

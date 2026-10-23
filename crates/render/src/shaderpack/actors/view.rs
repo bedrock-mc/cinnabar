@@ -17,6 +17,10 @@ use super::{ActorSources, BlockEntitySource, Hand, LayerTexture, RigSource};
 use crate::shaderpack::atlas::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use crate::shaderpack::draws::DrawKind;
 
+#[cfg(test)]
+#[path = "view/release_tests.rs"]
+mod release_tests;
+
 /// A texture layer's identity: the texture and the layer.
 pub(super) type TextureKey = (TextureId, u32);
 
@@ -131,6 +135,10 @@ pub(crate) struct ViewActors {
     pub(super) frame: u64,
     /// A failed stream disables replacement until this view is rebuilt.
     pub(crate) allocation_failed: bool,
+    /// Sources successfully prepared for this view's pack draws in the current frame.
+    pub(crate) replaces_actors: bool,
+    pub(crate) replaces_hand: bool,
+    pub(crate) replaces_blocks: bool,
     pub(super) scratch: Vec<u8>,
 }
 
@@ -192,8 +200,22 @@ fn layer_view(texture: &Texture, layer: u32) -> TextureView {
 }
 
 impl ViewActors {
+    /// Drops cached layer views and draw bindings that keep `texture` allocated.
+    pub(crate) fn release_texture(&mut self, texture: TextureId) {
+        self.views.retain(|(id, _), _| *id != texture);
+        for slot in self.slots.values_mut().flatten() {
+            if slot.texture.is_some_and(|(id, _)| id == texture) {
+                slot.texture = None;
+                slot.groups = Default::default();
+            }
+        }
+    }
+
     /// Drops this frame's work, keeping allocations.
     pub(super) fn begin(&mut self) {
+        self.replaces_actors = false;
+        self.replaces_hand = false;
+        self.replaces_blocks = false;
         self.draws.clear();
         self.slot_of.clear();
         self.jobs.clear();

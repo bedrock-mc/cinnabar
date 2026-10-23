@@ -12,7 +12,7 @@ use {
 fn installed_settings_categories_use_their_full_native_icon_cells() {
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping installed_settings_categories_use_their_full_native_icon_cells: installed OreUI bundle unavailable"
+            "skipping installed_settings_categories_use_their_full_native_icon_cells: compiled OreUI artwork carrier unavailable"
         );
         return;
     };
@@ -406,4 +406,18 @@ fn creator_remains_reachable_at_the_bottom() {
     assert!(row.min().y() >= viewport.min().y());
     assert!(row.max().y() <= viewport.max().y());
     assert!(row.max().y() - row.min().y() >= row_height);
+}
+
+/// With Party removed, the Social group heading moves to Chat, directly followed by Discord.
+#[test]
+fn social_group_starts_at_chat_without_party() {
+    use launcher::menu::settings_sections::SettingSection;
+    let position = |section: SettingSection| {
+        TABS.iter()
+            .position(|tab| tab.section == section.definition().name)
+    };
+    assert_eq!(position(SettingSection::Party), None);
+    let chat = position(SettingSection::Chat).unwrap();
+    assert_eq!(TABS[chat].group, Some("options.social"));
+    assert_eq!(position(SettingSection::Discord), Some(chat + 1));
 }

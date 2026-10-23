@@ -62,6 +62,10 @@ const _: () = assert!(
         && EDITOR_SCALE_SLIDER_RANGE[1] <= MAX_CARD_SCALE
 );
 pub const MAX_CARD_WIDTH: f32 = 512.;
+/// Largest unscaled corner radius, in GUI pixels, of card and text-plate backgrounds.
+pub const MAX_CARD_BACKGROUND_RADIUS: f32 = 16.;
+/// Card background radius when omitted, matching the original card template.
+pub const DEFAULT_CARD_BACKGROUND_RADIUS: f32 = 3.;
 pub const DEFAULT_CARD_WIDTH: f32 = 148.;
 pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
 pub const DEFAULT_ICON_SIZE: f32 = 16.;
@@ -239,6 +243,9 @@ pub struct Card {
     /// Retains native preview identity after its row policy is materialized. JSON cannot set it.
     #[serde(skip)]
     pub editor_native: bool,
+    /// Host-measured preview bounds in GUI pixels. JSON cannot set this geometry.
+    #[serde(skip)]
+    pub editor_size: Option<[f32; 2]>,
     #[serde(default)]
     pub anchor: Anchor,
     /// GUI pixels inward from edge anchors, or right/down from centered axes.
@@ -251,6 +258,10 @@ pub struct Card {
     pub position: Option<[f32; 2]>,
     #[serde(default = "background_opacity")]
     pub background_opacity: f32,
+    /// Unscaled GUI-pixel background corner radius, 0 through 16; paint clamps it to half the
+    /// shorter side.
+    #[serde(default = "background_radius")]
+    pub background_radius: f32,
     #[serde(default)]
     pub row_layout: RowLayout,
     /// Unscaled GUI-pixel width: 48–512 for rows, 1–512 for cells.
@@ -308,11 +319,13 @@ impl Default for Card {
             title: String::new(),
             editor_label: String::new(),
             editor_native: false,
+            editor_size: None,
             anchor: Anchor::default(),
             offset: [0.; 2],
             scale: unit(),
             position: None,
             background_opacity: background_opacity(),
+            background_radius: background_radius(),
             row_layout: RowLayout::default(),
             width: card_width(),
             row_height: row_height(),
@@ -489,6 +502,10 @@ impl Default for Crosshair {
 fn unit() -> f32 {
     1.
 }
+/// Admits a finite unscaled background corner radius within its published bound.
+pub(crate) fn background_radius_valid(radius: f32) -> bool {
+    radius.is_finite() && (0. ..=MAX_CARD_BACKGROUND_RADIUS).contains(&radius)
+}
 /// Preserves enabled defaults when a card omits its visibility or shadow preference.
 fn enabled() -> bool {
     true
@@ -496,6 +513,10 @@ fn enabled() -> bool {
 /// Preserves the existing card surface alpha when the new field is omitted.
 fn background_opacity() -> f32 {
     0.82
+}
+/// Keeps the original card rounding when the radius is omitted.
+fn background_radius() -> f32 {
+    DEFAULT_CARD_BACKGROUND_RADIUS
 }
 /// Keeps omitted dimensions identical to the original host-owned card template.
 fn card_width() -> f32 {
@@ -730,9 +751,13 @@ impl Hud {
             }
             text(&card.title)?;
             text(&card.editor_label)?;
-            if card.reset_scale.is_some_and(|scale| {
-                !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
-            }) || !card.scale.is_finite()
+            if card
+                .editor_size
+                .is_some_and(|size| size.into_iter().any(|side| !side.is_finite() || side <= 0.))
+                || card.reset_scale.is_some_and(|scale| {
+                    !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
+                })
+                || !card.scale.is_finite()
                 || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
                 || card.offset.into_iter().any(|v| !v.is_finite())
                 || card.rows.len() > MAX_CARD_ROWS
@@ -740,6 +765,7 @@ impl Hud {
                 || !card.rows.is_empty() && !card.cells.is_empty()
                 || !card.background_opacity.is_finite()
                 || !(0. ..=1.).contains(&card.background_opacity)
+                || !background_radius_valid(card.background_radius)
                 || !card.width.is_finite()
                 || !(if card.cells.is_empty() { 48. } else { 1. }..=MAX_CARD_WIDTH)
                     .contains(&card.width)

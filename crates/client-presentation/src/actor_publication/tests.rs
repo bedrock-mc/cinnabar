@@ -167,6 +167,68 @@ fn local_feed_reads_view_bobbing_toggle() {
     }
 }
 
+#[test]
+fn local_equipment_count_reads_raw_armor_container_occupancy() {
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
+    let physics = JumpPhysics(
+        sim::PlayerState::new(sim::Vec3::ZERO),
+        sim::MovementMode::Walking,
+    );
+    let mut player = player_state::PlayerState::new(1);
+    let settings = crate::camera::CameraSettingsAuthority::default();
+    let view = crate::local_player::LocalViewPose::default();
+    let mut blocking = false;
+    for count in [0, 1, protocol::ARMOR_SLOTS, 0] {
+        let slots = (0..protocol::ARMOR_SLOTS)
+            .map(|slot| {
+                if slot < count {
+                    NetworkItemStack {
+                        network_id: 12_123,
+                        count: 1,
+                        ..Default::default()
+                    }
+                } else {
+                    NetworkItemStack::empty()
+                }
+            })
+            .collect::<Vec<_>>();
+        player
+            .inventory
+            .ledger_mut()
+            .apply(&InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+                slots: slots.into(),
+                storage_item: NetworkItemStack::empty(),
+            }));
+        let feed = crate::actor_feed::prepare_local_player_feed(
+            &physics,
+            &view,
+            &settings,
+            &Default::default(),
+            &player,
+            false,
+            || client_world::LocalItemUse::Unpredicted,
+            &mut blocking,
+            [1; 16],
+            || {
+                protocol::PlayerSkin::Unavailable(
+                    protocol::PlayerSkinUnavailable::InvalidDimensions,
+                )
+            },
+            false,
+            (
+                actor_animation::ACTOR_SWING_TICKS,
+                actor_animation::ACTOR_SWING_TICKS,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            feed.equipment_count, count,
+            "unresolved local armor must count without a drawable definition"
+        );
+    }
+}
+
 struct JumpFloor;
 
 #[test]
@@ -577,7 +639,7 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -629,7 +691,7 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -641,7 +703,7 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         &mut scene,
         &restored_resources,
         None,
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -909,7 +971,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         Some(&mut equipment),
         None,
@@ -978,5 +1040,93 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         equipment.layers_for(&body, &input, None).len(),
         1,
         "the pack's player model must carry the held item"
+    );
+}
+
+/// Icons the pack worker placed publish the frame's pages and locations without copying pixels.
+#[test]
+fn worker_placed_session_icons_publish_without_restaging_pixels() {
+    use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
+    let (pack, startup) = equipment_pack_fixture();
+    let icon_bytes = 16 * 16 * 4;
+    let icons = Arc::new(SessionIcons {
+        icons: (0..64)
+            .map(|index| SessionIcon {
+                identifier: format!("fixture:item_{index}").into(),
+                metadata: 0,
+                width: 16,
+                height: 16,
+                rgba8: vec![index as u8; icon_bytes].into(),
+            })
+            .collect(),
+        ..Default::default()
+    });
+    let items = crate::session_assets::SessionItems {
+        components: Arc::default(),
+        icons: Some(Arc::clone(&icons)),
+    };
+    let prepared = crate::prepared_actor_artwork::PreparedActorArtwork::new(&startup, &pack)
+        .with_session_icons(Some(&icons));
+    let resources =
+        crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), Some(&prepared));
+    let mut scene = render_scene::ActorRenderScene::default();
+    let mut ready = super::SessionGeometryReady::default();
+    let (expected, _, expected_locations) = super::apply_session_pack(
+        &mut scene,
+        &resources,
+        Some(&pack),
+        super::SessionIconInput::Staged(crate::presentation::equipment::StagedSessionIcons::stage(
+            Some(&items),
+        )),
+        &mut ready,
+        None,
+        None,
+    );
+    let copy = Arc::new(SessionIcons {
+        icons: icons
+            .icons
+            .iter()
+            .map(|icon| SessionIcon {
+                identifier: Arc::clone(&icon.identifier),
+                rgba8: icon.rgba8.clone(),
+                ..*icon
+            })
+            .collect(),
+        ..Default::default()
+    });
+    assert!(
+        crate::prepared_actor_artwork::session_icons(
+            &startup,
+            Some(&pack),
+            Some(&copy),
+            Some(&prepared)
+        )
+        .is_none(),
+        "placement is reused only for the exact icon snapshot"
+    );
+    let placed = crate::prepared_actor_artwork::session_icons(
+        &startup,
+        Some(&pack),
+        Some(&icons),
+        Some(&prepared),
+    )
+    .unwrap();
+    let ((published, staged, locations), allocated) = test_alloc::measure(|| {
+        super::apply_session_pack(
+            &mut scene,
+            &resources,
+            Some(&pack),
+            super::SessionIconInput::Placed(placed),
+            &mut ready,
+            None,
+            None,
+        )
+    });
+    assert!(staged.is_some());
+    assert_eq!(locations, expected_locations);
+    assert_eq!(published.unwrap().identity(), expected.unwrap().identity());
+    assert!(
+        allocated.bytes < icon_bytes * icons.icons.len(),
+        "the frame copied icon pixels: {allocated:?}"
     );
 }

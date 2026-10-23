@@ -64,13 +64,14 @@ pub(super) mod shadow_cull;
 mod vertex;
 
 use bevy::math::Mat4;
-use bevy::prelude::{App, IntoScheduleConfigs, Plugin, World};
+use bevy::prelude::{App, Commands, IntoScheduleConfigs, Plugin, Res, World};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 pub use block_ids::{BlockEntityIdFn, ShaderpackBlockIds, UNASSIGNED_BLOCK_ID};
 pub(crate) use gpu::prepare_shaderpack_geometry;
 pub use gpu::{FRAME_EXPANSION_FACES, ShaderpackGeometry, ShaderpackGeometrySettings};
 pub use jobs::GeometryCategory;
+pub(super) use pipelines::load_shaders;
 pub use residency::{DEFAULT_GEOMETRY_BUDGET_BYTES, device_geometry_budget};
 pub(crate) use shadow_cull::{ShadowCulling, ShadowFrustum};
 #[cfg(test)]
@@ -110,30 +111,54 @@ pub struct ShaderpackGeometryPlugin;
 
 impl Plugin for ShaderpackGeometryPlugin {
     fn build(&self, app: &mut App) {
-        pipelines::load_shaders(app);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app
             .init_resource::<ShaderpackGeometrySettings>()
             .add_systems(
+                bevy::render::ExtractSchedule,
+                super::kernels::extract_shared_shaders,
+            )
+            .add_systems(
+                Render,
+                super::kernels::prepare_kernels.before(RenderSystems::PrepareViews),
+            )
+            .add_systems(
                 Render,
                 crate::chunk::shaderpack_sources::after_packed_chunk_upload(
-                    gpu::prepare_shaderpack_geometry
+                    (prepare_geometry_resources, gpu::prepare_shaderpack_geometry)
+                        .chain()
                         .after(RenderSystems::PrepareViews)
                         .before(RenderSystems::Queue),
                 ),
             )
             .add_systems(bevy::render::RenderStartup, install_expansion_recording);
     }
+}
 
-    fn finish(&self, app: &mut App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-        render_app
-            .init_resource::<pipelines::ExpansionPipelines>()
-            .init_resource::<ShaderpackGeometry>();
+/// Creates terrain state and queues its kernels only after a pack enables expansion.
+pub(super) fn prepare_geometry_resources(
+    mut commands: Commands,
+    settings: Res<ShaderpackGeometrySettings>,
+    geometry: Option<Res<ShaderpackGeometry>>,
+    pipelines: Option<Res<pipelines::ExpansionPipelines>>,
+    kernels: Option<Res<super::kernels::Kernels>>,
+) {
+    if !settings.enabled || kernels.is_none() {
+        if geometry.is_some() {
+            commands.remove_resource::<ShaderpackGeometry>();
+        }
+        if pipelines.is_some() {
+            commands.remove_resource::<pipelines::ExpansionPipelines>();
+        }
+    } else {
+        if pipelines.is_none() {
+            commands.init_resource::<pipelines::ExpansionPipelines>();
+        }
+        if geometry.is_none() {
+            commands.init_resource::<ShaderpackGeometry>();
+        }
     }
 }
 

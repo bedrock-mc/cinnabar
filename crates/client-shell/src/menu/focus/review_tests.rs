@@ -161,7 +161,7 @@ fn toggle_activation_reads_the_current_value_between_paints_and_arrows_do_not_co
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.id == SettingId::KeyboardMouseAutojump)
+        .position(|option| option.id == SettingId::AlwaysSprint)
         .unwrap();
     let initial = menu.settings_options.get(index);
     menu.refresh_settings_focus([MenuAction::SettingsOption(index as u16, 1 - initial)]);

@@ -18,7 +18,8 @@ POWERSHELL ?= powershell
 NO_VSYNC ?= 0
 TRACY ?= 0
 SHADERPACKS ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
+SHADERPACK_FEATURES = $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
+CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(SHADERPACK_FEATURES)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -58,7 +59,8 @@ LOCAL_ASSET_DIR ?= .local/assets/compiled
 PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2193.bin
 CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
-ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin assetc --
+ASSET_COMPILER_BINARY = assetc
+ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin $(ASSET_COMPILER_BINARY) $(SHADERPACK_FEATURES) --
 VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --accept-eula
 # One in-process parallel pass over the carrier table; carriers whose fingerprint is unchanged are skipped.
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")
@@ -147,7 +149,7 @@ endif
 DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
 # The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
 DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
-DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper
+DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
 play: play-build
 ifneq ($(findstring Darwin,$(shell uname -s)),)
 	@mkdir -p "$(DEV_APP)/Contents/MacOS"
@@ -183,7 +185,7 @@ PACKAGE_CARGO_FLAGS ?=
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

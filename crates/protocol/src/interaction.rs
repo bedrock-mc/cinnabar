@@ -231,7 +231,7 @@ pub(crate) fn item_use_transaction(
     }
     let wire_runtime_id = u32::try_from(request.block_runtime_id)
         .map_err(|_| BlockUsePacketError::BlockRuntimeIdOutOfRange(request.block_runtime_id))?;
-    let item = request.selected_item.into_selected_vendor_item()?;
+    let item = request.selected_item.into_transaction_vendor_item()?;
     let destroying = action_type == ItemUseInventoryTransactionActionType::Destroy;
 
     Ok(ItemUseInventoryTransaction {
@@ -372,8 +372,8 @@ fn slot_change_parts(
                 bit_flags: None,
             },
             slot: wire::VarUInt(u32::from(slot)),
-            from_item: change.from.into_vendor_item()?,
-            to_item: change.to.into_vendor_item()?,
+            from_item: change.from.into_transaction_vendor_item()?,
+            to_item: change.to.into_transaction_vendor_item()?,
         });
     }
     Ok(SlotChangeParts {
@@ -392,7 +392,7 @@ pub fn click_air_packet(
     change: Option<PredictedSlotChange>,
 ) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
-    let item = request.selected_item.into_selected_vendor_item()?;
+    let item = request.selected_item.into_transaction_vendor_item()?;
     let SlotChangeParts {
         legacy_request_id,
         legacy_set_item_slots,
@@ -484,7 +484,7 @@ pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, Bl
         return Err(BlockUsePacketError::UnsupportedOffhandRelease);
     }
     let (slot, from_position) = held_item_parts(&request)?;
-    let item = request.selected_item.into_selected_vendor_item()?;
+    let item = request.selected_item.into_transaction_vendor_item()?;
     Ok(crate::Packet::new(InventoryTransaction {
         legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
@@ -526,7 +526,7 @@ pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, Actor
         ActorUseAction::Attack => ItemUseOnActorInventoryTransactionActionType::Attack,
         ActorUseAction::Interact => ItemUseOnActorInventoryTransactionActionType::Interact,
     };
-    let item = request.selected_item.into_selected_vendor_item()?;
+    let item = request.selected_item.into_transaction_vendor_item()?;
 
     Ok(crate::Packet::new(InventoryTransaction {
         legacy_request_id: ItemStackLegacyRequestID(0),
@@ -552,6 +552,8 @@ pub enum SwingSource {
     Mine,
     Interact,
     Attack,
+    /// A held item's own use, such as a rocket boost while gliding.
+    UseItem,
     ThrowItem,
     DropItem,
 }
@@ -565,6 +567,7 @@ impl SwingSource {
             Self::Mine => "mine",
             Self::Interact => "interact",
             Self::Attack => "attack",
+            Self::UseItem => "useitem",
             Self::ThrowItem => "throwitem",
             Self::DropItem => "dropitem",
         }
@@ -597,6 +600,22 @@ pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> 
         block_position: block_pos(destination),
         result_pos: block_pos([0; 3]),
         face: wire::ZigZag32(0),
+    })
+}
+
+/// Requests that the server destroy the targeted block as a creative player action.
+#[must_use]
+pub fn creative_destroy_block_packet(
+    local_runtime_id: u64,
+    block_position: [i32; 3],
+    face: u8,
+) -> crate::Packet {
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::Creativedestroyblock,
+        block_position: block_pos(block_position),
+        result_pos: block_pos([0; 3]),
+        face: wire::ZigZag32(i32::from(face)),
     })
 }
 

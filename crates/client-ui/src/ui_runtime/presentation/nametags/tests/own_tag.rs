@@ -27,6 +27,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -92,6 +93,7 @@ fn own_tag_eligibility_uses_server_metadata_and_local_pose() {
             None,
             1.0,
             true,
+            |_| true
         )
         .is_empty()
     );
