@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
@@ -49,6 +50,15 @@ func TestUserConfigIsOfflineAndScopedToDir(t *testing.T) {
 		if !strings.HasPrefix(folder, s.dir) {
 			t.Fatalf("folder %q escapes world dir", folder)
 		}
+	}
+}
+
+func TestConfigureChunkSendingReplacesDragonflyDefaults(t *testing.T) {
+	var conf server.Config
+	configureChunkSending(&conf)
+	// Zero would select Dragonfly's default budget.
+	if conf.ChunkLoadsPerTick != localChunkLoadsPerTick || conf.MaxChunkTransactions != localChunkTransactions {
+		t.Fatalf("chunk send budget = %d loads, %d transactions", conf.ChunkLoadsPerTick, conf.MaxChunkTransactions)
 	}
 }
 

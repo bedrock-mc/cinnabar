@@ -142,6 +142,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
+	configureChunkSending(&conf)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	cfg.configureLocalPlayers(&conf)

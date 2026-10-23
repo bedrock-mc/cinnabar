@@ -16,6 +16,16 @@ import (
 
 const defaultChunkWorkers = 4
 
+// localChunkLoadsPerTick and localChunkTransactions replace Dragonfly's per-player chunk send
+// budget of 4 chunk requests per tick and 8 blob cache transactions awaiting the client's
+// ClientCacheBlobStatus. The loopback client acknowledges blobs within milliseconds, so the
+// defaults only throttle join and fly-in streaming. Pending blob memory stays bounded by
+// Dragonfly's per-session cap of 4,096 unacknowledged blobs.
+const (
+	localChunkLoadsPerTick = 32
+	localChunkTransactions = 64
+)
+
 const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
 
 // settings are the per-world options the core passes on the command line.
@@ -187,6 +197,12 @@ func (s settings) userConfig() server.UserConfig {
 // resourcesDir is the directory of the resource packs Dragonfly loads.
 func (s settings) resourcesDir() string {
 	return filepath.Join(s.dir, "resources")
+}
+
+// configureChunkSending sets the per-player chunk send budget for the loopback client.
+func configureChunkSending(conf *server.Config) {
+	conf.ChunkLoadsPerTick = localChunkLoadsPerTick
+	conf.MaxChunkTransactions = localChunkTransactions
 }
 
 // applyTo sets the world's gameplay defaults; they are re-applied on every start so the stored settings win over level.dat.
