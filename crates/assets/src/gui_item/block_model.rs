@@ -16,6 +16,8 @@ pub const MAX_GUI_TILE_SIDE: usize = 128;
 
 /// Scale and design-pixel offset of the heavy core inventory preview.
 const HEAVY_CORE_GUI_TRANSFORM: (f32, [f32; 2]) = (1.55, [-4.0, -0.8]);
+/// Scale and design-pixel offset of a shelf inventory preview.
+const SHELF_GUI_TRANSFORM: (f32, [f32; 2]) = (1.178, [1.4, 2.0]);
 
 /// Flags whose material texels can be sampled without unresolved tint or UV transforms.
 /// Lighting flags are retained for the renderer and do not alter the stored pixels.
@@ -94,6 +96,10 @@ pub fn block_gui_quads(
     let mut carried = block_item_quads(kind, faces, template, templates, quads)?;
     if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE != 0 {
         let (scale, offset) = HEAVY_CORE_GUI_TRANSFORM;
+        transform_inventory_quads(&mut carried, scale, offset);
+    }
+    if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_SHELF != 0 {
+        let (scale, offset) = SHELF_GUI_TRANSFORM;
         transform_inventory_quads(&mut carried, scale, offset);
     }
     Ok(carried)
@@ -501,6 +507,61 @@ mod tests {
             block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
         assert_eq!(inventory.len(), held.len());
         let (scale, offset) = HEAVY_CORE_GUI_TRANSFORM;
+        for (held, inventory) in held.iter().zip(&inventory) {
+            assert_eq!(held.uvs, inventory.uvs);
+            for (placed, shown) in held.corners.into_iter().zip(inventory.corners) {
+                let placed = super::super::project_cube(placed);
+                let shown = super::super::project_cube(shown);
+                let expected = [
+                    super::super::CUBE_OFFSET[0]
+                        + (placed[0] - super::super::CUBE_OFFSET[0]) * scale
+                        + offset[0],
+                    super::super::CUBE_OFFSET[1]
+                        + (placed[1] - super::super::CUBE_OFFSET[1]) * scale
+                        + offset[1],
+                    placed[2] * scale,
+                ];
+                for axis in 0..3 {
+                    assert!(
+                        (shown[axis] - expected[axis]).abs() < 0.00001,
+                        "axis {axis}: {shown:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shelf_inventory_preview_is_enlarged_and_repositioned() {
+        let source: Vec<_> = BlockFace::ALL
+            .into_iter()
+            .map(|face| {
+                let (corners, uvs) = cube_face(face);
+                ModelQuad {
+                    positions: corners.map(|[x, y, z]| {
+                        [
+                            (64.0 + x * 128.0) as i16,
+                            (y * 128.0) as i16,
+                            (64.0 + z * 128.0) as i16,
+                        ]
+                    }),
+                    uvs: uvs.map(|p| p.map(|v| (v * 2048.0) as u16)),
+                    material: 1,
+                    flags: face.model_quad_face_id(),
+                }
+            })
+            .collect();
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: source.len() as u32,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF,
+        }];
+        let held =
+            block_item_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+        let inventory =
+            block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+        assert_eq!(inventory.len(), held.len());
+        let (scale, offset) = SHELF_GUI_TRANSFORM;
         for (held, inventory) in held.iter().zip(&inventory) {
             assert_eq!(held.uvs, inventory.uvs);
             for (placed, shown) in held.corners.into_iter().zip(inventory.corners) {

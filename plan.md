@@ -359,6 +359,8 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+  Shelf inventory previews use their carried scale and position; broader shape, tinting
+  and animation acceptance remains open.
   Heavy-core inventory previews use their carried scale and screen offset.
   Chorus inventory previews use a full body with three outward protrusions.
   Glass-pane inventory previews use a full thin plate with separate body and edge textures.
