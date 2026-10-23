@@ -297,6 +297,7 @@ fn import_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use launcher::local_worlds::world::{Generator, NewWorld};
 
     /// A metadata write failure restores the saved selection without leaving world settings.
     #[test]
@@ -361,13 +362,14 @@ mod tests {
     /// A detached client's worker never starts a world after the detach closed the old one.
     #[test]
     fn a_revoked_worker_never_opens_a_world() {
-        use launcher::local_worlds::world::NewWorld;
         let worlds = tempfile::tempdir().expect("worlds folder");
         let manager =
             launcher_host::local_worlds::open_store(worlds.path().to_path_buf()).expect("manager");
         let world = manager
             .create(&NewWorld {
                 name: "w".into(),
+                generator: Generator::Flat,
+                backend: Some(bridge::Backend::Dragonfly),
                 ..NewWorld::default()
             })
             .expect("create");
@@ -387,13 +389,13 @@ mod tests {
     /// A status poll answers when the world changes instead of waiting out its delay.
     #[test]
     fn a_status_poll_answers_as_soon_as_the_world_changes() {
-        use launcher::local_worlds::world::NewWorld;
         let worlds = tempfile::tempdir().expect("worlds folder");
         let manager =
             launcher_host::local_worlds::open_store(worlds.path().to_path_buf()).expect("manager");
         let world = manager
             .create(&NewWorld {
                 name: "w".into(),
+                generator: Generator::Flat,
                 backend: Some(bridge::Backend::Dragonfly),
                 ..NewWorld::default()
             })
@@ -414,6 +416,19 @@ mod tests {
         assert!(matches!(&events[0].event, Event::Status(_)));
     }
 
+    /// Builds a minimal flat-world level.dat for the import worker.
+    fn flat_level_dat() -> Vec<u8> {
+        let nbt = b"\x0a\0\0\x03\x09\0Generator\x02\0\0\0\0";
+        let mut level = 10u32.to_le_bytes().to_vec();
+        level.extend(
+            u32::try_from(nbt.len())
+                .expect("fixture length")
+                .to_le_bytes(),
+        );
+        level.extend(nbt);
+        level
+    }
+
     /// Dropped files import in one answer: each accepted world, and each refusal by file name.
     #[test]
     fn the_worker_imports_every_dropped_file() {
@@ -424,7 +439,7 @@ mod tests {
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         zip.start_file("Home/level.dat", zip::write::SimpleFileOptions::default())
             .expect("entry");
-        zip.write_all(b"level").expect("body");
+        zip.write_all(&flat_level_dat()).expect("body");
         let good = worlds.path().join("Home.mcworld");
         std::fs::write(&good, zip.finish().expect("zip").into_inner()).expect("archive");
         let bad = worlds.path().join("Broken.mcworld");
@@ -442,6 +457,7 @@ mod tests {
         };
         assert_eq!(worlds.len(), 1);
         assert_eq!(worlds[0].name, "Home");
+        assert_eq!(worlds[0].generator, Generator::Flat);
         assert!(
             errors.len() == 1 && errors[0].starts_with("Broken.mcworld: "),
             "{errors:?}"

@@ -90,10 +90,12 @@ fn ordered_frame_local_overflow_cannot_restore_a_cancelled_attack() {
     );
     // Keep a different physical button down so the overflow cannot rearm on neutrality.
     mouse_frame(app.world_mut(), MouseButton::Back, &[ButtonState::Pressed]);
-    for _ in 0..semantic_input::MAX_PENDING_ACTION_EVENTS {
-        tap(app.world_mut(), MouseButton::Middle);
-    }
-    mouse_frame(app.world_mut(), MouseButton::Left, &[ButtonState::Released]);
+    mouse_frame_after_collection(
+        app.world_mut(),
+        MouseButton::Left,
+        &[ButtonState::Released],
+        semantic_input::DesktopEvents::invalidate,
+    );
     assert!(!crate::ordered_interactions::held(
         app.world()
             .get_resource::<crate::ordered_interactions::InteractionRuntime>(),
@@ -158,15 +160,17 @@ fn ordered_frame_local_overflow_ends_accepted_item_use_before_neutral_rearm() {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(KeyCode::KeyW);
-            for _ in 0..semantic_input::MAX_PENDING_ACTION_EVENTS {
-                tap(app.world_mut(), MouseButton::Middle);
-            }
             let states = if release {
                 &[ButtonState::Released][..]
             } else {
                 &[]
             };
-            mouse_frame(app.world_mut(), MouseButton::Right, states);
+            mouse_frame_after_collection(
+                app.world_mut(),
+                MouseButton::Right,
+                states,
+                semantic_input::DesktopEvents::invalidate,
+            );
             after_physics(&mut app);
             let mut packets = captured.drain();
             for _ in 0..2 {

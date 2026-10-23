@@ -504,18 +504,23 @@ impl Content<'_, '_> {
         let option = id.definition();
         let value = self.view.settings_options.get(index);
         let (title, description) = self.option_text(id);
+        if id == SettingId::Vsync
+            && let Some(on) = self.view.vsync_override
+        {
+            return self.boolean(
+                &title,
+                &description,
+                on,
+                MenuAction::SettingsOption(index as u16, i32::from(!on)),
+                false,
+            );
+        }
         match option.kind {
             SettingKind::Host => {
                 unreachable!("host controls are dispatched before option rendering")
             }
             SettingKind::Toggle => {
-                let (on, enabled) = match id {
-                    SettingId::Vsync => (
-                        self.view.vsync_override.unwrap_or(value != 0),
-                        self.view.vsync_override.is_none(),
-                    ),
-                    _ => (value != 0, true),
-                };
+                let (on, enabled) = (value != 0, true);
                 self.boolean(
                     &title,
                     &description,

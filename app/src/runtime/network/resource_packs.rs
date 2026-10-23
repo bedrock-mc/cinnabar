@@ -738,14 +738,26 @@ struct CachedOverlay {
     hashed: bool,
     max_layers: u32,
     blocks: protocol::CustomBlocks,
-    overlay: Option<Arc<CompiledBlockOverlay>>,
+    /// Weak, so an overlay outlives its session only while a kept stack owns it; `None` when the
+    /// stack compiled no blocks.
+    overlay: Option<std::sync::Weak<CompiledBlockOverlay>>,
+}
+
+impl CachedOverlay {
+    /// The compiled overlay, or `None` once every owner has released it.
+    fn upgrade(&self) -> Option<Option<Arc<CompiledBlockOverlay>>> {
+        match &self.overlay {
+            None => Some(None),
+            Some(overlay) => overlay.upgrade().map(Some),
+        }
+    }
 }
 
 /// The current and previous stacks, so switching packs back reuses the earlier compile.
 const KEPT_OVERLAYS: usize = 2;
 
 /// Recently compiled overlays, newest first, reused when the same pack contents and block
-/// definitions return in a later session or reload.
+/// definitions return in a later session or reload while a session or kept stack owns them.
 static OVERLAY_CACHE: std::sync::Mutex<std::collections::VecDeque<CachedOverlay>> =
     std::sync::Mutex::new(std::collections::VecDeque::new());
 
@@ -767,6 +779,7 @@ fn cached_block_overlay(
     let mut cache = OVERLAY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
+    cache.retain(|cached| cached.upgrade().is_some());
     if let Some(index) = cache.iter().position(|cached| {
         cached.hashed == hashed
             && cached.max_layers == max_layers
@@ -779,9 +792,10 @@ fn cached_block_overlay(
         if let (Some(dependencies), Some(inputs)) = (view.dependencies(), &cached.dependencies) {
             dependencies.extend(inputs.clone());
         }
-        let overlay = cached.overlay.clone();
-        cache.push_front(cached);
-        return overlay;
+        if let Some(overlay) = cached.upgrade() {
+            cache.push_front(cached);
+            return overlay;
+        }
     }
     let overlay = disk_cache::compile(
         view,
@@ -797,7 +811,7 @@ fn cached_block_overlay(
         hashed,
         max_layers,
         blocks: blocks.clone(),
-        overlay: overlay.clone(),
+        overlay: overlay.as_ref().map(Arc::downgrade),
     });
     cache.truncate(KEPT_OVERLAYS);
     overlay

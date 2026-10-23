@@ -336,6 +336,15 @@ impl ValidatedPackStack {
         &self.packs
     }
 
+    /// Detaches inflated and decrypted reads for off-frame destruction, keeping admission
+    /// metadata and file hashes. Later reads inflate again.
+    pub fn take_cached_reads(&self) -> impl Send + 'static + use<> {
+        self.packs
+            .iter()
+            .map(|pack| pack.reads.take_retained())
+            .collect::<Vec<_>>()
+    }
+
     /// Returns the admission-time archive digests without hashing composed copies again.
     #[must_use]
     pub fn fingerprint(&self) -> &crate::StackFingerprint {

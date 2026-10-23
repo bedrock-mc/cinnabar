@@ -532,7 +532,7 @@ impl WorldAuthority {
     /// The actor's interaction boxes where this frame's due ticks put it, for picks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
         match self.actors.pick_pose(actor.runtime_id) {
-            Some((position, _)) => actor.hit_boxes_at(position),
+            Some(pose) => actor.hit_boxes_at_pose(pose),
             None => actor.hit_boxes(),
         }
     }

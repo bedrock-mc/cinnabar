@@ -18,7 +18,7 @@ pub(super) const SOURCE_BYTES: &[u8] =
 
 const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
 const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";
-const ROUTE_COUNT: usize = 44;
+const ROUTE_COUNT: usize = 45;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -175,5 +175,54 @@ mod tests {
             ))
             .is_err()
         );
+    }
+
+    /// Every pinned behavior-pack icon component has its binding, so a pack bump cannot drop one.
+    #[test]
+    fn bindings_cover_every_pinned_behavior_pack_icon() {
+        let items = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join(assets::vanilla_source().cache_dir.as_ref())
+            .join("behavior_pack/items");
+        let Ok(entries) = std::fs::read_dir(&items) else {
+            eprintln!(
+                "skipping missing fixture: pinned behavior pack items at {}",
+                items.display()
+            );
+            return;
+        };
+        let bindings = reviewed()
+            .unwrap()
+            .iter()
+            .map(|binding| {
+                (
+                    binding.identifier.to_string(),
+                    binding.default_alias.to_string(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut icons = 0;
+        for entry in entries {
+            let path = entry.unwrap().path();
+            let item = pack_compile_input::json::parse_semantic_json(
+                &path,
+                &std::fs::read(&path).unwrap(),
+            )
+            .unwrap();
+            let item = &item["minecraft:item"];
+            let Some(default) =
+                item["components"]["minecraft:icon"]["textures"]["default"].as_str()
+            else {
+                continue;
+            };
+            let identifier = item["description"]["identifier"].as_str().unwrap();
+            icons += 1;
+            assert_eq!(
+                bindings.get(identifier).map(String::as_str),
+                Some(default),
+                "{identifier}"
+            );
+        }
+        assert!(icons > 0, "no icon components under {}", items.display());
     }
 }
