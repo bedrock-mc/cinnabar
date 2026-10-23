@@ -304,7 +304,7 @@ mod tests {
         use launcher::local_worlds::{
             in_world::Action,
             model::{Input, Screen, WorldsMenu},
-            world::{Difficulty, NewWorld},
+            world::{Difficulty, Generator, NewWorld},
         };
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("worlds");
@@ -312,6 +312,7 @@ mod tests {
         let world = manager
             .create(&NewWorld {
                 name: "Home".into(),
+                generator: Generator::Flat,
                 ..Default::default()
             })
             .unwrap();

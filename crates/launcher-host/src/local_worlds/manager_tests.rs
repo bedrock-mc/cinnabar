@@ -212,6 +212,49 @@ fn live_changes_stay_pending_after_an_unclean_stop() {
     assert_eq!(pending_after_live_edit(false, true).get(O::Pvp), Some(0));
 }
 
+/// A crashed server's live edits cannot acknowledge a failed edit in its replacement.
+#[test]
+fn a_failed_live_change_after_reopening_a_crashed_server_stays_pending() {
+    use launcher::local_worlds::{
+        in_world::{Action, update},
+        options::WorldOption as O,
+    };
+    for clear_failure in [false, true] {
+        let runner = Arc::new(FakeRunner::default());
+        let (fixture, world) = bds_world(&runner);
+        let manager = &fixture.manager;
+        manager.open(&world.id, None).expect("open");
+        wait_for(manager, WorldState::Running);
+        let pvp = update(&world, Action::Option(O::Pvp, 0)).expect("an update");
+        assert!(!manager.apply(&world.id, &pvp).expect("applied").missed);
+        runner.last().exit();
+        wait_for(manager, WorldState::Failed);
+        if clear_failure {
+            manager.close();
+        }
+        manager.open(&world.id, None).expect("reopen");
+        wait_for(manager, WorldState::Running);
+        test_time::eventually("the replacement applies its startup settings", || {
+            let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+            pending.is_empty()
+        });
+        runner
+            .last()
+            .console_fails
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(manager.apply(&world.id, &pvp).expect("saved").missed);
+        manager.close();
+        wait_for(manager, WorldState::Idle);
+        let (saved, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+        assert!(!saved.options.enabled(O::Pvp));
+        assert_eq!(
+            pending.get(O::Pvp),
+            Some(0),
+            "the failed edit must be retried"
+        );
+    }
+}
+
 /// Reopening a world that still saves starts its server only once the old one has exited.
 #[test]
 fn reopening_while_the_last_server_saves_waits_for_it() {

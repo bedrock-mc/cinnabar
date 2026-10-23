@@ -158,8 +158,8 @@ struct Life {
     retiring: Vec<Retiring>,
     /// Counts opens, so a stop that finishes late never idles a newer open.
     generation: u64,
-    /// Pending edits the running server applied live; a clean stop has saved them in its data.
-    live_applied: OptionChanges,
+    /// Pending edits applied live by one server generation; only that server can save them.
+    live_applied: Option<(u64, OptionChanges)>,
 }
 
 /// A world whose exited or closing server has not finished backend cleanup.
@@ -359,8 +359,16 @@ impl Manager {
             });
         if sent && let Some(changes) = &update.options {
             let mut life = lock(&self.inner.life);
-            if life.generation == generation {
+            if life.generation == generation
+                && life.state == WorldState::Running
+                && life
+                    .instance
+                    .as_ref()
+                    .is_some_and(|running| Arc::ptr_eq(running, &instance))
+            {
                 life.live_applied
+                    .get_or_insert_with(|| (generation, OptionChanges::default()))
+                    .1
                     .extend(&changes.filtered(|id| timing(id) == Timing::Live));
             }
         }
@@ -485,6 +493,7 @@ impl Manager {
             .map(|retiring| retiring.done.clone())
             .collect();
         life.generation += 1;
+        life.live_applied = None;
         let generation = life.generation;
         life.world = Some(world.clone());
         life.instance = None;
@@ -622,6 +631,7 @@ impl Manager {
                 life.retiring.push(retiring);
             }
             life.instance = None;
+            life.live_applied = None;
             life.failure = Some("local world server exited unexpectedly".to_owned());
             self.set_state(&mut life, WorldState::Failed);
             drop(life);
@@ -694,8 +704,12 @@ impl Manager {
                 self.set_state(&mut life, WorldState::Stopping);
                 let stopping = Arc::clone(&instance);
                 let generation = life.generation;
-                let applied = std::mem::take(&mut life.live_applied);
-                let saved = life.world.as_ref().map(|world| (world.id.clone(), applied));
+                let saved = life
+                    .live_applied
+                    .take()
+                    .filter(|(applied_generation, _)| *applied_generation == generation)
+                    .zip(life.world.as_ref())
+                    .map(|((_, applied), world)| (world.id.clone(), applied));
                 let fallback = (stopping_done.clone(), saved.clone());
                 let spawned = self.background(move |manager| {
                     manager.stop_and_acknowledge(stopping.as_ref(), saved);

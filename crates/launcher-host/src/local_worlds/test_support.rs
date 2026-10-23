@@ -302,7 +302,7 @@ pub(crate) struct FakeInstance {
     /// Every console command sent, in order.
     pub console: Mutex<Vec<String>>,
     /// Console commands fail, as an unreachable container does.
-    pub console_fails: bool,
+    pub console_fails: std::sync::atomic::AtomicBool,
     /// The stop ends without a successful exit, as a crash or a kill does.
     pub unclean: bool,
     /// Each [`Instance::grant_host`] call, recorded as it begins.
@@ -328,7 +328,7 @@ impl FakeInstance {
         Self {
             paused: Mutex::default(),
             console: Mutex::default(),
-            console_fails: false,
+            console_fails: std::sync::atomic::AtomicBool::new(false),
             unclean: false,
             grants: Mutex::default(),
             grant_gate: None,
@@ -401,7 +401,7 @@ impl Instance for FakeInstance {
     }
 
     fn console(&self, command: &str) -> std::io::Result<()> {
-        if self.console_fails {
+        if self.console_fails.load(Ordering::SeqCst) {
             return Err(std::io::Error::other("console unavailable"));
         }
         lock(&self.console).push(command.to_owned());
@@ -533,7 +533,7 @@ impl Runner for FakeRunner {
         let instance = Arc::new(FakeInstance {
             save: self.save.clone(),
             cleanup: self.cleanup.clone(),
-            console_fails: self.console_fails,
+            console_fails: std::sync::atomic::AtomicBool::new(self.console_fails),
             unclean: self.unclean,
             grant_gate: self.grant_gate.clone(),
             grant_error: self.grant_error,
