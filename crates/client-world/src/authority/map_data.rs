@@ -122,6 +122,25 @@ mod tests {
     }
 
     #[test]
+    fn initialization_saves_parent_maps_and_keeps_received_pixels() {
+        let protocol::WorldEvent::MapData(creation) =
+            protocol::test_support::packets::map_creation(&[266, 267], 3)
+        else {
+            panic!("map initialization must reach its data owner");
+        };
+        let mut images = MapImages::default();
+        images.apply(&creation);
+        assert!(
+            images.get(266).is_some() && images.get(267).is_some(),
+            "initialization creates saved data for every declared map"
+        );
+        images.apply(&event(267, 0, 1, 0x44332211));
+        let painted = images.get(267).unwrap().pixels.clone();
+        images.apply(&creation);
+        assert_eq!(images.get(267).unwrap().pixels, painted);
+    }
+
+    #[test]
     fn saved_maps_can_exist_before_pixels_and_keep_later_updates() {
         let mut images = MapImages::default();
         images.maps.insert(3, None);
