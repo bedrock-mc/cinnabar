@@ -237,12 +237,13 @@ fn skull(skull_type: u8, geometries: &[EntityGeometry]) -> Option<Part> {
 }
 
 /// Groups the authored lectern faces by their terrain texture.
+/// Turns the shared north-facing stand into its south-facing inventory pose.
 fn lectern() -> Vec<Part> {
     let mut parts: Vec<Part> = Vec::new();
     for (texture_index, (corners, texels)) in geometry::lectern_faces() {
         let texture = geometry::LECTERN_TEXTURES[texture_index];
         let face = (
-            corners.map(|[x, y, z]| [(x + 8.0) / 16.0, y / 16.0, (z + 8.0) / 16.0]),
+            corners.map(|[x, y, z]| [(8.0 - x) / 16.0, y / 16.0, (8.0 - z) / 16.0]),
             texels,
         );
         if let Some(part) = parts.iter_mut().find(|part| part.texture == texture) {
