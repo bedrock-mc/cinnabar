@@ -740,20 +740,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   device-bounded shards; world textures, fallback faces and carried items share page/layer addresses.
   Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
-  tombstone shows a driver shader compiler abort. The driver faults are not isolated,
-  so these vendor workarounds and target-device visual acceptance stay incomplete.
-  rendering acceptance remains incomplete. Terrain has a four-storage-buffer layout for constrained
+  tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
+  time because a Mali-G57 tombstone shows the driver compiler faulting while two threads compile
+  pipelines. The driver faults are not isolated, so these vendor workarounds and target-device
+  visual acceptance stay incomplete. Terrain has a four-storage-buffer layout for constrained
   devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
   Physical-device rendering and fallback
   performance acceptance remain incomplete.
-  Android Mali culls terrain on the CPU because the
-  compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
-  vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
-  vanilla page against their 1,024-layer array limit; smaller pages first need session block
-  overlays to accept multi-page base carriers.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates

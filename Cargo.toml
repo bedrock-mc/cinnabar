@@ -170,13 +170,13 @@ wit-component = "=0.247.0"
 # A lost device is a `PollError` instead of a poll panic, and queue-write staging OOM is recoverable.
 # Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "7aebea311d51d3ec0faf5ec161e48cc00096e99e" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "7aebea311d51d3ec0faf5ec161e48cc00096e99e" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "7aebea311d51d3ec0faf5ec161e48cc00096e99e" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "7aebea311d51d3ec0faf5ec161e48cc00096e99e" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "7aebea311d51d3ec0faf5ec161e48cc00096e99e" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e5bba32a441d9ac5d41c0fdf43137818da108d15" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e5bba32a441d9ac5d41c0fdf43137818da108d15" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e5bba32a441d9ac5d41c0fdf43137818da108d15" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e5bba32a441d9ac5d41c0fdf43137818da108d15" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e5bba32a441d9ac5d41c0fdf43137818da108d15" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "7aebea311d51d3ec0faf5ec161e48cc00096e99e" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e5bba32a441d9ac5d41c0fdf43137818da108d15" }
 
 # Iris conditions allow float option values and conditional expressions.
 pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "2032a88999c95c6ca0b397758dc97930089a6608" }
