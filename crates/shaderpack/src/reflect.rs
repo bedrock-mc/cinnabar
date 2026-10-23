@@ -571,6 +571,7 @@ mod tests {
                 lines: &lines,
             },
         )
+        .map_err(|failure| failure.diagnostics)
     }
 
     const FRAGMENT: &str = "#version 450

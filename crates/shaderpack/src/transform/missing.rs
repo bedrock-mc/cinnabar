@@ -19,24 +19,20 @@ pub(crate) fn vertex_outputs(
     if compiled.module.entry_points.is_empty() {
         return Ok(None);
     }
-    let usage = compiled.info.get_entry_point(0);
-    let live: HashSet<_> = compiled
-        .module
-        .global_variables
-        .iter()
-        .filter(|(global, variable)| {
-            matches!(
-                &compiled.module.types[variable.ty].inner,
-                naga::TypeInner::Scalar(_)
-                    | naga::TypeInner::Vector { .. }
-                    | naga::TypeInner::Matrix { .. }
-            ) && (usage[*global].contains(naga::valid::GlobalUse::READ)
-                || compiled.module.functions.iter().any(|(function, _)| {
-                    compiled.info[function][*global].contains(naga::valid::GlobalUse::READ)
-                }))
-        })
-        .filter_map(|(_, variable)| variable.name.as_deref())
-        .collect();
+    let live = crate::compile::numeric_reads(compiled).map_err(|failure| {
+        TransformError::new(
+            format!(
+                "could not inspect compiled fragment: {}",
+                failure
+                    .diagnostics
+                    .into_iter()
+                    .map(|diagnostic| diagnostic.message)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            0,
+        )
+    })?;
     let mut main_body = None;
     let mut offset = 0;
     for item in split_items(&vertex.tokens) {
