@@ -3,42 +3,27 @@ use bevy::prelude::{App, AppExit, IntoScheduleConfigs, Last, ResMut, Update};
 use client_shell::menu::MenuRuntime;
 use launcher::menu::{MenuAction, MenuScreen, settings_sections::SettingSection};
 
-#[test]
-fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledgement() {
-    let fixture = tempfile::tempdir().unwrap();
-    let root = fixture.path().join("installed");
-    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
-    let pack = import_fixture(&mut library, fixture.path(), 1);
+/// Holds disk work until the command channel closes, making teardown responsible for saving it.
+fn queued_worker(root: PathBuf) -> Worker {
     let (commands, incoming) = crossbeam_channel::unbounded();
     let (outgoing, events) = crossbeam_channel::unbounded();
-    let worker_root = root.clone();
-    // Hold disk work until shutdown requests a drain or the app drops its sender.
     let disk = std::thread::spawn(move || {
         let (queued, batch) = crossbeam_channel::unbounded();
-        while let Ok(command) = incoming.recv() {
-            let flush = matches!(&command, Command::Flush(_));
+        for command in incoming {
             queued.send(command).unwrap();
-            if flush {
-                break;
-            }
         }
         drop(queued);
         run(
-            worker_root.clone(),
-            worker_root.join("config"),
+            root.clone(),
+            root.join("config"),
             Vec::new(),
             batch,
             outgoing,
         );
     });
-    let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
-    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    menu.activate(MenuAction::SettingsSection(
-        SettingSection::GlobalTexturePack.definition().index,
-    ));
-    let mut app = App::new();
-    app.insert_resource(Worker {
-        commands,
+    Worker {
+        commands: Some(Arc::new(commands)),
+        disk: Some(disk),
         picker: crossbeam_channel::unbounded().0,
         picker_open: false,
         events,
@@ -46,27 +31,41 @@ fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledge
         awaiting: None,
         minecraft_import_pending: false,
         minecraft_import_request: None,
-    })
-    .insert_resource(menu)
-    .init_resource::<crate::runtime::network::PackReload>()
-    .add_message::<bevy::window::FileDragAndDrop>()
-    .add_systems(Update, crate::global_resources::drive)
-    .add_systems(
-        Last,
-        (|mut menu: ResMut<MenuRuntime>| {
-            menu.activate(MenuAction::GlobalResources(Action::Activate(0)));
-        })
-        .before(crate::global_resources::flush_on_exit),
-    )
-    .add_systems(Last, crate::global_resources::flush_on_exit);
+    }
+}
+
+#[test]
+fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledgement() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+    let pack = import_fixture(&mut library, fixture.path(), 1);
+    let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(MenuAction::SettingsSection(
+        SettingSection::GlobalTexturePack.definition().index,
+    ));
+    let mut app = App::new();
+    app.insert_resource(queued_worker(root.clone()))
+        .insert_resource(menu)
+        .init_resource::<crate::runtime::network::PackReload>()
+        .add_message::<bevy::window::FileDragAndDrop>()
+        .add_systems(Update, crate::global_resources::drive)
+        .add_systems(
+            Last,
+            (|mut menu: ResMut<MenuRuntime>| {
+                menu.activate(MenuAction::GlobalResources(Action::Activate(0)));
+            })
+            .before(crate::global_resources::enqueue_exit_actions),
+        )
+        .add_systems(Last, crate::global_resources::enqueue_exit_actions);
     app.world_mut().write_message(AppExit::Success);
     app.update();
+    drop(app);
     let persisted = GlobalPackLibrary::open(&root, engine_version())
         .unwrap()
         .active()
         .to_vec();
-    drop(app);
-    disk.join().unwrap();
     assert_eq!(
         persisted.len(),
         1,
@@ -104,7 +103,7 @@ fn shutdown_saves_queued_edits_while_the_import_picker_remains_open() {
     });
     let (done, completed) = crossbeam_channel::bounded(1);
     let drain = std::thread::spawn(move || {
-        worker.flush_pending();
+        drop(worker);
         done.send(()).unwrap();
     });
     // Closing the gate on failure lets the worker finish without a stranded thread.
@@ -123,4 +122,30 @@ fn shutdown_saves_queued_edits_while_the_import_picker_remains_open() {
     drop(close);
     drain.join().unwrap();
     result.unwrap();
+}
+
+#[test]
+fn teardown_without_app_exit_saves_queued_edits() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+    let pack = import_fixture(&mut library, fixture.path(), 1);
+    let mut worker = queued_worker(root.clone());
+    worker.send(Command::Action {
+        action: Action::Activate(0),
+        revision: 0,
+    });
+    let mut app = App::new();
+    app.insert_resource(worker);
+    app.world_mut().clear_all();
+    let selection = GlobalPackLibrary::open(&root, engine_version())
+        .unwrap()
+        .active()
+        .to_vec();
+    assert_eq!(
+        selection.len(),
+        1,
+        "teardown returned before saving the edit"
+    );
+    assert_eq!(selection[0].id, pack.id);
 }

@@ -20,9 +20,8 @@ pub(super) enum Command {
     Import(PathBuf),
     ImportFiles(Result<Vec<PathBuf>, String>),
     Commit(Vec<resource_pack::ActivePack>),
-    ApplyFailed,
+    ApplyFailed(Vec<resource_pack::ActivePack>),
     Leave,
-    Flush(crossbeam_channel::Sender<()>),
 }
 pub(super) enum Event {
     PickerClosed,
@@ -37,7 +36,8 @@ pub(super) enum Event {
 
 #[derive(Resource)]
 pub(super) struct Worker {
-    commands: crossbeam_channel::Sender<Command>,
+    commands: Option<Arc<crossbeam_channel::Sender<Command>>>,
+    disk: Option<std::thread::JoinHandle<()>>,
     picker: crossbeam_channel::Sender<()>,
     pub picker_open: bool,
     pub events: crossbeam_channel::Receiver<Event>,
@@ -63,18 +63,24 @@ impl Worker {
     ) -> Self {
         let (commands, incoming) = crossbeam_channel::unbounded();
         let (outgoing, events) = crossbeam_channel::unbounded();
-        std::thread::spawn(move || run(root, config_root, files, incoming, outgoing));
+        let disk = std::thread::spawn(move || run(root, config_root, files, incoming, outgoing));
+        let commands = Arc::new(commands);
         let (picker, requests) = crossbeam_channel::unbounded();
-        let picked = commands.clone();
+        let picked = Arc::downgrade(&commands);
         std::thread::spawn(move || {
             for () in requests {
-                if picked.send(Command::ImportFiles(pick())).is_err() {
+                let paths = pick();
+                let Some(commands) = picked.upgrade() else {
+                    break;
+                };
+                if commands.send(Command::ImportFiles(paths)).is_err() {
                     break;
                 }
             }
         });
         Self {
-            commands,
+            commands: Some(commands),
+            disk: Some(disk),
             picker,
             picker_open: false,
             events,
@@ -98,15 +104,7 @@ impl Worker {
                 self.picker_open = true;
             }
         } else {
-            let _ = self.commands.send(command);
-        }
-    }
-
-    /// Waits for queued disk work before exit without waiting for a runtime reload.
-    pub fn flush_pending(&mut self) {
-        let (done, completed) = crossbeam_channel::bounded(1);
-        if self.commands.send(Command::Flush(done)).is_ok() {
-            let _ = completed.recv();
+            let _ = self.commands.as_ref().expect("live worker").send(command);
         }
     }
 
@@ -118,12 +116,26 @@ impl Worker {
         let action = request.action;
         let sent = self
             .commands
+            .as_ref()
+            .expect("live worker")
             .send(Command::MinecraftImport(Box::new(request)))
             .is_ok();
         if sent {
             self.minecraft_import_request = Some(action);
         }
         sent
+    }
+}
+
+impl Drop for Worker {
+    /// Closes disk submissions and saves queued edits without waiting for the picker or reload.
+    fn drop(&mut self) {
+        drop(self.commands.take());
+        if let Some(disk) = self.disk.take()
+            && disk.join().is_err()
+        {
+            bevy::log::error!("resource pack disk worker panicked during shutdown");
+        }
     }
 }
 
@@ -175,12 +187,10 @@ fn run(
                 }
             }
             Command::Leave => continue,
-            Command::ApplyFailed => {
-                submitted_selection = None;
-                continue;
-            }
-            Command::Flush(done) => {
-                let _ = done.send(());
+            Command::ApplyFailed(selection) => {
+                if submitted_selection.as_ref() == Some(&selection) {
+                    submitted_selection = None;
+                }
                 continue;
             }
             command => command,
@@ -209,7 +219,9 @@ fn run(
                 }
         );
         if let Command::Commit(selection) = &command {
-            submitted_selection = None;
+            if submitted_selection.as_ref() == Some(selection) {
+                submitted_selection = None;
+            }
             snapshot.applied_selection = Some(selection.clone());
         }
         let performs_work = matches!(
@@ -273,7 +285,7 @@ fn run(
                     Ok(())
                 }
             },
-            Command::Leave | Command::ApplyFailed | Command::Flush(_) => {
+            Command::Leave | Command::ApplyFailed(_) => {
                 unreachable!("handled before disk work")
             }
             Command::Action { action, .. } => {

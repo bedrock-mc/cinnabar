@@ -19,7 +19,8 @@ fn leave_events(actions: &[MenuAction]) -> (tempfile::TempDir, Vec<Event>) {
     ));
     let mut app = App::new();
     app.insert_resource(Worker {
-        commands,
+        commands: Some(Arc::new(commands)),
+        disk: None,
         picker: crossbeam_channel::unbounded().0,
         picker_open: false,
         events,
@@ -82,6 +83,34 @@ fn leaving_after_apply_keeps_the_in_flight_selection() {
         MenuAction::AddBack,
     ]);
     assert_eq!(reloads(&events), 1);
+}
+
+#[test]
+fn older_acknowledgements_preserve_the_newer_in_flight_selection() {
+    for failed in [false, true] {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("installed");
+        let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+        import_fixture(&mut library, fixture.path(), 1);
+        let events = collect_events(
+            root,
+            vec![
+                Command::Commit(Vec::new()),
+                Command::Action {
+                    action: Action::Activate(0),
+                    revision: 0,
+                },
+                Command::Leave,
+                if failed {
+                    Command::ApplyFailed(Vec::new())
+                } else {
+                    Command::Commit(Vec::new())
+                },
+                Command::Leave,
+            ],
+        );
+        assert_eq!(reloads(&events), 1, "older failure: {failed}");
+    }
 }
 
 #[test]

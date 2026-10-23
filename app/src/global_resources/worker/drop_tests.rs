@@ -13,7 +13,8 @@ fn fixture(screen: MenuScreen) -> (App, crossbeam_channel::Receiver<Command>) {
     let (commands, incoming) = crossbeam_channel::unbounded();
     let (_outgoing, events) = crossbeam_channel::unbounded();
     let worker = Worker {
-        commands,
+        commands: Some(Arc::new(commands)),
+        disk: None,
         picker: crossbeam_channel::unbounded().0,
         picker_open: false,
         events,

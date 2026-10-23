@@ -19,11 +19,11 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, file
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),
         )
-        .add_systems(Last, flush_on_exit);
+        .add_systems(Last, enqueue_exit_actions);
 }
 
-/// Saves exit-frame edits and drains queued disk work before shutdown.
-fn flush_on_exit(
+/// Queues exit-frame edits so worker teardown saves them with earlier disk work.
+fn enqueue_exit_actions(
     mut worker: ResMut<worker::Worker>,
     mut menu: ResMut<MenuRuntime>,
     mut exits: MessageReader<AppExit>,
@@ -35,7 +35,6 @@ fn flush_on_exit(
         let revision = worker.snapshot.revision;
         worker.send(worker::Command::Action { action, revision });
     }
-    worker.flush_pending();
 }
 
 /// Pack-reload status folded into the published snapshot, borrowed for comparison.
@@ -195,7 +194,7 @@ fn drive(
         worker.send(if reload.error().is_none() {
             worker::Command::Commit(selection)
         } else {
-            worker::Command::ApplyFailed
+            worker::Command::ApplyFailed(selection)
         });
     }
     if worker.minecraft_import_pending {
