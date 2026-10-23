@@ -39,10 +39,19 @@ impl MapCache {
             .as_ref()
             .is_none_or(|(old, _)| *old != key)
         {
+            let side = protocol::MAP_IMAGE_SIDE as usize;
             let rgba8: Arc<[u8]> = image
                 .pixels
                 .iter()
-                .flat_map(|pixel| pixel.to_le_bytes())
+                .enumerate()
+                .flat_map(|(index, pixel)| {
+                    if *pixel == 0 {
+                        let odd = (index / side + index % side) & 1 != 0;
+                        [0, 0, 0, if odd { 24 } else { 16 }]
+                    } else {
+                        pixel.to_le_bytes()
+                    }
+                })
                 .collect();
             self.images[hand] = Some((
                 key,
