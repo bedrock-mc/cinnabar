@@ -352,7 +352,6 @@ impl LocalPhysicsController {
                 .expect("retained correction sample was checked"),
         );
         for output in replayed_ticks {
-            let tick = output.tick_result.tick;
             let result = output.tick_result;
             let Some(retained) = self
                 .sample_history
