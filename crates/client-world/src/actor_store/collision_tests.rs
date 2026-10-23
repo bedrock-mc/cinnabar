@@ -39,6 +39,7 @@ fn collidable_definitions_supply_bounds_and_exclude_self_and_mount() {
         super::riding_control::RiderLink {
             vehicle: 2,
             order: 0,
+            pending: false,
         },
     );
     assert_eq!(

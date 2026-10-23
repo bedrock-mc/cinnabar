@@ -76,6 +76,7 @@ impl ActorStore {
             self.apply_pending_local_death(runtime_id);
         }
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.resolve_rider_links(unique_id);
         self.adopt_spawned_unique_id(runtime_id);
         self.prune_unlisted_players();
         if let Some(actor) = self.actors.get(&runtime_id) {

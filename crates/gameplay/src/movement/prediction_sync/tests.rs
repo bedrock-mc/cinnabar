@@ -6,6 +6,7 @@ use crate::movement::physics::ClimberFlags;
 mod climber_writes;
 
 mod authority_writes;
+mod progress;
 mod server_writes;
 mod state_updates;
 

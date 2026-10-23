@@ -275,6 +275,7 @@ impl ActorStore {
         self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
+        self.resolve_rider_links(unique_id);
         self.apply_pending_local_health(runtime_id);
         self.apply_pending_local_death(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
@@ -781,56 +782,6 @@ impl ActorStore {
         self.animation.remove_runtime(runtime_id);
         self.prune_unlisted_players();
         ActorApplyResult::Removed
-    }
-
-    /// Retains passenger order, inserting a player ahead of a nonplayer first passenger.
-    fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
-        match event.link_type {
-            ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
-            ActorLinkType::Remove => {
-                if self.ridden_unique_id(event.rider_unique_id) == Some(event.ridden_unique_id) {
-                    self.rider_to_ridden.remove(&event.rider_unique_id);
-                }
-                ActorApplyResult::Updated
-            }
-            ActorLinkType::Rider | ActorLinkType::Passenger => {
-                if self.ridden_unique_id(event.rider_unique_id) == Some(event.ridden_unique_id) {
-                    return ActorApplyResult::Updated;
-                }
-                if !self.rider_to_ridden.contains_key(&event.rider_unique_id)
-                    && self.rider_to_ridden.len() >= self.max_actor_links
-                {
-                    return ActorApplyResult::CapacityRejected;
-                }
-                let first = self
-                    .rider_to_ridden
-                    .iter()
-                    .filter(|(_, link)| link.vehicle == event.ridden_unique_id)
-                    .min_by_key(|(_, link)| link.order);
-                let player = |id| {
-                    self.snapshot_by_unique(id)
-                        .is_some_and(|actor| matches!(actor.kind, ActorKind::Player { .. }))
-                };
-                let order = first
-                    .filter(|(id, _)| player(event.rider_unique_id) && !player(**id))
-                    .map_or(i128::from(self.next_link_order), |(_, link)| link.order - 1);
-                self.rider_to_ridden.insert(
-                    event.rider_unique_id,
-                    riding_control::RiderLink {
-                        vehicle: event.ridden_unique_id,
-                        order,
-                    },
-                );
-                self.next_link_order = self.next_link_order.saturating_add(1);
-                ActorApplyResult::Updated
-            }
-        }
-    }
-
-    fn remove_links_for(&mut self, unique_id: i64) {
-        self.rider_to_ridden.remove(&unique_id);
-        self.rider_to_ridden
-            .retain(|_, link| link.vehicle != unique_id);
     }
 
     /// Layers a session's server-pack entity catalog over the vanilla one.

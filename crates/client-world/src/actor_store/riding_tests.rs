@@ -524,3 +524,110 @@ fn vehicle_control_does_not_promote_a_later_player_after_removal() {
     store.apply_link(1, 27, link(1, 20, ActorLinkType::Remove));
     assert!(store.rider_controls_vehicle(5));
 }
+
+/// Resolving a queued earlier player must preserve its position ahead of a later player.
+#[test]
+fn vehicle_control_resolves_an_earlier_unknown_player() {
+    for kind in [ActorLinkType::Rider, ActorLinkType::Passenger] {
+        let mut store = player_on_boat(None, false);
+        store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+        store.apply_link(1, 21, link(5, 20, kind));
+        store.apply_link(1, 22, link(10, 20, ActorLinkType::Passenger));
+        let ActorEvent::Spawn(mut earlier) = spawn(5, 5) else {
+            unreachable!()
+        };
+        earlier.kind = ActorKind::Player {
+            uuid: [1; 16],
+            username: "Earlier".into(),
+        };
+        assert_eq!(
+            store.apply(1, 23, ActorEvent::Spawn(earlier)),
+            ActorApplyResult::Inserted
+        );
+        assert!(store.rider_controls_vehicle(5));
+        assert!(!store.rider_controls_vehicle(10));
+        store.apply_link(1, 24, link(5, 20, kind));
+        assert!(
+            store.rider_controls_vehicle(5),
+            "duplicate does not reorder"
+        );
+        assert_eq!(
+            store.apply_link(1, 23, link(5, 20, ActorLinkType::Remove)),
+            ActorApplyResult::StaleSequence
+        );
+        assert!(store.rider_controls_vehicle(5));
+    }
+}
+
+/// An earlier unresolved nonplayer still allows the first player to take the front seat.
+#[test]
+fn vehicle_control_resolves_an_earlier_unknown_nonplayer() {
+    let mut store = player_on_boat(None, false);
+    store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+    store.apply_link(1, 21, link(5, 20, ActorLinkType::Passenger));
+    store.apply_link(1, 22, link(10, 20, ActorLinkType::Rider));
+    store.apply(1, 23, spawn(5, 5));
+    assert!(store.rider_controls_vehicle(10));
+    assert!(!store.rider_controls_vehicle(5));
+}
+
+/// Removing or moving an unresolved rider releases the later known rider's insertion.
+#[test]
+fn vehicle_control_releases_a_cancelled_unknown_rider() {
+    for cancellation in 0..3 {
+        let mut store = player_on_boat(None, false);
+        store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+        store.apply_link(1, 21, link(5, 20, ActorLinkType::Passenger));
+        store.apply_link(1, 22, link(10, 20, ActorLinkType::Rider));
+        assert!(
+            !store.rider_controls_vehicle(10),
+            "unknown identity cannot establish control"
+        );
+        match cancellation {
+            0 => {
+                store.apply_link(1, 23, link(5, 20, ActorLinkType::Remove));
+            }
+            1 => {
+                store.apply(
+                    1,
+                    23,
+                    ActorEvent::Remove(ActorRemoveEvent {
+                        dimension: 0,
+                        unique_id: 5,
+                    }),
+                );
+            }
+            _ => {
+                store.apply_link(1, 23, link(5, 30, ActorLinkType::Passenger));
+            }
+        }
+        assert!(store.rider_controls_vehicle(10));
+        store.apply(1, 24, spawn(5, 5));
+        assert!(store.rider_controls_vehicle(10));
+    }
+}
+
+/// Resolving a player ahead of a nonplayer does not later promote another player on removal.
+#[test]
+fn resolved_passenger_order_survives_controller_removal() {
+    let mut store = player_on_boat(None, false);
+    store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+    store.apply(1, 21, spawn(1, 1));
+    store.apply_link(1, 22, link(1, 20, ActorLinkType::Passenger));
+    store.apply_link(1, 23, link(5, 20, ActorLinkType::Rider));
+    store.apply_link(1, 24, link(10, 20, ActorLinkType::Passenger));
+    let ActorEvent::Spawn(mut earlier) = spawn(5, 5) else {
+        unreachable!()
+    };
+    earlier.kind = ActorKind::Player {
+        uuid: [1; 16],
+        username: "Earlier".into(),
+    };
+    store.apply(1, 25, ActorEvent::Spawn(earlier));
+    assert!(store.rider_controls_vehicle(5));
+    assert!(!store.rider_controls_vehicle(10));
+    store.apply_link(1, 26, link(5, 20, ActorLinkType::Remove));
+    assert!(!store.rider_controls_vehicle(10));
+    store.apply_link(1, 27, link(1, 20, ActorLinkType::Remove));
+    assert!(store.rider_controls_vehicle(10));
+}

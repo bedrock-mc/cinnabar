@@ -217,3 +217,108 @@ fn sync_actor_replacement_replaces_reported_speed() {
         }
     }
 }
+
+/// Accepted actor replacement retires old dimensions before an unchanged standing tick.
+#[test]
+fn replacement_dimensions_have_a_new_lifetime() {
+    for fields in [
+        vec![],
+        vec![(ActorDataKey::Width, 0.8)],
+        vec![(ActorDataKey::Height, 1.5)],
+    ] {
+        let mut world = local_actor_authority();
+        let mut physics = due_physics();
+        write_dimensions(
+            &mut world,
+            2,
+            &[(ActorDataKey::Width, 0.9), (ActorDataKey::Height, 0.7)],
+        );
+        assert_eq!(reported_box(&mut physics, &world), [1.0, 0.9, 0.7]);
+        let mut replacement = local_actor_spawn(Vec::new());
+        replacement.metadata = fields
+            .iter()
+            .map(|(key, value)| protocol::ActorMetadata {
+                key: key.wire_value(),
+                value: ActorMetadataValue::Float(*value),
+            })
+            .collect();
+        world
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
+                Some(3),
+            )
+            .unwrap();
+        assert_eq!(world.actor(7).unwrap().spawn_revision, 3);
+        let expected = [
+            1.0,
+            fields
+                .iter()
+                .find(|(key, _)| *key == ActorDataKey::Width)
+                .map_or(0.6, |(_, value)| *value),
+            fields
+                .iter()
+                .find(|(key, _)| *key == ActorDataKey::Height)
+                .map_or(1.8, |(_, value)| *value),
+        ];
+        assert_eq!(reported_box(&mut physics, &world), expected);
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            crate::movement::PhysicsSampleContext {
+                mode_intent: crate::movement::ModeIntent {
+                    explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &OpenWorld,
+        );
+        assert_eq!(reported_box(&mut physics, &world), expected);
+    }
+}
+
+/// A new actor starts with its own defaults and still accepts a genuine local pose resize.
+#[test]
+fn replacement_size_restarts_pose_ownership() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, 1.8]);
+    let crouch = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    physics.advance(simulation_clock::TICK_DURATION, crouch, &OpenWorld);
+    let height = sim::MovementMode::Walking.hitbox_height(true) as f32;
+    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
+    let mut replacement = local_actor_spawn(Vec::new());
+    replacement.metadata = Arc::from([protocol::ActorMetadata {
+        key: ActorDataKey::Width.wire_value(),
+        value: ActorMetadataValue::Float(0.8),
+    }]);
+    world
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
+            Some(3),
+        )
+        .unwrap();
+    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 1.8]);
+    physics.advance_with_context(
+        simulation_clock::TICK_DURATION,
+        crouch,
+        crate::movement::PhysicsSampleContext {
+            mode_intent: crate::movement::ModeIntent {
+                explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
+    write_dimensions(
+        &mut world,
+        4,
+        &[(ActorDataKey::Width, 0.6), (ActorDataKey::Scale, 2.0)],
+    );
+    assert_eq!(reported_box(&mut physics, &world), [2.0, 0.6, height]);
+}
