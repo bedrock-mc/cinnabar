@@ -292,3 +292,24 @@ fn held_map_wire_colors_reach_the_rgba_atlas() {
         "held map must preserve wire colors and alpha"
     );
 }
+
+#[test]
+fn empty_map_pixels_draw_a_checkerboard_without_replacing_transparent_colors() {
+    let (mut stream, _, _, _) = fixture(None);
+    update(&mut stream, 266, 0, &[0, 0, 0x00563412]);
+    let mut cache = MapCache::default();
+    let atlas = cache.image(&stream, 0, Some(266)).unwrap();
+    assert_eq!(
+        &atlas.rgba8[..12],
+        &[0, 0, 0, 16, 0, 0, 0, 24, 0x12, 0x34, 0x56, 0]
+    );
+    let next_row = protocol::MAP_IMAGE_SIDE as usize * 4;
+    assert_eq!(
+        &atlas.rgba8[next_row..next_row + 8],
+        &[0, 0, 0, 24, 0, 0, 0, 16]
+    );
+    update(&mut stream, 266, 0, &[0xff332211]);
+    let patched = cache.image(&stream, 0, Some(266)).unwrap();
+    assert_eq!(&patched.rgba8[..8], &[0x11, 0x22, 0x33, 0xff, 0, 0, 0, 24]);
+    assert_eq!(stream.map_image(266).unwrap().pixels[1], 0);
+}
