@@ -104,6 +104,8 @@ pub struct LocalMovementSpeedAuthority {
     speed: EffectiveMovementSpeed,
     /// Accepted attribute state retained independently of collision-query admission.
     reported_speed: EffectiveMovementSpeed,
+    /// Unsupported attribute models leave reporting with the current actor attribute.
+    report_from_actor: bool,
     active_speed_effect: Option<i32>,
     reported_active_speed_effect: Option<i32>,
     /// Liquid speed attributes share the movement attribute's packet, so they order separately.
@@ -126,6 +128,7 @@ impl LocalMovementSpeedAuthority {
         self.last_sequence = None;
         self.speed = EffectiveMovementSpeed::default();
         self.reported_speed = EffectiveMovementSpeed::default();
+        self.report_from_actor = false;
         self.active_speed_effect = None;
         self.reported_active_speed_effect = None;
         self.last_liquid_sequence = None;
@@ -141,6 +144,7 @@ impl LocalMovementSpeedAuthority {
         self.last_sequence = None;
         self.speed = EffectiveMovementSpeed::default();
         self.reported_speed = EffectiveMovementSpeed::default();
+        self.report_from_actor = false;
         self.active_speed_effect = None;
         self.reported_active_speed_effect = None;
         self.last_liquid_sequence = None;
@@ -207,6 +211,7 @@ impl LocalMovementSpeedAuthority {
             return false;
         }
         self.last_sequence = Some(sequence);
+        self.report_from_actor = true;
         let current = attribute.current;
         if current.is_finite()
             && current >= 0.0
@@ -216,6 +221,7 @@ impl LocalMovementSpeedAuthority {
         {
             self.reported_speed =
                 EffectiveMovementSpeed::authoritative(attribute, self.reported_speed.sprinting);
+            self.report_from_actor = false;
         }
         if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&current)
             || attribute.sprint_modifier.is_some_and(|factor| {
@@ -245,11 +251,25 @@ impl LocalMovementSpeedAuthority {
         self.speed.attribute.map(|attribute| attribute.current)
     }
 
-    /// Returns accepted current for reporting, including values physics cannot simulate.
+    /// Returns predicted current, or leaves reporting with the actor for unsupported models.
     pub fn reported_current(&self) -> Option<f64> {
+        if self.report_from_actor {
+            return None;
+        }
         self.reported_speed
             .attribute
             .map(|attribute| attribute.current)
+    }
+
+    /// Drops a stale reporting override when the received attribute cannot be predicted.
+    pub(crate) fn invalidate_reported(&mut self, session_id: u64, sequence: u64, dimension: i32) {
+        if session_id == self.session_id
+            && dimension == self.dimension
+            && self.last_sequence.is_none_or(|last| sequence > last)
+        {
+            self.last_sequence = Some(sequence);
+            self.report_from_actor = true;
+        }
     }
 
     /// Applies arrival-ordered Speed effect packets to effective movement current.
