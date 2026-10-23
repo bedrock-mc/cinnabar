@@ -810,6 +810,9 @@ impl UiPresentationRuntime {
             };
             sources = sources.with_attachment(vertices, icon);
         }
+        if let Some(turn) = live.and_then(|live| live.head_turn(view)) {
+            sources = sources.turn_head(turn.transform, |part| turn.moves(part));
+        }
         // Particles follow the view they were last placed for.
         if view == self.player_preview_view {
             sources = sources.with_particles(self.gui_models.particles.mesh.as_deref());

@@ -33,6 +33,27 @@ fn head_bones(stream: &chunk_pipeline::WorldStream) -> [u32; 2] {
     })
 }
 
+/// The screen capture's body vertices with `view`'s head turn applied.
+fn turned(presentation: &UiPresentationRuntime, view: PreviewView) -> Vec<ActorVertex> {
+    let live = &presentation.gui_models.screen_player;
+    let turn = live
+        .head_turn(view)
+        .expect("a live renderer turns the head");
+    live.vertices
+        .iter()
+        .map(|vertex| ActorVertex {
+            position: if turn.moves(vertex.part) {
+                turn.transform
+                    .transform_point3(Vec3::from_array(vertex.position))
+                    .to_array()
+            } else {
+                vertex.position
+            },
+            ..*vertex
+        })
+        .collect()
+}
+
 #[test]
 fn live_renderer_turns_only_the_head_and_its_children_toward_the_pointer() {
     let stream = headed_player();
@@ -42,11 +63,18 @@ fn live_renderer_turns_only_the_head_and_its_children_toward_the_pointer() {
     presentation.capture_hud_player(Some(&stream), false);
     let hud = presentation.gui_models.live_player.vertices.clone();
     assert!(!hud.is_empty());
+    presentation.capture_screen_player(Some(&stream));
+    assert!(
+        presentation
+            .gui_models
+            .live_player
+            .head_turn(PreviewView::Hud)
+            .is_none(),
+        "the HUD keeps the actor's own look"
+    );
 
     // A centred pointer leaves the actor's straight-ahead look unchanged.
-    presentation.player_preview_view = PreviewView::Live { offset: [0.0; 2] };
-    presentation.capture_screen_player(Some(&stream));
-    let centred = &presentation.gui_models.screen_player.vertices;
+    let centred = turned(&presentation, PreviewView::Live { offset: [0.0; 2] });
     assert_eq!(centred.len(), hud.len());
     for (screen, hud) in centred.iter().zip(&hud) {
         for axis in 0..3 {
@@ -54,12 +82,12 @@ fn live_renderer_turns_only_the_head_and_its_children_toward_the_pointer() {
         }
     }
 
-    presentation.player_preview_view = PreviewView::Live {
-        offset: [40.0, -25.0],
-    };
-    presentation.capture_screen_player(Some(&stream));
-    let turned = &presentation.gui_models.screen_player.vertices;
-    assert_eq!(turned.len(), hud.len());
+    let turned = turned(
+        &presentation,
+        PreviewView::Live {
+            offset: [40.0, -25.0],
+        },
+    );
     let in_head = |vertex: &ActorVertex| head.contains(&(vertex.part - 6));
     let mut moved = [false; 2];
     for (screen, hud) in turned.iter().zip(&hud) {
@@ -84,7 +112,7 @@ fn live_renderer_turns_only_the_head_and_its_children_toward_the_pointer() {
     };
     let span =
         |vertices: &[ActorVertex]| layer(vertices, head[0]).distance(layer(vertices, head[1]));
-    assert!((span(turned) - span(&hud)).abs() < 1e-4);
+    assert!((span(&turned) - span(&hud)).abs() < 1e-4);
 }
 
 const PREVIEW: IconRef = IconRef {
@@ -133,27 +161,60 @@ fn apply(presentation: &UiPresentationRuntime, nodes: &mut [UiNode], hud: usize)
 fn a_live_renderer_outside_containers_keeps_a_current_capture_and_drops_it_when_gone() {
     let stream = headed_player();
     let mut presentation = model_presentation();
-    presentation.player_preview_view = PreviewView::Live { offset: [0.0; 2] };
-    presentation.refresh_screen_player(Some(&stream), true);
-    let centred = presentation.gui_models.screen_player.vertices.clone();
-    assert!(!centred.is_empty());
-
-    // With the inventory closed, a pack HUD's live renderer turns toward a new pointer.
     let pointed = PreviewView::Live {
         offset: [40.0, -25.0],
     };
+    presentation.refresh_screen_player(Some(&stream), false);
+    assert!(
+        presentation.live_capture(pointed).is_none(),
+        "nothing drew it yet"
+    );
+
+    // With the inventory closed, a pack HUD draws a live renderer.
     presentation.hud_preview_view = pointed;
     presentation.player_preview_view = pointed;
     apply(&presentation, &mut placeholders(&[1]), 1);
     presentation.refresh_screen_player(Some(&stream), false);
-    let turned = &presentation.gui_models.screen_player.vertices;
-    assert_eq!(turned.len(), centred.len());
-    assert_ne!(*turned, centred, "the drawn renderer follows the pointer");
+    assert!(
+        presentation.live_capture(pointed).is_some(),
+        "the drawn renderer keeps a current capture"
+    );
 
     // Once nothing draws the renderer, its last pose is not kept for a later control.
     apply(&presentation, &mut placeholders(&[]), 0);
     presentation.refresh_screen_player(Some(&stream), false);
     assert!(presentation.live_capture(pointed).is_none());
+}
+
+#[test]
+fn each_live_renderer_turns_the_head_with_its_own_current_view() {
+    let stream = headed_player();
+    let mut presentation = model_presentation();
+    let mesh = |presentation: &UiPresentationRuntime, view| {
+        presentation
+            .project_gui_player_mesh(
+                &presentation.gui_player_sources(view).unwrap(),
+                [None, None],
+                view,
+            )
+            .unwrap()
+    };
+    let earlier = PreviewView::Live { offset: [0.0; 2] };
+    let current = PreviewView::Live {
+        offset: [40.0, -25.0],
+    };
+    // The capture runs before this frame's paint moves the pointer.
+    presentation.player_preview_view = earlier;
+    presentation.capture_screen_player(Some(&stream));
+    presentation.player_preview_view = current;
+    let painted = mesh(&presentation, current);
+    // Capturing again after the paint draws the same head: no pose lags behind its body.
+    presentation.capture_screen_player(Some(&stream));
+    assert_eq!(painted.vertices(), mesh(&presentation, current).vertices());
+    // A second renderer at another offset turns the same capture's head its own way.
+    presentation.player_preview_view = earlier;
+    let other = mesh(&presentation, current);
+    assert_eq!(other.vertices(), painted.vertices());
 }
 
 #[test]
