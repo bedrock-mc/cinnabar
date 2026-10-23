@@ -452,7 +452,7 @@ impl UiPresentationRuntime {
     }
 
     /// Reads vanilla images the carrier lacks from the local pack at `vanilla`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_vanilla_texture_root(&mut self, vanilla: std::path::PathBuf) {
         if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_fallbacks(

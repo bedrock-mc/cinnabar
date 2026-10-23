@@ -32,6 +32,9 @@ impl TouchLayout {
     }
     /// Removes obsolete control identities and malformed fixed-point coordinates.
     pub(super) fn validate(&mut self) {
+        if let Some(position) = self.0.remove("emote") {
+            self.0.entry("utilities".into()).or_insert(position);
+        }
         let document: serde_json::Value =
             serde_json::from_slice(assets::TOUCH_LAYOUT).expect("built-in touch layout parses");
         let mut names = std::collections::BTreeSet::new();
@@ -85,6 +88,22 @@ impl SettingsOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn emote_button_placement_migrates_to_the_utility_trigger() {
+        let options =
+            SettingsOptions::decode(br#"{"touch_layout":{"emote":[1234,7500]}}"#).unwrap();
+        assert_eq!(
+            options.touch_layout().position("utilities"),
+            Some([0.1234, 0.75])
+        );
+        assert_eq!(options.touch_layout().position("emote"), None);
+        let both = SettingsOptions::decode(
+            br#"{"touch_layout":{"emote":[1234,7500],"utilities":[2500,5000]}}"#,
+        )
+        .unwrap();
+        assert_eq!(both.touch_layout().position("utilities"), Some([0.25, 0.5]));
+    }
+
     #[test]
     fn positions_round_trip_and_reject_stale_or_invalid_controls() {
         let mut options = SettingsOptions::default();

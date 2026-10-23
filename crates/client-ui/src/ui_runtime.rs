@@ -234,6 +234,7 @@ pub struct UiRuntime {
     /// answer for the `@a` selector.
     known_player_names: Vec<Arc<str>>,
     player_list_held: bool,
+    touch_player_list: bool,
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: Option<ui::LoadingStage>,
@@ -259,6 +260,7 @@ impl UiRuntime {
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
             player_list_held: false,
+            touch_player_list: false,
             screen_settings: Arc::default(),
             loading_screen: None,
             hurt_pending: false,
@@ -690,6 +692,7 @@ impl UiRuntime {
         self.known_player_names.clear();
         self.player_roster = Default::default();
         self.player_list_held = false;
+        self.touch_player_list = false;
         self.hud.clear();
         self.death_reason = Arc::from("");
         self.death_rules = protocol::DeathRules::default();

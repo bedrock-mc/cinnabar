@@ -202,7 +202,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   settings for comparison. It hides only sections proved invisible. The indirect
   renderer samples rejection counts asynchronously and skips GPU
   occlusion when it rejects too little terrain. Periodic probes warm GPU visibility
-  before sampling and retain the CPU command caches between paths.
+  before sampling and retain the CPU command caches between paths. Compute kernels
+  fit device limits; bounded, recoverable cull storage falls back to CPU drawing
+  when a complete table cannot be prepared.
   Matched-output frame-time and movement qualification remain incomplete.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
@@ -437,6 +439,8 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 across these existing features; they are not a list of missing screens or systems.
 Outgoing chat uses the session's login name and XUID. Server-authored actor names
 remain available for local presentation and text resolution.
+Empty display-objective packets clear their slot; scores remain only while another
+display slot references the objective.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
@@ -689,7 +693,10 @@ offers no NetherNet route, so the join fails with an explanation instead of conn
 Startup logs report milestone elapsed times and child-process CPU time when available.
 Native and translated BDS startup overlaps host-profile loading and confirms any changed
 operator grant before reporting running; container servers still resolve it before launch.
-Physical-phone startup profiling and the ten-second join target remain open.
+Translated BDS starts the most recently played world in the background once the menu is up.
+A left world's server keeps running for five minutes; both stay hidden until opened, and other
+opens, edits, deletes and exits stop them first. Emulator APK acceptance of the hidden start,
+physical-phone battery cost, startup profiling and the ten-second join target remain open.
 
 See [local worlds](docs/local-worlds.md).
 
@@ -731,7 +738,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
-  rendering acceptance remains incomplete.
+  rendering acceptance remains incomplete. Android Mali culls terrain on the CPU because the
+  compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
+  vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
+  vanilla page against their 1,024-layer array limit; smaller pages first need session block
+  overlays to accept multi-page base carriers.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
@@ -768,8 +779,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   chosen documents into app cache storage before importing them; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. Emotes, chat and pause share a centered utility row; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
@@ -871,6 +882,17 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
+  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
+  of celestial layers, effects without depth writes and private-depth first-person scenes,
+  which keep the native scene copy; actor colour masks, multitexture materials, dissolve
+  pairs, beacon beams and additive rays, which keep native composition; autofocus on cutout
+  pixels, liquids and entities; complete Iris type checking and target-dependent return
+  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
+  curves and sunrise colours remain provisional. Shared loose uniforms still need
+  stage-local type and constant resolution, equivalent array declaration matching and
+  isolation from unrelated stage globals. Whole boolean uniform arrays and partially
+  indexed rows still need logical value conversion.
   Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage
   pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip ordering; drawing the
   solid hand's glint before deferred passes; geometry-host composition of celestial layers,
@@ -907,8 +929,10 @@ Leaving for the menu retains only the newest server archives within a 128 MiB ca
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
 off the frame and rebuilt on rejoin. Rejoin rebuild latency and menu-memory acceptance
 remain unmeasured.
-Actor artwork prepares current demand immediately and prewarms unused pages within a
-per-frame budget. Artwork arrays allocate exactly their source layer count. Skin slots
+Actor artwork uploads page rows within a per-frame byte budget, prioritizes current
+demand and finishes pending uploads before prewarming more pages. Complete pages bind
+atomically; compatible old pages stay visible during replacement. Artwork arrays
+allocate exactly their source layer count. Skin slots
 keep geometric capacity. Each artwork slot retains its own unchanged texture and bindings.
 Worker rig-plan preparation and measured cold arrival latency remain open acceptance work.
 Hardware join and frame acceptance still needs the full capture matrix below.

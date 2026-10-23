@@ -49,7 +49,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             .then_some(content.view.shader_pack.as_deref())
             .flatten()
             .map_or("Off", pack_label);
-        super::services::action_row(
+        super::services::action_row_text(
             content,
             &format!("Shaders: {selected}"),
             "",
