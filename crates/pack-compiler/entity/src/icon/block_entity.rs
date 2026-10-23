@@ -178,7 +178,7 @@ pub(super) fn raster(
     }
     let model = Model::textured(quads, projection, light);
     Ok(Some(
-        if is_banner(name) {
+        if is_banner(name) || assets::vanilla_skull_type(name).is_some() {
             model.unshaded()
         } else {
             model

@@ -354,7 +354,8 @@ and rendered qualification remain incomplete.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
-  inventory preview and resource-pack geometry acceptance remain incomplete.
+  inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
+  textures retain their unshaded brightness; camera, sizing and mob poses still need qualification.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
