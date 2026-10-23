@@ -13,7 +13,9 @@ mod dot;
 mod interface;
 mod items;
 mod legacy;
+mod math;
 mod narrow;
+mod shared;
 mod specialize;
 
 use crate::preprocess::Preprocessed;
@@ -118,6 +120,9 @@ pub(crate) fn transform(
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
+        if it.len() == 1 && it[0].is(";") {
+            continue;
+        }
         let first_brace = it.iter().position(|t| t.is("{"));
         let is_func = it.last().is_some_and(|t| t.is("}"))
             && first_brace.is_some_and(|b| b > 0 && it[b - 1].is(")"));
@@ -138,7 +143,9 @@ pub(crate) fn transform(
             items.push(Item::Other(it));
         }
     }
-    let items = specialize::specialize_opaque_params(items);
+    math::defer_negative_sqrt(&mut items, &user_funcs, &lg.toks);
+    let items = shared::split_declarations(items);
+    let items = specialize::specialize_opaque_params(items)?;
     let mut c = declare::collect(items, stage, iface, names)?;
     if stage == StageKind::Vertex {
         c.after_main.push(GL_CLIP_TO_WGPU.to_string());

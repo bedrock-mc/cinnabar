@@ -206,6 +206,14 @@ fn compile_prepared_with(
     for (path, source) in [
         ("bevy_render::view", VIEW.to_owned()),
         (
+            "render::terrain_tables",
+            include_str!("../../../src/terrain_tables.wesl").to_owned(),
+        ),
+        (
+            "render::chunk_records",
+            material_shader::source(include_str!("../../../src/chunk_records.wesl")),
+        ),
+        (
             "bevy_render::globals",
             "struct Globals { time: f32, delta_time: f32, frame_count: u32 }".to_owned(),
         ),

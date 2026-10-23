@@ -6,7 +6,6 @@ use protocol::NetworkItemStack;
 
 use super::super::PlayerInventoryLedger;
 use super::super::cells::{Cell, Held};
-use super::super::registry::plain_stack;
 
 /// `(cell, amount, occupied destination stack id and its count before this transfer)`.
 pub(in crate::inventory_ledger) type OutputPlacement = (Cell, u16, Option<(i32, u16)>);
@@ -130,7 +129,8 @@ impl PlayerInventoryLedger {
             .collect()
     }
 
-    /// Whether `created` may merge into the plain, settled stack `into`.
+    /// Whether `created` may merge into the settled stack `into`: the same item with equal
+    /// item data.
     pub(in crate::inventory_ledger) fn merges_into(
         &self,
         into: &Held,
@@ -139,8 +139,9 @@ impl PlayerInventoryLedger {
         into.stack.network_id == created.network_id
             && into.stack.metadata == created.metadata
             && into.stack.block_runtime_id == created.block_runtime_id
-            && plain_stack(&into.stack)
-            && plain_stack(created)
+            && Held::new(created).is_some_and(|created| {
+                super::super::registry::held_item_data_equal(&created, into) == Some(true)
+            })
             && !self.awaiting_identity(into)
     }
 }

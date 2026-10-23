@@ -93,6 +93,50 @@ static APPEARANCES: LazyLock<[Option<Appearance>; 64]> = LazyLock::new(|| {
     appearances
 });
 
+/// Highest arrow aux vanilla resolves through the potion table; larger values draw the first slot.
+pub const MAX_TIPPED_ARROW_AUXILIARY: u32 = 64;
+
+// The arrow item's tipped icon slots, by potion appearance; slot `i` draws `tipped_arrow[i]`.
+const TIPPED_ARROW_SLOTS: [Appearance; 21] = {
+    use Appearance::*;
+    [
+        Default,
+        Speed,
+        Slowness,
+        Strength,
+        Healing,
+        Harming,
+        JumpBoost,
+        Regeneration,
+        FireResistance,
+        WaterBreathing,
+        Invisibility,
+        NightVision,
+        Weakness,
+        Poison,
+        Wither,
+        TurtleMaster,
+        SlowFalling,
+        WindCharged,
+        Weaving,
+        Oozing,
+        Infested,
+    ]
+};
+
+/// Returns the tipped-arrow atlas variant for an arrow's aux (one more than its potion), or
+/// `None` for the plain arrow; potions without a slot of their own draw the first slot.
+#[must_use]
+pub fn tipped_arrow_icon_variant(auxiliary: u32) -> Option<u8> {
+    let potion = i16::try_from(auxiliary.checked_sub(1)?).unwrap_or(i16::MAX);
+    let slot = vanilla_potion_variant(potion).and_then(|appearance| {
+        TIPPED_ARROW_SLOTS
+            .iter()
+            .position(|slot| *slot as u8 == appearance)
+    });
+    Some(slot.unwrap_or(0) as u8)
+}
+
 /// Returns the projectile effect index for a known potion auxiliary value.
 /// Unknown values have no reviewed item route and return `None`.
 pub fn vanilla_potion_variant(auxiliary: i16) -> Option<u8> {
@@ -602,6 +646,21 @@ mod tests {
             Some("tipped_arrow.effect.oozing")
         );
         assert_eq!(tipped_arrow_name_key(999), None);
+    }
+
+    #[test]
+    fn tipped_arrow_icons_follow_the_potion_they_carry() {
+        assert_eq!(tipped_arrow_icon_variant(0), None);
+        // Water, mundane and awkward share the plain tipped slot.
+        for auxiliary in 1..=5 {
+            assert_eq!(tipped_arrow_icon_variant(auxiliary), Some(0));
+        }
+        // Potion 14 is swiftness, 17 slowness, 45 oozing and 46 infested.
+        assert_eq!(tipped_arrow_icon_variant(15), Some(1));
+        assert_eq!(tipped_arrow_icon_variant(18), Some(2));
+        assert_eq!(tipped_arrow_icon_variant(46), Some(19));
+        assert_eq!(tipped_arrow_icon_variant(47), Some(20));
+        assert_eq!(tipped_arrow_icon_variant(999), Some(0));
     }
 
     fn pinned_pack_file(relative: &str) -> PathBuf {

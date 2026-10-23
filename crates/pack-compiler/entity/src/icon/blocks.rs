@@ -7,6 +7,7 @@
 
 use std::{path::Path, sync::Arc};
 
+use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
     RegistryRecord, RuntimeAssets, VisualKind, VisualSupport, read_registry_for_protocol,
@@ -14,7 +15,8 @@ use assets::{
 
 use pack_compile_input::image::decode_texture;
 use pack_compile_input::pack::{
-    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key, resolve_texture_key,
+    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key,
+    resolve_carried_fallback_key, resolve_texture_key,
 };
 use pack_compile_input::static_texture_path;
 
@@ -32,6 +34,10 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
 ];
+
+/// Blocks whose vanilla block shape the item renderer cannot tessellate, so their items show
+/// the carried texture flat: barrier and the light blocks.
+const FLAT_TRAITS: BlockTraits = BlockTraits::INVISIBLE.union(BlockTraits::LIGHT_BLOCK);
 
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
@@ -83,7 +89,10 @@ impl IconBlocks {
             return false;
         };
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
-        FLAT_FAMILIES.contains(&record.model_family)
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::LeafLitter
+            || FLAT_FAMILIES.contains(&record.model_family)
+            || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
             || (record.model_family == ModelFamily::Unknown
                 && assets::facts::block_render_fact(&record.name).flat_icon)
@@ -174,7 +183,20 @@ impl IconBlocks {
                 .map_or(0, |(_, variant)| variant as usize);
             let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
                 .map(String::into_boxed_str)
-                .or_else(|| world_fallback.then_some(world).flatten())
+                .or_else(|| {
+                    if !world_fallback {
+                        return None;
+                    }
+                    if matches!(
+                        assets::facts::block_render_fact(&record.name).kind,
+                        assets::facts::BlockRenderKind::Furnace
+                            | assets::facts::BlockRenderKind::LitFurnace
+                    ) {
+                        resolve_carried_fallback_key(&pack.blocks, record, face)
+                    } else {
+                        world
+                    }
+                })
             else {
                 return Ok(None);
             };
@@ -210,8 +232,32 @@ impl IconBlocks {
             .map(Into::into)
     }
 
-    pub(super) fn sprite(root: &Path, path: &str) -> Result<Option<IconSprite>, AssetError> {
-        Self::sprite_with_strip_frame(root, path, false)
+    /// A flat block icon; a flipbook texture shows its first frame, as the terrain atlas holds it.
+    pub(super) fn flat_sprite(
+        &self,
+        root: &Path,
+        path: &str,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let file = static_texture_path(root, path, path)?;
+        if !file.is_file() {
+            return Ok(None);
+        }
+        let mut decoded = decode_texture(&file, path)?;
+        let stem = |texture: &str| {
+            texture
+                .strip_suffix(".png")
+                .or_else(|| texture.strip_suffix(".tga"))
+                .unwrap_or(texture)
+                .to_owned()
+        };
+        if self.pack.as_ref().is_some_and(|pack| {
+            pack.flipbooks
+                .iter()
+                .any(|flipbook| stem(&flipbook.texture_path) == stem(path))
+        }) {
+            pack_compile_input::image::retain_first_strip_frame(&mut decoded);
+        }
+        Ok(super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite))
     }
 
     /// Loads a bounded sprite or an unresized square frame for carried-face baking.
@@ -298,6 +344,272 @@ mod tests {
                 .unwrap();
             assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
         }
+    }
+
+    /// Barrier declares world textures, while light blocks declare only carried ones; both items
+    /// draw that texture flat.
+    #[test]
+    fn barrier_and_light_block_items_draw_their_carried_texture_flat() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("textures")).unwrap();
+        for (path, json) in [
+            (
+                "blocks.json",
+                r#"{"barrier":{"textures":"barrier"},
+                    "light_block_0":{"carried_textures":"light_block_0"},
+                    "light_block_15":{"carried_textures":"light_block_15"},
+                    "stone":{"textures":"stone"}}"#,
+            ),
+            (
+                "textures/terrain_texture.json",
+                r#"{"texture_data":{
+                    "barrier":{"textures":"textures/blocks/barrier"},
+                    "light_block_0":{"textures":"textures/items/light_block_0"},
+                    "light_block_15":{"textures":"textures/items/light_block_15"},
+                    "stone":{"textures":"textures/blocks/stone"}}}"#,
+            ),
+            ("textures/flipbook_textures.json", "[]"),
+        ] {
+            std::fs::write(root.path().join(path), json).unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let flat_textures = |name: &str| {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .map(|record| BlockVisualId(record.sequential_id))
+                .collect();
+            assert!(!states.is_empty(), "{name} is not registered");
+            states
+                .into_iter()
+                .map(|state| {
+                    blocks
+                        .is_flat(&world, state)
+                        .then(|| blocks.texture_path(state))
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        };
+        for (name, texture) in [
+            ("minecraft:barrier", "textures/blocks/barrier"),
+            ("minecraft:light_block_0", "textures/items/light_block_0"),
+            ("minecraft:light_block_15", "textures/items/light_block_15"),
+        ] {
+            assert!(
+                flat_textures(name)
+                    .iter()
+                    .all(|path| path.as_deref() == Some(texture)),
+                "{name} must draw {texture} flat"
+            );
+        }
+        assert!(flat_textures("minecraft:stone").iter().all(Option::is_none));
+    }
+
+    /// Egg and small creature blocks keep their carried art independent of placed geometry.
+    #[test]
+    fn eggs_and_small_creatures_use_the_carried_sprite() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{
+                "turtle_egg":{"textures":"world","carried_textures":"carried"},
+                "sniffer_egg":{"textures":"world","carried_textures":"carried"},
+                "frog_spawn":{"textures":"carried"}
+            }"#,
+            r#"{"texture_data":{
+                "world":{"textures":"textures/blocks/world"},
+                "carried":{"textures":"textures/items/carried"}
+            }}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        for name in ["turtle_egg", "sniffer_egg", "frog_spawn"] {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == format!("minecraft:{name}"))
+                .collect();
+            assert!(!states.is_empty(), "registered block {name}");
+            for record in states {
+                let visual = BlockVisualId(record.sequential_id);
+                assert!(
+                    blocks.is_flat(&world, visual),
+                    "{name} uses its carried sprite"
+                );
+                assert_eq!(
+                    blocks.texture_path(visual).as_deref(),
+                    Some("textures/items/carried")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn leaf_litter_uses_a_flat_carried_icon_for_every_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::create_dir_all(root.join("textures")).unwrap();
+        std::fs::write(
+            root.join("blocks.json"),
+            r#"{"leaf_litter":{"textures":"ground","carried_textures":"carried"}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("textures/terrain_texture.json"),
+            r#"{"texture_data":{"ground":{"textures":"textures/blocks/litter"},"carried":{"textures":"textures/items/litter"}}}"#).unwrap();
+        std::fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
+        let blocks = IconBlocks::read(root).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let records: Vec<_> = blocks
+            .records
+            .iter()
+            .filter(|record| record.name.as_ref() == "minecraft:leaf_litter")
+            .collect();
+        assert!(!records.is_empty());
+        for record in records {
+            assert!(
+                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
+                "{}",
+                record.canonical_state
+            );
+            assert_eq!(
+                blocks
+                    .texture_path(BlockVisualId(record.sequential_id))
+                    .as_deref(),
+                Some("textures/items/litter")
+            );
+        }
+    }
+
+    /// Inventory furnace faces use authored slots regardless of the placed state's direction.
+    #[test]
+    fn furnace_inventory_faces_show_the_unrotated_front() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{
+                "furnace":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}},
+                "blast_furnace":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}},
+                "smoker":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}}
+            }"#,
+            r#"{"texture_data":{
+                "top":{"textures":"textures/blocks/top"},
+                "side":{"textures":"textures/blocks/side"},
+                "front":{"textures":"textures/blocks/front"}
+            }}"#,
+            "[]",
+        );
+        for (name, pixel) in [
+            ("top", [19, 31, 47, 255]),
+            ("side", [61, 79, 97, 255]),
+            ("front", [101, 127, 151, 255]),
+        ] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(pixel))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        for name in [
+            "minecraft:furnace",
+            "minecraft:blast_furnace",
+            "minecraft:smoker",
+        ] {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|r| r.name.as_ref() == name)
+                .collect();
+            assert!(!states.is_empty(), "registered block {name}");
+            for record in states {
+                let tiles = blocks
+                    .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    &tiles[BlockFace::South as usize].rgba8[..4],
+                    &[101, 127, 151, 255],
+                    "front of {name} in {}",
+                    record.canonical_state
+                );
+                assert_eq!(
+                    &tiles[BlockFace::West as usize].rgba8[..4],
+                    &[61, 79, 97, 255]
+                );
+                assert_eq!(
+                    &tiles[BlockFace::Up as usize].rgba8[..4],
+                    &[19, 31, 47, 255]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn partial_furnace_carried_faces_keep_the_world_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"furnace":{"textures":"side","carried_textures":{"up":"top"}}}"#,
+            r#"{"texture_data":{"side":{"textures":"textures/blocks/side"},"top":{"textures":"textures/blocks/top"}}}"#,
+            "[]",
+        );
+        for (name, color) in [("side", [61, 79, 97, 255]), ("top", [19, 31, 47, 255])] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        for record in blocks
+            .records
+            .iter()
+            .filter(|r| r.name.as_ref() == "minecraft:furnace")
+        {
+            let tiles = blocks
+                .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                .unwrap()
+                .expect("missing carried faces fall back independently");
+            for face in BlockFace::ALL {
+                let expected = if face == BlockFace::Up {
+                    [19, 31, 47, 255]
+                } else {
+                    [61, 79, 97, 255]
+                };
+                assert_eq!(&tiles[face as usize].rgba8[..4], &expected);
+            }
+        }
+    }
+
+    /// Writes the block and texture catalogs needed to load icon test fixtures.
+    fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
+        std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
+        std::fs::write(root.join("blocks.json"), blocks).unwrap();
+        std::fs::write(root.join("textures/terrain_texture.json"), terrain).unwrap();
+        std::fs::write(root.join("textures/flipbook_textures.json"), flipbooks).unwrap();
+    }
+
+    /// A flat icon shows one frame of a flipbook strip, while other textures keep their size.
+    #[test]
+    fn flat_flipbook_icons_show_their_first_frame() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"sculk_vein":{"textures":"sculk_vein"}}"#,
+            r#"{"texture_data":{"sculk_vein":{"textures":"textures/blocks/sculk_vein"}}}"#,
+            r#"[{"flipbook_texture":"textures/blocks/sculk_vein","atlas_tile":"sculk_vein","ticks_per_frame":2}]"#,
+        );
+        for name in ["sculk_vein", "tall"] {
+            image::RgbaImage::new(16, 64)
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let size = |path: &str| {
+            let sprite = blocks.flat_sprite(root.path(), path).unwrap().unwrap();
+            [sprite.width, sprite.height]
+        };
+        assert_eq!(size("textures/blocks/sculk_vein"), [16, 16]);
+        assert_eq!(size("textures/blocks/tall"), [16, 64]);
     }
 
     /// A model texture past the carrier's side is skipped rather than failing its decode.

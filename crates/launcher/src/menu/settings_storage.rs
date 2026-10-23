@@ -39,6 +39,7 @@ pub struct StorageView {
     pub return_from_world: bool,
     pub error: Option<String>,
     pub opens_folders: bool, // the host can show a `StorageFolder` in a file manager
+    pub accepts_file_drops: bool, // the window receives files dragged onto it
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,12 +75,13 @@ impl StorageFolder {
 }
 
 impl StorageView {
-    /// Returns the items represented by a vanilla storage category.
-    pub fn items(&self, category: &str) -> &[StorageItem] {
+    /// Returns the items of a vanilla storage category, or `None` for one the client does not
+    /// keep (world templates, resource, behavior and skin packs).
+    pub fn items(&self, category: &str) -> Option<&[StorageItem]> {
         match category {
-            "world" => &self.worlds,
-            "cache" => &self.cached,
-            _ => &[],
+            "world" => Some(&self.worlds),
+            "cache" => Some(&self.cached),
+            _ => None,
         }
     }
 }

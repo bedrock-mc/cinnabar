@@ -8,7 +8,7 @@ fn ordinary_mesh_retries_coalesce_and_remove_current_revisions() {
     let now = Instant::now();
     for revision in 1..=2 {
         for x in 0..count {
-            jobs.enqueue(
+            jobs.enqueue_prioritized(
                 SubChunkKey::new(1, x as i32, 0, 0),
                 PendingMesh {
                     revision,
@@ -16,6 +16,7 @@ fn ordinary_mesh_retries_coalesce_and_remove_current_revisions() {
                     queued_at: now,
                     urgent: false,
                 },
+                false,
             );
         }
     }
@@ -113,7 +114,7 @@ fn camera_refresh_preserves_deferred_retry_backoff() {
     };
     let key = SubChunkKey::new(0, 12, 0, 0);
     let now = Instant::now();
-    jobs.enqueue(
+    jobs.enqueue_prioritized(
         key,
         PendingMesh {
             revision: 1,
@@ -121,6 +122,7 @@ fn camera_refresh_preserves_deferred_retry_backoff() {
             queued_at: now,
             urgent: false,
         },
+        false,
     );
     jobs.ingress(view, None, |_, _, _| (0, false));
     for _ in 0..2 {

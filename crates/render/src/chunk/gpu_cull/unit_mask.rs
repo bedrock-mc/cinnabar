@@ -3,7 +3,7 @@
 use render_model::terrain_units::IndexedUnitPage;
 use wgpu::util::DeviceExt;
 
-const WORKGROUP: u32 = 64;
+use super::model::MASK_WORKGROUP as WORKGROUP;
 
 /// A visibility write never changes addresses, references, counts or primitive order.
 pub struct UnitMasks {

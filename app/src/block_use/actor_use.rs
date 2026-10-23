@@ -1,4 +1,5 @@
 //! Actor use shares the pre-physics pick and press admission with block use.
+use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
 use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
 use simulation_clock::identity::SessionGeneration;
 use {
@@ -73,7 +74,12 @@ pub(super) fn prepare(
         .ok()
         .and_then(|query| query.value.ok().map(|block| (block, query.identity)));
     let block = obstruction.as_ref().and_then(|(block, _)| block.as_ref());
-    let Crosshair::Actor(hit) = classify_block_hit(actor, pick.origin.to_array(), block, reach)
+    // Like attacks, an actor is the use target only within the game-mode cap.
+    let cap = player
+        .facts
+        .game_mode_capabilities()
+        .map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
+    let Crosshair::Actor(hit) = classify_block_hit(actor, pick.origin.to_array(), block, cap)
     else {
         return None;
     };

@@ -172,10 +172,11 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         handedness: Some(ActorHandedness::Right),
     };
     runtime.retain_local_selected_equipment(&mut player_runtime, 1, held.clone());
-    runtime.retain_local_selected_equipment(
+    set_offhand(
+        &mut runtime,
         &mut player_runtime,
         2,
-        equipment(1, NetworkItemStack::empty()),
+        NetworkItemStack::empty(),
     );
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());
@@ -543,11 +544,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             .publish_local_runtime_id(player_runtime, 2, 1)
             .unwrap();
         runtime.retain_local_selected_equipment(player_runtime, 1, held);
-        runtime.retain_local_selected_equipment(
-            player_runtime,
-            2,
-            equipment(1, NetworkItemStack::empty()),
-        );
+        set_offhand(runtime, player_runtime, 2, NetworkItemStack::empty());
     });
     app.world_mut()
         .resource_mut::<client_interaction::movement::MovementTicker>()

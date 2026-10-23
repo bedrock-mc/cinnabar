@@ -875,6 +875,8 @@ fn normalize_properties(
 fn normalize_metadata(
     metadata: SynchedActorDataCopyableDataList,
 ) -> Result<Arc<[ActorMetadata]>, ActorPacketError> {
+    #[cfg(feature = "tracy")]
+    let _zone = tracing::info_span!("actor.metadata.normalize").entered();
     check_count("metadata", metadata.data.len(), MAX_ACTOR_METADATA_ENTRIES)?;
     // Skip individual entries the client cannot model (non-finite floats,
     // oversized payloads) rather than dropping the whole actor. The client
@@ -936,18 +938,12 @@ fn normalize_tick(tick: u64) -> u64 {
 }
 
 fn byte_rotation_degrees(value: u8) -> f32 {
-    f32::from(value) * (360.0 / 256.0)
+    signed_byte_rotation_degrees(value as i8)
 }
 
-/// Converts a rotation byte the generator types as `i8`.
-///
-/// Bedrock reads every rotation byte unsigned. gophertunnel
-/// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/reader.go`:
-/// `ByteFloat` reads a `uint8` and scales it by `360.0 / 256.0`. The generated
-/// `MoveActorDeltaData` stores the same byte as `i8`, so the bit pattern is
-/// reinterpreted rather than sign-extended.
+/// Converts a signed rotation byte to degrees in the half-turn range.
 fn signed_byte_rotation_degrees(value: i8) -> f32 {
-    byte_rotation_degrees(value as u8)
+    f32::from(value) * (360.0 / 256.0)
 }
 
 fn check_count(collection: &'static str, count: usize, max: usize) -> Result<(), ActorPacketError> {

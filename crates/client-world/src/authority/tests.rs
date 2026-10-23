@@ -70,7 +70,7 @@ fn totem_activation_publishes_only_the_local_player_event() {
 }
 
 /// Supplies a local pose without server-authored health attributes.
-fn local_health_feed() -> crate::LocalPlayerFeed {
+pub(super) fn local_health_feed() -> crate::LocalPlayerFeed {
     crate::LocalPlayerFeed {
         game_mode: None,
         prefer_client_skin: false,
@@ -317,6 +317,7 @@ fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
     assert!(matches!(
         authority.take_committed_ui().as_slice(),
         [
+            CommittedUiEvent::LocalSpawn { sequence: 1, .. },
             CommittedUiEvent::Ui {
                 sequence: 2,
                 event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 })
@@ -492,6 +493,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "example:plain".into(),
                 tags: Default::default(),
                 state_count: 1,
@@ -507,6 +509,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "example:powered".into(),
                 tags: Default::default(),
                 state_count: 2,
@@ -640,6 +643,7 @@ fn plain_identity_block(name: &str) -> CustomBlock {
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: false,
+        sound: None,
         name: name.into(),
         tags: Default::default(),
         state_count: 1,
@@ -756,6 +760,7 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
         let custom = CustomBlocks {
             blocks: Arc::from([CustomBlock {
                 name: "example:highlighted".into(),
+                sound: None,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,

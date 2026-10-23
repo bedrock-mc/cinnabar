@@ -49,7 +49,7 @@ fn macos_game_file(command: &Path) -> String {
 }
 
 /// Writes `contents` unless the file already holds them; `true` when it changed.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn write_if_changed(path: &Path, contents: &str) -> io::Result<bool> {
     if std::fs::read(path).is_ok_and(|existing| existing == contents.as_bytes()) {
         return Ok(false);

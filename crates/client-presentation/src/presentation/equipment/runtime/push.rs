@@ -21,6 +21,19 @@ impl EquipmentRuntime {
         scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
+        if !self.show_custom_item_models && source.is_some_and(|source| source.from_pack) {
+            if let Some(grip) = equipment.java.filter(|_| layer == LAYER_MAIN_HAND) {
+                self.push_java_held(body, item, bones, grip, scale, layers, true);
+            } else {
+                let hand = if layer == LAYER_OFF_HAND {
+                    bones.left_item
+                } else {
+                    bones.right_item
+                };
+                self.push_icon_attached(body, item, layer, hand, scale, layers);
+            }
+            return;
+        }
         if let Some(source) = source {
             let binding = &source.catalog.bindings()[source.index];
             let authored = layer != LAYER_MAIN_HAND
@@ -52,7 +65,7 @@ impl EquipmentRuntime {
             }
         }
         if let Some(grip) = equipment.java.filter(|_| layer == LAYER_MAIN_HAND) {
-            self.push_java_held(body, item, bones, grip, scale, layers);
+            self.push_java_held(body, item, bones, grip, scale, layers, false);
         } else {
             let hand = if layer == LAYER_OFF_HAND {
                 bones.left_item
@@ -61,6 +74,44 @@ impl EquipmentRuntime {
             };
             self.push_attached(body, item, layer, hand, None, scale, layers);
         }
+    }
+
+    /// Draws a pack item's ordinary icon on an item bone, bypassing authored geometry.
+    pub(super) fn push_icon_attached(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        layer: u8,
+        bone: Option<usize>,
+        scale: f32,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
+        let Some(hand) = bone else {
+            return;
+        };
+        let Some((mesh, location, span)) = self.held_icon_mesh(item) else {
+            return;
+        };
+        let mut display = held_sprite_display(item.grip.upright().unwrap_or(false));
+        display.scale *= scale;
+        let (Some(previous), Some(current)) = (
+            body.input.previous_bones.get(hand),
+            body.input.current_bones.get(hand),
+        ) else {
+            return;
+        };
+        let (Some(previous), Some(current)) = (
+            attach_to_bone(*previous, display),
+            attach_to_bone(*current, display),
+        ) else {
+            return;
+        };
+        let poses = self.poses.share(body, layer, [&[previous], &[current]]);
+        layers.push(held_glint(
+            layer_presentation(body, layer, mesh, poses, location, 0),
+            item,
+            span,
+        ));
     }
 
     /// A held item whose attachable ships its own single-bone geometry and a literal
@@ -92,16 +143,14 @@ impl EquipmentRuntime {
             return false;
         };
         let channels = match self.effective_category(&item.identifier, binding.category) {
-            EquipmentCategory::Held => {
-                binding
-                    .third_person
-                    .literal()
-                    .map(|transform| BoneChannels {
-                        translation: transform.translation.map(|value| value.get()),
-                        rotation: transform.rotation.map(|value| value.get()),
-                        scale: transform.scale.map(|value| value.get()),
-                    })
-            }
+            EquipmentCategory::Held | EquipmentCategory::ArmorAndHeld { .. } => binding
+                .third_person
+                .literal()
+                .map(|transform| BoneChannels {
+                    translation: transform.translation.map(|value| value.get()),
+                    rotation: transform.rotation.map(|value| value.get()),
+                    scale: transform.scale.map(|value| value.get()),
+                }),
             EquipmentCategory::Shield => {
                 let slot = if off_hand { "off_hand" } else { "main_hand" };
                 binding
@@ -203,13 +252,7 @@ impl EquipmentRuntime {
                     HeldKind::Block(_) if !icon_fallback => return None,
                     _ => {}
                 }
-                let index = self.held_icon_index(item)?;
-                let placement = self.placements.get(index).copied().flatten()?;
-                let location = self
-                    .atlas_locations
-                    .get(placement.layer)
-                    .copied()
-                    .flatten()?;
+                let (index, placement, location) = self.held_icon_parts(item)?;
                 (index, MeshKey::Sprite(index), placement, location)
             }
         };
@@ -217,6 +260,34 @@ impl EquipmentRuntime {
         let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
         let span = glint_span(placement.uv_rect(), block);
         Some((mesh, location, block, span))
+    }
+
+    /// Resolves an ordinary icon even when the item also has a block or custom model route.
+    pub(super) fn held_icon_mesh(
+        &mut self,
+        item: &WornItem,
+    ) -> Option<(EntityRigId, ActorArtworkLocation, [f32; 2])> {
+        if let Some((index, placement, location)) =
+            self.session_sprite(&item.identifier, item.metadata)
+        {
+            let mesh = self.mesh_for(MeshKey::Session(index), index, placement)?;
+            return Some((mesh, location, glint_span(placement.uv_rect(), false)));
+        }
+        let (index, placement, location) = self.held_icon_parts(item)?;
+        let mesh = self.mesh_for(MeshKey::Sprite(index), index, placement)?;
+        Some((mesh, location, glint_span(placement.uv_rect(), false)))
+    }
+
+    /// Resolves an item's startup sprite and its admitted atlas placement together.
+    fn held_icon_parts(&self, item: &WornItem) -> Option<(usize, Placement, ActorArtworkLocation)> {
+        let index = self.held_icon_index(item)?;
+        let placement = self.placements.get(index).copied().flatten()?;
+        let location = self
+            .atlas_locations
+            .get(placement.layer)
+            .copied()
+            .flatten()?;
+        Some((index, placement, location))
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -291,7 +362,12 @@ impl EquipmentRuntime {
         let binding = &catalog.bindings()[index];
         // A custom item's `minecraft:wearable` slot names where its attachable is worn.
         let category = self.effective_category(&item.identifier, binding.category);
-        if category != (EquipmentCategory::Armor { slot }) {
+        if !matches!(
+            category,
+            EquipmentCategory::Armor { slot: admitted }
+                | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                if admitted == slot
+        ) {
             return;
         }
         let selected = match animation.map(|animation| {
@@ -353,7 +429,12 @@ impl EquipmentRuntime {
             .or_else(|| {
                 if from_pack
                     || selected.is_some()
-                    || binding.category != (EquipmentCategory::Armor { slot })
+                    || !matches!(
+                        binding.category,
+                        EquipmentCategory::Armor { slot: admitted }
+                            | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                            if admitted == slot
+                    )
                     || binding.geometry.resolution != EntityDependencyResolution::External
                 {
                     return None;

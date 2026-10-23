@@ -10,6 +10,7 @@
 | Network update | Update the backing container without rebasing or subtracting an active prediction. |
 | Request slot validation | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
 | Response handling | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
+| Result code | Only success applies slot corrections. Every other code, generic or specific, is an error that clears the request's predictions. |
 | Slot correction | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
 | Historic correction | Correct backing using the request's historic item without removing the newer active prediction. |
 | Clearing predictions | Remove remaining active cells whose stamp is the answered request, not older or later owners. |
@@ -74,3 +75,7 @@ Existing bounded transport-pressure,
 timeout/refresh recovery, registry-change recovery, and multi-screen UI admission
 policies remain Cinnabar safety policies, not a claim that every vanilla inventory
 manager lifecycle and arbitrary container has been reproduced.
+Vanilla keeps no response deadline, so these refusals are bounded: when no
+authoritative restatement arrives within `INVENTORY_RECOVERY_WINDOW_MILLIS`, the
+ledger trusts its retained cells again. Unanswered predictions stay presented and
+still settle on a late answer, as vanilla's do.

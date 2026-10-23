@@ -357,3 +357,88 @@ fn mismatched_or_out_of_bounds_sprites_reject_the_item() {
         "the bottom-right region fits exactly"
     );
 }
+
+#[test]
+fn ground_contacts_require_one_shots_and_never_start_in_attachment_previews() {
+    let mut particle = entry("head", [0.0; 3]);
+    particle["trigger"] = "step".into();
+    let parts = particle["effect"]["particle_effect"]["components"]
+        .as_object_mut()
+        .unwrap();
+    parts.remove("minecraft:emitter_lifetime_looping");
+    parts.remove("minecraft:emitter_rate_steady");
+    parts.insert(
+        "minecraft:emitter_lifetime_once".into(),
+        serde_json::json!({"active_time": 0.1}),
+    );
+    parts.insert(
+        "minecraft:emitter_rate_instant".into(),
+        serde_json::json!({"num_particles": 1}),
+    );
+    let build_ground = |p: serde_json::Value| {
+        let bytes = animation(serde_json::json!([p]));
+        let mut descriptor = fixture::crown().descriptor().clone();
+        descriptor.slot = "aura".into();
+        descriptor.assets.animation = Some(fixture::animation_asset(&bytes));
+        model::build(
+            &descriptor,
+            &geometry([0.0; 3]),
+            include_bytes!("crown.png"),
+            &bytes,
+        )
+    };
+    let rig = build_ground(particle.clone()).unwrap();
+    assert!(rig.is_ground_effect());
+    assert_eq!(rig.emitters()[0].trigger, CosmeticTrigger::Step);
+    assert!(
+        rig.preview_emitter_transform(0, Motion::default())
+            .is_none()
+    );
+    assert!(
+        build(
+            &geometry([0.0; 3]),
+            &animation(serde_json::json!([particle.clone()]))
+        )
+        .is_none()
+    );
+    particle["effect"]["particle_effect"]["components"]["minecraft:emitter_lifetime_looping"] =
+        serde_json::json!({"active_time": 1});
+    assert!(build_ground(particle).is_none());
+}
+
+#[test]
+fn larger_cosmetic_sprite_crops_preserve_pixels_and_reject_invalid_regions() {
+    let texture = render_api::CapeImage {
+        width: 256,
+        height: 128,
+        rgba8: (0..256 * 128)
+            .flat_map(|i| [(i % 251) as u8, (i / 256) as u8, 9, 255])
+            .collect::<Vec<_>>()
+            .into(),
+    };
+    let make = |side, origin| {
+        let mut e = entry("head", [0.0; 3]);
+        e["effect"]["particle_effect"]["description"]["basic_render_parameters"]["texture"] =
+            COSMETIC_PARTICLE_TEXTURE.into();
+        e["sprites"] = serde_json::json!(origin);
+        e["sprite_side"] = serde_json::json!(side);
+        emitters::build(
+            vec![serde_json::from_value(e).unwrap()],
+            &["head"],
+            Some("0123456789abcdef"),
+            (&texture, "texture"),
+        )
+    };
+    let emitters = make(128, [128, 0]).unwrap();
+    let sprite = emitters[0].sprite.as_ref().unwrap();
+    assert_eq!(sprite.side, 128);
+    assert_eq!(sprite.pixels.len(), 128 * 128 * 4);
+    for y in 0..128usize {
+        assert_eq!(
+            &sprite.pixels[y * 512..(y + 1) * 512],
+            &texture.rgba8[(y * 256 + 128) * 4..(y * 256 + 256) * 4]
+        );
+    }
+    assert!(make(128, [129, 0]).is_none());
+    assert!(make(48, [0, 0]).is_none());
+}

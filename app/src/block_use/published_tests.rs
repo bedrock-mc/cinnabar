@@ -71,6 +71,9 @@ mod drop_inventory_tests;
 #[path = "published_tests/repeat_clock.rs"]
 mod repeat_clock_tests;
 
+#[path = "published_tests/touch.rs"]
+mod touch_tests;
+
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
     let mut payload = vec![1, 2];
@@ -142,7 +145,7 @@ fn fixture_with_network(
             }]),
         )
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "synthetic terrain decode", || {
+    test_time::eventually("synthetic terrain decode", || {
         stream.poll(position, 0);
         stream.committed_sequence() >= 2
     });
@@ -174,7 +177,7 @@ fn fixture_with_network(
     origin.publish_from_local_player_frame(&carrier);
     // The frame before this one picked along the same ray.
     let mut block_use = BlockUseRuntime::default();
-    block_use.retain_pick(&origin, movement.interaction_authority_identity());
+    block_use.retain_pick(&origin, movement.position_authority_identity());
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     player
         .facts
@@ -393,7 +396,7 @@ fn a_moving_press_measures_reach_from_the_pre_tick_eye() {
     let ahead = frame_origin(&world, Vec3::new(4.5, 2.5, 12.3), Quat::IDENTITY);
     let authority = world
         .resource::<MovementTicker>()
-        .interaction_authority_identity();
+        .position_authority_identity();
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&ahead, authority);
@@ -550,7 +553,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
         stream
             .submit(3, protocol::WorldEvent::BlockUpdates(floor))
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "fixture floor commit", || {
+        test_time::eventually("fixture floor commit", || {
             stream.poll(start, 0);
             stream.committed_sequence() >= 3
         });
@@ -582,7 +585,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     });
     let mut movement = world.resource_mut::<MovementTicker>();
     movement.reset(7, 100, start);
-    let authority = movement.interaction_authority_identity();
+    let authority = movement.position_authority_identity();
     let mut physics = client_interaction::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(start, 100, true);
     world.insert_resource(physics);
@@ -753,6 +756,7 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
     melee.resolve(
         crosshair,
         &gameplay::melee::PressContext {
+            refused_destroy: None,
             tick: 102,
             player_position: [4.5, 2.620_01, 8.5],
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -946,8 +950,9 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
     }
 }
 
+/// A held non-block item repeats the targeted block's own use with a simulation-tick trigger.
 #[test]
-fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
+fn a_held_nonblock_item_repeats_the_chest_use() {
     let (mut world, mut captured) = fixture();
     hold_use(&mut world);
     // An active physics clock lets this frame simulate the tick the repeat precedes.
@@ -993,25 +998,14 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
         },
     );
     world.run_system_cached(produce_block_use).unwrap();
-    assert!(
-        captured.drain().is_empty(),
-        "the locally denied repeat must not emit a chest interaction"
-    );
-    // The denied attempt used tick 102; the next tick keeps the admitted schedule.
-    assert_eq!(
-        world.resource::<BlockUseRuntime>().due(
-            true,
-            103,
-            RepeatClock {
-                now: Duration::from_millis(1_001),
-                sneaking: false,
-                speed: 0.0,
-                survival: true
-            },
-        ),
-        Some((ItemUseTrigger::SimulationTick, Duration::from_millis(700))),
-        "an unsent interaction must not change the last admitted placement's schedule"
-    );
+    let uses: Vec<_> = captured.drain().iter().filter_map(item_use).collect();
+    let [chest] = &uses[..] else {
+        panic!("expected one held chest use, got {uses:?}");
+    };
+    assert_eq!(chest.trigger, Some(ItemUseTrigger::SimulationTick));
+    assert!(chest.predicted_success);
+    assert_eq!(chest.position, [4, 2, 6]);
+    assert_eq!(chest.item.network_id, 42);
 }
 
 #[test]

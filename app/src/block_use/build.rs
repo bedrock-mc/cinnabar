@@ -74,6 +74,11 @@ fn prepare(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
+    let caps = caps.for_edit(stream.authority().held_edit_item(
+        &observed.selection.item,
+        protocol::ItemBlockList::CanPlaceOn,
+        observed.target.runtime_id,
+    ));
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -217,6 +222,21 @@ pub(crate) fn advance(
     let Some(stream) = context.client_world.stream.as_ref() else {
         return false;
     };
+    let bucket = stream
+        .authority()
+        .item_identifier(observed.selection.item.network_id())
+        .as_deref()
+        .is_some_and(assets::facts::has_bucket_name);
+    if trigger == ItemUseTrigger::SimulationTick
+        && !gameplay::block_use::repeats_while_held(
+            &observed.selection.item,
+            bucket,
+            plan.local_use,
+        )
+    {
+        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
+        return false;
+    }
     if !runtime.may_attempt(tick, plan.local_use, swings) {
         return false;
     }

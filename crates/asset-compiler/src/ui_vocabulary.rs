@@ -8,10 +8,18 @@ use crate::vocabulary::{json_files, read};
 
 type Names = BTreeSet<(&'static str, String)>;
 
+/// Properties whose string value names a data collection.
+const COLLECTION_KEYS: [&str; 3] = [
+    "collection_name",
+    "binding_collection_name",
+    "toggle_grid_collection_name",
+];
+
 /// Generates sorted, names-only rows from UI definitions and English text keys.
 pub fn generate(samples: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
     let pack = samples.join("resource_pack");
     let mut names = Names::new();
+    let mut flow = CollectionFlow::default();
     for path in json_files(&pack.join("ui"))? {
         let document = read(&path)?;
         if let Some(namespace) = document.get("namespace").and_then(Value::as_str)
@@ -26,7 +34,9 @@ pub fn generate(samples: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
             }
         }
         collect(&document, &mut names);
+        flow.visit(&document);
     }
+    flow.insert_into(&mut names);
     for line in fs::read_to_string(pack.join("texts/en_US.lang"))?.lines() {
         if !line.trim_start().starts_with('#')
             && let Some((key, _)) = line.split_once('=')
@@ -56,12 +66,9 @@ fn collect(value: &Value, names: &mut Names) {
                 symbols(key, names);
                 match (key.as_str(), value) {
                     ("renderer", Value::String(name)) => insert("renderer", name, names),
-                    (
-                        "collection_name"
-                        | "binding_collection_name"
-                        | "toggle_grid_collection_name",
-                        Value::String(name),
-                    ) => insert("collection", name, names),
+                    (key, Value::String(name)) if COLLECTION_KEYS.contains(&key) => {
+                        insert("collection", name, names);
+                    }
                     ("controls", Value::Array(controls)) => {
                         for control in controls {
                             if let Some(entries) = control.as_object() {
@@ -83,6 +90,68 @@ fn collect(value: &Value, names: &mut Names) {
         }
         _ => {}
     }
+}
+
+/// Collection names that reach a collection property only through variables, which pack
+/// scopes resolve by name; the flow is tracked pack-wide.
+#[derive(Default)]
+struct CollectionFlow {
+    /// Variables read by a collection property, directly or through other variables.
+    sinks: BTreeSet<String>,
+    /// Every `"$variable": "value"` assignment.
+    assignments: BTreeSet<(String, String)>,
+}
+
+impl CollectionFlow {
+    fn visit(&mut self, value: &Value) {
+        match value {
+            Value::Array(items) => items.iter().for_each(|item| self.visit(item)),
+            Value::Object(properties) => {
+                for (key, value) in properties {
+                    if let Value::String(text) = value {
+                        if COLLECTION_KEYS.contains(&key.as_str()) && text.starts_with('$') {
+                            self.sinks.insert(variable(text).to_owned());
+                        } else if key.starts_with('$') {
+                            self.assignments
+                                .insert((variable(key).to_owned(), variable(text).to_owned()));
+                        }
+                    }
+                    self.visit(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Records the literal values of every variable that reaches a collection property.
+    fn insert_into(mut self, names: &mut Names) {
+        loop {
+            let reached: Vec<_> = self
+                .assignments
+                .iter()
+                .filter(|(name, value)| {
+                    self.sinks.contains(name)
+                        && value.starts_with('$')
+                        && !self.sinks.contains(value)
+                })
+                .map(|(_, value)| value.clone())
+                .collect();
+            if reached.is_empty() {
+                break;
+            }
+            self.sinks.extend(reached);
+        }
+        for (name, value) in &self.assignments {
+            if self.sinks.contains(name) {
+                insert("collection", value, names);
+            }
+        }
+    }
+}
+
+/// Removes a variable's `|default` suffix.
+fn variable(text: &str) -> &str {
+    text.split_once('|').map_or(text, |(name, _)| name)
 }
 
 /// Records a control's local name and, for a factory, its instance name.
@@ -155,7 +224,7 @@ mod tests {
             fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt")).unwrap();
         assert_eq!(
             format!("{:x}", Sha256::digest(bytes)),
-            "fcb116f68b5bf6a64b18068bb576f994c1525143416c051d6c08e79a9ae06d80"
+            "f0074eb0250feed93d9d1f4697e20478c5bcb3a97bb8abdef98818c187408ab1"
         );
     }
 
@@ -188,6 +257,23 @@ mod tests {
         assert_eq!(
             generate(&isolated.cache).unwrap(),
             fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt")).unwrap()
+        );
+    }
+
+    #[test]
+    fn collection_names_assigned_through_variables_are_collections() {
+        let document = serde_json::json!({
+            "grid": { "collection_name": "$grid_name", "$grid_name|default": "$item_name" },
+            "cell": { "$item_name": "trade_tiers" },
+            "label": { "$text_name": "not_a_collection" },
+        });
+        let mut flow = CollectionFlow::default();
+        flow.visit(&document);
+        let mut names = Names::new();
+        flow.insert_into(&mut names);
+        assert_eq!(
+            names,
+            BTreeSet::from([("collection", "trade_tiers".to_owned())])
         );
     }
 

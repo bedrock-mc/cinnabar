@@ -171,3 +171,33 @@ fn damage_and_selection_keep_independent_ranges_in_the_shared_buffer() {
     assert!(crack_vertices(12, 12, true).is_empty());
     assert!(crack_vertices(6, 0, false).is_empty());
 }
+
+/// The block-entity atlas allows the pack's raw view only while a pack draws.
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn the_block_entity_atlas_allows_raw_views_only_while_a_pack_draws() {
+    use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
+    let (mut app, _) = crate::queue_review_support::app();
+    app.init_resource::<BlockEntityPipeline>()
+        .init_resource::<render_scene::BlockEntityFrameResource>()
+        .init_resource::<render_scene::BlockSelectionFrameResource>();
+    app.world_mut().run_system_once(init_gpu).unwrap();
+    app.world_mut().run_system_once(prepare_resources).unwrap();
+    assert!(
+        app.world()
+            .resource::<BlockEntityGpu>()
+            .atlas_texture()
+            .is_none()
+    );
+    for pack in [true, false] {
+        app.insert_resource(ArtworkRawViews(pack));
+        app.world_mut().run_system_once(prepare_resources).unwrap();
+        let gpu = app.world().resource::<BlockEntityGpu>();
+        let device = app.world().resource::<RenderDevice>().wgpu_device();
+        assert_eq!(
+            permits_raw_view(device, gpu.texture.as_ref().unwrap()),
+            pack
+        );
+        assert_eq!(gpu.atlas_texture().is_some(), pack);
+    }
+}

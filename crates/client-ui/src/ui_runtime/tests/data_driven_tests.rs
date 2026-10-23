@@ -1,0 +1,178 @@
+use protocol::ddui::{
+    DataDrivenScreenCloseReason, DataDrivenUiEvent, DataStoreChange, DataValue,
+    ShowDataDrivenScreen, data_driven_screen_closed_packet,
+};
+
+use super::*;
+
+fn show(form_id: u32) -> UiEvent {
+    UiEvent::DataDrivenUi(DataDrivenUiEvent::Show(ShowDataDrivenScreen {
+        screen_id: "minecraft:custom_form".into(),
+        form_id,
+        data_instance_id: Some(11),
+    }))
+}
+
+fn sent(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
+    std::iter::from_fn(|| runtime.take_client_packet())
+        .map(|packet| protocol::encode(&packet).unwrap().to_vec())
+        .collect()
+}
+
+fn closed(form_id: u32, reason: DataDrivenScreenCloseReason) -> Vec<u8> {
+    protocol::encode(&data_driven_screen_closed_packet(form_id, reason))
+        .unwrap()
+        .to_vec()
+}
+
+#[test]
+fn every_screen_request_is_answered_so_server_scripts_finish() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    runtime.apply(&mut player, envelope(1, 1, show(4))).unwrap();
+    assert_eq!(
+        sent(&mut runtime),
+        [closed(4, DataDrivenScreenCloseReason::ClientCanceled)]
+    );
+
+    runtime.open_chat(&mut player);
+    runtime.apply(&mut player, envelope(1, 2, show(5))).unwrap();
+    assert_eq!(
+        sent(&mut runtime),
+        [closed(5, DataDrivenScreenCloseReason::UserBusy)]
+    );
+
+    for (sequence, event) in [
+        (3, DataDrivenUiEvent::Close { form_id: Some(5) }),
+        (4, DataDrivenUiEvent::Close { form_id: None }),
+        (5, DataDrivenUiEvent::Reload),
+    ] {
+        runtime
+            .apply(
+                &mut player,
+                envelope(1, sequence, UiEvent::DataDrivenUi(event)),
+            )
+            .unwrap();
+    }
+    assert!(sent(&mut runtime).is_empty());
+}
+
+#[test]
+fn screen_requests_answer_busy_while_any_menu_screen_shows() {
+    use crate::ui_runtime::scene_stack::SceneHost;
+    use launcher::menu::MenuScreen;
+    type Open = fn(&mut UiRuntime, &mut player_state::PlayerState);
+    let screens: [(&str, Open); 4] = [
+        ("pause menu", |runtime, _| {
+            runtime.observe_host_screens(SceneHost {
+                menu: Some(MenuScreen::Pause),
+                over_world: true,
+                loading: None,
+            });
+        }),
+        ("sign editor", |runtime, _| {
+            runtime
+                .sign_editor_mut()
+                .open(crate::ui_runtime::sign_editor::SignEdit::new(
+                    [0, 64, 0],
+                    true,
+                    Default::default(),
+                ));
+        }),
+        ("credits", |runtime, _| {
+            assert!(runtime.credits_mut().open(42, 8, 0));
+        }),
+        ("chat", |runtime, player| {
+            runtime.open_chat(player);
+        }),
+    ];
+    for (name, open) in screens {
+        let mut runtime = UiRuntime::new(1);
+        let mut player = player_state::PlayerState::new(1);
+        runtime.apply(&mut player, envelope(1, 1, show(4))).unwrap();
+        open(&mut runtime, &mut player);
+        runtime.apply(&mut player, envelope(1, 2, show(5))).unwrap();
+        assert_eq!(
+            sent(&mut runtime),
+            [
+                closed(4, DataDrivenScreenCloseReason::ClientCanceled),
+                closed(5, DataDrivenScreenCloseReason::UserBusy),
+            ],
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn screen_answers_wait_out_a_full_client_queue() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    let filler = closed(1, DataDrivenScreenCloseReason::UserBusy);
+    let mut queued = 0;
+    while runtime.queue_client_packet(data_driven_screen_closed_packet(
+        1,
+        DataDrivenScreenCloseReason::UserBusy,
+    )) {
+        queued += 1;
+    }
+    for (sequence, form_id) in [(1, 4), (2, 5)] {
+        runtime
+            .apply(&mut player, envelope(1, sequence, show(form_id)))
+            .unwrap();
+    }
+    let mut expected = vec![filler; queued];
+    expected.push(closed(4, DataDrivenScreenCloseReason::ClientCanceled));
+    expected.push(closed(5, DataDrivenScreenCloseReason::ClientCanceled));
+    assert_eq!(sent(&mut runtime), expected);
+}
+
+#[test]
+fn data_stores_follow_the_server_until_the_session_ends() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    let store = |changes| UiEvent::DataDrivenUi(DataDrivenUiEvent::Store(changes));
+    runtime
+        .apply(
+            &mut player,
+            envelope(
+                1,
+                1,
+                store(vec![
+                    DataStoreChange::Replace {
+                        store: "minecraft".into(),
+                        property: "message_box_data_11".into(),
+                        update_count: 1,
+                        value: DataValue::String("body".into()),
+                    },
+                    DataStoreChange::Remove {
+                        store: "other".into(),
+                    },
+                    DataStoreChange::Update(protocol::ddui::DataStoreUpdate {
+                        store: "minecraft".into(),
+                        property: "unknown".into(),
+                        path: "title".into(),
+                        value: protocol::ddui::DataPrimitive::Bool(true),
+                        property_update_count: 0,
+                        path_update_count: 1,
+                    }),
+                ]),
+            ),
+        )
+        .unwrap();
+    let ddui = runtime.data_driven_ui();
+    assert_eq!(
+        ddui.stores().property("minecraft", "message_box_data_11"),
+        Some(&DataValue::String("body".into()))
+    );
+    assert_eq!(ddui.ignored_store_changes(), 1);
+
+    player.begin_session(2);
+    runtime.begin_session(2);
+    assert!(
+        runtime
+            .data_driven_ui()
+            .stores()
+            .property("minecraft", "message_box_data_11")
+            .is_none()
+    );
+}

@@ -25,7 +25,7 @@ pub(crate) fn sign_states(
     let states = serde_json::from_str(canonical).ok()?;
     match fact.placement {
         R::StandingSign if only_keys(&states, &[P::GroundSignDirection.name()]) => {
-            crate::placement_state::valid_property(&states, P::GroundSignDirection)?;
+            crate::placement_state::valid_property(fact, &states, P::GroundSignDirection)?;
         }
         R::WallSign if only_keys(&states, &[P::FacingDirection.name()]) => {
             integer_in(&states, P::FacingDirection.name(), &[2, 3, 4, 5])?;

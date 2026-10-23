@@ -30,6 +30,7 @@ fn loading_tracks_all_compositor_variants_and_reuses_them_for_other_views() {
                 msaa: Msaa::Off,
                 hdr: false,
                 enhanced: false,
+                shader_pack: false,
                 output: None,
             };
             let mut ids = Vec::new();

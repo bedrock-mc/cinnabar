@@ -49,8 +49,12 @@ mod item_glint;
 #[cfg(test)]
 #[path = "ui_render/page_uniform_tests.rs"]
 mod page_uniform_tests;
+#[path = "ui_render/target.rs"]
+mod target;
 #[path = "ui_render/textures.rs"]
 mod textures;
+#[path = "ui_render/upscale.rs"]
+mod upscale;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/backdrop.rs"]
@@ -140,6 +144,7 @@ fn install_ui_render(app: &mut App) {
         ExtractResourcePlugin::<UiGlintSettings>::default(),
         ExtractResourcePlugin::<UiItemGlintTexture>::default(),
     ));
+    upscale::install(app);
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
     load_internal_asset!(
         app,
@@ -179,14 +184,19 @@ fn install_ui_render(app: &mut App) {
 fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
         resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+        target::prepare_native_ui_targets
+            .in_set(RenderSystems::PrepareResources)
+            .after(bevy::render::view::prepare_view_targets),
         composite::prepare_ui_layers
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(resources::prepare_ui_resources),
+            .after(resources::prepare_ui_resources)
+            .after(target::prepare_native_ui_targets),
         backdrop::prepare_ui_backdrops
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(resources::prepare_ui_resources),
+            .after(resources::prepare_ui_resources)
+            .after(target::prepare_native_ui_targets),
         prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
         queue_ui_overlay
             .in_set(RenderSystems::PrepareBindGroups)

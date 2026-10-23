@@ -55,6 +55,9 @@ type AtmosphereQuery = (
 fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: RenderContext) {
     #[cfg(feature = "shaderpacks")]
     let view = query.entity();
+    if crate::scene_target::unavailable(world, query.entity()) {
+        return;
+    }
     let (camera, target, scene, depth, offset, msaa, resolution) = query.into_inner();
     if world
         .get_resource::<render_scene::PanoramaScene>()
