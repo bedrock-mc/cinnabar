@@ -168,6 +168,14 @@ impl VehiclePrediction {
         Some(predicted_sample(session.owner.unique_id, &state))
     }
 
+    /// Renders the boat at its committed state until the next tick.
+    pub(super) fn finish_interpolation(&mut self) {
+        if let Some(session) = &mut self.session {
+            session.previous_yaw = session.state.yaw;
+            session.previous_position = session.state.position;
+        }
+    }
+
     /// Discards a stepped boat whose player tick failed.
     pub(super) fn discard_pending(&mut self) {
         self.pending = None;

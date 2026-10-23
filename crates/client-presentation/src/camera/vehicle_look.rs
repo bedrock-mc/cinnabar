@@ -27,8 +27,10 @@ impl VehicleLookFollow {
             .filter(|(vehicle, _)| *vehicle == lock.vehicle_runtime_id)
             .map_or(0.0, |(_, last)| wrap_degrees(lock.vehicle_yaw - last));
         self.last_vehicle = Some((lock.vehicle_runtime_id, lock.vehicle_yaw));
-        let relative = wrap_degrees(look_yaw - lock.facing());
-        (relative + vehicle_turn).clamp(-lock.limit, lock.limit) - relative
+        // The look keeps its heading relative to the seat as the vehicle turns, then is held
+        // within the seat's range.
+        let relative = wrap_degrees(look_yaw - (lock.facing() - vehicle_turn));
+        wrap_degrees(lock.facing() + relative.clamp(-lock.limit, lock.limit) - look_yaw)
     }
 
     /// Turns the view's look heading with the vehicle.
@@ -85,6 +87,18 @@ mod tests {
         let mut follow = VehicleLookFollow::default();
         follow.turn(85.0, Some(boat(175.0)));
         assert!((follow.turn(85.0, Some(boat(-175.0))) - 10.0).abs() < 1.0e-4);
+    }
+
+    /// A large vehicle turn carries the view the same way, not to the far edge of the seat.
+    #[test]
+    fn a_large_vehicle_turn_carries_the_view_with_it() {
+        let mut follow = VehicleLookFollow::default();
+        let seat = |vehicle_yaw| SeatViewLock {
+            offset: 0.0,
+            ..boat(vehicle_yaw)
+        };
+        assert_eq!(follow.turn(-90.0, Some(seat(0.0))), 0.0);
+        assert!((follow.turn(-90.0, Some(seat(100.0))) - 100.0).abs() < 1.0e-4);
     }
 
     /// Moving straight to another locked vehicle does not turn the view by the difference

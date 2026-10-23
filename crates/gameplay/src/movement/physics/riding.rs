@@ -55,6 +55,14 @@ impl super::LocalPhysicsController {
         self.vehicle.feed(self.tick_alpha())
     }
 
+    /// Ends render easing at the committed state, for the eye, visual corrections and the
+    /// steered boat alike, so a blocked frame shows the rider on its boat.
+    pub(super) fn finish_render_interpolation(&mut self) {
+        self.eye_offset.finish_interpolation();
+        self.visual_correction.finish_interpolation();
+        self.vehicle.finish_interpolation();
+    }
+
     /// Forgets the steered boat's prediction; the next steered tick starts a new one. A new
     /// session's boat, even one with the old ids, starts its own prediction.
     pub fn end_vehicle_prediction(&mut self) {
@@ -195,6 +203,55 @@ mod tests {
         );
         assert!(frame.blocked.is_some());
         assert_eq!(physics.network_position().unwrap()[0], 99.95);
+    }
+
+    /// A frame blocked on unloaded terrain shows the boat at its committed state, where the
+    /// rider is held, not one tick behind it.
+    #[test]
+    fn a_blocked_frame_shows_the_boat_under_its_held_rider() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.reanchor_network_position([99.0, protocol::PLAYER_NETWORK_OFFSET, 0.5], 100, true);
+        let mut vehicle = SteeredVehicle {
+            runtime_id: 7,
+            unique_id: -7,
+            body: sim::BoatBody {
+                width: 1.4,
+                height: 0.455,
+                height_offset: 0.375,
+            },
+            position: [99.0, 0.375, 0.5],
+            yaw: 0.0,
+            velocity: [0.3, 0.0, 0.0],
+            seat: [0.0, 0.0, 0.0],
+            revision: Default::default(),
+        };
+        let mut committed = false;
+        for _ in 0..20 {
+            let ride = crate::movement::PhysicsSampleContext {
+                mode_intent: ModeIntent {
+                    ride: Some(crate::movement::RideKind::Boat),
+                    vehicle: Some(vehicle),
+                    ..ModeIntent::default()
+                },
+                ..Default::default()
+            };
+            let frame = physics.advance_with_context(
+                std::time::Duration::from_millis(50),
+                MovementInput::default(),
+                ride,
+                &EdgeGround,
+            );
+            if frame.blocked.is_some() {
+                let feed = physics.predicted_vehicle_feed().unwrap();
+                assert!(committed);
+                assert_eq!(feed.render_position, feed.position);
+                return;
+            }
+            committed = true;
+            let feed = physics.predicted_vehicle_feed().unwrap();
+            vehicle.position = [feed.position[0], feed.position[1] + 0.375, feed.position[2]];
+        }
+        panic!("the boat never reached the unloaded terrain");
     }
 
     #[test]
