@@ -94,12 +94,13 @@ Until the newest notice is acknowledged, sends are unavailable and old-world
 inbound messages are discarded. Use `OnEpoch` to resend current state after the
 fence opens.
 
-The fence takes effect before the notice is admitted to the rate budget.
-`WorldChanged` returns false if the notice cannot be sent immediately. On an active
-v2 session it retries the latest notice once after one second of rate refill,
-keeping both directions fenced. If delivery still fails, the optional client part
-ends and ordinary play continues. Repeating the same world ID can send a pending
-notice sooner without allocating another epoch.
+The fence takes effect before the notice is written. Notices and their correlated
+acknowledgments bypass the data rate budget, so exhausted data credits cannot delay
+a transfer. A newer world supersedes the pending notice; only its acknowledgment
+opens the fence. Superseded and repeated acknowledgments are ignored. There are no
+retry timers. A write failure ends the optional client part while ordinary play
+continues. `WorldChanged` returns false when there is no usable v2 session or the
+world ID is empty.
 
 Native dimension changes and explicit notices both advance the logical epoch.
 Logical epochs are independent of the native dimension counter. The client never

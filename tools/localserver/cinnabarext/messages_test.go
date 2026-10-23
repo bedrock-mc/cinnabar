@@ -122,24 +122,44 @@ func TestAllowedCapabilitiesRejectUnexpectedBundleAuthority(t *testing.T) {
 }
 
 func TestNewestWorldNoticeKeepsTheFenceClosed(t *testing.T) {
-	f, _ := readyFixture(t)
-	if !f.s.WorldChanged(f.player, "sample:first") || !f.s.WorldChanged(f.player, "sample:second") {
-		t.Fatal("world notice rejected")
+	f, accept := readyFixture(t)
+	epochs := 0
+	f.s.OnEpoch(func(uuid.UUID, string) { epochs++ })
+	var notices []Control
+	for _, world := range []WorldID{"sample:first", "sample:second", "sample:third"} {
+		before := len(f.carrier())
+		if !f.s.WorldChanged(f.player, world) || len(f.carrier()) != before+1 {
+			t.Fatal("world notice rejected")
+		}
+		notices = append(notices, f.lastWorldNotice())
+		if !f.s.WorldChanged(f.player, world) || len(f.carrier()) != before+1 {
+			t.Fatal("duplicate world allocated another notice")
+		}
 	}
-	out := f.carrier()
-	var first, last Control
-	if err := Decode(out[len(out)-2], &first); err != nil {
-		t.Fatal(err)
+	latest := notices[len(notices)-1]
+	for _, old := range notices[:len(notices)-1] {
+		// An older notice may have advanced the client beyond the latest request.
+		f.deliver(f.encode(worldAcknowledgment(old, latest.Epoch.WorldEpoch+1)))
+		if epochs != 0 || f.sendToClient(1) {
+			t.Fatal("superseded acknowledgment opened the fence")
+		}
 	}
-	if err := Decode(out[len(out)-1], &last); err != nil {
-		t.Fatal(err)
+	f.deliver(f.envelope(accept, 1, nil))
+	if len(f.messages()) != 0 {
+		t.Fatal("old-world message crossed the pending fence")
 	}
-	f.deliver(f.encode(worldAcknowledgment(first, first.Epoch.WorldEpoch)))
-	if f.sendToClient(1) {
-		t.Fatal("intermediate acknowledgment opened the fence")
-	}
-	f.deliver(f.encode(worldAcknowledgment(last, last.Epoch.WorldEpoch)))
-	if !f.sendToClient(2) {
+	f.deliver(f.encode(worldAcknowledgment(latest, latest.Epoch.WorldEpoch+2)))
+	if epochs != 1 || !f.sendToClient(2) {
 		t.Fatal("latest acknowledgment did not open the fence")
+	}
+	for _, notice := range notices {
+		f.deliver(f.encode(worldAcknowledgment(notice, latest.Epoch.WorldEpoch+2)))
+	}
+	if epochs != 1 || !f.sendToClient(3) {
+		t.Fatal("a retired acknowledgment changed the completed transfer")
+	}
+	f.deliver(f.envelope(accept, 2, func(e *Envelope) { e.WorldEpoch = latest.Epoch.WorldEpoch + 2 }))
+	if len(f.messages()) != 1 {
+		t.Fatal("latest-world message was not delivered")
 	}
 }

@@ -13,8 +13,8 @@ type WorldID string
 // WorldChanged requests a fresh client epoch after a committed world transfer, including
 // transfers between worlds of the same dimension type. Duplicate world IDs are idempotent.
 // Sends remain unavailable until OnEpoch reports the client's acknowledgment. Call from
-// the destination world transaction after moving the player. False means no notice was sent;
-// an active v2 session stays fenced and retries once after one second of rate refill.
+// the destination world transaction after moving the player. Notices bypass data credits.
+// False means there is no usable v2 session or the world ID is empty.
 func (s *Server) WorldChanged(player uuid.UUID, worldID WorldID) bool {
 	s.mu.Lock()
 	conn := s.active[player]
@@ -32,57 +32,23 @@ func (s *Server) WorldChanged(player uuid.UUID, worldID WorldID) bool {
 		return false
 	}
 	if conn.worldID == worldID {
-		return conn.requestedEpoch == 0 || conn.sendWorldNotice()
+		return true
 	}
 	next := max(conn.epoch, conn.requestedEpoch) + 1
 	if next == 0 {
 		conn.fallBack(errors.New("world epoch exhausted"))
 		return false
 	}
-	conn.requestedEpoch, conn.worldID, conn.worldNoticeSent = next, worldID, false
-	if conn.sendWorldNotice() {
-		return true
-	}
-	if conn.phase == active && !conn.worldRetryPending {
-		conn.worldRetryPending = true
-		s.deferWorldNotice(conn.retryWorldNotice)
-	}
-	return false
-}
-
-// sendWorldNotice admits the pending notice once, without reopening either direction.
-// The caller holds c.mu. Only rate exhaustion leaves the active notice unsent.
-func (c *Conn) sendWorldNotice() bool {
-	if c.worldNoticeSent {
-		return true
-	}
-	now := c.s.now()
-	if uint64(now.Unix()) >= c.expires {
-		c.fallBack(errors.New("the grant expired"))
-		return false
-	}
-	data, err := Encode(Control{Epoch: &Epoch{Session: c.session, WorldEpoch: c.requestedEpoch}})
+	// Establish the fence before writing; acknowledgments take the same connection lock.
+	conn.requestedEpoch, conn.worldID, conn.worldNoticePending = next, worldID, true
+	data, err := Encode(Control{Epoch: &Epoch{Session: conn.session, WorldEpoch: next}})
 	if err != nil {
-		c.fallBack(err)
+		conn.fallBack(err)
 		return false
 	}
-	if c.egress.Charge(len(data), uint64(now.UnixMilli())) != nil {
+	if err := conn.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
+		conn.fallBack(err)
 		return false
 	}
-	if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
-		c.fallBack(err)
-		return false
-	}
-	c.worldNoticeSent = true
 	return true
-}
-
-// retryWorldNotice delivers the latest unsent notice after a full refill or ends the client part.
-func (c *Conn) retryWorldNotice() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.worldRetryPending = false
-	if c.phase == active && c.requestedEpoch != 0 && !c.sendWorldNotice() {
-		c.fallBack(errors.New("world notice could not be delivered after rate refill"))
-	}
 }

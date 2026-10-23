@@ -321,8 +321,11 @@ the same `epoch` control. Its acknowledgment is
 strictly newer logical epoch. This keeps an earlier native epoch update from
 acknowledging a notice the client has not received. The server fences both
 directions before attempting delivery and reopens them only for the newest
-notice's acknowledgment. Deploy matching client and helper revisions for this
-control; native epoch updates and message envelopes retain their formats.
+notice's acknowledgment. Notices and their correlated acknowledgments bypass data
+rate credits in both directions. Superseded and repeated acknowledgments are ignored;
+a failed notice write ends the optional session without retry timers. Deploy matching
+client and helper revisions for this control; native epoch updates and message
+envelopes retain their formats.
 
 On the server, the guest's `client-message` and `epoch` callbacks (server WIT 0.4)
 get the snapshot of the player's focus, the Experience block the player last used,

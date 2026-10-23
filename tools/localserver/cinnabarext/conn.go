@@ -94,11 +94,11 @@ type Conn struct {
 	sequence uint64
 	// epochChanged is set by a v2 epoch control until receive tells the Experiences.
 	epochChanged bool
-	// requestedEpoch fences both directions until this server notice is acknowledged.
-	requestedEpoch    uint64
-	worldID           WorldID
-	worldNoticeSent   bool
-	worldRetryPending bool
+	// requestedEpoch retains the latest notice ID so retired acknowledgments are ignored.
+	requestedEpoch uint64
+	worldID        WorldID
+	// worldNoticePending fences both directions until the latest notice is acknowledged.
+	worldNoticePending bool
 }
 
 // ReadPacket returns the next packet that is not on the carrier, handling carrier messages on the
@@ -189,12 +189,18 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 	var err error
 	if c.wire.Version == WireVersion {
 		envelope, err = c.ingress.Receive(data, nowMs, c.epoch, c.grant)
-	} else if err = c.ingress.charge(len(data), nowMs); err == nil {
-		// After Ready a v2 client sends epoch updates and world-notice acknowledgments.
-		if msg, controlErr := control(data); controlErr == nil {
+	} else {
+		msg, controlErr := control(data)
+		// Notice acknowledgments bypass data credits, just like the outbound notices.
+		if controlErr == nil && msg.WorldAck != nil {
 			return nil, c.changeEpoch(msg)
 		}
-		envelope, err = c.ingress.take(data, c.epoch, c.grant)
+		if err = c.ingress.charge(len(data), nowMs); err == nil {
+			if controlErr == nil {
+				return nil, c.changeEpoch(msg)
+			}
+			envelope, err = c.ingress.take(data, c.epoch, c.grant)
+		}
 	}
 	switch {
 	case err != nil:
@@ -207,7 +213,7 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 		// epoch it has since left are dropped and counted.
 		err = errors.New("another world epoch")
 	}
-	if c.requestedEpoch != 0 {
+	if c.worldNoticePending {
 		envelope = nil
 	}
 	return envelope, err
@@ -221,10 +227,13 @@ func (c *Conn) changeEpoch(msg Control) error {
 		switch {
 		case ack.RequestedEpoch == 0 || ack.RequestedEpoch > c.requestedEpoch:
 			return errors.New("acknowledgment for an unrequested world notice")
-		case ack.RequestedEpoch == c.requestedEpoch && !c.worldNoticeSent:
-			return errors.New("acknowledgment for an unsent world notice")
+		case ack.Session != c.session:
+			return errors.New("acknowledgment for another session")
 		case ack.WorldEpoch < ack.RequestedEpoch:
 			return errors.New("acknowledgment below the requested world epoch")
+		}
+		if ack.RequestedEpoch < c.requestedEpoch || !c.worldNoticePending {
+			return nil
 		}
 		e = &Epoch{Session: ack.Session, WorldEpoch: ack.WorldEpoch}
 	}
@@ -239,10 +248,10 @@ func (c *Conn) changeEpoch(msg Control) error {
 		return errors.New("epoch inside a fragmented message")
 	}
 	c.epoch = e.WorldEpoch
-	if msg.WorldAck != nil && msg.WorldAck.RequestedEpoch == c.requestedEpoch {
-		c.requestedEpoch = 0
+	if msg.WorldAck != nil {
+		c.worldNoticePending = false
 	}
-	c.epochChanged = c.requestedEpoch == 0
+	c.epochChanged = !c.worldNoticePending
 	c.s.log.Info("client part world epoch", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch)
 	return nil
 }
@@ -404,7 +413,7 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.phase != active || c.requestedEpoch != 0 {
+	if c.phase != active || c.worldNoticePending {
 		return false
 	}
 	now := c.s.now()

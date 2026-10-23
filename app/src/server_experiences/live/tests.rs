@@ -1101,6 +1101,39 @@ fn a_native_epoch_update_cannot_acknowledge_a_later_server_notice() {
 }
 
 #[test]
+fn world_acknowledgments_bypass_exhausted_data_credits() {
+    for byte_budget in [false, true] {
+        let mut live = fixture_v2(1);
+        complete(&mut live, "bundle0");
+        live.poll(1, 0).unwrap();
+        if byte_budget {
+            live.egress
+                .charge(server_experience::policy::MAX_BYTES_PER_SECOND as usize, 0)
+                .unwrap();
+        } else {
+            while live.egress.charge(0, 0).is_ok() {}
+        }
+        for requested_epoch in [2, 3] {
+            let notice = serde_json::to_vec(&Control::Epoch {
+                session: live.grant.session.clone(),
+                world_epoch: requested_epoch,
+            })
+            .unwrap();
+            live.receive(&notice, 0).unwrap();
+            let packets = live.poll(1, 0).unwrap();
+            assert!(matches!(
+                serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+                Control::WorldAck { world_epoch, requested_epoch: requested, .. }
+                    if world_epoch == requested_epoch && requested == requested_epoch
+            ));
+            assert!(live.egress.charge(1, 0).is_err());
+        }
+        live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+        assert_eq!(live.epoch, 3);
+    }
+}
+
+#[test]
 fn world_notices_require_the_live_session_and_wire_v2() {
     for mut live in [fixture(1), fixture_v2(1)] {
         if live.grant.wire.version == WIRE_VERSION {

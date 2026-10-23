@@ -793,8 +793,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   the local server imports the same implementation. Explicit world notices fence
   messages before notice admission until the client acknowledges that specific
   notice and invoke the existing client-part epoch callback, including
-  same-dimension-type transfers. Rate exhaustion retries the latest notice once
-  after refill or ends the optional session. A two-world
+  same-dimension-type transfers. Notices and their correlated acknowledgments bypass
+  data credits; write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/

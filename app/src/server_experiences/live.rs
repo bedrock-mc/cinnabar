@@ -451,7 +451,9 @@ impl<H: Worker> Live<H> {
                     world_epoch: epoch,
                 },
             })?;
-            self.egress.charge(control.len(), now_ms)?;
+            if requested.is_none() {
+                self.egress.charge(control.len(), now_ms)?;
+            }
             packets.push(control);
         }
         for instance in self.instances.values_mut() {
@@ -492,10 +494,7 @@ impl<H: Worker> Live<H> {
     /// Applies aggregate limits and signed schemas before guest dispatch.
     pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
-        if let Some(epoch) = self
-            .ingress
-            .receive_epoch_request(bytes, now_ms, &self.grant)?
-        {
+        if let Some(epoch) = self.ingress.receive_epoch_request(bytes, &self.grant)? {
             self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(epoch));
             return Ok(());
         }

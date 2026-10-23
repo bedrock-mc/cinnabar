@@ -287,14 +287,9 @@ pub struct Ingress {
 }
 
 impl Ingress {
-    /// Takes a server request to advance the logical world epoch on wire v2. Controls share
-    /// the envelope rate budget and cannot interrupt a fragmented message.
-    pub fn receive_epoch_request(
-        &mut self,
-        bytes: &[u8],
-        now_ms: u64,
-        grant: &Grant,
-    ) -> Result<Option<u64>> {
+    /// Takes a server request to advance the logical world epoch on wire v2. Notices bypass
+    /// the data rate budget and cannot interrupt a fragmented message.
+    pub fn receive_epoch_request(&mut self, bytes: &[u8], grant: &Grant) -> Result<Option<u64>> {
         let Ok(crate::session::Control::Epoch {
             session,
             world_epoch,
@@ -304,7 +299,10 @@ impl Ingress {
         };
         let result = (|| {
             ensure!(!self.failed, "channel quarantined");
-            self.rate.charge(bytes.len(), now_ms)?;
+            ensure!(
+                bytes.len() <= protocol::MAX_EXPERIENCE_ENVELOPE_BYTES,
+                "control message too large"
+            );
             ensure!(
                 grant.wire.version != WIRE_VERSION,
                 "world notice requires wire v2"

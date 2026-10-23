@@ -2,7 +2,6 @@ package cinnabarext
 
 import (
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,143 +51,84 @@ func TestNativeEpochCannotAcknowledgeServerWorldNotice(t *testing.T) {
 	}
 }
 
-func TestWorldNoticeAdmissionFailureKeepsBothDirectionsFenced(t *testing.T) {
-	f, accept := readyFixture(t)
-	var retry func()
-	f.s.deferWorldNotice = func(callback func()) { retry = callback }
-	for f.sendToClient(1) {
-	}
-	before := len(f.carrier())
-	if f.s.WorldChanged(f.player, "sample:destination") {
-		t.Fatal("world notice exceeded the exhausted egress budget")
-	}
-	f.deliver(f.envelope(accept, 1, nil))
-	if len(f.messages()) != 0 {
-		t.Fatal("old-world record reached the destination after notice admission failed")
-	}
-	f.clock.Advance(time.Second)
-	if f.sendToClient(2) {
-		t.Fatal("old-world sends resumed when credits refilled")
-	}
-	if retry == nil || len(f.carrier()) != before {
-		t.Fatal("failed notice was not deferred without sending old-world data")
-	}
-	retry()
-	notice := f.lastWorldNotice()
-	if len(f.carrier()) != before+1 || notice.Epoch.WorldEpoch != testEpoch+1 {
-		t.Fatal("pending world notice was not delivered after rate refill")
-	}
-	if f.sendToClient(3) {
-		t.Fatal("delivery reopened the fence before acknowledgment")
-	}
-	f.deliver(f.envelope(accept, 2, nil))
-	if len(f.messages()) != 0 {
-		t.Fatal("old-world inbound traffic resumed before acknowledgment")
-	}
-	f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
-	if !f.sendToClient(4) {
-		t.Fatal("acknowledged retry did not reopen sends")
-	}
-	f.deliver(f.envelope(accept, 3, func(e *Envelope) { e.WorldEpoch++ }))
-	if len(f.messages()) != 1 {
-		t.Fatal("destination record was not delivered after the retried notice")
-	}
-}
-
-func TestWorldNoticeRetryEndsOnlyTheClientPartIfDeliveryStillFails(t *testing.T) {
-	for _, reason := range []string{"no refill", "write failure", "expired", "disconnected"} {
-		t.Run(reason, func(t *testing.T) {
-			f, _ := readyFixture(t)
-			var retry func()
-			f.s.deferWorldNotice = func(callback func()) { retry = callback }
-			for f.sendToClient(1) {
+func TestWorldNoticesAndAcknowledgmentsBypassExhaustedDataBudgets(t *testing.T) {
+	for _, budget := range []string{"messages", "bytes"} {
+		t.Run(budget, func(t *testing.T) {
+			f, accept := readyFixture(t)
+			conn := f.conn.(*Conn)
+			count, size := MaxMessagesPerSecond, 0
+			if budget == "bytes" {
+				count, size = 1, MaxBytesPerSecond
 			}
-			f.s.WorldChanged(f.player, "sample:destination")
-			before := len(f.carrier())
-			switch reason {
-			case "write failure":
-				f.clock.Advance(time.Second)
-				f.inner.closed = true
-			case "expired":
-				f.clock.Advance(24 * time.Hour)
-			case "disconnected":
-				f.conn.(*Conn).end("disconnected")
+			for range count {
+				for _, rate := range []*RateLimit{&conn.egress, &conn.ingress.rate} {
+					if err := rate.Charge(size, uint64(f.clock.Now().UnixMilli())); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
-			retry()
-			if len(f.carrier()) != before || f.conn.(*Conn).phase != fallenBack || f.sendToClient(2) {
-				t.Fatal("failed retry left the optional session usable")
+			for i, world := range []WorldID{"sample:first", "sample:second", "sample:third"} {
+				before := len(f.carrier())
+				if !f.s.WorldChanged(f.player, world) || len(f.carrier()) != before+1 {
+					t.Fatal("data budget prevented immediate world notice delivery")
+				}
+				notice := f.lastWorldNotice()
+				if notice.Epoch.WorldEpoch != testEpoch+uint64(i)+1 || f.sendToClient(1) {
+					t.Fatal("transfer did not establish a fresh world fence")
+				}
+				f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
 			}
-			if reason != "write failure" {
-				f.connected()
+			if f.sendToClient(1) {
+				t.Fatal("world controls refilled the exhausted data budget")
+			}
+			f.clock.Advance(time.Second)
+			if !f.sendToClient(2) {
+				t.Fatal("completed transfers left stale state after data credits refilled")
+			}
+			f.deliver(f.envelope(accept, 1, func(e *Envelope) { e.WorldEpoch += 3 }))
+			if len(f.messages()) != 1 {
+				t.Fatal("destination traffic did not resume after the latest acknowledgment")
 			}
 		})
 	}
 }
 
-func TestWorldNoticeRetryDeliversTheLatestCommittedWorld(t *testing.T) {
+func TestWorldControlsPreserveDataCredits(t *testing.T) {
 	f, accept := readyFixture(t)
-	var retries []func()
-	f.s.deferWorldNotice = func(callback func()) { retries = append(retries, callback) }
-	for f.sendToClient(1) {
+	if !f.s.WorldChanged(f.player, "sample:destination") {
+		t.Fatal("world notice rejected")
 	}
-	for _, world := range []WorldID{"sample:first", "sample:first", "sample:second"} {
-		if f.s.WorldChanged(f.player, world) {
-			t.Fatal("world notice bypassed exhausted credits")
-		}
-	}
-	if len(retries) != 1 {
-		t.Fatalf("scheduled %d retries, want one", len(retries))
-	}
-	f.clock.Advance(time.Second)
-	retries[0]()
 	notice := f.lastWorldNotice()
-	if notice.Epoch.WorldEpoch != testEpoch+2 {
-		t.Fatal("retry delivered a superseded world notice")
+	f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
+	for sequence := uint64(1); sequence <= MaxMessagesPerSecond; sequence++ {
+		if !f.sendToClient(1) {
+			t.Fatal("world control spent outbound data credit")
+		}
+		f.deliver(f.envelope(accept, sequence, func(e *Envelope) { e.WorldEpoch++ }))
 	}
-	f.deliver(f.encode(worldAcknowledgment(notice, testEpoch+2)))
-	if !f.sendToClient(2) {
-		t.Fatal("latest world acknowledgment did not reopen sends")
-	}
-	f.deliver(f.envelope(accept, 1, func(e *Envelope) { e.WorldEpoch += 2 }))
-	if len(f.messages()) != 1 {
-		t.Fatal("latest-world record was not delivered")
+	if len(f.messages()) != MaxMessagesPerSecond {
+		t.Fatal("world acknowledgment spent inbound data credit")
 	}
 }
 
-func TestWorldNoticeRetriesWithoutFurtherPacketTraffic(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		f, _ := readyFixture(t)
-		done := make(chan struct{})
-		schedule := f.s.deferWorldNotice
-		f.s.deferWorldNotice = func(retry func()) {
-			schedule(func() {
-				f.clock.Advance(time.Second)
-				retry()
-				close(done)
-			})
-		}
-		for f.sendToClient(1) {
-		}
-		before := len(f.carrier())
-		if f.s.WorldChanged(f.player, "sample:destination") {
-			t.Fatal("world notice bypassed exhausted credits")
-		}
-		<-done
-		if len(f.carrier()) != before+1 || f.lastWorldNotice().Epoch.WorldEpoch != testEpoch+1 {
-			t.Fatal("idle connection did not retry its pending world notice")
-		}
-	})
+func TestWorldNoticeWriteFailureEndsTheClientPart(t *testing.T) {
+	f, _ := readyFixture(t)
+	before := len(f.carrier())
+	if err := f.inner.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if f.s.WorldChanged(f.player, "sample:destination") || len(f.carrier()) != before {
+		t.Fatal("world notice written to a closed connection")
+	}
+	if f.conn.(*Conn).phase != fallenBack || f.sendToClient(1) || f.s.WorldChanged(f.player, "sample:next") {
+		t.Fatal("failed world notice left the optional session usable")
+	}
 }
 
-func TestWorldAcknowledgmentsRejectUnsentOrInvalidNotices(t *testing.T) {
-	for _, invalid := range []string{"no request", "unsent", "future request", "below request", "another session"} {
+func TestWorldAcknowledgmentsRejectInvalidNotices(t *testing.T) {
+	for _, invalid := range []string{"no request", "future request", "below request", "another session"} {
 		t.Run(invalid, func(t *testing.T) {
 			f, accept := readyFixture(t)
-			f.s.deferWorldNotice = func(func()) {}
-			if invalid == "unsent" {
-				for f.sendToClient(1) {
-				}
-			}
 			if invalid != "no request" {
 				f.s.WorldChanged(f.player, "sample:destination")
 			}
