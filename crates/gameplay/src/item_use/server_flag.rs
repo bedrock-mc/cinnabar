@@ -71,14 +71,15 @@ impl ItemUseRuntime {
         };
         self.server_using = None;
         let air_use = self.crossbows.air_use(frame);
-        // Vanilla starts any other item with its use duration, which is zero
-        // without a held use; the next normal tick then completes it.
+        // Keep the item's use duration even when its air action is instant.
+        // Items without a use duration complete on the next normal tick.
         let (max_ticks, slowdown) = match air_use {
             Some(AirUse::Hold {
                 max_ticks,
                 slowdown,
                 ..
             }) => (max_ticks, slowdown),
+            Some(AirUse::Instant { unloaded }) => (unloaded.max_ticks, unloaded.slowdown),
             _ => (0, assets::item_use::DEFAULT_USE_MOVEMENT_MODIFIER),
         };
         self.active = Some(ActiveUse {

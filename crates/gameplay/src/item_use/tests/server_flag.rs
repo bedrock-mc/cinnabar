@@ -32,6 +32,58 @@ fn a_server_started_use_completes_without_a_release() {
     assert!(!runtime.is_using());
 }
 
+/// A loaded crossbow keeps its admitted duration and slowdown on a server start.
+#[test]
+fn a_server_start_preserves_loaded_crossbow_use_facts() {
+    for quick_charge in [0, 2] {
+        for predicted in [false, true] {
+            let mut runtime = ItemUseRuntime::default();
+            let loaded = |tick| UseFrame {
+                air_use: classify("minecraft:crossbow", !predicted, quick_charge, None),
+                ..frame(tick, false)
+            };
+            let start = loaded(10);
+            if predicted {
+                runtime.crossbows.predict(
+                    start.selection.as_ref().unwrap(),
+                    start.inventory_revision,
+                    Some(assets::item_use::ItemProjectileRole::Arrow),
+                );
+            }
+            let Some(AirUse::Instant { unloaded }) = runtime.crossbows.air_use(&start) else {
+                panic!("the crossbow is loaded");
+            };
+            runtime.adopt_server_using_item(true);
+            assert!(runtime.resolve_server_using_item(&start));
+            assert_eq!(runtime.active_timing(), Some((10, unloaded.max_ticks)));
+            assert_eq!(runtime.movement_modifier(), Some(unloaded.slowdown));
+            let end_tick = 10 + u64::from(unloaded.max_ticks);
+            assert!(runtime.step(&loaded(end_tick - 1)).packets.is_empty());
+            assert!(runtime.is_using());
+            assert!(runtime.step(&loaded(end_tick)).packets.is_empty());
+            assert!(!runtime.is_using());
+            assert_eq!(runtime.take_local_using_item(), Some(false));
+        }
+    }
+}
+
+/// A loaded crossbow can carry a server-defined slowdown distinct from the default.
+#[test]
+fn a_server_start_preserves_custom_loaded_crossbow_slowdown() {
+    let mut runtime = ItemUseRuntime::default();
+    let Some(AirUse::Instant { mut unloaded }) = classify("minecraft:crossbow", true, 0, None)
+    else {
+        panic!("the crossbow is loaded");
+    };
+    unloaded.slowdown = 0.6;
+    runtime.adopt_server_using_item(true);
+    assert!(runtime.resolve_server_using_item(&UseFrame {
+        air_use: Some(AirUse::Instant { unloaded }),
+        ..frame(10, false)
+    }));
+    assert_eq!(runtime.movement_modifier(), Some(unloaded.slowdown));
+}
+
 /// Once the button holds a server-started use, button-up releases it as usual.
 #[test]
 fn the_button_releases_a_server_started_use_it_held() {

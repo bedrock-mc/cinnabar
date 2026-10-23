@@ -2,6 +2,35 @@
 
 use sim::Vec3;
 
+use super::{LOCAL_PHYSICS_TICK_SECONDS, LocalPhysicsController};
+
+impl LocalPhysicsController {
+    /// The interpolated camera position after applying the current stance height.
+    #[must_use]
+    pub fn render_eye_position(&self) -> Option<[f32; 3]> {
+        let mut feet = self.render_feet_position()?;
+        feet[1] += self.eye_offset.height(self.tick_alpha());
+        Some(feet)
+    }
+
+    /// How far the frame sits between the last two completed ticks, `0..=1`.
+    #[must_use]
+    pub fn tick_alpha(&self) -> f32 {
+        (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0) as f32
+    }
+
+    /// The interpolated actor origin, independent of the camera's stance offset.
+    #[must_use]
+    pub fn render_feet_position(&self) -> Option<[f32; 3]> {
+        let state = self.state.as_ref()?;
+        let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
+        let feet = self.previous_position
+            + (state.position - self.previous_position) * alpha
+            + self.visual_correction.offset(alpha as f32);
+        Some([feet.x as f32, feet.y as f32, feet.z as f32])
+    }
+}
+
 const MAX_OFFSET: f32 = 4.0;
 const SPEED_SQUARED_FACTOR: f32 = 0.2;
 const MIN_DIRECTION_LENGTH: f32 = 0.0001;
