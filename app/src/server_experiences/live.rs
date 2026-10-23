@@ -492,16 +492,21 @@ impl<H: Worker> Live<H> {
     }
 
     /// Applies aggregate limits and signed schemas before guest dispatch.
-    pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
+    pub(super) fn receive(
+        &mut self,
+        message: &protocol::ExperienceMessage,
+        now_ms: u64,
+    ) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
-        if let Some(epoch) = self.ingress.receive_epoch_request(bytes, &self.grant)? {
+        if let Some(epoch) = self.ingress.receive_epoch_request(message, &self.grant)? {
             self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(epoch));
             return Ok(());
         }
         let instances = &self.instances;
-        self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
-            instances.get(id).map(|instance| &instance.capabilities)
-        })
+        self.ingress
+            .receive(message.as_bytes(), now_ms, 0, &self.grant, |id| {
+                instances.get(id).map(|instance| &instance.capabilities)
+            })
     }
 
     /// Whether a guest may read the session's items, which [`Live::set_session`] then supplies.

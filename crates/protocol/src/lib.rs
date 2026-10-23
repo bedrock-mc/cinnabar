@@ -45,8 +45,8 @@ mod ui;
 mod world;
 
 pub use experience::{
-    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
-    is_experience_packet,
+    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_CONTROL_BYTES,
+    MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet, experience_world_ack, is_experience_packet,
 };
 
 pub use credits::{ShowCreditsEvent, credits_finished_packet};

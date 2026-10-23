@@ -916,7 +916,7 @@ use blob_cache_telemetry::{
     emit_blob_cache_telemetry, send_final_blob_cache_telemetry, try_emit_blob_cache_telemetry,
 };
 mod bootstrap;
-mod experience;
+pub(crate) mod experience;
 mod forms;
 mod frame_flush;
 pub(crate) mod handle_state;

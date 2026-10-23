@@ -223,6 +223,7 @@ where
 {
     let mut packets = Vec::with_capacity(frame.len());
     let mut receipts = Vec::with_capacity(frame.len());
+    let mut world_acks = Vec::new();
     for queued in frame {
         if protocol::is_experience_packet(&queued.packet) && !experience_gate.enabled() {
             continue;
@@ -246,6 +247,9 @@ where
             continue;
         }
         let (preceding, packet) = finalize_interaction_packet(queued.packet, queued.interaction);
+        if let Some(epoch) = protocol::experience_world_ack(&packet) {
+            world_acks.push(epoch);
+        }
         // Traces are formatted from the final packet and published only after the write.
         let line = queued
             .physics
@@ -296,6 +300,9 @@ where
             trace_armed,
         }),
         Some(Ok(())) => {
+            for epoch in world_acks {
+                experience_gate.acknowledged(epoch);
+            }
             if let Some((trace, begun, count, tick)) = traced {
                 trace.record(
                     bridge::latency_trace::kind::OUTBOUND_FLUSH,

@@ -229,6 +229,10 @@ def outputs(schema):
     for module,parts in go.items():
         imports={'manifest':['fmt','slices','strings'], 'negotiation':[], 'crypto':[], 'session':['fmt'], 'wire':['errors','fmt','slices','strconv']}[module]
         result[Path(f'tools/localserver/cinnabarext/contract_{module}_generated.go')]=HEADER+'package cinnabarext\n'+('import('+''.join(json.dumps(i)+'\n' for i in imports)+')\n' if imports else '')+'\n'.join(parts)
+    control = next(enum for enum in schema['enums'] if enum['name'] == 'Control')
+    notices = dict(control, name='ExperienceControl', derive='Clone, Debug, Deserialize, Serialize, PartialEq, Eq',
+                   variants=[variant for variant in control['variants'] if variant['rust'] in ('Epoch', 'WorldAck')])
+    result[Path('crates/protocol/src/experience/control.rs')] = HEADER + 'use serde::{Deserialize, Serialize};\n' + rust_enum(notices)
     return result
 
 

@@ -794,7 +794,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   messages before notice admission until the client acknowledges that specific
   notice and invoke the existing client-part epoch callback, including
   same-dimension-type transfers. Notices and their correlated acknowledgments bypass
-  data credits; write failures end the optional session without retry timers. A two-world
+  data credits at network and runtime admission, with one outstanding size-bounded
+  notice per connection until its acknowledgment is written. Excess control traffic
+  is dropped without quarantining data; write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/

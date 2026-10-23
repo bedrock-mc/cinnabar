@@ -11,7 +11,7 @@ pub struct ExperienceSession {
     pub handled_marker: bool,
     pub active: bool,
     pub epoch: u64,
-    pub incoming: std::collections::VecDeque<(u64, Vec<u8>)>,
+    pub incoming: std::collections::VecDeque<(u64, protocol::ExperienceMessage)>,
     incoming_bytes: usize,
 }
 
@@ -32,30 +32,34 @@ impl ExperienceSession {
     }
 
     /// Consumes only control messages that crossed the world publication barrier.
-    pub fn receive(&mut self, bytes: &[u8], now_ms: u64) {
+    pub fn receive(&mut self, message: protocol::ExperienceMessage, now_ms: u64) {
         if self.active {
             if self.incoming.len() >= server_experience::policy::MAX_QUEUE_MESSAGES
-                || bytes.len() > server_experience::policy::MAX_QUEUE_BYTES - self.incoming_bytes
+                || message.as_bytes().len()
+                    > server_experience::policy::MAX_QUEUE_BYTES - self.incoming_bytes
             {
                 self.session.disable();
                 self.active = false;
                 self.incoming.clear();
                 self.incoming_bytes = 0;
             } else {
-                self.incoming_bytes += bytes.len();
-                self.incoming.push_back((now_ms, bytes.to_vec()));
+                self.incoming_bytes += message.as_bytes().len();
+                self.incoming.push_back((now_ms, message));
             }
             return;
         }
-        if let Err(error) = self.session.receive(bytes, unix_seconds(), now_ms) {
+        if let Err(error) = self
+            .session
+            .receive(message.as_bytes(), unix_seconds(), now_ms)
+        {
             tracing::warn!(%error, "server experience control rejected");
         }
     }
 
     /// Releases bounded ingress accounting when the runtime consumes a message.
-    pub fn pop(&mut self) -> Option<(u64, Vec<u8>)> {
+    pub fn pop(&mut self) -> Option<(u64, protocol::ExperienceMessage)> {
         let entry = self.incoming.pop_front()?;
-        self.incoming_bytes -= entry.1.len();
+        self.incoming_bytes -= entry.1.as_bytes().len();
         Some(entry)
     }
 

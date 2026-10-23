@@ -322,7 +322,10 @@ strictly newer logical epoch. This keeps an earlier native epoch update from
 acknowledging a notice the client has not received. The server fences both
 directions before attempting delivery and reopens them only for the newest
 notice's acknowledgment. Notices and their correlated acknowledgments bypass data
-rate credits in both directions. Superseded and repeated acknowledgments are ignored;
+rate credits in both directions. The client admits one outstanding notice per connection,
+at most 256 encoded bytes, until its matching acknowledgment is written. Excess
+notices are dropped without quarantining data traffic. Servers must wait for the
+acknowledgment before sending another notice. Superseded and repeated acknowledgments are ignored;
 a failed notice write ends the optional session without retry timers. Deploy matching
 client and helper revisions for this control; native epoch updates and message
 envelopes retain their formats.
