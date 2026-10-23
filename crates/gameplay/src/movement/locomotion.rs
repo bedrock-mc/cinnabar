@@ -170,6 +170,7 @@ impl ModeTracker {
         self.sneak_profile = profile;
     }
 
+    /// Returns the level profile retained across movement-state resets.
     pub(super) const fn sneak_profile(&self) -> SneakProfile {
         self.sneak_profile
     }

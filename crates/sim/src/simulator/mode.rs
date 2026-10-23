@@ -59,6 +59,7 @@ impl SneakProfile {
         }
     }
 
+    /// Whether the level uses the reduced sneaking box and current eye drop.
     pub(super) const fn is_current(&self) -> bool {
         matches!(self, Self::Current)
     }

@@ -91,6 +91,7 @@ fn dotted(text: &str, identifier: fn(&str) -> Option<usize>) -> Option<&str> {
     Some(rest)
 }
 
+/// Accepts ASCII letters, digits and hyphens in a version suffix identifier.
 fn is_identifier_byte(byte: &u8) -> bool {
     byte.is_ascii_alphanumeric() || *byte == b'-'
 }
