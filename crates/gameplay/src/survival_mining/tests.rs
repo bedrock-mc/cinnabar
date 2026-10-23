@@ -160,14 +160,20 @@ impl MiningAdmission {
         );
     }
 
-    /// Publishes every retained input through the production movement encoder.
+    /// Publishes retained inputs and their preceding actions through the production guards.
     fn flush(&mut self) {
-        flush_player_auth_inputs(
+        crate::movement::flush_player_auth_inputs_guarded(
             &mut self.ticker,
             crate::movement::OUTBOX_CAPACITY,
             Some(evidence()),
-            |_, packet| {
-                self.packets.push(packet);
+            |_, packet, guard, _| {
+                if let Some(guard) = guard {
+                    let (preceding, packet) = guard.sanitize(packet);
+                    self.packets.extend(preceding);
+                    self.packets.push(packet);
+                } else {
+                    self.packets.push(packet);
+                }
                 Ok::<_, ()>(())
             },
         )
