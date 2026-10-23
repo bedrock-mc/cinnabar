@@ -33,7 +33,11 @@ pub(super) fn raster(
         return Ok(None);
     };
     if !dried {
-        for pixel in Arc::make_mut(&mut attachment.rgba8).chunks_exact_mut(4) {
+        for pixel in Arc::make_mut(&mut attachment.rgba8)
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+        {
             for channel in &mut pixel[..3] {
                 *channel = (u16::from(*channel)
                     * u16::from(assets::gui_item::SENSOR_TENDRIL_BRIGHTNESS)

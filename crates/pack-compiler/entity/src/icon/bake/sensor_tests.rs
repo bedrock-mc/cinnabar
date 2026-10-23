@@ -48,7 +48,13 @@ fn sensor_inventory_keeps_body_tendrils_and_calibration_crystal() {
         .unwrap()
         .expect("sensor has an inventory preview");
         assert!(live.is_none());
-        let pixels: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+        let pixels: Vec<_> = icon
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .collect();
         assert!(
             pixels.iter().any(|p| p[0] > 0 && p[1] == 0 && p[2] == 0),
             "{name}: body artwork"
