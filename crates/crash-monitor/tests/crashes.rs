@@ -25,7 +25,7 @@ const ROOT_ENV: &str = "CINNABAR_CRASH_FIXTURE";
 const KIND_ENV: &str = "CINNABAR_CRASH_FIXTURE_KIND";
 /// When set, the monitor fixture starts listening only once this file exists.
 const GO_ENV: &str = "CINNABAR_CRASH_FIXTURE_GO";
-/// Written by the monitor fixture once it has finished, holding the folder it showed.
+/// Written when the monitor finishes, holding its optional folder as JSON.
 const MONITOR_DONE: &str = "monitor-done";
 /// Printed by the client fixture once its monitor connection attempt settled.
 const SETTLED: &str = "CRASH_FIXTURE_SETTLED";
@@ -53,10 +53,11 @@ fn monitor_fixture() {
     }
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let args = crash_monitor::Args::parse(&args).expect("monitor arguments");
+    diagnostics::logging::install(diagnostics::logging::Options::default()).unwrap();
     // A real layout: its own log, and the crash window when the UI is not suppressed.
     let shown = crash_monitor::run(&args, Some(&layout(&root))).expect("the monitor runs");
     let shown = shown.map(|folder| folder.to_string_lossy().into_owned());
-    fs::write(root.join(MONITOR_DONE), shown.unwrap_or_default()).unwrap();
+    fs::write(root.join(MONITOR_DONE), serde_json::to_vec(&shown).unwrap()).unwrap();
 }
 
 /// The client half: installs crash capture with the monitor fixture, waits for the connection,
@@ -269,10 +270,30 @@ fn intrude() {
 
 /// What one fixture run left behind.
 struct Run {
-    _root: tempfile::TempDir,
+    root: tempfile::TempDir,
     folders: Vec<PathBuf>,
     /// The folder the monitor showed, if any.
     shown: Option<PathBuf>,
+}
+
+impl Drop for Run {
+    /// Prints fixture diagnostics before a failed run removes its temporary files.
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            for folder in &self.folders {
+                eprintln!("REPORT: {:?}", folder::read(folder));
+            }
+            for log in fs::read_dir(layout(self.root.path()).log_dir())
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
+                if let Ok(contents) = fs::read_to_string(log.path()) {
+                    eprintln!("{}:\n{contents}", log.path().display());
+                }
+            }
+        }
+    }
 }
 
 /// Runs the client fixture for `kind` until its monitor finishes; `kill` kills the client once
@@ -317,15 +338,20 @@ fn crash(kind: &str) -> Run {
     let _ = client.wait();
     let _ = draining.join();
     let done = root.path().join(MONITOR_DONE);
-    assert!(
-        test_time::wait_until(test_time::DEFAULT_TIMEOUT, || done.exists()),
-        "{kind}: the monitor did not exit with its client"
-    );
-    let shown = fs::read_to_string(&done).unwrap();
+    let mut shown = None;
+    test_time::eventually(&format!("{kind}: the monitor's complete result"), || {
+        fs::read(&done)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Option<PathBuf>>(&bytes).ok())
+            .is_some_and(|result| {
+                shown = result;
+                true
+            })
+    });
     Run {
         folders: folder::list(&root.path().join("crashes")),
-        shown: (!shown.is_empty()).then(|| PathBuf::from(shown)),
-        _root: root,
+        shown,
+        root,
     }
 }
 
