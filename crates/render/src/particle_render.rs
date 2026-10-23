@@ -1,6 +1,8 @@
 //! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
 use crate::queue_writes::ProfiledQueue as _;
+#[cfg(feature = "shaderpacks")]
+use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -178,9 +180,18 @@ pub(crate) fn prepare_particle_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: SharedAtlasRelease,
 ) {
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
-    atlas::prepare(&frame, &uploads.device, &uploads.queue, &mut gpu, raw_views);
+    atlas::prepare(
+        &frame,
+        &uploads.device,
+        &uploads.queue,
+        &mut gpu,
+        raw_views,
+        #[cfg(feature = "shaderpacks")]
+        &mut shared_atlases,
+    );
 
     let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
     gpu.opaque_range = 0..opaque as u32;

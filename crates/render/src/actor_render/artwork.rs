@@ -135,12 +135,13 @@ pub(super) struct GpuArtwork {
 }
 
 impl GpuArtwork {
-    /// Recreates pages and glints under the new view format while retaining complete old pages.
+    /// Restarts pending uploads and recreates pages and glints when their view formats change.
+    /// Completed pages keep drawing natively until their replacements finish uploading.
     pub fn set_raw_views(&mut self, raw_views: ArtworkRawViews) {
         if self.raw_views != raw_views {
             self.raw_views = raw_views;
             self.identity = None;
-            self.pending.iter_mut().for_each(|page| *page = None);
+            self.pending.fill_with(|| None);
         }
     }
 
