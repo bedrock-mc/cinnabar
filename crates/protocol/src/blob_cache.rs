@@ -132,6 +132,7 @@ pub struct BlobCacheStats {
     pub cached_packet_reconstruction_pressure: u64,
     pub cached_packet_staged_pressure: u64,
     pub cached_packet_ready_pressure: u64,
+    /// Responses with unneeded blobs; useful entries in mixed responses may still be admitted.
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,

@@ -8,6 +8,8 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+#[cfg(feature = "test-support")]
+mod data_driven;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
@@ -147,6 +149,10 @@ fn png_fixture(
         return form_overlap::png(state, dir);
     }
     #[cfg(feature = "test-support")]
+    if let Fixture::DataDriven(screen) = &fixture {
+        return data_driven::png(state, dir, *screen);
+    }
+    #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::SettingsDraft) {
         return settings_draft::png(state, dir);
     }
@@ -183,6 +189,7 @@ fn png_fixture(
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked
@@ -234,6 +241,7 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
+        | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked => {

@@ -57,7 +57,15 @@ fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
-    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None, None).map(|(pack, _)| pack)
+    validate_archive_parts(
+        PACK_ID,
+        crate::manifest::Version([1, 2, 3]),
+        selected,
+        bytes,
+        None,
+        None,
+    )
+    .map(|(pack, _)| pack)
 }
 #[test]
 fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
@@ -256,7 +264,7 @@ fn plaintext_archives_with_advertised_keys_keep_root_and_wrapped_resources() {
             ]);
             let (pack, _) = validate_archive_parts(
                 PACK_ID,
-                "1.2.3",
+                crate::manifest::Version([1, 2, 3]),
                 "",
                 archive,
                 ContentKey::new(PACK_KEY),
@@ -294,8 +302,15 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
         ("plain.json", b"{\"a\": 1}"),
     ]);
     let key = ContentKey::new(PACK_KEY);
-    let (pack, _) =
-        validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key, None).unwrap();
+    let (pack, _) = validate_archive_parts(
+        PACK_ID,
+        crate::manifest::Version([1, 2, 3]),
+        "",
+        archive.clone(),
+        key,
+        None,
+    )
+    .unwrap();
     assert_eq!(
         pack.read_file("texts/en_US.lang")
             .unwrap()
@@ -311,7 +326,15 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
 
     let wrong = ContentKey::new(b"vutsrqponmlkjihgfedcba9876543210");
     assert_eq!(
-        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong, None).unwrap_err(),
+        validate_archive_parts(
+            PACK_ID,
+            crate::manifest::Version([1, 2, 3]),
+            "",
+            archive,
+            wrong,
+            None
+        )
+        .unwrap_err(),
         AdmissionError::MalformedContentsIndex
     );
 }
@@ -341,7 +364,7 @@ fn keyed_plaintext_json_too_large_for_a_value_tree_is_still_read_as_plaintext() 
     ]);
     let (pack, _) = validate_archive_parts(
         PACK_ID,
-        "1.2.3",
+        crate::manifest::Version([1, 2, 3]),
         "",
         archive,
         ContentKey::new(PACK_KEY),
@@ -391,14 +414,10 @@ fn local_plaintext_archive_with_advertised_key_reads_stored_resources() {
         .unwrap()
         .parse()
         .unwrap();
-    let version = crate::manifest::Version::from_value(&manifest["header"]["version"])
-        .unwrap()
-        .0
-        .map(|part| part.to_string())
-        .join(".");
+    let version = crate::manifest::Version::from_value(&manifest["header"]["version"]).unwrap();
     let (pack, _) = validate_archive_parts(
         id,
-        &version,
+        version,
         "",
         bytes.clone(),
         ContentKey::new(b"0123456789abcdefghijklmnopqrstuv"),
@@ -452,7 +471,7 @@ fn advertised_key_does_not_bypass_bad_indexes_or_manifests() {
         assert_eq!(
             validate_archive_parts(
                 PACK_ID,
-                "1.2.3",
+                crate::manifest::Version([1, 2, 3]),
                 "",
                 archive,
                 ContentKey::new(PACK_KEY),
@@ -465,7 +484,7 @@ fn advertised_key_does_not_bypass_bad_indexes_or_manifests() {
         assert_eq!(
             validate_archive_parts(
                 PACK_ID,
-                "1.2.3",
+                crate::manifest::Version([1, 2, 3]),
                 "",
                 archive,
                 ContentKey::new(PACK_KEY),
@@ -495,7 +514,7 @@ fn unusable_contents_index_is_not_treated_as_plaintext() {
     assert_eq!(
         validate_archive_parts(
             PACK_ID,
-            "1.2.3",
+            crate::manifest::Version([1, 2, 3]),
             "",
             archive,
             ContentKey::new(b"0123456789abcdefghijklmnopqrstuv"),

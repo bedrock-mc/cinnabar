@@ -221,8 +221,12 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   poll budget, with backoff while neighbours or light remain unavailable. Hardware
   dirty-to-visible latency qualification remains open. Empty-section evidence and
   withdrawals use their separate allowance without spending geometry credits;
-  both still share the frame operation cap. Sustained high-speed hardware
-  qualification remains open.
+  both still share the frame operation cap. Ready air and withdrawals bypass geometry
+  scheduler ingress and receive bounded service before decode and lighting, using the
+  same publication limits and poll deadline. Staged worker completions receive a bounded
+  share first, so fresh removals cannot starve staged empty or geometry results.
+  Late blob replies for retired transactions no longer discard valid, still-needed
+  blobs in the same response. Sustained high-speed hardware qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
@@ -362,7 +366,9 @@ and rendered qualification remain incomplete.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
+  Crystal and spike items use their flat carried sprites.
   Shulker previews apply each face brightness once.
+  Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
   Shared cube face sheets are bounded coverage.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
@@ -553,9 +559,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
   Data-driven UI (DDUI) data stores follow the server's replacements, path updates,
-  removals and update counters. Screen requests are answered `UserBusy` while another
-  screen is busy and otherwise closed at once: drawing DDUI screens, their client writes,
-  server closes, reloads and pack-defined DDUI screens remain incomplete.
+  removals and update counters. Script `CustomForm` and `MessageBox` screens draw as an
+  OreUI panel over the world; one shows at a time, later requests answer `UserBusy`,
+  server closes, death and the close button answer with vanilla's reasons, and controls
+  write the paths and counters the server accepts. Panel geometry, Escape closing,
+  message-box layout, images, gamepad and touch input, pack-defined DDUI screens and
+  reloads remain incomplete; a matched native capture remains open.
   URL images use the UI texture-file allowance. The download cache evicts its oldest
   handed-off bodies beyond the aggregate byte budget while preserving display readiness;
   atlas misses fetch released bodies again. Unclaimed bodies remain until first handoff.
@@ -654,7 +663,10 @@ featured-server, menu and gameplay qualification remains open, including large-p
 preparation and broader sparse-startup coverage.
 Server handoff keeps the advertised UUID and version for stack selection when a valid
 archive's manifest names another identity; local imports and library selections still match
-exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
+exactly, preserving numeric array versions through import and installed-pack admission.
+Pack version components use the supported 16-bit range; format-version arrays narrow their
+components before parser selection, and versions below the first parser slice are rejected.
+The matching Gophertunnel transfer change and broader live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a
