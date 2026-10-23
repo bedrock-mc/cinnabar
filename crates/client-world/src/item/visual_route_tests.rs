@@ -121,6 +121,28 @@ fn legacy_aux_values_without_retained_blocks_draw_the_base_block() {
     }
 }
 
+/// A missing route cannot use the base block when aux selects another block state.
+#[test]
+fn legacy_aux_values_with_state_selection_keep_the_unresolved_route() {
+    for identifier in ["minecraft:stone", "minecraft:dirt", "minecraft:oak_stairs"] {
+        let store = ItemStateStore::with_assets(item_assets(
+            identifier,
+            &[(
+                0,
+                ItemVisualDefinitionRoute::BlockItem {
+                    block_visual: BlockVisualId(0),
+                },
+            )],
+            &[],
+        ));
+        assert_eq!(
+            store.resolve_visual(identifier, 1, 0),
+            ItemVisualRoute::Missing,
+            "{identifier} aux 1 needs a state-specific route"
+        );
+    }
+}
+
 /// Missing metadata routes must keep the block identity supplied by the stack.
 #[test]
 fn legacy_aux_values_preserve_a_retained_block() {

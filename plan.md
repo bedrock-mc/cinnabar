@@ -369,6 +369,8 @@ and rendered qualification remain incomplete.
   Shulker previews apply each face brightness once.
   Furnace-family previews use their authored carried front faces.
   Shared cube face sheets are bounded coverage.
+  Aux-only stacks use base block visuals only when aux cannot select a legacy block state.
+  Decoding legacy states without a retained block remains incomplete.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,

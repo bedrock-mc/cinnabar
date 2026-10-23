@@ -643,7 +643,7 @@ impl ItemStateStore {
         self.resolve_visual(identifier, 0, 0)
     }
 
-    /// Resolves an exact visual, using the base block only without a retained block state.
+    /// Resolves an exact visual, using the base block only when aux cannot select a state.
     /// Sprite items keep their metadata-specific visual rules.
     fn resolve_visual(
         &self,
@@ -682,10 +682,12 @@ impl ItemStateStore {
         };
         exact(metadata)
             .or_else(|| {
-                (metadata != 0 && block_runtime_id == 0)
-                    .then(|| exact(0))
-                    .flatten()
-                    .filter(|route| matches!(route, ItemVisualRoute::BlockItem(_)))
+                (metadata != 0
+                    && block_runtime_id == 0
+                    && !assets::facts::block_item_has_aux_states(identifier))
+                .then(|| exact(0))
+                .flatten()
+                .filter(|route| matches!(route, ItemVisualRoute::BlockItem(_)))
             })
             .unwrap_or(ItemVisualRoute::Missing)
     }
