@@ -116,25 +116,28 @@ pub(crate) fn observe_destroy_target(
     let helmet = ui.local_armor(player_runtime).helmet;
     let unbreaking =
         protocol::item_enchantment_level(item.extra_data(), UNBREAKING_ENCHANTMENT_ID).unwrap_or(0);
-    let wear = tool.filter(|_| !instant).and_then(|tool| {
-        (item.stack_network_id() > 0).then(|| ToolWear {
-            // Outstanding and corrected predictions outrank the stack's own tag.
-            current_damage: ui
-                .inventory_ledger(player_runtime)
-                .predicted_slot_damage(observed.selection.slot)
-                .or_else(|| {
-                    protocol::item_extra_damage(item.extra_data())
-                        .and_then(|damage| i32::try_from(damage).ok())
-                })
-                .unwrap_or(0),
-            break_damage: if protocol::item_extra_unbreakable(item.extra_data())
-                || !unbreaking_keeps_damage(unbreaking, percent_roll())
-            {
-                0
-            } else {
-                tool_break_damage(tool.kind)
-            },
-        })
+    // The mining request needs a stack network id; a client-authoritative break does not.
+    let wear = tool.filter(|_| !instant).map(|tool| ToolWear {
+        // Outstanding and corrected predictions outrank the stack's own tag.
+        current_damage: ui
+            .inventory_ledger(player_runtime)
+            .predicted_slot_damage(observed.selection.slot)
+            .or_else(|| {
+                protocol::item_extra_damage(item.extra_data())
+                    .and_then(|damage| i32::try_from(damage).ok())
+            })
+            .unwrap_or(0),
+        break_damage: if protocol::item_extra_unbreakable(item.extra_data())
+            || !unbreaking_keeps_damage(unbreaking, percent_roll())
+        {
+            0
+        } else {
+            tool_break_damage(tool.kind)
+        },
+        maximum: fact
+            .durability
+            .maximum()
+            .and_then(|maximum| i32::try_from(maximum).ok()),
     });
     Some(DestroyTarget {
         local_runtime_id: stream.local_player_runtime_id(),

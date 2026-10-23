@@ -467,6 +467,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   the base value; item-tag filters compile during session preparation for
   allocation-free evaluation, and an unsupported filter matches no item.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
+  Client-authoritative breaks retain admitted tool wear and its legacy response
+  identity, so later breaks use the updated slot and rejected changes can roll back.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Recipe-book placement, availability and auto-crafting share exact ingredient allocation;

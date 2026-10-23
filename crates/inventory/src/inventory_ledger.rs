@@ -39,6 +39,7 @@ mod legacy_tests;
 mod lifecycle_tests;
 #[cfg(test)]
 mod merge_tests;
+mod mining;
 mod moves;
 #[cfg(test)]
 mod moves_tests;
@@ -512,7 +513,7 @@ impl PlayerInventoryLedger {
     /// Queues a mine-block prediction for hotbar `slot` and returns the id its
     /// PlayerAuthInput carries; `None` sends the break without a request.
     pub fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
-        self.enqueue_mining(slot, predicted_damage)
+        self.enqueue_mining(slot, predicted_damage, None)
     }
 
     /// Forgets a mining request whose input never left, so it cannot hold back later answers.
@@ -528,6 +529,7 @@ impl PlayerInventoryLedger {
             .iter()
             .rev()
             .filter_map(|pending| pending.mining.as_ref())
+            .filter(|mining| mining.legacy_request_id.is_none())
             .find(|mining| mining.slot == slot)
             .map(|mining| mining.damage)
             .or_else(|| self.slot_overlay(slot)?.durability_correction)

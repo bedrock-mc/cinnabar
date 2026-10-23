@@ -231,7 +231,7 @@ fn embedded_selection_omits_identity_and_preserves_contents() {
     for stack in stacks() {
         for interaction in [
             BlockItemInteraction::Use(block_request(stack.clone())),
-            BlockItemInteraction::Destroy(block_request(stack.clone())),
+            BlockItemInteraction::Destroy(block_request(stack.clone()), None),
         ] {
             let packet = protocol::player_auth_input_with_interactions(
                 movement(),

@@ -141,9 +141,7 @@ impl PlayerInventoryLedger {
             }
             let Some(index) = self.queue.iter().position(|pending| {
                 if pending.locally_committed() {
-                    pending
-                        .world_drop
-                        .is_some_and(|drop| drop.legacy_request_id == response.request_id)
+                    pending.legacy_request_id() == Some(response.request_id)
                 } else {
                     pending.request_id == response.request_id
                 }

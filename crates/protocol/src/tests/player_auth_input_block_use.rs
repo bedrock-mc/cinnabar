@@ -102,13 +102,69 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
     );
 }
 
+/// A destroy that wore the held tool records it under the legacy request, as a used stack does.
+#[test]
+fn embedded_destroy_carries_the_worn_tool_slot_change() {
+    let tool = VerifiedNetworkItemStack::try_new(
+        NetworkItemStack {
+            network_id: 300,
+            count: 1,
+            stack_network_id: 12,
+            ..NetworkItemStack::empty()
+        },
+        NetworkItemStack::empty().nbt_digest,
+    )
+    .unwrap();
+    let worn = tool.worn(7, Some(250), -6).unwrap();
+    let packet = player_auth_input_with_interactions(
+        movement(),
+        &PlayerAuthInputInteractions {
+            block_actions: protocol::BlockActions::new(),
+            block_interaction: Some(BlockItemInteraction::Destroy(
+                BlockUseRequest {
+                    selected_item: tool.clone(),
+                    ..request()
+                },
+                Some(protocol::PredictedSlotChange {
+                    legacy_request_id: -6,
+                    from: tool,
+                    to: worn,
+                }),
+            )),
+        },
+    )
+    .unwrap();
+    let encoded = protocol::encode(&packet).unwrap();
+    let decoded = protocol::decode_batch(encoded).unwrap().remove(0);
+    let packets::Packet::PlayerAuthInput(input) = *decoded.data else {
+        panic!("expected movement input");
+    };
+    let packed = input.item_use_transaction.unwrap();
+    assert_eq!(packed.legacy_request_id.0, -6);
+    let slots = packed.legacy_set_item_slots.expect("legacy slot record");
+    assert_eq!(slots.len(), 1);
+    assert_eq!(
+        slots[0].container_enum,
+        bedrock_protocol_1_26_51::enums::ContainerEnumName::Inventorycontainer
+    );
+    assert_eq!(slots[0].slots.to_vec(), [request().selected_slot]);
+    let actions = &packed.item_use_transaction.actions.actions;
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].source.container_id.map(|id| id.0), Some(0));
+    assert_eq!(actions[0].slot.0, u32::from(request().selected_slot));
+    assert_eq!(actions[0].from_item.id.0, 300);
+    assert_eq!(actions[0].from_item.net_id_variant, None);
+    assert_eq!(actions[0].to_item.id.0, 300);
+    assert_eq!(actions[0].to_item.net_id_variant, None);
+}
+
 #[test]
 fn embedded_destroy_clears_placement_fields_and_preserves_selection_and_pose() {
     let packet = player_auth_input_with_interactions(
         movement(),
         &PlayerAuthInputInteractions {
             block_actions: protocol::BlockActions::new(),
-            block_interaction: Some(BlockItemInteraction::Destroy(request())),
+            block_interaction: Some(BlockItemInteraction::Destroy(request(), None)),
         },
     )
     .unwrap();
@@ -160,7 +216,7 @@ fn embedded_destroy_clears_placement_fields_and_preserves_selection_and_pose() {
 #[test]
 fn destroy_and_use_are_one_mutually_exclusive_payload_slot() {
     let use_interaction = BlockItemInteraction::Use(request());
-    let destroy_interaction = BlockItemInteraction::Destroy(request());
+    let destroy_interaction = BlockItemInteraction::Destroy(request(), None);
     assert_ne!(use_interaction, destroy_interaction);
 }
 

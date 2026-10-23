@@ -34,7 +34,7 @@ pub struct AttackEffects<Send, Duration, Request, Predict> {
 pub struct AttackAdmission {
     pub admitted: Option<u64>,
     pub rotation_tick: Option<u64>,
-    pub cancelled_mining_requests: Vec<i32>,
+    pub mining: crate::survival_mining::MiningAdmission,
 }
 
 /// Advances the queue in order before movement drains. A later pending press never blocks
@@ -107,7 +107,7 @@ fn admit(
             }
             Work::Predicted { tick, payload } => {
                 if movement.unsent_sample_at(tick).is_none()
-                    || !movement.attach_survival_mining(tick, *payload)
+                    || !payload.attach(movement, tick, &mut result.mining)
                 {
                     break;
                 }
@@ -128,14 +128,9 @@ fn admit(
                 };
                 let (machine, mut payload) = mining.preview_press(&target, motion, authority);
                 payload.assign_request(&mut effects.request_id);
-                let request = payload
-                    .mine_block
-                    .as_ref()
-                    .map(|request| request.request_id());
                 let broken = payload.broken;
                 let swing = payload.swing;
-                if !movement.attach_survival_mining(tick, payload) {
-                    result.cancelled_mining_requests.extend(request);
+                if !payload.attach(movement, tick, &mut result.mining) {
                     break;
                 }
                 mining.commit_press(machine, tick, movement.completed_tick(), &target, broken);
@@ -236,7 +231,7 @@ fn admit(
     } else {
         DestroyInput::Continue(frame.mining_target)
     };
-    let unsent = mining.step_ticks(
+    let admitted = mining.step_ticks(
         movement,
         input,
         frame.authority,
@@ -251,6 +246,6 @@ fn admit(
         &mut effects.request_id,
         &mut effects.predict_break,
     );
-    result.cancelled_mining_requests.extend(unsent);
+    result.mining.extend(admitted);
     result
 }

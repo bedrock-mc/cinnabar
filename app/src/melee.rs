@@ -347,9 +347,9 @@ fn maintain_attacks(
             },
         },
     );
-    for request in admitted.cancelled_mining_requests {
-        player.inventory.ledger_mut().cancel_mining_request(request);
-    }
+    admitted
+        .mining
+        .settle_inventory(player.inventory.ledger_mut());
     for cue in mining.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
             position,

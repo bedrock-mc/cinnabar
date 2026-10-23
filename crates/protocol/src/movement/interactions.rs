@@ -17,7 +17,10 @@ use bedrock_protocol_1_26_51::types::{
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 
-use crate::interaction::{BlockUsePacketError, BlockUseRequest, item_use_transaction};
+use crate::interaction::{
+    BlockUsePacketError, BlockUseRequest, PredictedSlotChange, SlotChangeParts,
+    item_use_transaction, slot_change_parts,
+};
 
 /// Maximum block actions one movement tick may carry.
 ///
@@ -171,11 +174,12 @@ impl BlockActions {
 
 /// The one item-use transaction attached to a movement tick.
 ///
-/// The client uses `Destroy`; `Use` stays encodable for wire fixtures.
+/// The client uses `Destroy`, with the held tool's wear when the break damages it; `Use` stays
+/// encodable for wire fixtures.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockItemInteraction {
     Use(BlockUseRequest),
-    Destroy(BlockUseRequest),
+    Destroy(BlockUseRequest, Option<PredictedSlotChange>),
 }
 
 /// Interaction payloads attached to one movement tick.
@@ -212,21 +216,33 @@ pub enum InteractionEncodeError {
 pub(super) fn packed_block_interaction(
     interaction: BlockItemInteraction,
 ) -> Result<PackedItemUseLegacyInventoryTransaction, InteractionEncodeError> {
-    let transaction = match interaction {
-        BlockItemInteraction::Use(request) => {
-            item_use_transaction(request, ItemUseInventoryTransactionActionType::Place)
-                .map_err(InteractionEncodeError::InvalidBlockUse)?
+    match interaction {
+        BlockItemInteraction::Use(request) => Ok(PackedItemUseLegacyInventoryTransaction {
+            legacy_request_id: ItemStackLegacyRequestID(0),
+            legacy_set_item_slots: None,
+            item_use_transaction: item_use_transaction(
+                request,
+                ItemUseInventoryTransactionActionType::Place,
+            )
+            .map_err(InteractionEncodeError::InvalidBlockUse)?,
+        }),
+        // A tool the break wore travels as the transaction's slot change.
+        BlockItemInteraction::Destroy(request, change) => {
+            let SlotChangeParts {
+                legacy_request_id,
+                legacy_set_item_slots,
+                actions,
+            } = slot_change_parts(request.hand, request.selected_slot, change)?;
+            let mut transaction =
+                item_use_transaction(request, ItemUseInventoryTransactionActionType::Destroy)?;
+            transaction.actions.actions = actions;
+            Ok(PackedItemUseLegacyInventoryTransaction {
+                legacy_request_id: ItemStackLegacyRequestID(legacy_request_id),
+                legacy_set_item_slots,
+                item_use_transaction: transaction,
+            })
         }
-        BlockItemInteraction::Destroy(request) => {
-            item_use_transaction(request, ItemUseInventoryTransactionActionType::Destroy)
-                .map_err(InteractionEncodeError::InvalidBlockDestroy)?
-        }
-    };
-    Ok(PackedItemUseLegacyInventoryTransaction {
-        legacy_request_id: ItemStackLegacyRequestID(0),
-        legacy_set_item_slots: None,
-        item_use_transaction: transaction,
-    })
+    }
 }
 
 #[cfg(test)]

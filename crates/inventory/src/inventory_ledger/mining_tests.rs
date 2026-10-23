@@ -9,6 +9,158 @@ use super::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, acknowledge_personal_open, correction, ledger_with_slot_zero,
 };
 
+/// Builds the exact old and new descriptors for one admitted hotbar tool change.
+fn destroy_change(
+    ledger: &super::PlayerInventoryLedger,
+    damage: i32,
+    maximum: i32,
+) -> protocol::PredictedSlotChange {
+    let stack = ledger.backing_stack(0).unwrap().clone();
+    let from =
+        protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
+    let legacy_request_id = protocol::next_legacy_request_id().unwrap();
+    protocol::PredictedSlotChange {
+        to: from.worn(damage, Some(maximum), legacy_request_id).unwrap(),
+        from,
+        legacy_request_id,
+    }
+}
+
+#[test]
+fn admitted_client_tool_wear_updates_backing_and_correlates_legacy_replies() {
+    let mut ledger = ledger_with_slot_zero();
+    let first = destroy_change(&ledger, 4, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &first));
+    assert!(
+        !ledger.settle_destroy_slot_change(0, &first),
+        "duplicate admission"
+    );
+    assert_eq!(
+        ledger.displayed_stack(0).unwrap().stack_network_id,
+        first.legacy_request_id
+    );
+    assert_eq!(
+        protocol::item_extra_damage(&ledger.displayed_stack(0).unwrap().extra_data),
+        Some(4)
+    );
+    ledger.apply(&mining_response(
+        first.legacy_request_id,
+        StackResponseStatus::Accepted,
+        5,
+        77,
+    ));
+    let corrected = ledger.displayed_stack(0).unwrap().clone();
+    assert_eq!(corrected.stack_network_id, 77);
+    assert_eq!(protocol::item_extra_damage(&corrected.extra_data), Some(5));
+    let second = destroy_change(&ledger, 7, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &second));
+    ledger.apply(&mining_response(
+        second.legacy_request_id,
+        StackResponseStatus::Rejected,
+        0,
+        0,
+    ));
+    assert_eq!(ledger.displayed_stack(0), Some(&corrected));
+}
+
+#[test]
+fn a_client_broken_tool_stays_empty_after_an_older_reply_and_a_replacement_wins() {
+    let mut ledger = ledger_with_slot_zero();
+    // The fixture starts with a stack; a damageable single item occupies the same cell.
+    let mut stack = ledger.displayed_stack(0).unwrap().clone();
+    stack.count = 1;
+    let event = protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: protocol::ContainerIdentity::window(0),
+            slot: 0,
+        },
+        stack,
+        storage_item: None,
+    };
+    ledger.apply(&InventoryEvent::Slot(event.clone()));
+    let worn = destroy_change(&ledger, 250, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &worn));
+    let broken = destroy_change(&ledger, 252, 250);
+    assert!(broken.to.is_empty());
+    assert!(ledger.settle_destroy_slot_change(0, &broken));
+    assert!(ledger.displayed_stack(0).is_none());
+    ledger.apply(&mining_response(
+        worn.legacy_request_id,
+        StackResponseStatus::Accepted,
+        250,
+        77,
+    ));
+    assert!(ledger.displayed_stack(0).is_none());
+    ledger.apply(&InventoryEvent::Slot(event.clone()));
+    ledger.apply(&mining_response(
+        broken.legacy_request_id,
+        StackResponseStatus::Rejected,
+        0,
+        0,
+    ));
+    assert_eq!(ledger.displayed_stack(0), Some(&event.stack));
+}
+
+#[test]
+fn retiring_client_wear_history_keeps_the_latest_backing_damage() {
+    let mut ledger = ledger_with_slot_zero();
+    for damage in 1..=40 {
+        let change = destroy_change(&ledger, damage, 250);
+        assert!(ledger.settle_destroy_slot_change(0, &change));
+    }
+    ledger.poll_timeout(0);
+    ledger.poll_timeout(INVENTORY_REQUEST_TIMEOUT_MILLIS + 1);
+    assert_eq!(ledger.predicted_slot_damage(0), Some(40));
+    assert_eq!(
+        protocol::item_extra_damage(&ledger.displayed_stack(0).unwrap().extra_data),
+        Some(40)
+    );
+}
+
+#[test]
+fn an_accepted_earlier_pickup_retires_client_wear_without_duplicating_the_tool() {
+    for damage in [6, 251] {
+        let mut ledger = ledger_with_slot_zero();
+        let mut stack = ledger.backing_stack(0).unwrap().clone();
+        stack.count = 1;
+        ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+            identity: protocol::SlotIdentity {
+                container: protocol::ContainerIdentity::window(0),
+                slot: 0,
+            },
+            stack,
+            storage_item: None,
+        }));
+        acknowledge_personal_open(&mut ledger, 2);
+        let pickup = ledger.begin_click(0).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        let change = destroy_change(&ledger, damage, 250);
+        assert!(ledger.settle_destroy_slot_change(0, &change));
+        ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+            responses: [StackResponse {
+                status: StackResponseStatus::Accepted,
+                request_id: pickup,
+                containers: [
+                    correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+                    correction(CONTAINER_NAME_CURSOR, 0, 1, 77),
+                ]
+                .into(),
+            }]
+            .into(),
+        }));
+        assert!(ledger.backing_stack(0).is_none());
+        assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 77);
+        ledger.apply(&mining_response(
+            change.legacy_request_id,
+            StackResponseStatus::Accepted,
+            damage,
+            88,
+        ));
+        assert!(ledger.backing_stack(0).is_none());
+        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+    }
+}
+
 /// Builds a server durability correction for the predicted inventory slot.
 fn mining_response(
     request_id: i32,

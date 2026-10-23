@@ -8,7 +8,7 @@ use bedrock_protocol_1_26_51::enums::{
 };
 use bedrock_protocol_1_26_51::packets;
 use bedrock_protocol_1_26_51::types::{
-    InventoryAction, InventoryTransactionPacketData,
+    InventoryAction, InventoryTransactionPacketData, ItemUseInventoryTransaction,
     NetworkItemStackDescriptorSerializedData as WireItem,
 };
 
@@ -163,39 +163,7 @@ pub fn observe_transaction(packet: &Packet) -> Option<TransactionObservation> {
         }
         InventoryTransactionPacketData::ItemUseInventoryTransaction(body) => (
             &body.actions.actions,
-            TransactionBody::ItemUse(ItemUseObservation {
-                action: match body.action_type {
-                    ItemUseInventoryTransactionActionType::Place => ItemUseAction::ClickBlock,
-                    ItemUseInventoryTransactionActionType::Use => ItemUseAction::ClickAir,
-                    ItemUseInventoryTransactionActionType::Destroy => ItemUseAction::BreakBlock,
-                    ItemUseInventoryTransactionActionType::UseAsAttack => {
-                        ItemUseAction::UseAsAttack
-                    }
-                    ItemUseInventoryTransactionActionType::Unknown(value) => {
-                        ItemUseAction::Unknown(value)
-                    }
-                },
-                trigger: match body.trigger_type {
-                    ItemUseInventoryTransactionTriggerType::PlayerInput => {
-                        Some(ItemUseTrigger::PlayerInput)
-                    }
-                    ItemUseInventoryTransactionTriggerType::SimulationTick => {
-                        Some(ItemUseTrigger::SimulationTick)
-                    }
-                    _ => None,
-                },
-                predicted_success: body.client_interact_prediction
-                    == ItemUseInventoryTransactionPredictedResult::Success,
-                position: [body.position.x.0, body.position.y.0, body.position.z.0],
-                face: body.face.0,
-                slot: body.slot.0,
-                item: item(&body.item),
-                from_position: body.from_position.to_array(),
-                click_position: body.click_position.to_array(),
-                target_block_id: body.target_block_id.0,
-                cooldown_active: body.client_cooldown_state
-                    == ItemUseInventoryTransactionClientCooldownState::On,
-            }),
+            TransactionBody::ItemUse(observe_item_use(body)),
         ),
         InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
             actions,
@@ -257,6 +225,64 @@ pub fn observe_transaction(packet: &Packet) -> Option<TransactionObservation> {
         actions: actions.iter().map(action).collect(),
         body,
     })
+}
+
+/// Reads the packed item-use transaction carried by one player input.
+pub fn observe_input_transaction(packet: &Packet) -> Option<TransactionObservation> {
+    let packets::Packet::PlayerAuthInput(packet) = &*packet.data else {
+        return None;
+    };
+    let packed = packet.item_use_transaction.as_ref()?;
+    Some(TransactionObservation {
+        legacy_request_id: packed.legacy_request_id.0,
+        legacy_set_slots: packed.legacy_set_item_slots.as_ref().map(|slots| {
+            slots
+                .iter()
+                .map(|slot| (slot.container_enum.to_raw(), slot.slots.to_vec()))
+                .collect()
+        }),
+        actions: packed
+            .item_use_transaction
+            .actions
+            .actions
+            .iter()
+            .map(action)
+            .collect(),
+        body: TransactionBody::ItemUse(observe_item_use(&packed.item_use_transaction)),
+    })
+}
+
+/// Projects either standalone or packed item-use fields without changing their values.
+fn observe_item_use(body: &ItemUseInventoryTransaction) -> ItemUseObservation {
+    ItemUseObservation {
+        action: match body.action_type {
+            ItemUseInventoryTransactionActionType::Place => ItemUseAction::ClickBlock,
+            ItemUseInventoryTransactionActionType::Use => ItemUseAction::ClickAir,
+            ItemUseInventoryTransactionActionType::Destroy => ItemUseAction::BreakBlock,
+            ItemUseInventoryTransactionActionType::UseAsAttack => ItemUseAction::UseAsAttack,
+            ItemUseInventoryTransactionActionType::Unknown(value) => ItemUseAction::Unknown(value),
+        },
+        trigger: match body.trigger_type {
+            ItemUseInventoryTransactionTriggerType::PlayerInput => {
+                Some(ItemUseTrigger::PlayerInput)
+            }
+            ItemUseInventoryTransactionTriggerType::SimulationTick => {
+                Some(ItemUseTrigger::SimulationTick)
+            }
+            _ => None,
+        },
+        predicted_success: body.client_interact_prediction
+            == ItemUseInventoryTransactionPredictedResult::Success,
+        position: [body.position.x.0, body.position.y.0, body.position.z.0],
+        face: body.face.0,
+        slot: body.slot.0,
+        item: item(&body.item),
+        from_position: body.from_position.to_array(),
+        click_position: body.click_position.to_array(),
+        target_block_id: body.target_block_id.0,
+        cooldown_active: body.client_cooldown_state
+            == ItemUseInventoryTransactionClientCooldownState::On,
+    }
 }
 
 fn action(action: &InventoryAction) -> InventoryActionObservation {

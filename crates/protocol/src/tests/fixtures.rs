@@ -634,6 +634,7 @@ fn player_auth_input_builder_embeds_destroy_without_placement_fields() {
                 relative_hit: [0.625, 0.375, 0.875],
                 block_runtime_id: 654_321,
             },
+            None,
         )),
     };
     let mut built =
@@ -761,6 +762,7 @@ fn player_auth_input_combined_interactions_preserve_actions_and_clear_placement_
         block_actions: fixture_block_actions(),
         block_interaction: Some(protocol::BlockItemInteraction::Destroy(
             fixture_break_block_request(),
+            None,
         )),
     };
     let mut built =
@@ -787,7 +789,7 @@ fn invalid_embedded_break_block_requests_are_rejected() {
     let interactions_for =
         |request: protocol::BlockUseRequest| protocol::PlayerAuthInputInteractions {
             block_actions: protocol::BlockActions::new(),
-            block_interaction: Some(protocol::BlockItemInteraction::Destroy(request)),
+            block_interaction: Some(protocol::BlockItemInteraction::Destroy(request, None)),
         };
     let encode_with = |request| {
         protocol::player_auth_input_with_interactions(

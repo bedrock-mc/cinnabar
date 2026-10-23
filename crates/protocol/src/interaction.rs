@@ -338,14 +338,14 @@ fn held_item_parts(
     Ok((wire::ZigZag32(i32::from(slot)), request.player_position))
 }
 
-struct SlotChangeParts {
-    legacy_request_id: i32,
-    legacy_set_item_slots: Option<Vec<LegacySetSlot>>,
-    actions: Vec<InventoryAction>,
+pub(crate) struct SlotChangeParts {
+    pub legacy_request_id: i32,
+    pub legacy_set_item_slots: Option<Vec<LegacySetSlot>>,
+    pub actions: Vec<InventoryAction>,
 }
 
 /// Records the inventory delta and the legacy request for a changed, nonempty result.
-fn slot_change_parts(
+pub(crate) fn slot_change_parts(
     hand: ItemUseHand,
     slot: u8,
     change: Option<PredictedSlotChange>,

@@ -177,7 +177,7 @@ fn item_use_hand_embedded_bytes_preserve_hand_stack_and_following_fields() {
                     block_interaction: Some(if action == 0 {
                         BlockItemInteraction::Use(request)
                     } else {
-                        BlockItemInteraction::Destroy(request)
+                        BlockItemInteraction::Destroy(request, None)
                     }),
                 },
             )

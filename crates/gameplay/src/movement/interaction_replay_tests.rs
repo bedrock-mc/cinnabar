@@ -229,7 +229,7 @@ fn a_kept_destroy_transaction_moves_with_its_replayed_tick() {
             .into_iter()
             .find(|sample| sample.snapshot.tick == carrier)
             .unwrap();
-        let Some(protocol::BlockItemInteraction::Destroy(request)) = sample
+        let Some(protocol::BlockItemInteraction::Destroy(request, _)) = sample
             .mining
             .and_then(|mining| mining.interactions.block_interaction)
         else {

@@ -119,7 +119,7 @@ impl QueuedMiningInteraction {
     pub(crate) fn replay_at(&mut self, player_position: [f32; 3]) {
         if let Some(
             protocol::BlockItemInteraction::Use(request)
-            | protocol::BlockItemInteraction::Destroy(request),
+            | protocol::BlockItemInteraction::Destroy(request, _),
         ) = self.interactions.block_interaction.as_mut()
         {
             request.player_position = player_position;
