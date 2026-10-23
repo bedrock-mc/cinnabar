@@ -705,6 +705,10 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
+Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
+their admission metadata and file hashes. Decoded and compiled session outputs are freed
+off the frame and rebuilt on rejoin. Rejoin rebuild latency and menu-memory acceptance
+remain unmeasured.
 Actor artwork prepares current demand immediately and prewarms unused pages within a
 per-frame budget. Artwork arrays allocate exactly their source layer count. Skin slots
 keep geometric capacity. Each artwork slot retains its own unchanged texture and bindings.

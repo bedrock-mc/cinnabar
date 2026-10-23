@@ -29,27 +29,6 @@ pub struct ServerUiPack {
     pub screen_settings: Option<Arc<PreparedScreenSettings>>,
 }
 
-impl assets::compiled::RetainedBuffers for ServerUiPack {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        // The stack view's archives are counted with the admission; catalogs, splashes and
-        // screen settings are parsed tables, small beside the read sources and pixels.
-        let Self {
-            ui_layers,
-            splashes: _,
-            textures,
-            item_glint,
-            view: _,
-            catalog: _,
-            builtin_screen_catalog: _,
-            screen_settings: _,
-        } = self;
-        for (_, bytes) in ui_layers.iter().flatten().chain(textures) {
-            assets::compiled::visit_slice(bytes, visit);
-        }
-        item_glint.visit_buffers(visit);
-    }
-}
-
 impl ServerUiPack {
     /// Image extensions used by both pack reload tracking and texture loading.
     pub fn image_extensions() -> &'static [&'static str] {

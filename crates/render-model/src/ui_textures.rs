@@ -88,23 +88,6 @@ impl UiTextureFormat {
     }
 }
 
-impl assets::compiled::RetainedBuffers for UiTexturePage {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        let Self {
-            dimensions: _,
-            identity: _,
-            format: _,
-            pixels,
-            blank: _,
-            repeat_content: _,
-        } = self;
-        // Font pages belong to the startup font carrier, not to the output sharing them.
-        if let Pixels::Owned(pixels) = pixels {
-            assets::compiled::visit_slice(pixels, visit);
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UiTexturePage {
     dimensions: [u32; 2],

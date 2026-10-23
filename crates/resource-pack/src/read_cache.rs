@@ -20,7 +20,7 @@ type Bytes = Arc<Box<[u8]>>;
 type Fingerprint = Result<[u8; 32], AdmissionError>;
 
 #[derive(Debug, Default)]
-struct Retained {
+pub(crate) struct Retained {
     files: HashMap<usize, Bytes>,
     order: VecDeque<usize>,
     bytes: usize,
@@ -66,11 +66,9 @@ impl ReadCache {
         }
     }
 
-    /// Drops every retained payload, keeping the hashes; later reads inflate again.
-    pub(crate) fn release_retained(&self) {
-        let released =
-            std::mem::take(&mut *self.retained.lock().unwrap_or_else(|e| e.into_inner()));
-        drop(released);
+    /// Detaches every retained payload without freeing it; later reads inflate again.
+    pub(crate) fn take_retained(&self) -> Retained {
+        std::mem::take(&mut *self.retained.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// Assigns a distinct entry identity shared by logical aliases and cloned packs.

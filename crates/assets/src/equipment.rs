@@ -254,31 +254,6 @@ pub struct RuntimeEquipmentCatalog {
 #[path = "equipment/decode.rs"]
 mod decode;
 
-impl crate::compiled::RetainedBuffers for RuntimeEquipmentCatalog {
-    fn visit_buffers(&self, visit: &mut crate::compiled::BufferVisitor<'_>) {
-        let Self {
-            item_use_overlays: _,
-            source_manifest_sha256: _,
-            entity_blob_sha256: _,
-            bindings: _,
-            textures,
-            texture_paths_sha256: _,
-            item_use: _,
-            item_attack: _,
-            item_food: _,
-        } = self;
-        for EquipmentTexture {
-            identifier: _,
-            width: _,
-            height: _,
-            rgba8,
-        } in textures.iter()
-        {
-            crate::compiled::visit_slice(rgba8, visit);
-        }
-    }
-}
-
 impl RuntimeEquipmentCatalog {
     /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
     /// nonzero digest of the pack sources). Bindings retain distinct authored definitions;

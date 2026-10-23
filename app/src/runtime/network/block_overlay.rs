@@ -74,17 +74,6 @@ pub(crate) struct CompiledBlockOverlay {
     pub(crate) vanilla_carried: Vec<CarriedBlock>,
 }
 
-impl assets::compiled::RetainedBuffers for CompiledBlockOverlay {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        let Self {
-            overlay,
-            gaps: _,
-            vanilla_carried: _,
-        } = self;
-        overlay.visit_buffers(visit);
-    }
-}
-
 /// Carried textures for one eligible vanilla full cube.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CarriedBlock {

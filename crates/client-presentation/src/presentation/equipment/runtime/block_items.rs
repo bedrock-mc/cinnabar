@@ -21,24 +21,6 @@ pub struct PreparedBlockItems {
     pub(crate) rasters: Vec<EquipmentRaster>,
 }
 
-impl assets::compiled::RetainedBuffers for PreparedBlockItems {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        // The terrain carrier is the session's world, owned and counted elsewhere.
-        let Self {
-            world: _,
-            sheets: _,
-            models,
-            alpha: _,
-            placements: _,
-            rasters,
-        } = self;
-        for model in models.values() {
-            assets::compiled::visit_slice(model, visit);
-        }
-        assets::compiled::RetainedBuffers::visit_buffers(rasters, visit);
-    }
-}
-
 impl std::fmt::Debug for PreparedBlockItems {
     /// Summarizes prepared routes without printing the retained terrain carrier.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

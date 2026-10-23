@@ -1,4 +1,4 @@
-//! Leaving for the menu keeps the newest server packs recent joins compiled, for a rejoin.
+//! Leaving for the menu keeps the newest server archives for a rejoin.
 use client_shell::menu::test_support as menu_fixture;
 use client_shell::ui_resources::UiRuntimeResource;
 
@@ -176,15 +176,11 @@ fn a_session_failure_keeps_the_server_packs_for_a_rejoin() {
 // Leaving kept the ended server's actor artwork as the menu's artwork, often GiBs of pack rasters.
 #[test]
 fn leaving_restores_the_startup_actor_artwork() {
-    let (_, startup, entities) = crate::tests::actor_rest_presentation::compiled_fixture(
+    let (_, startup, _) = crate::tests::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
         assets::ActorPoseMode::CompiledLiteral,
     );
-    crate::runtime::network::set_base_actor_artwork(startup, entities);
-    let startup = crate::runtime::network::startup_actor_artwork()
-        .expect("installed startup artwork")
-        .clone();
     let raster = assets::ActorTexture {
         source: 0,
         width: 2,
@@ -207,6 +203,7 @@ fn leaving_restores_the_startup_actor_artwork() {
         drive_session,
     );
     app.insert_resource(render_scene::ActorArtworkResource(session));
+    app.insert_resource(crate::session::StartupActorArtwork(startup.clone()));
     app.update();
     let artwork = app.world().resource::<render_scene::ActorArtworkResource>();
     assert_eq!(artwork.0.identity(), startup.identity());

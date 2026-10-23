@@ -10,20 +10,6 @@ use crate::runtime::network::resource_packs::{
 };
 use pack_runtime::PackInputs;
 
-#[test]
-fn an_unavailable_memory_probe_still_allows_rejoin_reuse() {
-    let unknown = super::budget_for_memory(0);
-    assert!(
-        unknown > 0,
-        "missing memory data must not disable the cache"
-    );
-    assert!(unknown <= super::budget_for_memory(8 * 1024 * 1024 * 1024));
-    assert_eq!(
-        super::budget_for_memory(8 * 1024 * 1024 * 1024),
-        512 * 1024 * 1024
-    );
-}
-
 /// A copy of `archive`, as a later join receives its own bytes for the same pack.
 fn copy(archive: &ResourcePackArchive) -> ResourcePackArchive {
     ResourcePackArchive::unencrypted(
@@ -582,36 +568,28 @@ fn kept_stacks_compare_archives_without_holding_their_lock() {
     assert_eq!(kept.len(), 1, "the same contents replace their entry");
 }
 
-// Rejoining the same server from the menu reuses the last compile; releasing it on leave
-// compiled every stack output again.
+// Rejoining reuses the archives but rebuilds session outputs after leaving for the menu.
 #[test]
-fn a_rejoin_from_the_menu_reuses_the_last_compile() {
+fn a_rejoin_from_the_menu_rebuilds_outputs_over_the_same_archives() {
     let _cache = overlay_cache();
     let archive = every_subscriber_archive(47, b"a=b");
     let kept = CompiledStacks::new();
     let first = join(&kept, &archive);
-    kept.release();
-    let released = recompiled(&first, &join(&kept, &archive));
-    let kept = CompiledStacks::new();
-    let first = join(&kept, &archive);
     kept.keep_for_rejoin();
     let rejoined = join(&kept, &archive);
-    println!(
-        "rejoin recompiled {} outputs after a release ({released:?}), {} when kept",
-        released.len(),
-        recompiled(&first, &rejoined).len()
-    );
-    assert_eq!(released, ["language", "glyphs", "ui", "sounds"]);
-    assert_shares_stack_outputs(&first, &rejoined);
-    assert!(same_or_absent(&first.item_icons, &rejoined.item_icons));
+    for output in ["language", "glyphs", "ui", "sounds"] {
+        assert!(
+            recompiled(&first, &rejoined).contains(&output),
+            "{output} survived leaving"
+        );
+    }
     assert!(Arc::ptr_eq(stack(&first), stack(&rejoined)));
     assert_eq!(summary(&first), summary(&rejoined));
 }
 
-// The kept join holds its prepared UI catalog, so a rejoin binds it instead of resolving the
-// server UI against the carrier again.
+// Prepared UI belongs to the session; keeping its small archives must not keep the catalog.
 #[test]
-fn a_rejoin_from_the_menu_reuses_the_prepared_ui_catalog() {
+fn leaving_releases_the_prepared_ui_catalog() {
     let _cache = overlay_cache();
     let base = Arc::new(
         json_ui::Catalog::from_files([
@@ -639,12 +617,11 @@ fn a_rejoin_from_the_menu_reuses_the_prepared_ui_catalog() {
     let kept = CompiledStacks::new();
     let prepared = Arc::downgrade(join(&kept).server_ui.as_ref().unwrap());
     kept.keep_for_rejoin();
-    assert!(prepared.upgrade().is_some(), "kept with the join");
+    test_time::eventually("the ended session's prepared UI is released", || {
+        prepared.upgrade().is_none()
+    });
     let rejoined = join(&kept);
-    assert!(Arc::ptr_eq(
-        rejoined.server_ui.as_ref().unwrap(),
-        &prepared.upgrade().unwrap()
-    ));
+    assert!(rejoined.server_ui.is_some());
 }
 
 // Leaving keeps only the newest stack, and only while what it retains fits the rejoin budget.
@@ -660,8 +637,10 @@ fn leaving_keeps_only_the_newest_stack_within_the_rejoin_budget() {
     let environment = CompileEnvironment::current();
     assert!(kept.matching(stack(&game), &environment).is_some());
     let retained = kept
-        .newest_retained_bytes()
-        .expect("the game stack is kept");
+        .lock()
+        .front()
+        .expect("the game stack is kept")
+        .archive_bytes;
     kept.keep_newest_within(retained);
     assert_eq!(kept.len(), 1, "a stack exactly at the budget stays");
     kept.keep_newest_within(retained - 1);
@@ -682,98 +661,119 @@ fn taking_the_kept_stacks_releases_them() {
     assert_eq!(kept.len(), 0);
 }
 
-// Leaving kept a stack by its archive size alone, so GiBs of compiled rasters stayed resident in
-// the menu; entity, icon and aim-assist pixels all count, each shared allocation once.
+/// Observes a compiled allocation without retaining it through the leave boundary.
+fn released<T: ?Sized + 'static>(value: &Option<Arc<T>>) -> Box<dyn Fn() -> bool> {
+    let weak = Arc::downgrade(value.as_ref().expect("the fixture supplies this output"));
+    Box::new(move || weak.strong_count() == 0)
+}
+
+// Even a tiny archive can produce large rasters. Leaving drops the whole compiled application,
+// including newly added fields, rather than trying to enumerate and budget its allocations.
 #[test]
-fn the_rejoin_budget_counts_each_compiled_buffer_once() {
+fn leaving_releases_all_decoded_outputs_but_keeps_the_archives() {
     let _cache = overlay_cache();
-    let (_, _, entity_assets) = crate::tests::actor_rest_presentation::compiled_fixture(
+    let kept = CompiledStacks::new();
+    let mut application = super::super::prepare_validated_application(
+        admitted(&every_subscriber_archive(52, b"a=b")),
+        every_input(),
+    );
+    let (_, artwork, entities) = crate::tests::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
         assets::ActorPoseMode::CompiledLiteral,
     );
-    let rgba8: Arc<[u8]> = Arc::from(vec![7u8; 64 * 64 * 4]);
-    let texture = |source| assets::ActorTexture {
-        source,
-        width: 64,
-        height: 64,
-        pixel_sha256: [0; 32],
-        rgba8: Arc::clone(&rgba8),
-    };
-    let entities = Arc::new(assets::SessionEntityPack {
-        assets: entity_assets,
-        textures: vec![texture(0), texture(1)].into(),
-        bindings: Arc::from(Vec::new()),
+    application.entities = Some(Arc::new(assets::SessionEntityPack {
+        assets: entities,
+        textures: vec![assets::ActorTexture {
+            source: 0,
+            width: 2,
+            height: 2,
+            pixel_sha256: [0; 32],
+            rgba8: vec![7; 16].into(),
+        }]
+        .into(),
+        bindings: Arc::from([]),
         equipment: None,
+    }));
+    application.entity_artwork = Some(Arc::new(artwork.clone()));
+    application.block_overlay = Some(Arc::new(super::super::CompiledBlockOverlay {
+        overlay: Default::default(),
+        gaps: Default::default(),
+        vanilla_carried: Vec::new(),
+    }));
+    let width = render_model::block_entity::MIN_DYNAMIC_ATLAS_WIDTH;
+    let carrier =
+        assets::encode_block_entity_catalog(b"{}", width, 1, &vec![7; width as usize * 4], &[])
+            .unwrap();
+    application.block_entity_art = Some(Arc::new(
+        render_model::BlockEntityArtworkPreparer::default()
+            .prepare(&assets::RuntimeBlockEntityAssets::decode(&carrier).unwrap())
+            .unwrap(),
+    ));
+    application.prepare_actor_artwork(Some(&artwork), None);
+    application.item_components = Some(Arc::default());
+    application.extension_marker = Some(Arc::from([7u8]));
+    application.aim_assist_textures = std::array::from_fn(|_| {
+        Some(Arc::new(
+            render_scene::AimAssistTexture::new([1, 1], Arc::from([7u8; 4])).unwrap(),
+        ))
     });
-    let entity_bytes = assets::compiled::retained_bytes(&[&entities]);
-    let icons = client_ui::ui_runtime::presentation::SessionIcons {
-        icons: vec![client_ui::ui_runtime::presentation::SessionIcon {
-            identifier: "test:icon".into(),
-            metadata: 0,
-            width: 8,
-            height: 8,
-            rgba8: vec![3; 8 * 8 * 4].into(),
-        }],
-        ..Default::default()
-    };
-    let aim =
-        render_scene::AimAssistTexture::new([4, 4], Arc::from(vec![5u8; 4 * 4 * 4])).map(Arc::new);
-    let application = PackApplication {
-        admission: PackAdmission::Validated(admitted(&every_subscriber_archive(50, b"a=b"))),
-        entities: Some(entities),
-        item_icons: Some(Arc::new(icons)),
-        aim_assist_textures: [aim.clone(), aim],
-        ..Default::default()
-    };
-    let archives = super::retained_bytes(
-        &PackApplication {
-            entities: None,
-            item_icons: None,
-            aim_assist_textures: [None, None],
-            ..application.clone()
-        },
-        &[],
-    );
-    let compiled = entity_bytes + 8 * 8 * 4 + 4 * 4 * 4;
-    assert_eq!(
-        super::retained_bytes(&application, &[]),
-        archives + compiled
-    );
-    let kept = CompiledStacks::new();
-    kept.remember(CompileEnvironment::current(), &application, None, &|| false);
-    kept.keep_newest_within(archives + compiled - 1);
-    assert_eq!(kept.len(), 0, "compiled buffers count toward the budget");
-}
-
-// The kept prepared UI deep-copies its definitions, so it must weigh with the kept stack too.
-#[test]
-fn kept_prepared_ui_counts_toward_the_rejoin_budget() {
-    let _cache = overlay_cache();
-    let ui = |byte: u8| {
-        Arc::new(client_ui::ui_runtime::presentation::ServerUiPack {
-            textures: vec![("ui/a.png".to_owned(), vec![byte; 4096])],
-            ..Default::default()
-        })
-    };
-    let application = PackApplication {
-        admission: PackAdmission::Validated(admitted(&every_subscriber_archive(51, b"a=b"))),
-        server_ui: Some(ui(1)),
-        ..Default::default()
-    };
-    let archives = super::retained_bytes(
-        &PackApplication {
-            server_ui: None,
-            ..application.clone()
-        },
-        &[],
-    );
-    let kept = CompiledStacks::new();
+    // Exhaustive destructuring makes a new application field require an explicit test decision.
+    let PackApplication {
+        registries: _,
+        dependencies: _,
+        terrain_identity: _,
+        admission: _,
+        inputs: _,
+        property_defaults: _,
+        extension_marker,
+        server_lang,
+        block_overlay,
+        item_icons,
+        item_components,
+        glyph_sheets,
+        block_entity_art,
+        entities,
+        entity_artwork,
+        prepared_actor_artwork,
+        server_ui,
+        server_sounds,
+        aim_assist_textures,
+    } = &application;
+    let outputs = [
+        released(extension_marker),
+        released(server_lang),
+        released(block_overlay),
+        released(item_icons),
+        released(item_components),
+        released(glyph_sheets),
+        released(block_entity_art),
+        released(entities),
+        released(entity_artwork),
+        released(prepared_actor_artwork),
+        released(server_ui),
+        released(server_sounds),
+        released(&aim_assist_textures[0]),
+        released(&aim_assist_textures[1]),
+    ];
+    let archives = Arc::downgrade(stack(&application));
     kept.remember(
         CompileEnvironment::current(),
         &application,
-        Some(ui(2)),
+        application.server_ui.clone(),
         &|| false,
     );
-    assert_eq!(kept.newest_retained_bytes(), Some(archives + 2 * 4096));
+    drop(application);
+    assert!(outputs.iter().all(|released| !released()));
+    kept.keep_for_rejoin();
+    assert_eq!(kept.len(), 1);
+    assert!(kept.lock().front().unwrap().compiled.is_none());
+    test_time::eventually(
+        "all of the ended session's decoded outputs are released",
+        || outputs.iter().all(|released| released()),
+    );
+    assert!(
+        archives.upgrade().is_some(),
+        "compressed archives remain available"
+    );
 }

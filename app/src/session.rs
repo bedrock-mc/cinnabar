@@ -161,7 +161,7 @@ impl SessionController {
         true
     }
 
-    /// Returns a failed join to the menu, keeping only the newest compiled packs for a retry.
+    /// Returns a failed join to the menu, keeping only the newest archives for a retry.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
         bridge::join_profile::JoinProfile::current().finish("failed");
         menu.show_join_failure(message);
@@ -262,6 +262,8 @@ pub(crate) struct SessionResources<'w> {
     collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<ResMut<'w, render_scene::ActorArtworkResource>>,
+    #[cfg(test)]
+    startup_actor_artwork: Option<Res<'w, StartupActorArtwork>>,
     block_entity_scene: Option<ResMut<'w, render_scene::BlockEntitySceneResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
@@ -270,9 +272,14 @@ pub(crate) struct SessionResources<'w> {
     mod_registration: Option<Res<'w, crate::modding::registration::Watcher>>,
 }
 
+/// An isolated startup snapshot for lifecycle tests without changing process-wide carriers.
+#[cfg(test)]
+#[derive(Resource)]
+pub(crate) struct StartupActorArtwork(pub(crate) render_model::ActorArtworkPages);
+
 impl SessionResources<'_> {
     /// Retires the live session with no join to follow, keeping only the newest
-    /// compiled server packs for a rejoin from the menu.
+    /// compressed server packs for a rejoin from the menu.
     fn leave(&mut self) {
         self.retire();
         self.controller.kept_packs.keep_for_rejoin();
@@ -281,10 +288,15 @@ impl SessionResources<'_> {
     /// Restores the startup actor and block-entity artwork, so the ended session's pack art
     /// (often GiBs of rasters) is freed instead of staying resident in the menu.
     fn restore_startup_artwork(&mut self) {
-        if let (Some(artwork), Some(startup)) = (
-            self.actor_artwork.as_mut(),
-            crate::runtime::network::startup_actor_artwork(),
-        ) && artwork.0.identity() != startup.identity()
+        let startup = crate::runtime::network::startup_actor_artwork();
+        #[cfg(test)]
+        let startup = self
+            .startup_actor_artwork
+            .as_ref()
+            .map(|artwork| &artwork.0)
+            .or(startup);
+        if let (Some(artwork), Some(startup)) = (self.actor_artwork.as_mut(), startup)
+            && artwork.0.identity() != startup.identity()
         {
             let ended = std::mem::replace(&mut artwork.0, startup.clone());
             client_runtime::session::release_off_frame(ended);

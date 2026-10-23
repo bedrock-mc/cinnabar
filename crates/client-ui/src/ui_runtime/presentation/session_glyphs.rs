@@ -29,28 +29,6 @@ struct PreparedGlyphs {
     named: std::collections::BTreeMap<String, Vec<assets::SheetGlyph>>,
 }
 
-impl assets::compiled::RetainedBuffers for SessionGlyphSheets {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        let Self {
-            cells,
-            named,
-            prepared,
-        } = self;
-        cells.visit_buffers(visit);
-        for glyphs in named.values() {
-            glyphs.visit_buffers(visit);
-        }
-        if let Some(PreparedGlyphs {
-            pages,
-            glyphs: _,
-            named: _,
-        }) = prepared.get()
-        {
-            pages.visit_buffers(visit);
-        }
-    }
-}
-
 impl Default for SessionGlyphSheets {
     fn default() -> Self {
         Self::new(Vec::new())

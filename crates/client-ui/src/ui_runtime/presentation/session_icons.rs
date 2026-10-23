@@ -63,36 +63,6 @@ pub struct SessionIcons {
     pub misses: HashMap<Arc<str>, Box<str>>,
 }
 
-impl assets::compiled::RetainedBuffers for SessionIcon {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        let Self {
-            identifier: _,
-            metadata: _,
-            width: _,
-            height: _,
-            rgba8,
-        } = self;
-        assets::compiled::visit_slice(rgba8, visit);
-    }
-}
-
-impl assets::compiled::RetainedBuffers for SessionIcons {
-    fn visit_buffers(&self, visit: &mut assets::compiled::BufferVisitor<'_>) {
-        let Self {
-            icons,
-            block_sheets,
-            block_models,
-            block_material_flags: _,
-            misses: _,
-        } = self;
-        icons.visit_buffers(visit);
-        block_sheets.visit_buffers(visit);
-        for model in block_models.values() {
-            assets::compiled::visit_slice(model, visit);
-        }
-    }
-}
-
 /// The packed page and lookups for the icons last seen on the UI runtime.
 #[derive(Default)]
 pub(super) struct SessionIconPage {
