@@ -212,6 +212,7 @@ impl UiRuntime {
         self.client_packets
             .pop_front()
             .or_else(|| self.book_packets.pop_front())
+            .or_else(|| self.data_driven.take_packet())
     }
 
     pub fn requeue_client_packet(&mut self, packet: Packet) {
