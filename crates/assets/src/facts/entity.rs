@@ -23,6 +23,9 @@ pub const EXPANSION_PATH: &str = "crates/assets/data/entity-facts-expansion-v219
 pub const MAGIC: &[u8; 8] = b"EFACT001";
 pub const MAX_BYTES: usize = 1024 * 1024;
 
+/// Behavior component key for NPC interactions, independent of the actor's identity.
+pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
+
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum NativeEntityClass {

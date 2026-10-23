@@ -61,14 +61,13 @@ pub(super) fn compile(
 
 /// A player's conditional family changes cannot establish a fixed rider or filter identity.
 fn player_families(entity: &Value) -> Option<Vec<&str>> {
-    if let Some(groups) = entity.get("component_groups") {
-        if groups
+    if let Some(groups) = entity.get("component_groups")
+        && groups
             .as_object()?
             .values()
             .any(|group| group.get("minecraft:type_family").is_some())
-        {
-            return None;
-        }
+    {
+        return None;
     }
     entity
         .pointer("/components/minecraft:type_family/family")?
@@ -194,7 +193,7 @@ fn components(
             | "minecraft:economy_trade_table"
             | "minecraft:trade_table"
             | "minecraft:trusting"
-            | "minecraft:npc"
+            | assets::facts::entity::NPC_COMPONENT_IDENTIFIER
             | "minecraft:sittable"
             | "minecraft:interact_with" => C::Unresolved,
             // These callbacks require a non-throwable item role. The runtime admits this proof
