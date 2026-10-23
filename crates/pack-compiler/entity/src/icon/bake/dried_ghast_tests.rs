@@ -58,11 +58,11 @@ fn dried_ghast_inventory_culls_opaque_rear_faces_behind_transparent_art() {
 
 #[test]
 fn dried_ghast_inventory_uses_the_first_tentacle_flipbook_frame() {
-    for frames in [8, 64] {
+    for (side, frames) in [(32, 8), (32, 64), (64, 64)] {
         let root = material_fixture();
         std::fs::write(root.path().join("textures/flipbook_textures.json"), r#"[{"flipbook_texture":"textures/blocks/feet","atlas_tile":"feet","ticks_per_frame":1}]"#).unwrap();
-        image::RgbaImage::from_fn(32, 32 * frames, |_, y| {
-            image::Rgba(if y < 32 {
+        image::RgbaImage::from_fn(side, side * frames, |_, y| {
+            image::Rgba(if y < side {
                 [0, 0, 255, 255]
             } else {
                 [0, 255, 0, 255]
@@ -189,4 +189,29 @@ fn assert_body_and_tentacle_artwork(side: u32, animated: bool) {
         pixels.len() < model::SIDE * model::SIDE / 2,
         "small body keeps its carried footprint"
     );
+}
+
+#[test]
+fn dried_ghast_inventory_retains_flipbook_replication() {
+    let root = material_fixture();
+    std::fs::write(root.path().join("textures/flipbook_textures.json"), r#"[{"flipbook_texture":"textures/blocks/body","atlas_tile":"body","ticks_per_frame":1,"replicate":2}]"#).unwrap();
+    image::RgbaImage::from_fn(32, 64, |x, y| {
+        image::Rgba(if x < 16 && y < 16 {
+            [0, 0, 255, 255]
+        } else {
+            [0, 255, 0, 255]
+        })
+    })
+    .save(root.path().join("textures/blocks/body.png"))
+    .unwrap();
+    let actual = fixture_icon(root.path());
+    assert!(
+        actual
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[2] > 0 && p[3] != 0)
+    );
+    assert!(actual.rgba8.as_chunks::<4>().0.iter().all(|p| p[1] == 0));
 }

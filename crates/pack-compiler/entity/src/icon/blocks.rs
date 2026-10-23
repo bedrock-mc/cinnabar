@@ -304,7 +304,6 @@ impl IconBlocks {
         if !file.is_file() {
             return Ok(None);
         }
-        let mut decoded = decode_texture(&file, path)?;
         let stem = |texture: &str| {
             texture
                 .strip_suffix(".png")
@@ -312,13 +311,27 @@ impl IconBlocks {
                 .unwrap_or(texture)
                 .to_owned()
         };
-        if self.pack.as_ref().is_some_and(|pack| {
+        let flipbook = self.pack.as_ref().and_then(|pack| {
             pack.flipbooks
                 .iter()
-                .any(|flipbook| stem(&flipbook.texture_path) == stem(path))
-        }) {
-            pack_compile_input::image::retain_first_strip_frame(&mut decoded);
-        }
+                .find(|flipbook| stem(&flipbook.texture_path) == stem(path))
+        });
+        let decoded = if let Some(flipbook) = flipbook {
+            let mut decoded = pack_compile_input::image::decode_first_texture_frame(&file, path)?;
+            if decoded.width == decoded.height {
+                let (rgba8, side) = pack_compile_input::image::replicated_tile(
+                    decoded.rgba8.into_vec(),
+                    decoded.width,
+                    flipbook.replicate,
+                );
+                decoded.rgba8 = rgba8;
+                decoded.width = side;
+                decoded.height = side;
+            }
+            decoded
+        } else {
+            decode_texture(&file, path)?
+        };
         Ok(Some(decoded))
     }
 
