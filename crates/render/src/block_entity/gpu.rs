@@ -248,6 +248,7 @@ pub(crate) fn prepare_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: crate::shaderpack::SharedAtlasRelease,
 ) {
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
@@ -280,6 +281,8 @@ pub(crate) fn prepare_resources(
     let failed = gpu.atlas_upload.failed();
     if replaced || (failed && gpu.atlas_upload.take_ready()) || (!failed && gpu.texture.is_none()) {
         // Released first: a resized or replaced atlas never draws through the old texture.
+        #[cfg(feature = "shaderpacks")]
+        shared_atlases.release(gpu.texture.as_ref());
         let released = gpu.texture.take().is_some();
         gpu.view = None;
         gpu.solid.bind_group = None;

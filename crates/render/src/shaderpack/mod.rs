@@ -83,6 +83,9 @@ mod uniforms;
 
 pub(crate) mod native_actors;
 
+#[cfg(feature = "shaderpacks")]
+pub(crate) use effects::textures::SharedAtlasRelease;
+
 use bevy::prelude::{App, Plugin};
 
 /// Runs native scene draws at their ordinary boundary or after a ready pack's final pass.

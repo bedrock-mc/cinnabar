@@ -178,9 +178,18 @@ pub(crate) fn prepare_particle_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: crate::shaderpack::SharedAtlasRelease,
 ) {
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
-    atlas::prepare(&frame, &uploads.device, &uploads.queue, &mut gpu, raw_views);
+    atlas::prepare(
+        &frame,
+        &uploads.device,
+        &uploads.queue,
+        &mut gpu,
+        raw_views,
+        #[cfg(feature = "shaderpacks")]
+        &mut shared_atlases,
+    );
 
     let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
     gpu.opaque_range = 0..opaque as u32;
