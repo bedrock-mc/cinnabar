@@ -61,6 +61,7 @@ impl UiPresentationRuntime {
                     binding,
                     hand_pivots,
                     IconRef {
+                        color_mask: None,
                         page: 0,
                         uv: [0, 0, texture.width, texture.height],
                         glint: false,

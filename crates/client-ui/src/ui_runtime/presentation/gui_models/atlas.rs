@@ -87,6 +87,7 @@ impl Atlas {
         }
         let [left, top] = [0, 1].map(|axis| self.cursor[axis] + lead[axis]);
         let icon = IconRef {
+            color_mask: None,
             page: self
                 .first
                 .checked_add((self.pages.len() - 1) as u16)

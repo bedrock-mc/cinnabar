@@ -232,8 +232,12 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         if (input.style_flags & STYLE_ALPHA_TEST) != 0u { sample.a = 1.0; }
         if sample.a * input.color.a < 0.01 { discard; }
     }
+    let sprite_mask = (input.style_flags & UI_STYLE_SPRITE_COLOR_MASK) != 0u;
+    if sprite_mask {
+        sample = vec4<f32>(mix(sample.rgb, sample.rgb * input.overlay_color.rgb, sample.a), 1.0);
+    }
     // Particle vertices carry sprite bounds in the overlay field.
-    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || repeated);
+    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || repeated || sprite_mask);
     var straight_color = input.color;
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.

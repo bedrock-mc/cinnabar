@@ -207,6 +207,7 @@ fn publication_updates_changed_menu_icons_without_copying_unchanged_snapshots() 
     let mut view = MenuView::new(true, "Owned profile".repeat(128));
     view.screen = MenuScreen::Settings;
     view.profile_icon = Some(ui::IconRef {
+        color_mask: None,
         page: presentation.solid_texture_page,
         uv: [0, 0, 1, 1],
         glint: false,
@@ -243,6 +244,7 @@ fn publication_updates_changed_menu_icons_without_copying_unchanged_snapshots() 
     assert_ne!(
         presentation.menu_view.as_ref().unwrap().profile_icon,
         Some(ui::IconRef {
+            color_mask: None,
             page: presentation.solid_texture_page,
             uv: [0, 0, 1, 1],
             glint: false,

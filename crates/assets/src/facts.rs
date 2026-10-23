@@ -17,9 +17,11 @@ pub(crate) use properties::decode;
 pub use properties::{PropertyDomain, StateValue, block_property_domain};
 pub use properties_generated::BlockProperty;
 
+mod block_aux;
 pub mod entity;
 mod item;
 mod item_carrier;
+pub use block_aux::block_item_has_aux_states;
 pub use item::{
     ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
     FILLED_MAP_IDENTIFIER, FISHING_ROD_IDENTIFIER, HARNESS_TAG, ItemFact, ItemFactRecord,
