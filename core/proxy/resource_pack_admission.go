@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"strings"
 	"sync/atomic"
 
 	"github.com/google/uuid"
@@ -355,16 +354,7 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 		for _, entry := range snapshot.Entries() {
 			id := resourcePackIdentity(entry.UUID(), entry.Version())
 			if offerIDs[id] && !admitted[id] {
-				matched := false
-				for admittedID := range admitted {
-					if strings.HasPrefix(admittedID, entry.UUID()+"_") {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
-				}
+				return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
 			}
 		}
 	}
