@@ -378,19 +378,16 @@ and rendered qualification remain incomplete.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.
-- [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
-  without one. Copper golem statue previews use the standing pack geometry, oxidation
-  artwork and eye layer; item pose metadata remains incomplete. Variant indices of
-  1.26.50 legacy icon rows (poplar boats, cushions) follow the atlas order but are not
-  confirmed against that client.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
   Heavy-core inventory previews use their carried scale and screen offset.
   Shelf inventory previews use their carried scale and position.
   Azalea previews keep separate stems and open-bottom canopies.
-- [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
-  registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
-  cushions) follow the atlas order but are not confirmed against that client.
+- [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
+  without one. Copper golem statue previews use the standing pack geometry, oxidation
+  artwork and eye layer; item pose metadata remains incomplete. Variant indices of
+  1.26.50 legacy icon rows (poplar boats, cushions) follow the atlas order but are not
+  confirmed against that client.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and
