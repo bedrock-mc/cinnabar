@@ -3895,6 +3895,19 @@
       ]
     },
     {
+      "id": "flat-icon-crystals-and-spikes",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:amethyst_cluster",
+        "minecraft:large_amethyst_bud",
+        "minecraft:medium_amethyst_bud",
+        "minecraft:small_amethyst_bud",
+        "minecraft:pointed_dripstone",
+        "minecraft:sulfur_spike"
+      ]
+    },
+    {
       "id": "flat-icon-eggs-and-frogspawn",
       "fact": "render_flag:flat_icon",
       "status": "verified",

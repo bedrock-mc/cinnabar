@@ -384,6 +384,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn crystal_and_spike_items_use_the_flat_inventory_variant() {
+        let records = read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let selected: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                assets::facts::block_render_fact(&record.name).kind
+                    == assets::facts::BlockRenderKind::Crystal
+                    || record.traits.contains(BlockTraits::DRIPSTONE_OFFSET)
+            })
+            .collect();
+        assert!(!selected.is_empty());
+        let mut catalog = serde_json::Map::new();
+        for record in &selected {
+            catalog.insert(
+                record.name.strip_prefix("minecraft:").unwrap().into(),
+                serde_json::json!({"textures": "tile"}),
+            );
+        }
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            &serde_json::Value::Object(catalog).to_string(),
+            r#"{"texture_data":{"tile":{"textures":["textures/blocks/inventory","textures/blocks/placed"]}}}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        for record in selected {
+            let visual = BlockVisualId(record.sequential_id);
+            assert!(blocks.is_flat(&world, visual), "{}", record.name);
+            assert_eq!(
+                blocks.texture_path(visual).as_deref(),
+                Some("textures/blocks/inventory"),
+                "{} {}",
+                record.name,
+                record.canonical_state
+            );
+        }
+    }
+
+    #[test]
     fn candles_keep_their_carried_icons_without_world_model_geometry() {
         let blocks = IconBlocks {
             records: assets::read_registry_for_protocol(
