@@ -536,9 +536,11 @@ impl MenuRuntime {
                 cosmetics::Item::all()
                     .iter()
                     .filter(|item| {
-                        self.dressing_room
-                            .cosmetic_category
-                            .includes_slot(&item.descriptor().slot)
+                        item.is_owned()
+                            && self
+                                .dressing_room
+                                .cosmetic_category
+                                .includes_slot(&item.descriptor().slot)
                     })
                     .map(|hat| MenuAction::DressingRoom(Action::SelectCosmetic(Some(*hat)))),
             );

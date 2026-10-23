@@ -22,6 +22,8 @@ source!("entity-facts-v2193.bin");
 pub const EXPANSION_PATH: &str = "crates/assets/data/entity-facts-expansion-v2193.tsv";
 pub const MAGIC: &[u8; 8] = b"EFACT001";
 pub const MAX_BYTES: usize = 1024 * 1024;
+/// Interaction-box inflation when an actor has no constructor override.
+pub const DEFAULT_ACTOR_PICK_RADIUS: f32 = 0.1;
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -74,6 +76,14 @@ impl NativeEntityClass {
             .flatten()
     }
 }
+
+/// Boat and chest-boat texture aliases in actor-variant order; the variant indexes this list.
+pub const BOAT_WOOD_TEXTURES: [&str; 11] = [
+    "oak", "spruce", "birch", "jungle", "acacia", "darkoak", "mangrove", "bamboo", "cherry",
+    "paleoak", "poplar",
+];
+/// The boat variant drawn with the raft model rather than the hull.
+pub const BOAT_RAFT_VARIANT: usize = 7;
 
 /// A class's radius formula, with state inputs supplied by the actor.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
@@ -133,6 +143,8 @@ pub struct EntityFact {
     pub placement: EntityPlacementFrame,
     pub equipment: MountEquipment,
     pub collision: Option<[f32; 2]>,
+    /// Absolute interaction-box inflation, independent of the actor's scale.
+    pub pick_radius: f32,
     /// At least one native compatibility rule still has incomplete parity coverage.
     pub provisional: bool,
 }
@@ -155,6 +167,7 @@ impl Default for EntityFact {
             placement: EntityPlacementFrame::Unresolved,
             equipment: MountEquipment::Unresolved,
             collision: None,
+            pick_radius: DEFAULT_ACTOR_PICK_RADIUS,
             provisional: false,
         }
     }
@@ -206,6 +219,8 @@ impl EntityFacts {
                     && r.fact.shadow_drop.is_finite()
                     && r.fact.network_y_offset.is_finite()
                     && r.fact.network_y_offset >= 0.0
+                    && r.fact.pick_radius.is_finite()
+                    && r.fact.pick_radius >= 0.0
                     && r.fact
                         .collision
                         .is_none_or(|v| v.into_iter().all(|n| n.is_finite() && n > 0.0))

@@ -74,6 +74,8 @@ pub struct ActorRenderInstance {
 pub struct ActorRenderFrame {
     /// Actors prepared for mask coverage without appearing in the scene's main passes.
     pub mask_only_runtime_ids: Arc<[u64]>,
+    /// Visible prefix after coverage-only layers are partitioned; independent layers stay here.
+    pub main_pass_instance_count: Option<u32>,
     pub instances: Arc<[ActorRenderInstance]>,
     pub skins: Arc<ActorSkinResidency>,
     pub instance_revision: u64,
@@ -114,6 +116,7 @@ impl Default for ActorRenderFrame {
     fn default() -> Self {
         Self {
             mask_only_runtime_ids: Arc::from([]),
+            main_pass_instance_count: None,
             instances: Arc::from([]),
             skins: Arc::default(),
             instance_revision: 0,

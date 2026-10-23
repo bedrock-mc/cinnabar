@@ -139,12 +139,6 @@ pub const MAPPINGS: &[Mapping] = &[
         category: Category::Controls,
     },
     Mapping {
-        source: "ctrl_autojump",
-        destination: SettingId::KeyboardMouseAutojump,
-        encoding: Encoding::Toggle,
-        category: Category::Controls,
-    },
-    Mapping {
         source: "audio_main",
         destination: SettingId::MainVolume,
         encoding: Encoding::Fraction,
@@ -201,12 +195,6 @@ pub const MAPPINGS: &[Mapping] = &[
     Mapping {
         source: "audio_weather",
         destination: SettingId::WeatherVolume,
-        encoding: Encoding::Fraction,
-        category: Category::Audio,
-    },
-    Mapping {
-        source: "audio_texttospeech",
-        destination: SettingId::TexttospeechVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
@@ -374,7 +362,16 @@ mod tests {
                 .find(|option| option.id == mapping.destination)
                 .unwrap_or_else(|| panic!("missing import destination {:?}", mapping.destination));
             if matches!(mapping.encoding, Encoding::Toggle) {
-                assert_eq!((definition.min, definition.max, definition.step), (0, 1, 1));
+                assert_eq!(definition.step, 1);
+                for raw in ["0", "1"] {
+                    assert_eq!(
+                        convert(mapping, raw),
+                        raw.parse().ok(),
+                        "{}",
+                        mapping.source
+                    );
+                }
+                assert!(convert(mapping, "2").is_none(), "{}", mapping.source);
             }
             let raw = match mapping.encoding {
                 Encoding::Fraction => "0.5".to_owned(),
@@ -382,6 +379,19 @@ mod tests {
                 _ => definition.default.to_string(),
             };
             assert!(convert(mapping, &raw).is_some(), "{}", mapping.source);
+        }
+    }
+
+    /// Importing either VSync value replaces the previous toggle state.
+    #[test]
+    fn imported_vsync_retains_the_native_binary_choice() {
+        for mode in render_api::VsyncMode::ALL {
+            let parsed = parse(format!("gfx_vsync:{}", mode as i32).as_bytes());
+            let mut settings = SettingsOptions::default();
+            settings.set(SettingId::Vsync.index(), i32::from(!mode.enabled()));
+            parsed.apply(&mut settings);
+            assert_eq!(parsed.skipped, 0);
+            assert_eq!(settings.user_settings().video.vsync, mode);
         }
     }
 

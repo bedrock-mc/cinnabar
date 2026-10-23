@@ -224,6 +224,7 @@ fn extended_effects_and_unknown_item_bounds_fail_open_behind_the_camera() {
             model: ItemFrameModel {
                 glow: false,
                 outward: 2,
+                full_face: false,
                 map: None,
             },
             item: Some(item.clone()),

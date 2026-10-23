@@ -87,7 +87,7 @@ impl ItemUseRuntime {
             .unwrap_or_default();
         let animation_frame = if use_facts.animation == assets::item_use::ItemUseAnimation::Crossbow
         {
-            let firework = ui.gameplay_hud().offhand_stack().is_some_and(|stack| {
+            let firework = ui.local_offhand_stack(player_runtime).is_some_and(|stack| {
                 stream
                     .authority()
                     .item_use_profile(stack.network_id)
@@ -162,7 +162,9 @@ impl ItemUseRuntime {
             self.selected_projectile(player_runtime, ui),
         ) {
             Some(AirUse::Hold { .. } | AirUse::Instant { .. }) => LocalItemUse::Idle,
-            Some(AirUse::Throw { .. } | AirUse::GlideRocket) | None => LocalItemUse::Unpredicted,
+            Some(AirUse::Swing | AirUse::Throw { .. } | AirUse::GlideRocket) | None => {
+                LocalItemUse::Unpredicted
+            }
         }
     }
     /// Resolves a charge prediction against the currently selected authoritative stack.

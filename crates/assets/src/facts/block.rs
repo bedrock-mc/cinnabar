@@ -50,6 +50,8 @@ pub struct BlockFact {
     pub alternate: Option<u32>,
     /// First sequential state of this block identity, shared by its variants.
     pub identity: Option<u32>,
+    /// Domains this block's states narrow, in key order; other keys use the shared domain.
+    pub narrowed_domains: &'static [(super::BlockProperty, super::PropertyDomain)],
 }
 
 impl Default for BlockFact {
@@ -67,11 +69,17 @@ impl Default for BlockFact {
             support: super::SupportKind::Unresolved,
             alternate: None,
             identity: None,
+            narrowed_domains: &[],
         }
     }
 }
 
 impl BlockFact {
+    /// Returns the values this block's own states admit for `key`.
+    pub fn domain(&self, key: super::BlockProperty) -> super::PropertyDomain {
+        super::properties::narrowed_domain(self.narrowed_domains, key)
+    }
+
     /// Retains readable custom support without inventing a compiled placement identity.
     pub fn custom(identifier: &str) -> Self {
         Self {
@@ -126,6 +134,8 @@ impl BlockFacts {
                         ..BlockFact::default()
                     };
                     fact.identity = names.get(r.name.as_ref()).copied();
+                    fact.narrowed_domains =
+                        super::property_domains_generated::block_domains(&r.name);
                     if let Some(entry) = catalog.get(r.name.as_ref()) {
                         fact.placement = entry.rule;
                         fact.support = entry.support;

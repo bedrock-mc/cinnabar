@@ -61,7 +61,6 @@ pub(crate) fn drive_menu_services(
     );
 }
 
-use assets::audio_category::AudioCategory;
 use client_audio::audio::AudioSettings;
 /// Applies the saved sound values to the live mixer.
 pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<AudioSettings>>) {
@@ -70,10 +69,7 @@ pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<Au
     };
     let (options, _) = menu.settings_snapshot();
     for option in launcher::menu::settings_options::volume_settings() {
-        if let Some(category) = option
-            .volume
-            .filter(|category| *category != AudioCategory::TextToSpeech)
-        {
+        if let Some(category) = option.volume {
             let volume = options.value(option.id) as f32 / 100.0;
             if settings.volume(category) != volume {
                 settings.set(category, volume);

@@ -99,6 +99,46 @@ fn loading_logo_and_status_form_one_compact_centered_group() {
     assert!(((logo.min().y() + panel[3]) * 0.5 - 360.0).abs() <= rem);
 }
 
+/// Short join status fits every window tall enough for it, so it never scrolls, including
+/// sizes whose rounded panel bounds once left a sub-pixel overflow.
+#[test]
+fn short_join_status_never_shows_a_scrollbar() {
+    use ui_engine::{test_support::fixture_font, text_metrics::TextMetrics};
+    let logo = ui::IconRef {
+        page: 1,
+        uv: [0, 0, 300, 100],
+        glint: false,
+    };
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.feeds.join = launcher::menu::JoinProgress::new(launcher::menu::JoinKind::External);
+    let font = fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(128, 1024 * 1024);
+    for width in [640, 854, 1280, 1920] {
+        for height in 320..=1080 {
+            let (mut nodes, mut next) = (Vec::new(), 1);
+            let metrics =
+                TextMetrics::for_viewport([width, height], ui::DpiScale::new(1.0).unwrap(), None);
+            let mut canvas =
+                Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+            canvas.title_artwork = Some(logo);
+            let size = [width as f32, height as f32];
+            join(&mut canvas, &view, size, &|_| None).unwrap();
+            assert!(
+                canvas
+                    .scrolls
+                    .iter()
+                    .all(|scroll| scroll.max == 0.0 && scroll.thumb.is_none()),
+                "{size:?} scrolled by {:?}",
+                canvas
+                    .scrolls
+                    .iter()
+                    .map(|scroll| scroll.max)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
 #[test]
 fn long_loading_details_scroll_without_moving_cancel_off_screen() {
     let mut view = MenuView::new(true, "Fixture".into());

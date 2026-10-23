@@ -48,6 +48,10 @@ rich-presence = { path = "../rich-presence" }
 server-experience = { path = "../server-experience" }
 ui = { path = "../ui" }
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
 

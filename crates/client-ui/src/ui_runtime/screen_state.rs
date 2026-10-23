@@ -55,6 +55,8 @@ pub struct ScreenState {
     pub creative_expanded: std::collections::BTreeSet<u32>,
     /// Scroll offsets of the engine-drawn screen's scroll views, by view key.
     pub container_scroll: std::collections::BTreeMap<String, f64>,
+    /// The engine scroll view whose scrollbar thumb is being dragged, and its last pointer axis.
+    pub container_scroll_drag: Option<(String, f64)>,
     window: Option<u64>,
     creative_filter: std::sync::Arc<std::sync::Mutex<Option<CreativeFilterCache>>>,
 }
@@ -130,6 +132,7 @@ impl ScreenState {
             self.mount_identifier = None;
             self.mount_equipment = assets::entity::mount::MountEquipment::Unresolved;
             self.container_scroll.clear();
+            self.container_scroll_drag = None;
             self.creative_expanded.clear();
         }
     }
@@ -140,6 +143,7 @@ impl ScreenState {
         self.creative_row = 0;
         self.book_page = 0;
         self.container_scroll.clear();
+        self.container_scroll_drag = None;
     }
 
     /// Selects a UI category and resets the list position and search focus.
@@ -159,6 +163,7 @@ impl ScreenState {
         self.search_focused = tab == SEARCH_TAB;
         self.creative_row = 0;
         self.container_scroll.clear();
+        self.container_scroll_drag = None;
     }
 
     /// Whether a text field owns the keyboard.
@@ -186,6 +191,7 @@ impl ScreenState {
         }
         self.creative_row = 0;
         self.container_scroll.clear();
+        self.container_scroll_drag = None;
     }
 
     pub fn backspace_text(&mut self) {
@@ -197,6 +203,7 @@ impl ScreenState {
             self.search.pop();
             self.creative_row = 0;
             self.container_scroll.clear();
+            self.container_scroll_drag = None;
         }
     }
 

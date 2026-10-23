@@ -15,14 +15,72 @@ use super::*;
 
 mod action_scopes;
 mod auto_allocation;
+mod book_output;
+mod book_placement;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
+mod extra_results;
 mod item_data;
+mod output_identity;
+
+/// The inventory stacks the newest request placed from its created output, in action order.
+fn placed_outputs(ledger: &PlayerInventoryLedger) -> Vec<(u8, NetworkItemStack)> {
+    ledger
+        .newest_request()
+        .unwrap()
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Place {
+                source,
+                destination,
+                ..
+            } if source.container == StackRequestContainer::CreatedOutput
+                && destination.container == StackRequestContainer::CombinedInventory =>
+            {
+                let slot = destination.slot;
+                ledger
+                    .target_stack(InventoryTarget::Player(slot))
+                    .map(|stack| (slot, stack.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
 
 const LOG: i32 = 6;
 const PLANKS: i32 = 7;
 const COBBLE: i32 = 8;
 const FURNACE: i32 = 9;
+const BIRCH_PLANKS: i32 = 10;
+
+/// Supplies settled oak and birch planks after admitting their shared wood tag.
+fn plank_ledger(stacks: &[(u8, i32, i32, u16)]) -> PlayerInventoryLedger {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut entries = registry().entries.to_vec();
+    let oak = entries
+        .iter_mut()
+        .find(|entry| entry.network_id == PLANKS)
+        .unwrap();
+    oak.item_tags = Arc::from([Arc::from("test:wood")]);
+    let mut birch = oak.clone();
+    birch.network_id = BIRCH_PLANKS;
+    birch.identifier = Arc::from("minecraft:birch_planks");
+    entries.push(birch);
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    for &(slot, item, id, count) in stacks {
+        slots[usize::from(slot)] = stack(item, id, count);
+    }
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger
+}
 
 fn varuint(out: &mut Vec<u8>, mut value: u32) {
     while value >= 0x80 {
@@ -813,7 +871,7 @@ fn rebased_crafting_preserves_same_request_output_references() {
             .unwrap();
         assert!(ledger.mark_transport_enqueued(20));
         let craft = if automatic {
-            ledger.begin_auto_craft(&recipe)
+            ledger.begin_auto_craft(&recipe, false)
         } else {
             ledger.begin_craft(&recipe, 1)
         }
@@ -825,20 +883,41 @@ fn rebased_crafting_preserves_same_request_output_references() {
         assert!(actions.iter().any(|action| matches!(action,
             StackActionObservation::Consume { source, .. } if source.stack_network_id == 91
         )));
-        assert!(
-            matches!(actions.last(), Some(StackActionObservation::Take { source, .. })
-            if source.stack_network_id == craft)
-        );
         assert_eq!(ledger.target_stack(target).unwrap().count, 1);
-        assert_eq!(ledger.cursor_stack().unwrap().network_id, PLANKS);
-        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
-        assert!(ledger.mark_transport_enqueued(21));
-        respond(
-            &mut ledger,
-            craft,
-            &[(container, slot, 1, 92), (CONTAINER_NAME_CURSOR, 0, 1, 93)],
-        );
-        assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 93);
+        if automatic {
+            let placed = placed_outputs(&ledger);
+            assert_eq!(placed.len(), 1);
+            let (output_slot, output) = &placed[0];
+            assert_eq!((output.network_id, output.count), (PLANKS, 1));
+            assert!(ledger.cursor_stack().is_none());
+            assert!(ledger.mark_transport_enqueued(21));
+            respond(
+                &mut ledger,
+                craft,
+                &[(container, slot, 1, 92), (container, *output_slot, 1, 93)],
+            );
+            assert_eq!(
+                ledger
+                    .target_stack(InventoryTarget::Player(*output_slot))
+                    .unwrap()
+                    .stack_network_id,
+                93
+            );
+        } else {
+            assert!(
+                matches!(actions.last(), Some(StackActionObservation::Take { source, .. })
+                if source.stack_network_id == craft)
+            );
+            assert_eq!(ledger.cursor_stack().unwrap().network_id, PLANKS);
+            assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+            assert!(ledger.mark_transport_enqueued(21));
+            respond(
+                &mut ledger,
+                craft,
+                &[(container, slot, 1, 92), (CONTAINER_NAME_CURSOR, 0, 1, 93)],
+            );
+            assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 93);
+        }
         assert!(!ledger.resync_required());
     }
 }

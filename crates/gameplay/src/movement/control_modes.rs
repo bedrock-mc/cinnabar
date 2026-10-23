@@ -93,14 +93,12 @@ impl ControlModes {
         self.stop_sprinting = false;
     }
 
-    /// Adopts server-authored sprint/sneak states; the next local transition still wins.
+    /// Adopts server actor states without changing the user's toggle requests.
     pub fn adopt_server_flags(&mut self, sprinting: Option<bool>, sneaking: Option<bool>) {
         if let Some(sprinting) = sprinting {
             self.sprinting = sprinting;
-            self.sprint_toggled = sprinting;
         }
         if let Some(sneaking) = sneaking {
-            self.sneak_toggled = sneaking;
             self.sneaking = sneaking;
         }
     }
@@ -387,6 +385,44 @@ mod tests {
         );
         modes.adopt_tick_sprinting(false);
         assert!(!modes.update(frame(100, 1.0)).sprint_request);
+    }
+
+    /// Metadata changes actor state without replacing the player's toggle request.
+    #[test]
+    fn server_sprint_flags_preserve_toggle_intent() {
+        for held in [false, true] {
+            let mut modes = ControlModes::default();
+            assert!(
+                modes
+                    .update(ControlObservation {
+                        toggle_sprint: true,
+                        sprint_pressed: true,
+                        sprint_held: true,
+                        ..frame(0, 1.0)
+                    })
+                    .sprint_request
+            );
+            modes.adopt_server_flags(Some(false), None);
+            let resumed = modes.update(ControlObservation {
+                toggle_sprint: true,
+                sprint_held: held,
+                ..frame(50, 1.0)
+            });
+            assert!(resumed.sprint_down);
+            assert!(resumed.sprint_request);
+            assert!(!resumed.stop_sprinting);
+        }
+        let mut modes = ControlModes::default();
+        modes.adopt_server_flags(Some(true), None);
+        modes.adopt_tick_sprinting(false);
+        assert!(
+            !modes
+                .update(ControlObservation {
+                    toggle_sprint: true,
+                    ..frame(50, 1.0)
+                })
+                .sprint_request
+        );
     }
 
     #[test]

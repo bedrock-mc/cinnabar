@@ -477,9 +477,7 @@
       "item": "minecraft:yellow_wool_stairs"
     }
   },
-  "unresolved_retail": [
-    "minecraft:straw_bed"
-  ],
+  "unresolved_retail": [],
   "movement": [
     {
       "name": "minecraft:bed",
@@ -583,7 +581,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "3ea3593aa723e2f4c89b982d2d0b60492167ad28e950085ab1dd239a5181de86",
+    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -663,7 +661,9 @@
       "minecraft:yellow_shulker_box"
     ],
     "unresolved": [
-      "minecraft:soul_soil"
+      "minecraft:chalkboard",
+      "minecraft:soul_soil",
+      "minecraft:straw_bed"
     ]
   },
   "model_family_rules": [
@@ -1083,7 +1083,8 @@
       "fact": "render:AuthoredModel",
       "status": "verified",
       "members": [
-        "minecraft:shelf_mushroom"
+        "minecraft:shelf_mushroom",
+        "minecraft:straw_bed"
       ]
     },
     {
@@ -2119,6 +2120,9 @@
       "id": "block_entity_drawn-112",
       "fact": "BLOCK_ENTITY_DRAWN",
       "status": "provisional",
+      "exclude_members": [
+        "minecraft:straw_bed"
+      ],
       "model_family": [
         "Chest",
         "Bed",
@@ -3323,6 +3327,34 @@
       ]
     },
     {
+      "id": "render-furnace",
+      "fact": "render:Furnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:furnace",
+        "minecraft:blast_furnace",
+        "minecraft:smoker"
+      ]
+    },
+    {
+      "id": "render-lit-furnace",
+      "fact": "render:LitFurnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:lit_furnace",
+        "minecraft:lit_blast_furnace",
+        "minecraft:lit_smoker"
+      ]
+    },
+    {
+      "id": "render-facing-cube",
+      "fact": "render:FacingCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:loom"
+      ]
+    },
+    {
       "id": "render-composter",
       "fact": "render:Composter",
       "status": "provisional",
@@ -3847,6 +3879,14 @@
       "suffix": "hanging_sign"
     },
     {
+      "id": "render-leaf-litter",
+      "fact": "render:LeafLitter",
+      "status": "verified",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",
@@ -3871,7 +3911,6 @@
       "members": [
         "minecraft:ladder",
         "minecraft:waterlily",
-        "minecraft:end_rod",
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
@@ -4159,6 +4198,14 @@
       "members": [
         "minecraft:bamboo",
         "minecraft:bamboo_sapling"
+      ]
+    },
+    {
+      "id": "chalkboard-render",
+      "fact": "render:EntityDrawn",
+      "status": "provisional",
+      "members": [
+        "minecraft:chalkboard"
       ]
     }
   ],
@@ -5062,6 +5109,26 @@
   ],
   "entity_rules": [
     {
+      "id": "pick-radius-shulker",
+      "status": "verified",
+      "members": [
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "pick_radius": 0.0
+      }
+    },
+    {
+      "id": "pick-radius-fireball",
+      "status": "verified",
+      "members": [
+        "minecraft:fireball"
+      ],
+      "facts": {
+        "pick_radius": 1.0
+      }
+    },
+    {
       "id": "entity-interactions-0",
       "status": "provisional",
       "members": [
@@ -5787,7 +5854,8 @@
       "id": "offset-boat",
       "status": "provisional",
       "members": [
-        "minecraft:boat"
+        "minecraft:boat",
+        "minecraft:chest_boat"
       ],
       "facts": {
         "network_y_offset": 0.375
@@ -5897,7 +5965,7 @@
         "route": "model",
         "renderer": "beacon",
         "diagnostic": "deferred",
-        "geometry": "cube"
+        "geometry": "model"
       },
       "members": [
         "minecraft:beacon"
@@ -5913,6 +5981,9 @@
         "geometry": "invisible_or_diagnostic"
       },
       "family": "Bed",
+      "exclude_members": [
+        "minecraft:straw_bed"
+      ],
       "status": "verified"
     },
     {
@@ -6348,6 +6419,19 @@
         "minecraft:vault"
       ],
       "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "ChalkboardBlock",
+        "route": "model",
+        "renderer": "chalkboard",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:chalkboard"
+      ],
+      "status": "provisional"
     }
   ],
   "visual_events": {
@@ -6667,9 +6751,16 @@
       "Portal": "minecraft:portal",
       "EndPortal": "minecraft:end_portal",
       "EndGateway": "minecraft:end_gateway",
-      "EndPortalFrame": "minecraft:end_portal_frame"
+      "EndPortalFrame": "minecraft:end_portal_frame",
+      "EmeraldBlock": "minecraft:emerald_block",
+      "GoldBlock": "minecraft:gold_block",
+      "DiamondBlock": "minecraft:diamond_block",
+      "IronBlock": "minecraft:iron_block",
+      "NetheriteBlock": "minecraft:netherite_block"
     },
     "VanillaEntity": {
+      "Boat": "minecraft:boat",
+      "ChestBoat": "minecraft:chest_boat",
       "Player": "minecraft:player"
     }
   },
@@ -6763,7 +6854,8 @@
       "GrassSide": "grass_side",
       "MyceliumSide": "mycelium_side",
       "ResinClump": "resin_clump",
-      "PowderSnow": "powder_snow"
+      "PowderSnow": "powder_snow",
+      "StrawBed": "straw_bed"
     },
     "alpha_textures": [
       "BambooFenceGate",
@@ -6771,6 +6863,9 @@
       "BeaconShell"
     ],
     "blocks": {
+      "Beacon": "minecraft:beacon",
+      "Obsidian": "minecraft:obsidian",
+      "Glass": "minecraft:glass",
       "BeeNest": "minecraft:bee_nest",
       "Beehive": "minecraft:beehive",
       "ChiseledBookshelf": "minecraft:chiseled_bookshelf",
@@ -6781,7 +6876,9 @@
       "Dirt": "minecraft:dirt",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
-      "Stone": "minecraft:stone"
+      "Stone": "minecraft:stone",
+      "HeavyCore": "minecraft:heavy_core",
+      "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {
       "door_lower": "Door",
@@ -6881,7 +6978,8 @@
     "item_visuals": {
       "minecraft:banner": "BlockModel",
       "minecraft:bed": "Sprite",
-      "minecraft:nether_wart": "Sprite"
+      "minecraft:nether_wart": "Sprite",
+      "minecraft:straw_bed": "Sprite"
     },
     "alias_cubes": {
       "minecraft:bone_block": {
@@ -6941,6 +7039,9 @@
       "flattened_tnt_side": "textures/blocks/tnt_side",
       "flattened_tnt_top": "textures/blocks/tnt_top"
     },
-    "empty_hand": "Air"
+    "empty_hand": "Air",
+    "omitted_render_controllers": {
+      "controller.render.iron_golem": "controller.render.default"
+    }
   }
 }

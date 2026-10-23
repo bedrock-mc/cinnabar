@@ -59,7 +59,7 @@ pub const ITEMS: [Item; 4] = [
 ];
 
 /// Admits fixture facts through the owning session, then acknowledges its personal-open request.
-pub fn player() -> Result<PlayerState, String> {
+pub fn player(block_identity: i32) -> Result<PlayerState, String> {
     let mut player = PlayerState::new(1);
     player
         .facts
@@ -101,7 +101,10 @@ pub fn player() -> Result<PlayerState, String> {
             IngredientFixture::tagged(TAG),
             IngredientFixture::named(LOG_NAME, 0),
         ],
-        vec![OutputFixture::new(FURNACE, 1)],
+        vec![OutputFixture {
+            block_runtime_id: block_identity,
+            ..OutputFixture::new(FURNACE, 1)
+        }],
     );
     recipe.net_id = 77;
     for (sequence, event) in [

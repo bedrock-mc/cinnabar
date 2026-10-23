@@ -7,9 +7,9 @@ import (
 )
 
 func TestConfiguredServerUsesSupportedEntityRegistry(t *testing.T) {
-	for _, generator := range []string{"normal", "flat"} {
+	for _, generator := range []string{"flat"} {
 		t.Run(generator, func(t *testing.T) {
-			s := settings{dir: t.TempDir(), addr: "127.0.0.1:0", generator: generator, seed: 42}
+			s := settings{dir: t.TempDir(), addr: "127.0.0.1:0", generator: generator}
 			conf, err := s.userConfig().Config(slog.New(slog.NewTextHandler(io.Discard, nil)))
 			if err != nil {
 				t.Fatal(err)

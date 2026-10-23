@@ -163,13 +163,16 @@ fn a_raster_past_the_pixel_budget_is_halved_to_fit() {
 #[test]
 fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
     let mut encoded = Vec::new();
-    for (width, height, alpha) in [(4, 4, 255), (8, 8, 127), (3, 7, 255)] {
+    for (width, height) in [(4, 4), (8, 8), (3, 7)] {
         let mut bytes = Cursor::new(Vec::new());
-        RgbaImage::from_pixel(width, height, Rgba([9, 25, 42, alpha]))
+        RgbaImage::from_pixel(width, height, Rgba([9, 25, 42, 255]))
             .write_to(&mut bytes, ImageFormat::Png)
             .unwrap();
         encoded.push(bytes.into_inner());
     }
+    // A readable header over corrupt pixel data plans its size but cannot decode.
+    let corrupt = encoded[1].len() - 20;
+    encoded[1][corrupt..].fill(0);
     let broken_header = encoded[0][..33].to_vec();
     let images = [&encoded[0], &encoded[1], &broken_header, &encoded[2]];
     let calls = std::sync::Mutex::new(Vec::new());
@@ -179,14 +182,7 @@ fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
             calls.lock().unwrap().push(source);
             let bytes = images[source as usize];
             Ok((raster_decoded_bytes("fixture.png", bytes), move || {
-                decode_raster(
-                    "fixture.png",
-                    bytes,
-                    Some(&|width, height| {
-                        Some(vec![true; usize::from(width) * usize::from(height)])
-                    }),
-                    false,
-                )
+                decode_raster("fixture.png", bytes, true)
             }))
         },
         64,
@@ -195,10 +191,7 @@ fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
     let mut calls = calls.into_inner().unwrap();
     calls.sort();
     assert_eq!(calls, [0, 1, 2, 3]);
-    assert!(
-        prepared[&1].is_none(),
-        "sampled fractional alpha was accepted"
-    );
+    assert!(prepared[&1].is_none(), "corrupt pixel data was accepted");
     assert!(prepared[&2].is_none(), "a truncated image was accepted");
     let first = prepared[&0].as_ref().unwrap();
     let last = prepared[&3].as_ref().unwrap();
@@ -345,9 +338,33 @@ fn encoded_header_bounds_cover_decoded_png_and_tga_pixels() {
         image.write_to(&mut bytes, format).unwrap();
         let bytes = bytes.into_inner();
         let bound = raster_decoded_bytes(path, &bytes);
-        let raster = decode_raster(path, &bytes, None, false).unwrap();
+        let raster = decode_raster(path, &bytes, false).unwrap();
         assert!(bound >= raster.pixels.len());
         assert_eq!((raster.width, raster.height), (5, 7));
         assert_eq!(raster.pixels, image.into_rgba8().into_raw());
     }
+}
+
+#[test]
+fn unverified_material_alpha_rounds_at_half_instead_of_refusing_the_raster() {
+    let mut image = RgbaImage::from_pixel(2, 2, Rgba([9, 25, 42, 255]));
+    image.put_pixel(0, 0, Rgba([1, 2, 3, 4]));
+    image.put_pixel(1, 0, Rgba([1, 2, 3, 127]));
+    image.put_pixel(0, 1, Rgba([1, 2, 3, 128]));
+    let mut bytes = Cursor::new(Vec::new());
+    image.write_to(&mut bytes, ImageFormat::Png).unwrap();
+    let bytes = bytes.into_inner();
+    let alphas = |raster: DecodedRaster| {
+        raster
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[3])
+            .collect::<Vec<_>>()
+    };
+    let rounded = decode_raster("fixture.png", &bytes, true).unwrap();
+    assert_eq!(alphas(rounded), [0, 0, 255, 255]);
+    let kept = decode_raster("fixture.png", &bytes, false).unwrap();
+    assert_eq!(alphas(kept), [4, 127, 128, 255]);
 }

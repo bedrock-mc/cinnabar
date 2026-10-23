@@ -346,3 +346,19 @@ pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
         },
     )
 }
+
+/// Reads the actor runtime ID and swing source of an arm-swing animation.
+pub fn swing(packet: &Packet) -> Option<(u64, Option<String>)> {
+    let packets::Packet::Animate(animate) = &*packet.data else {
+        return None;
+    };
+    (animate.action == bedrock_protocol_1_26_51::enums::AnimateAction::Swing).then(|| {
+        (
+            animate.target_actor_runtime_id.0,
+            animate
+                .swing_source
+                .as_ref()
+                .map(|source| source.to_string_lossy().into_owned()),
+        )
+    })
+}

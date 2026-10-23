@@ -156,7 +156,7 @@ pub(super) fn expected(page: u32, layer: u32, mip: u32, side: u32) -> Vec<u8> {
 fn plan_and_images(fixture: &Fixture) -> (AtlasPlan, AtlasImages) {
     fixture.with_inputs(None, |inputs| {
         let plan = plan_atlas(inputs, 4096).unwrap();
-        let images = build_images(inputs, &plan);
+        let images = build_images(inputs, &plan, &|| false).unwrap();
         (plan, images)
     })
 }
@@ -313,7 +313,7 @@ fn overflow_halves_every_sprite_deterministically() {
     let (plan, images) = fixture.with_inputs(None, |inputs| {
         let plan = plan_atlas(inputs, 32).unwrap();
         assert_eq!(plan_atlas(inputs, 32).as_ref(), Some(&plan));
-        let images = build_images(inputs, &plan);
+        let images = build_images(inputs, &plan, &|| false).unwrap();
         (plan, images)
     });
     assert_eq!(plan.scale, 1);
@@ -417,7 +417,7 @@ fn authored_maps_fill_carrier_slots_and_leave_others_neutral() {
     let authored = AuthoredPbr::new([&normals, &normals], [&materials, &materials], &refs);
     let (plan, images) = fixture.with_inputs(Some(authored), |inputs| {
         let plan = plan_atlas(inputs, 4096).unwrap();
-        let images = build_images(inputs, &plan);
+        let images = build_images(inputs, &plan, &|| false).unwrap();
         (plan, images)
     });
     let [normal_atlas, specular_atlas] = images.atlas.pbr.as_ref().unwrap();
@@ -479,7 +479,7 @@ fn authored_material_overrides_fill_static_opaque_and_animated_sprites() {
     );
     let (plan, images) = fixture.with_inputs(Some(authored), |inputs| {
         let plan = plan_atlas(inputs, 4096).unwrap();
-        let images = build_images(inputs, &plan);
+        let images = build_images(inputs, &plan, &|| false).unwrap();
         (plan, images)
     });
     let check = |layers: &pixels::LayerImages, rect: SpriteRect, page, layer, authored_ref| {
@@ -795,4 +795,153 @@ fn standalone_geometry_can_request_its_shaderpack_atlas() {
     assert!(world.run_system_once(atlas_requested).unwrap());
     world.resource_mut::<ShaderpackGeometrySettings>().enabled = false;
     assert!(!world.run_system_once(atlas_requested).unwrap());
+}
+
+#[test]
+fn atlas_build_cancels_between_sprites() {
+    use std::cell::Cell;
+
+    fixture().with_inputs(None, |inputs| {
+        let plan = plan_atlas(inputs, 4096).unwrap();
+        assert!(plan.contents.len() > 1);
+        let checked = Cell::new(0);
+        let images = build_images(inputs, &plan, &|| {
+            checked.set(checked.get() + 1);
+            checked.get() == 2
+        });
+        assert!(images.is_none(), "cancellation discards partial pixel work");
+        assert_eq!(checked.get(), 2, "no remaining sprites are assembled");
+        assert!(build_images(inputs, &plan, &|| false).is_some());
+    });
+}
+
+#[test]
+fn atlas_build_cancels_between_texture_uploads() {
+    use std::cell::Cell;
+
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    fixture().with_inputs(None, |inputs| {
+        let plan = plan_atlas(inputs, 4096).unwrap();
+        let images = build_images(inputs, &plan, &|| false).unwrap();
+        let checked = Cell::new(0);
+        let uploaded = upload::upload_atlas(&device, &queue, &plan, &images, &|| {
+            checked.set(checked.get() + 1);
+            checked.get() == 2
+        });
+        assert!(uploaded.is_none(), "cancellation discards partial GPU work");
+        assert_eq!(checked.get(), 2, "no remaining textures are uploaded");
+        assert!(upload::upload_atlas(&device, &queue, &plan, &images, &|| false).is_some());
+    });
+}
+
+/// A render world with a no-op device whose builds report each stage and hold the first
+/// one to reach `hold` until the returned sender releases it.
+fn held_build_world(
+    hold: Stage,
+) -> (
+    bevy::prelude::World,
+    std::sync::mpsc::Receiver<Stage>,
+    std::sync::mpsc::Sender<()>,
+) {
+    use bevy::render::renderer::{RenderDevice, RenderQueue};
+    use std::sync::{Mutex, mpsc};
+
+    AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let mut world = bevy::prelude::World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    let (reached, stages) = mpsc::channel();
+    let (release, held) = mpsc::channel::<()>();
+    let held = Mutex::new(Some(held));
+    world.insert_resource(AtlasBuild {
+        hook: Some(Arc::new(move |stage| {
+            let _ = reached.send(stage);
+            if stage == hold
+                && let Some(held) = held.lock().unwrap().take()
+            {
+                let _ = held.recv();
+            }
+        })),
+        ..AtlasBuild::default()
+    });
+    (world, stages, release)
+}
+
+/// Waits until a build reports `stage`, returning every stage reported so far.
+fn wait_for(stages: &std::sync::mpsc::Receiver<Stage>, seen: &mut Vec<Stage>, stage: Stage) {
+    test_time::eventually("the atlas build to reach its stage", || {
+        seen.extend(stages.try_iter());
+        seen.contains(&stage)
+    });
+}
+
+/// Switching Off stops a build already assembling pixels: nothing uploads or publishes.
+#[test]
+fn switching_off_stops_a_running_atlas_build() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let (mut world, stages, release) = held_build_world(Stage::Pixels);
+    world.insert_resource(ChunkTextureAssets::with_revision(
+        Arc::new(RuntimeAssets::diagnostic()),
+        1,
+    ));
+    world.run_system_once(prepare_shaderpack_atlas).unwrap();
+    let mut seen = Vec::new();
+    wait_for(&stages, &mut seen, Stage::Pixels);
+    world.run_system_once(release_shaderpack_atlas).unwrap();
+    release.send(()).unwrap();
+    test_time::eventually("the cancelled build to return", || {
+        world.run_system_once(release_shaderpack_atlas).unwrap();
+        world.resource::<AtlasBuild>().retiring.is_none()
+    });
+    seen.extend(stages.try_iter());
+    assert_eq!(seen, [Stage::Sources, Stage::Plan, Stage::Pixels]);
+    assert!(!world.contains_resource::<ShaderpackAtlas>());
+    assert!(!world.contains_resource::<AtlasAnimations>());
+}
+
+/// A superseded build retires before the latest request starts, and only that one publishes.
+#[test]
+fn a_superseded_atlas_build_retires_before_its_replacement_starts() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let (mut world, stages, release) = held_build_world(Stage::Pixels);
+    let source = |revision| {
+        ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), revision)
+    };
+    world.insert_resource(source(1));
+    world.run_system_once(prepare_shaderpack_atlas).unwrap();
+    let mut seen = Vec::new();
+    wait_for(&stages, &mut seen, Stage::Pixels);
+    let latest = source(3);
+    for replacement in [source(2), latest.clone()] {
+        world.insert_resource(replacement);
+        world.run_system_once(prepare_shaderpack_atlas).unwrap();
+        let build = world.resource::<AtlasBuild>();
+        assert!(build.task.is_none(), "no build beside the retiring one");
+        assert!(build.retiring.is_some() && build.pending);
+    }
+    release.send(()).unwrap();
+    test_time::eventually("the replacement to publish", || {
+        world.run_system_once(prepare_shaderpack_atlas).unwrap();
+        world.contains_resource::<ShaderpackAtlas>()
+    });
+    seen.extend(stages.try_iter());
+    assert_eq!(
+        seen,
+        [
+            Stage::Sources,
+            Stage::Plan,
+            Stage::Pixels,
+            Stage::Sources,
+            Stage::Plan,
+            Stage::Pixels,
+            Stage::Upload,
+        ],
+        "the first build stops and only the latest request runs"
+    );
+    let atlas = world.resource::<ShaderpackAtlas>();
+    assert_eq!(atlas.generation, 1);
+    assert!(atlas.source.binding_identity() == latest.binding_identity());
 }

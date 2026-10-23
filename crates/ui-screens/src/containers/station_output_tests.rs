@@ -30,7 +30,7 @@ fn with_output_frame(check: impl FnOnce(ContainerFrame<'_>)) {
     let names = HashMap::new();
     let (icons36, durability36, durability9) = ([None; 36], [None; 36], [None; 9]);
     let (icons54, durability54) = ([None; 54], [None; 54]);
-    let (icons9, icons4, durability4) = ([None; 9], [None; 4], [None; 4]);
+    let (icons4, durability4) = ([None; 4], [None; 4]);
     let entries: Arc<[Option<ui::IconRef>]> = Arc::from([]);
     let predicted = StationOutput {
         icon: None,
@@ -50,8 +50,7 @@ fn with_output_frame(check: impl FnOnce(ContainerFrame<'_>)) {
         storage_durability: &durability54,
         ui_icons: &[],
         ui_durability: &[],
-        crafting_icons: &icons9,
-        crafting_output: None,
+        crafting: &crate::inventory_capture::CraftingFrame::default(),
         armor_icons: &icons4,
         armor_durability: &durability4,
         offhand_icon: None,
@@ -67,12 +66,17 @@ fn with_output_frame(check: impl FnOnce(ContainerFrame<'_>)) {
 }
 
 #[test]
-fn the_anvil_output_cell_shows_the_predicted_result() {
+fn anvil_and_grindstone_output_cells_show_the_predicted_result() {
     with_output_frame(|frame| {
-        let anvil = player(protocol::WINDOW_TYPE_ANVIL);
-        let (stack, _, durability) = station_cell(&anvil, &frame, Cell::Output);
-        assert_eq!(stack.map(|stack| stack.network_id), Some(7));
-        assert_eq!(durability, Some(0.5));
+        for window_type in [
+            protocol::WINDOW_TYPE_ANVIL,
+            protocol::WINDOW_TYPE_GRINDSTONE,
+        ] {
+            let station = player(window_type);
+            let (stack, _, durability) = station_cell(&station, &frame, Cell::Output);
+            assert_eq!(stack.map(|stack| stack.network_id), Some(7));
+            assert_eq!(durability, Some(0.5));
+        }
         let loom = player(protocol::WINDOW_TYPE_LOOM);
         let (stack, _, _) = station_cell(&loom, &frame, Cell::Output);
         assert!(stack.is_none(), "other screens keep their own output path");

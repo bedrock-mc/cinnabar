@@ -15,7 +15,7 @@ mod settings;
 pub mod settings_state;
 mod text;
 
-pub use action::{PointerPhase, UiAction, UiLimits};
+pub use action::{PointerPhase, TOUCH_DRAG_DISTANCE, UiAction, UiLimits};
 pub use chat::{
     ChatApplyResult, ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta,
     ChatAutocompleteError, ChatAutocompleteRequest, ChatAutocompleteResponse,
@@ -52,8 +52,8 @@ pub use scoreboard::{
 pub use settings::{
     ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
     DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION,
-    DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES,
-    MIN_RENDER_DISTANCE_CHUNKS, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality,
+    DEFAULT_SHOW_CUSTOM_ITEM_MODELS, DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES,
+    MIN_FOV_DEGREES, MIN_RENDER_DISTANCE_CHUNKS, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality,
     RenderDistanceDefaults, RenderDistanceDevice, RenderMode, SmaaMode, UserSettings,
     VideoSettings, ViewBobbing,
 };

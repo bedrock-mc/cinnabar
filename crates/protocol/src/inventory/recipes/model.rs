@@ -37,6 +37,8 @@ pub struct Recipe {
     /// Row-major shaped cells, or the shapeless ingredient list.
     pub(in crate::inventory) ingredients: [Option<Ingredient>; MAX_INGREDIENTS],
     pub(in crate::inventory) output: Output,
+    /// Results after the first, such as the buckets a cake returns.
+    pub(in crate::inventory) extra_outputs: Box<[Output]>,
 }
 
 impl Ingredient {
@@ -88,6 +90,21 @@ impl Recipe {
             block_runtime_id: self.output.block,
             empty_envelope: self.output.empty_envelope,
         }
+    }
+
+    /// Results after [`Self::output`], in wire order.
+    pub fn extra_outputs(
+        &self,
+    ) -> impl ExactSizeIterator<Item = super::crafting::RecipeOutput> + '_ {
+        self.extra_outputs
+            .iter()
+            .map(|output| super::crafting::RecipeOutput {
+                network_id: output.id,
+                aux: output.aux,
+                count: output.count,
+                block_runtime_id: output.block,
+                empty_envelope: output.empty_envelope,
+            })
     }
 
     /// The shaped, name-only, fits-in-two-by-two domain the manual craft
@@ -183,6 +200,11 @@ impl RecipeHandle {
             .and_then(|index| self.batch.identities.get(index))
     }
 
+    /// Owners of this handle's decoded batch, so tests can prove a cache released it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn batch_owners(&self) -> usize {
+        Arc::strong_count(&self.batch)
+    }
     pub fn network_id(&self) -> u32 {
         self.batch.records[self.index].id
     }

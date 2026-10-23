@@ -1,20 +1,21 @@
 use std::{
     sync::{Arc, Condvar, Mutex, TryLockError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use launcher::local_worlds::world::{
-    NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate,
+    NATURAL_TERRAIN_REQUIRES_BDS, NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus,
+    WorldUpdate,
 };
 
 use crate::lifecycle::children::{self, ExitHookGuard};
 
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
-    process::{Instance, Runner, SAVE_BUDGET, StartSpec},
+    process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
     provision::{Provisioner, RuntimeInfo, RuntimeKind},
     store::Store,
     world::{WorldError, validate_name},
@@ -23,6 +24,21 @@ use super::{
 const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
 /// Outlasts the Docker probe's own timeout.
 const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
+/// Covers a first sign-in's profile load, counted from before the server launches; a start then
+/// proceeds without an operator.
+const DEFAULT_HOST_WAIT: Duration = Duration::from_secs(30);
+/// How often a start waiting on the host rechecks its cancel.
+const HOST_POLL: Duration = Duration::from_millis(50);
+
+/// The account hosting later opens, which BDS makes an operator as a vanilla world owner is.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum Host {
+    #[default]
+    SignedOut,
+    /// Signed in with the XUID still loading; BDS starts wait for it before reporting running.
+    Loading,
+    Xuid(String),
+}
 
 /// The runner of each backend; a missing one cannot host worlds.
 #[derive(Clone, Default)]
@@ -42,6 +58,14 @@ impl Runners {
             .ok_or(WorldError::BackendUnavailable)?
             .start(spec, cancel)
     }
+
+    /// When `backend`'s runner applies the host grant; Dragonfly and a missing runner grant nobody.
+    fn host_grant(&self, backend: Backend) -> HostGrant {
+        match (backend, &self.bds) {
+            (Backend::Bds, Some(runner)) => runner.host_grant(),
+            (Backend::Bds, None) | (Backend::Dragonfly, _) => HostGrant::None,
+        }
+    }
 }
 
 /// What a [`Manager`] is built from.
@@ -57,6 +81,8 @@ pub(crate) struct Parts {
     pub stop_timeout: Duration,
     /// How long a create waits for a runtime detection in flight.
     pub runtime_wait: Duration,
+    /// How long a BDS start waits for a [`Host::Loading`] host, counted from before its launch.
+    pub host_wait: Duration,
 }
 
 impl Parts {
@@ -69,14 +95,15 @@ impl Parts {
             unavailable: Vec::new(),
             stop_timeout: DEFAULT_STOP_TIMEOUT,
             runtime_wait: DEFAULT_RUNTIME_WAIT,
+            host_wait: DEFAULT_HOST_WAIT,
         }
     }
 }
 
-/// BDS when it can run natively or in a container, else Dragonfly.
+/// Prefer the dedicated server wherever a complete runtime is available.
 pub(crate) fn default_backend(runtime: &RuntimeInfo) -> Backend {
     match runtime.kind {
-        RuntimeKind::Native | RuntimeKind::Container => Backend::Bds,
+        RuntimeKind::Native | RuntimeKind::Container | RuntimeKind::Translated => Backend::Bds,
         RuntimeKind::None => Backend::Dragonfly,
     }
 }
@@ -95,6 +122,13 @@ struct Inner {
     stop_timeout: Duration,
     runtime_wait: Duration,
     life: Mutex<Life>,
+    host_wait: Duration,
+    /// Read by each start; see [`Manager::set_host`].
+    host: Mutex<Host>,
+    host_changed: Condvar,
+    /// Starts that have waited on a loading host, so tests can publish it mid-wait.
+    #[cfg(test)]
+    host_waits: std::sync::atomic::AtomicUsize,
     subscribers: Mutex<Vec<Sender<()>>>,
     /// Background starts, stops and exit watches still running.
     background: Mutex<usize>,
@@ -176,6 +210,11 @@ impl Manager {
                 stop_timeout: parts.stop_timeout,
                 runtime_wait: parts.runtime_wait,
                 life: Mutex::default(),
+                host_wait: parts.host_wait,
+                host: Mutex::default(),
+                host_changed: Condvar::new(),
+                #[cfg(test)]
+                host_waits: Default::default(),
                 subscribers: Mutex::default(),
                 background: Mutex::new(0),
                 background_done: Condvar::new(),
@@ -189,8 +228,16 @@ impl Manager {
         self.inner.store.reclaim_abandoned_imports();
     }
 
-    /// Saved worlds, most recently played first.
+    /// Saved worlds after pending server saves finish, most recently played first.
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
+        let after: Vec<_> = lock(&self.inner.life)
+            .retiring
+            .iter()
+            .map(|retiring| retiring.done.clone())
+            .collect();
+        for done in after {
+            let _ = done.recv();
+        }
         self.inner.store.list()
     }
 
@@ -210,7 +257,11 @@ impl Manager {
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
-        world.backend = Some(self.creatable_backend(world.backend)?);
+        let backend = self.creatable_backend(world.backend)?;
+        if !world.generator.supports_backend(backend) {
+            return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
+        }
+        world.backend = Some(backend);
         self.inner.store.create(&world)
     }
 
@@ -393,6 +444,8 @@ impl Manager {
             world,
             dir,
             view_distance,
+            options_unapplied: false,
+            host_xuid: None,
         };
         let started = self.background(move |manager| {
             manager.start(&spec, &cancel, generation, after);
@@ -416,13 +469,47 @@ impl Manager {
                 break;
             }
         }
+        let grant = self.inner.runners.host_grant(spec.world.backend);
+        // Set before launch, so a new world's creation run counts against the host's wait.
+        let host_deadline = Instant::now() + self.inner.host_wait;
+        let host_xuid = match grant {
+            HostGrant::None => None,
+            HostGrant::AtLaunch => self.await_host(host_deadline, cancel, "before launch", None),
+            HostGrant::WhenReady => self.known_host(),
+        };
+        let mut fresh_world = None;
+        let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
             Err(WorldError::Cancelled)
         } else {
-            self.inner.runners.start(spec, cancel)
+            self.inner.store.snapshot(&spec.world.id).and_then(
+                |(world, pending, options_unapplied)| {
+                    applied = pending;
+                    let fresh = StartSpec {
+                        world,
+                        dir: spec.dir.clone(),
+                        view_distance: spec.view_distance,
+                        options_unapplied,
+                        host_xuid: host_xuid.clone(),
+                    };
+                    let started = self.inner.runners.start(&fresh, cancel);
+                    fresh_world = Some(fresh.world);
+                    started
+                },
+            )
+        };
+        let (started, host_guard) = match started {
+            Ok(instance) if grant == HostGrant::WhenReady && !cancel.is_cancelled() => {
+                match self.grant_when_ready(instance, host_xuid.as_deref(), host_deadline, cancel) {
+                    Ok((instance, host)) => (Ok(instance), Some(host)),
+                    Err(error) => (Err(error), None),
+                }
+            }
+            started => (started, None),
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
+            drop(host_guard);
             drop(life);
             if let Ok(instance) = started {
                 self.stop_instance(instance.as_ref());
@@ -439,12 +526,16 @@ impl Manager {
                 return;
             }
         };
+        if let Some(world) = fresh_world {
+            life.world = Some(world);
+        }
         life.instance = Some(Arc::clone(&instance));
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
+        drop(host_guard);
         drop(life);
-        if let Err(error) = self.inner.store.touch(&spec.world.id) {
+        if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
         }
         if paused {
@@ -626,6 +717,9 @@ impl Manager {
                 name: world.name.clone(),
                 game_mode: world.game_mode,
                 backend: world.backend,
+                multiplayer_disabled: !world
+                    .options
+                    .enabled(launcher::local_worlds::options::WorldOption::Multiplayer),
             }),
             target,
             error: life.failure.clone(),
@@ -692,6 +786,9 @@ impl Manager {
         }
     }
 }
+
+#[path = "manager_host.rs"]
+mod host;
 
 /// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
 /// LAN advertisement when the server publishes one.
