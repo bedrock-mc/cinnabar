@@ -1,15 +1,9 @@
 //! Publishes client-part output through the personal mod renderer and its native frame fence.
 
 use super::driver::ExperienceService;
+use crate::environment::ClientPartEnvironment;
 use bevy::prelude::*;
 use render_scene::{ModRenderScene, mod_scene::retained::DrawingFrame};
-
-/// Session-scoped local time and weather, read by the common atmosphere owner.
-#[derive(Resource, Default)]
-pub(crate) struct Environment {
-    pub time: Option<u32>,
-    pub weather: Option<[f32; 2]>,
-}
 
 /// Publishes after personal drawing so both producers share one frame and render budgets.
 #[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
@@ -17,7 +11,7 @@ pub(super) fn present(
     mut service: ResMut<ExperienceService>,
     mut scene: ResMut<ModRenderScene>,
     mut frame: ResMut<DrawingFrame>,
-    mut environment: ResMut<Environment>,
+    mut environment: ResMut<ClientPartEnvironment>,
     world: Res<crate::runtime::world::ClientWorld>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
     cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
@@ -37,7 +31,7 @@ pub(super) fn present(
         {
             scene.set_changed();
         }
-        *environment = Environment::default();
+        *environment = ClientPartEnvironment::default();
         return;
     };
     let Some(stream) = world
@@ -51,7 +45,7 @@ pub(super) fn present(
         {
             scene.set_changed();
         }
-        *environment = Environment::default();
+        *environment = ClientPartEnvironment::default();
         return;
     };
     let authority = stream.authority();

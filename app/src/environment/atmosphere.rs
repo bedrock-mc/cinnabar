@@ -37,7 +37,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     weather: Option<Res<'w, super::VisualWeatherOverride>>,
-    server: Option<Res<'w, crate::server_experiences::drawing::Environment>>,
+    server: Option<Res<'w, super::ClientPartEnvironment>>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }
@@ -79,15 +79,11 @@ pub(crate) fn update_atmosphere_frame(
         time.elapsed_secs_f64(),
     );
     let (fixed_time, time_override) = time_overrides;
-    let server_time =
-        super::VisualTimeOverride(preferences.server.as_deref().and_then(|server| server.time));
     let clock = super::rendered_clock(
         *clock,
         fixed_time.as_deref(),
-        time_override
-            .as_deref()
-            .filter(|value| value.0.is_some())
-            .or(Some(&server_time)),
+        time_override.as_deref(),
+        preferences.server.as_deref(),
     );
     #[cfg(not(target_arch = "wasm32"))]
     let options = preferences

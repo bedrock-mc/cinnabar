@@ -62,7 +62,7 @@ pub(crate) fn configure(app: &mut App) {
     if !app.is_plugin_added::<render::ModRenderPlugin>() {
         app.add_plugins(render::ModRenderPlugin);
     }
-    app.init_resource::<super::drawing::Environment>();
+    app.init_resource::<crate::environment::ClientPartEnvironment>();
     app.add_systems(
         Update,
         super::drawing::present
