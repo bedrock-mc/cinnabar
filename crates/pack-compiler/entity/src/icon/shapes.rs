@@ -15,6 +15,8 @@ pub(super) fn has_model(name: &str) -> bool {
         B::SculkSensor,
         B::CalibratedSculkSensor,
         B::SculkShrieker,
+        B::BigDripleaf,
+        B::SmallDripleaf,
     ]
     .iter()
     .any(|kind| name == kind.identifier())
@@ -29,6 +31,19 @@ pub(super) fn raster(
     let Some(body) = blocks.terrain_tiles(root, visual)? else {
         return Ok(None);
     };
+    let name = blocks.name(visual);
+    if name == Some(B::BigDripleaf.identifier()) || name == Some(B::SmallDripleaf.identifier()) {
+        let quads = assets::gui_item::dripleaf_quads(name == Some(B::SmallDripleaf.identifier()));
+        let quads = quads.into_iter().map(|(quad, face_dimming)| TexturedQuad {
+            corners: quad.corners,
+            uvs: quad.uvs,
+            texture: &body[quad.material as usize],
+            face_dimming,
+        });
+        return Ok(Some(
+            Model::textured(quads, assets::gui_item::project_cube, 1.0).raster(),
+        ));
+    }
     let dried = blocks.name(visual) == Some(B::DriedGhast.identifier());
     let shrieker = blocks.name(visual) == Some(B::SculkShrieker.identifier());
     let calibrated = blocks.name(visual) == Some(B::CalibratedSculkSensor.identifier());

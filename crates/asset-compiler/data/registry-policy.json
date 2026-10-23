@@ -6890,6 +6890,8 @@
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "SculkShrieker": "minecraft:sculk_shrieker",
+      "BigDripleaf": "minecraft:big_dripleaf",
+      "SmallDripleaf": "minecraft:small_dripleaf_block",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {

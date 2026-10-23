@@ -361,8 +361,9 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Dried-ghast previews use the small body
   and separately textured feet. Sensor previews retain inactive tendrils and the
   calibration crystal with independent attachment lighting. Shrieker previews retain
-  open inner walls, bone caps and a separate inner floor. Shared cube face sheets
-  are bounded coverage.
+  open inner walls, bone caps and a separate inner floor. Big and small dripleaf
+  previews retain their carried leaves, edges and crossed stems. Shared cube face
+  sheets are bounded coverage.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
