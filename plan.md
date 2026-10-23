@@ -291,18 +291,13 @@ explicit dimensions and unscaled local pose sizes. It reports accepted movement 
 independently of simulation admission. Unsupported attribute models leave reporting
 with the actor's current value. Retained corrections arm its idle countdown;
 bare snaps do not. A completed local pose tick replaces earlier accepted pose writes.
-Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
-block-climber flags, custom collision definitions, transition-tick packet ordering
-and broader live-server qualification remain incomplete.
-with the actor's current value. A completed local pose tick replaces earlier accepted
-pose writes. Retained corrections arm its idle countdown; bare snaps do not.
 Sparse dimension writes preserve the untouched accepted component, including local
 pose sizes. Accepted local spawns retire old dimension ownership and refresh movement
 speed or use the new actor's current. Unknown passenger identities defer controller
 selection until their arrival order can be resolved.
-Server-driven gameplay pose and item-use starts, riptide flag
-lifetimes, block-climber flags, custom collision definitions, legacy sneak height,
-transition-tick packet ordering and broader live-server qualification remain incomplete.
+Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
+block-climber flags, custom collision definitions, transition-tick packet ordering
+and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.

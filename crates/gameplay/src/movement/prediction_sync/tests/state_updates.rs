@@ -288,7 +288,7 @@ fn replacement_size_restarts_pose_ownership() {
         ..Default::default()
     };
     physics.advance(simulation_clock::TICK_DURATION, crouch, &OpenWorld);
-    let height = sim::MovementMode::Walking.hitbox_height(true) as f32;
+    let height = sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32;
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
     let mut replacement = local_actor_spawn(Vec::new());
     replacement.metadata = Arc::from([protocol::ActorMetadata {
