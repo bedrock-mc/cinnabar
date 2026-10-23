@@ -3908,6 +3908,16 @@
       ]
     },
     {
+      "id": "flat-icon-eggs-and-frogspawn",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:turtle_egg",
+        "minecraft:sniffer_egg",
+        "minecraft:frog_spawn"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",

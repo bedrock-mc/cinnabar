@@ -438,6 +438,46 @@ mod tests {
         assert!(flat_textures("minecraft:stone").iter().all(Option::is_none));
     }
 
+    /// Egg and small creature blocks keep their carried art independent of placed geometry.
+    #[test]
+    fn eggs_and_small_creatures_use_the_carried_sprite() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{
+                "turtle_egg":{"textures":"world","carried_textures":"carried"},
+                "sniffer_egg":{"textures":"world","carried_textures":"carried"},
+                "frog_spawn":{"textures":"carried"}
+            }"#,
+            r#"{"texture_data":{
+                "world":{"textures":"textures/blocks/world"},
+                "carried":{"textures":"textures/items/carried"}
+            }}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        for name in ["turtle_egg", "sniffer_egg", "frog_spawn"] {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == format!("minecraft:{name}"))
+                .collect();
+            assert!(!states.is_empty(), "registered block {name}");
+            for record in states {
+                let visual = BlockVisualId(record.sequential_id);
+                assert!(
+                    blocks.is_flat(&world, visual),
+                    "{name} uses its carried sprite"
+                );
+                assert_eq!(
+                    blocks.texture_path(visual).as_deref(),
+                    Some("textures/items/carried")
+                );
+            }
+        }
+    }
+
     #[test]
     fn leaf_litter_uses_a_flat_carried_icon_for_every_state() {
         let directory = tempfile::tempdir().unwrap();

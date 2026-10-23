@@ -17,6 +17,7 @@ struct GeometrySpan {
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(3) var<storage, read> geometry_spans: array<GeometrySpan>;
 @group(0) @binding(4) var<storage, read> previous_bones: array<BoneMatrix>;
+@if(!COMPACT_BONES)
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
@@ -228,7 +229,10 @@ fn actor_vertex(
     let bone_index = vertex_words[vertex_base + 10u];
     out.material_parameters.y = vertex_words[vertex_base + 11u];
     let previous_bone = previous_bones[previous_bone_base + bone_index];
+    @if(!COMPACT_BONES)
     let current_bone = current_bones[current_bone_base + bone_index];
+    @if(COMPACT_BONES)
+    let current_bone = previous_bones[ACTOR_COMPACT_CURRENT_BONE_BASE + current_bone_base + bone_index];
     let posed = posed_point(previous_bone, current_bone, local, partial_tick);
     let bone_normal = posed_normal(previous_bone, current_bone, local_normal, partial_tick);
     let placement = BoneMatrix(

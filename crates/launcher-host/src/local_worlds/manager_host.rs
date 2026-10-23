@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use super::{HOST_POLL, Host, Manager};
+use super::{HOST_POLL, Host, Manager, host_xuid_of};
 use crate::local_worlds::{
     Cancel, lock,
     process::Instance,
@@ -26,10 +26,7 @@ impl Manager {
 
     /// The host's XUID now, without waiting for one that is loading.
     pub(super) fn known_host(&self) -> Option<String> {
-        match &*lock(&self.inner.host) {
-            Host::Xuid(xuid) => Some(xuid.clone()),
-            Host::SignedOut | Host::Loading => None,
-        }
+        host_xuid_of(&lock(&self.inner.host))
     }
 
     /// The host's XUID once it is no longer loading, `deadline` passes or `cancel` fires; logs how
