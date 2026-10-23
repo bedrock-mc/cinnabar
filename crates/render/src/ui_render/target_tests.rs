@@ -334,7 +334,7 @@ fn native_one_pixel_hud(sharpen: bool) {
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
     let entity = view(world, [40, 30], [4, 3]);
-    world.resource_mut::<PipelineCache>().process_queue();
+    ready_pipelines(world);
     let device = world.resource::<RenderDevice>().clone();
     {
         let adapter = bevy::tasks::block_on(
@@ -591,7 +591,7 @@ fn native_ui_supports_scaled_hdr_views() {
             .width(),
         40
     );
-    world.resource_mut::<PipelineCache>().process_queue();
+    ready_pipelines(world);
     let device = world.resource::<RenderDevice>().clone();
     for sharpen in [false, true] {
         world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
@@ -659,4 +659,31 @@ fn raster_fixture() -> Option<App> {
     });
     app.update();
     Some(app)
+}
+
+/// Waits for native reconstruction and presentation, reporting shader errors directly.
+fn ready_pipelines(world: &mut World) {
+    let ids: Vec<_> = world
+        .query::<&NativeUiTarget>()
+        .iter(world)
+        .flat_map(|native| {
+            [
+                native.seed_pipelines[0],
+                native.seed_pipelines[1],
+                native.present_pipeline,
+            ]
+        })
+        .collect();
+    test_time::eventually("native UI reconstruction pipelines", || {
+        let mut cache = world.resource_mut::<PipelineCache>();
+        cache.process_queue();
+        ids.iter()
+            .all(|&id| match cache.get_render_pipeline_state(id) {
+                CachedPipelineState::Ok(_) => true,
+                CachedPipelineState::Err(error) => {
+                    panic!("native reconstruction {id:?}: {error:?}")
+                }
+                _ => false,
+            })
+    });
 }
