@@ -361,22 +361,26 @@ fn permission_switches_keep_focus_hover_and_press_feedback_across_value_changes(
     });
 }
 
+/// Create, edit and in-game world toggles keep their feedback while the value they switch to flips.
 #[test]
 fn world_option_toggles_keep_focus_hover_and_press_feedback_across_value_changes() {
     use launcher::{
-        local_worlds::options::WorldOption as O,
+        local_worlds::{in_world, options::WorldOption as O},
         menu::{LocalWorldAction as A, MenuView},
     };
-    let action = |id, value| MenuAction::LocalWorld(A::Option(id, value));
-    let mut view = MenuView::new(true, "Player".into());
-    view.navigation_focus_visible = true;
-    view.focused_action = Some(action(O::KeepInventory, 1));
-    view.hovered = Some(action(O::KeepInventory, 1));
-    view.pressed = Some(action(O::KeepInventory, 1));
-    let _ = crate::review_tests::paint(Default::default(), |canvas| {
-        let feedback = canvas.switch_interaction(&view, Some(action(O::KeepInventory, 0)));
-        assert!(feedback.focused && feedback.hovered && feedback.pressed);
-        let other = canvas.switch_interaction(&view, Some(action(O::MobSpawning, 0)));
-        assert!(!other.focused && !other.hovered && !other.pressed);
-    });
+    let forms = |id, value| MenuAction::LocalWorld(A::Option(id, value));
+    let in_game = |id, value| MenuAction::WorldSettings(in_world::Action::Option(id, value));
+    for action in [forms, in_game] {
+        let mut view = MenuView::new(true, "Player".into());
+        view.navigation_focus_visible = true;
+        view.focused_action = Some(action(O::KeepInventory, 1));
+        view.hovered = Some(action(O::KeepInventory, 1));
+        view.pressed = Some(action(O::KeepInventory, 1));
+        let _ = crate::review_tests::paint(Default::default(), |canvas| {
+            let feedback = canvas.switch_interaction(&view, Some(action(O::KeepInventory, 0)));
+            assert!(feedback.focused && feedback.hovered && feedback.pressed);
+            let other = canvas.switch_interaction(&view, Some(action(O::MobSpawning, 0)));
+            assert!(!other.focused && !other.hovered && !other.pressed);
+        });
+    }
 }

@@ -496,6 +496,8 @@ settings! {
         [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 10)], [SettingsGroup::Video], None, None;
+    F5SelfVisuals => "f5_self_visuals", toggle("options.f5SelfVisuals", true),
+        [(SettingPanel::VideoCustomization, 12)], [SettingsGroup::Video], None, Some("options.f5SelfVisuals.name");
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
     DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
@@ -514,6 +516,10 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
+        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
+    RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
+        [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

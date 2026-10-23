@@ -240,6 +240,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         .kind
         .route()
         .overrides_fallback
+        || super::heavy_core::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail

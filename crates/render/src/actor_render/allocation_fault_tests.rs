@@ -255,20 +255,28 @@ fn execute_draws(world: &mut World) {
     });
     queue.submit(commands);
     let gpu = world.resource::<ActorGpu>();
-    let drawn = world.resource::<ActorDrawTracker>().take_drawn();
-    let spans = if let Some(drawn) = drawn {
+    let tracker = world.resource::<ActorDrawTracker>();
+    let recorded = tracker.recorded_spans();
+    let spans = gpu
+        .spans
+        .iter()
+        .copied()
+        .filter(|span| recorded.contains(span))
+        .collect::<Vec<_>>();
+    assert_eq!(spans.len(), recorded.len());
+    assert_eq!(
+        gpu.executed_instances
+            .load(std::sync::atomic::Ordering::Relaxed),
+        spans.iter().map(|span| span.count).sum::<u32>()
+    );
+    if let Some(drawn) = tracker.take_drawn() {
         assert!(drawn.is_exact());
         assert_eq!(drawn.frame_generation, generation);
         assert_eq!(drawn.manifest.as_ref(), gpu.main_manifest.as_ref());
-        gpu.spans.clone()
+        assert_eq!(spans, gpu.spans);
     } else {
-        assert_eq!(
-            gpu.executed_instances
-                .load(std::sync::atomic::Ordering::Relaxed),
-            0
-        );
-        Vec::new()
-    };
+        assert!(spans.len() < gpu.spans.len() || spans.is_empty());
+    }
     world.resource_mut::<ExecutedSpans>().0 = spans;
 }
 
@@ -319,9 +327,67 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 ));
                 world.resource_mut::<ActorGpu>().artwork = artwork;
             }
-            let next = publication(2, &[60, 80], layers);
+            let compatible = !first && layers == 1;
+            let markers: &[u8] = if compatible || occurrence == 2 {
+                &[60, 80]
+            } else {
+                &[60]
+            };
+            let next = publication(2, markers, layers);
             let (fault, calls) = fail_at(label, occurrence);
-            let drawn = draw_frame(&mut app, &next);
+            let attempts = if compatible || label == "immutable actor page" {
+                1
+            } else {
+                let page = &next.artwork.pages[0];
+                page.width.max(page.height).ilog2() + 1
+            };
+            for attempt in 0..attempts {
+                let previous_calls = calls.borrow().len();
+                let drawn = draw_frame(&mut app, &next);
+                assert!(
+                    calls.borrow()[previous_calls..]
+                        .iter()
+                        .any(|owner| owner == label),
+                    "{label}: each reduced size must reach the failing boundary"
+                );
+                let expected = if compatible {
+                    vec![1, 2]
+                } else if attempt + 1 < attempts {
+                    // Pending uploads can draw earlier completed pages.
+                    (1..occurrence as u16).collect()
+                } else {
+                    // A failed publication suppresses generic draws but retains completed pages.
+                    Vec::new()
+                };
+                assert_eq!(
+                    drawn.iter().map(|span| span.page).collect::<Vec<_>>(),
+                    expected,
+                    "{label}: pending pages draw only completed artwork; failed demand draws nothing"
+                );
+                for index in 0..occurrence - 1 {
+                    assert!(
+                        app.sub_app(RenderApp)
+                            .world()
+                            .resource::<ActorGpu>()
+                            .artwork
+                            .page(index)
+                            .is_some(),
+                        "{label}: a later failure retains earlier completed pages"
+                    );
+                }
+                if compatible {
+                    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+                    assert_eq!(
+                        gpu.artwork
+                            .pages
+                            .iter()
+                            .flatten()
+                            .map(|page| page.view.id())
+                            .collect::<Vec<_>>(),
+                        previous
+                    );
+                }
+            }
             assert!(
                 calls
                     .borrow()
@@ -330,11 +396,12 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                     .count()
                     >= occurrence
             );
-            if matches!(label, "immutable actor page" | "actor page upload") {
-                let expected = if !first && layers == 1 {
-                    2
+            if label == "immutable actor page" {
+                let page = &next.artwork.pages[0];
+                let expected = if compatible {
+                    next.artwork.pages.len()
                 } else {
-                    occurrence + 2
+                    occurrence + page.width.max(page.height).ilog2() as usize
                 };
                 assert_eq!(
                     calls
@@ -343,28 +410,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                         .filter(|owner| owner.as_str() == label)
                         .count(),
                     expected,
-                    "fresh 4x4 pages exhaust 4x4, 2x2 and 1x1; compatible pages retain their old texture"
-                );
-            }
-            if !first && layers == 1 {
-                assert_eq!(
-                    drawn.iter().map(|span| span.page).collect::<Vec<_>>(),
-                    [1, 2]
-                );
-                let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
-                assert_eq!(
-                    gpu.artwork
-                        .pages
-                        .iter()
-                        .flatten()
-                        .map(|page| page.view.id())
-                        .collect::<Vec<_>>(),
-                    previous
-                );
-            } else {
-                assert!(
-                    drawn.is_empty(),
-                    "{label}: incompatible or absent artwork cannot draw"
+                    "texture creation exhausts every size synchronously"
                 );
             }
             if label == "immutable actor page" && occurrence == 1 {
@@ -377,17 +423,25 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 );
             }
             let attempts = calls.borrow().len();
+            if !first {
+                // Replacing incompatible artwork releases pages; completed work permits a retry.
+                app.sub_app(RenderApp)
+                    .world()
+                    .resource::<RenderDevice>()
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+            }
             let _ = draw_frame(&mut app, &next);
-            if !first && layers == 1 {
+            if !first {
                 assert!(
                     calls.borrow().len() > attempts,
-                    "compatible fallbacks remain retryable while demanded"
+                    "demanded artwork retries after a fallback or released pages retire"
                 );
             } else {
                 assert_eq!(
                     calls.borrow().len(),
                     attempts,
-                    "exhausted publication must not spin"
+                    "a failed first publication must back off without released pages"
                 );
             }
             drop(fault);
@@ -411,7 +465,6 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 layers
             );
             assert_ne!(gpu.artwork.page(0).unwrap().view.id(), previous[0]);
-            assert_eq!(app.sub_app(RenderApp).world().resource::<Frames>().0, 4);
         }
     }
 }

@@ -20,6 +20,16 @@ pub(super) fn configure(app: &mut App, hidden: bool) {
     }
 }
 
+/// Leaves main-world window handles available to winit and strips only their render copies.
+fn suppress_surface_handles(
+    mut commands: Commands,
+    windows: Extract<Query<RenderEntity, With<Window>>>,
+) {
+    for window in &windows {
+        commands.entity(window).remove::<RawHandleWrapper>();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,15 +125,5 @@ mod tests {
                 },
             ));
         }
-    }
-}
-
-/// Leaves main-world window handles available to winit and strips only their render copies.
-fn suppress_surface_handles(
-    mut commands: Commands,
-    windows: Extract<Query<RenderEntity, With<Window>>>,
-) {
-    for window in &windows {
-        commands.entity(window).remove::<RawHandleWrapper>();
     }
 }

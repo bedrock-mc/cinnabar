@@ -206,6 +206,8 @@ fn prepare_nametags(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<NametagGpu>,
 ) {
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!("nametag.upload").entered();
     if scene.is_changed() || gpu.is_added() || uploads.queue.is_changed() {
         let total = scene.records.len().min(MAX_NAMETAG_RECORDS);
         gpu.total = total as u32;
