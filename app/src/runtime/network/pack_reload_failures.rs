@@ -199,3 +199,53 @@ fn failed_global_selection_is_acknowledged_after_session_end_recovery() {
             .has_pending_changes()
     );
 }
+
+#[test]
+fn global_resources_restoring_the_applied_selection_does_not_revive_a_failed_target() {
+    let _sounds = client_audio::audio::SERVER_SOUNDS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut app = super::super::pack_reload_tests::app_with_assets(Arc::new(
+        assets::RuntimeAssets::diagnostic(),
+    ));
+    let revision = app
+        .world_mut()
+        .resource_mut::<PackReload>()
+        .request_globals(super::super::pack_reload_tests::stack(&[(
+            "ui/applied.json",
+            br#"{"namespace":"applied"}"#,
+        )]));
+    super::super::pack_reload_tests::settle(&mut app, revision);
+    let (tx, rx) = mpsc::sync_channel(1);
+    let revision = {
+        let mut reload = app.world_mut().resource_mut::<PackReload>();
+        let revision = reload.request_globals(super::super::pack_reload_tests::stack(&[(
+            "ui/rejected.json",
+            br#"{"namespace":"rejected"}"#,
+        )]));
+        reload.pending = Some(Pending {
+            revision,
+            generation: 0,
+            result: Mutex::new(rx),
+            carrier: Mutex::new(mpsc::sync_channel(1).1),
+            early: None,
+        });
+        revision
+    };
+    tx.send(Err("fixture failure".into())).unwrap();
+    super::super::pack_reload_tests::settle(&mut app, revision);
+    assert!(app.world().resource::<PackReload>().error().is_some());
+    // Restoring the applied selection needs no reload, including on a later session transition.
+    let revision = {
+        let mut reload = app.world_mut().resource_mut::<PackReload>();
+        reload.end_session();
+        reload.revision
+    };
+    super::super::pack_reload_tests::settle(&mut app, revision);
+    let ui = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .server_ui()
+        .unwrap();
+    assert_eq!(ui.ui_layers[0][0].0, "ui/applied.json");
+}

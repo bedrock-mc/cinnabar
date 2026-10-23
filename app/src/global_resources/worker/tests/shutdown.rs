@@ -55,9 +55,9 @@ fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledge
         (|mut menu: ResMut<MenuRuntime>| {
             menu.activate(MenuAction::GlobalResources(Action::Activate(0)));
         })
-        .before(crate::global_resources::apply_on_leave),
+        .before(crate::global_resources::flush_on_exit),
     )
-    .add_systems(Last, crate::global_resources::apply_on_leave);
+    .add_systems(Last, crate::global_resources::flush_on_exit);
     app.world_mut().write_message(AppExit::Success);
     app.update();
     let persisted = GlobalPackLibrary::open(&root, engine_version())
@@ -101,7 +101,7 @@ fn shutdown_saves_queued_edits_while_the_import_picker_remains_open() {
         action: Action::Activate(0),
         revision: 0,
     });
-    worker.send(Command::Leave);
+    worker.send(Command::SectionOpen(false));
     let (done, completed) = crossbeam_channel::bounded(1);
     let drain = std::thread::spawn(move || {
         worker.flush_pending();

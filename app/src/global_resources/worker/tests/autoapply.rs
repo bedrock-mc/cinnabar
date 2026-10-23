@@ -31,7 +31,7 @@ fn leave_events(actions: &[MenuAction]) -> (tempfile::TempDir, Vec<Event>) {
     .init_resource::<crate::runtime::network::PackReload>()
     .add_message::<bevy::window::FileDragAndDrop>()
     .add_systems(Update, crate::global_resources::drive)
-    .add_systems(Last, crate::global_resources::apply_on_leave);
+    .add_systems(Last, crate::global_resources::flush_on_exit);
     app.update();
     for action in actions {
         app.world_mut()
@@ -110,8 +110,8 @@ fn leaving_applies_deactivation_and_reordering_once() {
                     action,
                     revision: 0,
                 },
-                Command::Leave,
-                Command::Leave,
+                Command::SectionOpen(false),
+                Command::SectionOpen(false),
             ],
         );
         assert_eq!(reloads(&events), 1);
@@ -145,7 +145,7 @@ fn leaving_after_an_acknowledged_apply_does_not_reload() {
                 revision: 0,
             },
             Command::Commit(Vec::new()),
-            Command::Leave,
+            Command::SectionOpen(false),
         ],
     );
     assert_eq!(reloads(&events), 1);
@@ -172,7 +172,7 @@ fn leaving_retries_a_failed_apply_of_pending_changes() {
                 revision: 1,
             },
             Command::ApplyFailed(selection),
-            Command::Leave,
+            Command::SectionOpen(false),
         ],
     );
     assert_eq!(reloads(&events), 2);
@@ -200,8 +200,8 @@ fn leaving_applies_corrected_selection_after_initial_preview_failure() {
                 action: Action::Deactivate(0),
                 revision: 0,
             },
-            Command::Leave,
-            Command::Leave,
+            Command::SectionOpen(false),
+            Command::SectionOpen(false),
         ],
     );
     let submissions: Vec<_> = events
@@ -220,9 +220,39 @@ fn leaving_retries_after_initial_runtime_failure_without_an_acknowledgement() {
         "leave-initial-failure",
         vec![
             Command::ApplyFailed(Vec::new()),
-            Command::Leave,
-            Command::Leave,
+            Command::SectionOpen(false),
+            Command::SectionOpen(false),
         ],
     );
+    assert_eq!(reloads(&events), 1);
+}
+
+#[test]
+fn a_picker_reimport_after_leaving_applies_the_new_revision() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+    let pack = import_fixture(&mut library, fixture.path(), 1);
+    library.activate(pack.id).unwrap();
+    library.apply().unwrap();
+    let before = library.active().to_vec();
+    let events = collect_events(
+        root.clone(),
+        vec![
+            Command::Commit(before.clone()),
+            Command::SectionOpen(false),
+            Command::ImportFiles(Ok(vec![write_fixture(fixture.path(), 1)])),
+        ],
+    );
+    let desired = GlobalPackLibrary::open(root, engine_version())
+        .unwrap()
+        .active()
+        .to_vec();
+    assert_ne!(desired, before, "reimport advances the active revision");
+    let submitted = events.iter().rev().find_map(|event| match event {
+        Event::Apply(_, selection) => Some(selection),
+        _ => None,
+    });
+    assert_eq!(submitted, Some(&desired));
     assert_eq!(reloads(&events), 1);
 }

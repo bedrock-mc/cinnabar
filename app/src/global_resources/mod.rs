@@ -19,32 +19,24 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, file
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),
         )
-        .add_systems(Last, apply_on_leave);
+        .add_systems(Last, flush_on_exit);
 }
 
-/// Submits the staged selection when its settings section closes or the app exits.
-fn apply_on_leave(
+/// Saves exit-frame edits and drains queued disk work before shutdown.
+fn flush_on_exit(
     mut worker: ResMut<worker::Worker>,
     mut menu: ResMut<MenuRuntime>,
     mut exits: MessageReader<AppExit>,
-    mut was_open: Local<bool>,
 ) {
-    let open = menu.scene() == Some(launcher::menu::MenuScreen::Settings)
-        && menu.settings_section()
-            == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack);
-    let quitting = exits.read().next().is_some();
-    if (*was_open && !open) || quitting {
-        // Input may have queued an edit after the Update driver ran.
-        for action in std::mem::take(&mut menu.global_resource_actions) {
-            let revision = worker.snapshot.revision;
-            worker.send(worker::Command::Action { action, revision });
-        }
-        worker.send(worker::Command::Leave);
-        if quitting {
-            worker.flush_pending();
-        }
+    if exits.read().next().is_none() {
+        return;
     }
-    *was_open = open && !quitting;
+    for action in std::mem::take(&mut menu.global_resource_actions) {
+        let revision = worker.snapshot.revision;
+        worker.send(worker::Command::Action { action, revision });
+    }
+    worker.send(worker::Command::SectionOpen(false));
+    worker.flush_pending();
 }
 
 /// Pack-reload status folded into the published snapshot, borrowed for comparison.
@@ -113,8 +105,15 @@ fn drive(
     mut reload: ResMut<PackReload>,
     mut drops: MessageReader<bevy::window::FileDragAndDrop>,
     mut published: Local<Option<PublishedOverlay>>,
+    mut was_open: Local<bool>,
     worlds: Option<ResMut<LocalWorlds>>,
 ) {
+    let open = menu.scene() == Some(launcher::menu::MenuScreen::Settings)
+        && menu.settings_section()
+            == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack);
+    if open && !*was_open {
+        worker.send(worker::Command::SectionOpen(true));
+    }
     let mut snapshot_changed = false;
     for request in menu.take_minecraft_import_requests() {
         let action = request.action;
@@ -147,6 +146,10 @@ fn drive(
         let revision = worker.snapshot.revision;
         worker.send(worker::Command::Action { action, revision });
     }
+    if !open && *was_open {
+        worker.send(worker::Command::SectionOpen(false));
+    }
+    *was_open = open;
     loop {
         let event = match worker.events.try_recv() {
             Ok(event) => event,
@@ -183,7 +186,6 @@ fn drive(
                 worker.awaiting = Some(worker::Awaiting {
                     revision,
                     selection,
-                    failed: false,
                 });
             }
         }
@@ -194,12 +196,9 @@ fn drive(
         let awaiting = worker.awaiting.take().expect("completed selection");
         worker.send(worker::Command::Commit(awaiting.selection));
     } else if reload.error().is_some()
-        && let Some(awaiting) = worker.awaiting.as_mut()
-        && !awaiting.failed
+        && let Some(awaiting) = worker.awaiting.take()
     {
-        awaiting.failed = true;
-        let selection = awaiting.selection.clone();
-        worker.send(worker::Command::ApplyFailed(selection));
+        worker.send(worker::Command::ApplyFailed(awaiting.selection));
     }
     if worker.minecraft_import_pending {
         if let Some(error) = reload.error() {
