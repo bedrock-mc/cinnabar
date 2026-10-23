@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod authority_writes;
 mod server_writes;
 
 #[test]
@@ -154,6 +155,12 @@ impl crate::GameplayWorld for LocalActor {
 
 /// The local actor with the required attributes and a stored non-finite air drag.
 fn local_actor() -> LocalActor {
+    let authority = local_actor_authority();
+    LocalActor(authority.actor(7).expect("spawn committed").clone())
+}
+
+/// Builds an actor store that accepts local attribute controls for the packet fixture.
+fn local_actor_authority() -> client_world::WorldAuthority {
     use std::sync::Arc;
     let attribute = |name: &str, current: f32| protocol::ActorAttribute {
         name: Arc::from(name),
@@ -171,8 +178,8 @@ fn local_actor() -> LocalActor {
     let mut authority = client_world::WorldAuthority::new(
         protocol::WorldBootstrap {
             dimension: 0,
-            local_player_runtime_id: 1,
-            local_player_unique_id: 1,
+            local_player_runtime_id: 7,
+            local_player_unique_id: 70,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: protocol::air_network_id(false),
@@ -208,7 +215,7 @@ fn local_actor() -> LocalActor {
             Some(1),
         )
         .unwrap();
-    LocalActor(authority.actor(7).expect("spawn committed").clone())
+    authority
 }
 
 /// Advances the correction countdown without completing a movement sample.

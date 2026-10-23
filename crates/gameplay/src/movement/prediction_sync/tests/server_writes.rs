@@ -462,11 +462,6 @@ fn sync_preserves_explicit_spawn_dimensions() {
 fn sync_sizes_independent_horizontal_metadata_flags() {
     for flag in HORIZONTAL_POSE_FLAGS {
         let mut physics = due_physics();
-        physics.advance(
-            simulation_clock::TICK_DURATION,
-            sim::MovementInput::default(),
-            &OpenWorld,
-        );
         let mut actor = local_actor();
         let (word, mask) = flag_slot(flag);
         actor.0.metadata.insert(

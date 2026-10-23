@@ -83,11 +83,7 @@ impl SyncState {
             (&mut self.flags.swimming, sim::MovementMode::Swimming),
             (&mut self.flags.crawling, sim::MovementMode::Crawling),
         ] {
-            if frame.input.mode != self.previous_mode
-                && (frame.input.mode == mode || self.previous_mode == mode)
-            {
-                *slot = Some(frame.input.mode == mode);
-            }
+            *slot = Some(frame.input.mode == mode);
         }
         self.previous_mode = frame.input.mode;
         self.local_spinning = state.spin_attack_ticks.is_some();

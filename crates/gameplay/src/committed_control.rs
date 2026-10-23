@@ -96,6 +96,7 @@ impl CommittedGameplayState<'_> {
             sequence,
             dimension,
             movement,
+            movement_received,
             underwater,
             lava,
             air_drag_modifier,
@@ -104,6 +105,10 @@ impl CommittedGameplayState<'_> {
         {
             // Every attribute edit shares the packet's stamp, so one replay covers them.
             let mut rewind = None;
+            if movement_received && movement.is_none() {
+                self.speed
+                    .invalidate_reported(self.session_generation, sequence, dimension);
+            }
             if let Some(attribute) = movement
                 && self
                     .speed
