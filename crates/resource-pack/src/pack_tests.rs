@@ -432,3 +432,44 @@ fn compile_identity_tracks_admitted_paths_and_is_stable_across_admissions() {
     reordered.file_order.reverse();
     assert_ne!(original.compile_identity(), reordered.compile_identity());
 }
+
+// A kept idle stack held up to its whole read budget of inflated payloads beside its archives.
+#[test]
+fn released_reads_free_their_payloads_and_inflate_again_with_the_same_hash() {
+    let pack = admit(zip_files(&[("a.txt", b"aaaa")]), "", None);
+    assert_eq!(pack.read_file("a.txt").unwrap().unwrap().as_ref(), b"aaaa");
+    assert!(
+        pack.reads.retained_bytes() >= 4,
+        "the read and manifest stay resident"
+    );
+    let bytes = pack
+        .reads
+        .read(&pack.entry("a.txt").unwrap().cached, || {
+            panic!("the payload is already cached")
+        })
+        .unwrap();
+    let payload = std::sync::Arc::downgrade(&bytes);
+    drop(bytes);
+    let stack = ValidatedPackStack {
+        packs: vec![pack.clone()].into(),
+        rejections: Box::default(),
+        fingerprint: std::sync::OnceLock::new(),
+    };
+    let released = stack.take_cached_reads();
+    assert_eq!(pack.reads.retained_bytes(), 0);
+    assert!(
+        payload.upgrade().is_some(),
+        "detaching does not destroy payloads on the frame"
+    );
+    drop(released);
+    assert!(payload.upgrade().is_none());
+    let reads = &pack.entry("a.txt").unwrap().cached.reads;
+    assert_eq!(pack.read_file("a.txt").unwrap().unwrap().as_ref(), b"aaaa");
+    assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert_eq!(
+        pack.file_fingerprint_with_limit("a.txt", MAX_FILE_BYTES)
+            .unwrap()
+            .unwrap(),
+        <[u8; 32]>::from(sha2::Sha256::digest(b"aaaa"))
+    );
+}

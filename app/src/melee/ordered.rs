@@ -151,6 +151,15 @@ pub(crate) fn press(
             },
         },
     );
+    if let Some(press_id) = admitted.admitted {
+        bevy::log::trace!(
+            press_id,
+            input_sequence = input.context.identity.1.get(),
+            tick = press.tick,
+            elapsed_millis = now,
+            "attack press admitted"
+        );
+    }
     for request in admitted.cancelled_mining_requests {
         player.inventory.ledger_mut().cancel_mining_request(request);
     }

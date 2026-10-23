@@ -879,3 +879,43 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
 /// Exercises production subscriber output types through a fresh persistent cache.
 #[path = "tests/disk.rs"]
 mod disk;
+
+// Leaving a server must release its compiled blocks: the cache reuses an overlay only while a
+// session or kept stack still owns it.
+#[test]
+fn the_overlay_cache_does_not_keep_compiled_blocks_alive() {
+    use std::sync::Arc;
+    let _cache = overlay_cache();
+    let keys = assets::material_keys::MaterialKeys::from_entries([(5, "release_key")]);
+    let blocks = protocol::CustomBlocks::default();
+    let limit = super::overlay_texture_layer_limit();
+    let stack =
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        archive(
+            43,
+            &[
+                (
+                    "textures/terrain_texture.json",
+                    br#"{"texture_data":{"release_key":{"textures":"textures/blocks/release"}}}"#,
+                ),
+                ("textures/blocks/release.png", &png(16, 16)),
+            ],
+        ),
+    ]));
+    let view = resource_pack::LayeredPackView::tracked(stack.clone());
+    let applied = super::cached_block_overlay(
+        &super::stack_fingerprint(&stack),
+        &view,
+        &blocks,
+        false,
+        limit,
+        || {
+            super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
+                .map(Arc::new)
+        },
+    )
+    .expect("the pack overrides a vanilla key");
+    let released = Arc::downgrade(&applied);
+    drop(applied);
+    assert!(released.upgrade().is_none());
+}

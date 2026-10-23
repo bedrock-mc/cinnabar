@@ -122,6 +122,13 @@ impl PreparedSessionResources {
                 .entered();
                 resources.equipment = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
             }
+            // The frame's catalog layout then matches duplicates by pointer, not by bytes.
+            render_model::share_identical_vertices(
+                resources
+                    .entities
+                    .iter_mut()
+                    .chain(&mut resources.equipment),
+            );
         }
         if let Some(artwork) = block_entity_art {
             let (pages, held) =
@@ -204,6 +211,12 @@ impl PreparedActorArtwork {
     /// Whether these icons were staged from the exact `icons` snapshot, or both are absent.
     pub fn matches_session_icons(&self, icons: Option<&Arc<SessionIcons>>) -> bool {
         same_snapshot(self.icons_source.as_ref(), icons)
+    }
+
+    /// The artwork snapshot these resources were prepared over; the frame publishes them only
+    /// while its live artwork shares this storage.
+    pub fn base(&self) -> &ActorArtworkPages {
+        &self.base
     }
 
     /// Reuses held-block preparation only for the exact retained terrain carrier.
