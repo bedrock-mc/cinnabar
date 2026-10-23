@@ -327,9 +327,14 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 ));
                 world.resource_mut::<ActorGpu>().artwork = artwork;
             }
-            let next = publication(2, &[60, 80], layers);
-            let (fault, calls) = fail_at(label, occurrence);
             let compatible = !first && layers == 1;
+            let markers: &[u8] = if compatible || occurrence == 2 {
+                &[60, 80]
+            } else {
+                &[60]
+            };
+            let next = publication(2, markers, layers);
+            let (fault, calls) = fail_at(label, occurrence);
             let attempts = if compatible || label == "immutable actor page" {
                 1
             } else {
@@ -405,19 +410,23 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                     "failed textures must never receive uploads"
                 );
             }
-            let attempts = calls.borrow().len();
-            let _ = draw_frame(&mut app, &next);
-            if compatible {
-                assert!(
-                    calls.borrow().len() > attempts,
-                    "compatible fallbacks remain retryable while demanded"
-                );
-            } else {
-                assert_eq!(
-                    calls.borrow().len(),
-                    attempts,
-                    "exhausted publication must not spin"
-                );
+            // With no other page released, exhaustion retries only after the backoff.
+            // Releasing a completed page can wake the retry as soon as GPU work retires.
+            if compatible || occurrence == 1 {
+                let attempts = calls.borrow().len();
+                let _ = draw_frame(&mut app, &next);
+                if compatible {
+                    assert!(
+                        calls.borrow().len() > attempts,
+                        "compatible fallbacks remain retryable while demanded"
+                    );
+                } else {
+                    assert_eq!(
+                        calls.borrow().len(),
+                        attempts,
+                        "exhausted publication must not spin"
+                    );
+                }
             }
             drop(fault);
             let recovered = publication(3, &[100, 120], layers);

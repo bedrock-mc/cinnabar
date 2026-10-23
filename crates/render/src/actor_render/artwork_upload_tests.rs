@@ -180,6 +180,7 @@ fn reduced_pending_pages_keep_the_requested_view_format() {
     for boundary in ["actor page upload", "actor page view"] {
         let mut gpu = GpuArtwork::default();
         gpu.set_raw_views(ArtworkRawViews(true));
+        assert!(gpu.prepare(&ActorArtworkPages::default(), &device, &queue));
         let mut failed = false;
         let _failure = gpu_allocation::inject(move |label, _| {
             if label != boundary || failed {
