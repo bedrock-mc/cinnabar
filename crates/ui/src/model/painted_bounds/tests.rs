@@ -32,7 +32,6 @@ fn drawing(paint: UiCoveragePaint, coverage: bool) -> UiDrawList {
                 } else {
                     0
                 },
-                alpha_test: false,
                 alpha_cutoff: -1.,
             })
         })

@@ -109,7 +109,7 @@ fn particle_mesh_alpha_testing_thresholds_texture_before_node_opacity() {
     let mut list = quad();
     for vertex in &mut list.vertices {
         vertex.style_flags = render_model::UI_STYLE_PARTICLE;
-        vertex.alpha_test = true;
+        vertex.style_flags |= render_api::UI_STYLE_ALPHA_TEST;
         vertex.color[3] = 128;
     }
     for alpha in [127, 128, 192] {
@@ -129,7 +129,7 @@ fn particle_mesh_alpha_testing_thresholds_texture_before_node_opacity() {
         }
     }
     for vertex in &mut list.vertices {
-        vertex.alpha_test = false;
+        vertex.style_flags &= !render_api::UI_STYLE_ALPHA_TEST;
     }
     let texture = Page {
         repeat_content: None,

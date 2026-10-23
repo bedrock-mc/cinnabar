@@ -9,16 +9,6 @@ use std::sync::Arc;
 
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};
 
-/// Includes model alpha testing in the shading flags, matching the GPU render adapter.
-fn style_flags(vertex: &UiVertex) -> u32 {
-    vertex.style_flags
-        | if vertex.alpha_test {
-            render_model::UI_STYLE_ALPHA_TEST
-        } else {
-            0
-        }
-}
-
 /// Applies the particle source bounds after triangle interpolation, as the GPU shader does.
 fn particle_uv(uv: [f32; 2], vertex: &UiVertex) -> [f32; 2] {
     if vertex.style_flags & render_model::UI_STYLE_PARTICLE != 0 {
@@ -193,7 +183,7 @@ impl Canvas {
         let [left, right] = span(x0.min(x1), x0.max(x1), clip[0], clip[2]);
         let [top, bottom] = span(y0.min(y1), y0.max(y1), clip[1], clip[3]);
         let color = v[0].color;
-        let flags = style_flags(v[0]);
+        let flags = v[0].style_flags;
         let derivatives = [[(u1 - u0) / w, 0.], [0., (v1 - v0) / h]];
         for y in top..bottom {
             let fy = (y as f32 + 0.5 - y0) / h;
@@ -257,7 +247,7 @@ impl Canvas {
                         .sum::<f32>()
                         .round() as u8
                 });
-                let flags = style_flags(v[0]);
+                let flags = v[0].style_flags;
                 let (texel, tint) =
                     if flags & u32::from(render_api::ui_shadow::UI_STYLE_SHADOW) != 0 {
                         let shape = std::array::from_fn(|channel| {
@@ -516,7 +506,7 @@ fn blend_styled(
     flags: u32,
 ) {
     if flags & render_model::UI_STYLE_PARTICLE != 0 {
-        if flags & render_model::UI_STYLE_ALPHA_TEST != 0 {
+        if flags & render_api::UI_STYLE_ALPHA_TEST != 0 {
             if texel[3] < 128 {
                 return;
             }

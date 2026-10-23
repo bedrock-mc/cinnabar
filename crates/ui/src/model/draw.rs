@@ -747,10 +747,15 @@ fn emit_colored_quad(
             clip_w,
             uv,
             color,
-            style_flags: u32::from(style_flags),
-            alpha_test: clip
-                .projection
-                .is_some_and(|projection| projection.alpha_test),
+            style_flags: u32::from(style_flags)
+                | if clip
+                    .projection
+                    .is_some_and(|projection| projection.alpha_test)
+                {
+                    render_api::UI_STYLE_ALPHA_TEST
+                } else {
+                    0
+                },
             alpha_cutoff: -1.0,
             model_light: 1.0,
             overlay_color: [0.0; 4],

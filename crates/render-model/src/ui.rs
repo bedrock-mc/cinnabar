@@ -73,8 +73,6 @@ pub const UI_BLEND_FILTER: u32 = 3;
 pub const UI_STYLE_RADIAL_GRADIENT: u32 = 1;
 /// Animated item glint; the only vertex style that changes pixels without a new revision.
 pub const UI_STYLE_GLINT: u32 = 1 << 1;
-/// Reject sampled texture alpha below one half before multiplying vertex alpha.
-pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 /// Texture alpha weights dye color; every surviving sampled texel is opaque.
 pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
 /// Premultiplied RGB contributes light while preserving destination coverage.
@@ -114,7 +112,7 @@ mod style_tests {
                         | render_api::UI_STYLE_SPRITE_COLOR_MASK
                         | UI_STYLE_ADDITIVE
                         | UI_STYLE_PARTICLE
-                        | UI_STYLE_ALPHA_TEST
+                        | render_api::UI_STYLE_ALPHA_TEST
                         | UI_STYLE_RADIAL_GRADIENT
                         | UI_STYLE_GLINT),
                 0,

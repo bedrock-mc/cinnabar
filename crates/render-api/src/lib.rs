@@ -62,3 +62,6 @@ pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
 
 /// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
 pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
+
+/// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
+pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;

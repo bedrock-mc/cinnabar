@@ -307,9 +307,16 @@ pub struct UiVertex {
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
     pub style_flags: u32,
-    pub alpha_test: bool,
     /// Sampled-texture cutoff (negative disables it).
     pub alpha_cutoff: f32,
+}
+
+impl UiVertex {
+    /// Whether the vertex requests the default sampled-alpha test.
+    #[must_use]
+    pub const fn alpha_test(&self) -> bool {
+        self.style_flags & render_api::UI_STYLE_ALPHA_TEST != 0
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

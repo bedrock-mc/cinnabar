@@ -67,7 +67,11 @@ pub fn render(textures: &UiRenderTextureArray, icon: IconRef, left_hand: bool) -
             let offset =
                 ((usize::from(icon.uv[1]) + y) * page_width as usize + usize::from(icon.uv[0]) + x)
                     * 4;
-            source[y * width + x] = page.pixels().get(offset..offset + 4)?.try_into().ok()?;
+            let texel: [u8; 4] = page.pixels().get(offset..offset + 4)?.try_into().ok()?;
+            source[y * width + x] = match icon.color_mask {
+                Some(color) if texel[3] != 0 => assets::color_mask_texel(texel, color),
+                _ => texel,
+            };
         }
     }
 
@@ -268,4 +272,77 @@ fn triangle(pixels: &mut [u8], depth: &mut [f32], vertices: [Vertex; 3], color: 
 
 fn edge(a: [f32; 2], b: [f32; 2], point: [f32; 2]) -> f32 {
     (point[0] - a[0]) * (b[1] - a[1]) - (point[1] - a[1]) * (b[0] - a[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_hands_apply_sprite_masks_before_extrusion() {
+        let source: Vec<[u8; 4]> = (0..64)
+            .map(|pixel| {
+                let x = pixel % 8;
+                let y = pixel / 8;
+                if (2..6).contains(&x) && (2..6).contains(&y) {
+                    [
+                        220,
+                        180,
+                        140,
+                        if x == 2 {
+                            1
+                        } else if x == 3 {
+                            128
+                        } else {
+                            255
+                        },
+                    ]
+                } else {
+                    [200, 190, 180, 0]
+                }
+            })
+            .collect();
+        for color in [[0; 3], [42, 166, 210]] {
+            let baked = source
+                .iter()
+                .map(|&pixel| {
+                    if pixel[3] == 0 {
+                        pixel
+                    } else {
+                        assets::color_mask_texel(pixel, color)
+                    }
+                })
+                .collect::<Vec<_>>();
+            let pages = [&source, &baked].map(|pixels| {
+                render_model::UiTexturePage::owned(
+                    [8; 2],
+                    pixels.iter().flatten().copied().collect::<Vec<_>>().into(),
+                )
+                .unwrap()
+            });
+            let textures = UiRenderTextureArray::new(pages.into(), 2).unwrap();
+            let masked = IconRef {
+                page: 0,
+                uv: [0, 0, 8, 8],
+                glint: false,
+                color_mask: Some(color),
+            };
+            let expected = IconRef {
+                page: 1,
+                color_mask: None,
+                ..masked
+            };
+            for left_hand in [false, true] {
+                let expected = render(&textures, expected, left_hand).unwrap();
+                assert!(
+                    expected
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .any(|pixel| pixel[3] != 0)
+                );
+                assert_eq!(render(&textures, masked, left_hand).unwrap(), expected);
+            }
+        }
+    }
 }
