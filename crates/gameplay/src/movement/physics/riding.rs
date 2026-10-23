@@ -55,7 +55,8 @@ impl super::LocalPhysicsController {
         self.vehicle.feed(self.tick_alpha())
     }
 
-    /// Forgets the steered boat's prediction; the next steered tick starts a new one.
+    /// Forgets the steered boat's prediction; the next steered tick starts a new one. A new
+    /// session's boat, even one with the old ids, starts its own prediction.
     pub fn end_vehicle_prediction(&mut self) {
         self.vehicle.reset();
     }
@@ -152,7 +153,7 @@ mod tests {
             100,
         );
         assert!(physics.predicted_vehicle_feed().is_some());
-        crate::movement::reset_start_game_prediction(
+        crate::movement::bootstrap::reset_start_game_prediction(
             &mut crate::movement::MovementTicker::default(),
             &mut physics,
             8,

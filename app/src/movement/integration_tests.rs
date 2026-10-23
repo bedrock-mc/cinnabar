@@ -25,7 +25,7 @@ use {
     acceptance::{MovementTerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
     client_presentation::camera::CameraSettingsAuthority,
     client_presentation::environment::{WeatherState, WorldClock, replace_session},
-    gameplay::movement::reset_start_game_prediction,
+    gameplay::movement::bootstrap::reset_start_game_prediction,
 };
 
 #[path = "transport_tests.rs"]
