@@ -3,6 +3,7 @@ use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
 fn face(page: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page,
         uv: [32, 48, 48, 64],
         glint: false,

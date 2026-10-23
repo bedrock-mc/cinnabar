@@ -20,7 +20,7 @@ pub(crate) fn source(raw: &str) -> String {
     )
     .replace(
         "UI_STYLE_ALPHA_TEST",
-        &format!("{}u", render_model::UI_STYLE_ALPHA_TEST),
+        &format!("{}u", render_api::UI_STYLE_ALPHA_TEST),
     )
     .replace(
         "UI_STYLE_SHADOW",
@@ -33,6 +33,10 @@ pub(crate) fn source(raw: &str) -> String {
     .replace(
         "UI_STYLE_GLINT",
         &format!("{}u", render_model::UI_STYLE_GLINT),
+    )
+    .replace(
+        "UI_STYLE_SPRITE_COLOR_MASK",
+        &format!("{}u", render_api::UI_STYLE_SPRITE_COLOR_MASK),
     )
     .replace(
         "UI_STYLE_COLOR_MASK",

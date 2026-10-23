@@ -413,15 +413,19 @@ fn retiring_columns_are_admitted_a_bounded_batch_per_poll() {
         "unfinished work defers further source capture"
     );
     let mut summaries = Vec::new();
-    test_time::eventually("manually driven retirement summaries", || {
+    assert!(manual.run(), "prepare the shared surface colours");
+    for expected in 1..=columns.len() {
         let before = live.far_terrain.retiring.len();
         live.dispatch_far_summaries();
         assert!(before - live.far_terrain.retiring.len() <= JOBS_PER_POLL);
-        while manual.run() {}
+        assert!(manual.run(), "available capacity must advance a source");
         live.drain_far_summaries(&mut summaries);
-        live.far_summaries_idle()
-    });
-    assert_eq!(summaries.len(), columns.len());
+        assert_eq!(summaries.len(), expected, "completed sources are delivered");
+    }
+    assert!(live.far_summaries_idle());
+    assert_eq!(manual.len(), 0);
+    assert_eq!(owner.usage().jobs, 0);
+    assert_eq!(owner.usage().bytes, 0);
     assert_eq!(
         summaries
             .iter()

@@ -123,7 +123,7 @@ fn rounded_shadows_canvas_places_the_shadow_behind_the_fill_with_ancestor_scisso
     assert!(
         draw.vertices
             .iter()
-            .any(|vertex| vertex.style_flags == render_api::ui_shadow::UI_STYLE_SHADOW)
+            .any(|vertex| vertex.style_flags == u32::from(render_api::ui_shadow::UI_STYLE_SHADOW))
     );
     assert!(
         draw.batches

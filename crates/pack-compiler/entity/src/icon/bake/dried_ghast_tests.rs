@@ -278,3 +278,102 @@ fn dried_ghast_shared_strip_retains_each_materials_replication() {
         );
     }
 }
+
+#[test]
+fn dried_ghast_static_model_art_retains_larger_source_pixels() {
+    let root = material_fixture();
+    image::RgbaImage::from_pixel(512, 512, image::Rgba([0, 0, 255, 255]))
+        .save(root.path().join("textures/blocks/feet.png"))
+        .unwrap();
+    assert!(
+        fixture_icon(root.path())
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[2] > 0 && pixel[3] != 0)
+    );
+}
+
+#[test]
+fn dried_ghast_model_art_starts_at_the_declared_timeline_frame() {
+    let root = material_fixture();
+    std::fs::write(
+        root.path().join("textures/flipbook_textures.json"),
+        r#"[{"flipbook_texture":"textures/blocks/body","atlas_tile":"body","frames":[1,0]}]"#,
+    )
+    .unwrap();
+    image::RgbaImage::from_fn(32, 64, |_, y| {
+        image::Rgba(if y < 32 {
+            [255, 0, 0, 255]
+        } else {
+            [0, 255, 0, 255]
+        })
+    })
+    .save(root.path().join("textures/blocks/body.png"))
+    .unwrap();
+    let icon = fixture_icon(root.path());
+    assert!(
+        icon.rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[1] > 0 && pixel[3] != 0)
+    );
+    assert!(
+        icon.rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[0] == 0)
+    );
+}
+
+#[test]
+fn dried_ghast_path_fallback_uses_the_physical_first_frame() {
+    let root = material_fixture();
+    let catalog = root.path().join("textures/terrain_texture.json");
+    let mut textures: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&catalog).unwrap()).unwrap();
+    for key in ["body", "feet"] {
+        textures["texture_data"][key]["textures"] = "textures/blocks/shared".into();
+    }
+    std::fs::write(catalog, textures.to_string()).unwrap();
+    std::fs::write(
+        root.path().join("textures/flipbook_textures.json"),
+        r#"[{"flipbook_texture":"textures/blocks/shared","atlas_tile":"feet","frames":[1,0]}]"#,
+    )
+    .unwrap();
+    image::RgbaImage::from_fn(32, 64, |_, y| {
+        image::Rgba(if y < 32 {
+            [255, 0, 0, 255]
+        } else {
+            [0, 255, 0, 255]
+        })
+    })
+    .save(root.path().join("textures/blocks/shared.png"))
+    .unwrap();
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let visual = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .iter()
+    .find(|r| r.name.as_ref() == "minecraft:dried_ghast")
+    .unwrap()
+    .sequential_id;
+    let body = blocks
+        .terrain_tiles(root.path(), assets::BlockVisualId(visual))
+        .unwrap()
+        .unwrap();
+    let feet = blocks
+        .carried_model_tile(root.path(), assets::BlockVisualId(visual))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        &body[assets::BlockFace::Up as usize].rgba8[..4],
+        &[255, 0, 0, 255]
+    );
+    assert_eq!(&feet.rgba8[..4], &[0, 255, 0, 255]);
+}

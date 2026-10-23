@@ -6,6 +6,8 @@ pub struct IconRef {
     pub uv: [u16; 4],
     /// Draws the enchantment glint over the icon.
     pub glint: bool,
+    /// RGB dye applied where the source texture alpha stores a color mask.
+    pub color_mask: Option<[u8; 3]>,
 }
 
 impl IconRef {
@@ -17,7 +19,15 @@ impl IconRef {
 
     /// The icon's sprite, glinting when marked.
     pub const fn visual(self, color: [u8; 4]) -> crate::UiVisual {
-        if self.glint {
+        if let Some(tint) = self.color_mask {
+            crate::UiVisual::ColorMaskSprite {
+                texture_page: self.page,
+                uv: self.uv,
+                color,
+                tint,
+                glint: self.glint,
+            }
+        } else if self.glint {
             crate::UiVisual::GlintSprite {
                 texture_page: self.page,
                 uv: self.uv,

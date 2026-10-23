@@ -26,6 +26,7 @@ fn ledger() -> PlayerInventoryLedger {
 fn closed_inventory_keeps_slot_art_without_resolving_recipes_or_hover_names() {
     let ledger = ledger();
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: true,

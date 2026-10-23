@@ -165,6 +165,7 @@ pub struct PackRules {
     superseded_eggs: BTreeMap<String, String>,
     pub minerals: Vec<MineralRule>,
     item_visuals: BTreeMap<String, ItemVisualKind>,
+    default_item_tints: BTreeMap<String, [u8; 3]>,
     empty_hand: PackBlock,
     /// Render controllers vanilla entities reference but the pinned samples omit, each mapped
     /// to the pack controller it is completed from.
@@ -219,6 +220,10 @@ impl PackBlock {
     }
 }
 impl PackRules {
+    /// Returns the default RGB for an item whose sprite alpha stores a dye mask.
+    pub fn default_item_tint(&self, identifier: &str) -> Option<[u8; 3]> {
+        self.default_item_tints.get(identifier).copied()
+    }
     /// Resolves the exact source shape of a retained selector-alias cube.
     pub fn alias_cube(&self, identifier: &str) -> Option<&AliasCubeSource> {
         self.alias_cubes.get(identifier)

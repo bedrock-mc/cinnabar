@@ -171,3 +171,53 @@ fn cropped_masks_preserve_the_original_inner_transparency() {
     assert_color(&pixels, (2 * 2) * 4, 0, 128, false);
     assert_color(&pixels, (3 * 2 + 1) * 4, 255, 128, false);
 }
+
+#[test]
+fn dyed_sprite_mask_keeps_trim_cutout_glint_and_node_opacity() {
+    let rect = UiRect::new(UiPoint::new(0., 0.).unwrap(), UiPoint::new(3., 1.).unwrap()).unwrap();
+    let icon = ui::IconRef {
+        page: 0,
+        uv: [0, 0, 3, 1],
+        glint: true,
+        color_mask: Some([51, 153, 204]),
+    };
+    let draw = UiTree::new(vec![
+        UiNode::new(UiNodeId::new(0), None, rect).with_visual(icon.visual([128, 255, 255, 128])),
+    ])
+    .unwrap()
+    .build_draw_list()
+    .unwrap();
+    assert!(
+        draw.vertices
+            .iter()
+            .all(|v| v.style_flags & u32::from(ui::UI_STYLE_GLINT) != 0)
+    );
+    let page = Page {
+        width: 3,
+        height: 1,
+        rgba: vec![200, 100, 50, 4, 255, 255, 255, 255, 10, 20, 30, 0].into(),
+        repeat_content: None,
+    };
+    let mut canvas = Canvas::new(3, 1);
+    canvas.draw(&draw, |_| Some(&page));
+    let pixels = canvas.into_rgba();
+    for (index, source) in [[200, 100, 50, 4], [255, 255, 255, 255], [10, 20, 30, 0]]
+        .into_iter()
+        .enumerate()
+    {
+        let tinted = assets::color_mask_texel(source, [51, 153, 204]);
+        let expected = if tinted[3] == 0 {
+            [0; 4]
+        } else {
+            [
+                (u32::from(tinted[0]) * 128 / 255) as u8,
+                tinted[1],
+                tinted[2],
+                128,
+            ]
+        };
+        for channel in 0..4 {
+            assert!((pixels[index * 4 + channel] as i16 - expected[channel] as i16).abs() <= 2);
+        }
+    }
+}
