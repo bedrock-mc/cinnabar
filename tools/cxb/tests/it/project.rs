@@ -25,11 +25,84 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
     let shared = root.join("src/shared.rs");
     fs::write(&shared, format!("{}\n#[message(id = \"space.notice\", schema = 1, to_client)]\npub struct Notice {{ pub trap: bool }}\n", fs::read_to_string(&shared).unwrap())).unwrap();
     fs::write(&client, format!("{}\nimpl Client {{\n    /// Exercises a recoverable callback failure in the generated component.\n    fn receive(record: Vec<experience_sdk::Value>) {{\n        use experience_sdk::message::Message;\n        if crate::shared::Notice::decode(record).unwrap().trap {{ panic!(\"recoverable callback failure\"); }}\n    }}\n}}\n", fs::read_to_string(&client).unwrap().replace("impl ClientPart for Client {", "impl ClientPart for Client {\n    /// Processes the declared test notification.\n    fn dispatch(_channel: String, record: Vec<experience_sdk::Value>) { Self::receive(record); }\n    /// Proves callbacks run again after a fresh confirmation.\n    fn epoch() { experience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 43 }).unwrap(); }"))).unwrap();
-    let package = project::build(&root, false).unwrap();
-    let cxb = package.join("space.cxb");
+    let private = "SERVER_ONLY_SENTINEL_9b1d38";
+    fs::write(root.join("assets/server/secret.txt"), private).unwrap();
+    let server_source = root.join("src/server.rs");
+    fs::write(&server_source, fs::read_to_string(&server_source).unwrap().replace("impl Experience for Server {}", r#"impl Experience for Server {
+    /// Exercises a server-only asset in a callable server entry point.
+    fn on_interact(_ctx: &experience_sdk::server::Callback, _player: String, _pos: experience_sdk::server::BlockPos, _face: experience_sdk::server::Face) -> Result<(), experience_sdk::server::GuestError> {
+        experience_sdk::server::log(experience_sdk::server::LogLevel::Info, include_str!("../assets/server/secret.txt"));
+        Ok(())
+    }
+}"#)).unwrap();
+    fs::write(
+        root.join("assets/block.png"),
+        include_bytes!("../../../../examples/experiences/terminal-client/assets/terminal.png"),
+    )
+    .unwrap();
+    fs::write(&shared, format!("{}\nuse experience_sdk::message::{{BlockId, ItemId}};\n#[block(name = \"Declared cube\", texture = assets::ASSET_BLOCK_PNG, hardness = 2.0)]\npub const CUBE: BlockId = id!(\"space:cube\");\n#[item(name = \"Declared item\", icon = assets::ASSET_BLOCK_PNG, max_stack = 16)]\npub const TOKEN: ItemId = id!(\"space:token\");\n", fs::read_to_string(&shared).unwrap())).unwrap();
+    let archive = project::build(&root, false).unwrap();
+    assert_eq!(archive.extension().unwrap(), "cmod");
+    let archive_before = fs::read(&archive).unwrap();
+    let package = root.join("unpacked");
+    assert_eq!(project::unpack(&archive, &package).unwrap(), "space");
+    let cxb = package.join("client/space.cxb");
     let bytes = fs::read(&cxb).unwrap();
     let verified = offline::verify(&bytes).unwrap();
     assert_eq!(verified.manifest.id, "space");
+    assert!(
+        verified
+            .manifest
+            .files
+            .iter()
+            .all(|file| !file.path.starts_with("server/"))
+    );
+    let mut client_archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    use std::io::Read;
+    let mut component = Vec::new();
+    client_archive
+        .by_name("component.wasm")
+        .unwrap()
+        .read_to_end(&mut component)
+        .unwrap();
+    assert!(
+        !component
+            .windows(private.len())
+            .any(|window| window == private.as_bytes())
+    );
+    let server = fs::read(package.join("server/server.wasm")).unwrap();
+    assert!(
+        server
+            .windows(private.len())
+            .any(|window| window == private.as_bytes())
+    );
+    let pack =
+        zip::ZipArchive::new(fs::File::open(package.join("resource.mcpack")).unwrap()).unwrap();
+    assert!(pack.file_names().any(|path| path.ends_with("blocks.json")));
+    let world = root.join("world");
+    assert_eq!(
+        project::install(&archive, &world).unwrap(),
+        world.join("mods/space")
+    );
+    assert!(
+        project::install(&archive, &world).is_err(),
+        "replacement requires an explicit update"
+    );
+    let output = Command::new("go")
+        .args(["test", "-run", "^TestInstalledModPackage$", "."])
+        .env("GOWORK", "off")
+        .env("CINNABAR_TEST_CMOD_WORLD", &world)
+        .env("CINNABAR_CXB_BIN", env!("CARGO_BIN_EXE_cinnabar-cxb"))
+        .env("CINNABAR_EXPERIENCE_RUNTIME_BIN", runtime_tool())
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../localserver"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(package.join("messages/messages.go").is_file());
     assert!(package.join("registry.json").is_file());
     let output = Command::new(std::env::current_exe().unwrap())
@@ -84,6 +157,17 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    let client_source = fs::read_to_string(&client).unwrap();
+    fs::write(
+        &client,
+        client_source.replace("ASSET_WELCOME_TXT", "ASSET_SERVER_SECRET_TXT"),
+    )
+    .unwrap();
+    assert!(
+        project::build(&root, false).is_err(),
+        "client code cannot import server-only asset constants"
+    );
+    fs::write(&client, client_source).unwrap();
     fs::rename(
         root.join("assets/welcome.txt"),
         root.join("assets/renamed.txt"),
@@ -94,8 +178,8 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
         "stale asset references must fail Rust compilation"
     );
     assert_eq!(
-        fs::read(cxb).unwrap(),
-        bytes,
+        fs::read(archive).unwrap(),
+        archive_before,
         "a failed build keeps the last successful package"
     );
 }
@@ -114,7 +198,7 @@ fn runtime_acceptance_child() {
         wire::Scalar,
     };
     let package = Path::new(&package);
-    let bytes = fs::read(package.join("space.cxb")).unwrap();
+    let bytes = fs::read(package.join("client/space.cxb")).unwrap();
     let metadata = offline::verify(&bytes).unwrap();
     let offer = PackageOffer {
         id: metadata.manifest.id.clone(),
@@ -165,15 +249,8 @@ fn runtime_acceptance_child() {
     );
     let schema: serde_json::Value =
         serde_json::from_slice(&fs::read(package.join("registry.json")).unwrap()).unwrap();
-    let project_source = fs::read_to_string(
-        package
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("src/shared.rs"),
-    )
-    .unwrap();
+    let project_source =
+        fs::read_to_string(package.parent().unwrap().join("src/shared.rs")).unwrap();
     let project = experience_sdk::project::Project::parse(&project_source).unwrap();
     assert_eq!(schema, project.document());
     let confirmation = Event::Message {
@@ -241,3 +318,33 @@ func TestGeneratedRustRecord(t *testing.T) {
     if string(encoded) != string(raw) { t.Fatalf("%s", encoded) }
 }
 "#;
+
+/// Locates the helper built by mod packaging through Cargo's artifact metadata.
+fn runtime_tool() -> std::path::PathBuf {
+    let output = Command::new("cargo")
+        .args([
+            "build",
+            "--locked",
+            "-p",
+            "experience-runtime",
+            "--message-format=json",
+        ])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
+        .find_map(|event| {
+            (event["target"]["name"] == "experience-runtime")
+                .then(|| event["executable"].as_str().map(std::path::PathBuf::from))
+                .flatten()
+        })
+        .unwrap()
+}

@@ -41,6 +41,7 @@ type settings struct {
 	// extensionMedia is a directory served over loopback HTTPS at extensionMediaAddr for client
 	// part media; empty for none.
 	extensionMedia, extensionMediaAddr string
+	modArtifacts, modClients           []string
 }
 
 func parseSettings(args []string, stderr io.Writer) (settings, error) {

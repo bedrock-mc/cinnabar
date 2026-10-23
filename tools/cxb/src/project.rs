@@ -1,6 +1,9 @@
 //! One-command authoring on top of the existing SDK and client bundle builder.
 
+mod local;
+mod package;
 mod scaffold;
+pub use package::{install, unpack};
 
 use std::{
     collections::BTreeMap,
@@ -17,7 +20,7 @@ use serde_json::Value;
 use crate::{bundle, keys};
 pub use scaffold::create;
 
-/// Runs the repository's `mod new` and `mod build` commands.
+/// Runs paired mod authoring, packaging, installation and development commands.
 pub fn run(args: &[String]) -> Result<()> {
     match args
         .iter()
@@ -31,8 +34,14 @@ pub fn run(args: &[String]) -> Result<()> {
         ["build", "--release"] => build(Path::new("."), true).map(|_| ()),
         ["build", "--project", root] => build(Path::new(root), false).map(|_| ()),
         ["build", "--project", root, "--release"] => build(Path::new(root), true).map(|_| ()),
+        ["install", package, "--server", world] => {
+            install(Path::new(package), Path::new(world)).map(|_| ())
+        }
+        ["run"] => local::run(Path::new("."), false),
+        ["run", "--project", root] => local::run(Path::new(root), false),
+        ["run", "--project", root, "--release"] => local::run(Path::new(root), true),
         _ => bail!(
-            "usage: mod new <name> [--sdk <experience-sdk path>] | mod build [--project <directory>] [--release]"
+            "usage: mod new <name> [--sdk <experience-sdk path>] | mod build [--project <directory>] [--release] | mod install <file.cmod> --server <world> | mod run [--project <directory>] [--release]"
         ),
     }
 }
@@ -42,22 +51,65 @@ fn sdk_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/experience-sdk")
 }
 
-/// Builds the client and writes a package directory containing its `.cxb` and Go definitions.
+/// Builds both isolated components and publishes one installation archive.
 pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
     let root = root.canonicalize()?;
-    let manifest = root.join("Cargo.toml");
-    let cargo: toml::Value = toml::from_str(&fs::read_to_string(&manifest)?)?;
+    let cargo: toml::Value = toml::from_str(&fs::read_to_string(root.join("Cargo.toml"))?)?;
     let version = cargo
         .get("package")
-        .and_then(|package| package.get("version"))
+        .and_then(|p| p.get("version"))
         .and_then(toml::Value::as_str)
         .context("mod package needs an explicit package.version")?;
+    let project = Project::parse(&fs::read_to_string(root.join("src/shared.rs"))?)?;
+    let (client, generated) = compile(&root, release, "client")?;
+    let (server, server_generated) = compile(&root, release, "server")?;
+    for directory in [&generated, &server_generated] {
+        let schema: Value = serde_json::from_slice(&fs::read(directory.join("registry.json"))?)?;
+        ensure!(
+            schema == project.document(),
+            "shared definitions changed during compilation; rebuild"
+        );
+    }
+    let seed = root.join(".local/publisher.seed");
+    fs::create_dir_all(seed.parent().context("publisher directory missing")?)?;
+    if !seed.exists() {
+        keys::generate(&seed)?;
+    }
+    let assets = bundle::read_assets(&root.join("assets"))?;
+    let client_assets = assets
+        .iter()
+        .filter(|(path, _)| !path.starts_with("server/"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let built = bundle::build(
+        source(&project, version)?,
+        &client,
+        &client_assets,
+        &keys::read(&seed)?,
+    )?;
+    package::assemble(
+        &root,
+        &project,
+        version,
+        &server,
+        &assets,
+        &built.bytes,
+        &generated,
+    )
+}
+
+/// Compiles exactly one half with defaults disabled and returns its own build-script output.
+fn compile(root: &Path, release: bool, half: &str) -> Result<(Vec<u8>, PathBuf)> {
+    let manifest = root.join("Cargo.toml");
     let mut command = Command::new("cargo");
-    command.current_dir(&root).args([
+    command.current_dir(root).args([
         "build",
         "--lib",
         "--target",
         "wasm32-unknown-unknown",
+        "--no-default-features",
+        "--features",
+        half,
         "--message-format=json-render-diagnostics",
     ]);
     if release {
@@ -112,51 +164,14 @@ pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
     }
     ensure!(
         output.status.success(),
-        "mod compilation failed; the package was not published"
+        "{half} compilation failed; the package was not published"
     );
     let (package, component) =
-        artifact.context("Cargo produced no client .wasm; use a cdylib crate")?;
+        artifact.with_context(|| format!("Cargo produced no {half} .wasm; use a cdylib crate"))?;
     let generated = scripts
-        .get(&package)
+        .remove(&package)
         .context("mod build.rs did not generate shared definitions")?;
-    let project = Project::parse(&fs::read_to_string(root.join("src/shared.rs"))?)?;
-    let built_schema: Value = serde_json::from_slice(&fs::read(generated.join("registry.json"))?)?;
-    ensure!(
-        built_schema == project.document(),
-        "shared definitions changed during compilation; rebuild the project"
-    );
-    let source = source(&project, version)?;
-    let seed = root.join(".local/publisher.seed");
-    fs::create_dir_all(seed.parent().context("publisher directory missing")?)?;
-    if !seed.exists() {
-        keys::generate(&seed)?;
-    }
-    let assets = bundle::read_assets(&root.join("assets"))?;
-    let built = bundle::build(source, &fs::read(component)?, &assets, &keys::read(&seed)?)?;
-    let destination = root.join("dist").join(&project.id);
-    let staging = root
-        .join("dist")
-        .join(format!(".{}-{}", project.id, std::process::id()));
-    fs::create_dir_all(staging.join("messages"))?;
-    fs::write(staging.join(format!("{}.cxb", project.id)), built.bytes)?;
-    fs::copy(
-        generated.join("messages.go"),
-        staging.join("messages/messages.go"),
-    )?;
-    fs::copy(
-        generated.join("registry.json"),
-        staging.join("registry.json"),
-    )?;
-    fs::write(
-        staging.join("messages/go.mod"),
-        experience_sdk::project::go_module(&project.id),
-    )?;
-    if destination.exists() {
-        fs::remove_dir_all(&destination)?;
-    }
-    fs::rename(staging, &destination)?;
-    writeln!(std::io::stdout(), "package={}", destination.display())?;
-    Ok(destination)
+    Ok((fs::read(component)?, generated))
 }
 
 /// Converts only generated metadata to the existing bundle source; host validation stays canonical.

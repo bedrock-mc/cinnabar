@@ -45,10 +45,11 @@ pub fn generate(project: &Project) -> Result<String> {
             "EntityID",
             "WorldID",
             "ItemID",
+            "BlockID",
         ]
         .map(str::to_owned),
     );
-    for kind in ["EntityID", "WorldID", "ItemID"] {
+    for kind in ["EntityID", "WorldID", "ItemID", "BlockID"] {
         writeln!(
             out,
             "// {kind} is a stable namespaced definition key.\ntype {kind} string"

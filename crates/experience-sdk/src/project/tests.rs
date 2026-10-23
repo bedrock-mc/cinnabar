@@ -246,3 +246,42 @@ func TestRustRecord(t *testing.T) {{
         serde_json::from_slice(&fs::read(root.path().join("go-record.json")).unwrap()).unwrap();
     assert_eq!(returned, record);
 }
+
+#[test]
+fn declared_content_requires_a_shared_generated_png() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("src")).unwrap();
+    fs::create_dir(temp.path().join("assets")).unwrap();
+    let source = r#"#![project(id = "content", permissions(messaging))]
+use experience_sdk::{id, message::{BlockId, ItemId}};
+#[block(name = "Cube", texture = assets::ASSET_CUBE_PNG, hardness = 1.0)]
+pub const CUBE: BlockId = id!("content:cube");
+#[item(name = "Token", icon = assets::ASSET_CUBE_PNG, max_stack = 16)]
+pub const TOKEN: ItemId = id!("content:token");
+"#;
+    fs::write(temp.path().join("src/shared.rs"), source).unwrap();
+    assert!(generate_at(temp.path(), &temp.path().join("out")).is_err());
+    fs::write(temp.path().join("assets/cube.png"), b"fixture").unwrap();
+    let parsed = generate_at(temp.path(), &temp.path().join("out")).unwrap();
+    let fingerprint = parsed.fingerprint();
+    assert_eq!(parsed.definitions.len(), 2);
+    assert_ne!(
+        fingerprint,
+        Project::parse(&source.replace("hardness = 1.0", "hardness = 2.0"))
+            .unwrap()
+            .fingerprint()
+    );
+    fs::rename(
+        temp.path().join("assets/cube.png"),
+        temp.path().join("assets/renamed.png"),
+    )
+    .unwrap();
+    assert!(generate_at(temp.path(), &temp.path().join("out")).is_err());
+    for invalid in [
+        source.replace("max_stack = 16", "max_stack = 0"),
+        source.replace("hardness = 1.0", "hardness = -1.0"),
+        source.replace("CUBE: BlockId", "CUBE: ItemId"),
+    ] {
+        assert!(Project::parse(&invalid).is_err());
+    }
+}

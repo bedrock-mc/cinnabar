@@ -483,13 +483,19 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "experience-sdk"
 path = "crates/experience-sdk"
+allowed_dependencies = ["experience-macros"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "experience-macros"
+path = "crates/experience-macros"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
 name = "experience-runtime"
 path = "crates/experience-runtime"
-allowed_dependencies = ["test-time"]
+allowed_dependencies = ["experience-sdk", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]

@@ -26,9 +26,19 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 	if err != nil {
 		return nil, fmt.Errorf("-extension-key %s: %w", cfg.extensionKey, err)
 	}
-	bundles, err := extension.ReadBundles(cfg.extensionCXB)
-	if err != nil {
-		return nil, fmt.Errorf("-extension-cxb: %w", err)
+	var bundles []extension.Bundle
+	if cfg.extensionCXB != "" {
+		bundles, err = extension.ReadBundles(cfg.extensionCXB)
+		if err != nil {
+			return nil, fmt.Errorf("-extension-cxb: %w", err)
+		}
+	}
+	for _, path := range cfg.modClients {
+		bundle, err := extension.ReadBundle(path)
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, bundle)
 	}
 	revision, err := extension.NextRevision(filepath.Join(cfg.dir, extension.RevisionFile))
 	if err != nil {

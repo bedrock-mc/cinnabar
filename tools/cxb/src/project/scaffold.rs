@@ -30,7 +30,12 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-experience-sdk = {{ path = {sdk:?}, default-features = false, features = ["client"] }}
+experience-sdk = {{ path = {sdk:?}, default-features = false, features = ["messages"] }}
+
+[features]
+default = ["client"]
+client = ["experience-sdk/client"]
+server = ["experience-sdk/server"]
 
 [build-dependencies]
 experience-sdk = {{ path = {sdk:?}, default-features = false, features = ["project"] }}
@@ -46,9 +51,11 @@ experience-sdk = {{ path = {sdk:?}, default-features = false, features = ["proje
     )?;
     fs::write(
         destination.join("src/lib.rs"),
-        "mod client;\npub mod shared {\n    experience_sdk::include_shared!();\n}\nuse client::Client;\nexperience_sdk::export_client_part!(Client);\n",
+        "#[cfg(all(feature = \"server\", feature = \"client\"))]\ncompile_error!(\"build exactly one mod half\");\n#[cfg(feature = \"client\")]\nmod client;\n#[cfg(feature = \"server\")]\nmod server;\npub mod shared {\n    experience_sdk::include_shared!();\n}\n",
     )?;
     fs::write(destination.join("src/client.rs"), CLIENT)?;
+    fs::write(destination.join("src/server.rs"), SERVER)?;
+    fs::create_dir(destination.join("assets/server"))?;
     fs::write(
         destination.join("src/shared.rs"),
         format!(
@@ -85,6 +92,7 @@ const CLIENT: &str = r#"use experience_sdk::{client::ClientPart, message::Regist
 
 pub struct Client;
 
+#[experience_sdk::client]
 impl ClientPart for Client {
     /// Confirms the generated definitions before client behavior starts.
     fn registry() -> Option<&'static Registry> { Some(&crate::shared::REGISTRY) }
@@ -95,4 +103,12 @@ impl ClientPart for Client {
         // Move portable personal-mod setup here. Use client::send_message for typed requests.
     }
 }
+"#;
+
+const SERVER: &str = r#"use experience_sdk::server::Experience;
+
+struct Server;
+
+#[experience_sdk::server]
+impl Experience for Server {}
 "#;

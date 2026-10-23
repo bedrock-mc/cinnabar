@@ -8,11 +8,13 @@ publish = false
 [package.metadata.cinnabar]
 reads = [
     "crates/experience-sdk",
+    "examples/experiences/terminal-client/assets",
     "crates/server-experience/schema",
     "tools/localserver/extension",
 ]
 
 [dependencies]
+tempfile = "=3.27.0"
 experience-sdk = { path = "../../crates/experience-sdk", default-features = false, features = ["project"] }
 ring = "=0.17.14"
 anyhow.workspace = true

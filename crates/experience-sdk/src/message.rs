@@ -33,10 +33,14 @@ pub enum World {}
 /// Marks a registered item definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {}
+/// Marks a registered block definition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Block {}
 
 pub type EntityId = Id<Entity>;
 pub type WorldId = Id<World>;
 pub type ItemId = Id<Item>;
+pub type BlockId = Id<Block>;
 
 /// Creates a typed ID; its type comes from the surrounding declaration.
 #[macro_export]

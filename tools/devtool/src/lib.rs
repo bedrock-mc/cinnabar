@@ -38,7 +38,7 @@ pub enum DevtoolError {
     #[error("workspace package manifest `{0}` has no parent directory")]
     ManifestWithoutParent(PathBuf),
     #[error(
-        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | capture | trace-summary --trace <file> | wt-gc | diag [--data-root <path>] | symbolicate <crash folder|minidump> [--symbols <dir|zip>] | check-web | build-web --assets <dir> --out <new-dir> [--release] | mod new <name> | mod build [--project <directory>] [--release]"
+        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | capture | trace-summary --trace <file> | wt-gc | diag [--data-root <path>] | symbolicate <crash folder|minidump> [--symbols <dir|zip>] | check-web | build-web --assets <dir> --out <new-dir> [--release] | mod new <name> | mod build [--project <directory>] [--release] | mod install <file.cmod> --server <world> | mod run [--project <directory>] [--release]"
     )]
     Usage(String),
     #[error("failed to run `{command}`: {source}")]

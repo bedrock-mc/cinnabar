@@ -14,6 +14,8 @@ use server_experience::crypto;
 
 const USAGE: &str = "usage: cinnabar-cxb mod new <name> [--sdk <experience-sdk path>]
        cinnabar-cxb mod build [--project <directory>] [--release]
+       cinnabar-cxb mod install <file.cmod> --server <world>
+       cinnabar-cxb mod run [--project <directory>] [--release]
        cinnabar-cxb keygen <seed-file>
        cinnabar-cxb build --experience <experience.toml> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb> [--assets <dir>]
        cinnabar-cxb media --webm <in.webm> --url <https url> --id <media id> --poster <bundle path> --out-webm <file> --out-descriptor <file>

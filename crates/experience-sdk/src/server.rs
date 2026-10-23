@@ -65,6 +65,11 @@ pub fn cube(def: BlockDef) -> BlockType {
 /// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
 /// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
+    /// Returns the generated shared contract when this server belongs to a mod project.
+    fn registry() -> Option<&'static crate::message::Registry> {
+        None
+    }
+
     /// Declares the plain cube blocks this Experience owns. It runs once, at startup, through
     /// the default [`Experience::registration`].
     fn register() -> Result<Vec<BlockDef>, GuestError> {
@@ -194,6 +199,16 @@ macro_rules! export_experience {
                 let payload = $crate::server::values(payload).ok_or_else(|| {
                     $crate::server::GuestError::Failed("malformed client message payload".into())
                 })?;
+                if let Some(registry) = <$ty as $crate::server::Experience>::registry()
+                    && channel == registry.request.id
+                {
+                    if schema != registry.request.schema || payload != [$crate::Value::Text(registry.fingerprint.into())] {
+                        return Err($crate::server::GuestError::Rejected("shared registry mismatch".into()));
+                    }
+                    return ctx.send_client(&player, registry.channel.id, registry.channel.schema,
+                        &$crate::server::nodes(::std::vec![$crate::Value::Text(registry.fingerprint.into())]))
+                        .map_err(|_| $crate::server::GuestError::Failed("registry confirmation unavailable".into()));
+                }
                 <$ty as $crate::server::Experience>::client_message(
                     ctx, player, channel, schema, payload,
                 )

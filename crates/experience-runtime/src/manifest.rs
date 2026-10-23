@@ -18,14 +18,14 @@ use crate::hex;
 use crate::host::Api;
 use crate::limits::{MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 
-/// The manifest's file name; `[files]` indexes every other file in the artifact.
-pub const MANIFEST_FILE: &str = "experience.toml";
-/// The guest core module.
-pub const SERVER_WASM: &str = "server.wasm";
 /// The directory that texture paths are relative to.
-pub const ASSETS_DIR: &str = "assets";
+pub use experience_sdk::artifact::ASSETS_DIR;
 /// The block-data schema this runtime implements.
-pub const DATA_SCHEMA: u32 = 1;
+pub use experience_sdk::artifact::DATA_SCHEMA;
+/// The manifest's file name; `[files]` indexes every other file in the artifact.
+pub use experience_sdk::artifact::MANIFEST_FILE;
+/// The guest core module.
+pub use experience_sdk::artifact::SERVER_WASM;
 /// The table that declares the client part, which the runtime ignores.
 pub const CLIENT_TABLE: &str = "client";
 const MAX_ID_BYTES: usize = 32;

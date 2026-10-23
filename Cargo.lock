@@ -3959,6 +3959,7 @@ name = "experience-runtime"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-sdk",
  "serde",
  "serde_json",
  "sha2",
@@ -3971,10 +3972,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-macros"
+version = "0.1.28"
+dependencies = [
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "experience-sdk"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-macros",
  "quote",
  "serde",
  "serde_json",
