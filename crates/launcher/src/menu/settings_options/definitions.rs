@@ -9,6 +9,9 @@ pub struct SettingChoice {
     pub label: &'static str,
 }
 
+/// Shared VSync toggle definition for both settings interfaces.
+pub const VSYNC_OPTION: SettingDefinition = SettingId::Vsync.definition();
+
 #[derive(Clone, Copy, Debug)]
 pub enum SettingKind {
     Toggle,
@@ -369,7 +372,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 5)], [SettingsGroup::Video], None, None;
     MotionBlur => "motion_blur", dropdown("Motion Blur", MOTION_BLUR_CHOICES, ui::MotionBlurQuality::Off.index()),
         [(SettingPanel::VideoGraphics, 6)], [SettingsGroup::Video], None, None;
-    Vsync => "vsync", toggle("options.vsync", true),
+    Vsync => "vsync", toggle("options.vsync", render_api::VsyncMode::DEFAULT.enabled()),
         [(SettingPanel::VideoGraphics, 2)], [SettingsGroup::Video], None, None;
     Vrr => "vrr", dropdown("Variable Refresh Rate", VRR_CHOICES, render_api::VrrPreference::Automatic as i32),
         [(SettingPanel::VideoGraphics, 3)], [SettingsGroup::Video], None, None;
@@ -511,6 +514,10 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
+        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
+    RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
+        [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

@@ -1,13 +1,14 @@
 use super::*;
-use crate::local_worlds::{
-    process::{HostGrant, Runner},
-    provision::{Provisioner, RuntimeKind},
-    test_support::{VERSION, scratch, spec},
-};
 #[cfg(unix)]
 use crate::local_worlds::{
+    process::HostGrant,
     provision::Platform,
     test_support::{FAKE_DOCKER, installed_provisioner, write_script},
+};
+use crate::local_worlds::{
+    process::Runner,
+    provision::{Provisioner, RuntimeKind},
+    test_support::{VERSION, scratch, spec},
 };
 
 const IMAGE: &str = "itzg/minecraft-bedrock-server:2026.9.2@sha256:0000000000000000000000000000000000000000000000000000000000000000";

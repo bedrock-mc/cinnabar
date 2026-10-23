@@ -26,8 +26,14 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
+   Desktop VSync defaults to Off, preferring Mailbox, then Immediate, then FIFO;
+   Android defaults to On. The diagnostic `--no-vsync` flag prefers Immediate.
+   Menus use a display-refresh ceiling, and untouched in-world limits use that ceiling on battery. Saved limits remain authoritative.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
+   macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native
+   Metal presentation logs expose the layer state and software cap. Fullscreen
+   VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
@@ -70,6 +76,15 @@ Implemented: [terrain meshing](crates/meshing/src/lib.rs),
 rendering. The criteria below concern complete target coverage, native comparisons
 and resource qualification; they do not imply these systems need to be written.
 
+Render Resolution provides a 10-100% world-resolution slider with FSR1 EASU
+upscaling and optional RCAS sharpening. Both passes are bypassed at 100%. Bilinear
+filtering covers pending or failed FSR pipelines, which compile on first use.
+Menus, HUD and inventory previews retain native output pixels; the hand, world-space
+nametags, shader-pack targets and Enhanced world effects use the reduced world size. Screenshots retain native output dimensions.
+If native UI composition is unavailable, screen UI draws into the reduced view.
+The default is 100% on every device. Launcher, partial and shared-output views stay native.
+Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
@@ -92,7 +107,7 @@ and resource qualification; they do not imply these systems need to be written.
   presentation and animation. Identify unsupported states before adding implementation.
   Held end-rod models and narrow rod selection bounds are implemented; matched final-frame
   outlines and third-person held-item qualification remain incomplete.
-  Entity-drawn blocks retain pack face materials for destruction and mining particles;
+  Chests retain pack face materials for destruction and mining particles;
   matched chest-particle presentation and custom destruction overrides remain incomplete.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
   use pack geometry in all four directions; sleeping and picking remain unqualified.
@@ -116,9 +131,10 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
-  faces (and the loom's top/bottom flips) from their facing; other mapped-face cubes such as
-  carved pumpkins, observers, dispensers and droppers, and the stonecutter's east/west saw
-  axis, still need checking against their native tessellation, plus native-server captures.
+  faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
+  plane and top art with its direction; other mapped-face cubes such as carved pumpkins,
+  observers, dispensers and droppers still need checking against their native tessellation,
+  plus native-server captures.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -255,6 +271,9 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Server sprint metadata preserves the local Toggle Sprint request. Held sprint
+restarts after a server clear when admission conditions hold. Native rendered
+acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
@@ -323,6 +342,10 @@ and rendered qualification remain incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Movement retains signed byte rotations and exact network heights through tick and
+  frame interpolation and predicted picking. Specialized projectile and vehicle movement,
+  remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
@@ -333,6 +356,9 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+- [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
+  registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
+  cushions) follow the atlas order but are not confirmed against that client.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and
@@ -461,7 +487,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   each ingredient draws from one concrete variant. Missing grid ingredients and their
   result use distinct ghost cells in both renderers and retain hover names.
   Broader crafting and container acceptance remains incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap. The survival
+  Hover reports and actor use share the attack's game-mode actor cap.
+  Actor rays use loaded collision defaults, authoritative dimensions and scale, and
+  constructor pick radii. Attack, use and hover preserve the selected world intercept;
+  matched server-box packet acceptance remains incomplete. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
   Desktop input retains every transition in a complete arrival batch, including
@@ -542,6 +571,9 @@ Ordered desktop interactions still need live input and overload-timing acceptanc
 global camera-sampling qualification, other input modes and device-specific chords.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
+Selection-only hotbar changes coalesce into the next tick's equipment announcement.
+Same-frame hand actions still announce their selection first; matching their complete
+native packet order remains incomplete.
 
 ### Held block placement
 
@@ -770,10 +802,19 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
-  passes skip frames without a loaded pack. Retired loads cancel between translation programs
-  and GPU batches; rapid selections share one load worker. Atlas builds cancel between
-  source, pixel and upload stages, and one cancelled build retires before its replacement
-  starts. Leaving the pack releases the nametag overlay layer, and shared actor, item,
+  passes skip frames without a loaded pack. CPU translation runs in an owned child process
+  with a 2 GiB Rust heap limit, a 60-second CPU and elapsed-time limit, and bounded input/output.
+  Cancellation kills and reaps that child; parser crashes fail the selected pack. Saved option
+  files and generated helper copies have storage limits, and input files must be regular files.
+  Option-menu reads use the same compiler limits; payload decoding stays off the UI thread,
+  and closing the menu retires its reader before another starts. Accepted expression depths
+  survive result transport. Unreadable render-side saved settings retain the default values.
+  Render-view admission failures reach the pack picker and restore the native renderer.
+  Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
+  builds cancel between source, pixel and upload stages, and one cancelled build retires before its
+  replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,
+  then released after Off; idle view and geometry preparation record no shader work.
+  Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
   one list ending in a drop zone; the selected pack's card shows its load state and holds
@@ -822,6 +863,10 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
+Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
+their admission metadata and file hashes. Decoded and compiled session outputs are freed
+off the frame and rebuilt on rejoin. Rejoin rebuild latency and menu-memory acceptance
+remain unmeasured.
 Actor artwork uploads page rows within a per-frame byte budget, prioritizes current
 demand and finishes pending uploads before prewarming more pages. Complete pages bind
 atomically; compatible old pages stay visible during replacement. Artwork arrays

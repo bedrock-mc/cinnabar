@@ -62,6 +62,7 @@ impl ActorIdMaps {
 /// pinned mapping) and its entity and item ids, from the pack's parsed `maps`.
 pub(crate) fn id_tables(
     maps: shaderpack::IdMaps,
+    blocks: Option<Vec<i32>>,
     name: &str,
 ) -> (Option<Arc<Vec<i32>>>, Arc<ActorIdMaps>) {
     for diagnostic in &maps.diagnostics {
@@ -83,7 +84,7 @@ pub(crate) fn id_tables(
             None
         }
     };
-    let blocks = mapping.map(|mapping| Arc::new(maps.blocks.bedrock_block_ids(mapping)));
+    let blocks = blocks.map(Arc::new);
     let actors = Arc::new(ActorIdMaps::new(maps.entities, maps.items, mapping));
     (blocks, actors)
 }

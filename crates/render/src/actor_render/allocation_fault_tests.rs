@@ -341,7 +341,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 let page = &next.artwork.pages[0];
                 page.width.max(page.height).ilog2() + 1
             };
-            for attempt in 0..attempts {
+            for _ in 0..attempts {
                 let previous_calls = calls.borrow().len();
                 let drawn = draw_frame(&mut app, &next);
                 assert!(
@@ -352,16 +352,14 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 );
                 let expected = if compatible {
                     vec![1, 2]
-                } else if attempt + 1 < attempts {
-                    // Earlier pages can draw while the failed page retries across frames.
-                    (1..occurrence as u16).collect()
                 } else {
-                    Vec::new()
+                    // Completed pages keep drawing while later demand fails or retries.
+                    (1..occurrence as u16).collect()
                 };
                 assert_eq!(
                     drawn.iter().map(|span| span.page).collect::<Vec<_>>(),
                     expected,
-                    "{label}: incomplete pages cannot draw; exhausted demand releases every page"
+                    "{label}: only completed or compatible pages can draw"
                 );
                 if compatible {
                     let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
@@ -411,9 +409,8 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 );
             }
             let attempts = calls.borrow().len();
-            let released = !compatible && occurrence > 1;
-            if released {
-                // Exhaustion releases earlier completed pages; retirement permits a retry.
+            if !first {
+                // Replacing incompatible artwork releases pages; completed work permits a retry.
                 app.sub_app(RenderApp)
                     .world()
                     .resource::<RenderDevice>()
@@ -421,7 +418,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                     .unwrap();
             }
             let _ = draw_frame(&mut app, &next);
-            if compatible || released {
+            if !first {
                 assert!(
                     calls.borrow().len() > attempts,
                     "demanded artwork retries after a fallback or released pages retire"
@@ -430,7 +427,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 assert_eq!(
                     calls.borrow().len(),
                     attempts,
-                    "exhausted demand must back off without released pages"
+                    "a failed first publication must back off without released pages"
                 );
             }
             drop(fault);

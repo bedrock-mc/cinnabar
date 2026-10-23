@@ -37,6 +37,8 @@ mod material_shader;
 mod pipeline_warmup;
 #[path = "../src/render_bounds.rs"]
 mod render_bounds;
+#[path = "../src/render_scale.rs"]
+mod render_scale;
 #[path = "../src/scene_target.rs"]
 #[allow(
     dead_code,

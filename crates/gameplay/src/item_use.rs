@@ -99,10 +99,8 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// A swing-only or projectile use swung the arm; its swing packet precedes `packets`.
-    pub swung: bool,
-    /// The Bedrock reason attached to the locally predicted swing, when one was emitted.
-    pub swing_source: Option<protocol::SwingSource>,
+    /// Why an item use swung the arm; its swing packet precedes `packets`.
+    pub swung: Option<protocol::SwingSource>,
     used: bool,
     released: bool,
 }
@@ -513,8 +511,7 @@ impl ItemUseRuntime {
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
-        let mut swung = false;
-        let mut swing_source = None;
+        let mut swung = None;
         match air_use {
             Some(AirUse::Hold {
                 max_ticks,
@@ -537,8 +534,7 @@ impl ItemUseRuntime {
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
-                swung = true;
-                swing_source = Some(protocol::SwingSource::ThrowItem);
+                swung = Some(protocol::SwingSource::ThrowItem);
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
@@ -554,12 +550,10 @@ impl ItemUseRuntime {
                 }
             }
             Some(AirUse::Swing) => {
-                swung = true;
-                swing_source = Some(protocol::SwingSource::UseItem);
+                swung = Some(protocol::SwingSource::UseItem);
             }
             Some(AirUse::GlideRocket) if frame.ready => {
-                swung = true;
-                swing_source = Some(protocol::SwingSource::ThrowItem);
+                swung = Some(protocol::SwingSource::UseItem);
             }
             _ => {}
         }
@@ -574,14 +568,13 @@ impl ItemUseRuntime {
             outcome.started = active_use.is_some();
             self.active = active_use;
             outcome.swung = swung;
-            outcome.swing_source = swing_source;
-            if (outcome.started || swung)
+            if (outcome.started || swung.is_some())
                 && let Some(Cooldown { category, ticks }) = cooldown
             {
                 self.cooldowns
                     .push((category, frame.tick.saturating_add(u64::from(ticks))));
             }
-            self.rocket_boost |= swung && matches!(air_use, Some(AirUse::GlideRocket));
+            self.rocket_boost |= swung.is_some() && matches!(air_use, Some(AirUse::GlideRocket));
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
             }

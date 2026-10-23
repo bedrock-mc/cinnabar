@@ -17,6 +17,32 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @unittest.skipUnless(shutil.which("make"), "GNU make is required")
 class PackageBinariesTests(unittest.TestCase):
+    def test_shaderpack_assets_build_the_bounded_compiler_host(self):
+        """The opted-in developer path builds the compiler mode used by the client."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "commands.jsonl"
+            stub = root / "build_stub.py"
+            stub.write_text(
+                "import json, os, sys\n"
+                "with open(os.environ['PACKAGE_TEST_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            )
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
+            for enabled in (0, 1):
+                log.write_text("")
+                subprocess.run(
+                    ["make", "--no-print-directory", "assets", f"SHADERPACKS={enabled}", f"CARGO={command}"],
+                    cwd=ROOT, env={**os.environ, "PACKAGE_TEST_LOG": str(log)},
+                    capture_output=True, text=True, check=True,
+                )
+                calls = [json.loads(line) for line in log.read_text().splitlines()]
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0][calls[0].index("--bin") + 1], "assetc")
+                self.assertEqual("--features" in calls[0], bool(enabled))
+                if enabled:
+                    self.assertEqual(calls[0][calls[0].index("--features") + 1], "shaderpacks")
+
     def test_runtime_table_has_unique_names_packages_and_overrides(self):
         """All consumers receive complete, unambiguous runtime binary records."""
         rows = [line.split() for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines()]

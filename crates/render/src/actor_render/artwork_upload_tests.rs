@@ -477,3 +477,37 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
     crate::gpu_snapshot::save("actor-row-bands-before", &before);
     crate::gpu_snapshot::save("actor-row-bands-after", &after);
 }
+
+#[test]
+fn completed_pages_survive_a_later_demanded_allocation_failure() {
+    let (device, queue) = device();
+    let pages = publication(1, 2);
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(&ActorArtworkPages::default(), &device, &queue));
+    let budget = pages.pages[0].rgba8.len();
+    assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+    let previous = gpu.page(0).unwrap()._texture.id();
+    let attempts = Rc::new(Cell::new(0));
+    let observed = attempts.clone();
+    let _failure = gpu_allocation::inject(move |label, _| {
+        if label == "immutable actor page" {
+            observed.set(observed.get() + 1);
+            return true;
+        }
+        false
+    });
+    assert!(!gpu.prepare_pages(&pages, [1, 2].into_iter(), &device, &queue, budget));
+    assert_eq!(gpu.page(0).map(|page| page._texture.id()), Some(previous));
+    assert!(gpu.page(1).is_none());
+    let before = attempts.get();
+    for _ in 1..gpu_allocation::MIN_RETRY_FRAMES {
+        queue.submit([]);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        assert!(!gpu.prepare_pages(&pages, [1, 2].into_iter(), &device, &queue, budget));
+        assert_eq!(attempts.get(), before);
+        assert_eq!(gpu.page(0).unwrap()._texture.id(), previous);
+    }
+    assert!(!gpu.prepare_pages(&pages, [1, 2].into_iter(), &device, &queue, budget));
+    assert!(attempts.get() > before);
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), previous);
+}

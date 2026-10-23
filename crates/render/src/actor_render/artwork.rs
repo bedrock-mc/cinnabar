@@ -130,6 +130,8 @@ pub(super) struct GpuArtwork {
     rejected: bool,
     /// A demanded page that could not allocate retries after a bounded backoff.
     allocation: gpu_allocation::UploadRetry,
+    /// Completed textures released during this attempt, which can span several frames.
+    released: bool,
     /// The raw-view setting pages and glints are created with.
     raw_views: ArtworkRawViews,
 }
@@ -196,6 +198,11 @@ impl GpuArtwork {
             self.identity = Some(identity);
             self.rejected = false;
             self.allocation = gpu_allocation::UploadRetry::default();
+            self.released = self
+                .pages
+                .iter()
+                .skip(pages.pages.len())
+                .any(Option::is_some);
             let actor_changed = self.glint.prepare(
                 pages.actor_glint.as_ref(),
                 &self.source_hasher,
@@ -245,6 +252,7 @@ impl GpuArtwork {
                     .is_some_and(|gpu| !gpu.source.contains_layers(page.layers))
                 {
                     self.pages[index] = None;
+                    self.released = true;
                 }
                 if let Some(gpu) = &mut self.pages[index]
                     && (gpu.color_mask != page.color_mask || gpu.multitexture != page.multitexture)
@@ -322,15 +330,23 @@ impl GpuArtwork {
             if !self.advance_page(index, page, device, queue, &mut budget)
                 && demanded.contains(&index)
             {
-                return self.allocation_failed(queue);
+                // Keep completed pages; retirement can shorten only the first failed wait.
+                self.allocation.record(
+                    false,
+                    (self.released && !self.allocation.failed()).then_some(queue),
+                );
+                self.released = false;
+                return false;
             }
         }
-        if self.allocation.failed()
-            && demanded
-                .iter()
-                .all(|&index| self.page_is_current(index, &pages.pages[index]))
+        if demanded
+            .iter()
+            .all(|&index| self.page_is_current(index, &pages.pages[index]))
         {
-            self.allocation.record(true, None);
+            if self.allocation.failed() {
+                self.allocation.record(true, None);
+            }
+            self.released = false;
         }
         true
     }
@@ -372,21 +388,14 @@ impl GpuArtwork {
             return self.pages[index].is_some();
         };
         match upload::continue_page(device, queue, pending, budget) {
-            Progress::Done(page) => self.pages[index] = Some(page),
+            Progress::Done(page) => {
+                self.released |= self.pages[index].is_some();
+                self.pages[index] = Some(page);
+            }
             Progress::Pending(pending) => self.pending[index] = Some(pending),
             Progress::Failed => return self.pages[index].is_some(),
         }
         true
-    }
-
-    /// Releases every page so a later retry has the most memory, and backs off before it.
-    fn allocation_failed(&mut self, queue: &RenderQueue) -> bool {
-        let released =
-            self.pages.iter().any(Option::is_some) || self.pending.iter().any(Option::is_some);
-        self.pages.clear();
-        self.pending.clear();
-        self.allocation.record(false, released.then_some(queue));
-        false
     }
 
     /// Returns a page once every row is written; demand still uploading draws nothing yet.
