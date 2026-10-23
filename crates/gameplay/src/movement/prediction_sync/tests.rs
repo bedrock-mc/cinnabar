@@ -314,6 +314,77 @@ fn sync_moving_flag_uses_displacement_instead_of_input() {
     }
 }
 
+/// A position update between ticks cannot erase the completed tick's movement fact.
+#[test]
+fn sync_moving_flag_survives_a_position_update_without_a_tick() {
+    let mut physics = due_physics();
+    physics.advance(
+        std::time::Duration::from_millis(100),
+        sim::MovementInput::default(),
+        &OpenWorld,
+    );
+    physics.apply_server_actor_position([4.0, 72.0, 4.0], Some(false));
+    let mut sent = None;
+    send_movement_prediction_sync(&mut physics, &local_actor(), None, None, false, |packet| {
+        sent = Some(packet);
+        true
+    });
+    let words =
+        protocol::test_support::packets::prediction_sync_flags(&sent.expect("due correction sync"))
+            .expect("prediction sync packet");
+    let mut expected = [0; 3];
+    set_flag(&mut expected, ActorFlag::HasCollision, true);
+    set_flag(&mut expected, ActorFlag::Moving, true);
+    assert_eq!(words, expected);
+}
+
+/// Replaying a stationary placed tick preserves the same complete sync packet.
+#[test]
+fn sync_moving_flag_is_unchanged_when_a_placement_is_replayed() {
+    let mut physics = due_physics();
+    let first = physics
+        .advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &OpenWorld,
+        )
+        .samples
+        .remove(0);
+    physics.apply_server_actor_position([8.0, 72.0, 0.5], Some(false));
+    physics.advance(
+        simulation_clock::TICK_DURATION,
+        sim::MovementInput {
+            immobile: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    let mut before = None;
+    send_movement_prediction_sync(&mut physics, &local_actor(), None, None, false, |packet| {
+        before = Some(packet);
+        false
+    });
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: first.position,
+                tick: first.tick,
+                on_ground: first.grounded_after_tick,
+                velocity: Some(first.velocity),
+            },
+            crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &OpenWorld,
+        )
+        .expect("placement replay succeeds");
+    let mut after = None;
+    send_movement_prediction_sync(&mut physics, &local_actor(), None, None, false, |packet| {
+        after = Some(packet);
+        true
+    });
+    assert_eq!(after.expect("replayed sync"), before.expect("live sync"));
+}
+
 /// Correction sync follows completed walking posture and size before a server echo.
 #[test]
 fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {

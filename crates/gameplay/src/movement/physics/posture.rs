@@ -37,16 +37,14 @@ impl LocalPhysicsController {
     /// ended a swim, crawl or glide after that sample), displacement and
     /// terrain collision.
     pub(in crate::movement) fn prediction_sync_pose(&self) -> Option<SyncPose> {
-        let state = self.state.as_ref()?;
+        let frame = self.controller_history.back()?;
+        let state = self.history.state_at(frame.tick)?;
         let (sneaking, sprinting) = self.prediction_sync_posture()?;
-        let dx = state.position.x as f32 - self.previous_position.x as f32;
-        let dy = state.position.y as f32 - self.previous_position.y as f32;
-        let dz = state.position.z as f32 - self.previous_position.z as f32;
         Some(SyncPose {
             sneaking,
             sprinting,
             mode: self.modes.mode(),
-            moving: dz * dz + dy * dy + dx * dx > MOVING_FLAG_DISTANCE_SQUARED,
+            moving: moving_between(frame.position_before_tick, state.position),
             has_collision: self
                 .controller_history
                 .back()
@@ -66,5 +64,26 @@ impl LocalPhysicsController {
         }
         let sneaking = self.live_posture.sneaking.unwrap_or(frame.input.sneaking);
         Some(frame.input.mode.hitbox_height(sneaking) as f32)
+    }
+}
+
+/// Tests completed position displacement with the actor flag's f32 threshold.
+fn moving_between(before: Vec3, after: Vec3) -> bool {
+    let dx = after.x as f32 - before.x as f32;
+    let dy = after.y as f32 - before.y as f32;
+    let dz = after.z as f32 - before.z as f32;
+    dz * dz + (dy * dy + dx * dx) > MOVING_FLAG_DISTANCE_SQUARED
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moving_threshold_keeps_the_small_vertical_and_horizontal_contributions() {
+        assert!(moving_between(
+            Vec3::ZERO,
+            Vec3::new(0.005, 0.025, 0.01870828866958618),
+        ));
     }
 }

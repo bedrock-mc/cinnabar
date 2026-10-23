@@ -15,6 +15,8 @@ impl PhysicsSampleContext {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Feet position before travel, retained independently of live position updates.
+    pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -174,6 +176,7 @@ impl ControllerFrame {
             state.velocity.y as f32,
             state.velocity.z as f32,
         ];
+        self.position_before_tick = state.position;
         self.modes = *modes;
         self.anchor_state = *anchor_state;
         self.input = *input;

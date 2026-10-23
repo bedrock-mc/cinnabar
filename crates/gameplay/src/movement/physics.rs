@@ -731,6 +731,7 @@ impl LocalPhysicsController {
                     }
                     let mut controller = ControllerFrame {
                         tick: state.tick,
+                        position_before_tick: before,
                         anchor_state: self.anchor_state,
                         entry_velocity,
                         eye_offset: self.eye_offset,
