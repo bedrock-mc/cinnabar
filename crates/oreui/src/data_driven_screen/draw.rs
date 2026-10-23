@@ -322,9 +322,13 @@ fn item_height(canvas: &mut Canvas<'_>, item: &FormItem, width: f32) -> Result<f
         )?
         .max(canvas.r(SLIDER)),
         FormItem::Slider {
-            label, description, ..
+            label,
+            description,
+            value,
+            ..
         } => {
-            caption_height(canvas, label, description.as_deref(), width)?
+            let caption_width = slider_caption_width(canvas, value, width)?;
+            caption_height(canvas, label, description.as_deref(), caption_width)?
                 + canvas.r(LABEL_GAP + SLIDER)
         }
         FormItem::Dropdown {
@@ -340,6 +344,15 @@ fn item_height(canvas: &mut Canvas<'_>, item: &FormItem, width: f32) -> Result<f
                 + canvas.r(LABEL_GAP + FIELD)
         }
     })
+}
+
+/// A slider caption's width: the column less the value shown beside it.
+fn slider_caption_width(
+    canvas: &mut Canvas<'_>,
+    value: &str,
+    width: f32,
+) -> Result<f32, PaintError> {
+    Ok((width - canvas.measure(value, BODY)? - canvas.r(GAP)).max(1.0))
 }
 
 /// Draws a label and description from `y`; returns the block height.
@@ -424,13 +437,14 @@ fn item_at(
             enabled,
         } => {
             let value_width = canvas.measure(value, BODY)?;
+            let caption_width = slider_caption_width(canvas, value, width)?;
             caption(
                 canvas,
                 label,
                 description.as_deref(),
                 x[0],
                 y,
-                width - value_width - canvas.r(GAP),
+                caption_width,
             )?;
             canvas.text_line(
                 value,
@@ -527,4 +541,35 @@ fn close_button(
     }
     let ink = if enabled { TEXT } else { TEXT_DIMMEST };
     icons::draw_centred(canvas, Icon::Cross, b, ink)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ui_engine::test_support::fixture_font;
+    use ui_engine::text_metrics::TextMetrics;
+
+    #[test]
+    fn slider_height_measures_the_caption_beside_its_value() {
+        let (mut nodes, mut next) = (Vec::new(), 1);
+        let mut layouts = ui::TextLayoutCache::new(16, 65536);
+        let font = fixture_font();
+        let metrics =
+            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+        let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+        let width = canvas.r(30.0);
+        let slider = |value: &str| FormItem::Slider {
+            label: "A slider label long enough to wrap onto more lines when narrow".repeat(3),
+            description: None,
+            fraction: 0.5,
+            value: value.to_owned(),
+            enabled: true,
+        };
+        let short = item_height(&mut canvas, &slider("1"), width).unwrap();
+        let wide = item_height(&mut canvas, &slider(&"8".repeat(40)), width).unwrap();
+        assert!(
+            wide > short,
+            "a wide value narrows the caption, which wraps taller"
+        );
+    }
 }

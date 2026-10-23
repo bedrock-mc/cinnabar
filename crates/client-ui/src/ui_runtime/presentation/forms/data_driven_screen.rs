@@ -51,6 +51,11 @@ impl UiPresentationRuntime {
         Ok(self.screens.data_driven.paint(&form, &mut frame)?)
     }
 
+    /// The form instance the last paint drew, whose targets the hit tests read.
+    pub fn data_driven_painted_form(&self) -> Option<u32> {
+        self.screens.data_driven_form
+    }
+
     /// What a press at the window-logical `position` hits on the data-driven form.
     pub fn hit_test_data_driven(&self, position: UiPoint) -> Option<FormHit> {
         self.screens.data_driven.hit(position)

@@ -40,11 +40,24 @@ pub(crate) fn publish_menu_visibility(
 /// Logical px a wheel line scrolls the form's column.
 const WHEEL_LINE: f32 = 40.0;
 
-/// The pointer press in progress, and whether a form owned input last frame.
+/// The pointer press in progress, the form instance it belongs to, and whether a form owned
+/// input last frame.
 #[derive(Default)]
 pub(crate) struct FormGesture {
     held: Option<FormHit>,
+    form_id: Option<u32>,
     owned_last_frame: bool,
+}
+
+impl FormGesture {
+    /// Follows the showing form instance: a press made on another form is dropped, so its release
+    /// cannot act on the replacement.
+    fn follow(&mut self, form_id: Option<u32>) {
+        if self.form_id != form_id {
+            self.held = None;
+            self.form_id = form_id;
+        }
+    }
 }
 
 /// Routes pointer, wheel and keyboard input to the showing data-driven form, and frees the
@@ -101,6 +114,13 @@ pub(crate) fn drive_data_driven_input(
         return;
     }
     gesture.owned_last_frame = true;
+    let form_id = runtime
+        .data_driven_ui()
+        .active()
+        .map(|active| active.form_id);
+    gesture.follow(form_id);
+    // Targets and slider tracks from a frame that painted another form instance are stale.
+    let painted = presentation.data_driven_painted_form() == form_id;
     if !input_available {
         wheel.clear();
         keyboard.clear();
@@ -168,7 +188,9 @@ pub(crate) fn drive_data_driven_input(
         if !runtime.data_driven_ui().owns_input() {
             break;
         }
-        let hit = pointer.and_then(|point| presentation.hit_test_data_driven(point));
+        let hit = pointer
+            .filter(|_| painted)
+            .and_then(|point| presentation.hit_test_data_driven(point));
         if down {
             gesture.held = hit;
             press(&mut runtime, &presentation, form.as_ref(), hit, pointer);
@@ -198,6 +220,7 @@ pub(crate) fn drive_data_driven_input(
     }
     // A held slider follows the pointer along its track.
     if let Some(FormHit::Item(item)) = gesture.held
+        && painted
         && is_slider(form.as_ref(), item)
     {
         slide(&mut runtime, &presentation, item, pointer);
@@ -282,5 +305,21 @@ fn slide(
         pointer.and_then(|pointer| presentation.data_driven_slider_fraction(item, pointer.x()))
     {
         runtime.data_driven_action(DataDrivenAction::Slide(item, fraction));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_press_does_not_carry_over_to_a_replacement_form() {
+        let mut gesture = FormGesture::default();
+        gesture.follow(Some(4));
+        gesture.held = Some(FormHit::Item(9));
+        gesture.follow(Some(4));
+        assert_eq!(gesture.held, Some(FormHit::Item(9)));
+        gesture.follow(Some(5));
+        assert_eq!(gesture.held, None);
     }
 }

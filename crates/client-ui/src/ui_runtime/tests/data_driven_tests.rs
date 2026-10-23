@@ -500,3 +500,15 @@ fn a_disabled_close_button_ignores_presses_but_escape_still_dismisses() {
         [closed(4, DataDrivenScreenCloseReason::ClientCanceled)]
     );
 }
+
+#[test]
+fn credits_answer_screen_requests_busy() {
+    let mut session = Session::new();
+    assert!(session.runtime.credits_mut().open(42, 8, 0));
+    session.show_form(4);
+    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert_eq!(
+        sent(&mut session.runtime),
+        [closed(4, DataDrivenScreenCloseReason::UserBusy)]
+    );
+}

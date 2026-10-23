@@ -358,3 +358,37 @@ fn script_forms_read_their_controls_in_layout_order() {
     assert_eq!(message.body, Some(ScreenText::Plain("Message body text")));
     assert!(message.button2.is_some());
 }
+
+#[test]
+fn sparse_layouts_read_only_their_stored_entries() {
+    use protocol::ddui::{ControlKind, CustomFormView};
+    use std::collections::BTreeMap;
+
+    let entry = |kind: &str, text: &str| {
+        DataValue::Map(BTreeMap::from([
+            (Arc::from(format!("{kind}_visible")), DataValue::Bool(true)),
+            (Arc::from("visible"), DataValue::Bool(true)),
+            (Arc::from("text"), DataValue::String(text.into())),
+        ]))
+    };
+    // A length far beyond the stored entries must not be walked index by index.
+    let layout = DataValue::Map(BTreeMap::from([
+        (Arc::from("length"), DataValue::Int(1 << 40)),
+        (Arc::from("3"), entry("label", "third")),
+        (Arc::from("1000000000"), entry("header", "far")),
+        (Arc::from("03"), entry("label", "not an index")),
+    ]));
+    let property = DataValue::Map(BTreeMap::from([(Arc::from("layout"), layout)]));
+    let form = CustomFormView::read(&property).unwrap();
+    let read: Vec<_> = form
+        .controls
+        .iter()
+        .map(|control| {
+            (
+                control.index,
+                matches!(control.kind, ControlKind::Header(_)),
+            )
+        })
+        .collect();
+    assert_eq!(read, [(3, false), (1_000_000_000, true)]);
+}

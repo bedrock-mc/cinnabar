@@ -195,9 +195,10 @@ impl<'a> CustomFormView<'a> {
         let layout = property.get("layout");
         let controls = layout
             .map(|layout| {
-                (0..layout.array_len())
-                    .filter_map(|index| {
-                        let entry = layout.element(index)?;
+                layout
+                    .elements()
+                    .into_iter()
+                    .filter_map(|(index, entry)| {
                         if !flag(entry, "visible") {
                             return None;
                         }
@@ -310,9 +311,10 @@ fn control(entry: &DataValue) -> Option<ControlKind<'_>> {
             value: number(entry, "value"),
             items: items
                 .map(|items| {
-                    (0..items.array_len())
-                        .filter_map(|index| items.element(index))
-                        .map(|item| DropdownItem {
+                    items
+                        .elements()
+                        .into_iter()
+                        .map(|(_, item)| DropdownItem {
                             label: ScreenText::of(item.get("label")),
                             description: ScreenText::of(item.get("description")),
                             value: number(item, "value"),

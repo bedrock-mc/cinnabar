@@ -1,8 +1,8 @@
 //! Player input on the showing script screen, written back to the server's data store.
 
 use protocol::ddui::{
-    CLOSE_BUTTON_CLICKS, DataDrivenScreenCloseReason, DataPrimitive, DataValue, MessageBoxView,
-    SCRIPT_STORE, data_store_update_packet,
+    CLOSE_BUTTON_CLICKS, ControlKind, CustomFormView, DataDrivenScreenCloseReason, DataPrimitive,
+    DataValue, MessageBoxView, SCRIPT_STORE, data_store_update_packet,
 };
 
 use super::super::UiRuntime;
@@ -220,11 +220,15 @@ impl UiRuntime {
 
     /// The value of dropdown `index`'s option at list position `choice`.
     fn dropdown_value(&self, property: &str, index: usize, choice: usize) -> Option<f64> {
-        self.data_driven
-            .stores()
-            .property(SCRIPT_STORE, property)?
-            .at_path(&format!("layout[{index}].items[{choice}].value"))?
-            .as_number()
+        let property = self.data_driven.stores().property(SCRIPT_STORE, property)?;
+        CustomFormView::read(property)?
+            .controls
+            .into_iter()
+            .find(|control| control.index == index)
+            .and_then(|control| match control.kind {
+                ControlKind::Dropdown { items, .. } => items.get(choice).map(|item| item.value),
+                _ => None,
+            })
     }
 
     /// Writes one input locally and queues it for the server; unchanged values send nothing.
