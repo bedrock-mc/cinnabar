@@ -1,6 +1,6 @@
 //! Projects the showing script screen from its store property into the OreUI form.
 
-use oreui::data_driven_screen::{DataDrivenForm, FormItem};
+use oreui::data_driven_screen::{DataDrivenForm, FormEntry, FormItem};
 use protocol::ddui::{
     ControlKind, CustomFormView, DataValue, FormControl, MessageBoxView, ScreenButton, ScreenText,
     ScriptedScreen,
@@ -27,10 +27,21 @@ pub(super) enum TargetKind {
     TextField,
 }
 
-/// One drawn form and the target behind each of its items.
+/// One drawn form and the target behind each of its items, aligned with `form.items`.
 pub(super) struct Projection {
     pub(super) form: DataDrivenForm,
     pub(super) targets: Vec<Option<ItemTarget>>,
+}
+
+impl Projection {
+    /// The item with `key` and the target it writes, while it shows.
+    pub(super) fn item(&self, key: usize) -> Option<(&FormItem, Option<ItemTarget>)> {
+        let position = self.form.items.iter().position(|entry| entry.key == key)?;
+        Some((
+            &self.form.items[position].item,
+            self.targets.get(position).copied().flatten(),
+        ))
+    }
 }
 
 impl UiRuntime {
@@ -66,7 +77,10 @@ impl UiRuntime {
         let mut targets = Vec::with_capacity(view.controls.len());
         for control in &view.controls {
             let (item, target) = self.project_control(control);
-            items.push(item);
+            items.push(FormEntry {
+                key: control.index,
+                item,
+            });
             targets.push(target.map(|kind| ItemTarget::Control {
                 index: control.index,
                 kind,
@@ -123,7 +137,9 @@ impl UiRuntime {
                 disabled,
             } => {
                 let span = max - min;
-                let fraction = if span > 0.0 {
+                // Non-finite numbers cannot place a thumb; the slider then shows disabled.
+                let usable = value.is_finite() && min.is_finite() && span.is_finite() && span > 0.0;
+                let fraction = if usable {
                     ((value - min) / span).clamp(0.0, 1.0) as f32
                 } else {
                     0.0
@@ -134,7 +150,7 @@ impl UiRuntime {
                         description: description(*about),
                         fraction,
                         value: number_text(*value),
-                        enabled: !disabled && span > 0.0,
+                        enabled: !disabled && usable,
                     },
                     Some(TargetKind::Slider {
                         min: *min,
@@ -181,18 +197,25 @@ impl UiRuntime {
 
     fn project_message_box(&self, property: &DataValue) -> Option<Projection> {
         let view = MessageBoxView::read(property)?;
-        let mut items = vec![FormItem::Label(self.screen_text(view.body))];
+        // The body is key 0 and the buttons keep their numbers as keys.
+        let mut items = vec![FormEntry {
+            key: 0,
+            item: FormItem::Label(self.screen_text(view.body)),
+        }];
         let mut targets = vec![None];
-        for (second, button) in [(false, view.button1), (true, view.button2)] {
+        for (key, second, button) in [(1, false, view.button1), (2, true, view.button2)] {
             let Some(ScreenButton {
                 label, disabled, ..
             }) = button
             else {
                 continue;
             };
-            items.push(FormItem::Button {
-                label: self.screen_text(label),
-                enabled: !disabled,
+            items.push(FormEntry {
+                key,
+                item: FormItem::Button {
+                    label: self.screen_text(label),
+                    enabled: !disabled,
+                },
             });
             targets.push(Some(ItemTarget::MessageButton(second)));
         }

@@ -8,8 +8,9 @@ use protocol::ddui::{
 use super::super::UiRuntime;
 use super::projection::{ItemTarget, TargetKind};
 
-/// One player input on the showing data-driven screen. Items are positions in the projected
-/// form; focus follows the layout control, so it survives controls appearing or hiding.
+/// One player input on the showing data-driven screen. Items are named by their
+/// [`FormEntry::key`](oreui::data_driven_screen::FormEntry::key), the layout index of a custom
+/// form control, so inputs and focus stay on their control as others appear or hide.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataDrivenAction {
     /// The header close button; ignored while the button is disabled.
@@ -38,8 +39,8 @@ pub(super) enum Focus {
     Dropdown(usize),
 }
 
-/// The projected positions of the focused control: the edited text field and the dropdown whose
-/// option list is open.
+/// The keys of the focused control: the edited text field and the dropdown whose option list
+/// is open.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FocusItems {
     pub editing: Option<usize>,
@@ -58,16 +59,12 @@ impl UiRuntime {
             }
             return;
         };
-        // The item position of an enabled layout control of `kind`, if it still shows.
-        let control_item = |index: usize, wanted: fn(TargetKind) -> bool| {
-            projection
-                .targets
-                .iter()
-                .position(|target| {
-                    matches!(target, Some(ItemTarget::Control { index: candidate, kind })
-                    if *candidate == index && wanted(*kind))
-                })
-                .filter(|item| projection.form.items.get(*item).is_some_and(item_enabled))
+        // Whether the enabled layout control with key `index` still shows as `kind`.
+        let shows = |index: usize, wanted: fn(TargetKind) -> bool| {
+            projection.item(index).is_some_and(|(item, target)| {
+                item_enabled(item)
+                    && matches!(target, Some(ItemTarget::Control { kind, .. }) if wanted(kind))
+            })
         };
         let focus = self.data_driven.focus;
         match action {
@@ -85,7 +82,7 @@ impl UiRuntime {
                 let Some(Focus::Text(index)) = focus else {
                     return;
                 };
-                if control_item(index, |kind| kind == TargetKind::TextField).is_none() {
+                if !shows(index, |kind| kind == TargetKind::TextField) {
                     self.data_driven.focus = None;
                     return;
                 }
@@ -112,7 +109,7 @@ impl UiRuntime {
                 let Some(Focus::Dropdown(index)) = focus else {
                     return;
                 };
-                if control_item(index, |kind| kind == TargetKind::Dropdown).is_none() {
+                if !shows(index, |kind| kind == TargetKind::Dropdown) {
                     return;
                 }
                 if let Some(value) = self.dropdown_value(&active.property, index, choice) {
@@ -124,8 +121,9 @@ impl UiRuntime {
                 }
             }
             DataDrivenAction::Activate(item) | DataDrivenAction::Slide(item, _) => {
-                let enabled = projection.form.items.get(item).is_some_and(item_enabled);
-                let Some(Some(target)) = projection.targets.get(item).copied().filter(|_| enabled)
+                let Some((_, Some(target))) = projection
+                    .item(item)
+                    .filter(|(form_item, _)| item_enabled(form_item))
                 else {
                     return;
                 };
@@ -175,7 +173,8 @@ impl UiRuntime {
         }
     }
 
-    /// Where the focused control shows in the projected form; nothing when it no longer shows.
+    /// The keys of the focused control while it still shows: the edited text field and the
+    /// dropdown whose option list is open.
     #[must_use]
     pub fn data_driven_focus_items(&self) -> FocusItems {
         let (Some(active), Some(focus)) =
@@ -186,25 +185,23 @@ impl UiRuntime {
         let Some(projection) = self.project_screen(active) else {
             return FocusItems::default();
         };
-        let (index, text) = match focus {
-            Focus::Text(index) => (index, true),
-            Focus::Dropdown(index) => (index, false),
+        let (key, wanted) = match focus {
+            Focus::Text(key) => (key, TargetKind::TextField),
+            Focus::Dropdown(key) => (key, TargetKind::Dropdown),
         };
-        let item = projection.targets.iter().position(|target| {
-            matches!(target, Some(ItemTarget::Control { index: candidate, kind })
-                if *candidate == index
-                    && *kind == if text { TargetKind::TextField } else { TargetKind::Dropdown })
+        let shows = projection.item(key).is_some_and(|(_, target)| {
+            matches!(target, Some(ItemTarget::Control { kind, .. }) if kind == wanted)
         });
-        if text {
-            FocusItems {
-                editing: item,
+        let key = shows.then_some(key);
+        match focus {
+            Focus::Text(_) => FocusItems {
+                editing: key,
                 open_dropdown: None,
-            }
-        } else {
-            FocusItems {
+            },
+            Focus::Dropdown(_) => FocusItems {
                 editing: None,
-                open_dropdown: item,
-            }
+                open_dropdown: key,
+            },
         }
     }
 

@@ -78,8 +78,9 @@ fn item(runtime: &UiRuntime, matches: impl Fn(&FormItem) -> bool) -> usize {
         .unwrap()
         .items
         .iter()
-        .position(matches)
+        .find(|entry| matches(&entry.item))
         .unwrap()
+        .key
 }
 
 fn bounds(presentation: &UiPresentationRuntime, hit: FormHit) -> Option<ui::UiRect> {
@@ -134,4 +135,34 @@ fn slider_presses_map_over_the_thumb_travel() {
     assert_eq!(fraction(left + 1.0), 0.0);
     assert_eq!(fraction(right - 1.0), 1.0);
     assert!((fraction((left + right) * 0.5) - 0.5).abs() < 1e-4);
+}
+
+#[test]
+fn a_non_finite_slider_value_still_paints_the_form() {
+    use protocol::ddui::{DataDrivenUiEvent, DataPrimitive, DataStoreChange, DataStoreUpdate};
+    let (mut player, mut runtime) = shown(3);
+    runtime
+        .apply(
+            &mut player,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 10,
+                local_millis: 100,
+                server_tick: None,
+                event: protocol::UiEvent::DataDrivenUi(DataDrivenUiEvent::Store(vec![
+                    DataStoreChange::Update(DataStoreUpdate {
+                        store: protocol::ddui::SCRIPT_STORE.into(),
+                        property: ScriptedScreen::CustomForm.property(Some(7)).into(),
+                        path: "layout[4].value".into(),
+                        value: DataPrimitive::Number(f64::NAN),
+                        property_update_count: 1,
+                        path_update_count: 1,
+                    }),
+                ])),
+            },
+        )
+        .unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    build(&player, &mut presentation, &runtime);
+    assert!(!presentation.data_driven_hits().is_empty());
 }

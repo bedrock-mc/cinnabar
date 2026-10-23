@@ -68,15 +68,28 @@ impl Session {
         ));
     }
 
-    /// The projected item position of the first item `matches` accepts.
+    /// The key of the first item `matches` accepts.
     fn item(&self, matches: impl Fn(&oreui::data_driven_screen::FormItem) -> bool) -> usize {
         self.runtime
             .data_driven_form()
             .unwrap()
             .items
             .iter()
-            .position(matches)
+            .find(|entry| matches(&entry.item))
             .unwrap()
+            .key
+    }
+
+    /// The item with `key` in the showing form.
+    fn entry(&self, key: usize) -> oreui::data_driven_screen::FormItem {
+        self.runtime
+            .data_driven_form()
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|entry| entry.key == key)
+            .unwrap()
+            .item
     }
 }
 
@@ -238,12 +251,11 @@ fn player_input_writes_the_control_paths_the_server_listens_on() {
             ),
         ]
     );
-    let form = session.runtime.data_driven_form().unwrap();
     assert!(
-        matches!(&form.items[field], FormItem::TextField { text, .. } if text == "hello world")
+        matches!(session.entry(field), FormItem::TextField { text, .. } if text == "hello world")
     );
     assert!(matches!(
-        &form.items[toggle],
+        session.entry(toggle),
         FormItem::Toggle { on: false, .. }
     ));
 
@@ -274,8 +286,7 @@ fn message_box_buttons_report_their_press_and_close_the_box() {
         7,
         message_box_property(),
     ));
-    let form = session.runtime.data_driven_form().unwrap();
-    assert!(matches!(&form.items[0], FormItem::Label(body) if body == "Message body text"));
+    assert!(matches!(session.entry(0), FormItem::Label(body) if body == "Message body text"));
     let no = session.item(|item| matches!(item, FormItem::Button { label, .. } if label == "No"));
     session
         .runtime
@@ -308,12 +319,12 @@ fn server_updates_redraw_the_form_and_raw_messages_resolve() {
     assert!(
         form.items
             .iter()
-            .any(|item| matches!(item, FormItem::Label(text) if text == "Clicks: 1"))
+            .any(|entry| matches!(&entry.item, FormItem::Label(text) if text == "Clicks: 1"))
     );
     assert!(
-        form.items
-            .iter()
-            .any(|item| matches!(item, FormItem::Label(text) if text == "Raw message text"))
+        form.items.iter().any(
+            |entry| matches!(&entry.item, FormItem::Label(text) if text == "Raw message text")
+        )
     );
 }
 
@@ -412,7 +423,7 @@ fn typing_follows_the_focused_field_when_earlier_controls_hide() {
     );
     assert_eq!(
         session.runtime.data_driven_focus_items().editing,
-        Some(field - 1)
+        Some(field)
     );
     session
         .runtime
@@ -511,4 +522,58 @@ fn credits_answer_screen_requests_busy() {
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::UserBusy)]
     );
+}
+
+#[test]
+fn inputs_reach_their_control_when_earlier_controls_hide() {
+    use oreui::data_driven_screen::FormItem;
+    let property = ScriptedScreen::CustomForm.property(Some(7));
+    let mut session = Session::new();
+    session.show_form(4);
+    let button =
+        session.item(|item| matches!(item, FormItem::Button { label, .. } if label == "Click me"));
+    // The server hides the header above the button between paint and press.
+    server_write(
+        &mut session,
+        "layout[0].visible",
+        DataPrimitive::Bool(false),
+        1,
+    );
+    session
+        .runtime
+        .data_driven_action(DataDrivenAction::Activate(button));
+    assert_eq!(
+        sent(&mut session.runtime),
+        [update(
+            &property,
+            "layout[9].onClick",
+            DataPrimitive::Number(1.0),
+            1
+        )]
+    );
+}
+
+#[test]
+fn non_finite_slider_values_show_a_disabled_slider() {
+    use oreui::data_driven_screen::FormItem;
+    let mut session = Session::new();
+    session.show_form(4);
+    let slider = session.item(|item| matches!(item, FormItem::Slider { .. }));
+    server_write(
+        &mut session,
+        "layout[4].value",
+        DataPrimitive::Number(f64::NAN),
+        1,
+    );
+    let FormItem::Slider {
+        fraction, enabled, ..
+    } = session.entry(slider)
+    else {
+        panic!("expected the slider");
+    };
+    assert_eq!((fraction, enabled), (0.0, false));
+    session
+        .runtime
+        .data_driven_action(DataDrivenAction::Slide(slider, 0.5));
+    assert!(sent(&mut session.runtime).is_empty());
 }

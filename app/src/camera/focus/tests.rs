@@ -1,4 +1,4 @@
-use bevy::window::CursorGrabMode;
+use bevy::window::{CursorGrabMode, WindowEvent};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::UiRuntime;
 use {super::*, client_presentation::camera::AutoFly};
@@ -850,52 +850,94 @@ fn grab_free_capture_follows_the_desktop_capture_rules() {
     }
 }
 
-#[test]
-fn escaping_a_data_driven_form_returns_capture_after_focus_loss() {
+/// Builds a focus app driving a shown data-driven custom form (instance 7, form 4) through a
+/// painted presentation.
+fn data_driven_app() -> (App, Entity) {
     use crate::ui_runtime::data_driven::drive_data_driven_input;
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseWheel};
-    use client_ui::ui_runtime::{SequencedUiEvent, presentation::UiPresentationRuntime};
+    use client_ui::{
+        test_support::fixture_hud,
+        ui_runtime::{SequencedUiEvent, presentation::UiPresentationRuntime},
+    };
     use protocol::{ddui::ScriptedScreen, test_support::ddui};
     use ui_engine::test_support::fixture_font;
     let (mut app, window) = focus_app();
-    app.add_message::<KeyboardInput>()
-        .add_message::<MouseWheel>()
-        .insert_resource(UiPresentationResource(
-            UiPresentationRuntime::new(fixture_font()).unwrap(),
-        ))
-        .add_systems(
-            Update,
-            drive_data_driven_input.before(client_shell::menu::screen_focus::publish_screen_focus),
-        );
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut player = player_state::PlayerState::new(1);
     let events = ddui::show_events(
         ScriptedScreen::CustomForm,
         4,
         7,
         ddui::custom_form_property(),
     );
-    let world = app.world_mut();
-    let mut player = player_state::PlayerState::new(1);
-    for (sequence, event) in (1..).zip(events) {
-        world
-            .resource_mut::<UiRuntimeResource>()
-            .apply(
-                &mut player,
-                SequencedUiEvent {
-                    session_id: 1,
-                    fifo_sequence: sequence,
-                    local_millis: sequence * 10,
-                    server_tick: None,
-                    event,
-                },
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+        for (sequence, event) in (1..).zip(events) {
+            runtime
+                .apply(
+                    &mut player,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: sequence,
+                        local_millis: sequence * 10,
+                        server_tick: None,
+                        event,
+                    },
+                )
+                .unwrap();
+        }
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
     }
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<WindowEvent>()
+        .insert_resource(UiPresentationResource(presentation))
+        .add_systems(
+            Update,
+            drive_data_driven_input.before(client_shell::menu::screen_focus::publish_screen_focus),
+        );
+    (app, window)
+}
+
+/// A key press as the ordered window stream carries it.
+fn window_key(window: Entity, key_code: KeyCode, text: Option<&str>) -> WindowEvent {
+    use bevy::input::{
+        ButtonState,
+        keyboard::{Key, KeyboardInput, NativeKey},
+    };
+    WindowEvent::KeyboardInput(KeyboardInput {
+        key_code,
+        logical_key: Key::Unidentified(NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: text.map(Into::into),
+        repeat: false,
+        window,
+    })
+}
+
+#[test]
+fn escaping_a_data_driven_form_returns_capture_after_focus_loss() {
+    let (mut app, window) = data_driven_app();
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
     app.update();
     app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
     app.update();
     assert_released(&app, window);
-    press_escape(&mut app, window);
+    // The input plugin mirrors the ordered key into the pressed keys, which activate focus.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.world_mut()
+        .write_message(window_key(window, KeyCode::Escape, None));
+    app.update();
     assert!(
         !app.world()
             .resource::<UiRuntimeResource>()
@@ -907,4 +949,53 @@ fn escaping_a_data_driven_form_returns_capture_after_focus_loss() {
         app.world().get::<CursorOptions>(window).unwrap().grab_mode,
         CursorGrabMode::Locked
     );
+}
+
+#[test]
+fn text_typed_after_a_click_in_one_frame_reaches_the_clicked_field() {
+    use bevy::input::{ButtonState, mouse::MouseButtonInput};
+    use oreui::data_driven_screen::FormHit;
+    use protocol::ddui::{
+        DataPrimitive, DataStoreUpdate, ScriptedScreen, data_store_update_packet,
+    };
+    let (mut app, window) = data_driven_app();
+    // Layout entry 6 is the fixture's text field.
+    let field = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .data_driven_target(FormHit::Item(6))
+        .unwrap();
+    let centre = Vec2::new(
+        (field.min().x() + field.max().x()) * 0.5,
+        (field.min().y() + field.max().y()) * 0.5,
+    );
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(centre));
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        app.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                button: MouseButton::Left,
+                state,
+                window,
+            }));
+    }
+    app.world_mut()
+        .write_message(window_key(window, KeyCode::KeyX, Some("x")));
+    app.update();
+    let sent = app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .take_client_packet()
+        .map(|packet| protocol::encode(&packet).unwrap());
+    let expected = data_store_update_packet(&DataStoreUpdate {
+        store: protocol::ddui::SCRIPT_STORE.into(),
+        property: ScriptedScreen::CustomForm.property(Some(7)).into(),
+        path: "layout[6].text".into(),
+        value: DataPrimitive::String("hellox".into()),
+        property_update_count: 1,
+        path_update_count: 1,
+    });
+    assert_eq!(sent, Some(protocol::encode(&expected).unwrap()));
 }

@@ -61,9 +61,14 @@ impl UiPresentationRuntime {
         self.screens.data_driven.hit(position)
     }
 
-    /// Where window-logical `x` lies along slider `item`'s thumb travel, from 0 to 1.
-    pub fn data_driven_slider_fraction(&self, item: usize, x: f32) -> Option<f32> {
-        self.screens.data_driven.slider_fraction(item, x)
+    /// Where window-logical `x` lies along the thumb travel of the slider with `key`, 0 to 1.
+    pub fn data_driven_slider_fraction(&self, key: usize, x: f32) -> Option<f32> {
+        self.screens.data_driven.slider_fraction(key, x)
+    }
+
+    /// Where `hit` drew last frame, in window-logical px.
+    pub fn data_driven_target(&self, hit: FormHit) -> Option<ui::UiRect> {
+        self.screens.data_driven.target(hit)
     }
 
     /// Tracks the pointer and the held control for next frame's hover and press state.

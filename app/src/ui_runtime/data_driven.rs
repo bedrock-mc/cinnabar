@@ -5,13 +5,12 @@ use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
         ButtonState,
-        keyboard::KeyboardInput,
-        mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
+        mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel},
     },
     prelude::{
         ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
     },
-    window::{CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow, WindowEvent},
 };
 use client_shell::{
     menu::MenuRuntime,
@@ -72,9 +71,8 @@ pub(crate) fn drive_data_driven_input(
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
-    mut keyboard: MessageReader<KeyboardInput>,
-    button_messages: Option<Res<Messages<MouseButtonInput>>>,
-    mut button_cursor: Local<MessageCursor<MouseButtonInput>>,
+    window_events: Option<Res<Messages<WindowEvent>>>,
+    mut event_cursor: Local<MessageCursor<WindowEvent>>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationResource>,
     mut runtime: ResMut<UiRuntimeResource>,
@@ -83,19 +81,19 @@ pub(crate) fn drive_data_driven_input(
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    let edges: Vec<bool> = button_messages
+    // Keys and left-button edges in arrival order, so text typed after a click reaches the
+    // field that click focused.
+    let inputs: Vec<FormInput> = window_events
         .as_deref()
-        .map(|messages| {
-            button_cursor
-                .read(messages)
-                .filter(|input| input.button == MouseButton::Left)
-                .map(|input| input.state == ButtonState::Pressed)
+        .map(|events| {
+            event_cursor
+                .read(events)
+                .filter_map(FormInput::of)
                 .collect()
         })
         .unwrap_or_default();
     if runtime.credits().owns_input() || !runtime.data_driven_ui().owns_input() {
         wheel.clear();
-        keyboard.clear();
         if gesture.owned_last_frame {
             presentation.set_data_driven_pointer(None, None);
             if !runtime.ui_focused(&player_runtime) && input_available {
@@ -109,7 +107,6 @@ pub(crate) fn drive_data_driven_input(
         // The client was busy: a menu opened over the world as the form arrived.
         runtime.close_data_driven_screen(DataDrivenScreenCloseReason::UserBusy);
         wheel.clear();
-        keyboard.clear();
         *gesture = FormGesture::default();
         return;
     }
@@ -123,7 +120,6 @@ pub(crate) fn drive_data_driven_input(
     let painted = presentation.data_driven_painted_form() == form_id;
     if !input_available {
         wheel.clear();
-        keyboard.clear();
         gesture.held = None;
         suppress_gameplay_input_for_chat(
             &player_runtime,
@@ -148,59 +144,31 @@ pub(crate) fn drive_data_driven_input(
         presentation.scroll_data_driven(pointer, -lines);
     }
 
-    let focused = runtime.data_driven_focus_items();
-    let mut dismiss = mouse.just_pressed(MouseButton::Back);
-    for event in keyboard
-        .read()
-        .filter(|event| event.state == ButtonState::Pressed)
-    {
-        let editing = focused.editing.is_some();
-        match event.key_code {
-            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if editing => {
-                runtime.data_driven_action(DataDrivenAction::Blur);
-            }
-            KeyCode::Escape if focused.open_dropdown.is_some() => {
-                runtime.data_driven_action(DataDrivenAction::Blur);
-            }
-            KeyCode::Escape => dismiss = true,
-            KeyCode::Backspace if editing => {
-                runtime.data_driven_action(DataDrivenAction::Backspace);
-            }
-            _ if editing => {
-                let typed: String = event
-                    .text
-                    .iter()
-                    .flat_map(|text| text.chars())
-                    .filter(|character| !character.is_control())
-                    .collect();
-                if !typed.is_empty() {
-                    runtime.data_driven_action(DataDrivenAction::Type(typed));
-                }
-            }
-            _ => {}
-        }
-    }
-    if dismiss {
+    if mouse.just_pressed(MouseButton::Back) {
         runtime.data_driven_action(DataDrivenAction::Dismiss);
     }
-
-    for down in edges {
+    for input in inputs {
         if !runtime.data_driven_ui().owns_input() {
             break;
         }
-        let hit = pointer
-            .filter(|_| painted)
-            .and_then(|point| presentation.hit_test_data_driven(point));
-        if down {
-            gesture.held = hit;
-            press(&mut runtime, &presentation, form.as_ref(), hit, pointer);
-        } else {
-            if let (Some(held), Some(released)) = (gesture.held, hit)
-                && held == released
-            {
-                release(&mut runtime, form.as_ref(), held);
+        match input {
+            FormInput::Key(key_code, text) => type_key(&mut runtime, key_code, text.as_deref()),
+            FormInput::Pointer(down) => {
+                let hit = pointer
+                    .filter(|_| painted)
+                    .and_then(|point| presentation.hit_test_data_driven(point));
+                if down {
+                    gesture.held = hit;
+                    press(&mut runtime, &presentation, form.as_ref(), hit, pointer);
+                } else {
+                    if let (Some(held), Some(released)) = (gesture.held, hit)
+                        && held == released
+                    {
+                        release(&mut runtime, form.as_ref(), held);
+                    }
+                    gesture.held = None;
+                }
             }
-            gesture.held = None;
         }
     }
     if !runtime.data_driven_ui().owns_input() {
@@ -234,6 +202,59 @@ pub(crate) fn drive_data_driven_input(
         &mut mouse,
         &mut motion,
     );
+}
+
+/// One input the form reads in arrival order.
+enum FormInput {
+    /// A key press and the text it typed.
+    Key(KeyCode, Option<String>),
+    /// A left-button edge; `true` when pressed.
+    Pointer(bool),
+}
+
+impl FormInput {
+    fn of(event: &WindowEvent) -> Option<Self> {
+        match event {
+            WindowEvent::KeyboardInput(input) if input.state == ButtonState::Pressed => {
+                Some(Self::Key(
+                    input.key_code,
+                    input.text.as_ref().map(|text| text.to_string()),
+                ))
+            }
+            WindowEvent::MouseButtonInput(input) if input.button == MouseButton::Left => {
+                Some(Self::Pointer(input.state == ButtonState::Pressed))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// One key press: Escape and Enter end text entry, Escape closes an open option list or else
+/// dismisses the form, and the focused text field takes typed text and Backspace.
+fn type_key(runtime: &mut client_ui::ui_runtime::UiRuntime, key_code: KeyCode, text: Option<&str>) {
+    let focused = runtime.data_driven_focus_items();
+    let editing = focused.editing.is_some();
+    match key_code {
+        KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if editing => {
+            runtime.data_driven_action(DataDrivenAction::Blur);
+        }
+        KeyCode::Escape if focused.open_dropdown.is_some() => {
+            runtime.data_driven_action(DataDrivenAction::Blur);
+        }
+        KeyCode::Escape => runtime.data_driven_action(DataDrivenAction::Dismiss),
+        KeyCode::Backspace if editing => runtime.data_driven_action(DataDrivenAction::Backspace),
+        _ if editing => {
+            let typed: String = text
+                .unwrap_or_default()
+                .chars()
+                .filter(|character| !character.is_control())
+                .collect();
+            if !typed.is_empty() {
+                runtime.data_driven_action(DataDrivenAction::Type(typed));
+            }
+        }
+        _ => {}
+    }
 }
 
 /// A press focuses a text field, opens or closes a dropdown or moves a slider; buttons and
@@ -281,10 +302,14 @@ fn item_of(
     form: Option<&oreui::data_driven_screen::DataDrivenForm>,
     hit: FormHit,
 ) -> Option<&FormItem> {
-    let FormHit::Item(item) = hit else {
+    let FormHit::Item(key) = hit else {
         return None;
     };
-    form?.items.get(item)
+    form?
+        .items
+        .iter()
+        .find(|entry| entry.key == key)
+        .map(|entry| &entry.item)
 }
 
 fn is_slider(form: Option<&oreui::data_driven_screen::DataDrivenForm>, item: usize) -> bool {
@@ -294,17 +319,17 @@ fn is_slider(form: Option<&oreui::data_driven_screen::DataDrivenForm>, item: usi
     )
 }
 
-/// Moves slider `item` to where the pointer lies along its thumb's travel.
+/// Moves the slider with `key` to where the pointer lies along its thumb's travel.
 fn slide(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
     presentation: &client_ui::ui_runtime::presentation::UiPresentationRuntime,
-    item: usize,
+    key: usize,
     pointer: Option<ui::UiPoint>,
 ) {
     if let Some(fraction) =
-        pointer.and_then(|pointer| presentation.data_driven_slider_fraction(item, pointer.x()))
+        pointer.and_then(|pointer| presentation.data_driven_slider_fraction(key, pointer.x()))
     {
-        runtime.data_driven_action(DataDrivenAction::Slide(item, fraction));
+        runtime.data_driven_action(DataDrivenAction::Slide(key, fraction));
     }
 }
 

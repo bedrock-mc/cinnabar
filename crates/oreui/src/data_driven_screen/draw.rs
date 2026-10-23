@@ -14,7 +14,7 @@ use super::super::theme::{
 };
 use super::super::transitions::switch_target;
 use super::super::widgets::{Interaction, Variant, button_face, divider};
-use super::{DataDrivenForm, FormHit, FormItem};
+use super::{DataDrivenForm, FormEntry, FormHit, FormItem};
 
 const PANEL_WIDTH: f32 = 36.0;
 const PANEL_MIN_HEIGHT: f32 = 48.0;
@@ -137,19 +137,19 @@ pub(super) fn form(
     let mut y = viewport[1] - scroll.offset + canvas.r(PAD);
     let x = [panel[0] + canvas.r(SIDE), panel[2] - canvas.r(SIDE)];
     let mut open = None;
-    for (index, item) in form.items.iter().enumerate() {
-        if index > 0 {
+    for (position, FormEntry { key, item }) in form.items.iter().enumerate() {
+        if position > 0 {
             y += canvas.r(GAP);
         }
-        let hit = FormHit::Item(index);
+        let hit = FormHit::Item(*key);
         let mut item_state = state.of(hit);
-        item_state.focused = state.editing == Some(index);
+        item_state.focused = state.editing == Some(*key);
         let (height, target) = item_at(canvas, item, x, [face[0], face[2]], y, item_state)?;
         if let (Some(target), FormItem::Slider { .. }) = (target, item) {
-            drawn.travels.push((index, slider_travel(canvas, target)));
+            drawn.travels.push((*key, slider_travel(canvas, target)));
         }
         if let Some(target) = target {
-            if state.open == Some(index)
+            if state.open == Some(*key)
                 && let FormItem::Dropdown {
                     options, selected, ..
                 } = item
@@ -264,11 +264,11 @@ fn push(
 /// The scrolling column's full height, with its top and bottom padding.
 fn column_height(
     canvas: &mut Canvas<'_>,
-    items: &[FormItem],
+    items: &[FormEntry],
     width: f32,
 ) -> Result<f32, PaintError> {
     let mut height = canvas.r(PAD) * 2.0;
-    for (index, item) in items.iter().enumerate() {
+    for (index, FormEntry { item, .. }) in items.iter().enumerate() {
         if index > 0 {
             height += canvas.r(GAP);
         }
@@ -454,7 +454,13 @@ fn item_at(
                 TEXT,
             )?;
             let track = [x[0], y + height - canvas.r(SLIDER), x[1], y + height];
-            slider_face(canvas, track, fraction.clamp(0.0, 1.0), 0, state, *enabled)?;
+            // A non-finite fraction would make the thumb's geometry invalid.
+            let fraction = if fraction.is_finite() {
+                fraction.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            slider_face(canvas, track, fraction, 0, state, *enabled)?;
             (*enabled).then_some(track)
         }
         FormItem::Dropdown {

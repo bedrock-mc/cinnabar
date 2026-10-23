@@ -58,20 +58,28 @@ pub enum FormItem {
     },
 }
 
-/// A form to draw: its title, its header close button and its controls.
+/// One control and the key that names it while the form changes around it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormEntry {
+    /// Unique within the form and stable across its updates, such as a layout index.
+    pub key: usize,
+    pub item: FormItem,
+}
+
+/// A form to draw: its title, its header close button and its controls in column order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DataDrivenForm {
     pub title: String,
     /// Whether the header shows a close button, and whether it is enabled.
     pub close: Option<bool>,
-    pub items: Vec<FormItem>,
+    pub items: Vec<FormEntry>,
 }
 
 /// What a press on the form means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormHit {
     Close,
-    /// The control at this position in [`DataDrivenForm::items`].
+    /// The control with this [`FormEntry::key`].
     Item(usize),
     /// An option of the open dropdown, by its position in the list.
     Option(usize),
@@ -83,9 +91,9 @@ pub struct DataDrivenScreen {
     hits: Vec<(FormHit, UiRect)>,
     pointer: Option<UiPoint>,
     pressed: Option<FormHit>,
-    /// The dropdown item whose option list is open.
+    /// The key of the dropdown whose option list is open.
     open: Option<usize>,
-    /// The text field item taking typed text.
+    /// The key of the text field taking typed text.
     editing: Option<usize>,
     scroll: f32,
     max_scroll: f32,
@@ -93,7 +101,7 @@ pub struct DataDrivenScreen {
     options_scroll: f32,
     options_max: f32,
     options_viewport: Option<UiRect>,
-    /// Each slider's thumb travel by item, in window-logical x.
+    /// Each slider's thumb travel by key, in window-logical x.
     travels: Vec<(usize, [f32; 2])>,
 }
 
@@ -158,6 +166,14 @@ impl DataDrivenScreen {
         Ok(())
     }
 
+    /// Where `hit` drew last frame, in window-logical px.
+    #[must_use]
+    pub fn target(&self, hit: FormHit) -> Option<UiRect> {
+        self.hits
+            .iter()
+            .find_map(|(candidate, bounds)| (*candidate == hit).then_some(*bounds))
+    }
+
     /// What a press at the window-logical `position` hits.
     #[must_use]
     pub fn hit(&self, position: UiPoint) -> Option<FormHit> {
@@ -176,19 +192,19 @@ impl DataDrivenScreen {
         self.pressed = hit;
     }
 
-    /// Opens the option list of the dropdown at item position `item`, or closes it; a newly
-    /// opened list starts at its top.
-    pub fn set_open_dropdown(&mut self, item: Option<usize>) {
-        if self.open != item {
+    /// Opens the option list of the dropdown with `key`, or closes it; a newly opened list
+    /// starts at its top.
+    pub fn set_open_dropdown(&mut self, key: Option<usize>) {
+        if self.open != key {
             self.options_scroll = 0.0;
             self.options_viewport = None;
         }
-        self.open = item;
+        self.open = key;
     }
 
-    /// Marks the text field at item position `item` as taking typed text.
-    pub fn set_editing(&mut self, item: Option<usize>) {
-        self.editing = item;
+    /// Marks the text field with `key` as taking typed text.
+    pub fn set_editing(&mut self, key: Option<usize>) {
+        self.editing = key;
     }
 
     /// Scrolls by `delta` logical px (positive moving content up): the open option list under
@@ -208,13 +224,13 @@ impl DataDrivenScreen {
         }
     }
 
-    /// Where window-logical `x` lies along slider `item`'s thumb travel, from 0 to 1.
+    /// Where window-logical `x` lies along the thumb travel of the slider with `key`, 0 to 1.
     #[must_use]
-    pub fn slider_fraction(&self, item: usize, x: f32) -> Option<f32> {
+    pub fn slider_fraction(&self, key: usize, x: f32) -> Option<f32> {
         let [start, end] = self
             .travels
             .iter()
-            .find_map(|(candidate, travel)| (*candidate == item).then_some(*travel))?;
+            .find_map(|(candidate, travel)| (*candidate == key).then_some(*travel))?;
         Some(if end > start {
             ((x - start) / (end - start)).clamp(0.0, 1.0)
         } else {
