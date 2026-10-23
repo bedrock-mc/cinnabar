@@ -23,7 +23,7 @@ use ui_engine::engine::{
 use crate::chat_coordinates::ChatCoordinates;
 use crate::regions::{segments, window_rect};
 use crate::settings_chat::ChatSettings;
-use crate::text::{bounded_visible_text, resolve_chat_line_formatted};
+use crate::text::{bounded_visible_text, resolve_chat_line};
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
@@ -157,11 +157,17 @@ impl ChatScreen {
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
         let color = crate::settings_chat::default_color(&self.settings.options);
-        let text_color = |node: &json_ui::DrawNode| {
-            crate::settings_chat::message_color(&node.key, MESSAGES_VIEW, color)
+        let text_format = |node: &json_ui::DrawNode, text: &str| {
+            crate::settings_chat::message_text(
+                &node.key,
+                MESSAGES_VIEW,
+                text,
+                color,
+                Some(self.settings.options.mentions_color_code()),
+            )
         };
         let art = ScreenArt {
-            text_color: Some(&text_color),
+            text_format: Some(&text_format),
             pointer: self.pointer.map(|point| {
                 [
                     (point.x() - frame.safe_area.left()) / px,
@@ -647,7 +653,7 @@ fn chat_data(
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
         .filter(|_| settings.value(SettingId::HideChat) == 0)
         .map(|line| {
-            let text = resolve_chat_line_formatted(line, translate, Some(settings.mentions_color_code()));
+            let text = resolve_chat_line(line, translate);
             FactoryItem::new("chat_screen_messages", 0.0)
                 .value(
                     "#text",
@@ -656,7 +662,10 @@ fn chat_data(
                 .var("chat_font_type", Value::from("default"))
                 .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
                 .var("chat_line_spacing", Value::from(chat_text.line_spacing))
-                .var("chat_background_opacity", Value::from(crate::settings_chat::background_opacity(settings)))
+                .var(
+                    "chat_background_opacity",
+                    Value::from(crate::settings_chat::background_opacity(settings)),
+                )
         })
         .collect();
     data.set_factory("messages_factory", items);

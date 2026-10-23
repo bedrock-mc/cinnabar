@@ -78,7 +78,7 @@ use texture_atlas::{
 };
 use ui::IconRef;
 use ui_engine::text_metrics::TextMetrics;
-use ui_screens::text::{bounded_visible_text, resolve_chat_line, resolve_chat_line_formatted};
+use ui_screens::text::{bounded_visible_text, resolve_chat_line};
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;

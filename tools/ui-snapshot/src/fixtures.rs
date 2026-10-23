@@ -725,6 +725,12 @@ const STATES: &[State] = &[
         fixture: minecraft_import::preview,
     },
     State {
+        name: "chat-colored-mentions",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat::colored_mentions,
+    },
+    State {
         name: "chat-mentions",
         size: SIZE,
         gui_scale: GUI_SCALE,

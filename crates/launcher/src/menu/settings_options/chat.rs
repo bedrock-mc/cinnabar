@@ -76,12 +76,13 @@ impl SettingsOptions {
         f64::from(self.value(SettingId::ChatLineSpacing)) / 10.0 + 0.001
     }
 
-    /// Uses the seven legacy chat colors from the vanilla indexed palette.
+    /// Uses the saved index in the chat presentation palette.
     pub fn chat_color_code(&self) -> char {
         let val = self.value(SettingId::ChatColor) as usize;
         CHAT_PALETTE.get(val).map_or('f', |c| c.code)
     }
 
+    /// Uses the saved index in the mention presentation palette.
     pub fn mentions_color_code(&self) -> char {
         let val = self.value(SettingId::MentionsColor) as usize;
         CHAT_PALETTE.get(val).map_or('e', |c| c.code)

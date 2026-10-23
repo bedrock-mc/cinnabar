@@ -519,8 +519,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Social → Chat exposes the existing chat preferences, shared opacity, duration and
   position controls, and one reset for all displayed Chat settings. Chat uses the bundled
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
-  obsolete saved typeface values are ignored. Emote filtering, narration and mention
-  highlighting remain unavailable and their controls say they store preferences only.
+  obsolete saved typeface values are ignored. Chat and mention colors apply to decoded
+  message labels without changing server pack inputs. Mention tokens preserve surrounding
+  formatting; local-player target matching and full mention acceptance remain incomplete.
+  Emote filtering and narration remain unavailable and store preferences only.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
   0–100/default 0 remain provisional host ranges, without confirmed native defaults.

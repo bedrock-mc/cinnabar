@@ -500,8 +500,8 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
     .map_err(PaintError::Geometry)
 }
 
-/// Selects a label's optional default formatting color after binding and localization.
-pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
+/// Optionally changes a label's presentation after binding and localization.
+pub type TextFormat<'a> = &'a dyn Fn(&DrawNode, &str) -> Option<String>;
 
 /// What the engine paints a screen against besides its layout: the interaction state, the
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
@@ -521,8 +521,8 @@ pub struct ScreenArt<'a> {
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
-    /// Default formatting color chosen per label after binding and localization.
-    pub text_color: Option<TextColor<'a>>,
+    /// Optional label presentation after binding and localization.
+    pub text_format: Option<TextFormat<'a>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
@@ -865,19 +865,15 @@ impl Canvas<'_> {
                 .edit
                 .filter(|edit| edit.text == node.key)
                 .map(|edit| edit.feedback);
-            let colored = self
-                .art
-                .text_color
-                .and_then(|color| color(node))
-                .map(|code| {
-                    let text = if *localize {
-                        text_paint::localized(text, self.translate)
-                    } else {
-                        Cow::Borrowed(text.as_str())
-                    };
-                    apply_chat_color(text.as_ref(), code)
-                });
-            let (text, localize) = colored
+            let formatted = self.art.text_format.map(|format| {
+                let text = if *localize {
+                    text_paint::localized(text, self.translate)
+                } else {
+                    Cow::Borrowed(text.as_str())
+                };
+                format(node, &text).map(Cow::Owned).unwrap_or(text)
+            });
+            let (text, localize) = formatted
                 .as_deref()
                 .map_or((text.as_str(), *localize), |text| (text, false));
             let style = TextPaint {
@@ -956,36 +952,4 @@ impl Canvas<'_> {
         };
         self.push(visual, bounds)
     }
-}
-
-/// Applies active chat color prefix and restores it across Minecraft format resets (§r, §f).
-fn apply_chat_color(text: &str, code: char) -> String {
-    let mut result = String::with_capacity(text.len() + 16);
-    result.push('§');
-    result.push(code);
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '§' {
-            if let Some(&next) = chars.peek() {
-                chars.next();
-                if next == 'r' {
-                    result.push('§');
-                    result.push('r');
-                    result.push('§');
-                    result.push(code);
-                } else if next == 'f' {
-                    result.push('§');
-                    result.push(code);
-                } else {
-                    result.push('§');
-                    result.push(next);
-                }
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }

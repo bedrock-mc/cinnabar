@@ -7,7 +7,7 @@ use launcher::menu::settings_options::{SettingId, SettingsOptions};
 use ui::{BossBarView, IconRef, TimedText};
 use ui_screens::text::bounded_text;
 
-use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line_formatted};
+use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
 use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES};
 use crate::ui_runtime::{Translator, UiRuntime};
 
@@ -349,6 +349,7 @@ impl SemanticHud {
             &mut self.model.chat_color,
             ui_screens::settings_chat::default_color(settings),
         );
+        changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         if reset
             || self.chat_options != Some(options)
             || !rows().map(|(id, _)| id).eq(self.chat_rows.iter().copied())
@@ -358,11 +359,7 @@ impl SemanticHud {
                 .map(|(id, line)| {
                     let born = line.received_millis.min(now);
                     self.chat_rows.push(id);
-                    let text = resolve_chat_line_formatted(
-                        line,
-                        |key| runtime.translation(key),
-                        Some(mention_code),
-                    );
+                    let text = resolve_chat_line(line, |key| runtime.translation(key));
                     Timed {
                         text: bounded_visible_text(text.as_ref()).to_owned(),
                         born: seconds(born),
