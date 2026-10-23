@@ -239,6 +239,21 @@ pub(crate) fn translate_program(
     if !out.diagnostics.is_empty() || out.stages.iter().any(|s| s.result.is_err()) {
         return out;
     }
+    if let Some(vertex) = out.stages.iter().position(|s| s.stage == StageKind::Vertex)
+        && let Some(fragment) = out
+            .stages
+            .iter()
+            .position(|s| s.stage == StageKind::Fragment)
+    {
+        let [vertex, fragment] = out.stages.get_disjoint_mut([vertex, fragment]).unwrap();
+        if let Err(message) = crate::reflect_link::supply_vertex_outputs(
+            vertex.result.as_mut().unwrap(),
+            fragment.result.as_ref().unwrap(),
+        ) {
+            out.diagnostics.push(Diagnostic::new(Phase::Link, message));
+            return out;
+        }
+    }
     let inputs: Vec<(&CompiledStage, StageNames<'_>)> = drafts
         .iter()
         .filter_map(|(i, draft, _)| {

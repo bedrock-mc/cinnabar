@@ -127,7 +127,31 @@ fn first_reload_still_prepares_biomes_and_environment() {
     );
     let stack = super::super::pack_reload_tests::stack(&[(&path, png.get_ref())]);
     let joined = resource_packs::prepare_validated_application(stack, Arc::default());
-    let base = Arc::new(assets::RuntimeAssets::diagnostic());
+    let diagnostic = assets::RuntimeAssets::diagnostic();
+    let carrier = assets::CompiledAssets {
+        visuals: vec![assets::BlockVisual::diagnostic(
+            assets::BlockFlags::empty(),
+            assets::ContributorRole::Primary,
+        )]
+        .into(),
+        light_properties: vec![assets::LightProperties::OPAQUE_DARK].into(),
+        hashed: Box::new([]),
+        materials: diagnostic.materials().into(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![diagnostic.texture_pages()[0].clone(); 2].into(),
+        biomes: diagnostic.biome_assets().clone(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [1; 32],
+            block_registry_sha256: [2; 32],
+            light_registry_sha256: [3; 32],
+            biome_registry_sha256: [4; 32],
+        },
+    };
+    let base =
+        Arc::new(assets::RuntimeAssets::decode(&assets::encode_blob(&carrier).unwrap()).unwrap());
     let mut reload = PackReload {
         previous_assets: Some(base.clone()),
         ..Default::default()

@@ -99,6 +99,53 @@ fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
     }
 }
 
+#[test]
+fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
+    use bevy::input::mouse::MouseButtonInput;
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::PhysicalControl;
+
+    for ordered in [false, true] {
+        let (mut app, window) = ordered::personal_app(2);
+        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+        assert!(client_shell::menu::test_support::remap_control(
+            &mut menu,
+            BindingId::Hotbar4.row(false).unwrap(),
+            PhysicalControl::MouseButton(
+                client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap(),
+            ),
+        ));
+        app.insert_resource(menu);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        if ordered {
+            app.world_mut()
+                .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                    button: MouseButton::Back,
+                    state: ButtonState::Pressed,
+                    window,
+                }));
+        }
+
+        app.update();
+
+        assert!(
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "ordered={ordered}"
+        );
+        let player = app.world().resource::<client_state::PlayerRuntime>();
+        let ledger = player.inventory.ledger();
+        assert!(ledger.displayed_stack(0).is_none(), "ordered={ordered}");
+        assert_eq!(
+            ledger.displayed_stack(3).map(|stack| stack.count),
+            Some(2),
+            "ordered={ordered}"
+        );
+        assert_eq!(ledger.pending_request_count(), 1, "ordered={ordered}");
+    }
+}
+
 /// Draws original inventory and book fixtures with a close control on each screen.
 fn presentation(
     player: &client_state::PlayerRuntime,

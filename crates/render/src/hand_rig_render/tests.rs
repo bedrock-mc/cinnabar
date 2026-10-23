@@ -10,6 +10,54 @@ use {
     render_scene::HandRigScene,
 };
 
+#[test]
+fn compact_hand_uploads_both_pose_endpoints_with_four_storage_buffers() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    assert_eq!(
+        crate::device_settings::vertex_storage_buffers(&gpu.layout),
+        4
+    );
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let mut state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let uploads = state.get(&world).unwrap();
+    let frame = scene.frame.as_ref().unwrap();
+    assert!(upload_pose(&mut gpu, &uploads, frame));
+    assert_eq!(
+        gpu.previous_bones.as_ref().unwrap().size() as usize,
+        std::mem::size_of_val(&*frame.rig.previous_bones)
+            + std::mem::size_of_val(&*frame.rig.current_bones)
+    );
+    assert!(gpu.current_bones.is_none());
+    let source = crate::shader_safety::from_actor_wesl(
+        include_str!("../hand_rig.wesl"),
+        "hand_rig.wesl",
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
+    );
+    let bevy::shader::Source::Wesl(source) = source.source else {
+        panic!("hand source is WESL");
+    };
+    crate::shader_test_support::assert_binding_visibility(
+        &crate::shader_source::standalone(&source, &["COMPACT_BONES"]),
+        0,
+        &gpu.layout,
+    );
+}
+
 /// Missing hand depth backs off, recovers, and retries a resized request immediately.
 #[test]
 fn hand_depth_allocation_failure_backs_off_then_recovers() {

@@ -1371,6 +1371,11 @@ baselines = [
 ]
 
 [[identifier_literal_exceptions]]
+path = "crates/oreui/src/settings/localization.rs"
+literal = "fr"
+reason = "French locale prefix used to select settings translations, not a game identifier."
+
+[[identifier_literal_exceptions]]
 path = "crates/assets/src/sound_events.rs"
 literal = "stone"
 reason = "Fallback audio material key in sounds.json, independent of the block identifier vocabulary."

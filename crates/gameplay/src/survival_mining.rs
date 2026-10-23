@@ -696,11 +696,13 @@ pub fn blocked_mining_reason(
     }
 }
 
-/// Admitted items carrying the creative no-break trait block local destroy prediction.
+/// Admitted attack items block local creative destroy prediction.
 pub fn destroys_in_creative(fact: &assets::facts::ItemFact) -> bool {
-    !fact
-        .traits
-        .contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
+    let traits = fact.traits;
+    !traits.contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
+        && !traits.contains(assets::facts::ItemTraits::SWORD)
+        && !traits.contains(assets::facts::ItemTraits::TRIDENT)
+        && !traits.contains(assets::facts::ItemTraits::MACE)
 }
 
 /// Flight, not mere airborne movement, exempts the destroy-speed penalty (`PlayerDestroy`).

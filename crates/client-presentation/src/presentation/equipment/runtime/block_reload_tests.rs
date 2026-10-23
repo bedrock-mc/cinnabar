@@ -166,6 +166,7 @@ fn fixture_with_icons(
                 })
                 .collect::<Vec<_>>(),
             &[assets::IconBlockModel {
+                held_sprite: None,
                 sprite: 0,
                 visual: assets::BlockVisualId(7),
             }],

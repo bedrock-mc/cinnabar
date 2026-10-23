@@ -188,32 +188,58 @@ fn only_direct_draw_devices_with_compute_read_occlusion_back() {
     assert!(direct_occlusion_supported(
         ChunkDrawMode::Direct,
         compute,
-        false
+        false,
+        &wgpu::Limits::default()
     ));
     assert!(!direct_occlusion_supported(
         ChunkDrawMode::Direct,
         compute,
-        true
+        true,
+        &wgpu::Limits::default()
     ));
     assert!(!direct_occlusion_supported(
         ChunkDrawMode::Direct,
         DownlevelFlags::empty(),
-        false
+        false,
+        &wgpu::Limits::default()
     ));
     assert!(!direct_occlusion_supported(
         ChunkDrawMode::MultiDrawIndirect,
         compute,
-        false
+        false,
+        &wgpu::Limits::default()
     ));
     // Metal draws directly and reads back; Vulkan keeps the count-driven GPU cull.
     let flags = DownlevelFlags::all();
     let features = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE;
     let metal = select_chunk_draw_mode(flags, features, Backends::METAL, false);
-    assert!(direct_occlusion_supported(metal, flags, false));
-    assert!(!gpu_cull_supported(metal, features, flags, false));
+    assert!(direct_occlusion_supported(
+        metal,
+        flags,
+        false,
+        &wgpu::Limits::default()
+    ));
+    assert!(!gpu_cull_supported(
+        metal,
+        features,
+        flags,
+        false,
+        &wgpu::Limits::default()
+    ));
     let vulkan = select_chunk_draw_mode(flags, features, Backends::VULKAN, false);
-    assert!(!direct_occlusion_supported(vulkan, flags, false));
-    assert!(gpu_cull_supported(vulkan, features, flags, false));
+    assert!(!direct_occlusion_supported(
+        vulkan,
+        flags,
+        false,
+        &wgpu::Limits::default()
+    ));
+    assert!(gpu_cull_supported(
+        vulkan,
+        features,
+        flags,
+        false,
+        &wgpu::Limits::default()
+    ));
 }
 
 fn stats(app: &App) -> super::direct::DirectOcclusionStats {
