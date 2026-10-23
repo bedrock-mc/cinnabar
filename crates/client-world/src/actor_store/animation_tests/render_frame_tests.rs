@@ -10,6 +10,7 @@ mod camera_tests;
 mod first_presentation_tests;
 mod multi_tick_tests;
 mod orb_tests;
+mod sheep_color_tests;
 mod wolf_color_tests;
 
 /// Spawns one completed counting rig with the ordinary material contract.
