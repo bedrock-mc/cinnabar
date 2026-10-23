@@ -555,9 +555,6 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   write the paths and counters the server accepts. Panel geometry, Escape closing,
   message-box layout, images, gamepad and touch input, pack-defined DDUI screens and
   reloads remain incomplete; a matched native capture remains open.
-  removals and update counters. Screen requests are answered `UserBusy` while another
-  screen is busy and otherwise closed at once: drawing DDUI screens, their client writes,
-  server closes, reloads and pack-defined DDUI screens remain incomplete.
   URL images use the UI texture-file allowance. The download cache evicts its oldest
   handed-off bodies beyond the aggregate byte budget while preserving display readiness;
   atlas misses fetch released bodies again. Unclaimed bodies remain until first handoff.
