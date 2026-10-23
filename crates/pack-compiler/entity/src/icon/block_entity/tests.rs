@@ -277,7 +277,7 @@ fn copper_golem_statue_inventory_uses_standing_geometry_and_oxidation() {
             .0
             .iter()
             .filter(|p| p[3] != 0)
-            .all(|p| p == [255, 0, 0, 255]),
+            .all(|p| *p == [255, 0, 0, 255]),
         "eye artwork overlays equal-depth body faces"
     );
     assert!(
