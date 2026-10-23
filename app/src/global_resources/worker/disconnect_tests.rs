@@ -17,6 +17,7 @@ fn fixture() -> (
     let worker = Worker {
         commands,
         picker: crossbeam_channel::unbounded().0,
+        picker_open: false,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,
@@ -30,6 +31,38 @@ fn fixture() -> (
         .add_message::<bevy::window::FileDragAndDrop>()
         .add_systems(Update, crate::global_resources::drive);
     (app, incoming, outgoing)
+}
+
+#[test]
+fn an_open_import_picker_disables_import_and_rejects_duplicate_requests() {
+    let (mut app, _incoming, outgoing) = fixture();
+    let (picker, requests) = crossbeam_channel::unbounded();
+    app.world_mut().resource_mut::<Worker>().picker = picker;
+    for _ in 0..2 {
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .activate(MenuAction::GlobalResources(Action::Import));
+        app.update();
+    }
+    assert_eq!(requests.len(), 1, "only one picker may be outstanding");
+    assert!(app.world().resource::<MenuRuntime>().global_resources.busy);
+    outgoing.send(Event::Snapshot(Snapshot::default())).unwrap();
+    app.update();
+    assert!(
+        app.world().resource::<MenuRuntime>().global_resources.busy,
+        "disk completion must not clear picker activity"
+    );
+    outgoing.send(Event::PickerClosed).unwrap();
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().global_resources.busy);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::GlobalResources(Action::Import));
+    app.update();
+    assert_eq!(requests.len(), 2, "a later import can open another picker");
+    drop(outgoing);
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().global_resources.busy);
 }
 
 #[test]

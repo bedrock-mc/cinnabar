@@ -20,10 +20,12 @@ pub(super) enum Command {
     Import(PathBuf),
     ImportFiles(Result<Vec<PathBuf>, String>),
     Commit(Vec<resource_pack::ActivePack>),
+    ApplyFailed,
     Leave,
     Flush(crossbeam_channel::Sender<()>),
 }
 pub(super) enum Event {
+    PickerClosed,
     MinecraftImportStatus(String),
     MinecraftImport(
         launcher::minecraft_import::Snapshot,
@@ -37,6 +39,7 @@ pub(super) enum Event {
 pub(super) struct Worker {
     commands: crossbeam_channel::Sender<Command>,
     picker: crossbeam_channel::Sender<()>,
+    pub picker_open: bool,
     pub events: crossbeam_channel::Receiver<Event>,
     pub snapshot: Snapshot,
     pub awaiting: Option<(u64, Vec<resource_pack::ActivePack>)>,
@@ -73,6 +76,7 @@ impl Worker {
         Self {
             commands,
             picker,
+            picker_open: false,
             events,
             snapshot: Snapshot::default(),
             awaiting: None,
@@ -90,7 +94,9 @@ impl Worker {
                 ..
             }
         ) {
-            let _ = self.picker.send(());
+            if !self.picker_open && self.picker.send(()).is_ok() {
+                self.picker_open = true;
+            }
         } else {
             let _ = self.commands.send(command);
         }
@@ -131,6 +137,7 @@ fn run(
 ) {
     let mut minecraft_import = launcher_host::minecraft_import::Service::new(config_root);
     let mut import_commit_pending = None;
+    let mut submitted_selection = None;
     let mut snapshot = Snapshot::default();
     let icon_root = root.join("icons");
     let mut library = match GlobalPackLibrary::open(root, engine_version()) {
@@ -145,6 +152,7 @@ fn run(
     super::icons::refresh(&library, &mut snapshot, &icon_root);
     match library.preview() {
         Ok(stack) => {
+            submitted_selection = Some(library.active().to_vec());
             let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
         }
         Err(error) => snapshot.message = error.to_string(),
@@ -153,12 +161,24 @@ fn run(
     let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     let initial = files.into_iter().map(Command::Import);
     for command in initial.chain(incoming) {
+        if matches!(&command, Command::ImportFiles(_)) {
+            let _ = outgoing.send(Event::PickerClosed);
+        }
         let command = match command {
-            Command::Leave if snapshot.has_pending_changes() => Command::Action {
-                action: Action::Apply,
-                revision: snapshot.revision,
-            },
+            Command::Leave
+                if snapshot.has_pending_changes()
+                    && submitted_selection.as_ref() != Some(&snapshot.selection) =>
+            {
+                Command::Action {
+                    action: Action::Apply,
+                    revision: snapshot.revision,
+                }
+            }
             Command::Leave => continue,
+            Command::ApplyFailed => {
+                submitted_selection = None;
+                continue;
+            }
             Command::Flush(done) => {
                 let _ = done.send(());
                 continue;
@@ -189,6 +209,7 @@ fn run(
                 }
         );
         if let Command::Commit(selection) = &command {
+            submitted_selection = None;
             snapshot.applied_selection = Some(selection.clone());
         }
         let performs_work = matches!(
@@ -222,6 +243,7 @@ fn run(
                 changes_lists = changed;
                 if let Some(stack) = outcome.stack {
                     import_commit_pending = Some(library.active().to_vec());
+                    submitted_selection = Some(library.active().to_vec());
                     let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
                 }
                 let _ = outgoing.send(Event::MinecraftImport(
@@ -251,8 +273,16 @@ fn run(
                     Ok(())
                 }
             },
-            Command::Leave | Command::Flush(_) => unreachable!("handled before disk work"),
-            Command::Action { action, .. } => act(&mut library, &mut snapshot, action, &outgoing),
+            Command::Leave | Command::ApplyFailed | Command::Flush(_) => {
+                unreachable!("handled before disk work")
+            }
+            Command::Action { action, .. } => {
+                let result = act(&mut library, &mut snapshot, action, &outgoing);
+                if action == Action::Apply && result.is_ok() {
+                    submitted_selection = Some(library.active().to_vec());
+                }
+                result
+            }
         };
         if let Err(error) = result {
             snapshot.message = error.to_string();

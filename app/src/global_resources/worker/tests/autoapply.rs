@@ -21,6 +21,7 @@ fn leave_events(actions: &[MenuAction]) -> (tempfile::TempDir, Vec<Event>) {
     app.insert_resource(Worker {
         commands,
         picker: crossbeam_channel::unbounded().0,
+        picker_open: false,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,
@@ -71,6 +72,16 @@ fn leaving_with_pending_changes_applies_once() {
             leave_events(&[MenuAction::GlobalResources(Action::Activate(0)), leave]);
         assert_eq!(reloads(&events), 1, "{leave:?}");
     }
+}
+
+#[test]
+fn leaving_after_apply_keeps_the_in_flight_selection() {
+    let (_fixture, events) = leave_events(&[
+        MenuAction::GlobalResources(Action::Activate(0)),
+        MenuAction::GlobalResources(Action::Apply),
+        MenuAction::AddBack,
+    ]);
+    assert_eq!(reloads(&events), 1);
 }
 
 #[test]

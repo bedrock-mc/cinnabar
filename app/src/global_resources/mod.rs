@@ -111,6 +111,7 @@ fn drive(
         && menu.settings_section()
             == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack);
     let mut snapshot_changed = false;
+    let picker_was_open = worker.picker_open;
     for request in menu.take_minecraft_import_requests() {
         let action = request.action;
         if !worker.send_minecraft_import(request) {
@@ -159,11 +160,13 @@ fn drive(
                     worker.minecraft_import_pending = false;
                 }
                 worker.awaiting = None;
+                worker.picker_open = false;
                 snapshot_changed |= std::mem::take(&mut worker.snapshot.busy);
                 break;
             }
         };
         match event {
+            worker::Event::PickerClosed => worker.picker_open = false,
             worker::Event::MinecraftImportStatus(message) => {
                 worker.minecraft_import_pending = false;
                 menu.publish_minecraft_import_pack_status(&message);
@@ -183,11 +186,17 @@ fn drive(
             }
         }
     }
-    if worker.awaiting.as_ref().is_some_and(|(revision, _)| {
-        *revision <= reload.completed_revision() && reload.error().is_none()
-    }) {
+    if worker
+        .awaiting
+        .as_ref()
+        .is_some_and(|(revision, _)| *revision <= reload.completed_revision())
+    {
         let (_, selection) = worker.awaiting.take().expect("completed selection");
-        worker.send(worker::Command::Commit(selection));
+        worker.send(if reload.error().is_none() {
+            worker::Command::Commit(selection)
+        } else {
+            worker::Command::ApplyFailed
+        });
     }
     if worker.minecraft_import_pending {
         if let Some(error) = reload.error() {
@@ -199,6 +208,7 @@ fn drive(
         }
     }
     let overlay = Overlay::current(&reload, &worker.snapshot.message);
+    snapshot_changed |= picker_was_open != worker.picker_open;
     if !snapshot_changed
         && published
             .as_ref()
@@ -207,6 +217,7 @@ fn drive(
         return;
     }
     let mut snapshot = worker.snapshot.clone();
+    snapshot.busy |= worker.picker_open;
     match overlay {
         Overlay::Progress(progress) => {
             snapshot.busy = true;

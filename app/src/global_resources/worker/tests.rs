@@ -558,7 +558,10 @@ fn commit_completion_clears_the_temporary_worker_status() {
         .iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .next_back()
         .unwrap();
@@ -593,7 +596,10 @@ fn presentation_only_actions_do_not_publish_a_pack_update() {
     );
     for snapshot in events.iter().filter_map(|event| match event {
         Event::Snapshot(snapshot) => Some(snapshot),
-        Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+        Event::PickerClosed
+        | Event::Apply(..)
+        | Event::MinecraftImport(..)
+        | Event::MinecraftImportStatus(_) => None,
     }) {
         assert!(
             !snapshot.busy,
@@ -626,7 +632,10 @@ fn apply_keeps_its_pending_runtime_publication() {
         .iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .next_back()
         .unwrap();
@@ -644,7 +653,10 @@ fn failed_import_keeps_its_error_after_busy_finishes() {
         .iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .next_back()
         .unwrap();
@@ -676,7 +688,10 @@ fn presentation_actions_preserve_a_pending_apply_message() {
         .iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .next_back()
         .unwrap();
@@ -731,7 +746,10 @@ fn an_acknowledgement_preserves_newer_staging_and_queued_list_indices() {
         .iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .next_back()
         .unwrap();
@@ -785,7 +803,10 @@ fn a_failed_save_still_records_the_runtime_acknowledgement() {
         .try_iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .last()
         .unwrap();
@@ -821,7 +842,10 @@ fn review_commands_from_one_snapshot_keep_both_panel_toggles() {
         .try_iter()
         .filter_map(|event| match event {
             Event::Snapshot(snapshot) => Some(snapshot),
-            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+            Event::PickerClosed
+            | Event::Apply(..)
+            | Event::MinecraftImport(..)
+            | Event::MinecraftImportStatus(_) => None,
         })
         .last()
         .unwrap();

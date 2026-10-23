@@ -15,6 +15,7 @@ fn fixture(screen: MenuScreen) -> (App, crossbeam_channel::Receiver<Command>) {
     let worker = Worker {
         commands,
         picker: crossbeam_channel::unbounded().0,
+        picker_open: false,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,

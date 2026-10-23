@@ -40,6 +40,7 @@ fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledge
     app.insert_resource(Worker {
         commands,
         picker: crossbeam_channel::unbounded().0,
+        picker_open: false,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,
