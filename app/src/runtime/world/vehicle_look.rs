@@ -4,7 +4,7 @@ use bevy::prelude::{Res, ResMut};
 use client_interaction::movement::LocalPhysicsController;
 use client_presentation::{
     actor_publication::{ActorFramePartialTick, ActorFrameState},
-    camera::VehicleLookFollow,
+    camera::{VehicleLookFollow, predicted_heading},
     local_player::LocalViewPose,
 };
 
@@ -24,15 +24,14 @@ pub(crate) fn follow_vehicle_look(
     let alpha = actor_frame
         .motion_step()
         .map_or(partial_tick.0, |step| step.partial_tick);
-    let lock = client_world
-        .stream
-        .as_ref()
-        .and_then(|stream| stream.authority().local_seat_view_lock(alpha))
-        .map(|mut lock| {
-            if let Some(yaw) = physics.predicted_vehicle_yaw() {
-                lock.vehicle_yaw = yaw;
-            }
-            lock
-        });
+    let lock = client_world.stream.as_ref().and_then(|stream| {
+        let authority = stream.authority();
+        let lock = authority.local_seat_view_lock(alpha)?;
+        Some(predicted_heading(
+            lock,
+            physics.predicted_vehicle_feed(),
+            authority.local_vehicle_revision(),
+        ))
+    });
     follow.follow(&mut view, lock);
 }

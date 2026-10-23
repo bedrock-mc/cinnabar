@@ -60,12 +60,6 @@ impl super::LocalPhysicsController {
         self.vehicle.reset();
     }
 
-    /// The steered boat's predicted yaw at this frame's point between ticks.
-    #[must_use]
-    pub fn predicted_vehicle_yaw(&self) -> Option<f32> {
-        self.vehicle.render_yaw(self.tick_alpha())
-    }
-
     /// Restarts the steered boat's prediction from a server correction and returns the
     /// rider's seat feet on it, which the caller snaps the rider to like a teleport.
     pub fn correct_vehicle(&mut self, correction: &VehicleCorrection) -> Option<[f32; 3]> {

@@ -45,6 +45,24 @@ impl VehicleLookFollow {
     }
 }
 
+/// The seat lock turned to the steered boat's predicted heading for this frame, when the
+/// prediction is of the lock's vehicle at its current revision; otherwise the lock as the
+/// actors report it.
+#[must_use]
+pub fn predicted_heading(
+    mut lock: SeatViewLock,
+    predicted: Option<client_world::LocalVehicleFeed>,
+    revision: u64,
+) -> SeatViewLock {
+    if let Some(feed) = predicted
+        && feed.runtime_id == lock.vehicle_runtime_id
+        && feed.revision == revision
+    {
+        lock.vehicle_yaw = feed.render_yaw;
+    }
+    lock
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +98,29 @@ mod tests {
             ..boat(90.0)
         };
         assert_eq!(follow.turn(0.0, Some(other)), 0.0);
+    }
+
+    /// Only a prediction of the locked vehicle at its current revision sets its heading.
+    #[test]
+    fn a_prediction_of_another_vehicle_leaves_the_lock_alone() {
+        let feed = client_world::LocalVehicleFeed {
+            runtime_id: 7,
+            revision: 3,
+            position: [0.0; 3],
+            yaw: 40.0,
+            velocity: [0.0; 3],
+            render_position: [0.0; 3],
+            render_yaw: 35.0,
+        };
+        let lock = boat(10.0);
+        assert_eq!(predicted_heading(lock, Some(feed), 3).vehicle_yaw, 35.0);
+        let other = client_world::LocalVehicleFeed {
+            runtime_id: 8,
+            ..feed
+        };
+        assert_eq!(predicted_heading(lock, Some(other), 3), lock);
+        assert_eq!(predicted_heading(lock, Some(feed), 4), lock);
+        assert_eq!(predicted_heading(lock, None, 3), lock);
     }
 
     #[test]

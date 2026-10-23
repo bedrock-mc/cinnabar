@@ -70,7 +70,7 @@ pub use server_view::{ActorView, ServerCameraSkips, ServerCameraView, ViewContex
 pub use settings::{
     CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, next_perspective,
 };
-pub use vehicle_look::VehicleLookFollow;
+pub use vehicle_look::{VehicleLookFollow, predicted_heading};
 
 pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
 /// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
