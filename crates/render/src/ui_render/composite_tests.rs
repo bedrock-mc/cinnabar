@@ -27,7 +27,8 @@ fn reduced_layers_defer_full_output_to_the_upscaler_and_follow_resize() {
             height: 600,
             depth_or_array_layers: 1,
         },
-    );
+    )
+    .unwrap();
     let target = RenderTarget::Window(bevy::window::WindowRef::Entity(Entity::PLACEHOLDER))
         .normalize(None)
         .unwrap();

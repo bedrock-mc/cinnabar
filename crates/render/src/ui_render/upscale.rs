@@ -16,6 +16,7 @@ pub(super) fn install(app: &mut App) {
         "../world_upscale.wgsl",
         crate::shader_safety::from_wgsl
     );
+    crate::pipeline_warmup::register::<UpscalePipeline>(app);
     app.sub_app_mut(RenderApp)
         .init_resource::<UpscalePipeline>();
 }
@@ -48,17 +49,16 @@ impl Specializer<RenderPipeline> for UpscaleSpecializer {
     }
 }
 
-/// Shares the linear sampler, input layout and cached variants across scaled views.
+/// Shares the input layout and cached variants across scaled views.
 #[derive(Resource)]
 pub(super) struct UpscalePipeline {
     layout: BindGroupLayoutDescriptor,
-    sampler: Sampler,
     variants: Variants<RenderPipeline, UpscaleSpecializer>,
 }
 
 impl FromWorld for UpscalePipeline {
-    /// Creates immutable sampling state once per render device.
-    fn from_world(world: &mut World) -> Self {
+    /// Declares pipeline state before the render device becomes available.
+    fn from_world(_world: &mut World) -> Self {
         let layout = BindGroupLayoutDescriptor::new(
             "world upscale inputs",
             &[
@@ -80,14 +80,6 @@ impl FromWorld for UpscalePipeline {
                 },
             ],
         );
-        let sampler = world
-            .resource::<RenderDevice>()
-            .create_sampler(&SamplerDescriptor {
-                label: Some("bilinear world upscale"),
-                mag_filter: FilterMode::Linear,
-                min_filter: FilterMode::Linear,
-                ..default()
-            });
         let descriptor = RenderPipelineDescriptor {
             label: Some("world upscale before native UI".into()),
             layout: vec![layout.clone()],
@@ -110,7 +102,6 @@ impl FromWorld for UpscalePipeline {
         };
         Self {
             layout,
-            sampler,
             variants: Variants::new(UpscaleSpecializer, descriptor),
         }
     }
@@ -134,11 +125,12 @@ impl UpscalePipeline {
         device: &RenderDevice,
         cache: &PipelineCache,
         source: &TextureView,
+        sampler: &Sampler,
     ) -> BindGroup {
         device.create_bind_group(
             "world upscale",
             &cache.get_bind_group_layout(&self.layout),
-            &BindGroupEntries::sequential((source, &self.sampler)),
+            &BindGroupEntries::sequential((source, sampler)),
         )
     }
 }

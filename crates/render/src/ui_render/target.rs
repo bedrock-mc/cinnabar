@@ -26,6 +26,7 @@ pub(crate) struct NativeUiTarget {
     ready: AtomicBool,
     presented: AtomicBool,
     output_format: TextureFormat,
+    sampler: Sampler,
     seed_pipelines: [CachedRenderPipelineId; 2],
     present_pipeline: CachedRenderPipelineId,
     seed_bindings: Mutex<Vec<(TextureViewId, BindGroup)>>,
@@ -79,6 +80,12 @@ impl NativeUiTarget {
             ready: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             output_format,
+            sampler: device.create_sampler(&SamplerDescriptor {
+                label: Some("bilinear world upscale"),
+                mag_filter: FilterMode::Linear,
+                min_filter: FilterMode::Linear,
+                ..default()
+            }),
             seed_pipelines: [pipelines[0], pipelines[1]],
             present_pipeline: pipelines[2],
             seed_bindings: Mutex::new(Vec::with_capacity(2)),
@@ -149,7 +156,7 @@ impl NativeUiTarget {
         };
         let sharpen = world
             .get_resource::<crate::render_scale::RenderScaleSharpen>()
-            .is_none_or(|filter| filter.0);
+            .is_some_and(|filter| filter.0);
         let Some(pipeline) = cache.get_render_pipeline(self.seed_pipelines[usize::from(sharpen)])
         else {
             return false;
@@ -165,7 +172,8 @@ impl NativeUiTarget {
             if let Some((_, binding)) = bindings.iter().find(|(id, _)| *id == source.id()) {
                 binding.clone()
             } else {
-                let binding = upscale.binding(context.render_device(), cache, source);
+                let binding =
+                    upscale.binding(context.render_device(), cache, source, &self.sampler);
                 bindings.push((source.id(), binding.clone()));
                 binding
             }

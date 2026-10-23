@@ -57,10 +57,16 @@ fn extract_scale_requests(
     player: Extract<Option<Res<PlayerRuntime>>>,
     owners: Extract<Query<RenderEntity, With<FlyCamera>>>,
     previous: Query<(Entity, &RenderScaleRequest)>,
+    filter: Option<Res<render::RenderScaleSharpen>>,
 ) {
-    commands.insert_resource(render::RenderScaleSharpen(settings.as_ref().is_none_or(
-        |settings| settings.user_settings_update().1.video.render_scale_sharpen,
-    )));
+    let sharpen = settings
+        .as_ref()
+        .map_or(ui::DEFAULT_RENDER_SCALE_SHARPEN, |settings| {
+            settings.user_settings_update().1.video.render_scale_sharpen
+        });
+    if filter.as_ref().map(|filter| filter.0) != Some(sharpen) {
+        commands.insert_resource(render::RenderScaleSharpen(sharpen));
+    }
     let scale = scale.0.unwrap_or_else(|| {
         settings.as_ref().map_or(1.0, |settings| {
             f32::from(settings.user_settings_update().1.video.render_scale_percent) / 100.0

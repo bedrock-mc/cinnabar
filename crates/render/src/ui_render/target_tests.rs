@@ -321,6 +321,13 @@ fn pixels(world: &World, entity: Entity) -> Vec<[u8; 4]> {
 
 #[test]
 fn native_one_pixel_hud_survives_ten_percent_world_upscale_and_empty_next_frame() {
+    for sharpen in [false, true] {
+        native_one_pixel_hud(sharpen);
+    }
+}
+
+/// Checks both filters through real GPU draws and output readback, including an empty next HUD.
+fn native_one_pixel_hud(sharpen: bool) {
     let Some(renderer) = crate::render_test_support::scene_raster::renderer() else {
         return;
     };
@@ -342,6 +349,7 @@ fn native_one_pixel_hud_survives_ten_percent_world_upscale_and_empty_next_frame(
     });
     app.update();
     let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
     let entity = view(world, [40, 30], [4, 3]);
     world.resource_mut::<PipelineCache>().process_queue();
     let device = world.resource::<RenderDevice>().clone();
@@ -568,4 +576,34 @@ fn native_ui_allocation_retries_after_backoff_and_recovers() {
         system.run((), world).unwrap();
     }
     assert!(world.get::<NativeUiTarget>(entity).is_some());
+}
+
+/// HDR world targets keep their format while native UI retains the output's dimensions.
+#[test]
+fn native_ui_supports_scaled_hdr_views() {
+    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let entity = view(world, [81, 61], [40, 30]);
+    world.get_mut::<ExtractedCamera>(entity).unwrap().hdr = true;
+    world
+        .get_mut::<ExtractedView>(entity)
+        .unwrap()
+        .target_format = render_scene::SCENE_HDR_FORMAT;
+    prepare(world);
+    let native = world.get::<NativeUiTarget>(entity).unwrap();
+    assert_eq!(native.extent(), [81, 61]);
+    assert!(
+        native
+            .textures
+            .iter()
+            .all(|texture| texture.format() == render_scene::SCENE_HDR_FORMAT)
+    );
+    assert_eq!(
+        world
+            .get::<ViewTarget>(entity)
+            .unwrap()
+            .main_texture()
+            .width(),
+        40
+    );
 }

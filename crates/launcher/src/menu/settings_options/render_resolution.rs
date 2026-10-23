@@ -115,4 +115,26 @@ mod tests {
             ui::DEFAULT_RENDER_SCALE_PERCENT
         );
     }
+    #[test]
+    fn sharpening_persists_and_resets_with_video_settings() {
+        let mut saved = SettingsOptions::default();
+        assert_eq!(
+            saved.user_settings().video.render_scale_sharpen,
+            ui::DEFAULT_RENDER_SCALE_SHARPEN
+        );
+        saved.set(SettingId::RenderResolution.index(), 37);
+        saved.set(SettingId::RenderScaleSharpen.index(), 0);
+        let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        assert_eq!(loaded.user_settings().video.render_scale_percent, 37);
+        assert!(!loaded.user_settings().video.render_scale_sharpen);
+        loaded.reset_group(SettingsGroup::Video);
+        assert_eq!(
+            loaded.user_settings().video.render_scale_percent,
+            ui::DEFAULT_RENDER_SCALE_PERCENT
+        );
+        assert_eq!(
+            loaded.user_settings().video.render_scale_sharpen,
+            ui::DEFAULT_RENDER_SCALE_SHARPEN
+        );
+    }
 }

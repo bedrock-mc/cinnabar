@@ -345,27 +345,39 @@ pub(super) fn ensure_depth(
     samples: u32,
 ) -> bool {
     gpu.failed_depth.retain(|previous| previous == owner);
-    if gpu.depth.as_ref().is_some_and(|depth| depth.size == size && depth.samples == samples) {
+    if gpu
+        .depth
+        .as_ref()
+        .is_some_and(|depth| depth.size == size && depth.samples == samples)
+    {
         return true;
     }
     gpu.depth = None;
     let label = "bounded private hand reverse-Z depth";
     let bytes = viewmodel_depth_bytes(size, samples).expect("validated hand depth extent");
     let texture = gpu.failed_depth.attempt(owner, (size, samples), || {
-        crate::gpu_allocation::checked(device, label, bytes, || device.create_texture(&TextureDescriptor {
-            label: Some(label),
-            size: Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Depth32Float,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        }))
+        crate::gpu_allocation::checked(device, label, bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some(label),
+                size: Extent3d {
+                    width: size[0],
+                    height: size[1],
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Depth32Float,
+                usage: TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+        })
     });
     gpu.depth = texture.map(|texture| DepthGpu {
         view: texture.create_view(&TextureViewDescriptor::default()),
-        _texture: texture, size, samples,
+        _texture: texture,
+        size,
+        samples,
     });
     gpu.depth.is_some()
 }

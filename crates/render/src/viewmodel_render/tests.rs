@@ -441,23 +441,53 @@ fn neutral_depth_allocation_failure_backs_off_then_recovers() {
         }
     });
     for _ in 0..3 {
-        assert!(!ensure_depth(&mut gpu, &device, token.owner, token.viewport, token.samples));
+        assert!(!ensure_depth(
+            &mut gpu,
+            &device,
+            token.owner,
+            token.viewport,
+            token.samples
+        ));
         assert!(gpu.depth.is_none());
     }
     assert_eq!(attempts.get(), 1);
     drop(failure);
-    assert!(ensure_depth(&mut gpu, &device, token.owner, token.viewport, token.samples));
+    assert!(ensure_depth(
+        &mut gpu,
+        &device,
+        token.owner,
+        token.viewport,
+        token.samples
+    ));
     let depth = gpu.depth.as_ref().unwrap().view.id();
-    assert!(ensure_depth(&mut gpu, &device, token.owner, token.viewport, token.samples));
+    assert!(ensure_depth(
+        &mut gpu,
+        &device,
+        token.owner,
+        token.viewport,
+        token.samples
+    ));
     assert_eq!(gpu.depth.as_ref().unwrap().view.id(), depth);
     {
         let _failure = crate::gpu_allocation::inject(|_, _| true);
         token.viewport[0] *= 2;
-        assert!(!ensure_depth(&mut gpu, &device, token.owner, token.viewport, token.samples));
+        assert!(!ensure_depth(
+            &mut gpu,
+            &device,
+            token.owner,
+            token.viewport,
+            token.samples
+        ));
         assert!(gpu.depth.is_none());
     }
     token.viewport[1] *= 2;
-    assert!(ensure_depth(&mut gpu, &device, token.owner, token.viewport, token.samples));
+    assert!(ensure_depth(
+        &mut gpu,
+        &device,
+        token.owner,
+        token.viewport,
+        token.samples
+    ));
     assert_eq!(gpu.depth.as_ref().unwrap().size, token.viewport);
 }
 

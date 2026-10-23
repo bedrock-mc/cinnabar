@@ -236,7 +236,7 @@ pub(super) fn draw_batches<'w>(
     pass.set_vertex_buffer(0, vertices.slice(..));
     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
     for (_, batch, location) in batches {
-        let mut clipped = batch.clone();
+        let mut clipped = **batch;
         if let Some(output) = output_extent {
             let Some(scissor) = scaled_scissor(batch.scissor, output, extent) else {
                 continue;
