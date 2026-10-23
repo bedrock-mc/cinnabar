@@ -1,8 +1,8 @@
 use super::*;
 
-/// Mount travel preserves an accepted crawl without requesting a crawl stop.
+/// A server crawl survives a current-tick correction until the mounted tick stops it.
 #[test]
-fn pose_size_regression_keeps_crawl_while_riding() {
+fn mounted_tick_stops_accepted_crawl() {
     let (mut physics, mut ticker) = airborne();
     let context = PhysicsSampleContext {
         mode_intent: super::super::super::ModeIntent {
@@ -13,19 +13,39 @@ fn pose_size_regression_keeps_crawl_while_riding() {
     };
     let anchor = tick(&mut physics, &mut ticker, context);
     physics.apply_server_movement_flags(0, flags(|flags| flags.crawling = Some(true)));
+    assert!(physics.pose_flags().crawling);
+    assert_eq!(physics.prediction_sync_flags().crawling, Some(true));
+    assert_eq!(count(&ticker, PlayerInputFlags::START_CRAWLING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 0);
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        anchor.position,
+        anchor.tick,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(physics.pose_flags().crawling);
+    assert_eq!(physics.prediction_sync_flags().crawling, Some(true));
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 0);
     for _ in 0..2 {
         let sample = tick(&mut physics, &mut ticker, context);
         assert_eq!(sample.processed.mode, sim::MovementMode::Riding);
-        assert!(physics.pose_flags().crawling);
+        assert!(!physics.pose_flags().crawling);
+        assert_eq!(physics.prediction_sync_flags().crawling, Some(false));
         assert_eq!(count(&ticker, PlayerInputFlags::START_CRAWLING), 0);
-        assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 0);
+        assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 1);
     }
     for _ in 0..2 {
         reconcile_timeline_rewind(&mut ticker, &mut physics, anchor.tick, &VersionedFloor(1))
             .unwrap();
         assert_eq!(physics.mode(), sim::MovementMode::Riding);
-        assert!(physics.pose_flags().crawling);
-        assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 0);
+        assert!(!physics.pose_flags().crawling);
+        assert_eq!(physics.prediction_sync_flags().crawling, Some(false));
+        assert_eq!(count(&ticker, PlayerInputFlags::START_CRAWLING), 0);
+        assert_eq!(count(&ticker, PlayerInputFlags::STOP_CRAWLING), 1);
     }
 }
 

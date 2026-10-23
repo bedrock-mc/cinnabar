@@ -296,9 +296,10 @@ impl ModeTracker {
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.mode = MovementMode::Riding;
-            // Mount travel leaves the accepted crawl flag alone.
             self.poses.gliding = false;
             self.poses.swimming = false;
+            // The mounted sneak producer stops an accepted crawl.
+            self.poses.crawling = false;
             self.sprinting = false;
             self.sneaking = false;
             self.previous_feet = Some(observed.feet);
