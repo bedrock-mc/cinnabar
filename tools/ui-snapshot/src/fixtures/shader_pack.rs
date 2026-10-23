@@ -169,6 +169,12 @@ pub(super) fn settings_video() -> Fixture {
 /// Shader-pack load toasts and the library's selected, loading and failed states.
 pub(super) const STATES: &[State] = &[
     State {
+        name: "settings-video",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_video,
+    },
+    State {
         name: "toast-shader-pack-loading",
         size: SIZE,
         gui_scale: GUI_SCALE,

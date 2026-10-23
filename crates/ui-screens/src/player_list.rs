@@ -36,6 +36,16 @@ pub struct RosterRow {
     pub skin: Option<render_api::StandardSkin>,
 }
 
+/// Inputs that invalidate the roster's prepared geometry and bindings.
+#[derive(Clone, Copy, PartialEq)]
+struct Geometry {
+    root: [f64; 2],
+    px: f32,
+    language: [usize; 3],
+    badge: bool,
+    top_inset: f32,
+}
+
 /// The roster screen over its own bundled catalog, rebound only when the rows change.
 pub struct PlayerList {
     catalog: Arc<Catalog>,
@@ -44,7 +54,7 @@ pub struct PlayerList {
     total: usize,
     data: Arc<DataSource>,
     dimensions: [usize; 2],
-    geometry: Option<([f64; 2], f32, [usize; 3], bool, f32)>,
+    geometry: Option<Geometry>,
     context: Context,
     portraits: BTreeMap<String, render_model::UiTexturePage>,
     heads: Vec<String>,
@@ -258,7 +268,13 @@ impl PlayerList {
             .set_client_rasters(PORTRAIT_RASTER_NAMESPACE, &self.portraits);
         engine.draw(ScreenArt::default(), frame, |env, root| {
             let badge = self.rows.iter().any(|row| row.badged);
-            let geometry = (root, px, language, badge, top_inset);
+            let geometry = Geometry {
+                root,
+                px,
+                language,
+                badge,
+                top_inset,
+            };
             if self.geometry != Some(geometry) {
                 let widest = self
                     .rows
