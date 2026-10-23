@@ -58,9 +58,11 @@ encode 0.36, opaque 0.12, late cull 0.06, compute passes and validation 0.19), D
 0.53 (waiting on the GPU), executor 0.18 across ~210 single-threaded render systems, graph
 0.15, submit 0.09.
 
-DX12 compiles every pipeline with FXC, which the renderer pins, at every launch; nothing
+DX12 then compiled every pipeline with FXC, which the renderer pinned, at every launch; nothing
 persists between launches. Each cull kernel took about 7.5 s, nearly all of it spent on the
 loop wgpu adds to zero workgroup memory; the same kernels compile in 0.1 to 0.2 s without it.
+Windows clients now compile with the DXC installed beside the executable and keep FXC only as
+the fallback (`crates/render/src/device_settings.rs`).
 
 ## Changes
 

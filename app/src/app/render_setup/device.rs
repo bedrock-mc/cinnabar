@@ -107,10 +107,11 @@ fn raise_window_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits
         .max(adapter.max_texture_dimension_2d);
 }
 
-/// Builds exactly one backend with the shipping compiler and display policy.
+/// Builds exactly one backend with the given DX12 shader compiler and the shipping display policy.
 pub(super) fn instance(
     backend: Backend,
     settings: &WgpuSettings,
+    dx12_shader_compiler: wgpu::Dx12Compiler,
     display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
 ) -> wgpu::Instance {
     let mut descriptor = wgpu::InstanceDescriptor {
@@ -126,13 +127,36 @@ pub(super) fn instance(
             .flags
             .insert(wgpu::InstanceFlags::METAL_ASYNC_WINDOWED_PRESENTATION);
     }
-    descriptor.backend_options.dx12.shader_compiler = settings.dx12_shader_compiler.clone();
+    descriptor.backend_options.dx12.shader_compiler = dx12_shader_compiler;
     descriptor.backend_options.dx12.presentation_system =
         wgpu::wgt::Dx12SwapchainKind::from_env().unwrap_or_default();
     descriptor.backend_options.dx12.latency_waitable_object =
         wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
     descriptor.backend_options.gl.gles_minor_version = settings.gles3_minor_version;
     wgpu::Instance::new(descriptor)
+}
+
+/// Whether a DX12 instance needs FXC instead: wgpu leaves out the DX12 backend, logging only at
+/// debug level, when the DXC it was given fails to load.
+pub(super) fn dxc_failed(
+    backend: Backend,
+    dx12_shader_compiler: &wgpu::Dx12Compiler,
+    instance: &wgpu::Instance,
+) -> bool {
+    backend == Backend::Dx12
+        && !matches!(dx12_shader_compiler, wgpu::Dx12Compiler::Fxc)
+        && !has_dx12(instance)
+}
+
+#[cfg(windows)]
+fn has_dx12(instance: &wgpu::Instance) -> bool {
+    // SAFETY: Only the backend's presence is read; nothing is used or destroyed through it.
+    unsafe { instance.as_hal::<wgpu::hal::api::Dx12>() }.is_some()
+}
+
+#[cfg(not(windows))]
+fn has_dx12(_: &wgpu::Instance) -> bool {
+    false
 }
 
 /// Reads the adapter-name restriction shared by all backend probes.

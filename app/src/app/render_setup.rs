@@ -71,21 +71,6 @@ mod tests {
     }
 
     #[test]
-    fn shader_compiler_does_not_inherit_a_launch_directory_dxc() {
-        let mut settings = WgpuSettings {
-            dx12_shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
-                dxc_path: "dxcompiler.dll".into(),
-            },
-            ..Default::default()
-        };
-        render::device_settings::configure(&mut settings);
-        assert!(matches!(
-            settings.dx12_shader_compiler,
-            wgpu::Dx12Compiler::Fxc
-        ));
-    }
-
-    #[test]
     fn primary_window_requests_the_vsync_frame_latency() {
         // Windows request FIFO until the surface is probed, whatever VSync choice they serve.
         for vsync in [true, false] {

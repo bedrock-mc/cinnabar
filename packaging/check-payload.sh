@@ -39,6 +39,7 @@ case "$platform" in
         resources="${prefix}resources/"
         required=()
         while IFS= read -r name; do required+=("$prefix$name.exe"); done < <(runtime_binaries)
+        while IFS= read -r name; do required+=("$prefix$name"); done < <(windows_runtime_libraries)
         optional=()
         # msiexec /a leaves a copy of the package beside the image.
         while IFS= read -r msi; do optional+=("$msi"); done < <(cd "$root" && find . -maxdepth 1 -type f -name '*.msi' | sed 's|^\./||')

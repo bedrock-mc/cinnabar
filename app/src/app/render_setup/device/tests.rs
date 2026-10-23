@@ -69,3 +69,27 @@ fn window_texture_limits_rise_to_the_adapter_and_never_fall() {
         requested.max_texture_dimension_2d
     );
 }
+
+/// wgpu drops the DX12 backend when its DXC cannot load; only that case retries with FXC.
+#[cfg(windows)]
+#[test]
+fn dx12_retries_with_fxc_only_when_its_dxc_cannot_load() {
+    let settings = WgpuSettings::default();
+    let fxc = wgpu::Dx12Compiler::Fxc;
+    let with_fxc = instance(Backend::Dx12, &settings, fxc.clone(), None);
+    if !has_dx12(&with_fxc) {
+        eprintln!("missing fixture: a DX12 runtime");
+        return;
+    }
+    assert!(!dxc_failed(Backend::Dx12, &fxc, &with_fxc));
+    let missing = wgpu::Dx12Compiler::DynamicDxc {
+        dxc_path: std::env::temp_dir()
+            .join("cinnabar-missing-dxc")
+            .join("dxcompiler.dll")
+            .to_string_lossy()
+            .into_owned(),
+    };
+    let without_dxc = instance(Backend::Dx12, &settings, missing.clone(), None);
+    assert!(dxc_failed(Backend::Dx12, &missing, &without_dxc));
+    assert!(!dxc_failed(Backend::Vulkan, &missing, &without_dxc));
+}

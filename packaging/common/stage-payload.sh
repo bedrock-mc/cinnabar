@@ -17,6 +17,15 @@ runtime_binaries() {
     awk '{print $1}' "$runtime_binary_list"
 }
 
+# The DX12 shader compiler pin travels with these scripts, like the fetch-dxc.ps1 that installs it,
+# so a payload and its check agree when an older source checkout is packaged.
+dxc_pin="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/windows/dxc.json"
+
+# windows_runtime_libraries: DLLs Windows payloads install beside the runtime executables.
+windows_runtime_libraries() {
+    sed -n 's/^[[:space:]]*"library"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$dxc_pin"
+}
+
 # runtime_binary_source <name> <override>: a configured executable or its sibling build output.
 runtime_binary_source() {
     local name="$1" override="$2" directory

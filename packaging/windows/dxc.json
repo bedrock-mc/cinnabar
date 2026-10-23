@@ -1,0 +1,7 @@
+{
+  "library": "dxcompiler.dll",
+  "archive_url": "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip",
+  "archive_sha256": "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1",
+  "archive_directory": "bin/x64",
+  "library_sha256": "0689e2fee0a1c9df8662a59680469f24e2a3ad7ce6bbbcc9284f7a83172bfc59"
+}
