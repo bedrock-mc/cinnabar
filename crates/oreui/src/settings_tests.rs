@@ -957,7 +957,15 @@ fn video_render_resolution_slider_edits_every_integer_percentage() {
         ] {
             Arc::make_mut(&mut view.settings_options).set(index, i32::from(percent));
             let (_, _, nodes) = super::review_tests::paint(offsets.clone(), |canvas| {
-                settings::draw(canvas, &view, size, &|_| None, None).unwrap();
+                settings::draw(
+                    canvas,
+                    &view,
+                    size,
+                    &|_| None,
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
             });
             let caption = format!("{percent}%");
             assert!(nodes.iter().any(|node| matches!(node.visual(),
@@ -974,8 +982,8 @@ fn enhanced_video_keeps_render_resolution_editable() {
     let size = [1280.0, 720.0];
     let mut view = settings_view("video_forced_index");
     let index = SettingId::RenderResolution.index();
-    let offsets = centered_option(&view, index, size);
     view.render_mode = ui::RenderMode::Enhanced;
+    let offsets = centered_option(&view, index, size);
     let frame = paint(&view, size, offsets);
     assert!(frame.hits.iter().any(|(action, _)| matches!(action,
         MenuAction::SettingsOption(at, _) if usize::from(*at) == index
