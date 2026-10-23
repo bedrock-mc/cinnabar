@@ -143,7 +143,8 @@ fn nth_largest(samples: &[Duration], skipped: usize) -> Duration {
             slot -= 1;
         }
         if slot < largest.len() {
-            largest.copy_within(slot..largest.len() - 1, slot + 1);
+            let last = largest.len() - 1;
+            largest.copy_within(slot..last, slot + 1);
             largest[slot] = sample;
         }
     }
