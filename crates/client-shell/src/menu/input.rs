@@ -396,6 +396,7 @@ pub fn drive_menu_input(
         runtime.credits().owns_input()
             || runtime.server_forms().owns_input()
                 && (!menu.is_visible() || runtime.server_forms().settings_form_active())
+            || runtime.data_driven_ui().owns_input() && !menu.is_visible()
     }) {
         presentation.cancel_touch_editor_pointer();
         gui_scale_drag.editor_touch = None;

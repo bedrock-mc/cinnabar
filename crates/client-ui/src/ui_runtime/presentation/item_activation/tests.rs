@@ -5,6 +5,7 @@ use assets::facts::TOTEM_IDENTIFIER;
 #[test]
 fn activation_projects_the_full_rotating_quad_and_preserves_icon_uvs() {
     let icon = IconRef {
+        color_mask: None,
         page: 2,
         uv: [11, 13, 27, 29],
         glint: true,

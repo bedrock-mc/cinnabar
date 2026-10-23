@@ -51,7 +51,6 @@ pub(super) fn raster(
     geometries: &[EntityGeometry],
 ) -> Result<Option<IconSprite>, AssetError> {
     let mut projection: fn([f32; 3]) -> [f32; 3] = assets::gui_item::project_cube;
-    let mut light = 1.0;
     let mut parts = if let Some(color) = geometry::shulker_color_from_block_name(name) {
         let mut part = boxes(
             &geometry::shulker_texture(color),
@@ -65,7 +64,6 @@ pub(super) fn raster(
                 *z = (*z + 8.0) / 16.0;
             }
         }
-        light = assets::gui_item::SHULKER_GUI_LIGHT;
         vec![part]
     } else if let Some(skull_type) = assets::vanilla_skull_type(name) {
         let Some(part) = skull(skull_type, geometries) else {
@@ -115,7 +113,7 @@ pub(super) fn raster(
                         logical: geometry::POT_SIDE_TEXTURE.1,
                         faces: geometry::pot_sides()
                             .into_iter()
-                            .map(|corners| (corners, [0.0, 0.0, 16.0, 16.0]))
+                            .map(|corners| (corners, geometry::POT_SIDE_TEXELS))
                             .collect(),
                         color: [255; 3],
                     },
@@ -176,15 +174,53 @@ pub(super) fn raster(
             quads.push((corners, uvs, texture));
         }
     }
-    let model = Model::textured(quads, projection, light);
+    let model = Model::textured(quads, projection, 1.0);
     Ok(Some(
-        if is_banner(name) {
+        if is_banner(name) || assets::vanilla_skull_type(name).is_some() {
             model.unshaded()
         } else {
             model
         }
         .raster(),
     ))
+}
+
+#[cfg(test)]
+mod pot_texture_tests {
+    use super::*;
+
+    #[test]
+    fn pot_side_texture_border_stays_outside_the_preview() {
+        let root = tempfile::tempdir().unwrap();
+        let texture_path = |name: &str| root.path().join(format!("{name}.png"));
+        let base = texture_path(geometry::POT_BASE_TEXTURE.0);
+        std::fs::create_dir_all(base.parent().unwrap()).unwrap();
+        image::RgbaImage::new(32, 32).save(base).unwrap();
+        let side = texture_path(geometry::POT_SIDE_TEXTURE.0);
+        let mut image = image::RgbaImage::from_pixel(16, 16, image::Rgba([180, 90, 60, 255]));
+        image.save(&side).unwrap();
+        let opaque = raster(root.path(), "minecraft:decorated_pot", 0, &[])
+            .unwrap()
+            .unwrap();
+        assert!(
+            opaque
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0)
+        );
+        for y in 0..16 {
+            for x in [0, 15] {
+                image.put_pixel(x, y, image::Rgba([0; 4]));
+            }
+        }
+        image.save(side).unwrap();
+        let bordered = raster(root.path(), "minecraft:decorated_pot", 0, &[])
+            .unwrap()
+            .unwrap();
+        assert_eq!(bordered.rgba8, opaque.rgba8);
+    }
 }
 
 /// A head in the ordinary cube frame, from `geometries` for dragon and piglin heads. Like other
@@ -237,12 +273,13 @@ fn skull(skull_type: u8, geometries: &[EntityGeometry]) -> Option<Part> {
 }
 
 /// Groups the authored lectern faces by their terrain texture.
+/// Turns the shared north-facing stand into its south-facing inventory pose.
 fn lectern() -> Vec<Part> {
     let mut parts: Vec<Part> = Vec::new();
     for (texture_index, (corners, texels)) in geometry::lectern_faces() {
         let texture = geometry::LECTERN_TEXTURES[texture_index];
         let face = (
-            corners.map(|[x, y, z]| [(x + 8.0) / 16.0, y / 16.0, (z + 8.0) / 16.0]),
+            corners.map(|[x, y, z]| [(8.0 - x) / 16.0, y / 16.0, (8.0 - z) / 16.0]),
             texels,
         );
         if let Some(part) = parts.iter_mut().find(|part| part.texture == texture) {

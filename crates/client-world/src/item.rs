@@ -31,6 +31,8 @@ mod grip;
 mod map_tests;
 #[cfg(test)]
 mod presentation_tests;
+#[cfg(test)]
+mod visual_route_tests;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
@@ -623,7 +625,7 @@ impl ItemStateStore {
             identifier
                 .as_deref()
                 .map_or(ItemVisualRoute::Missing, |identifier| {
-                    self.resolve_visual(identifier, identity.metadata)
+                    self.resolve_visual(identifier, identity.metadata, identity.block_runtime_id)
                 }),
             identity.block_runtime_id,
         );
@@ -651,39 +653,56 @@ impl ItemStateStore {
 
     /// Visual route for an item identifier with no stack context (e.g. the TNT block).
     pub(crate) fn visual_for_identifier(&self, identifier: &str) -> ItemVisualRoute {
-        self.resolve_visual(identifier, 0)
+        self.resolve_visual(identifier, 0, 0)
     }
 
-    fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
+    /// Resolves an exact visual, using the base block only when aux cannot select a state.
+    /// Sprite items keep their metadata-specific visual rules.
+    fn resolve_visual(
+        &self,
+        identifier: &str,
+        metadata: u32,
+        block_runtime_id: i32,
+    ) -> ItemVisualRoute {
         let Some(assets) = self.assets.as_ref() else {
             return ItemVisualRoute::Missing;
         };
-        let key = ItemVisualKey {
-            identifier: identifier.into(),
-            metadata,
-        };
-        if let Ok(index) = assets
-            .item_visuals()
-            .binary_search_by(|visual| visual.key.cmp(&key))
-        {
-            return match assets.item_visuals()[index].route {
-                ItemVisualDefinitionRoute::Sprite { .. } => {
-                    ItemVisualRoute::Compiled(ItemVisualId(index as u32))
-                }
-                ItemVisualDefinitionRoute::BlockItem { block_visual } => {
-                    ItemVisualRoute::BlockItem(BlockVisualId(block_visual.0))
-                }
-                ItemVisualDefinitionRoute::EmptyHand => ItemVisualRoute::EmptyHand,
-                ItemVisualDefinitionRoute::Missing => ItemVisualRoute::Missing,
+        let exact = |metadata| {
+            let key = ItemVisualKey {
+                identifier: identifier.into(),
+                metadata,
             };
-        }
-        assets
-            .item_visual_aliases()
-            .binary_search_by(|alias| alias.key.cmp(&key))
-            .ok()
-            .map_or(ItemVisualRoute::Missing, |index| {
-                ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual)
+            if let Ok(index) = assets
+                .item_visuals()
+                .binary_search_by(|visual| visual.key.cmp(&key))
+            {
+                return Some(match assets.item_visuals()[index].route {
+                    ItemVisualDefinitionRoute::Sprite { .. } => {
+                        ItemVisualRoute::Compiled(ItemVisualId(index as u32))
+                    }
+                    ItemVisualDefinitionRoute::BlockItem { block_visual } => {
+                        ItemVisualRoute::BlockItem(BlockVisualId(block_visual.0))
+                    }
+                    ItemVisualDefinitionRoute::EmptyHand => ItemVisualRoute::EmptyHand,
+                    ItemVisualDefinitionRoute::Missing => ItemVisualRoute::Missing,
+                });
+            }
+            assets
+                .item_visual_aliases()
+                .binary_search_by(|alias| alias.key.cmp(&key))
+                .ok()
+                .map(|index| ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual))
+        };
+        exact(metadata)
+            .or_else(|| {
+                (metadata != 0
+                    && block_runtime_id == 0
+                    && !assets::facts::block_item_has_aux_states(identifier))
+                .then(|| exact(0))
+                .flatten()
+                .filter(|route| matches!(route, ItemVisualRoute::BlockItem(_)))
             })
+            .unwrap_or(ItemVisualRoute::Missing)
     }
 
     fn retain_pending(&mut self, key: EquipmentKey) {
@@ -740,9 +759,6 @@ fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> Ite
     }
     ItemVisualRoute::RetainedBlock { block_runtime_id }
 }
-
-#[cfg(test)]
-mod visual_route_tests;
 
 /// Resolves item-owned facts once for this registry generation.
 fn registry_record(

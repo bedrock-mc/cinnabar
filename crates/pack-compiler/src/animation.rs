@@ -1,3 +1,4 @@
+use pack_compile_input::image::replicated_tile;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
@@ -496,31 +497,6 @@ fn slice_frames(image: &DecodedImage, replicate: u32) -> Result<Vec<Box<[u8]>>, 
         frames.push(normalize_texture_tile(tile, tile_size, &image.source_path)?);
     }
     Ok(frames)
-}
-
-/// The upper-left `size / replicate` square of a `size`-pixel frame, enlarged by whole pixels to
-/// at least one tile when that square is smaller. Unreplicated frames and frames outside the tile
-/// size contract pass through unchanged for `normalize_texture_tile` to check.
-fn replicated_tile(frame: Vec<u8>, size: u32, replicate: u32) -> (Box<[u8]>, u32) {
-    if replicate <= 1 || size < assets::TILE_SIZE || !size.is_power_of_two() {
-        return (frame.into_boxed_slice(), size);
-    }
-    let crop = (size / replicate).max(1);
-    let tile_size = if crop.is_power_of_two() && crop >= assets::TILE_SIZE {
-        crop
-    } else {
-        assets::TILE_SIZE
-    };
-    let mut tile = Vec::with_capacity((tile_size * tile_size * 4) as usize);
-    for y in 0..tile_size {
-        let source_y = y * crop / tile_size;
-        for x in 0..tile_size {
-            let source_x = x * crop / tile_size;
-            let start = ((source_y * size + source_x) * 4) as usize;
-            tile.extend_from_slice(&frame[start..start + 4]);
-        }
-    }
-    (tile.into_boxed_slice(), tile_size)
 }
 
 #[cfg(test)]

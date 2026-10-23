@@ -87,8 +87,12 @@ pub(super) fn emit_mesh(
                 clip_w: vertex.clip_w,
                 uv: vertex.uv,
                 color: vertex.color,
-                style_flags: vertex.style_flags,
-                alpha_test: vertex.alpha_test,
+                style_flags: u32::from(vertex.style_flags)
+                    | if vertex.alpha_test {
+                        render_api::UI_STYLE_ALPHA_TEST
+                    } else {
+                        0
+                    },
                 alpha_cutoff: material.alpha_cutoff.unwrap_or(-1.0),
                 model_light: vertex.model_light,
                 overlay_color: vertex.overlay_color,
@@ -139,6 +143,7 @@ mod tests {
         let vertex_count = 100_000;
         let material_count = 128;
         let source = UiMeshVertex {
+            alpha_test: false,
             position: [0.25, 0.5],
             clip_z: 0.0,
             clip_w: 1.0,
@@ -147,7 +152,6 @@ mod tests {
             model_light: 1.0,
             overlay_color: [0.0; 4],
             style_flags: 0,
-            alpha_test: false,
         };
         let mesh = Arc::new(
             UiMesh::new(

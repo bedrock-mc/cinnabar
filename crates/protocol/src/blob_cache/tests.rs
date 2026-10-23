@@ -346,9 +346,9 @@ fn late_duplicate_response_still_validates_entire_batch() {
     assert_eq!(resolver.stats().miss_response_integrity_rejection, 1);
 }
 
-/// A valid hash alone does not authorize an unknown payload or the rest of its batch.
+/// Unneeded payloads are ignored without losing the requested part of their batch.
 #[test]
-fn unsolicited_blob_still_rejects_a_mixed_response() {
+fn unsolicited_blob_does_not_discard_a_needed_reply() {
     let requested_payload = b"requested column";
     let unknown_payload = b"never requested column";
     let requested_hash = client_blob_hash(requested_payload);
@@ -375,13 +375,16 @@ fn unsolicited_blob_still_rejects_a_mixed_response() {
         })
         .unwrap();
 
-    assert!(!resolver.cache().contains(requested_hash));
+    assert!(resolver.cache().contains(requested_hash));
     assert!(!resolver.cache().contains(unknown_hash));
     assert!(matches!(
         resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+        Some(BlobCacheReady::Packet(packet))
+            if matches!(*packet.data, packets::Packet::LevelChunk(_))
     ));
+    assert!(resolver.pop_ready().is_none());
     assert_eq!(resolver.stats().miss_response_unsolicited, 1);
+    assert_eq!(resolver.stats().recovery_requests, 0);
 }
 
 #[test]

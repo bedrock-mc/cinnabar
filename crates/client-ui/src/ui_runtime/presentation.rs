@@ -14,6 +14,7 @@ use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
+mod color_icons;
 mod construction;
 mod control_previews;
 pub mod debug_overlay;

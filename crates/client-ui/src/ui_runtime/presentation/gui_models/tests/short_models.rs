@@ -102,6 +102,7 @@ fn icons(
         .entries()
         .iter()
         .map(|entry| assets::IconBlockModel {
+            held_sprite: None,
             sprite: entry.sprite,
             visual: assets::BlockVisualId(1),
         })
