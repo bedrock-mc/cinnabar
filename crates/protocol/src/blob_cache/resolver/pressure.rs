@@ -11,37 +11,36 @@ impl BlobCacheResolver {
     /// that block it through a reconstructed cached packet naming another column. Returns
     /// whether anything was abandoned; a lane that cannot be unblocked is counted once.
     pub fn unblock_ordinary_lane(&mut self) -> Result<bool, BlobCacheError> {
-        let mut blocked_columns = self
-            .immediate_ready
-            .values()
-            .flat_map(|ready| ready.columns.iter())
-            .copied()
-            .collect::<HashSet<_>>();
-        // A reconstructed cached packet that still waits holds back every column it names, so
-        // whatever blocks it, even on another column, also blocks the ordinary work behind it.
-        loop {
-            let before = blocked_columns.len();
-            for ready in self.ready.values() {
-                if ready
-                    .columns
-                    .iter()
-                    .any(|column| blocked_columns.contains(column))
-                {
-                    blocked_columns.extend(ready.columns.iter().copied());
-                }
+        let mut blocked_before = HashMap::<ColumnKey, u64>::new();
+        for ready in self.immediate_ready.values() {
+            for column in &ready.columns {
+                let bound = blocked_before.entry(*column).or_default();
+                *bound = (*bound).max(ready.sequence);
             }
-            if blocked_columns.len() == before {
-                break;
+        }
+        // Dependencies always point to earlier work. Walking backwards visits each dependent
+        // before its blockers, so one pass carries the sequence bounds through every column.
+        for ready in self.ready.values().rev() {
+            if ready.columns.iter().any(|column| {
+                blocked_before
+                    .get(column)
+                    .is_some_and(|bound| ready.sequence < *bound)
+            }) {
+                for column in &ready.columns {
+                    let bound = blocked_before.entry(*column).or_default();
+                    *bound = (*bound).max(ready.sequence);
+                }
             }
         }
         let blockers = self
             .pending
             .iter()
-            .filter(|(_, transaction)| {
-                transaction
-                    .columns
-                    .iter()
-                    .any(|column| blocked_columns.contains(column))
+            .filter(|(sequence, transaction)| {
+                transaction.columns.iter().any(|column| {
+                    blocked_before
+                        .get(column)
+                        .is_some_and(|bound| *sequence < bound)
+                })
             })
             .map(|(sequence, _)| *sequence)
             .collect::<Vec<_>>();
