@@ -6,6 +6,7 @@ mod authority_writes;
 mod pose_sizes;
 mod progress;
 mod server_writes;
+mod size_edges;
 mod state_updates;
 
 #[test]
