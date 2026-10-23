@@ -261,11 +261,8 @@ fn recovery_output_and_failure_fit_one_reply() {
         schema: u16::MAX,
         record: vec![Scalar::Bool(false)],
     };
-    while serde_json::to_vec(&transaction).unwrap().len()
-        + serde_json::to_vec(&command).unwrap().len()
-        + 1
-        <= MAX_HOST_OUTPUT
-    {
+    let command_bytes = serde_json::to_vec(&command).unwrap().len();
+    while serde_json::to_vec(&transaction).unwrap().len() + command_bytes < MAX_HOST_OUTPUT {
         transaction.commands.push(command.clone());
     }
     let failure = CallFailure::of(
