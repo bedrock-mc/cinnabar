@@ -552,6 +552,7 @@ pub enum SwingSource {
     Mine,
     Interact,
     Attack,
+    UseItem,
     ThrowItem,
     DropItem,
 }
@@ -565,6 +566,7 @@ impl SwingSource {
             Self::Mine => "mine",
             Self::Interact => "interact",
             Self::Attack => "attack",
+            Self::UseItem => "useitem",
             Self::ThrowItem => "throwitem",
             Self::DropItem => "dropitem",
         }

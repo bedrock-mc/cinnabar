@@ -101,7 +101,7 @@ fn build(inventory: &InventorySession, small: bool) -> Listing {
     }) {
         let unlocked = inventory.crafting_authority.book_recipe_unlocked(recipe);
         let craftable = inputs.can_craft(recipe);
-        let held = craftable || ledger.holds_any_ingredient(recipe);
+        let held = craftable || inputs.holds_any(recipe);
         let candidate = BookGroup::new(recipe, unlocked, craftable, held);
         let output = recipe.output();
         let key = (output.network_id, output.aux, output.block_runtime_id);

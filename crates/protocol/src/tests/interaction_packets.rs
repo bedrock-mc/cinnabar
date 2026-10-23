@@ -652,6 +652,7 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         (SwingSource::Mine, "mine"),
         (SwingSource::Build, "build"),
         (SwingSource::Interact, "interact"),
+        (SwingSource::UseItem, "useitem"),
         (SwingSource::ThrowItem, "throwitem"),
     ] {
         let packet = swing_arm_packet(0x1_0000_0001, source);

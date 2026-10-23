@@ -3911,7 +3911,6 @@
       "members": [
         "minecraft:ladder",
         "minecraft:waterlily",
-        "minecraft:end_rod",
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
@@ -6858,6 +6857,7 @@
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
+      "HeavyCore": "minecraft:heavy_core",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {

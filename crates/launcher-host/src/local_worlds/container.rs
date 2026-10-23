@@ -19,7 +19,8 @@ use super::{
     Cancel,
     bds::{
         BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, create_world, level_type, option_properties,
-        sanitize_property, view_and_tick, world_player_limit, write_host_permissions,
+        sanitize_property, timed, timed_create, view_and_tick, world_player_limit,
+        write_host_permissions,
     },
     create_private_dir,
     docker::{PROBE_TIMEOUT, docker_command, finishes, succeeds},
@@ -232,8 +233,9 @@ impl BdsRunner {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         link_versioned_binary(&binary, &version)?;
-        // The image rewrites this list only when given its own operator variables.
-        write_host_permissions(install, spec)?;
+        // The image rewrites this list only when given its own operator variables. Its server's
+        // console is not attached, so the list is final at launch (`HostGrant::AtLaunch`).
+        write_host_permissions(install, spec.host_xuid.as_deref())?;
         create_private_dir(&spec.dir.join(LEVEL_DIR))
             .map_err(|error| failed(format!("create world folder: {error}")))?;
         let name = container_name(&spec.world.id);
@@ -268,6 +270,7 @@ impl BdsRunner {
                     can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
+                    on_exit: None,
                 },
                 cancel,
             );
@@ -287,13 +290,17 @@ impl BdsRunner {
                 }
             }
         };
-        let world_dir = spec.dir.join(LEVEL_DIR);
-        let fresh = create_world(&world_dir, || {
-            let instance = run("bds-container create")?;
-            Ok(move || instance.stop(SAVE_BUDGET))
+        let (world_dir, id) = (spec.dir.join(LEVEL_DIR), &spec.world.id);
+        let fresh = timed_create(id, || {
+            create_world(&world_dir, || {
+                let instance = run("bds-container create")?;
+                Ok(move || instance.stop(SAVE_BUDGET))
+            })
         })?;
-        super::level_dat::configure(&spec.world, &world_dir, fresh || spec.options_unapplied)?;
-        let instance = Arc::new(run("bds-container")?);
+        timed("bds configure", id, || {
+            super::level_dat::configure(&spec.world, &world_dir, fresh || spec.options_unapplied)
+        })?;
+        let instance = Arc::new(timed("bds final run", id, || run("bds-container"))?);
         let watched = Arc::clone(&instance);
         thread::spawn(move || {
             let _ = watched.process.exited().recv();
@@ -488,6 +495,14 @@ impl Instance for ContainerInstance {
 
     fn lan_address(&self) -> Option<&str> {
         self.lan_address.as_deref()
+    }
+
+    /// `docker run` does not attach the server's console, so no reload can reach it; the manager
+    /// resolves the host before launching a container instead.
+    fn grant_host(&self, _xuid: Option<&str>, _cancel: &Cancel) -> Result<(), WorldError> {
+        Err(failed(
+            "a container server's operator list is fixed when it launches",
+        ))
     }
 }
 

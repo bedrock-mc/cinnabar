@@ -8,8 +8,8 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::{
-        Commands, Entity, Query, Res, ResMut, Resource, SubApp, SystemSet, Time, UVec2, World,
-        default, warn,
+        Commands, Entity, Local, Query, Res, ResMut, Resource, SubApp, SystemSet, Time, UVec2,
+        World, default, warn,
     },
     render::{
         Render, RenderStartup, RenderSystems,
@@ -349,10 +349,12 @@ fn prepare(
         &ViewTarget,
         Option<&ViewDepthStencilTexture>,
     )>,
+    mut failed: Local<crate::gpu_allocation::FailedRequests<TextureViewId>>,
 ) {
     let (Some(scene), Some(mut gpu)) = (scene, gpu) else {
         return;
     };
+    failed.retain(|view| views.contains(view));
     let gpu = &mut *gpu;
     let current = |revision: u64| scene.passes.iter().any(|p| p.revision == revision);
     gpu.retain_pipelines(&scene);
@@ -377,8 +379,12 @@ fn prepare(
                 .get(&entity)
                 .is_none_or(|resolved| !resolved.matches(depth))
             {
-                gpu.resolved_depth
-                    .insert(entity, ResolvedDepth::new(&device, depth, stage));
+                // Without a resolve the pass binds its placeholder depth instead.
+                let source = crate::scene_sampling::view_depth(depth).id();
+                match failed.attempt(entity, source, || ResolvedDepth::new(&device, depth, stage)) {
+                    Some(resolved) => gpu.resolved_depth.insert(entity, resolved),
+                    None => gpu.resolved_depth.remove(&entity),
+                };
             } else if let Some(resolved) = gpu.resolved_depth.get_mut(&entity) {
                 resolved.set_stage(stage);
             }

@@ -110,6 +110,36 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
 }
 
 #[test]
+fn a_fishing_rod_use_queues_its_swing_before_the_transaction() {
+    let (ready, _open) = AdmissionQueue::with_command_capacity(2);
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    let rod = item_frame(100, false, stack(4, MENU_ITEM, 1), "minecraft:fishing_rod");
+    let mut sent = Vec::new();
+
+    runtime.observe_press(true);
+    assert!(!step_and_send(
+        &mut runtime,
+        &mut swings,
+        &rod,
+        7,
+        6,
+        |packets| {
+            sent = packets.iter().map(wire).collect();
+            ready.send_inventory_packets(packets)
+        },
+    ));
+
+    assert_eq!(ready.pending_command_count(), 2);
+    assert_eq!(format!("{:?}", sent[0].kind()), "AnimatePacket");
+    assert_eq!(
+        format!("{:?}", sent[1].kind()),
+        "InventoryTransactionPacket"
+    );
+    assert!(runtime.take_inventory_change().is_none());
+}
+
+#[test]
 fn a_rejected_pearl_does_not_start_its_cooldown() {
     let (full, _open) = AdmissionQueue::with_command_capacity(1);
     let mut runtime = ItemUseRuntime::default();
