@@ -99,3 +99,67 @@ fn every_multichunk_initial_scene_finishes_under_frame_budget_pressure() {
         assert!(instance.helper.as_ref().unwrap().presentation.is_empty());
     }
 }
+
+#[test]
+fn drawing_releases_retired_gpu_charges_without_a_helper_reply() {
+    use mod_api::drawing::{DrawingHandle, DrawingPermissions};
+    use mod_render::retained::{GeometrySpec, Vertex};
+
+    let mut live = initialized(1);
+    let mut input = mod_host::presentation::Output::default();
+    input.drawing.geometry.push((
+        DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        GeometrySpec::Triangles {
+            vertices: [[0.; 3], [1., 0., 0.], [0., 1., 0.]]
+                .map(|position| Vertex {
+                    position,
+                    color: [1.; 4],
+                    uv: [0.; 2],
+                    data: [0.; 4],
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+        },
+    ));
+    let context = mod_host::presentation::Context::default();
+    live.instances
+        .values_mut()
+        .next()
+        .unwrap()
+        .presentation
+        .apply(input, DrawingPermissions::ALL, &context, u64::MAX)
+        .unwrap();
+    let gpu_mesh = Arc::clone(
+        live.drawing().0.retained[0]
+            .geometry
+            .values()
+            .next()
+            .unwrap(),
+    );
+    live.instances
+        .values_mut()
+        .next()
+        .unwrap()
+        .presentation
+        .apply(
+            Default::default(),
+            DrawingPermissions::ALL,
+            &context,
+            u64::MAX,
+        )
+        .unwrap();
+    let (output, revision) = live.drawing();
+    assert_eq!(
+        output.gpu_reservations[0].geometry_bytes,
+        gpu_mesh.gpu_bytes()
+    );
+    drop(gpu_mesh);
+    let (output, released_revision) = live.drawing();
+    assert_eq!(output.gpu_reservations[0].geometry_bytes, 0);
+    assert_ne!(released_revision, revision);
+    assert_eq!(live.drawing().1, released_revision);
+}

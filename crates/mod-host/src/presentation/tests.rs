@@ -92,6 +92,94 @@ fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
 }
 
 #[test]
+fn retired_geometry_reservation_expires_without_another_guest_snapshot() {
+    let mut receiver = Receiver::default();
+    receiver
+        .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap();
+    let gpu_mesh = Arc::clone(
+        receiver.output().0.retained[0]
+            .geometry
+            .values()
+            .next()
+            .unwrap(),
+    );
+    let mesh_bytes = gpu_mesh.gpu_bytes();
+    let mut masks_only = Output::default();
+    masks_only.masks.push(mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 10,
+            generation: 1,
+            slot: 1,
+        },
+        session: Default::default(),
+        depth: mod_api::drawing::MaskDepth::Test,
+        entities: Vec::new(),
+        style: None,
+        position: None,
+    });
+    receiver
+        .apply(masks_only, DrawingPermissions::ALL, &context(), mesh_bytes)
+        .unwrap();
+    let revision = receiver.output().1;
+    receiver.reap_retired();
+    assert_eq!(
+        receiver.output().0.gpu_reservations[0].geometry_bytes,
+        mesh_bytes
+    );
+    assert_eq!(receiver.output().1, revision);
+    drop(gpu_mesh);
+    receiver.reap_retired();
+    assert_eq!(receiver.output().0.gpu_reservations[0].geometry_bytes, 0);
+    assert_eq!(receiver.output().0.masks.len(), 1);
+    assert_ne!(receiver.output().1, revision);
+    let released_revision = receiver.output().1;
+    receiver.reap_retired();
+    assert_eq!(receiver.output().1, released_revision);
+}
+
+#[test]
+fn retirement_keeps_resident_and_immediate_geometry_charged() {
+    let mut receiver = Receiver::default();
+    receiver
+        .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap();
+    let gpu_mesh = Arc::clone(
+        receiver.output().0.retained[0]
+            .geometry
+            .values()
+            .next()
+            .unwrap(),
+    );
+    let mut replacement = planet();
+    replacement.primitives.beams.push(mod_render::Beam {
+        start: [0.; 3],
+        end: [1.; 3],
+        width: 1.,
+        color: [1.; 4],
+        intensity: 1.,
+    });
+    receiver
+        .apply(replacement, DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap();
+    let charged = receiver.output().0.gpu_reservations[0].geometry_bytes;
+    let retired_bytes = gpu_mesh.gpu_bytes();
+    receiver.reap_retired();
+    assert_eq!(
+        receiver.output().0.gpu_reservations[0].geometry_bytes,
+        charged
+    );
+    drop(gpu_mesh);
+    receiver.reap_retired();
+    let output = receiver.output().0;
+    assert_eq!(
+        output.gpu_reservations[0].geometry_bytes,
+        charged - retired_bytes
+    );
+    assert!(output.gpu_reservations[0].geometry_bytes > Snapshot::gpu_bytes(&output.retained[0]));
+}
+
+#[test]
 fn bundle_planet_and_environment_require_drawing_authority() {
     let mut receiver = Receiver::default();
     assert!(

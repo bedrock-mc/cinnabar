@@ -651,6 +651,9 @@ impl<H: Worker> Live<H> {
 
     /// Merges only changed client-part output; stopped parts release their renderer resources.
     pub(super) fn drawing(&mut self) -> (&mod_render::RenderOutput, u64) {
+        for instance in self.instances.values_mut() {
+            instance.presentation.reap_retired();
+        }
         if !self.drawing_sources.iter().copied().eq(self
             .instances
             .values()

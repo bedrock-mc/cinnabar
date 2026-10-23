@@ -58,6 +58,27 @@ pub struct Receiver {
 }
 
 impl Receiver {
+    /// Releases completed geometry retirements and republishes their GPU reservation.
+    /// Call every frame, including frames without a new guest snapshot.
+    pub fn reap_retired(&mut self) {
+        let mut released_bytes = 0u64;
+        self.retired.retain(|geometry| {
+            if Arc::strong_count(geometry) > 1 {
+                true
+            } else {
+                released_bytes = released_bytes.saturating_add(geometry.gpu_bytes());
+                false
+            }
+        });
+        if released_bytes != 0 {
+            for reservation in &mut self.output.gpu_reservations {
+                reservation.geometry_bytes =
+                    reservation.geometry_bytes.saturating_sub(released_bytes);
+            }
+            self.revision = mod_render::next_owner();
+        }
+    }
+
     /// Returns only the latest fully validated output and its local identity.
     pub fn output(&self) -> (&RenderOutput, u64) {
         (&self.output, self.revision)
