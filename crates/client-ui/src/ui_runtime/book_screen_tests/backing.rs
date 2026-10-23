@@ -74,7 +74,14 @@ fn held_book_uses_backing_behind_screen_prediction() {
         assert_eq!(packets.len(), 1);
         let transaction =
             protocol::test_support::transactions::observe_transaction(&packets[0]).unwrap();
-        assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(9));
+        let backing = player
+            .inventory
+            .ledger()
+            .backing_stack(0)
+            .unwrap()
+            .network_id;
+        assert_eq!(transaction.actions[0].from_item.network_id, backing);
+        assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
         assert!(!protocol::book_needs_init(
             &player
                 .inventory

@@ -180,6 +180,20 @@ def budget(store, bucket):
     return budgets[bucket]
 
 
+def storage(env):
+    """Resolve a bucket's budgeted store and recover the compatible prefix from its save key."""
+    bucket = env["CACHE_BUCKET"]
+    selected = env.get("CACHE_STORE", "auto")
+    if selected == "auto":
+        stores = [name for name, entries in json.loads(BUDGETS.read_text()).items() if bucket in entries]
+        if len(stores) != 1:
+            raise BudgetError(f"{bucket} must have exactly one budgeted store")
+        selected = stores[0]
+    budget(selected, bucket)
+    prefix = env.get("CACHE_PREFIX") or env["CACHE_KEY"].rsplit("-", 3)[0] + "-"
+    return {"store": selected, "prefix": prefix}
+
+
 def caches(env):
     """List the repository's cache entries."""
     pages = json.loads(command("gh", "api", "--paginate", "--slurp",
@@ -201,33 +215,45 @@ def delete_caches(env, ids):
         delete(f"repos/{env['GITHUB_REPOSITORY']}/actions/caches/{cache_id}")
 
 
-def replaced(entries, bucket, ref):
-    """Select the entries a save on this ref replaces, so old and new never coexist."""
-    return [entry["id"] for entry in entries if entry["ref"] == ref and entry["key"].startswith(bucket)]
-
-
 def make_room(env):
-    """Check the bucket is budgeted, then delete its entries before the replacement is saved.
-
-    Keeping both until the save finished would briefly exceed the limit and evict another
-    bucket. Jobs restoring this bucket during the upload build without it.
-    """
+    """Reconcile completed saves, then reserve all shared replacements together."""
     budget("cache", env["CACHE_BUCKET"])
-    delete_caches(env, replaced(caches(env), env["CACHE_BUCKET"], env["GITHUB_REF"]))
+    budgets = json.loads(BUDGETS.read_text())["cache"]
+    entries = caches(env)
+    retired = set()
+    for bucket, limit in budgets.items():
+        matching = [entry for entry in entries if entry["key"].startswith(bucket) and entry["ref"] == env["GITHUB_REF"]]
+        saved = max((entry for entry in matching if 0 < entry["size_in_bytes"] <= limit),
+                    key=lambda entry: entry["created_at"], default=None)
+        if saved is not None:
+            retired.update(superseded(entries, saved["key"], bucket, env["GITHUB_REF"]))
+            retired.update(entry["id"] for entry in matching if entry["size_in_bytes"] > limit)
+    if retired:
+        delete_caches(env, sorted(retired))
+    reserve = sum(budgets.values())
+    used = sum(entry["size_in_bytes"] for entry in entries if entry["id"] not in retired)
+    if used + reserve > CACHE_LIMIT:
+        print(f"::notice::Kept existing caches: {used} bytes used plus the {reserve}-byte concurrent "
+              f"replacement reserve exceeds the {CACHE_LIMIT}-byte repository limit; skipping this upload")
+        return False
+    return True
 
 
 def prune(env):
     """Remove superseded entries after a save, and reject a saved entry over its budget."""
     entries = caches(env)
-    delete_caches(env, superseded(entries, env["CACHE_KEY"], env["CACHE_BUCKET"], env["GITHUB_REF"]))
-    saved = next((entry for entry in entries if entry["key"] == env["CACHE_KEY"]), None)
+    saved = next((entry for entry in entries if entry["key"] == env["CACHE_KEY"]
+                  and entry["ref"] == env["GITHUB_REF"]), None)
     limit = budget("cache", env["CACHE_BUCKET"])
-    if saved is not None:
-        print(f"{env['CACHE_KEY']} is {saved['size_in_bytes']} bytes of its {limit}-byte budget")
-    if saved is not None and saved["size_in_bytes"] > limit:
+    if saved is None:
+        print(f"::notice::Kept existing caches: replacement {env['CACHE_KEY']} is not listed on {env['GITHUB_REF']}")
+        return
+    print(f"{env['CACHE_KEY']} is {saved['size_in_bytes']} bytes of its {limit}-byte budget")
+    if saved["size_in_bytes"] > limit:
         delete_caches(env, [saved["id"]])
         raise BudgetError(f"Deleted {env['CACHE_KEY']}: it is {saved['size_in_bytes']} bytes, over "
                            f"its {limit}-byte budget; raise the budget only if the total still fits")
+    delete_caches(env, superseded(entries, env["CACHE_KEY"], env["CACHE_BUCKET"], env["GITHUB_REF"]))
 
 
 def archive_roots(paths):
@@ -410,14 +436,17 @@ def unpack(paths, stream):
 
 # Events that run only this repository's own code; pull request runs can come from forks.
 TRUSTED_EVENTS = {"push", "schedule", "workflow_dispatch"}
+# These workflows populate the same CI compiler configuration on the default branch.
+CI_WORKFLOWS = {".github/workflows/ci.yml", ".github/workflows/ci-cache.yml"}
 
 
 def trusted_run(run, env):
     """Whether this workflow saved the run's artifacts on this repository's default branch."""
     workflow = env["GITHUB_WORKFLOW_REF"].split("@")[0].split("/", 2)[2]
     repository = int(env["GITHUB_REPOSITORY_ID"])
+    workflows = CI_WORKFLOWS if env.get("CACHE_BUCKET", "").endswith("-ci-") and workflow in CI_WORKFLOWS else {workflow}
     return (run["event"] in TRUSTED_EVENTS and run["head_branch"] == env["CACHE_BRANCH"]
-            and run["path"] == workflow
+            and run["path"] in workflows
             and (run.get("repository") or {}).get("id") == repository
             and (run.get("head_repository") or {}).get("id") == repository)
 
@@ -431,11 +460,12 @@ def trusted_artifacts(listed, run_of, env):
 
 
 def artifacts(env, name):
-    """List this repository's trusted artifacts with this name, newest first."""
+    """List trusted artifacts for a compatible prefix, including older unsuffixed names."""
     repo = env["GITHUB_REPOSITORY"]
-    listing = json.loads(command("gh", "api", f"repos/{repo}/actions/artifacts?name={name}&per_page=100"))
+    pages = json.loads(command("gh", "api", "--paginate", "--slurp", f"repos/{repo}/actions/artifacts?per_page=100"))
     return trusted_artifacts(
-        listing["artifacts"],
+        [entry for page in pages for entry in page["artifacts"]
+         if entry["name"] == name or entry["name"].startswith(name + "-")],
         lambda run_id: json.loads(command("gh", "api", f"repos/{repo}/actions/runs/{run_id}")),
         env,
     )
@@ -473,7 +503,7 @@ def restore_artifact(env):
 
 def pack_artifact(env):
     """Archive the planned paths for upload, refusing an archive over its budget."""
-    name = env["CACHE_PREFIX"].rstrip("-")
+    name = env["CACHE_PREFIX"] + f"{env.get('GITHUB_RUN_ID', 'local')}-{env.get('GITHUB_RUN_ATTEMPT', '1')}"
     archive = Path(env["RUNNER_TEMP"]) / f"{name}.tar.gz"
     pack(env["CACHE_PATHS"].splitlines(), archive)
     size, limit = archive.stat().st_size, budget("artifact", env["CACHE_BUCKET"])
@@ -496,11 +526,22 @@ def superseded_artifacts(found, keep):
 
 
 def prune_artifacts(env):
-    """Delete the uploaded archive, then artifacts of this name older than the new one."""
+    """Retire predecessors only after the uploaded archive is visible as a trusted artifact."""
     Path(env["CACHE_ARCHIVE"]).unlink(missing_ok=True)
     name, keep = env["CACHE_PREFIX"].rstrip("-"), int(env["CACHE_ARTIFACT_ID"])
-    for artifact_id in superseded_artifacts(artifacts(env, name), keep):
+    found = artifacts(env, name)
+    replacement = next((entry for entry in found if entry["id"] == keep), None)
+    if replacement is None:
+        # A newer validated upload may already have retired this one.
+        print(f"::notice::Kept existing caches: uploaded artifact {keep} is no longer listed")
+        return
+    for artifact_id in superseded_artifacts(found, keep):
         delete(f"repos/{env['GITHUB_REPOSITORY']}/actions/artifacts/{artifact_id}")
+    # A bucket moved out of the shared store may still have older entries there.
+    if env.get("CACHE_BUCKET", "").endswith("-ci-"):
+        delete_caches(env, [entry["id"] for entry in caches(env)
+                           if entry["key"].startswith(env["CACHE_BUCKET"]) and entry["ref"] == env["GITHUB_REF"]
+                           and entry["created_at"] < replacement["created_at"]])
 
 
 def main():
@@ -508,7 +549,11 @@ def main():
     env = os.environ
     root = Path(env.get("CACHE_WORKSPACE", ".")).resolve()
     action = sys.argv[1]
-    if action == "plan":
+    if action == "storage":
+        with open(env["GITHUB_OUTPUT"], "a") as output:
+            for name, value in storage(env).items():
+                output.write(f"{name}={value}\n")
+    elif action == "plan":
         outputs = plan(root, env["CACHE_LANGUAGE"], env["CACHE_LANE"], env)
         with open(env["GITHUB_OUTPUT"], "a") as output:
             for name, value in outputs.items():
@@ -523,7 +568,9 @@ def main():
     elif action == "drop-linked-outputs":
         drop_linked_outputs(env["CACHE_PATHS"].splitlines())
     elif action == "make-room":
-        make_room(env)
+        allowed = make_room(env)
+        with open(env["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"save={str(allowed).lower()}\n")
     elif action == "prune":
         prune(env)
     elif action == "restore-artifact":
@@ -544,5 +591,5 @@ if __name__ == "__main__":
         # A job already failing its tests would otherwise hide the lost cache.
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-                summary.write(f"**Build cache discarded:** {error}\n")
+                summary.write(f"**Build cache save failed:** {error}\n")
         sys.exit(1)

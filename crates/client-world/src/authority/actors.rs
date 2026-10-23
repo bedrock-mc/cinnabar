@@ -270,6 +270,11 @@ impl WorldAuthority {
         self.actors.get(runtime_id)
     }
 
+    /// Whether the actor currently owns a live fishing hook entity.
+    pub fn has_fishing_hook(&self, owner_unique_id: i64) -> bool {
+        self.actors.has_fishing_hook(owner_unique_id)
+    }
+
     /// Returns the session, dimension and spawn identity that owns the current actor.
     pub fn actor_lifetime(&self, runtime_id: u64) -> Option<actor_animation::ActorLifetimeId> {
         self.actors.lifetime(runtime_id)

@@ -761,3 +761,16 @@ fn repeated_registry_rows_still_validate_component_framing() {
         )))
     ));
 }
+
+/// Empty stacks are built every frame for listings; building one must not allocate or hash.
+#[test]
+fn empty_stacks_carry_the_empty_digest_without_allocating() {
+    let first = protocol::NetworkItemStack::empty();
+    let empty_digest: [u8; 32] = Sha256::digest([]).into();
+    assert_eq!(first.nbt_digest, empty_digest);
+    assert!(first.extra_data.is_empty());
+    let before = test_alloc::thread_allocations();
+    let again = protocol::NetworkItemStack::empty();
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
+    assert_eq!(again, first);
+}

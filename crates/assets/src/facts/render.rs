@@ -185,6 +185,7 @@ pub struct BlockRenderRoute {
     pub model: bool,
     pub cutout: bool,
     pub priority_cutout: bool,
+    /// A dedicated rule draws every member, so the provisional envelope never applies.
     pub overrides_fallback: bool,
 }
 
@@ -213,9 +214,9 @@ impl BlockRenderKind {
             | R::CoralFan
             | R::CoralWallFan
             | R::LilyPad => (true, true, false, true),
-            R::Crystal => (true, true, false, false),
+            R::Crystal => (true, true, false, true),
             R::CommandBlock => (true, false, false, true),
-            R::EndPortalFrame | R::Lantern => (true, true, true, false),
+            R::EndPortalFrame | R::Lantern => (true, true, true, true),
             R::FlowerPot | R::Azalea | R::Bamboo => (false, false, true, false),
             R::StainedGlass
             | R::ClearGlass
@@ -231,15 +232,17 @@ impl BlockRenderKind {
             | R::NamedCube
             | R::CopperBulb
             | R::RedstoneBase
-            | R::CandleCake => (true, false, false, false),
-            R::Portal => (true, false, false, true),
+            | R::CandleCake
+            | R::Portal => (true, false, false, true),
             R::BubbleColumn
             | R::Barrel
             | R::FacingCube
             | R::Composter
             | R::Cauldron
             | R::LiteralCube
-            | R::Invisible => (false, false, false, true),
+            | R::Invisible
+            | R::EnchantingTable
+            | R::EntityDrawn => (false, false, false, true),
             R::Ordinary
             | R::Furnace
             | R::LitFurnace
@@ -263,13 +266,11 @@ impl BlockRenderKind {
             | R::BeeHousing
             | R::ResinClump
             | R::ChiseledBookshelf
-            | R::EnchantingTable
             | R::Roots
             | R::Grass
             | R::Mycelium
             | R::SelectorAliasCube
             | R::MineralCube
-            | R::EntityDrawn
             | R::Snow
             | R::BerryBush
             | R::DefaultRail

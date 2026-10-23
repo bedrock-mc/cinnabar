@@ -347,6 +347,12 @@ pub(crate) fn prepare_actor_render_frame(
         }
         let mut progress = swings.published_progress(movement.completed_tick());
         progress.frame_alpha = Some(physics.tick_alpha());
+        bevy::log::trace!(
+            tick = movement.completed_tick(),
+            alpha = physics.tick_alpha(),
+            progress = progress.bedrock_progress(physics.tick_alpha()),
+            "local swing sampled"
+        );
         Some(progress)
     });
     if let (Some(stream), Some(movement), Some(swings)) = (

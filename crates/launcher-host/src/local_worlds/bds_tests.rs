@@ -183,6 +183,63 @@ fn the_native_runner_makes_only_the_host_an_operator() {
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
 }
 
+/// A native server launched before the host is known takes the host once ready: the operator
+/// list is rewritten, malformed XUIDs grant nobody, and BDS is asked to reload it.
+#[cfg(unix)]
+#[test]
+fn the_native_runner_grants_the_host_while_running() {
+    let dir = scratch();
+    let server = format!(
+        r#"#!/bin/sh
+printf '[INFO] Server started.\r\n'
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> console.log
+  case "$line" in
+    '{PERMISSION_RELOAD}') printf '%s\n' '{PERMISSION_RELOADED}' ;;
+    stop*) exit 0 ;;
+  esac
+done
+"#
+    );
+    let provisioner = installed_provisioner(dir.path(), LINUX, server.as_bytes());
+    let install = provisioner.root.join(VERSION);
+    let runner = BdsRunner::new(Arc::new(provisioner), String::new());
+    assert_eq!(runner.host_grant(), HostGrant::WhenReady);
+    let world_dir = dir.path().join("world");
+    let level = world_dir.join(LEVEL_DIR);
+    fs::create_dir_all(&level).expect("world folder");
+    crate::local_worlds::test_support::write_created_level_dat(&level);
+    let operators = || {
+        let file = fs::read(install.join(PERMISSIONS_FILE)).expect("permissions");
+        serde_json::from_slice::<serde_json::Value>(&file).expect("permissions JSON")
+    };
+    let reloads = || {
+        fs::read_to_string(install.join("console.log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| *line == PERMISSION_RELOAD)
+            .count()
+    };
+    let instance = runner
+        .start(&spec(&world_dir), &Cancel::never())
+        .expect("start");
+    assert_eq!(operators(), serde_json::json!([]));
+    instance
+        .grant_host(Some("2535400000000001"), &Cancel::never())
+        .expect("grant the host");
+    assert_eq!(
+        operators(),
+        serde_json::json!([{ "permission": "operator", "xuid": "2535400000000001" }])
+    );
+    test_time::eventually("BDS reads the reload", || reloads() == 1);
+    instance
+        .grant_host(Some("2535 OR 1"), &Cancel::never())
+        .expect("a malformed host grants nobody");
+    assert_eq!(operators(), serde_json::json!([]));
+    test_time::eventually("BDS reads the second reload", || reloads() == 2);
+    instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+}
+
 /// A first start that saves no world fails clearly instead of writing level data itself.
 #[cfg(unix)]
 #[test]

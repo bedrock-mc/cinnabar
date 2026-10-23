@@ -1,5 +1,5 @@
 use super::*;
-use semantic_input::{ActionSnapshot, DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS};
+use semantic_input::{ActionSnapshot, DesktopEvent, DesktopEvents};
 
 /// Resolves a complete arrival batch alongside its final held desktop state.
 fn resolve(
@@ -68,6 +68,18 @@ fn ordered_desktop_repeats_and_mixed_buttons_preserve_arrival_order() {
     );
     let attack = snapshot.phases[Action::Attack as usize];
     assert!(attack.pressed && attack.released && !attack.held);
+}
+
+#[test]
+fn ordered_desktop_retains_every_click_in_a_large_complete_batch() {
+    let events: Vec<_> = (0..300).flat_map(|_| [(1, true), (1, false)]).collect();
+    let snapshot = resolve(&mut SemanticInputRouter::default(), vec![], &events);
+    let expected: Vec<_> = events
+        .iter()
+        .map(|&(_, pressed)| (Action::Attack, pressed))
+        .collect();
+    assert_eq!(edges(&snapshot), expected);
+    assert!(!snapshot.phases[Action::Attack as usize].held);
 }
 
 #[test]
@@ -244,8 +256,20 @@ fn ordered_desktop_focus_and_context_boundaries_drop_the_entire_batch() {
 fn ordered_desktop_overflow_discards_the_prefix_and_releases_held_input() {
     let mut router = SemanticInputRouter::default();
     resolve(&mut router, vec![1], &[(1, true)]);
-    let events = vec![(1, true); MAX_PENDING_ACTION_EVENTS + 1];
-    let dropped = resolve(&mut router, vec![1], &events);
+    let mut events = DesktopEvents::default();
+    events.invalidate();
+    router
+        .route(DeviceFrame {
+            desktop_events: Some(events),
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                mouse_buttons: vec![1],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let dropped = router.finalize().unwrap();
     assert!(dropped.ordered.as_ref().unwrap().overflowed());
     assert!(edges(&dropped).is_empty());
     assert!(!dropped.phases[Action::Attack as usize].held);
