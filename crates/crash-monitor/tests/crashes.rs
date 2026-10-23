@@ -376,6 +376,9 @@ fn crash(kind: &str) -> Run {
         .env(ROOT_ENV, root)
         .env(KIND_ENV, kind)
         .env(crash_monitor::CRASH_UI_ENV, "0")
+        // Inherited filters would override the monitor's base filter and hide its diagnostics.
+        .env_remove("RUST_LOG")
+        .env_remove("CINNABAR_LOG")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(fs::File::create(logs.join("fixture-stderr.log")).unwrap());
