@@ -388,3 +388,22 @@ fn compatibility_unsized_array_declarations_take_sized_initializer_lengths() {
         color = vec4(weights[index] * scale[index]); }",
     );
 }
+
+#[test]
+fn compatibility_local_constants_size_arrays_in_their_scope() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Pick { int count; }; out vec4 color;
+        void main() {
+            const int count = 2; const int total = count + 1;
+            vec3[total] samples = vec3[total](vec3(0.1), vec3(0.2), vec3(0.3));
+            float weights[count]; weights[0] = 1.0; weights[1] = 0.5;
+            { const int count = 4; float inner[count]; inner[3] = 1.0; weights[0] += inner[3]; }
+            float outer[count]; outer[1] = 2.0;
+            Pick pick; pick.count = 1; weights[pick.count] += outer[1];
+            vec3 sum = vec3(0.0);
+            for (int i = 0; i < total; i++) { sum += samples[i] * weights[i / count]; }
+            color = vec4(sum, 1.0);
+        }",
+    );
+}

@@ -422,7 +422,7 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
 }
 
 /// Finds declaration statements and their inclusive token ranges with the shared parser.
-fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
+pub(super) fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
     let mut declarations = Vec::new();
     let mut fields_end = 0;
     for start in 0..toks.len() {

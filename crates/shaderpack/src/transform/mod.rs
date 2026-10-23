@@ -13,6 +13,7 @@ mod dot;
 mod interface;
 mod items;
 mod legacy;
+mod local_constants;
 mod math;
 mod missing;
 mod narrow;

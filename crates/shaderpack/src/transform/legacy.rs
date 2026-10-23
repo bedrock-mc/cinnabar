@@ -5,6 +5,7 @@ use super::items::{
     func_params, matching, parse_decl, shadowed_bindings, size_unsized_arrays, split_args,
     split_items, struct_body_end,
 };
+use super::local_constants::inline_local_constants;
 use crate::programs::StageKind;
 use crate::token::{Tok, TokKind, id, int, lex, p};
 use std::collections::{BTreeSet, HashSet};
@@ -241,6 +242,9 @@ pub(super) fn rewrite(
 ) -> Result<Legacy, TransformError> {
     let legacy = version < 130;
     let mut sized = size_unsized_arrays(src);
+    if let Some(inlined) = inline_local_constants(&sized) {
+        sized = inlined;
+    }
     if let Some(core) = undeclared_core_names(&sized, stage) {
         sized = core;
     }
