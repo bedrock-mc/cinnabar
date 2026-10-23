@@ -8,6 +8,7 @@ use ui_engine::text_metrics::TextMetrics;
 /// A title fixture with a chosen aspect ratio.
 fn title(width: u16, height: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page: 18,
         uv: [0, 0, width, height],
         glint: false,

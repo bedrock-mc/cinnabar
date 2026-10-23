@@ -360,7 +360,8 @@ and rendered qualification remain incomplete.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
-  inventory preview and resource-pack geometry acceptance remain incomplete.
+  inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
+  textures retain their unshaded brightness; camera, sizing and mob poses still need qualification.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
@@ -370,13 +371,20 @@ and rendered qualification remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
+  Barrel previews use a closed south-facing pose with authored face mapping and UV turns.
+  Piston previews use their carried body textures independently of placed geometry.
   Shared cube face sheets are bounded coverage.
   Aux-only stacks use base block visuals only when aux cannot select a legacy block state.
   Decoding legacy states without a retained block remains incomplete.
+  Firework-star previews preserve their mask artwork and per-stack colors.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.
+  Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
+  Heavy-core inventory previews use their carried scale and screen offset.
+  Shelf inventory previews use their carried scale and position.
+  Azalea previews keep separate stems and open-bottom canopies.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.

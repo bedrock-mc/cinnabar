@@ -83,6 +83,7 @@ fn moving_an_inventory_item_keeps_the_recipe_book_icons_and_layout() {
             },
         ));
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,

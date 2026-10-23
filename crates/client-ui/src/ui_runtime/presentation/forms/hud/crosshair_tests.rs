@@ -168,6 +168,7 @@ fn resource_pack_icons_sheet_replaces_the_crosshair() {
                 .set_full_res(std::collections::HashMap::from([(
                     "textures/gui/icons".into(),
                     ui::IconRef {
+                        color_mask: None,
                         page: 4,
                         uv: [
                             0,

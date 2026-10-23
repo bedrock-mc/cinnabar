@@ -317,7 +317,7 @@ fn glint_sprite_flags_its_vertices() {
     assert!(
         glint
             .iter()
-            .all(|vertex| vertex.style_flags == u16::from(ui::UI_STYLE_GLINT))
+            .all(|vertex| vertex.style_flags == u32::from(ui::UI_STYLE_GLINT))
     );
     assert_eq!(
         plain.iter().map(|vertex| vertex.uv).collect::<Vec<_>>(),
@@ -522,7 +522,7 @@ fn outline_text_selects_linear_sampler_without_changing_default_text_geometry() 
         linear
             .vertices
             .iter()
-            .all(|vertex| vertex.style_flags == u16::from(ui::UI_STYLE_BILINEAR))
+            .all(|vertex| vertex.style_flags == u32::from(ui::UI_STYLE_BILINEAR))
     );
     assert_eq!(nearest.indices, linear.indices);
     for (nearest, linear) in nearest.vertices.iter().zip(&linear.vertices) {
@@ -558,7 +558,7 @@ fn native_text_modes_emit_gamma_and_distance_flags_with_their_sampler() {
         assert!(
             draw.vertices
                 .iter()
-                .all(|vertex| vertex.style_flags == flags)
+                .all(|vertex| vertex.style_flags == u32::from(flags))
         );
         assert_eq!(draw.vertices.len(), 8);
     }
@@ -623,8 +623,8 @@ fn world_projection_keeps_local_geometry_independent_of_hud_scale_and_safe_area(
     assert_eq!(draw.vertices[4].position, [15.0, 25.0]);
     assert_eq!(draw.vertices[4].clip_z, 0.0);
     assert_eq!(draw.vertices[4].clip_w, 1.0);
-    assert!(draw.vertices[..4].iter().all(|vertex| vertex.alpha_test));
-    assert!(draw.vertices[4..].iter().all(|vertex| !vertex.alpha_test));
+    assert!(draw.vertices[..4].iter().all(|vertex| vertex.alpha_test()));
+    assert!(draw.vertices[4..].iter().all(|vertex| !vertex.alpha_test()));
     assert_eq!(draw.batches.len(), 2);
     assert!(draw.batches[0].depth_test && draw.batches[0].world_projection);
     assert!(draw.batches[0].depth_write);
@@ -737,8 +737,8 @@ fn world_projection_applies_to_glyphs_and_shadows_without_rescaling_cached_layou
         assert_eq!(projected.clip_w, 2.0);
         assert_eq!(projected.uv, local.uv);
         assert_eq!(projected.color, local.color);
-        assert!(projected.alpha_test);
-        assert!(!local.alpha_test);
+        assert!(projected.alpha_test());
+        assert!(!local.alpha_test());
     }
 }
 
@@ -786,13 +786,13 @@ fn world_projection_keeps_depth_writing_text_separate_from_its_read_only_plate()
     assert!(
         draw.vertices[4..8]
             .iter()
-            .all(|vertex| vertex.alpha_test && vertex.color[3] == 32)
+            .all(|vertex| vertex.alpha_test() && vertex.color[3] == 32)
     );
     assert!(
         draw.vertices[..4]
             .iter()
             .chain(draw.vertices[8..].iter())
-            .all(|vertex| !vertex.alpha_test)
+            .all(|vertex| !vertex.alpha_test())
     );
 }
 

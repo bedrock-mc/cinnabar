@@ -119,6 +119,7 @@ fn idle_and_live_paint_inputs_do_not_reconstruct_semantic_components() {
     fixture.chat("§kMoving glyphs", 0);
     fixture.frame.hotbar_stacks[0] = Some(stack(4));
     fixture.frame.hotbar_icons[0] = Some(IconRef {
+        color_mask: None,
         page: 2,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -180,6 +181,7 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
     ] {
         fixture.frame.hotbar_stacks[slot] = (count != 0).then(|| stack(count));
         fixture.frame.hotbar_icons[slot] = Some(IconRef {
+            color_mask: None,
             page,
             uv: [0, 0, 16, 16],
             glint: false,
@@ -443,6 +445,7 @@ fn offhand_preview_and_mod_visibility_remain_live() {
         .unwrap();
     fixture.runtime.drain_pending_inventory(&mut fixture.player);
     fixture.frame.offhand_icon = Some(IconRef {
+        color_mask: None,
         page: 5,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -451,6 +454,7 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     fixture.frame.paper_doll_visible = true;
     assert!(fixture.check(&mut cache).status);
     fixture.frame.player_preview = Some(IconRef {
+        color_mask: None,
         page: 6,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -516,6 +520,7 @@ fn stale_local_offhand_echo_keeps_the_inventory_offhand() {
         .unwrap();
     fixture.runtime.drain_pending_inventory(&mut fixture.player);
     fixture.frame.offhand_icon = Some(IconRef {
+        color_mask: None,
         page: 5,
         uv: [0, 0, 16, 16],
         glint: false,
