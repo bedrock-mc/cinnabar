@@ -20,7 +20,6 @@ pub fn initialize_render_distance(
     mut menu: ResMut<crate::menu::MenuRuntime>,
     mut commands: Commands,
 ) {
-    menu.sync_render_resolution_default(render_resolution_default());
     let graphics_bytes = adapter
         .as_deref()
         .and_then(|adapter| dedicated_graphics_bytes(adapter, device.as_deref()));
@@ -35,28 +34,6 @@ pub fn initialize_render_distance(
         dedicated_graphics_memory_bytes: graphics_bytes.unwrap_or(0),
         use_full_graphics_memory: false,
     });
-}
-
-/// Reads Linux's board identity once; other hosts keep the native-resolution default.
-fn render_resolution_default() -> u8 {
-    #[cfg(target_os = "linux")]
-    if [
-        "/sys/firmware/devicetree/base/model",
-        "/proc/device-tree/model",
-    ]
-    .into_iter()
-    .filter_map(|path| std::fs::read(path).ok())
-    .any(|model| raspberry_pi_model(&model))
-    {
-        return launcher::menu::settings_options::render_resolution::RASPBERRY_PI_DEFAULT_PERCENT;
-    }
-    ui::DEFAULT_RENDER_SCALE_PERCENT
-}
-
-/// Recognizes the board-model property without classifying unrelated ARM Linux devices as Pis.
-#[cfg(any(target_os = "linux", test))]
-fn raspberry_pi_model(model: &[u8]) -> bool {
-    model.starts_with(b"Raspberry Pi ")
 }
 
 /// Reads dedicated memory from the selected backend, never from a different enumerated GPU.
@@ -146,31 +123,10 @@ fn dedicated_graphics_bytes(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
 mod tests {
     use super::*;
 
-    #[test]
-    fn raspberry_pi_identity_accepts_device_tree_models_only() {
-        for model in [
-            b"Raspberry Pi 5 Model B Rev 1.0\0".as_slice(),
-            b"Raspberry Pi 4 Model B Rev 1.5\0",
-            b"Raspberry Pi Compute Module 4 Rev 1.1\0",
-        ] {
-            assert!(raspberry_pi_model(model));
-        }
-        for model in [
-            b"".as_slice(),
-            b"NVIDIA Jetson Orin Nano Developer Kit\0",
-            b"linux aarch64",
-            b"Not Raspberry Pi 5 Model B\0",
-            b"Raspberry Pine\0",
-        ] {
-            assert!(!raspberry_pi_model(model));
-        }
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
     #[test]
     fn vulkan_dedicated_heaps_choose_the_discrete_recommendation() {
         let heaps = [

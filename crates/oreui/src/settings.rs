@@ -483,12 +483,6 @@ impl Content<'_, '_> {
         if !self.option_available(id) {
             return Ok(());
         }
-        if id == SettingId::RenderResolution && self.view.render_mode != ui::RenderMode::Vanilla {
-            return self.label(
-                id.definition().label,
-                launcher::menu::settings_options::render_resolution::DESCRIPTION,
-            );
-        }
         if id == SettingId::FullScreen {
             let action = MenuAction::SettingsFullscreen(!self.view.fullscreen);
             let title = self.word("options.fullscreen");

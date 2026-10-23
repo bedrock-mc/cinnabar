@@ -20,6 +20,8 @@ pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
 pub const MIN_RENDER_SCALE_PERCENT: u8 = 10;
 /// Native world-rendering resolution relative to the output.
 pub const MAX_RENDER_SCALE_PERCENT: u8 = 100;
+/// Light sharpening is enabled when reconstructing a reduced world image.
+pub const DEFAULT_RENDER_SCALE_SHARPEN: bool = true;
 /// Native world resolution remains the default; menus and the HUD stay at output resolution.
 pub const DEFAULT_RENDER_SCALE_PERCENT: u8 = MAX_RENDER_SCALE_PERCENT;
 #[path = "settings/render_distance.rs"]
@@ -193,6 +195,8 @@ pub struct VideoSettings {
     pub anti_aliasing_samples: u32,
     /// World resolution relative to the output; menus and the HUD stay at output resolution.
     pub render_scale_percent: u8,
+    /// Applies a light sharpening filter while upscaling the world.
+    pub render_scale_sharpen: bool,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
@@ -234,6 +238,7 @@ impl Default for VideoSettings {
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
+            render_scale_sharpen: DEFAULT_RENDER_SCALE_SHARPEN,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,

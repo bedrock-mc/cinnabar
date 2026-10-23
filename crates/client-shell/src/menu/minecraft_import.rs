@@ -107,9 +107,6 @@ impl MenuRuntime {
             state
                 .settings
                 .set_render_distance_defaults(self.settings_options.render_distance_defaults());
-            state
-                .settings
-                .set_render_resolution_default(self.settings_options.render_resolution_default());
             for preference in &mut self.session_overrides {
                 let index = preference.index();
                 let temporary = self

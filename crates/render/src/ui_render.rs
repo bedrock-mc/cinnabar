@@ -53,6 +53,8 @@ mod page_uniform_tests;
 mod target;
 #[path = "ui_render/textures.rs"]
 mod textures;
+#[path = "ui_render/upscale.rs"]
+mod upscale;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/backdrop.rs"]
@@ -142,6 +144,7 @@ fn install_ui_render(app: &mut App) {
         ExtractResourcePlugin::<UiGlintSettings>::default(),
         ExtractResourcePlugin::<UiItemGlintTexture>::default(),
     ));
+    upscale::install(app);
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
     load_internal_asset!(
         app,

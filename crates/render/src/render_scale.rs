@@ -4,3 +4,7 @@ use bevy::prelude::{Component, UVec2};
 /// Marks a reduced render view without changing its window, layout, or input coordinates.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RenderScaleOutput(pub UVec2);
+
+/// Selects the optional sharpening samples without changing native UI or world dimensions.
+#[derive(bevy::prelude::Resource)]
+pub struct RenderScaleSharpen(pub bool);

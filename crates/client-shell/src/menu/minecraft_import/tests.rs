@@ -272,49 +272,6 @@ fn restored_untouched_render_distance_uses_the_current_device_recommendation() {
 }
 
 #[test]
-fn restored_resolution_retains_the_current_device_default_and_any_saved_choice() {
-    use launcher::menu::settings_options::render_resolution::RASPBERRY_PI_DEFAULT_PERCENT;
-
-    for choice in [None, Some(RASPBERRY_PI_DEFAULT_PERCENT), Some(37)] {
-        let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
-        menu.sync_render_resolution_default(RASPBERRY_PI_DEFAULT_PERCENT);
-        let mut settings = SettingsOptions::default();
-        if let Some(percent) = choice {
-            settings.set(SettingId::RenderResolution.index(), i32::from(percent));
-        }
-        let backup = saved_state(&settings);
-        assert_eq!(
-            backup.settings.render_resolution_default(),
-            ui::DEFAULT_RENDER_SCALE_PERCENT
-        );
-        menu.publish_minecraft_import(
-            launcher::minecraft_import::Snapshot {
-                phase: Phase::Result,
-                ..Default::default()
-            },
-            Some(backup),
-        );
-        let published = &menu.view().settings_options;
-        assert_eq!(
-            published.render_resolution_default(),
-            RASPBERRY_PI_DEFAULT_PERCENT
-        );
-        assert_eq!(
-            published.user_settings().video.render_scale_percent,
-            choice.unwrap_or(RASPBERRY_PI_DEFAULT_PERCENT)
-        );
-        let stored = serde_json::to_value(published.as_ref()).unwrap();
-        assert_eq!(
-            stored["values"]
-                .get("render_resolution")
-                .and_then(serde_json::Value::as_u64),
-            choice.map(u64::from)
-        );
-        assert!(menu.settings_apply && menu.settings_dirty);
-    }
-}
-
-#[test]
 fn published_explicit_render_distance_keeps_its_choice_and_device_defaults() {
     let device = ui::RenderDistanceDevice {
         physical_memory_bytes: 16 << 30,

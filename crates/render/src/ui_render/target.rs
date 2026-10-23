@@ -1,5 +1,7 @@
 //! Native-resolution UI composition after the reduced world has finished rendering.
 
+use super::upscale::{UpscaleKey, UpscalePipeline};
+use crate::gpu_allocation::{self, FailedRequests};
 use bevy::{
     core_pipeline::blit::{BlitPipeline, BlitPipelineKey},
     prelude::*,
@@ -24,7 +26,7 @@ pub(crate) struct NativeUiTarget {
     ready: AtomicBool,
     presented: AtomicBool,
     output_format: TextureFormat,
-    seed_pipeline: CachedRenderPipelineId,
+    seed_pipelines: [CachedRenderPipelineId; 2],
     present_pipeline: CachedRenderPipelineId,
     seed_bindings: Mutex<Vec<(TextureViewId, BindGroup)>>,
     present_bindings: [BindGroup; 2],
@@ -35,34 +37,41 @@ impl NativeUiTarget {
     fn new(
         device: &RenderDevice,
         extent: [u32; 2],
-        output_format: TextureFormat,
-        pipelines: [CachedRenderPipelineId; 2],
+        formats: [TextureFormat; 2],
+        pipelines: [CachedRenderPipelineId; 3],
         blit: &BlitPipeline,
         cache: &PipelineCache,
-    ) -> Self {
-        let textures = std::array::from_fn(|_| {
-            device.create_texture(&TextureDescriptor {
-                label: Some("native-resolution UI scene"),
-                size: Extent3d {
-                    width: extent[0],
-                    height: extent[1],
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: render_scene::SCENE_COLOR_FORMAT,
-                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
+    ) -> Option<Self> {
+        let [scene_format, output_format] = formats;
+        let bytes = u64::from(extent[0])
+            * u64::from(extent[1])
+            * u64::from(scene_format.block_copy_size(None)?);
+        let allocate = || {
+            gpu_allocation::checked(device, "native-resolution UI scene", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("native-resolution UI scene"),
+                    size: Extent3d {
+                        width: extent[0],
+                        height: extent[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: scene_format,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
             })
-        });
+        };
+        let textures = [allocate()?, allocate()?];
         let views = textures
             .each_ref()
             .map(|texture| texture.create_view(&default()));
         let present_bindings = views
             .each_ref()
             .map(|view| blit.create_bind_group(device, view, cache));
-        Self {
+        Some(Self {
             device: device.wgpu_device().clone(),
             textures,
             views,
@@ -70,11 +79,11 @@ impl NativeUiTarget {
             ready: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             output_format,
-            seed_pipeline: pipelines[0],
-            present_pipeline: pipelines[1],
+            seed_pipelines: [pipelines[0], pipelines[1]],
+            present_pipeline: pipelines[2],
             seed_bindings: Mutex::new(Vec::with_capacity(2)),
             present_bindings,
-        }
+        })
     }
 
     /// Keeps only this frame's native scene and presentation observations.
@@ -109,6 +118,7 @@ impl NativeUiTarget {
     /// Refuses stale dimensions, output formats, or resources from a replaced render device.
     fn matches(&self, device: &RenderDevice, target: &ViewTarget, extent: [u32; 2]) -> bool {
         &self.device == device.wgpu_device()
+            && self.textures[0].format() == target.main_texture_format()
             && self.extent() == extent
             && target.out_texture_view_format() == Some(self.output_format)
     }
@@ -131,13 +141,17 @@ impl NativeUiTarget {
         if self.is_ready() {
             return true;
         }
-        let (Some(cache), Some(blit)) = (
+        let (Some(cache), Some(upscale)) = (
             world.get_resource::<PipelineCache>(),
-            world.get_resource::<BlitPipeline>(),
+            world.get_resource::<UpscalePipeline>(),
         ) else {
             return false;
         };
-        let Some(pipeline) = cache.get_render_pipeline(self.seed_pipeline) else {
+        let sharpen = world
+            .get_resource::<crate::render_scale::RenderScaleSharpen>()
+            .is_none_or(|filter| filter.0);
+        let Some(pipeline) = cache.get_render_pipeline(self.seed_pipelines[usize::from(sharpen)])
+        else {
             return false;
         };
         let source = target.main_texture_view();
@@ -151,7 +165,7 @@ impl NativeUiTarget {
             if let Some((_, binding)) = bindings.iter().find(|(id, _)| *id == source.id()) {
                 binding.clone()
             } else {
-                let binding = blit.create_bind_group(context.render_device(), source, cache);
+                let binding = upscale.binding(context.render_device(), cache, source);
                 bindings.push((source.id(), binding.clone()));
                 binding
             }
@@ -256,12 +270,15 @@ fn encode_blit(
 }
 
 /// Allocates only for an admitted scaled view whose real output still matches its marker.
+#[allow(clippy::too_many_arguments)] // View admission and the two pipeline owners share one allocation boundary.
 pub(crate) fn prepare_native_ui_targets(
     mut commands: Commands,
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     blit: Option<Res<BlitPipeline>>,
     mut pipelines: Option<ResMut<SpecializedRenderPipelines<BlitPipeline>>>,
+    mut upscale: Option<ResMut<UpscalePipeline>>,
+    mut failed: Local<FailedRequests<(wgpu::Device, [u32; 2], TextureFormat, TextureFormat)>>,
     views: Query<(
         Entity,
         &ViewTarget,
@@ -270,6 +287,11 @@ pub(crate) fn prepare_native_ui_targets(
     )>,
     removed: Query<Entity, (With<NativeUiTarget>, Without<ViewTarget>)>,
 ) {
+    failed.retain(|entity| {
+        views
+            .get(entity)
+            .is_ok_and(|(_, _, scaled, _)| scaled.is_some())
+    });
     for entity in &removed {
         commands.entity(entity).remove::<NativeUiTarget>();
     }
@@ -284,7 +306,11 @@ pub(crate) fn prepare_native_ui_targets(
                     .out_texture()
                     .map(|output| crate::render_bounds::extent(output))
                     == Some(*extent)
-                && target.main_texture_format() == render_scene::SCENE_COLOR_FORMAT
+                && [
+                    render_scene::SCENE_COLOR_FORMAT,
+                    render_scene::SCENE_HDR_FORMAT,
+                ]
+                .contains(&target.main_texture_format())
         });
         let (Some(extent), Some(output_format)) = (admitted, target.out_texture_view_format())
         else {
@@ -300,32 +326,56 @@ pub(crate) fn prepare_native_ui_targets(
             continue;
         }
         // Standalone UI preparation does not need the core pipeline's blit resources.
-        let (Some(blit), Some(pipelines)) = (blit.as_deref(), pipelines.as_deref_mut()) else {
+        let (Some(blit), Some(pipelines), Some(upscale)) = (
+            blit.as_deref(),
+            pipelines.as_deref_mut(),
+            upscale.as_deref_mut(),
+        ) else {
             if previous.is_some() {
                 commands.entity(entity).remove::<NativeUiTarget>();
             }
             continue;
         };
-        let ids = [render_scene::SCENE_COLOR_FORMAT, output_format].map(|target_format| {
-            pipelines.specialize(
+        let scene_format = target.main_texture_format();
+        let seeds = [false, true].map(|sharpen| {
+            upscale.specialize(
                 &cache,
-                blit,
-                BlitPipelineKey {
-                    target_format,
-                    blend_state: None,
-                    samples: 1,
-                    source_space: None,
+                UpscaleKey {
+                    format: scene_format,
+                    sharpen,
                 },
             )
         });
-        commands.entity(entity).insert(NativeUiTarget::new(
-            &device,
-            extent,
-            output_format,
-            ids,
-            blit,
+        let present = pipelines.specialize(
             &cache,
-        ));
+            blit,
+            BlitPipelineKey {
+                target_format: output_format,
+                blend_state: None,
+                samples: 1,
+                source_space: None,
+            },
+        );
+        let request = (
+            device.wgpu_device().clone(),
+            extent,
+            scene_format,
+            output_format,
+        );
+        if let Some(native) = failed.attempt(entity, request, || {
+            NativeUiTarget::new(
+                &device,
+                extent,
+                [scene_format, output_format],
+                [seeds[0], seeds[1], present],
+                blit,
+                &cache,
+            )
+        }) {
+            commands.entity(entity).insert(native);
+        } else if previous.is_some() {
+            commands.entity(entity).remove::<NativeUiTarget>();
+        }
     }
 }
 
@@ -342,9 +392,11 @@ impl<'a> UiTarget<'a> {
         Self { output, native }
     }
 
+    /// Reports whether screen UI has its own output-sized scene.
     pub(crate) fn is_native(self) -> bool {
         self.native.is_some()
     }
+    /// Returns the current scene storage used by UI composition.
     pub(crate) fn main_texture(self) -> &'a Texture {
         self.native.map_or_else(
             || self.output.main_texture(),
@@ -352,33 +404,39 @@ impl<'a> UiTarget<'a> {
         )
     }
     #[cfg(test)]
+    /// Returns the other scene storage for ping-pong lifetime checks.
     pub(crate) fn main_texture_other(self) -> &'a Texture {
         self.native.map_or_else(
             || self.output.main_texture_other(),
             |native| &native.textures[native.current.load(Ordering::Relaxed) ^ 1],
         )
     }
+    /// Returns the current scene view used by UI draws.
     pub(crate) fn main_texture_view(self) -> &'a TextureView {
         self.native.map_or_else(
             || self.output.main_texture_view(),
             |native| &native.views[native.current.load(Ordering::Relaxed)],
         )
     }
+    /// Returns the scene view reserved for the next full-coverage composite.
     pub(crate) fn main_texture_other_view(self) -> &'a TextureView {
         self.native.map_or_else(
             || self.output.main_texture_other_view(),
             |native| &native.views[native.current.load(Ordering::Relaxed) ^ 1],
         )
     }
+    /// Swaps scene views only for a caller that writes the whole destination.
     pub(crate) fn post_process_write(self) -> PostProcessWrite<'a> {
         self.native.map_or_else(
             || self.output.post_process_write(),
             NativeUiTarget::post_process_write,
         )
     }
+    /// Borrows the native presentation attachment independently of scene size.
     pub(crate) fn out_texture(self) -> Option<&'a TextureView> {
         self.output.out_texture()
     }
+    /// Acquires the final attachment and records its use for presentation.
     pub(crate) fn out_texture_color_attachment(
         self,
         clear: Option<LinearRgba>,

@@ -33,6 +33,7 @@ pub(super) struct HandGpu {
     pub(super) geometry: Option<[u8; 32]>,
     pub(super) skin: Option<PixelGpu>,
     pub(super) depth: Option<DepthGpu>,
+    failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) token: Option<ViewmodelToken>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
@@ -77,6 +78,7 @@ pub(super) fn init_gpu(
         geometry: None,
         skin: None,
         depth: None,
+        failed_depth: default(),
         bind_group: None,
         token: None,
         pipeline: None,
@@ -266,34 +268,10 @@ pub(super) fn prepare(params: PrepareViewmodel) {
             pixels: std::sync::Arc::clone(&frame.skin.rgba8),
         });
     }
-    if gpu
-        .depth
-        .as_ref()
-        .is_none_or(|depth| depth.size != render_size || depth.samples != token.samples)
-    {
-        // Drop the old declared allocation before constructing its replacement.
-        gpu.depth = None;
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("bounded private hand reverse-Z depth"),
-            size: Extent3d {
-                width: render_size[0],
-                height: render_size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: token.samples,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Depth32Float,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&TextureViewDescriptor::default());
-        gpu.depth = Some(DepthGpu {
-            _texture: texture,
-            view,
-            size: render_size,
-            samples: token.samples,
-        });
+    if !ensure_depth(&mut gpu, &device, token.owner, render_size, token.samples) {
+        gate.reject(token);
+        gpu.token = None;
+        return;
     }
     queue.profiled_write_buffer(
         &gpu.projection,
@@ -358,8 +336,43 @@ pub(super) fn hand_render_extent(
     .then_some(main)
 }
 
+/// Retains matching hand depth and backs off allocation failures at the scaled extent.
+pub(super) fn ensure_depth(
+    gpu: &mut HandGpu,
+    device: &RenderDevice,
+    owner: Entity,
+    size: [u32; 2],
+    samples: u32,
+) -> bool {
+    gpu.failed_depth.retain(|previous| previous == owner);
+    if gpu.depth.as_ref().is_some_and(|depth| depth.size == size && depth.samples == samples) {
+        return true;
+    }
+    gpu.depth = None;
+    let label = "bounded private hand reverse-Z depth";
+    let bytes = viewmodel_depth_bytes(size, samples).expect("validated hand depth extent");
+    let texture = gpu.failed_depth.attempt(owner, (size, samples), || {
+        crate::gpu_allocation::checked(device, label, bytes, || device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: samples,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Depth32Float,
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        }))
+    });
+    gpu.depth = texture.map(|texture| DepthGpu {
+        view: texture.create_view(&TextureViewDescriptor::default()),
+        _texture: texture, size, samples,
+    });
+    gpu.depth.is_some()
+}
+
 /// Drops device-owned state when its device observation no longer matches.
 pub(super) fn invalidate_hand_resources(gpu: &mut HandGpu) {
+    gpu.failed_depth = default();
     gpu.token = None;
     gpu.depth = None;
     gpu.bind_group = None;

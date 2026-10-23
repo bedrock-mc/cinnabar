@@ -58,6 +58,9 @@ fn extract_scale_requests(
     owners: Extract<Query<RenderEntity, With<FlyCamera>>>,
     previous: Query<(Entity, &RenderScaleRequest)>,
 ) {
+    commands.insert_resource(render::RenderScaleSharpen(settings.as_ref().is_none_or(
+        |settings| settings.user_settings_update().1.video.render_scale_sharpen,
+    )));
     let scale = scale.0.unwrap_or_else(|| {
         settings.as_ref().map_or(1.0, |settings| {
             f32::from(settings.user_settings_update().1.video.render_scale_percent) / 100.0
@@ -109,7 +112,6 @@ fn scale_extracted_camera(
         let target = camera.target.clone();
         let compatible = target.is_some()
             && !overridden
-            && !camera.hdr
             && camera.viewport.is_none()
             && matches!(
                 camera.output_mode,
@@ -164,6 +166,7 @@ mod tests {
         },
     };
 
+    /// Builds a native camera/view pair without changing its projection.
     fn camera(size: UVec2) -> (ExtractedCamera, ExtractedView) {
         (
             ExtractedCamera {
@@ -256,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn extraction_preserves_hdr_partial_and_shared_output_views() {
+    fn extraction_preserves_partial_and_shared_outputs_and_scales_hdr() {
         for mode in 0..3 {
             let mut world = World::new();
             let output = UVec2::new(1280, 720);
@@ -282,9 +285,12 @@ mod tests {
                     .get::<ExtractedCamera>(entity)
                     .unwrap()
                     .physical_target_size,
-                Some(output)
+                Some(if mode == 0 { output / 2 } else { output })
             );
-            assert!(world.get::<render::RenderScaleOutput>(entity).is_none());
+            assert_eq!(
+                world.get::<render::RenderScaleOutput>(entity).is_none(),
+                mode != 0
+            );
         }
     }
 

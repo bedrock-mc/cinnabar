@@ -969,7 +969,7 @@ fn video_render_resolution_slider_edits_every_integer_percentage() {
 }
 
 #[test]
-fn enhanced_video_shows_resolution_applicability_without_an_ineffective_control() {
+fn enhanced_video_keeps_render_resolution_editable() {
     use launcher::menu::settings_options::SettingId;
     let size = [1280.0, 720.0];
     let mut view = settings_view("video_forced_index");
@@ -977,7 +977,7 @@ fn enhanced_video_shows_resolution_applicability_without_an_ineffective_control(
     let offsets = centered_option(&view, index, size);
     view.render_mode = ui::RenderMode::Enhanced;
     let frame = paint(&view, size, offsets);
-    assert!(!frame.hits.iter().any(|(action, _)| matches!(action,
-        MenuAction::SettingsOption(at, _) | MenuAction::SettingsDropdown(at) if usize::from(*at) == index
+    assert!(frame.hits.iter().any(|(action, _)| matches!(action,
+        MenuAction::SettingsOption(at, _) if usize::from(*at) == index
     )));
 }

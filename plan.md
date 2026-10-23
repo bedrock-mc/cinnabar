@@ -70,11 +70,11 @@ Implemented: [terrain meshing](crates/meshing/src/lib.rs),
 rendering. The criteria below concern complete target coverage, native comparisons
 and resource qualification; they do not imply these systems need to be written.
 
-Render Resolution provides a 10-100% world-resolution slider while menus, HUD and
-inventory previews retain native output pixels. Raspberry Pi defaults to 15%;
-other devices default to 100%, and saved choices take priority. Reduced rendering
-requires a single full-window LDR player view; launcher, HDR and custom views stay
-native.
+Render Resolution provides a 10-100% world-resolution slider with optional light
+sharpening over bilinear upscaling. Menus, HUD and inventory previews retain native
+output pixels; the hand, world-space nametags, shader-pack targets and Enhanced
+world effects use the reduced world size. Screenshots retain native output dimensions.
+The default is 100% on every device. Launcher, partial and shared-output views stay native.
 Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
 ### Terrain, materials and biome acceptance

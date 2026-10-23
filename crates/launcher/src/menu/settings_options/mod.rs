@@ -88,8 +88,6 @@ pub struct SettingsOptions {
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
     render_distance_defaults: ui::RenderDistanceDefaults,
-    #[serde(skip)]
-    render_resolution_default: u8,
     keys: BTreeMap<String, u16>,
     /// Layout labels observed this session, independent of persisted bindings.
     #[serde(skip)]
@@ -111,7 +109,6 @@ impl Default for SettingsOptions {
             graphics_api_revision: 0,
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
-            render_resolution_default: ui::DEFAULT_RENDER_SCALE_PERCENT,
             keys: BTreeMap::new(),
             key_labels: BTreeMap::new(),
             language: None,

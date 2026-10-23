@@ -1,26 +1,6 @@
-//! Device defaults, world-resolution help, and historical saved dropdown choices.
+//! World-resolution help and historical saved dropdown choices.
 
-/// Untouched Raspberry Pi settings reduce world rendering while preserving native screen UI.
-pub const RASPBERRY_PI_DEFAULT_PERCENT: u8 = 15;
-
-pub const DESCRIPTION: &str = "Lower values soften the world to improve frame rate. Menus and the HUD stay at native resolution. Available in Vanilla rendering with a single full-window game view.";
-
-impl super::SettingsOptions {
-    /// Replaces the runtime default without changing a saved resolution choice.
-    pub fn set_render_resolution_default(&mut self, percent: u8) -> bool {
-        let percent = percent.clamp(ui::MIN_RENDER_SCALE_PERCENT, ui::MAX_RENDER_SCALE_PERCENT);
-        if self.render_resolution_default == percent {
-            return false;
-        }
-        self.render_resolution_default = percent;
-        true
-    }
-
-    /// Returns the current device's default, independent of the saved selection.
-    pub fn render_resolution_default(&self) -> u8 {
-        self.render_resolution_default
-    }
-}
+pub const DESCRIPTION: &str = "Lower values improve frame rate by rendering the world at a lower resolution. Menus and the HUD stay at native resolution. Applies to a single full-window game view.";
 
 /// Converts historical dropdown indices, which do not overlap today's valid percentages.
 pub(super) fn migrate_saved_percent(value: i32) -> i32 {
@@ -35,7 +15,6 @@ pub(super) fn migrate_saved_percent(value: i32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::RASPBERRY_PI_DEFAULT_PERCENT;
     use crate::menu::settings_options::{
         SettingId, SettingsGroup, SettingsOptions, video_presets::VideoPreset,
     };
@@ -50,63 +29,6 @@ mod tests {
             let saved = SettingsOptions::decode(bytes).unwrap();
             assert_eq!(
                 saved.user_settings().video.render_scale_percent,
-                ui::DEFAULT_RENDER_SCALE_PERCENT
-            );
-        }
-    }
-
-    #[test]
-    fn untouched_resolution_follows_the_device_without_persisting_a_choice() {
-        for bytes in [b"{}".as_slice(), br#"{"values":{"gamma":37}}"#] {
-            let mut saved = SettingsOptions::decode(bytes).unwrap();
-            assert!(saved.set_render_resolution_default(RASPBERRY_PI_DEFAULT_PERCENT));
-            assert_eq!(
-                saved.user_settings().video.render_scale_percent,
-                RASPBERRY_PI_DEFAULT_PERCENT
-            );
-            let stored = serde_json::to_vec(&saved).unwrap();
-            let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
-            assert!(json["values"].get("render_resolution").is_none());
-            let mut loaded = SettingsOptions::decode(&stored).unwrap();
-            assert_eq!(
-                loaded.user_settings().video.render_scale_percent,
-                ui::DEFAULT_RENDER_SCALE_PERCENT
-            );
-            loaded.set_render_resolution_default(RASPBERRY_PI_DEFAULT_PERCENT);
-            assert_eq!(
-                loaded.user_settings().video.render_scale_percent,
-                RASPBERRY_PI_DEFAULT_PERCENT
-            );
-        }
-    }
-
-    #[test]
-    fn explicit_resolution_wins_over_device_defaults_until_video_reset() {
-        let index = SettingId::RenderResolution.index();
-        for percent in [
-            RASPBERRY_PI_DEFAULT_PERCENT,
-            37,
-            ui::DEFAULT_RENDER_SCALE_PERCENT,
-        ] {
-            let mut saved = SettingsOptions::default();
-            saved.set_render_resolution_default(RASPBERRY_PI_DEFAULT_PERCENT);
-            assert!(saved.set(index, i32::from(percent)));
-            let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
-            for default in [
-                ui::DEFAULT_RENDER_SCALE_PERCENT,
-                RASPBERRY_PI_DEFAULT_PERCENT,
-            ] {
-                loaded.set_render_resolution_default(default);
-                assert_eq!(loaded.user_settings().video.render_scale_percent, percent);
-            }
-            assert!(loaded.reset_group(SettingsGroup::Video));
-            assert_eq!(
-                loaded.user_settings().video.render_scale_percent,
-                RASPBERRY_PI_DEFAULT_PERCENT
-            );
-            loaded.set_render_resolution_default(ui::DEFAULT_RENDER_SCALE_PERCENT);
-            assert_eq!(
-                loaded.user_settings().video.render_scale_percent,
                 ui::DEFAULT_RENDER_SCALE_PERCENT
             );
         }

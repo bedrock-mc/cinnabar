@@ -802,6 +802,7 @@ type UiOutputQuery = (
     Option<&'static ExtractedCamera>,
     Option<&'static UiLayerTexture>,
     Option<&'static bevy::render::view::ResolvedCompositingSpace>,
+    Option<&'static NativeUiTarget>,
 );
 
 /// Qualifies content only after direct output or a successfully encoded ordinary output blit.
@@ -815,7 +816,7 @@ fn observe_ui_output(
         >,
     >,
 ) {
-    let (target, _, camera, layer, space) = view.into_inner();
+    let (target, _, camera, layer, space, native) = view.into_inner();
     let Some(layer) = layer else {
         return;
     };
@@ -827,6 +828,12 @@ fn observe_ui_output(
         return;
     }
     if layer.present.load(Ordering::Relaxed) && !layer.composited.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(native) = native {
+        layer
+            .content_presented
+            .store(native.was_presented(), Ordering::Relaxed);
         return;
     }
     let blend_state = match camera.map(|camera| &camera.output_mode) {

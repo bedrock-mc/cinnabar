@@ -34,6 +34,7 @@ fn fixture(render: RenderPlugin) -> App {
             CameraPlugin,
             CorePipelinePlugin,
         ));
+    super::super::upscale::install(&mut app);
     app.finish();
     app.cleanup();
     app.update();
@@ -409,6 +410,7 @@ fn native_one_pixel_hud_survives_ten_percent_world_upscale_and_empty_next_frame(
             multiview_mask: None,
             cache: None,
         });
+    let mut previous = None;
     for draw_hud in [true, false] {
         world.run_system_once(prepare_native_ui_targets).unwrap();
         let target = world.get::<ViewTarget>(entity).unwrap();
@@ -468,23 +470,29 @@ fn native_one_pixel_hud_survives_ten_percent_world_upscale_and_empty_next_frame(
         });
         world.resource::<RenderQueue>().submit(commands);
         let actual = pixels(world, entity);
-        for y in 0..30 {
-            for x in 0..40 {
-                let expected = if draw_hud && (x, y) == (17, 3) {
-                    [255; 4]
-                } else {
-                    source[(y / 10) * 4 + x / 10]
-                };
-                let pixel = actual[y * 40 + x];
-                assert!(
-                    pixel
-                        .into_iter()
-                        .zip(expected)
-                        .all(|(actual, expected)| actual.abs_diff(expected) <= 1),
-                    "HUD={draw_hud} pixel({x},{y}): {pixel:?} expected {expected:?}"
-                );
+        if draw_hud {
+            assert_eq!(actual[3 * 40 + 17], [255; 4]);
+        }
+        // The gradient must interpolate inside each source texel rather than forming blocks.
+        assert!(actual[10 * 40 + 14][0] < actual[10 * 40 + 15][0]);
+        assert!(actual[10 * 40 + 14][0] > source[0][0]);
+        for (index, pixel) in actual.iter().enumerate() {
+            if draw_hud && index == 3 * 40 + 17 {
+                continue;
+            }
+            assert!(
+                pixel[2].abs_diff(60) <= 1,
+                "uniform blue must survive filtering"
+            );
+            assert_eq!(pixel[3], 255);
+            if index != 3 * 40 + 17
+                && let Some(before) = &previous
+            {
+                let before: &Vec<[u8; 4]> = before;
+                assert_eq!(*pixel, before[index], "only the HUD pixel may change");
             }
         }
+        previous = Some(actual);
         assert_eq!(
             world
                 .get::<NativeUiTarget>(entity)
@@ -518,4 +526,46 @@ fn absent_blit_resources_still_release_unscaled_native_targets() {
         world.get::<NativeUiTarget>(entity).is_none(),
         "missing blit resources cannot admit an unseedable native scene"
     );
+}
+
+/// An allocation failure must not publish unusable textures or keep a stale native target.
+#[test]
+fn failed_native_ui_allocation_withholds_the_target() {
+    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let _failure = crate::gpu_allocation::inject(|label, _| label == "native-resolution UI scene");
+    let entity = view(world, [81, 61], [8, 6]);
+    assert!(world.get::<NativeUiTarget>(entity).is_none());
+}
+
+/// Native scene allocation retries after memory pressure without blocking every frame.
+#[test]
+fn native_ui_allocation_retries_after_backoff_and_recovers() {
+    use std::{cell::Cell, rc::Rc};
+    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let entity = view(world, [81, 61], [8, 6]);
+    world.entity_mut(entity).remove::<NativeUiTarget>();
+    let attempts = Rc::new(Cell::new(0));
+    let observed = Rc::clone(&attempts);
+    let failure = crate::gpu_allocation::inject(move |label, _| {
+        if label == "native-resolution UI scene" {
+            observed.set(observed.get() + 1);
+            true
+        } else {
+            false
+        }
+    });
+    let mut system = IntoSystem::into_system(prepare_native_ui_targets);
+    system.initialize(world);
+    for expected in [1, 1, 1, 2] {
+        system.run((), world).unwrap();
+        assert_eq!(attempts.get(), expected);
+        assert!(world.get::<NativeUiTarget>(entity).is_none());
+    }
+    drop(failure);
+    for _ in 0..5 {
+        system.run((), world).unwrap();
+    }
+    assert!(world.get::<NativeUiTarget>(entity).is_some());
 }

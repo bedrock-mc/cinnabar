@@ -27,8 +27,6 @@ impl SettingsOptions {
     pub(super) fn option_default(&self, option: &SettingDefinition) -> i32 {
         if option.id == SettingId::RenderDistance {
             self.render_distance_defaults.recommended as i32
-        } else if option.id == SettingId::RenderResolution {
-            i32::from(self.render_resolution_default)
         } else {
             option.default
         }
