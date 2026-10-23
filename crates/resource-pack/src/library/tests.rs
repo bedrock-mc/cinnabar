@@ -10,7 +10,7 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
 fn numeric_array_versions_survive_import_and_restart() {
-    for version in [[100_000, 0, 0], [0, 100_000, 0], [0, 0, u32::MAX]] {
+    for version in [[65535, 0, 0], [0, 65535, 0], [0, 0, 65535]] {
         let fixture = Fixture::new();
         let mut library = fixture.library();
         let mut manifest: serde_json::Value =

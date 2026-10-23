@@ -30,7 +30,7 @@ impl Version {
             Value::Array(parts) if parts.len() == 3 => {
                 let mut parsed = [0; 3];
                 for (slot, part) in parsed.iter_mut().zip(parts) {
-                    *slot = u32::try_from(part.as_u64()?).ok()?;
+                    *slot = u32::from(u16::try_from(part.as_u64()?).ok()?);
                 }
                 Some(Self(parsed))
             }
@@ -142,6 +142,20 @@ mod tests {
     use super::*;
 
     const ID: Uuid = Uuid::from_u128(1);
+
+    #[test]
+    fn pack_version_components_stop_at_u16_max() {
+        for component in 0..3 {
+            let mut parts = [0_u32; 3];
+            parts[component] = 65536;
+            assert_eq!(Version::from_value(&serde_json::json!(parts)), None);
+            parts[component] = 65535;
+            assert_eq!(
+                Version::from_value(&serde_json::json!(parts)),
+                Some(Version(parts))
+            );
+        }
+    }
 
     #[test]
     #[cfg(feature = "handoff")]

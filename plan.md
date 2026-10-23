@@ -643,8 +643,9 @@ preparation and broader sparse-startup coverage.
 Server handoff keeps the advertised UUID and version for stack selection when a valid
 archive's manifest names another identity; local imports and library selections still match
 exactly, preserving numeric array versions through import and installed-pack admission.
-Semantic-version boundary normalization, the matching Gophertunnel transfer change and live
-acceptance remain incomplete.
+Pack version components use the supported 16-bit range; format-version arrays narrow their
+components before parser selection, and versions below the first parser slice are rejected.
+The matching Gophertunnel transfer change and broader live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a

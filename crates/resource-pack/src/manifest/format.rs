@@ -17,7 +17,7 @@ pub(crate) struct SemVersion {
 }
 
 impl SemVersion {
-    /// Parses `major[.minor[.patch[-pre][+build]]]`: each number is `0` or up to five digits without a
+    /// Parses `major[.minor[.patch[-pre][+build]]]`: each number fits an unsigned 16-bit component without a
     /// leading zero, missing parts are zero, and the whole text must match.
     pub(crate) fn parse(text: &str) -> Option<Self> {
         let (core, build) = match text.split_once('+') {
@@ -60,7 +60,9 @@ fn number(part: &str) -> Option<u32> {
             && part.len() <= 5
             && !part.starts_with('0')
             && part.bytes().all(|byte| byte.is_ascii_digit()));
-    valid.then(|| part.parse().ok()).flatten()
+    valid
+        .then(|| part.parse::<u16>().ok().map(u32::from))
+        .flatten()
 }
 
 /// A non-empty run of ASCII alphanumerics and hyphens.
@@ -115,6 +117,9 @@ pub(crate) fn layout(source: &[u8], root: &Value) -> Option<Layout> {
         // Without a format version the legacy parser reads format 0.
         None => return Some(Layout::Legacy0),
     };
+    if version.below([0, 0, 0]) {
+        return None;
+    }
     if version.below([3, 0, 0]) {
         let format = match &root["format_version"] {
             Value::Number(number) => number
@@ -159,7 +164,8 @@ fn semantic_format_version(raw: &[u8]) -> Option<SemVersion> {
         Value::Array(parts) if parts.len() == 3 => {
             let mut triple = [0; 3];
             for (slot, part) in triple.iter_mut().zip(&parts) {
-                *slot = u32::try_from(part.as_u64()?).ok()?;
+                // Format arrays narrow each unsigned component before selecting a parser.
+                *slot = u32::from(u32::try_from(part.as_u64()?).ok()? as u16);
             }
             Some(SemVersion {
                 triple,
@@ -236,6 +242,35 @@ mod tests {
             layout(text.as_bytes(), &serde_json::from_str(text).unwrap()),
             Some(Layout::Legacy0)
         );
+    }
+
+    #[test]
+    fn semantic_version_components_stop_at_u16_max() {
+        for text in ["65536", "1.65536", "1.2.65536", "99999.0.0"] {
+            assert_eq!(SemVersion::parse(text), None, "{text}");
+        }
+        assert_eq!(
+            SemVersion::parse("65535.65535.65535").unwrap().triple,
+            [65535; 3]
+        );
+    }
+
+    #[test]
+    fn prereleases_below_the_first_manifest_slice_are_unsupported() {
+        assert_eq!(layout_of(r#""0.0.0-beta""#), None);
+        assert_eq!(layout_of(r#""0.0.0""#), Some(Layout::Legacy0));
+        assert_eq!(layout_of(r#""0.0.1-beta""#), Some(Layout::Legacy0));
+    }
+
+    #[test]
+    fn format_arrays_narrow_components_before_selecting_the_layout() {
+        for (format, expected) in [
+            ("[65536, 0, 0]", Layout::Legacy0),
+            ("[65539, 0, 0]", Layout::Current),
+            ("[3, 65536, 65536]", Layout::Current),
+        ] {
+            assert_eq!(layout_of(format), Some(expected), "{format}");
+        }
     }
 
     #[test]
