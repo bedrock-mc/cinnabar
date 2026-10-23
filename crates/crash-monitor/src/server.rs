@@ -7,9 +7,10 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
-        mpsc::SyncSender,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        mpsc::{Receiver, SyncSender},
     },
+    time::Duration,
 };
 
 use crash_report::report::Kind;
@@ -18,6 +19,9 @@ use launcher_host::lifecycle::crash::heartbeat::Heartbeat;
 use launcher_host::lifecycle::crash::protocol::DumpContext;
 use launcher_host::lifecycle::crash::protocol::{self, Hello, Panic, State, Token};
 use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
+
+/// How long the server may take to read what the client sent before it went away.
+const DRAIN: Duration = Duration::from_secs(2);
 
 /// A dump the client asked for.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,24 +78,25 @@ pub(crate) enum Event {
     ClientGone,
 }
 
-/// Whether the client is gone and how many connections are open, shared with the main thread
-/// so the server stops once both say nothing more can arrive.
+/// Whether the client is gone, shared with the server so it stops after draining connections.
 #[derive(Debug, Default)]
 pub(crate) struct Liveness {
     gone: AtomicBool,
-    open: AtomicUsize,
 }
 
 impl Liveness {
-    /// Records that the client is gone; true when no connection is open, so nothing more can
-    /// arrive. Otherwise the server stops itself when the last one closes.
-    pub(crate) fn client_gone(&self) -> bool {
+    /// Lets the server read queued messages after the client exits, then requests shutdown if
+    /// its connections do not close within the drain budget.
+    pub(crate) fn drain(&self, finished: &Receiver<()>, shutdown: &AtomicBool) {
         self.gone.store(true, Ordering::SeqCst);
-        self.open.load(Ordering::SeqCst) == 0
+        // No accepted connections can also mean a connection is still queued for acceptance.
+        if finished.recv_timeout(DRAIN).is_err() {
+            shutdown.store(true, Ordering::Relaxed);
+        }
     }
 
+    /// Stops after the final connection closes, once the client's exit has been recorded.
     fn closed(&self, open: usize) -> LoopAction {
-        self.open.store(open, Ordering::SeqCst);
         if open == 0 && self.gone.load(Ordering::SeqCst) {
             LoopAction::Exit
         } else {
@@ -291,7 +296,6 @@ impl ServerHandler for Handler {
     }
 
     fn on_client_connected(&self, open: usize) -> LoopAction {
-        self.liveness.open.store(open, Ordering::SeqCst);
         if open > 1 {
             tracing::warn!("another process connected to the crash monitor");
         }
@@ -472,12 +476,64 @@ mod tests {
     #[test]
     fn the_server_stops_once_the_client_is_gone_and_its_connections_closed() {
         let liveness = Liveness::default();
-        liveness.open.store(1, Ordering::SeqCst);
         // A dump closes the connection of a client that lives on.
         assert!(liveness.closed(0) == LoopAction::Continue);
-        liveness.open.store(1, Ordering::SeqCst);
-        assert!(!liveness.client_gone());
+        liveness.gone.store(true, Ordering::SeqCst);
+        assert!(liveness.closed(1) == LoopAction::Continue);
         assert!(liveness.closed(0) == LoopAction::Exit);
-        assert!(Liveness::default().client_gone());
+    }
+
+    /// The client can send its entire session and exit before the server accepts its socket.
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn failures_queued_before_accept_are_drained_after_client_exit() {
+        for (message, kind) in [
+            (protocol::STARTUP_FAILURE, Kind::Startup),
+            (protocol::RUNTIME_FAILURE, Kind::Runtime),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let socket = directory.path().join("socket");
+            let mut server = minidumper::Server::with_name(protocol::socket_name(&socket)).unwrap();
+            let client = minidumper::Client::with_name(protocol::socket_name(&socket)).unwrap();
+            for (message, payload) in [
+                (protocol::HELLO, hello()),
+                (message, b"fixture failure".to_vec()),
+                (protocol::EXIT, 1_i32.to_le_bytes().to_vec()),
+            ] {
+                client
+                    .send_message(message, signed(&TOKEN, &payload))
+                    .unwrap();
+            }
+            let (handler, observed, _received) = handler();
+            let liveness = Arc::clone(&handler.liveness);
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let (finished, server_finished) = mpsc::channel();
+            let serving = {
+                let liveness = Arc::clone(&liveness);
+                let shutdown = Arc::clone(&shutdown);
+                std::thread::spawn(move || {
+                    test_time::eventually("the client's exit", || {
+                        liveness.gone.load(Ordering::SeqCst)
+                    });
+                    server.run(Box::new(handler), &shutdown, None).unwrap();
+                    finished.send(()).unwrap();
+                })
+            };
+            // Windows waits for the server to close its socket when dropping the client.
+            let closing = std::thread::spawn(move || drop(client));
+            liveness.drain(&server_finished, &shutdown);
+            serving.join().unwrap();
+            closing.join().unwrap();
+            let observed = observed.lock().unwrap();
+            assert!(observed.hello.is_some());
+            assert_eq!(observed.exit, Some(1));
+            assert_eq!(
+                observed.failure,
+                Some(Failure {
+                    kind,
+                    error: "fixture failure".into(),
+                })
+            );
+        }
     }
 }

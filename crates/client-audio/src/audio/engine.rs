@@ -335,6 +335,7 @@ impl AudioEngine {
     pub fn clear_server_if_current(&mut self) {
         if super::server::current_generation() == self.server_seen {
             self.install_server(None);
+            super::server::release_if_current(self.server_seen);
         }
     }
 

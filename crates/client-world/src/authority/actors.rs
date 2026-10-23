@@ -39,6 +39,11 @@ impl WorldAuthority {
     pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_name_tag(unique_id)
     }
+    /// The title an actor-backed container screen shows: its filtered name when set,
+    /// otherwise its name tag.
+    pub fn actor_container_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_container_name(unique_id)
+    }
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
@@ -532,7 +537,7 @@ impl WorldAuthority {
     /// The actor's interaction boxes where this frame's due ticks put it, for picks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
         match self.actors.pick_pose(actor.runtime_id) {
-            Some((position, _)) => actor.hit_boxes_at(position),
+            Some(pose) => actor.hit_boxes_at_pose(pose),
             None => actor.hit_boxes(),
         }
     }

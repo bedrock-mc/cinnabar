@@ -10,6 +10,13 @@ use {super::super::*, assets::BlockFace};
 const MIN: [i16; 3] = [4 * 16, 0, 4 * 16];
 const MAX: [i16; 3] = [12 * 16, 8 * 16, 12 * 16];
 
+/// Admits the primary heavy-core record shared by geometry and fallback routing.
+pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
+    record.name.as_ref() == PackBlock::HeavyCore.identifier()
+        && record.contributor_role == ContributorRole::Primary
+        && !record.flags.contains(BlockFlags::AIR)
+}
+
 /// Compiles the native heavy-core cube without applying a block-facing rotation.
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
@@ -17,10 +24,7 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<[u32; 6], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if record.name.as_ref() != PackBlock::HeavyCore.identifier()
-        || record.contributor_role != ContributorRole::Primary
-        || record.flags.contains(BlockFlags::AIR)
-    {
+    if !is_record(record) {
         return Ok(CompileRuleResult::NoMatch);
     }
     let mut visual = diagnostic_visual(record);

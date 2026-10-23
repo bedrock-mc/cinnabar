@@ -22,6 +22,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 type settings struct {
 	totemTest, totemTexture                 bool
 	primitiveShapes, cameraTest, actorBurst bool
+	containerTitleTest                      bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
 	terrainFixtureRadius                    int
@@ -57,6 +58,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.generator, "generator", "flat", "flat terrain")
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest tutorial, firstperson, spline, inline, aim and clear fixtures")
+	flags.BoolVar(&s.containerTitleTest, "container-title-test", false, "enable /containertitle filtered and raw actor-backed chest menu fixtures")
 	flags.BoolVar(&s.totemTest, "totem-test", false, "enable /totemtest offhand, main, remote, empty, idle and staleecho fixtures")
 	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")

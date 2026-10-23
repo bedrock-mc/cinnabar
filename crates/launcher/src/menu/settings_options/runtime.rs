@@ -24,7 +24,9 @@ pub fn frame_rate_limit(value: i32) -> FrameRateLimit {
 /// The Max Framerate caption: a numeric cap or Unlimited.
 pub fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
     match frame_rate_limit(value) {
-        FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
+        FrameRateLimit::Automatic | FrameRateLimit::Unlimited => {
+            translate("options.framerateLimit.max")
+        }
         FrameRateLimit::Fixed(fps) => fps.to_string(),
     }
 }
@@ -47,8 +49,13 @@ impl SettingsOptions {
         settings.controls.invert_gamepad_y = self.value(SettingId::ControllerInvertYAxis) != 0;
         settings.video.camera_shake = self.value(SettingId::CameraShake) != 0;
         settings.video.damage_bob = self.value(SettingId::DamageBob) as f32 / 100.0;
-        settings.video.frame_rate_limit = frame_rate_limit(self.value(SettingId::MaxFramerate));
-        settings.video.vsync = self.value(SettingId::Vsync) != 0;
+        settings.video.frame_rate_limit =
+            if self.values.contains_key(SettingId::MaxFramerate.name()) {
+                frame_rate_limit(self.value(SettingId::MaxFramerate))
+            } else {
+                FrameRateLimit::Automatic
+            };
+        settings.video.vsync = render_api::VsyncMode::from_value(self.value(SettingId::Vsync));
         settings.video.vrr =
             render_api::VrrPreference::from_value(self.value(super::VRR_OPTION.id));
         settings.video.anti_aliasing_samples = self.value(SettingId::Msaa) as u32;
