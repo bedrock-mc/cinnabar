@@ -239,6 +239,41 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
 }
 
 impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
+    /// Stores work whose caller owns its ready queue, without geometry scans or retries.
+    pub(super) fn enqueue_unrouted(&mut self, key: SubChunkKey, pending: P) {
+        self.retire_lane_ownership(&key);
+        self.retries.remove(&key);
+        self.pending.insert(key, pending);
+    }
+
+    /// Makes bounded work from an older lane generation available without refreshing other lanes.
+    pub(super) fn wake_lane(
+        &mut self,
+        lane: usize,
+        view: SchedulerView,
+        budget: usize,
+        deadline: Option<Instant>,
+    ) {
+        for index in 0..budget.min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL) {
+            if index != 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                break;
+            }
+            let previous = &mut self.refresh.previous[lane];
+            let Some(mut candidate) = previous.ready.pop().or_else(|| previous.deferred.pop())
+            else {
+                break;
+            };
+            if self
+                .pending
+                .get(&candidate.key)
+                .is_some_and(|pending| pending.revision() == candidate.revision)
+            {
+                candidate.refresh_rank(view);
+                self.lanes[lane].ready.push(candidate);
+            }
+        }
+    }
+
     /// Replaces the key's pending record and queues it for ingress.
     pub(super) fn enqueue(&mut self, key: SubChunkKey, pending: P) {
         self.enqueue_prioritized(key, pending, false);

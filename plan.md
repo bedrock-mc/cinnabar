@@ -219,7 +219,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   poll budget, with backoff while neighbours or light remain unavailable. Hardware
   dirty-to-visible latency qualification remains open. Empty-section evidence and
   withdrawals use their separate allowance without spending geometry credits;
-  both still share the frame operation cap. Sustained high-speed hardware
+  both still share the frame operation cap. Ready air and withdrawals bypass geometry
+  scheduler ingress and receive bounded service before decode and lighting, using the
+  same publication limits and poll deadline. Sustained high-speed hardware
   qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is

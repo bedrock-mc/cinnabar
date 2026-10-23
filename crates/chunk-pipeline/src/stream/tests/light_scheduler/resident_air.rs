@@ -1,5 +1,37 @@
 use super::*;
 
+/// Ready air spends its allowance without first scanning a backlog of geometry dependencies.
+#[test]
+fn fresh_air_is_not_held_behind_geometry_scheduler_ingress() {
+    let mut stream = lit_stream(1);
+    for x in 100..100 + MAX_PENDING_MESH_QUEUE_WORK_PER_POLL as i32 {
+        let key = SubChunkKey::new(1, x, 0, 0);
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let air = (0..8)
+        .map(|x| SubChunkKey::new(1, x, 8, 0))
+        .collect::<Vec<_>>();
+    for &key in &air {
+        resident(&mut stream, key, super::uniform_sub_chunk(0));
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let allowance =
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::DEFAULT);
+    allowance.begin_frame(1, 0, 0, air.len(), air.len());
+    stream.set_publication_allowance(allowance);
+
+    stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, air.len());
+
+    let removed = stream
+        .take_mesh_changes()
+        .into_iter()
+        .map(|change| change.key())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(removed, air.into_iter().collect());
+    assert!(stream.mesh_jobs.in_flight.is_empty());
+}
+
 fn resident(stream: &mut WorldStream, key: SubChunkKey, chunk: world::SubChunk) {
     stream.authority.commit_sub_chunk(key, chunk).unwrap();
     stream.sync_resident(key);
