@@ -886,7 +886,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   varying locations receive zero outputs. Compiler results carry shader modules without
   duplicate validation data; the host revalidates them when decoding.
   The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
-  entities and the hand, deferred, composite and final passes, compute, custom textures and
+  entities and the hand, deferred, composite and final passes, compute, custom textures,
+  whose image bindings yield to a buffer an earlier pass of the stage flipped, and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status

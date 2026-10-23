@@ -12,7 +12,8 @@ fn image_dimension(size: ImageSize) -> TextureDimension {
     }
 }
 
-/// Resolves every texture and image binding of `reflection`.
+/// Resolves every texture and image binding of `reflection`; `released` is the program's
+/// [`shaderpack::ProgramTranslation::released_overrides`].
 #[allow(
     clippy::too_many_arguments,
     reason = "the pack-wide plan pieces a binding draws on"
@@ -20,6 +21,7 @@ fn image_dimension(size: ImageSize) -> TextureDimension {
 pub(crate) fn resolve_bindings(
     constants: &mut ConstantBuilder<'_>,
     group: ProgramGroup,
+    released: u32,
     reflection: &ProgramReflection,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     storage_buffers: u32,
@@ -35,49 +37,49 @@ pub(crate) fn resolve_bindings(
         .map(|t| {
             let wanted = sample_kind(t.sample_type);
             let fits = |format: TextureFormat| wanted.is_none_or(|k| k == format_kind(format));
-            let source =
-                if let Some((index, format)) = constants.custom(stage, &t.name, t.dimension) {
-                    Some(TextureSource::Constant { index, format })
-                } else if let Some(layer) = atlas_layer(&t.name).filter(|_| geometry) {
-                    Some(TextureSource::Atlas(layer))
-                } else if t.name == "lightmap" && geometry {
-                    let (index, format) = constants.lightmap()?;
-                    Some(TextureSource::Constant { index, format })
-                } else if t.name == "noisetex" {
-                    let (index, format) = constants.noise()?;
-                    Some(TextureSource::Constant { index, format })
-                } else if let Some(index) = depth_index(&t.name) {
-                    Some(if t.sample_type == SampleType::Depth {
-                        TextureSource::DepthCompare(index)
-                    } else {
-                        TextureSource::Depth {
-                            index,
-                            format: depth_format,
-                        }
-                    })
-                } else if let Some(index) = match t.name.as_str() {
-                    "shadowtex0" | "shadow" | "watershadow" => Some(0),
-                    "shadowtex1" => Some(1),
-                    _ => None,
-                } {
-                    let (index, format) = constants.shadow(index, t.sample_type)?;
-                    Some(TextureSource::Constant { index, format })
-                } else if let Some(BufferId::ShadowColor(i)) = BufferId::parse(&t.name) {
-                    let (index, format) = constants.shadow_color(i)?;
-                    Some(TextureSource::Constant { index, format })
-                } else if let Some(index) = color_buffer_of(&t.name)
-                    && let Some(format) = buffer_formats[index as usize]
-                {
-                    Some(TextureSource::Buffer { index, format })
+            let custom = constants.custom(stage, &t.name, t.dimension, released);
+            let source = if let Some((index, format)) = custom {
+                Some(TextureSource::Constant { index, format })
+            } else if let Some(layer) = atlas_layer(&t.name).filter(|_| geometry) {
+                Some(TextureSource::Atlas(layer))
+            } else if t.name == "lightmap" && geometry {
+                let (index, format) = constants.lightmap()?;
+                Some(TextureSource::Constant { index, format })
+            } else if t.name == "noisetex" {
+                let (index, format) = constants.noise()?;
+                Some(TextureSource::Constant { index, format })
+            } else if let Some(index) = depth_index(&t.name) {
+                Some(if t.sample_type == SampleType::Depth {
+                    TextureSource::DepthCompare(index)
                 } else {
-                    images
-                        .iter()
-                        .position(|i| i.sampler == t.name)
-                        .map(|index| TextureSource::Image {
-                            index,
-                            format: image_formats[index],
-                        })
-                };
+                    TextureSource::Depth {
+                        index,
+                        format: depth_format,
+                    }
+                })
+            } else if let Some(index) = match t.name.as_str() {
+                "shadowtex0" | "shadow" | "watershadow" => Some(0),
+                "shadowtex1" => Some(1),
+                _ => None,
+            } {
+                let (index, format) = constants.shadow(index, t.sample_type)?;
+                Some(TextureSource::Constant { index, format })
+            } else if let Some(BufferId::ShadowColor(i)) = BufferId::parse(&t.name) {
+                let (index, format) = constants.shadow_color(i)?;
+                Some(TextureSource::Constant { index, format })
+            } else if let Some(index) = color_buffer_of(&t.name)
+                && let Some(format) = buffer_formats[index as usize]
+            {
+                Some(TextureSource::Buffer { index, format })
+            } else {
+                images
+                    .iter()
+                    .position(|i| i.sampler == t.name)
+                    .map(|index| TextureSource::Image {
+                        index,
+                        format: image_formats[index],
+                    })
+            };
             let dimension_fits = |s: &TextureSource| match *s {
                 TextureSource::Constant { index, .. } => constants.has_shape(index, t.dimension),
                 TextureSource::Image { index, .. } => {

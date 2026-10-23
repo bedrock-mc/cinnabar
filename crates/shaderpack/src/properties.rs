@@ -294,6 +294,15 @@ impl CustomTexture {
         self.stage == group.texture_stage() || self.stage == "noise"
     }
 
+    /// Whether an earlier flip in the stage has released this binding, given `released`
+    /// ([`crate::ProgramTranslation::released_overrides`]): an image or resource bound to
+    /// a colour buffer in it no longer replaces the buffer. Iris renames a raw texture's
+    /// samplers in the stage's source instead, so flips never release it.
+    pub fn released_by(&self, released: u32) -> bool {
+        !matches!(self.source, TextureSource::Raw { .. })
+            && crate::flips::sampler_released(released, self.uniform())
+    }
+
     /// Its filtering, as Iris reads it: `blur` and `clamp` from `<path>.mcmeta`, defaulting
     /// to nearest/repeat for images and linear/clamp for raw textures.
     pub fn sampler_class(&self, source: &PackSource) -> SamplerClass {

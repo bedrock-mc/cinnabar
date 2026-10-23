@@ -3,6 +3,9 @@
 use crate::preprocess::ConstDirective;
 use std::collections::BTreeMap;
 
+/// Colour buffers a pack may use (`colortex0`–`colortex15`), as Iris allocates.
+pub const MAX_COLOR_BUFFERS: u32 = 16;
+
 /// A pack colour buffer.
 #[derive(
     serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,

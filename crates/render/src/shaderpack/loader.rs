@@ -544,6 +544,7 @@ fn build_translation(
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
+                program.released_overrides,
                 reflection,
                 &buffer_formats,
                 storage_buffers,

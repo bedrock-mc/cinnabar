@@ -186,6 +186,65 @@ fn a_custom_texture_only_reclasses_samplers_of_its_shape() {
 }
 
 #[test]
+fn a_flipped_buffer_reads_through_its_own_class_after_the_stage_binding_releases() {
+    // Iris's `flippedAtLeastOnce`: once a pass of the stage wrote `colortex0`, later passes
+    // (and `final` after composite) read the buffer, not `texture.<stage>.colortex0`. Each
+    // stage starts over, so `composite` still reads the image after `deferred` wrote it.
+    // Raw textures rename the stage's samplers instead, so flips never release them.
+    let copy = "#version 120\n\
+        uniform sampler2D colortex0;\n\
+        uniform sampler2D colortex2;\n\
+        varying vec2 uv;\n\
+        void main() {\n\
+        /* DRAWBUFFERS:02 */\n\
+            gl_FragData[0] = texture2D(colortex0, uv);\n\
+            gl_FragData[1] = texture2D(colortex2, uv);\n\
+        }\n";
+    let show = "#version 120\n\
+        uniform sampler2D colortex0;\n\
+        uniform sampler2D colortex2;\n\
+        varying vec2 uv;\n\
+        void main() { gl_FragColor = texture2D(colortex0, uv) + texture2D(colortex2, uv); }\n";
+    let properties = "texture.composite.colortex0 = tex/clouds.png\n\
+        texture.deferred.colortex0 = tex/clouds.png\n\
+        texture.composite.colortex2 = tex/lut.dat TEXTURE_2D RGBA8 1 1 RGBA UNSIGNED_BYTE\n";
+    let mcmeta = r#"{"texture":{"blur":false,"clamp":false}}"#;
+    let p = pack(
+        copy,
+        properties,
+        &[
+            ("tex/lut.dat.mcmeta", mcmeta),
+            ("deferred.vsh", VERTEX),
+            ("deferred.fsh", copy),
+            ("composite1.vsh", VERTEX),
+            ("composite1.fsh", copy),
+            ("final.vsh", VERTEX),
+            ("final.fsh", show),
+        ],
+    );
+    let t = p.translate(&TranslateConfig::default());
+    for (name, released, image) in [
+        ("deferred", 0, SamplerClass::RepeatNearest),
+        ("composite", 0, SamplerClass::RepeatNearest),
+        ("composite1", 0b101, SamplerClass::ClampLinear),
+        ("final", 0b101, SamplerClass::ClampLinear),
+    ] {
+        let translated = program(&t, name);
+        assert_eq!(translated.released_overrides, released, "{name}");
+        let glsl = fragment_glsl(translated);
+        let raw = if name == "deferred" {
+            SamplerClass::ClampLinear
+        } else {
+            SamplerClass::RepeatNearest
+        };
+        for (texture, class) in [("colortex0", image), ("colortex2", raw)] {
+            let pair = format!("sampler2D({texture}, {})", class.glsl_name());
+            assert!(glsl.contains(&pair), "{name}: missing `{pair}` in\n{glsl}");
+        }
+    }
+}
+
+#[test]
 fn locals_and_parameters_shadowing_a_sampler_stay_plain() {
     // Complementary's GGX declares `float specular` while `specular` is the global sampler;
     // SEUS's `vec4 tex = texture2D(tex, …)` reads the global in the initializer.
