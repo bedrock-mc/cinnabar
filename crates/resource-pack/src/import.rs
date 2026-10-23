@@ -278,7 +278,7 @@ fn read_candidate(
         .into_inner();
     let (validated, _) = validate_archive_parts(
         metadata.id,
-        &metadata.version_text(),
+        Version(metadata.version),
         "",
         bytes.clone(),
         None,
@@ -319,8 +319,7 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
     }
     let header = &root["header"];
     let (id, Version(version)) = manifest_identity(bytes, &root)?;
-    let version_text = version.map(|part| part.to_string()).join(".");
-    let manifest = read_manifest(bytes, id, &version_text)?;
+    let manifest = read_manifest(bytes, id, Version(version))?;
     let min_engine_version = if header["min_engine_version"].is_null() {
         None
     } else {

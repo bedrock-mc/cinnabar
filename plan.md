@@ -609,7 +609,9 @@ featured-server, menu and gameplay qualification remains open, including large-p
 preparation and broader sparse-startup coverage.
 Server handoff keeps the advertised UUID and version for stack selection when a valid
 archive's manifest names another identity; local imports and library selections still match
-exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
+exactly, preserving numeric array versions through import and installed-pack admission.
+Semantic-version boundary normalization, the matching Gophertunnel transfer change and live
+acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a
