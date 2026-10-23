@@ -452,7 +452,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap. The survival
+  Hover reports and actor use share the attack's game-mode actor cap.
+  actor ray uses loaded collision defaults, authoritative dimensions and scale, and
+  constructor pick radii. Attack, use and hover preserve the selected world intercept;
+  matched server-box packet acceptance remains incomplete. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.

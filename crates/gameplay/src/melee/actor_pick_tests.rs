@@ -2,7 +2,7 @@ use super::*;
 use std::sync::Arc;
 
 /// Supplies an empty authority for pick targets.
-fn world() -> client_world::WorldAuthority {
+pub(super) fn world() -> client_world::WorldAuthority {
     client_world::WorldAuthority::new(
         protocol::WorldBootstrap {
             dimension: 0,

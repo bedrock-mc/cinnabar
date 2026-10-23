@@ -5109,6 +5109,26 @@
   ],
   "entity_rules": [
     {
+      "id": "pick-radius-shulker",
+      "status": "verified",
+      "members": [
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "pick_radius": 0.0
+      }
+    },
+    {
+      "id": "pick-radius-fireball",
+      "status": "verified",
+      "members": [
+        "minecraft:fireball"
+      ],
+      "facts": {
+        "pick_radius": 1.0
+      }
+    },
+    {
       "id": "entity-interactions-0",
       "status": "provisional",
       "members": [
