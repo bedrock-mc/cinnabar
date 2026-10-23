@@ -262,6 +262,16 @@ fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
         bounds,
         [[7.0 / 16.0 - 0.2, 0.0, 0.0], [9.0 / 16.0 - 0.2, 1.0, 1.0]]
     );
+    for face in [
+        BlockFace::Up,
+        BlockFace::Down,
+        BlockFace::North,
+        BlockFace::South,
+    ] {
+        let u = inventory[face as usize].uvs.map(|uv| uv[0]);
+        assert_eq!(u.into_iter().fold(f32::INFINITY, f32::min), 7.0 / 16.0);
+        assert_eq!(u.into_iter().fold(f32::NEG_INFINITY, f32::max), 9.0 / 16.0);
+    }
     let visible: Vec<_> = inventory
         .iter()
         .filter(|quad| quad.visible_in_gui())

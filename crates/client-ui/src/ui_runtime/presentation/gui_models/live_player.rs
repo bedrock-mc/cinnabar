@@ -305,4 +305,6 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 #[cfg(test)]
 mod cape_tests;
 #[cfg(test)]
+mod hud_doll_tests;
+#[cfg(test)]
 mod tests;

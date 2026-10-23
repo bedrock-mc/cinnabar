@@ -1,5 +1,10 @@
 use super::*;
 
+#[test]
+fn vulkan_minimum_storage_limit_is_accepted() {
+    assert!(meets_requirements(capabilities(REQUIRED_DOWNLEVEL_FLAGS, 4)).is_ok());
+}
+
 /// Supplies native-independent capabilities to the production candidate filter.
 fn capabilities(flags: wgpu::DownlevelFlags, storage_buffers: u32) -> AdapterCapabilities {
     AdapterCapabilities {
@@ -13,7 +18,7 @@ fn capabilities(flags: wgpu::DownlevelFlags, storage_buffers: u32) -> AdapterCap
 
 #[test]
 fn adapters_must_support_every_renderer_capability_and_storage_limit() {
-    let required = render::required_vertex_storage_buffers();
+    let required = render::minimum_vertex_storage_buffers();
     assert!(meets_requirements(capabilities(REQUIRED_DOWNLEVEL_FLAGS, required)).is_ok());
     for flag in REQUIRED_DOWNLEVEL_FLAGS.iter() {
         assert!(

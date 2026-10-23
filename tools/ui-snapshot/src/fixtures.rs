@@ -12,11 +12,14 @@ mod minecraft_import;
 mod mods;
 mod out_of_game;
 mod roster;
+mod server_forms;
 mod settings_screens;
 mod shader_options;
 mod shader_pack;
 mod social_settings;
 mod touch_editor;
+#[cfg(feature = "test-support")]
+pub(crate) use touch_editor::TouchUtilityView;
 mod updates;
 
 use std::sync::Arc;
@@ -70,6 +73,9 @@ pub enum Fixture {
     TouchEditor {
         phase: u8,
     },
+    /// Gameplay touch controls and their utility overlays.
+    #[cfg(feature = "test-support")]
+    TouchUtilities(TouchUtilityView),
     Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,
@@ -96,6 +102,9 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// A script form shown through data-driven UI.
+    #[cfg(feature = "test-support")]
+    DataDriven(protocol::ddui::ScriptedScreen),
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
@@ -269,20 +278,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::SettingsDraft,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-overlap",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::FormOverlap,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-control-locked",
-        size: [1280, 960],
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::ControlLocked,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -789,12 +784,6 @@ const STATES: &[State] = &[
         fixture: || settings_screens::settings_video_culling(false),
     },
     State {
-        name: "settings-video",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: shader_pack::settings_video,
-    },
-    State {
         name: "settings-video-shader-shortcut",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -817,6 +806,12 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: shader_pack::empty_library,
+    },
+    State {
+        name: "settings-shaders-empty-without-drops",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library_without_drops,
     },
     State {
         name: "settings-shaders-narrow-library",
@@ -990,5 +985,6 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(settings_screens::SEARCH_STATES)
         .chain(settings_screens::WORLD_STATES)
         .chain(settings_screens::PAGE_STATES)
+        .chain(server_forms::STATES)
         .chain(touch_editor::STATES)
 }

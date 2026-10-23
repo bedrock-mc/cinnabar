@@ -198,6 +198,8 @@ pub enum MenuAction {
     SettingsShaders,
     /// Re-lists shader packs and reloads the selected pack with its saved options.
     ReloadShaders,
+    /// Opens the platform file picker to add shader-pack archives.
+    ImportShaderPacks,
     RemoveShaderPackDialog(u16, u64),
     ConfirmRemoveShaderPack(u16, u64),
     PauseResume,
