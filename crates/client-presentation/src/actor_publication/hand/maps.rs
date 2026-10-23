@@ -97,11 +97,10 @@ pub(super) fn layers(
         if map.is_none() {
             continue;
         }
-        // A missing image still displays the pack's paper while its request is in flight.
         items[index] = None;
-        if background.is_none() {
+        let Some(atlas) = atlas.filter(|_| background.is_some()) else {
             continue;
-        }
+        };
         let [paper_mesh, image_mesh] = equipment.map_meshes();
         let single = index == 1
             || inputs.equipment_input.off.as_ref().is_some_and(|off| {
@@ -143,28 +142,26 @@ pub(super) fn layers(
         submission.uv_anim = render_model::IDENTITY_UV_ANIM;
         submission.overlay_rgba8 = 0;
         paper[index] = Some((submission.clone(), camera));
-        if let Some(atlas) = atlas {
-            submission.input.rig = image_mesh;
-            submission.input.identity.layer += 1;
-            items[index] = Some((
-                FirstPersonItem {
-                    presentation: crate::presentation::equipment::EquipmentPresentation {
-                        submission,
-                        location: render_model::ActorArtworkLocation {
-                            page: 0,
-                            layer: 0,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
+        submission.input.rig = image_mesh;
+        submission.input.identity.layer += 1;
+        items[index] = Some((
+            FirstPersonItem {
+                presentation: crate::presentation::equipment::EquipmentPresentation {
+                    submission,
+                    location: render_model::ActorArtworkLocation {
+                        page: 0,
+                        layer: 0,
+                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                        multitexture: None,
                     },
-                    camera_space: true,
-                    alpha_mode: render_model::HandItemAlphaMode::Blend,
-                    java_camera: Some(camera),
-                    java_normal_axis: Vec3::Z,
                 },
-                atlas,
-            ));
-        }
+                camera_space: true,
+                alpha_mode: render_model::HandItemAlphaMode::Blend,
+                java_camera: Some(camera),
+                java_normal_axis: Vec3::Z,
+            },
+            atlas,
+        ));
     }
     MapLayers { paper, background }
 }

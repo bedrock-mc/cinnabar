@@ -73,7 +73,7 @@ fn map_pixel_updates_normalize_and_out_of_range_rectangles_are_skipped() {
             start_y: 3,
             width: 2,
             height: 2,
-            pixels: vec![0x0001_0000, 0x0002_0000, 0x0003_0000, 0x0004_0000].into(),
+            pixels: vec![1, 2, 3, 4].into(),
         }))
     );
     // Past the 128-pixel edge, and a pixel count that does not match the rectangle.
@@ -105,17 +105,9 @@ fn open_sign_packets_normalize_with_position_side_and_dimension() {
 
 #[test]
 fn map_wire_colors_normalize_without_losing_channels_or_alpha() {
-    let wire_pixels = [
-        [0x50, 0x80, 0x80, 0xff],
-        [0x33, 0x22, 0x11, 0x44],
-        [0x56, 0x34, 0x12, 0x00],
-        [0xff, 0x00, 0x00, 0x80],
-    ];
-    let Some(WorldEvent::MapData(event)) = decode_map(map_packet(
-        2,
-        0,
-        wire_pixels.into_iter().map(u32::from_le_bytes).collect(),
-    )) else {
+    let wire_pixels = [0xff00_00ff, 0x4433_2211, 0x0056_3412, 0x80ff_0000];
+    let Some(WorldEvent::MapData(event)) = decode_map(map_packet(2, 0, wire_pixels.to_vec()))
+    else {
         panic!("valid map pixels must reach the world");
     };
     let rgba: Vec<_> = event
@@ -126,7 +118,7 @@ fn map_wire_colors_normalize_without_losing_channels_or_alpha() {
     assert_eq!(
         rgba,
         [
-            [0x80, 0x80, 0x50, 0xff],
+            [0xff, 0x00, 0x00, 0xff],
             [0x11, 0x22, 0x33, 0x44],
             [0x12, 0x34, 0x56, 0x00],
             [0x00, 0x00, 0xff, 0x80]

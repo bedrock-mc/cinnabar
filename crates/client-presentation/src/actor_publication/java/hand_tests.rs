@@ -646,13 +646,14 @@ fn empty_hand_and_maps_keep_their_intentional_textured_arms() {
             map.presentation.skin_rgba8.as_ref().unwrap().len(),
             render_model::STANDARD_SKIN_BYTES
         );
-        assert!(
+        let received = data.is_some_and(|(_, pixels)| pixels.is_some());
+        assert_eq!(
             map.all_submissions().any(|draw| {
                 draw.texture_layer & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0
             }),
-            "missing identity or pixels must still keep the paper"
+            received,
+            "paper requires received map data"
         );
-        let received = data.is_some_and(|(_, pixels)| pixels.is_some());
         assert_eq!(map.items[0].is_some(), received);
         assert!(map.items[1].is_none());
         if let Some((_, atlas)) = &map.items[0] {

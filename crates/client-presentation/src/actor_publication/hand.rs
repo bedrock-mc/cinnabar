@@ -154,7 +154,7 @@ pub(super) struct HandSource {
 }
 
 impl HandSource {
-    /// Includes paper independently of image availability, with the current camera motion.
+    /// Includes each received map's paper with the current camera motion.
     pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
         self.maps
             .paper

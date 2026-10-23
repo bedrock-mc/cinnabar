@@ -120,67 +120,107 @@ fn filled_map_submits_paper_and_server_pixels_in_both_animation_modes() {
 }
 
 #[test]
-fn missing_pixels_keep_paper_and_each_hand_switches_its_own_map() {
-    let (mut stream, mut equipment, artwork, mut input) =
-        fixture(Some(assets::facts::FILLED_MAP_IDENTIFIER));
-    input.main.as_mut().unwrap().map_id = Some(266);
-    input.off = input.main.clone();
-    input.off.as_mut().unwrap().map_id = Some(267);
-    let mut cache = java::HandCache::default();
-    let missing = hand_source_for_mode(
-        &stream,
-        &mut equipment,
-        &artwork,
-        &input,
-        &mut cache,
-        1.0,
-        false,
-    );
-    assert!(missing.maps.paper.iter().all(Option::is_some));
-    assert!(missing.items.iter().all(Option::is_none));
-    update(&mut stream, 266, 0, &[0xff332211]);
-    update(&mut stream, 267, 0, &[0xff665544]);
-    let both = hand_source_for_mode(
-        &stream,
-        &mut equipment,
-        &artwork,
-        &input,
-        &mut cache,
-        1.0,
-        false,
-    );
-    let main = both.items[0].as_ref().unwrap().1.rgba8.clone();
-    let off = both.items[1].as_ref().unwrap().1.rgba8.clone();
-    assert_eq!(main[0], 0x11);
-    assert_eq!(off[0], 0x44);
-    update(&mut stream, 268, 0, &[0xff998877]);
-    input.main.as_mut().unwrap().map_id = Some(268);
-    let switched = hand_source_for_mode(
-        &stream,
-        &mut equipment,
-        &artwork,
-        &input,
-        &mut cache,
-        1.0,
-        false,
-    );
-    assert_eq!(switched.items[0].as_ref().unwrap().1.rgba8[0], 0x77);
-    assert!(Arc::ptr_eq(
-        &off,
-        &switched.items[1].as_ref().unwrap().1.rgba8
-    ));
-    input.off = None;
-    let main_only = hand_source_for_mode(
-        &stream,
-        &mut equipment,
-        &artwork,
-        &input,
-        &mut cache,
-        1.0,
-        false,
-    );
-    assert!(main_only.maps.paper[1].is_none());
-    assert!(main_only.items[1].is_none());
+fn missing_map_data_keeps_arms_and_each_hand_waits_for_its_own_image() {
+    for java in [false, true] {
+        let (mut stream, mut equipment, artwork, mut input) =
+            fixture(Some(assets::facts::FILLED_MAP_IDENTIFIER));
+        input.off = input.main.clone();
+        let mut cache = java::HandCache::default();
+        for ids in [[None, None], [Some(266), Some(267)]] {
+            input.main.as_mut().unwrap().map_id = ids[0];
+            input.off.as_mut().unwrap().map_id = ids[1];
+            let missing = hand_source_for_mode(
+                &stream,
+                &mut equipment,
+                &artwork,
+                &input,
+                &mut cache,
+                1.0,
+                java,
+            );
+            assert!(
+                missing.body.is_some(),
+                "missing map data must keep the arms"
+            );
+            assert!(missing.maps.paper.iter().all(Option::is_none));
+            assert!(missing.items.iter().all(Option::is_none));
+        }
+        update(&mut stream, 266, 0, &[0xff332211]);
+        let one = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            1.0,
+            java,
+        );
+        assert!(one.body.is_some());
+        assert!(one.maps.paper[0].is_some());
+        assert!(one.items[0].is_some());
+        assert!(one.maps.paper[1].is_none());
+        assert!(one.items[1].is_none());
+        update(&mut stream, 267, 0, &[0xff665544]);
+        let both = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            1.0,
+            java,
+        );
+        assert!(both.maps.paper.iter().all(Option::is_some));
+        let main = both.items[0].as_ref().unwrap().1.rgba8.clone();
+        let off = both.items[1].as_ref().unwrap().1.rgba8.clone();
+        assert_eq!(main[0], 0x11);
+        assert_eq!(off[0], 0x44);
+        input.main.as_mut().unwrap().map_id = Some(268);
+        let waiting = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            1.0,
+            java,
+        );
+        assert!(waiting.body.is_some());
+        assert!(waiting.maps.paper[0].is_none());
+        assert!(waiting.items[0].is_none());
+        assert!(waiting.maps.paper[1].is_some());
+        assert!(Arc::ptr_eq(
+            &off,
+            &waiting.items[1].as_ref().unwrap().1.rgba8
+        ));
+        update(&mut stream, 268, 0, &[0xff998877]);
+        let switched = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            1.0,
+            java,
+        );
+        assert_eq!(switched.items[0].as_ref().unwrap().1.rgba8[0], 0x77);
+        assert!(Arc::ptr_eq(
+            &off,
+            &switched.items[1].as_ref().unwrap().1.rgba8
+        ));
+        input.off = None;
+        let main_only = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            1.0,
+            java,
+        );
+        assert!(main_only.maps.paper[1].is_none());
+        assert!(main_only.items[1].is_none());
+    }
 }
 
 #[test]

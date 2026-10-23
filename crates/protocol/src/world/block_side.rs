@@ -35,13 +35,7 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapD
         start_y,
         width,
         height,
-        pixels: pixels
-            .iter()
-            .map(|pixel| {
-                let [blue, green, red, alpha] = pixel.0.to_le_bytes();
-                u32::from_le_bytes([red, green, blue, alpha])
-            })
-            .collect(),
+        pixels: pixels.iter().map(|pixel| pixel.0).collect(),
     })
 }
 
