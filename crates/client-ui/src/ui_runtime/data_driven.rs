@@ -22,6 +22,9 @@ use super::{UiApplyOutcome, UiRuntime};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveScreen {
     pub form_id: u32,
+    /// Counts every screen this client has shown, so a replacement reusing the server's form id
+    /// still differs from the screen it replaced.
+    pub instance: u64,
     pub screen: ScriptedScreen,
     /// The store property the screen reads.
     pub property: Arc<str>,
@@ -32,6 +35,8 @@ pub struct ActiveScreen {
 pub struct DataDrivenUi {
     stores: DataStores,
     active: Option<ActiveScreen>,
+    /// The number of screens shown so far, for the next [`ActiveScreen::instance`].
+    shown: u64,
     /// The showing screen's control taking text or showing its options.
     focus: Option<actions::Focus>,
     /// A screen closed this frame: it keeps the frame's input, so screens updating after it
@@ -144,8 +149,10 @@ impl UiRuntime {
                     (Some(reason), _) => self.queue_screen_closed(show.form_id, reason),
                     (None, Some(screen)) => {
                         self.data_driven.focus = None;
+                        self.data_driven.shown += 1;
                         self.data_driven.active = Some(ActiveScreen {
                             form_id: show.form_id,
+                            instance: self.data_driven.shown,
                             screen,
                             property: screen.property(show.data_instance_id).into(),
                         });

@@ -18,13 +18,13 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         size: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        let form_id = runtime
+        let instance = runtime
             .data_driven_ui()
             .active()
-            .map(|active| active.form_id);
-        if self.screens.data_driven_form != form_id {
+            .map(|active| active.instance);
+        if self.screens.data_driven_form != instance {
             self.screens.data_driven.reset();
-            self.screens.data_driven_form = form_id;
+            self.screens.data_driven_form = instance;
         }
         let Some(form) = runtime.data_driven_form() else {
             return Ok(());
@@ -51,8 +51,9 @@ impl UiPresentationRuntime {
         Ok(self.screens.data_driven.paint(&form, &mut frame)?)
     }
 
-    /// The form instance the last paint drew, whose targets the hit tests read.
-    pub fn data_driven_painted_form(&self) -> Option<u32> {
+    /// The [`ActiveScreen::instance`](crate::ui_runtime::data_driven::ActiveScreen::instance)
+    /// the last paint drew, whose targets the hit tests read.
+    pub fn data_driven_painted_form(&self) -> Option<u64> {
         self.screens.data_driven_form
     }
 

@@ -173,7 +173,11 @@ fn a_closed_form_leaves_no_targets_for_a_form_reusing_its_id() {
     let (mut player, mut runtime) = shown(3);
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     build(&player, &mut presentation, &runtime);
-    assert_eq!(presentation.data_driven_painted_form(), Some(4));
+    let shown = runtime
+        .data_driven_ui()
+        .active()
+        .map(|active| active.instance);
+    assert_eq!(presentation.data_driven_painted_form(), shown);
     runtime
         .apply(
             &mut player,
@@ -215,5 +219,47 @@ fn an_open_list_hides_while_its_dropdown_scrolls_out_of_view() {
             .data_driven_hits()
             .iter()
             .all(|(hit, _)| !matches!(hit, FormHit::Option(_)))
+    );
+}
+
+#[test]
+fn a_replacement_reusing_the_form_id_is_a_new_instance() {
+    use protocol::ddui::DataDrivenUiEvent;
+    let (mut player, mut runtime) = shown(3);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    build(&player, &mut presentation, &runtime);
+    let first = runtime.data_driven_ui().active().unwrap().instance;
+    assert_eq!(presentation.data_driven_painted_form(), Some(first));
+    // The server closes form 4 and shows form 4 again before the next frame paints.
+    let mut events = vec![protocol::UiEvent::DataDrivenUi(DataDrivenUiEvent::Close {
+        form_id: Some(4),
+    })];
+    events.extend(show_events(
+        ScriptedScreen::CustomForm,
+        4,
+        7,
+        custom_form_property(),
+    ));
+    for (sequence, event) in (10..).zip(events) {
+        runtime
+            .apply(
+                &mut player,
+                SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: sequence,
+                    local_millis: sequence * 10,
+                    server_tick: None,
+                    event,
+                },
+            )
+            .unwrap();
+    }
+    let second = runtime.data_driven_ui().active().unwrap();
+    assert_eq!(second.form_id, 4);
+    assert_ne!(second.instance, first);
+    // The last paint's targets belong to the replaced form.
+    assert_ne!(
+        presentation.data_driven_painted_form(),
+        Some(second.instance)
     );
 }

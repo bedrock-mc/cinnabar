@@ -142,7 +142,7 @@ pub(super) struct ScreenStates {
     bed: oreui::BedScreen,
     /// The data-driven form's hits, pointer and scroll, and the form instance they belong to.
     data_driven: oreui::data_driven_screen::DataDrivenScreen,
-    data_driven_form: Option<u32>,
+    data_driven_form: Option<u64>,
     /// The sign editor's cached screen.
     sign: ui_screens::sign_editor::SignScreen,
     credits: ui_screens::credits_screen::CreditsScreen,

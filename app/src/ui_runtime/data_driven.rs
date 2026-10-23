@@ -49,7 +49,7 @@ const WHEEL_LINE: f32 = 40.0;
 #[derive(Default)]
 pub(crate) struct FormGesture {
     held: Option<FormHit>,
-    form_id: Option<u32>,
+    instance: Option<u64>,
     owned_last_frame: bool,
     /// Where the cursor ended last frame, which this frame's ordered moves start from.
     cursor: Option<ui::UiPoint>,
@@ -58,10 +58,10 @@ pub(crate) struct FormGesture {
 impl FormGesture {
     /// Follows the showing form instance: a press made on another form is dropped, so its release
     /// cannot act on the replacement.
-    fn follow(&mut self, form_id: Option<u32>) {
-        if self.form_id != form_id {
+    fn follow(&mut self, instance: Option<u64>) {
+        if self.instance != instance {
             self.held = None;
-            self.form_id = form_id;
+            self.instance = instance;
         }
     }
 }
@@ -102,9 +102,11 @@ pub(crate) fn drive_data_driven_input(
         .unwrap_or_default();
     if consent.is_some_and(|consent| consent.0) {
         // A consent or experience modal owns this frame; its events were read above and are
-        // dropped, so the form never replays them.
+        // dropped, so the form never replays them. Their cursor moves are lost with them, so the
+        // next edges start from the window's cursor.
         wheel.clear();
         gesture.held = None;
+        gesture.cursor = None;
         return;
     }
     if runtime.credits().owns_input() || !runtime.data_driven_ui().owns_input() {
@@ -126,16 +128,18 @@ pub(crate) fn drive_data_driven_input(
         return;
     }
     gesture.owned_last_frame = true;
-    let form_id = runtime
+    let instance = runtime
         .data_driven_ui()
         .active()
-        .map(|active| active.form_id);
-    gesture.follow(form_id);
+        .map(|active| active.instance);
+    gesture.follow(instance);
     // Targets and slider tracks from a frame that painted another form instance are stale.
-    let painted = presentation.data_driven_painted_form() == form_id;
+    let painted = presentation.data_driven_painted_form() == instance;
     if !input_available {
         wheel.clear();
         gesture.held = None;
+        // Moves made meanwhile were not followed; the next edges start from the window's cursor.
+        gesture.cursor = None;
         suppress_gameplay_input_for_chat(
             &player_runtime,
             &runtime,
@@ -182,6 +186,13 @@ pub(crate) fn drive_data_driven_input(
                     gesture.held = hit;
                     press(&mut runtime, &presentation, form.as_ref(), hit, at);
                 } else {
+                    // A held slider takes the release position before the drag ends.
+                    if let Some(FormHit::Item(key)) = gesture.held
+                        && painted
+                        && is_slider(form.as_ref(), key)
+                    {
+                        slide(&mut runtime, &presentation, key, at);
+                    }
                     if let (Some(held), Some(released)) = (gesture.held, hit)
                         && held == released
                     {
