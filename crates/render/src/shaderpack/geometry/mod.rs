@@ -59,6 +59,7 @@ mod expansion_buffers;
 mod gpu;
 pub(crate) mod jobs;
 mod pipelines;
+pub(super) use pipelines::required_storage_buffers;
 mod residency;
 pub(super) mod shadow_cull;
 mod vertex;

@@ -1,6 +1,6 @@
 {
   "cache": {
-    "build-v1-rust-macOS-ARM64-ci-": 1900000000,
+    "build-v1-rust-macOS-ARM64-ci-": 3000000000,
     "build-v1-rust-Linux-X64-jsonui-editor-ci-": 500000000
   },
   "artifact": {

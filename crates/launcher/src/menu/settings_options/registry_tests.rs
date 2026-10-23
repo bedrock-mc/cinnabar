@@ -7,6 +7,15 @@ use super::{
 use crate::menu::settings_sections::{SECTION_DEFINITIONS, SETTINGS_TABS, SettingSection};
 use std::collections::BTreeSet;
 
+/// Third-person self visuals are opt-in, so third person stays vanilla until the player enables them.
+#[test]
+fn third_person_self_visuals_default_off() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.f5_self_visuals());
+    settings.set(SettingId::F5SelfVisuals.index(), 1);
+    assert!(settings.f5_self_visuals());
+}
+
 /// Badge display defaults on and remains independent of advertising this client's presence.
 #[test]
 fn cinnabar_badge_display_is_independent_and_defaults_on() {
