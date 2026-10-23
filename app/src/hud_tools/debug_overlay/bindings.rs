@@ -62,6 +62,25 @@ impl DebugBindings {
     }
 
     /// Returns the help row already formatted for the current bindings.
+    /// Whether the debug overlay key/button is currently held down.
+    pub(super) fn is_down(
+        &self,
+        keys: &ButtonInput<KeyCode>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> bool {
+        match self.control {
+            Some(PhysicalControl::KeyboardUsage(usage)) => keys
+                .get_pressed()
+                .any(|key| keyboard_usage(*key) == Some(usage)),
+            Some(PhysicalControl::MouseButton(button)) => mouse.is_some_and(|mouse| {
+                mouse
+                    .get_pressed()
+                    .any(|pressed| mouse_button_code(*pressed) == Some(button))
+            }),
+            _ => false,
+        }
+    }
+
     pub(super) fn hint(&self) -> &str {
         &self.hint
     }

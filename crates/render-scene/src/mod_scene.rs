@@ -42,6 +42,7 @@ pub struct ModRenderScene {
     primitives: Arc<mod_render::Primitives>,
     pub marker_vertices: Arc<[ModVertex]>,
     position_box: Option<[[f32; 3]; 2]>,
+    pub debug_vertices: Arc<[ModVertex]>,
     pub block_vertices: Arc<[ModVertex]>,
     block_positions: Arc<[[i32; 3]]>,
     block_color: [f32; 4],
@@ -79,14 +80,27 @@ impl ModRenderScene {
             return;
         }
         self.position_box = bounds;
-        self.marker_vertices = match bounds {
-            Some(bounds) => {
-                let mut vertices = Vec::with_capacity(position_box::VERTICES);
-                position_box::append(&mut vertices, bounds);
-                vertices.into()
-            }
-            None => Arc::from([]),
-        };
+        self.rebuild_markers();
+    }
+
+    /// Publishes Java F3 debug line vertices (hitboxes, chunk borders).
+    pub fn set_debug_vertices(&mut self, debug_vertices: Arc<[ModVertex]>) {
+        if Arc::ptr_eq(&self.debug_vertices, &debug_vertices) {
+            return;
+        }
+        self.debug_vertices = debug_vertices;
+        self.rebuild_markers();
+    }
+
+    fn rebuild_markers(&mut self) {
+        let mut vertices = Vec::with_capacity(
+            self.position_box.map_or(0, |_| position_box::VERTICES) + self.debug_vertices.len(),
+        );
+        if let Some(bounds) = self.position_box {
+            position_box::append(&mut vertices, bounds);
+        }
+        vertices.extend_from_slice(&self.debug_vertices);
+        self.marker_vertices = vertices.into();
     }
 
     /// Highlights loaded unit blocks through world geometry, independently of guest primitives.

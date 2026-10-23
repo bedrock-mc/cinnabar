@@ -45,7 +45,7 @@ pub(super) fn publish(
 /// changed only when the setter replaced an overlay vertex buffer. The scene's overlay setters
 /// replace their buffer exactly when their inputs change, and the renderer reads overlays only
 /// through those buffers, so steady frames extract nothing.
-pub(super) fn update_overlay(
+pub(crate) fn update_overlay(
     scene: &mut ResMut<ModRenderScene>,
     update: impl FnOnce(&mut ModRenderScene),
 ) {

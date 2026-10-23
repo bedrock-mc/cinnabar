@@ -126,7 +126,7 @@ fn prepare(
         let capacity = needed.next_power_of_two().min(
             (mod_render::geometry::MAX_VERTICES
                 + super::position_box::VERTICES
-                + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK)
+                + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK + 65_536)
                 as u64,
         );
         gpu.vertices = vertex_buffer(&device, capacity);

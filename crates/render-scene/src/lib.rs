@@ -101,7 +101,7 @@ pub use cloud_config::{
     CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
-pub use cloud_visibility::CloudVisibility;
+pub use cloud_visibility::{CloudDistanceChunks, CloudVisibility};
 pub use dropped_item::DroppedItemScene;
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;

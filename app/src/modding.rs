@@ -649,7 +649,7 @@ use crate::interaction_override as interaction;
 mod inventory;
 mod module_observations;
 pub(crate) mod packet_delay;
-mod render;
+pub(crate) mod render;
 mod screens;
 
 mod presentation_facts;
