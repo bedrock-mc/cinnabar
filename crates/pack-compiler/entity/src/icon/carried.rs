@@ -59,7 +59,9 @@ mod flip_tests {
             assert_eq!(
                 shown
                     .rgba8
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|pixel| pixel[0])
                     .collect::<Vec<_>>(),
                 expected
