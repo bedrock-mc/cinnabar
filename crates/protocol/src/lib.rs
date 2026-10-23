@@ -177,12 +177,12 @@ pub use inventory::{
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
-    DiggerSpeed, EquipmentEvent, FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAnvilData,
-    ItemAttackCooldown, ItemAttackTiming, ItemBannerPattern, ItemBlockList, ItemBook,
-    ItemComponents, ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError, ItemRegistryEntry,
-    ItemRegistryEvent, ItemRegistryVersion, ItemShooter, ItemStackFacts, ItemStackFactsCache,
-    ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
-    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
+    DiggerSpeed, DiggerStates, EquipmentEvent, FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent,
+    ItemAnvilData, ItemAttackCooldown, ItemAttackTiming, ItemBannerPattern, ItemBlockList,
+    ItemBook, ItemComponents, ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError,
+    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, ItemShooter, ItemStackFacts,
+    ItemStackFactsCache, ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES,
+    MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, book_init_extra, book_needs_init, edit_item_extra,
     held_items_match, item_anvil_data, item_banner_patterns, item_banner_type, item_block_list,
     item_book, item_bundle_id, item_charged_projectile, item_custom_color, item_custom_name,

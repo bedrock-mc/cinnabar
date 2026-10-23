@@ -476,10 +476,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   remain incomplete.
   Server items' `minecraft:digger` speeds replace tool speed and harvest for blocks
   matched by name or tag query. Native block tags other than the pickaxe, axe, shovel
-  and hoe destructible tags are not carried yet, and state-restricted entries naming the
-  target or tag queries the client cannot evaluate fall back to hand mining; both remain
-  incomplete. Digger tag programs are prepared off the frame thread at bootstrap and
-  registry replacement; replacements retain only active queries.
+  and hoe destructible tags are not carried yet. Serialized state restrictions compare
+  the target's prepared values in both palette modes. Unknown native tags and unsupported
+  queries stay unresolved, including under negation, and fall back to hand mining.
+  Complex legacy aliases, full native tags and general Molang remain incomplete.
+  Digger tag programs are prepared off the frame thread at bootstrap and registry
+  replacement; replacements retain only active queries and session retirement drops
+  pending preparations before a new login.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Recipe-book placement, availability and auto-crafting share exact ingredient allocation;

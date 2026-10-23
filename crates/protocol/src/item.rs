@@ -36,7 +36,7 @@ mod user_data;
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
 pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
-pub use digger::{DiggerBlock, DiggerSpeed, ItemDigger};
+pub use digger::{DiggerBlock, DiggerSpeed, DiggerStates, ItemDigger};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
     item_has_enchantment_list, item_id_aux,

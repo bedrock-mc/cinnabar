@@ -50,6 +50,8 @@ impl SessionWorld<'_> {
             self.client_world.pack_entities.take(),
             self.client_world.prepared_actor_artwork.take(),
             self.client_world.session_items.take(),
+            self.client_world.pending_digger_registry.take(),
+            std::mem::take(&mut self.client_world.digger_filters),
         ));
         self.client_world.pending_surface_spawn = None;
         self.fatal_error.0 = None;

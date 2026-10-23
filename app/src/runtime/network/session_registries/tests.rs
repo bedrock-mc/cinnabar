@@ -90,8 +90,13 @@ fn digger_queries_are_ready_in_the_worker_prepared_session_bundle() {
         )
         .unwrap();
     assert_eq!(
-        pack_runtime::digger_match(&digger, &prepared.digger_filters, "test:block", &|tag| tag
-            == "test:stone"),
+        pack_runtime::digger_match(
+            &digger,
+            &prepared.digger_filters,
+            "test:block",
+            None,
+            &|tag| Some(tag == "test:stone")
+        ),
         pack_runtime::DiggerMatch::Speed(8)
     );
 }

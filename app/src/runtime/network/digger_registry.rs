@@ -159,4 +159,54 @@ mod tests {
             weak.upgrade().is_none()
         });
     }
+
+    #[test]
+    fn session_retirement_discards_pending_registry_preparation() {
+        use crate::{game_session::SessionWorld, runtime::world::ClientWorld};
+        use bevy::prelude::*;
+
+        let (release, wait) = crossbeam_channel::bounded(1);
+        let client_world = ClientWorld {
+            pending_digger_registry: Some(PendingRegistry::prepare(event(), move |_| {
+                let _ = wait.recv();
+                Arc::default()
+            })),
+            ..Default::default()
+        };
+        let mut app = App::new();
+        app.insert_resource(client_world)
+            .init_resource::<client_runtime::pack_admission::ResourcePackAdmissionState>()
+            .insert_resource(client_shell::ui_resources::UiRuntimeResource(
+                client_ui::ui_runtime::UiRuntime::new(7),
+            ))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                7,
+            )))
+            .init_resource::<crate::runtime::shutdown::FatalError>()
+            .init_resource::<client_interaction::movement::MovementTicker>()
+            .init_resource::<client_interaction::movement::LocalPhysicsController>()
+            .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+            .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
+            .add_systems(Update, |mut session: SessionWorld| session.retire(8));
+        app.update();
+        release.send(()).unwrap();
+        assert!(
+            app.world()
+                .resource::<ClientWorld>()
+                .pending_digger_registry
+                .is_none()
+        );
+        assert_eq!(
+            app.world()
+                .resource::<client_shell::ui_resources::UiRuntimeResource>()
+                .session_id(),
+            8
+        );
+        assert!(
+            app.world()
+                .resource::<crate::runtime::shutdown::FatalError>()
+                .0
+                .is_none()
+        );
+    }
 }

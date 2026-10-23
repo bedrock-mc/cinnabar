@@ -190,11 +190,10 @@ impl BlockDestroyFacts {
 
 /// Produces one consistently bounded carrier error for invalid destroy facts.
 impl BlockDestroyFacts {
-    /// Whether a native block carries `tag`, for the tool tags the generated table records.
-    /// Other native tags are not carried, so they read as absent.
-    pub fn has_native_tool_tag(self, tag: &str) -> bool {
+    /// Reads the carried native tool tags, preserving unknown tags and unresolved facts.
+    pub fn native_tool_tag(self, tag: &str) -> Option<bool> {
         let Self::Provisional(facts) = self else {
-            return false;
+            return None;
         };
         [
             ToolKind::Pickaxe,
@@ -203,8 +202,9 @@ impl BlockDestroyFacts {
             ToolKind::Hoe,
         ]
         .into_iter()
-        .any(|kind| {
-            facts.effective_tools & kind.bit() != 0 && kind.native_destructible_tag() == Some(tag)
+        .find_map(|kind| {
+            (kind.native_destructible_tag() == Some(tag))
+                .then_some(facts.effective_tools & kind.bit() != 0)
         })
     }
 }
@@ -337,14 +337,26 @@ mod tests {
     #[test]
     fn native_tool_tags_follow_the_effective_tool_column() {
         let concrete = builtin_destroy_facts("minecraft:red_concrete");
-        assert!(concrete.has_native_tool_tag("minecraft:is_pickaxe_item_destructible"));
-        assert!(!concrete.has_native_tool_tag("minecraft:is_shovel_item_destructible"));
+        assert_eq!(
+            concrete.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            Some(true)
+        );
+        assert_eq!(
+            concrete.native_tool_tag("minecraft:is_shovel_item_destructible"),
+            Some(false)
+        );
         let dirt = builtin_destroy_facts("minecraft:dirt");
-        assert!(dirt.has_native_tool_tag("minecraft:is_shovel_item_destructible"));
-        assert!(!dirt.has_native_tool_tag("minecraft:is_pickaxe_item_destructible"));
-        assert!(
-            !BlockDestroyFacts::Unresolved
-                .has_native_tool_tag("minecraft:is_pickaxe_item_destructible")
+        assert_eq!(
+            dirt.native_tool_tag("minecraft:is_shovel_item_destructible"),
+            Some(true)
+        );
+        assert_eq!(
+            dirt.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            Some(false)
+        );
+        assert_eq!(
+            BlockDestroyFacts::Unresolved.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            None
         );
     }
 }

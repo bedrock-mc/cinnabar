@@ -111,8 +111,16 @@ pub(crate) fn observe_destroy_target(
         .collisions
         .block_tags(mode, observed.target.runtime_id);
     let has_block_tag = |tag: &str| {
-        block_tags.iter().any(|value| value.as_ref() == tag)
-            || native_destroy_facts.has_native_tool_tag(tag)
+        if block_tags.iter().any(|value| value.as_ref() == tag) {
+            Some(true)
+        } else if context
+            .collisions
+            .block_tags_complete(mode, observed.target.runtime_id)
+        {
+            Some(false)
+        } else {
+            native_destroy_facts.native_tool_tag(tag)
+        }
     };
     let component_digger = entry
         .and_then(|entry| entry.components.as_ref()?.digger.as_deref())
@@ -123,6 +131,9 @@ pub(crate) fn observe_destroy_target(
                 context
                     .collisions
                     .block_identifier(mode, observed.target.runtime_id),
+                context
+                    .collisions
+                    .block_states(mode, observed.target.runtime_id),
                 &has_block_tag,
                 protocol::item_enchantment_level(item.extra_data(), EFFICIENCY_ENCHANTMENT_ID)
                     .unwrap_or(0),
@@ -202,11 +213,12 @@ fn component_digger(
     digger: &protocol::ItemDigger,
     filters: &pack_runtime::DiggerFilters,
     block: Option<&str>,
-    has_tag: &dyn Fn(&str) -> bool,
+    states: Option<&[(std::sync::Arc<str>, protocol::CustomStateValue)]>,
+    has_tag: &dyn Fn(&str) -> Option<bool>,
     efficiency_level: u8,
 ) -> ComponentDigger {
     let matched = block.map_or(pack_runtime::DiggerMatch::Unresolved, |block| {
-        pack_runtime::digger_match(digger, filters, block, has_tag)
+        pack_runtime::digger_match(digger, filters, block, states, has_tag)
     });
     match matched {
         pack_runtime::DiggerMatch::Speed(speed) => {
@@ -269,8 +281,8 @@ mod tests {
         pack_runtime::DiggerFilters::new([&entry])
     }
 
-    fn pickaxe_tag(tag: &str) -> bool {
-        tag == "minecraft:is_pickaxe_item_destructible"
+    fn pickaxe_tag(tag: &str) -> Option<bool> {
+        Some(tag == "minecraft:is_pickaxe_item_destructible")
     }
 
     #[test]
@@ -279,11 +291,11 @@ mod tests {
         let unprepared = pack_runtime::DiggerFilters::default();
         let concrete = Some("minecraft:red_concrete");
         assert_eq!(
-            component_digger(&digger, &unprepared, concrete, &pickaxe_tag, 5),
+            component_digger(&digger, &unprepared, concrete, None, &pickaxe_tag, 5),
             HAND
         );
         assert_eq!(
-            component_digger(&digger, &prepared(&digger), None, &pickaxe_tag, 5),
+            component_digger(&digger, &prepared(&digger), None, None, &pickaxe_tag, 5),
             HAND
         );
     }
@@ -293,7 +305,14 @@ mod tests {
         let concrete = Some("minecraft:red_concrete");
         let opted_in = pickaxe_query(true);
         assert_eq!(
-            component_digger(&opted_in, &prepared(&opted_in), concrete, &pickaxe_tag, 2),
+            component_digger(
+                &opted_in,
+                &prepared(&opted_in),
+                concrete,
+                None,
+                &pickaxe_tag,
+                2
+            ),
             ComponentDigger {
                 speed: 13.0,
                 matched: true,
@@ -301,14 +320,21 @@ mod tests {
         );
         let plain = pickaxe_query(false);
         assert_eq!(
-            component_digger(&plain, &prepared(&plain), concrete, &pickaxe_tag, 2),
+            component_digger(&plain, &prepared(&plain), concrete, None, &pickaxe_tag, 2),
             ComponentDigger {
                 speed: 8.0,
                 matched: true,
             }
         );
         assert_eq!(
-            component_digger(&plain, &prepared(&plain), concrete, &|_| false, 2),
+            component_digger(
+                &plain,
+                &prepared(&plain),
+                concrete,
+                None,
+                &|_| Some(false),
+                2
+            ),
             HAND
         );
     }

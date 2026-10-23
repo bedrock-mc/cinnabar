@@ -10,7 +10,7 @@ pub enum DiggerMatch {
     Speed(i32),
     /// No entry matches, so the item mines like an empty hand.
     None,
-    /// A tag query could not be prepared, or a state-restricted entry names this block.
+    /// A query, restriction, or required block fact is unavailable.
     Unresolved,
 }
 
@@ -52,8 +52,12 @@ impl DiggerFilters {
     }
 
     /// Evaluates only prepared programs; a missing or unsupported query stays unresolved.
-    fn evaluate(&self, source: &str, has_tag: &dyn Fn(&str) -> bool) -> Option<bool> {
-        self.0.get(source)?.as_ref().as_ref()?.evaluate(has_tag)
+    fn evaluate(&self, source: &str, has_tag: &dyn Fn(&str) -> Option<bool>) -> Option<bool> {
+        self.0
+            .get(source)?
+            .as_ref()
+            .as_ref()?
+            .evaluate_partial(has_tag)
     }
 }
 
@@ -62,15 +66,36 @@ pub fn digger_match(
     digger: &ItemDigger,
     filters: &DiggerFilters,
     block: &str,
-    has_tag: &dyn Fn(&str) -> bool,
+    block_states: Option<&[(Arc<str>, protocol::CustomStateValue)]>,
+    has_tag: &dyn Fn(&str) -> Option<bool>,
 ) -> DiggerMatch {
     for entry in digger.destroy_speeds.iter() {
         let matched = match &entry.block {
             DiggerBlock::Name(name) => name.as_ref() == block,
-            DiggerBlock::NameWithStates(name) if name.as_ref() == block => {
-                return DiggerMatch::Unresolved;
+            DiggerBlock::NameWithStates { name, states } if name.as_ref() == block => {
+                let Some(states) = states else {
+                    return DiggerMatch::Unresolved;
+                };
+                let Some(block_states) = block_states else {
+                    return DiggerMatch::Unresolved;
+                };
+                let mut matches = true;
+                for (name, expected) in states.iter() {
+                    let Some((_, actual)) = block_states.iter().find(|(key, _)| key == name) else {
+                        matches = false;
+                        break;
+                    };
+                    matches &= match (expected, actual) {
+                        (
+                            protocol::CustomStateValue::Int(expected),
+                            protocol::CustomStateValue::Bool(actual),
+                        ) => *expected == i64::from(*actual),
+                        _ => expected == actual,
+                    };
+                }
+                matches
             }
-            DiggerBlock::NameWithStates(_) => false,
+            DiggerBlock::NameWithStates { .. } => false,
             DiggerBlock::Tags(expression) => match filters.evaluate(expression, has_tag) {
                 Some(matched) => matched,
                 None => return DiggerMatch::Unresolved,
@@ -116,8 +141,8 @@ mod tests {
     }
 
     /// Reports exactly the listed tags.
-    fn tags(list: &'static [&'static str]) -> impl Fn(&str) -> bool {
-        move |tag| list.contains(&tag)
+    fn tags(list: &'static [&'static str]) -> impl Fn(&str) -> Option<bool> {
+        move |tag| Some(list.contains(&tag))
     }
 
     #[test]
@@ -136,15 +161,15 @@ mod tests {
         let filters = filters(&digger);
         let pickaxe = tags(&["minecraft:is_pickaxe_item_destructible"]);
         assert_eq!(
-            digger_match(&digger, &filters, "minecraft:red_concrete", &pickaxe),
+            digger_match(&digger, &filters, "minecraft:red_concrete", None, &pickaxe),
             DiggerMatch::Speed(30)
         );
         assert_eq!(
-            digger_match(&digger, &filters, "minecraft:stone", &pickaxe),
+            digger_match(&digger, &filters, "minecraft:stone", None, &pickaxe),
             DiggerMatch::Speed(8)
         );
         assert_eq!(
-            digger_match(&digger, &filters, "minecraft:dirt", &tags(&[])),
+            digger_match(&digger, &filters, "minecraft:dirt", None, &tags(&[])),
             DiggerMatch::None
         );
     }
@@ -157,21 +182,25 @@ mod tests {
                 &tagged,
                 &DiggerFilters::default(),
                 "minecraft:stone",
+                None,
                 &tags(&["stone"])
             ),
             DiggerMatch::Unresolved
         );
         let states = digger(&[(
-            DiggerBlock::NameWithStates("minecraft:stone_slab".into()),
+            DiggerBlock::NameWithStates {
+                name: "minecraft:stone_slab".into(),
+                states: None,
+            },
             8,
         )]);
         let filters = filters(&states);
         assert_eq!(
-            digger_match(&states, &filters, "minecraft:stone_slab", &tags(&[])),
+            digger_match(&states, &filters, "minecraft:stone_slab", None, &tags(&[])),
             DiggerMatch::Unresolved
         );
         assert_eq!(
-            digger_match(&states, &filters, "minecraft:dirt", &tags(&[])),
+            digger_match(&states, &filters, "minecraft:dirt", None, &tags(&[])),
             DiggerMatch::None
         );
     }
@@ -190,11 +219,23 @@ mod tests {
         ));
         let replacement = both.replaced([&added]);
         assert_eq!(
-            digger_match(&later, &replacement, "minecraft:dirt", &tags(&["dirt"])),
+            digger_match(
+                &later,
+                &replacement,
+                "minecraft:dirt",
+                None,
+                &tags(&["dirt"])
+            ),
             DiggerMatch::Speed(4)
         );
         assert_eq!(
-            digger_match(&first, &replacement, "minecraft:stone", &tags(&["stone"])),
+            digger_match(
+                &first,
+                &replacement,
+                "minecraft:stone",
+                None,
+                &tags(&["stone"])
+            ),
             DiggerMatch::Unresolved
         );
         assert_eq!(replacement.0.len(), 1);
@@ -209,8 +250,80 @@ mod tests {
         let stone = tags(&["stone"]);
         let before = test_alloc::thread_allocations();
         for _ in 0..16 {
-            std::hint::black_box(digger_match(&digger, &filters, "minecraft:stone", &stone));
+            std::hint::black_box(digger_match(
+                &digger,
+                &filters,
+                "minecraft:stone",
+                None,
+                &stone,
+            ));
         }
         assert_eq!(test_alloc::thread_allocations() - before, 0);
+    }
+
+    #[test]
+    fn state_restrictions_compare_every_value_before_using_a_later_entry() {
+        use protocol::CustomStateValue::{Bool, Int, String};
+        let digger = digger(&[
+            (
+                DiggerBlock::NameWithStates {
+                    name: "test:block".into(),
+                    states: Some(Arc::from([
+                        ("axis".into(), String("x".into())),
+                        ("enabled".into(), Int(1)),
+                    ])),
+                },
+                12,
+            ),
+            (DiggerBlock::Name("test:block".into()), 2),
+        ]);
+        let filters = filters(&digger);
+        let states = [
+            ("axis".into(), String("x".into())),
+            ("enabled".into(), Bool(true)),
+        ];
+        let before = test_alloc::thread_allocations();
+        assert_eq!(
+            digger_match(&digger, &filters, "test:block", Some(&states), &tags(&[])),
+            DiggerMatch::Speed(12)
+        );
+        assert_eq!(test_alloc::thread_allocations() - before, 0);
+        for states in [
+            vec![
+                ("axis".into(), String("y".into())),
+                ("enabled".into(), Bool(true)),
+            ],
+            vec![
+                ("axis".into(), String("x".into())),
+                ("enabled".into(), Bool(false)),
+            ],
+            vec![("axis".into(), String("x".into()))],
+        ] {
+            assert_eq!(
+                digger_match(&digger, &filters, "test:block", Some(&states), &tags(&[])),
+                DiggerMatch::Speed(2)
+            );
+        }
+        assert_eq!(
+            digger_match(&digger, &filters, "test:block", None, &tags(&[])),
+            DiggerMatch::Unresolved
+        );
+    }
+
+    #[test]
+    fn missing_native_tags_cannot_turn_negation_into_a_match() {
+        let digger = digger(&[
+            (DiggerBlock::Tags("!q.any_tag('wood')".into()), 12),
+            (DiggerBlock::Name("minecraft:oak_log".into()), 2),
+        ]);
+        let filters = filters(&digger);
+        assert_eq!(
+            digger_match(&digger, &filters, "minecraft:oak_log", None, &|_| None),
+            DiggerMatch::Unresolved
+        );
+        assert_eq!(
+            digger_match(&digger, &filters, "test:block", None, &|_| Some(false)),
+            DiggerMatch::Speed(12)
+        );
     }
 }
