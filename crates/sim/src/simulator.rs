@@ -159,10 +159,12 @@ impl Simulator {
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
         let start = state.climber;
-        let mut output = self.advance(state, input, world)?;
-        scaffolding::finish_tick(world, state, &input, start, &mut output.tick_result);
-        riptide::finish(state);
-        state.previous_rotation = Some(rotation);
+        let mut next = state.clone();
+        let mut output = self.advance(&mut next, input, world)?;
+        scaffolding::finish_tick(world, &mut next, &input, start, &mut output.tick_result)?;
+        riptide::finish(&mut next);
+        next.previous_rotation = Some(rotation);
+        *state = next;
         Ok(output)
     }
 

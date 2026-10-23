@@ -71,19 +71,20 @@ pub fn descends_through_block(input: &MovementInput, over_descending_block: bool
 /// `start` is the contact the tick began with; an immobile tick's descent
 /// action reads it. Cells without usable facts count as neither scaffolding
 /// nor support. As an untraced recovery policy, an unavailable movement origin
-/// or a failed scan publishes the retained contact instead of failing the
-/// tick; a spectator, or such a tick without retained contact, is unsampled.
+/// publishes the retained contact instead of failing the tick; a spectator,
+/// or such a tick without retained contact, is unsampled. Other query failures
+/// reject the tick, including identity conflicts discovered after movement.
 pub(super) fn finish_tick(
     world: &(impl CollisionWorld + ?Sized),
     state: &mut PlayerState,
     input: &MovementInput,
     start: Option<ClimberContact>,
     result: &mut TickResult,
-) {
+) -> Result<(), WorldQueryError> {
     result.environment.climber_unsampled = true;
     if input.spectator {
         state.climber = None;
-        return;
+        return Ok(());
     }
     // The climber reads the resolved collision faces, not a box rebuilt
     // around the rounded feet.
@@ -93,7 +94,7 @@ pub(super) fn finish_tick(
         state.collision_box(state.hitbox_height(*input)),
         input,
         &mut result.world_identity,
-    );
+    )?;
     if input.immobile {
         result.environment.descending_through_block = start
             .or(measured)
@@ -109,21 +110,25 @@ pub(super) fn finish_tick(
             state.fall_distance = 0.0;
         }
     }
+    Ok(())
 }
 
 /// Measures climber contact at `feet`, merging the reads into `identity`.
+/// An unavailable origin leaves contact unmeasured; other failures propagate.
 fn measure(
     world: &(impl CollisionWorld + ?Sized),
     feet: crate::Vec3,
     player: Aabb,
     input: &MovementInput,
     identity: &mut crate::WorldCollisionIdentity,
-) -> Option<ClimberContact> {
-    world.ensure_movement_origin(feet).ok()?;
+) -> Result<Option<ClimberContact>, WorldQueryError> {
+    if readable(world.ensure_movement_origin(feet))?.is_none() {
+        return Ok(None);
+    }
     let mut sampled = SampledEnvironment::unsampled(identity.clone());
-    let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled).ok()?;
+    let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled)?;
     *identity = sampled.identity;
-    Some(contact)
+    Ok(Some(contact))
 }
 
 /// Scaffolding and climbable-block facts of one footprint layer.
