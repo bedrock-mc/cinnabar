@@ -231,6 +231,7 @@ impl LocalPhysicsController {
         let mut modes = anchor_controller.modes;
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
+        let mut sync_state = anchor_controller.sync_state;
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
         let climber_corrections = self.climber_corrections.clone();
@@ -246,11 +247,15 @@ impl LocalPhysicsController {
                 &motion_overlays,
                 |state, input, world, previous| {
                     if let Some(previous) = previous {
-                        controller_frames
+                        let frame = controller_frames
                             .iter_mut()
                             .find(|frame| frame.tick == previous.tick_result.tick)
-                            .expect("controller and prediction histories retain the same ticks")
-                            .finish_eye(&mut eye, state);
+                            .expect("controller and prediction histories retain the same ticks");
+                        frame.finish_eye(&mut eye, state);
+                        sync_state.server_flags(frame.sync_server);
+                        sync_state.take_pending();
+                        sync_state.complete_tick(frame, state);
+                        frame.sync_state = sync_state;
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
@@ -294,16 +299,19 @@ impl LocalPhysicsController {
             return Err(PhysicsCorrectionError::ReplayFailed);
         }
         if let Some(last) = replayed_ticks.last() {
-            controller_frames
+            let frame = controller_frames
                 .iter_mut()
                 .find(|frame| frame.tick == last.tick_result.tick)
-                .expect("controller and prediction histories retain the same ticks")
-                .finish_eye(
-                    &mut eye,
-                    self.state
-                        .as_ref()
-                        .expect("successful replay retains state"),
-                );
+                .expect("controller and prediction histories retain the same ticks");
+            let state = self
+                .state
+                .as_ref()
+                .expect("successful replay retains state");
+            frame.finish_eye(&mut eye, state);
+            sync_state.server_flags(frame.sync_server);
+            sync_state.take_pending();
+            sync_state.complete_tick(frame, state);
+            frame.sync_state = sync_state;
         }
         // Replay supplies actual jump initiations; grounded correction anchors close the old arc.
         let mut jump_fold = {
@@ -427,6 +435,8 @@ impl LocalPhysicsController {
             controller_frames.back().and_then(|frame| frame.climber)
         };
         self.controller_history = controller_frames;
+        sync_state.restore_pending(self.sync_state);
+        self.sync_state = sync_state;
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history

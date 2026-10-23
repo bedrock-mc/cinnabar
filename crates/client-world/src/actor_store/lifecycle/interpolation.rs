@@ -152,7 +152,7 @@ impl ActorStore {
             let rider_contexts = rider_contexts(
                 rider_to_ridden
                     .iter()
-                    .map(|(&rider, &ridden)| (rider, ridden)),
+                    .map(|(&rider, link)| (rider, link.vehicle)),
                 |rider| {
                     unique_to_runtime
                         .get(&rider)
@@ -343,7 +343,7 @@ impl ActorStore {
                     off_hand,
                     ridden: rider_to_ridden
                         .get(&actor.unique_id)
-                        .and_then(kind_of)
+                        .and_then(|link| kind_of(&link.vehicle))
                         .map(|kind| match kind {
                             ActorKind::Player { .. } => std::sync::Arc::from(assets::facts::entity::NativeEntityClass::Player.identifier().expect("pinned player identity")),
                             ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),

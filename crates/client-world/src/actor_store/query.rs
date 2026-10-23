@@ -12,7 +12,9 @@ impl ActorStore {
     }
 
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
-        self.rider_to_ridden.get(&rider_unique_id).copied()
+        self.rider_to_ridden
+            .get(&rider_unique_id)
+            .map(|link| link.vehicle)
     }
 
     pub(crate) fn player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {

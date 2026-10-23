@@ -286,8 +286,6 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
-Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
-poses and bounds, history loss, replay authority, send phase and live-server behavior.
 The block climber rewrites its contact flags after each movement tick; the descent
 action reads the retained contact before movement. Prediction sync reports those values
 with newer accepted server flag edits, which retained corrections also apply before input
@@ -299,6 +297,14 @@ clears it. Flight toggles, bubble columns, honey sliding and water entry clear i
 movement phases; lava halves the retained distance before the current drop, and slow glide
 uses its entry velocity. The missing touch descend control, first-tick terrain seeding,
 coordinate/query recovery and broader custom geometry remain inherited incomplete work.
+Correction sync retains individual accepted flag writes, cached passenger movement,
+explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
+independently of simulation admission. Unsupported attribute models leave reporting
+with the actor's current value. A completed local pose tick replaces earlier accepted
+pose writes. Retained corrections arm its idle countdown; bare snaps do not.
+Server-driven gameplay pose and item-use starts, riptide flag
+lifetimes, custom collision definitions, legacy sneak height,
+transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.

@@ -146,6 +146,8 @@ pub struct ActorSnapshot {
     pub source_tick: Option<u64>,
     /// Accepted actor metadata, independent of local animation flags.
     pub metadata: HashMap<u32, ActorMetadataValue>,
+    /// Arrival revision of the latest explicit finite Width or Height write.
+    pub explicit_dimensions_revision: Option<u64>,
     /// Client-derived rendering flags, retired by the next received primary word.
     local_presentation_flags: Option<u64>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
@@ -277,6 +279,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
+            explicit_dimensions_revision: None,
             local_presentation_flags: None,
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
@@ -296,7 +299,7 @@ impl ActorSnapshot {
         if spawn_offset != 0.0 {
             snapshot.shift_poses_y(-spawn_offset, -spawn_offset);
         }
-        snapshot.apply_metadata(&spawn.metadata, hitbox_budget);
+        snapshot.apply_metadata(&spawn.metadata, spawn_revision, hitbox_budget);
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
@@ -345,6 +348,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
+            explicit_dimensions_revision: None,
             local_presentation_flags: None,
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
@@ -500,9 +504,11 @@ impl ActorSnapshot {
         }
     }
 
+    /// Applies metadata and records the arrival revision of explicit dimensions.
     fn apply_metadata(
         &mut self,
         metadata: &[protocol::ActorMetadata],
+        sequence: u64,
         hitbox_budget: &mut hitbox::Budget,
     ) -> bool {
         let previous_offset = self.network_position_offset();
@@ -528,6 +534,15 @@ impl ActorSnapshot {
             }
             if metadata.key == ActorDataKey::Flags.wire_value() {
                 self.local_presentation_flags = None;
+            }
+            if [
+                ActorDataKey::Width.wire_value(),
+                ActorDataKey::Height.wire_value(),
+            ]
+            .contains(&metadata.key)
+                && matches!(metadata.value, ActorMetadataValue::Float(value) if value.is_finite())
+            {
+                self.explicit_dimensions_revision = Some(sequence);
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
@@ -603,60 +618,6 @@ pub struct PlayerProfile {
     /// Decimal Xbox user ID, empty when the server sent none.
     pub xuid: std::sync::Arc<str>,
     pub skin: PlayerSkin,
-}
-
-/// Movement-affecting flags one local-player metadata update carries; `None`
-/// when the flag word holding it was absent.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct MovementFlagUpdate {
-    pub immobile: Option<bool>,
-    pub sneaking: Option<bool>,
-    pub sprinting: Option<bool>,
-    pub gliding: Option<bool>,
-    pub swimming: Option<bool>,
-    pub crawling: Option<bool>,
-    pub has_gravity: Option<bool>,
-    pub uniform_air_drag: Option<bool>,
-    /// The accepted second flag word, including locally produced climber flags.
-    pub extended_flags: Option<u64>,
-}
-
-impl MovementFlagUpdate {
-    /// Reads the flag words from `metadata`; `None` when no word is present.
-    #[must_use]
-    pub fn from_metadata(metadata: &[protocol::ActorMetadata]) -> Option<Self> {
-        let word = |key| {
-            metadata.iter().rev().find_map(|item| match item.value {
-                ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)
-                    if item.key == key =>
-                {
-                    Some(flags)
-                }
-                _ => None,
-            })
-        };
-        let words = [
-            word(ActorDataKey::Flags.wire_value()),
-            word(ActorDataKey::FlagsTwo.wire_value()),
-            word(ActorDataKey::FlagsThird.wire_value()),
-        ];
-        if words.iter().all(Option::is_none) {
-            return None;
-        }
-        let bit =
-            |bit: u32| words[(bit / 64) as usize].map(|flags| flags & (1_u64 << (bit % 64)) != 0);
-        Some(Self {
-            immobile: bit(ActorFlag::NoAI.wire_value()),
-            sneaking: bit(ActorFlag::Sneaking.wire_value()),
-            sprinting: bit(ActorFlag::Sprinting.wire_value()),
-            gliding: bit(ActorFlag::Gliding.wire_value()),
-            swimming: bit(ActorFlag::Swimming.wire_value()),
-            crawling: bit(ActorFlag::Crawling.wire_value()),
-            has_gravity: bit(ActorFlag::HasGravity.wire_value()),
-            uniform_air_drag: bit(ActorFlag::UsesUniformAirDrag.wire_value()),
-            extended_flags: words[1],
-        })
-    }
 }
 
 /// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
@@ -757,7 +718,8 @@ pub(crate) struct ActorStore {
     hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
-    rider_to_ridden: FastHashMap<i64, i64>,
+    rider_to_ridden: FastHashMap<i64, riding_control::RiderLink>,
+    next_link_order: u64,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
     /// Appearances of spawned players removed from the roster, retained until despawn.
@@ -849,6 +811,9 @@ mod last_death;
 mod local_health;
 pub use local_health::DEFAULT_PLAYER_HEALTH;
 mod lifecycle;
+mod movement_flags;
+mod riding_control;
+pub use movement_flags::MovementFlagUpdate;
 mod lightning;
 mod mount;
 mod movement_interpolation;
@@ -954,6 +919,8 @@ mod bounds_tests;
 #[cfg(test)]
 mod hitbox_tests;
 
+#[cfg(test)]
+mod dimensions_tests;
 #[cfg(test)]
 mod movement_flags_tests;
 

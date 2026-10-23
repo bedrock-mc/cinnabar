@@ -914,3 +914,38 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
     runtime.observe_press(true);
     assert!(runtime.step(&next).swung.is_none());
 }
+
+/// Server flag writes do not alter local use and survive held frames until a real local write.
+#[test]
+fn sync_reported_use_flag_orders_server_writes_and_local_edges() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(Some(true));
+    assert!(!runtime.is_using());
+    assert_eq!(runtime.reported_using_item(), Some(true));
+    runtime.observe_press(true);
+    runtime.step(&frame(100, true));
+    assert_eq!(runtime.reported_using_item(), Some(true));
+    runtime.adopt_server_using_item(Some(false));
+    runtime.step(&frame(101, true));
+    assert!(runtime.is_using());
+    assert_eq!(runtime.reported_using_item(), Some(false));
+    runtime.adopt_server_using_item(Some(true));
+    runtime.step(&frame(102, false));
+    assert!(!runtime.is_using());
+    assert_eq!(runtime.reported_using_item(), Some(false));
+    runtime.adopt_server_using_item(Some(true));
+    assert_eq!(runtime.reported_using_item(), Some(true));
+}
+
+/// A new session drops the previous accepted local use flag.
+#[test]
+fn sync_reported_use_resets_with_the_session() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.synchronize(1);
+    runtime.observe_press(true);
+    runtime.step(&frame(100, true));
+    runtime.synchronize(2);
+    assert_eq!(runtime.reported_using_item(), None);
+    runtime.adopt_server_using_item(Some(true));
+    assert_eq!(runtime.reported_using_item(), Some(true));
+}

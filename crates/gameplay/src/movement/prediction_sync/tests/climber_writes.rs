@@ -21,7 +21,7 @@ fn accept(
 
 /// Reads the packet projection without consuming the correction countdown.
 fn reported(physics: &LocalPhysicsController, actor: &LocalActor) -> [u64; 3] {
-    predicted_flag_words(&actor.0.metadata, physics.prediction_sync_pose(), false)
+    predicted_flag_words(&actor.0.metadata, physics.prediction_sync_flags(), None)
 }
 
 #[test]

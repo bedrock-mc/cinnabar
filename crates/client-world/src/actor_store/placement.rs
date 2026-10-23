@@ -120,8 +120,8 @@ impl ActorStore {
         let mut riders = 0_u32;
         let mut index = 0_usize;
         let mut linked = false;
-        for (&id, &ridden) in &self.rider_to_ridden {
-            if ridden == mount.unique_id {
+        for (&id, link) in &self.rider_to_ridden {
+            if link.vehicle == mount.unique_id {
                 riders += 1;
                 index += usize::from(id < rider_unique_id);
                 linked |= id == rider_unique_id;
@@ -134,7 +134,7 @@ impl ActorStore {
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
     pub(crate) fn rider_seat_pose(&self, rider_unique_id: i64) -> Option<([f32; 3], f32)> {
-        let ridden = self.rider_to_ridden.get(&rider_unique_id)?;
+        let ridden = &self.rider_to_ridden.get(&rider_unique_id)?.vehicle;
         let rider = self
             .actors
             .get(self.unique_to_runtime.get(&rider_unique_id)?)?;
@@ -160,7 +160,9 @@ impl ActorStore {
                 if self.remote_state_excluded_runtime_id == Some(rider_id) {
                     return None;
                 }
-                let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
+                let mount = self
+                    .actors
+                    .get(self.unique_to_runtime.get(&ridden.vehicle)?)?;
                 let rider = self.actors.get(&rider_id)?;
                 let seat = self.seat_for(*rider_unique_id, rider, mount)?;
                 let (mount_position, mount_yaw) = mount_pose(mount);
@@ -327,8 +329,20 @@ mod tests {
             store.apply(1, sequence, spawn(runtime_id, runtime_id as i64 * 10));
         }
         // 90 rides 80, which rides 70; turned seats make every level depend on the one below.
-        store.rider_to_ridden.insert(80, 70);
-        store.rider_to_ridden.insert(90, 80);
+        store.rider_to_ridden.insert(
+            80,
+            crate::actor_store::riding_control::RiderLink {
+                vehicle: 70,
+                order: 0,
+            },
+        );
+        store.rider_to_ridden.insert(
+            90,
+            crate::actor_store::riding_control::RiderLink {
+                vehicle: 80,
+                order: 1,
+            },
+        );
         for runtime_id in [8, 9] {
             let rider = store.actors.get_mut(&runtime_id).unwrap();
             rider.metadata.insert(

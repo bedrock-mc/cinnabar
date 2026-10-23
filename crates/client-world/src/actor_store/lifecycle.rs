@@ -100,6 +100,7 @@ impl ActorStore {
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
+            next_link_order: 0,
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -612,8 +613,9 @@ impl ActorStore {
                         std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
                     })
                 });
-                let rejected = actor.apply_metadata(&update.metadata, &mut self.hitbox_budget)
-                    | actor.apply_properties(&update.properties);
+                let rejected =
+                    actor.apply_metadata(&update.metadata, sequence, &mut self.hitbox_budget)
+                        | actor.apply_properties(&update.properties);
                 self.effect_members.update(actor);
                 if incompatible {
                     self.animation.mark_reset(update.runtime_id);
@@ -781,30 +783,45 @@ impl ActorStore {
         ActorApplyResult::Removed
     }
 
+    /// Retains passenger order, inserting a player ahead of a nonplayer first passenger.
     fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
-        Self::apply_link_to(&mut self.rider_to_ridden, self.max_actor_links, event)
-    }
-
-    fn apply_link_to(
-        rider_to_ridden: &mut FastHashMap<i64, i64>,
-        max_actor_links: usize,
-        event: ActorLinkEvent,
-    ) -> ActorApplyResult {
         match event.link_type {
             ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
             ActorLinkType::Remove => {
-                if rider_to_ridden.get(&event.rider_unique_id) == Some(&event.ridden_unique_id) {
-                    rider_to_ridden.remove(&event.rider_unique_id);
+                if self.ridden_unique_id(event.rider_unique_id) == Some(event.ridden_unique_id) {
+                    self.rider_to_ridden.remove(&event.rider_unique_id);
                 }
                 ActorApplyResult::Updated
             }
             ActorLinkType::Rider | ActorLinkType::Passenger => {
-                if !rider_to_ridden.contains_key(&event.rider_unique_id)
-                    && rider_to_ridden.len() >= max_actor_links
+                if self.ridden_unique_id(event.rider_unique_id) == Some(event.ridden_unique_id) {
+                    return ActorApplyResult::Updated;
+                }
+                if !self.rider_to_ridden.contains_key(&event.rider_unique_id)
+                    && self.rider_to_ridden.len() >= self.max_actor_links
                 {
                     return ActorApplyResult::CapacityRejected;
                 }
-                rider_to_ridden.insert(event.rider_unique_id, event.ridden_unique_id);
+                let first = self
+                    .rider_to_ridden
+                    .iter()
+                    .filter(|(_, link)| link.vehicle == event.ridden_unique_id)
+                    .min_by_key(|(_, link)| link.order);
+                let player = |id| {
+                    self.snapshot_by_unique(id)
+                        .is_some_and(|actor| matches!(actor.kind, ActorKind::Player { .. }))
+                };
+                let order = first
+                    .filter(|(id, _)| player(event.rider_unique_id) && !player(**id))
+                    .map_or(i128::from(self.next_link_order), |(_, link)| link.order - 1);
+                self.rider_to_ridden.insert(
+                    event.rider_unique_id,
+                    riding_control::RiderLink {
+                        vehicle: event.ridden_unique_id,
+                        order,
+                    },
+                );
+                self.next_link_order = self.next_link_order.saturating_add(1);
                 ActorApplyResult::Updated
             }
         }
@@ -813,7 +830,7 @@ impl ActorStore {
     fn remove_links_for(&mut self, unique_id: i64) {
         self.rider_to_ridden.remove(&unique_id);
         self.rider_to_ridden
-            .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
+            .retain(|_, link| link.vehicle != unique_id);
     }
 
     /// Layers a session's server-pack entity catalog over the vanilla one.

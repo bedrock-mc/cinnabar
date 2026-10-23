@@ -487,6 +487,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
             );
         }
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
+            if let Some(item_use) = item_use.as_deref_mut() {
+                item_use.adopt_server_using_item(flags.using_item);
+            }
             let previous = player_runtime.facts.is_immobile();
             player_runtime
                 .facts

@@ -375,6 +375,7 @@ fn a_combined_delayed_speed_update_replays_once() {
                 sequence: 9,
                 dimension: 0,
                 movement: Some(attribute(0.2, 0.2, None)),
+                movement_received: true,
                 underwater,
                 lava: None,
                 air_drag_modifier: None,

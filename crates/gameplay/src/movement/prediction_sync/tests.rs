@@ -5,6 +5,9 @@ use crate::movement::physics::ClimberFlags;
 
 mod climber_writes;
 
+mod authority_writes;
+mod server_writes;
+
 #[test]
 fn flags_read_all_three_words_and_missing_ones_are_zero() {
     let mut metadata = HashMap::new();
@@ -40,30 +43,36 @@ fn bounding_box_falls_back_to_the_player_box() {
     assert_eq!(bounding_box(&metadata), [1.0, 0.6, 0.6]);
 }
 
+/// A local resize supplies unscaled dimensions; an absent resize keeps explicit metadata.
 #[test]
-fn local_walking_size_waits_for_a_sample_and_preserves_other_models() {
+fn local_walking_size_uses_the_latest_resize() {
     let metadata = HashMap::new();
     let standing = [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32];
     let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
-    assert_eq!(predicted_bounding_box(&metadata, None, [0; 3]), standing);
     assert_eq!(
-        predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
-        [standing[0], standing[1], crouching]
+        predicted_bounding_box(&metadata, None, false, [0; 3]),
+        standing
     );
-    for key in [ActorDataKey::Width, ActorDataKey::Height] {
-        let metadata = HashMap::from([(key.wire_value(), ActorMetadataValue::Float(2.0))]);
+    assert_eq!(
+        predicted_bounding_box(&metadata, Some([standing[1], crouching]), false, [0; 3]),
+        [1.0, standing[1], crouching]
+    );
+    for height in [0.6, 1.5, 2.0] {
+        let explicit = HashMap::from([(
+            ActorDataKey::Height.wire_value(),
+            ActorMetadataValue::Float(height),
+        )]);
         assert_eq!(
-            predicted_bounding_box(&metadata, Some(crouching), [0; 3]),
-            bounding_box(&metadata)
+            predicted_bounding_box(&explicit, None, true, [0; 3]),
+            [1.0, standing[1], height]
         );
     }
-    // The synced size is unscaled, so a scaled player keeps its pose size.
     let scaled = HashMap::from([(
         ActorDataKey::Scale.wire_value(),
         ActorMetadataValue::Float(2.0),
     )]);
     assert_eq!(
-        predicted_bounding_box(&scaled, Some(crouching), [0; 3]),
+        predicted_bounding_box(&scaled, Some([standing[1], crouching]), false, [0; 3]),
         [2.0, standing[1], crouching]
     );
 }
@@ -148,6 +157,12 @@ impl crate::GameplayWorld for LocalActor {
 
 /// The local actor with the required attributes and a stored non-finite air drag.
 fn local_actor() -> LocalActor {
+    let authority = local_actor_authority();
+    LocalActor(authority.actor(7).expect("spawn committed").clone())
+}
+
+/// Builds an actor store that accepts local attribute controls for the packet fixture.
+fn local_actor_authority() -> client_world::WorldAuthority {
     use std::sync::Arc;
     let attribute = |name: &str, current: f32| protocol::ActorAttribute {
         name: Arc::from(name),
@@ -165,8 +180,8 @@ fn local_actor() -> LocalActor {
     let mut authority = client_world::WorldAuthority::new(
         protocol::WorldBootstrap {
             dimension: 0,
-            local_player_runtime_id: 1,
-            local_player_unique_id: 1,
+            local_player_runtime_id: 7,
+            local_player_unique_id: 70,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: protocol::air_network_id(false),
@@ -202,7 +217,7 @@ fn local_actor() -> LocalActor {
             Some(1),
         )
         .unwrap();
-    LocalActor(authority.actor(7).expect("spawn committed").clone())
+    authority
 }
 
 /// Advances the correction countdown without completing a movement sample.
@@ -218,7 +233,7 @@ pub(super) fn due_physics() -> LocalPhysicsController {
 
 fn sent_air_drag(physics: &mut LocalPhysicsController, accepted: Option<f32>) -> f32 {
     let mut sent = None;
-    send_movement_prediction_sync(physics, &local_actor(), accepted, false, |packet| {
+    send_movement_prediction_sync(physics, &local_actor(), accepted, None, None, |packet| {
         sent = Some(packet);
         true
     });
@@ -234,7 +249,7 @@ fn undefined_attributes_publish_defaults_and_retry_until_accepted() {
     let mut physics = due_physics();
     let mut attempts = Vec::new();
     for accepted in [false, true] {
-        send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+        send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
             attempts.push(
                 protocol::test_support::packets::prediction_sync_attributes(&packet)
                     .expect("wrong packet"),
@@ -259,6 +274,133 @@ impl sim::CollisionWorld for OpenWorld {
     ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
         Ok(sim::CollisionQuery::synthetic(Vec::new()))
     }
+}
+
+struct BlockedWorld;
+
+impl sim::CollisionWorld for BlockedWorld {
+    /// Keeps the player grounded against a wall in the direction of forward input.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(vec![
+            sim::Aabb::new(
+                sim::Vec3::new(-16.0, -1.0, -16.0),
+                sim::Vec3::new(16.0, 0.0, 16.0),
+            ),
+            sim::Aabb::new(
+                sim::Vec3::new(-16.0, 0.0, 0.3),
+                sim::Vec3::new(16.0, 4.0, 16.0),
+            ),
+        ]))
+    }
+}
+
+/// Sync movement follows completed displacement, including gravity and blocked controls.
+#[test]
+fn sync_moving_flag_uses_displacement_instead_of_input() {
+    for blocked in [false, true] {
+        let mut physics = due_physics();
+        physics.reanchor_network_position(
+            [0.0, protocol::PLAYER_NETWORK_OFFSET, 0.0],
+            100,
+            blocked,
+        );
+        let input = sim::MovementInput {
+            forward: if blocked { 1.0 } else { 0.0 },
+            ..Default::default()
+        };
+        if blocked {
+            physics.advance(std::time::Duration::from_millis(100), input, &BlockedWorld);
+        } else {
+            physics.advance(std::time::Duration::from_millis(100), input, &OpenWorld);
+        }
+        let mut sent = None;
+        send_movement_prediction_sync(&mut physics, &local_actor(), None, None, None, |packet| {
+            sent = Some(packet);
+            true
+        });
+        let words = protocol::test_support::packets::prediction_sync_flags(
+            &sent.expect("due correction sync"),
+        )
+        .expect("prediction sync packet");
+        let mut expected = [0; 3];
+        set_flag(&mut expected, ActorFlag::HasCollision, true);
+        set_flag(&mut expected, ActorFlag::Moving, !blocked);
+        assert_eq!(words, expected, "blocked={blocked}");
+    }
+}
+
+/// A position update between ticks cannot erase the completed tick's movement fact.
+#[test]
+fn sync_moving_flag_survives_a_position_update_without_a_tick() {
+    let mut physics = due_physics();
+    physics.advance(
+        std::time::Duration::from_millis(100),
+        sim::MovementInput::default(),
+        &OpenWorld,
+    );
+    physics.apply_server_actor_position([4.0, 72.0, 4.0], Some(false));
+    let mut sent = None;
+    send_movement_prediction_sync(&mut physics, &local_actor(), None, None, None, |packet| {
+        sent = Some(packet);
+        true
+    });
+    let words =
+        protocol::test_support::packets::prediction_sync_flags(&sent.expect("due correction sync"))
+            .expect("prediction sync packet");
+    let mut expected = [0; 3];
+    set_flag(&mut expected, ActorFlag::HasCollision, true);
+    set_flag(&mut expected, ActorFlag::Moving, true);
+    assert_eq!(words, expected);
+}
+
+/// Replaying a stationary placed tick preserves the same complete sync packet.
+#[test]
+fn sync_moving_flag_is_unchanged_when_a_placement_is_replayed() {
+    let mut physics = due_physics();
+    let first = physics
+        .advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &OpenWorld,
+        )
+        .samples
+        .remove(0);
+    physics.apply_server_actor_position([8.0, 72.0, 0.5], Some(false));
+    physics.advance(
+        simulation_clock::TICK_DURATION,
+        sim::MovementInput {
+            immobile: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    let mut before = None;
+    send_movement_prediction_sync(&mut physics, &local_actor(), None, None, None, |packet| {
+        before = Some(packet);
+        false
+    });
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: first.position,
+                tick: first.tick,
+                on_ground: first.grounded_after_tick,
+                velocity: Some(first.velocity),
+            },
+            crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &OpenWorld,
+        )
+        .expect("placement replay succeeds");
+    let mut after = None;
+    send_movement_prediction_sync(&mut physics, &local_actor(), None, None, None, |packet| {
+        after = Some(packet);
+        true
+    });
+    assert_eq!(after.expect("replayed sync"), before.expect("live sync"));
 }
 
 /// Correction sync follows completed walking posture and size before a server echo.
@@ -305,7 +447,7 @@ fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {
             | if sprinting { sprint } else { 0 };
         for accepted in [false, true] {
             let mut sent = None;
-            send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+            send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
                 sent = Some(packet);
                 accepted
             });
@@ -328,153 +470,38 @@ fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {
     }
 }
 
-/// Client-owned flags follow local state; every other server bit is kept.
+/// Accepted writes replace only their supplied bits in all three metadata words.
 #[test]
-fn client_owned_flags_follow_local_state() {
-    let words_with = |flags: &[ActorFlag]| {
-        let mut words = [0; 3];
-        for flag in flags {
-            set_flag(&mut words, *flag, true);
-        }
-        words
+fn accepted_flag_writes_preserve_independent_bits() {
+    let metadata = HashMap::from([
+        (
+            ActorDataKey::Flags.wire_value(),
+            ActorMetadataValue::Flags(u64::MAX),
+        ),
+        (
+            ActorDataKey::FlagsTwo.wire_value(),
+            ActorMetadataValue::FlagsExtended(u64::MAX),
+        ),
+        (
+            ActorDataKey::FlagsThird.wire_value(),
+            ActorMetadataValue::FlagsExtended(7),
+        ),
+    ]);
+    let flags = client_world::MovementFlagUpdate {
+        gliding: Some(false),
+        crawling: Some(true),
+        moving: Some(false),
+        ..Default::default()
     };
-    let owned = [
-        ActorFlag::Sneaking,
-        ActorFlag::Sprinting,
-        ActorFlag::UsingItem,
-        ActorFlag::Moving,
-        ActorFlag::HasCollision,
-        ActorFlag::Swimming,
-        ActorFlag::Crawling,
-        ActorFlag::Gliding,
-        ActorFlag::InScaffolding,
-        ActorFlag::OverScaffolding,
-        ActorFlag::DescendThroughBlock,
-        ActorFlag::InAscendingBlock,
-        ActorFlag::OverDescendingBlock,
-    ];
-    let mut stale = owned.to_vec();
-    stale.push(ActorFlag::AlwaysShowName);
-    let server = words_with(&stale);
-    let metadata = [
-        ActorDataKey::Flags,
-        ActorDataKey::FlagsTwo,
-        ActorDataKey::FlagsThird,
-    ]
-    .into_iter()
-    .zip(server)
-    .map(|(key, bits)| (key.wire_value(), ActorMetadataValue::FlagsExtended(bits)))
-    .collect::<HashMap<_, _>>();
-    let mut without_item = server;
-    set_flag(&mut without_item, ActorFlag::UsingItem, false);
-    assert_eq!(predicted_flag_words(&metadata, None, false), without_item);
-
-    let idle = SyncPose {
-        sneaking: false,
-        sprinting: false,
-        mode: sim::MovementMode::Walking,
-        moving: false,
-        has_collision: Some(false),
-        climber: Some(ClimberFlags::default()),
-    };
+    let mut expected = flag_words(&metadata);
+    set_flag(&mut expected, ActorFlag::Gliding, false);
+    set_flag(&mut expected, ActorFlag::Moving, false);
+    assert_eq!(predicted_flag_words(&metadata, flags, None), expected);
+    set_flag(&mut expected, ActorFlag::UsingItem, false);
     assert_eq!(
-        predicted_flag_words(&metadata, Some(idle), false),
-        words_with(&[ActorFlag::AlwaysShowName])
+        predicted_flag_words(&metadata, flags, Some(false)),
+        expected
     );
-    for (pose, using_item, flags) in [
-        (
-            SyncPose {
-                sneaking: true,
-                sprinting: true,
-                moving: true,
-                has_collision: Some(true),
-                ..idle
-            },
-            true,
-            vec![
-                ActorFlag::Sneaking,
-                ActorFlag::Sprinting,
-                ActorFlag::Moving,
-                ActorFlag::HasCollision,
-                ActorFlag::UsingItem,
-            ],
-        ),
-        (
-            SyncPose {
-                mode: sim::MovementMode::Swimming,
-                ..idle
-            },
-            false,
-            vec![ActorFlag::Swimming],
-        ),
-        (
-            SyncPose {
-                mode: sim::MovementMode::Crawling,
-                ..idle
-            },
-            false,
-            vec![ActorFlag::Crawling],
-        ),
-        (
-            SyncPose {
-                mode: sim::MovementMode::Gliding,
-                ..idle
-            },
-            false,
-            vec![ActorFlag::Gliding],
-        ),
-        (
-            SyncPose {
-                has_collision: None,
-                ..idle
-            },
-            false,
-            vec![ActorFlag::HasCollision],
-        ),
-        (
-            SyncPose {
-                climber: Some(ClimberFlags {
-                    in_scaffolding: true,
-                    over_scaffolding: true,
-                    descending_through_block: true,
-                    in_ascending_block: true,
-                    over_descending_block: true,
-                }),
-                ..idle
-            },
-            false,
-            vec![
-                ActorFlag::InScaffolding,
-                ActorFlag::OverScaffolding,
-                ActorFlag::DescendThroughBlock,
-                ActorFlag::InAscendingBlock,
-                ActorFlag::OverDescendingBlock,
-            ],
-        ),
-        (
-            // Without a terrain-sampling tick the server's climber flags stand.
-            SyncPose {
-                climber: None,
-                ..idle
-            },
-            false,
-            vec![
-                ActorFlag::InScaffolding,
-                ActorFlag::OverScaffolding,
-                ActorFlag::DescendThroughBlock,
-                ActorFlag::InAscendingBlock,
-                ActorFlag::OverDescendingBlock,
-            ],
-        ),
-    ] {
-        let mut expected = flags;
-        expected.push(ActorFlag::AlwaysShowName);
-        assert_eq!(
-            predicted_flag_words(&metadata, Some(pose), using_item),
-            words_with(&expected),
-            "{pose:?}"
-        );
-    }
 }
 
 struct DeepWater;
@@ -523,7 +550,7 @@ fn correction_sync_reports_a_local_swim_before_server_metadata() {
     }
     assert_eq!(physics.mode(), sim::MovementMode::Swimming);
     let mut sent = None;
-    send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+    send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
         sent = Some(packet);
         true
     });
@@ -691,12 +718,12 @@ fn a_snapped_correction_keeps_the_climber_contact() {
         ..Default::default()
     };
     for _ in 0..3 {
-        if physics.prediction_sync_pose().is_some() {
+        if physics.prediction_sync_climber().is_some() {
             break;
         }
         physics.advance(tick, sneaking, &ScaffoldOverAir);
     }
-    let climber = physics.prediction_sync_pose().unwrap().climber.unwrap();
+    let climber = physics.prediction_sync_climber().unwrap();
     assert!(climber.descending_through_block);
     assert!(!climber.over_descending_block);
 }
@@ -728,12 +755,12 @@ fn a_snapped_freeze_over_unreadable_terrain_reports_the_kept_contact() {
         ..Default::default()
     };
     for _ in 0..3 {
-        if physics.prediction_sync_pose().is_some() {
+        if physics.prediction_sync_climber().is_some() {
             break;
         }
         physics.advance(tick, frozen, &Unreadable);
     }
-    let climber = physics.prediction_sync_pose().unwrap().climber.unwrap();
+    let climber = physics.prediction_sync_climber().unwrap();
     assert!(climber.in_scaffolding && climber.over_descending_block);
     assert!(climber.descending_through_block);
 }
@@ -767,7 +794,7 @@ fn the_descent_request_follows_the_input_mode() {
             },
             &ScaffoldColumn,
         );
-        let climber = physics.prediction_sync_pose().unwrap().climber.unwrap();
+        let climber = physics.prediction_sync_climber().unwrap();
         assert_eq!(
             climber.descending_through_block, descends,
             "{mode:?} {toggle_held}"
@@ -850,32 +877,69 @@ fn climber_sync_flags(freeze: Freeze) -> [u64; 3] {
         .expect("wrong packet")
 }
 
-/// Every horizontal pose sends the width as the height, overriding the walking size.
 #[test]
-fn horizontal_poses_send_the_width_as_the_height() {
-    let width = sim::PLAYER_WIDTH as f32;
-    let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
-    let standing = HashMap::new();
-    let swimming_echo = HashMap::from([(
-        ActorDataKey::Height.wire_value(),
-        ActorMetadataValue::Float(width),
-    )]);
-    for flag in HORIZONTAL_POSE_FLAGS {
-        let mut words = [0; 3];
-        set_flag(&mut words, flag, true);
-        for metadata in [&standing, &swimming_echo] {
-            assert_eq!(
-                predicted_bounding_box(metadata, Some(crouching), words),
-                [1.0, width, width],
-                "{flag:?}"
-            );
-        }
+fn riding_sync_retains_the_effective_flight_ability() {
+    use client_world::game_mode_capabilities::FlightAuthority;
+    for flying in [false, true] {
+        let mut physics = due_physics();
+        let frame = physics.advance_with_context(
+            std::time::Duration::from_millis(100),
+            sim::MovementInput::default(),
+            super::super::PhysicsSampleContext {
+                mode_intent: super::super::ModeIntent {
+                    ride: Some(super::super::RideKind::Other),
+                    can_fly: true,
+                    flight: FlightAuthority::Fixed(flying),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &OpenWorld,
+        );
+        assert!(frame.completed_ticks > 0);
+        assert_eq!(physics.mode(), sim::MovementMode::Riding);
+        let mut sent = None;
+        send_movement_prediction_sync(&mut physics, &local_actor(), None, None, None, |packet| {
+            sent = Some(packet);
+            true
+        });
+        assert_eq!(
+            protocol::test_support::packets::prediction_sync_flying(&sent.expect("due sync")),
+            Some(flying)
+        );
     }
-    assert_eq!(
-        predicted_bounding_box(&swimming_echo, Some(sim::PLAYER_HEIGHT as f32), [0; 3]),
-        [1.0, width, sim::PLAYER_HEIGHT as f32],
-        "a completed walking sample replaces a stale horizontal echo"
-    );
+}
+
+#[test]
+fn sync_uses_effective_movement_speed_before_the_server_echo() {
+    let mut speed = super::super::LocalMovementSpeedAuthority::default();
+    speed.begin_session(1, 0);
+    assert!(speed.apply(
+        1,
+        1,
+        0,
+        client_world::MovementSpeedAttribute::unmodified(0.1)
+    ));
+    for sprinting in [true, false] {
+        speed.set_sprinting(sprinting);
+        let mut physics = due_physics();
+        let mut sent = None;
+        send_movement_prediction_sync(
+            &mut physics,
+            &local_actor(),
+            None,
+            speed.current(),
+            None,
+            |packet| {
+                sent = Some(packet);
+                true
+            },
+        );
+        let attributes =
+            protocol::test_support::packets::prediction_sync_attributes(&sent.expect("due sync"))
+                .expect("prediction sync");
+        assert_eq!(attributes[0], speed.current().unwrap() as f32);
+    }
 }
 
 /// Only a replayed correction schedules a sync; a snap (far teleport, respawn) does not.
@@ -939,7 +1003,7 @@ fn correction_sync_retry_preserves_server_posture_without_a_completed_tick() {
             let frame = physics.advance(std::time::Duration::from_millis(100), input, &OpenWorld);
             assert_eq!(frame.completed_ticks, 2);
             let completed = physics.latest_sneak_sprint().unwrap();
-            send_movement_prediction_sync(&mut physics, &actor, None, false, |_| false);
+            send_movement_prediction_sync(&mut physics, &actor, None, None, None, |_| false);
             assert!(physics.prediction_sync.due());
 
             let accepted = (!completed.0, !completed.1);
@@ -968,7 +1032,7 @@ fn correction_sync_retry_preserves_server_posture_without_a_completed_tick() {
             assert_eq!(physics.latest_sneak_sprint(), Some(completed));
 
             for admitted in [false, true] {
-                send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+                send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
                     assert_eq!(
                         packet,
                         client_movement_prediction_sync(MovementPredictionSync {

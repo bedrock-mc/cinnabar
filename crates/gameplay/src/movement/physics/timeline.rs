@@ -290,6 +290,13 @@ impl LocalPhysicsController {
         tick: u64,
         flags: client_world::MovementFlagUpdate,
     ) -> Option<u64> {
+        self.sync_state
+            .server_flags(client_world::MovementFlagUpdate {
+                sneaking: None,
+                sprinting: None,
+                extended_flags: None,
+                ..flags
+            });
         self.state.as_ref()?;
         let climber_rewind = flags
             .extended_flags
@@ -384,6 +391,7 @@ impl LocalPhysicsController {
         self.server_control_flags.take()
     }
 
+    /// Adopts present control flags after retained local transitions have been reconciled.
     fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
         for (flag, mode) in [
             (flags.gliding, sim::MovementMode::Gliding),
@@ -404,6 +412,12 @@ impl LocalPhysicsController {
             flags.sprinting.unwrap_or(self.modes.sprinting()),
             flags.sneaking.unwrap_or(self.modes.sneaking()),
         );
+        self.sync_state
+            .server_flags(client_world::MovementFlagUpdate {
+                sneaking: flags.sneaking,
+                sprinting: flags.sprinting,
+                ..Default::default()
+            });
         self.live_posture.sprinting = flags.sprinting.or(self.live_posture.sprinting);
         self.live_posture.sneaking = flags.sneaking.or(self.live_posture.sneaking);
         let pending = self.server_control_flags.get_or_insert_default();
