@@ -70,6 +70,7 @@ fn render(nodes: Vec<DrawNode>) -> FormRender {
 
 /// Exercises the actual prepare path with the same retained layout and current image map.
 fn prepare(engine: &FormEngine, render: &FormRender, images: Option<&HashMap<String, IconRef>>) {
+    engine.textures.lock().begin_frame();
     let font = fixture_font();
     let mut layouts = TextLayoutCache::new(16, 16 * 1024);
     let mut painted = Vec::new();

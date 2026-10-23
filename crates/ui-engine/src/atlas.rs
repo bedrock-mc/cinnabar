@@ -494,9 +494,12 @@ impl ServerAtlas {
     pub fn is_native_sheet(&self, key: &str) -> bool {
         self.native_enabled
             && !self.native.failed(key)
-            && match self.native_source(key) {
-                Some(source) => source
-                    .size
+            && match if is_remote(key) {
+                self.remote_size(key)
+            } else {
+                self.native_source(key).map(|source| source.size)
+            } {
+                Some(size) => size
                     .into_iter()
                     .any(|side| side > crate::pages::WHOLE_ART_PAGE),
                 None => self
@@ -560,7 +563,6 @@ impl ServerAtlas {
 
     /// Collects image completions before a retained menu can reuse its saved frame.
     pub fn poll_native_images(&mut self) -> bool {
-        let remote_changed = self.invalidate_remote_sources();
         let ready = self
             .pack
             .as_ref()
@@ -570,7 +572,7 @@ impl ServerAtlas {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
         }
-        remote_changed | ready | self.native.collect() | self.outlines.collect()
+        ready | self.native.collect() | self.outlines.collect()
     }
 
     /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.
@@ -641,6 +643,9 @@ impl ServerAtlas {
         if let Some(image) = self.client_rasters.get(key) {
             return Some(image.dimensions().map(f64::from));
         }
+        if is_remote(key) {
+            return self.remote_size(key).map(|size| size.map(f64::from));
+        }
         self.fallback(key)
             .as_ref()
             .map(|source| source.size.map(f64::from))
@@ -676,7 +681,7 @@ impl ServerAtlas {
     }
 
     /// The vanilla image or downloaded URL behind `key`. A vanilla miss is remembered; a
-    /// URL is asked of the host each time, which marks it in use.
+    /// URL uses the current frame's host snapshot.
     fn fallback(&self, key: &str) -> Option<Source> {
         if is_remote(key) {
             return self.remote_source(key);
@@ -718,17 +723,17 @@ impl ServerAtlas {
     /// vanilla images and downloaded URLs. A texture
     /// that fits nowhere without evicting one drawn this frame is left out.
     pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str, IntoIter: Clone>) {
-        self.clock += 1;
+        let keys = keys.into_iter();
+        self.begin_required_frame(keys.clone());
         self.require_current(keys);
     }
 
     /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
-    pub(crate) fn require_current<'a>(
+    pub fn require_current<'a>(
         &mut self,
         keys: impl IntoIterator<Item = &'a str, IntoIter: Clone>,
     ) {
         let keys = keys.into_iter();
-        self.prepare_remote_sources(keys.clone());
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
@@ -736,10 +741,11 @@ impl ServerAtlas {
         let mut missing = Vec::new();
         for key in keys {
             // Every draw of a downloaded image tells the host it is still on screen.
-            if is_remote(key)
-                && let Some(remote) = &self.remote
-            {
-                remote.touch(key);
+            if is_remote(key) {
+                if let Some(remote) = &self.remote {
+                    remote.touch(key);
+                }
+                self.remote_source(key);
             }
             if self.is_native_sheet(key) {
                 let Some(source) = self.native_source(key) else {

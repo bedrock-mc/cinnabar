@@ -79,7 +79,7 @@ fn prepare_with<R: Borrow<FormRender>>(
         images: art.images,
     }
     .atlas_keys(paths.into_iter());
-    atlas.require(drawn.iter().map(std::ops::Deref::deref));
+    atlas.require_current(drawn.iter().map(std::ops::Deref::deref));
     drop(base);
     Some(render)
 }

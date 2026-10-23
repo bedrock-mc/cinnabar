@@ -12,6 +12,13 @@ type SourceEntries = Vec<(String, Arc<[u8]>)>;
 pub struct OversizedTextures(Option<Arc<SourceEntries>>);
 
 impl OversizedTextures {
+    /// Releases one replaced URL while preserving other source entries and shared snapshots.
+    pub(super) fn remove(&mut self, key: &str) {
+        if let Ok(index) = self.binary_search_by(|entry| entry.0.as_str().cmp(key)) {
+            Arc::make_mut(self.0.as_mut().expect("nonempty source entries")).remove(index);
+        }
+    }
+
     /// Whether both views retain the same metadata, without walking their entries.
     pub fn shares_storage(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {

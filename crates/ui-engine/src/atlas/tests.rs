@@ -74,7 +74,7 @@ fn cold_loading_backdrop_precedes_an_expensive_title_decode() {
 }
 
 /// Encodes a deterministic PNG fixture.
-fn png(width: u32, height: u32) -> Vec<u8> {
+pub(super) fn png(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = Vec::new();
     image::RgbaImage::from_pixel(width, height, image::Rgba([1, 2, 3, 255]))
         .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
@@ -479,10 +479,12 @@ fn downloaded_bodies_stay_owned_by_the_host_and_draws_touch_them() {
         .collect();
     assert!(urls.iter().all(|url| atlas.fallback_size(url).is_some()));
     assert!(atlas.extra.borrow().keys().all(|key| !is_remote(key)));
+    atlas.begin_frame();
+    atlas.begin_frame();
     assert_eq!(
         Arc::strong_count(&body),
         2,
-        "only the host and this test hold the body"
+        "unused frame snapshots release their references to the host body"
     );
     atlas.require(urls.iter().take(2).map(String::as_str));
     let touched = remote.1.lock().unwrap();

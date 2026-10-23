@@ -123,7 +123,7 @@ pub(crate) fn run_one() -> bool {
 pub(super) struct Outlines {
     ready: RefCell<VecDeque<Ready>>,
     dirty: bool,
-    pending: bool,
+    pending: Option<String>,
     retry: Option<Job>,
     sender: Sender<Completed>,
     receiver: Receiver<Completed>,
@@ -136,7 +136,7 @@ impl Default for Outlines {
         Self {
             ready: RefCell::default(),
             dirty: false,
-            pending: false,
+            pending: None,
             retry: None,
             sender,
             receiver,
@@ -152,9 +152,27 @@ impl Drop for Outlines {
 }
 
 impl Outlines {
+    /// Whether cached coverage or a pending request depends on this URL's generation.
+    pub(super) fn contains(&self, key: &str) -> bool {
+        self.pending.as_deref() == Some(key)
+            || self.ready.borrow().iter().any(|entry| entry.key.0 == key)
+    }
+
+    /// Retires one URL's masks and cancels only work requested for that URL.
+    pub(super) fn remove(&mut self, key: &str) {
+        self.ready.get_mut().retain(|entry| entry.key.0 != key);
+        if self.pending.as_deref() == Some(key) {
+            self.cancelled.store(true, Ordering::Release);
+            (self.sender, self.receiver) = crossbeam_channel::bounded(1);
+            self.cancelled = Arc::new(AtomicBool::new(false));
+            self.pending = None;
+            self.retry = None;
+        }
+    }
+
     /// Avoids resolving inputs already cached or while this atlas has outstanding work.
     pub(super) fn needs(&self, key: &str, size: [u32; 2]) -> bool {
-        !self.pending
+        self.pending.is_none()
             && !self
                 .ready
                 .borrow()
@@ -197,7 +215,7 @@ impl Outlines {
             self.dirty = true;
             return;
         }
-        self.pending = true;
+        self.pending = Some(key.to_owned());
         let job = Job {
             key: (key.to_owned(), size),
             input,
@@ -218,7 +236,7 @@ impl Outlines {
             return dirty;
         };
         self.insert(completed);
-        self.pending = false;
+        self.pending = None;
         true
     }
 

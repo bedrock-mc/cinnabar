@@ -229,10 +229,10 @@ impl FormEngine {
         self.screens.invalidate_layouts();
     }
 
-    /// Polls original-image readiness even when the current menu needs no repaint.
+    /// Starts a frame's source snapshot and polls readiness before reusing saved geometry.
     pub fn poll_native_images(&mut self) -> bool {
         let atlas = self.textures.atlas_mut();
-        atlas.poll_native_images() | atlas.take_metadata_changed()
+        atlas.begin_frame() | atlas.poll_native_images() | atlas.take_metadata_changed()
     }
 
     /// The atlas page images when they changed since the last call.
