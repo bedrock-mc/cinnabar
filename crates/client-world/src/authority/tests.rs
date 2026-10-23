@@ -294,6 +294,10 @@ fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
             Some(1),
         )
         .unwrap();
+    assert!(matches!(
+        authority.take_committed_ui().as_slice(),
+        [CommittedUiEvent::LocalSpawn { sequence: 1, .. }]
+    ));
     for (sequence, health) in [(2, 0), (3, 7)] {
         authority
             .apply_ordered_event(
