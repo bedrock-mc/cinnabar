@@ -57,7 +57,7 @@ impl UiRuntime {
     }
 
     /// Crafts crafting recipe `network_id` once from inventory ingredients into the inventory,
-    /// as a recipe book click does.
+    /// as a secondary recipe book click does.
     pub fn mod_fill_recipe(
         &mut self,
         player_runtime: &mut player_state::PlayerState,

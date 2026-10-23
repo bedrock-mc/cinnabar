@@ -32,7 +32,7 @@ pub(super) fn cancel_from_mouse_back(
 pub(crate) fn drive_chat_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<(bevy::prelude::Entity, &Window), With<PrimaryWindow>>,
     mut menu: Option<ResMut<client_shell::menu::MenuRuntime>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     wheel: Option<Res<AccumulatedMouseScroll>>,
@@ -44,7 +44,9 @@ pub(crate) fn drive_chat_ui_actions(
     mut runtime: ResMut<UiRuntimeResource>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
+    mut keyboard: Option<ResMut<client_shell::platform_text::KeyboardRequests>>,
 ) {
+    let (window_entity, window) = *window;
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         gesture.cancel();
         return;
@@ -116,6 +118,12 @@ pub(crate) fn drive_chat_ui_actions(
     }
     for position in presses {
         let hit = presentation.hit_test_chat(position);
+        // A tap on the draft reopens a platform keyboard the OS dismissed.
+        if hit == Some(ChatHit::TextInput)
+            && let Some(keyboard) = keyboard.as_deref_mut()
+        {
+            keyboard.show(window_entity);
+        }
         match hit {
             Some(ChatHit::ExtensionAction(index)) => {
                 presentation.request_chat_extension_action(index);

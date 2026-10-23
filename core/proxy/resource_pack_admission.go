@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"strings"
 	"sync/atomic"
@@ -497,15 +498,24 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		logger := joinprofile.Logger(ctx, logger)
-		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			attempt := withJoinStages(dialer, logger)
+		return connectUpstream(ctx, target.address, authenticationMode(dialer.TokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
+			attempt := withJoinStages(localHopDialer(target, address, dialer, accountTokenSource(connections.account)), logger)
 			dial := attempt.DialContextNetwork
-			if dialer.TokenSource != nil {
+			if attempt.TokenSource != nil {
 				dial = func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
 					return dialWithPreparedTransport(ctx, network, address, attempt.DialContextNetwork)
 				}
 			}
-			return dialMinecraftUpstream(ctx, connections.hopNetwork(target, address), address, dial)
+			network := connections.hopNetwork(target, address)
+			if local, ok := network.(localNetherNetNetwork); ok && target.keylessFallback && strings.EqualFold(address, target.address) {
+				observed := &localBDSAuthNetwork{localNetherNetNetwork: local}
+				upstream, err := dialMinecraftUpstream(ctx, observed, address, dial)
+				if err != nil {
+					err = &localBDSLoginError{err: err, beforeTransport: !observed.started.Load()}
+				}
+				return upstream, err
+			}
+			return dialMinecraftUpstream(ctx, network, address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
@@ -647,19 +657,40 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if isSession {
 		clientCache = clientCache && session.sessionClientCache()
 	}
-	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
-	dialer.HTTPClient = connections.httpClient
-	dialer.ErrorLog = secretSafeResourcePackLogger(connections.logger)
-	if target.clientData != nil {
-		target.clientData(&dialer.ClientData)
+	for {
+		dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
+		dialer.HTTPClient = connections.httpClient
+		dialer.ErrorLog = secretSafeResourcePackLogger(connections.logger)
+		if target.clientData != nil {
+			target.clientData(&dialer.ClientData)
+		}
+		dialer = withResourcePackAcquisitionBudget(dialer, budget)
+		if joinprofile.Enabled {
+			var reportPacks func()
+			dialer, reportPacks = withJoinPackProfile(ctx, dialer, connections.logger)
+			defer reportPacks()
+		}
+		upstream, err = connections.dialTarget(dialCtx, target, dialer)
+		var localFailure *localBDSLoginError
+		if !target.keylessFallback || tokenSource == nil || dialCtx.Err() != nil ||
+			!errors.As(err, &localFailure) || !localFailure.admitsOfflineRetry() {
+			break
+		}
+		cleanupErr := finishPreparedResources(upstream, nil)
+		upstream = nil
+		if cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+			break
+		}
+		// This is the launcher-owned offline server, not an external server refusing
+		// authentication. Keep account-backed player data whenever it can validate it.
+		reason := "server_verification_keys_unavailable"
+		if localFailure.beforeTransport {
+			reason = "account_services_unavailable"
+		}
+		connections.logger.Warn("retrying local server login with local identity", "reason", reason)
+		tokenSource = nil
 	}
-	dialer = withResourcePackAcquisitionBudget(dialer, budget)
-	if joinprofile.Enabled {
-		var reportPacks func()
-		dialer, reportPacks = withJoinPackProfile(ctx, dialer, connections.logger)
-		defer reportPacks()
-	}
-	upstream, err = connections.dialTarget(dialCtx, target, dialer)
 	budget.finish()
 	// The dialed upstream owns its own context; releasing dialCtx now cannot
 	// affect it and frees the cancellation goroutine on either outcome.

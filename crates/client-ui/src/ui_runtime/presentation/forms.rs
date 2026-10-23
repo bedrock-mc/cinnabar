@@ -23,6 +23,8 @@ pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
 #[cfg(test)]
+mod inventory_work_probe;
+#[cfg(test)]
 mod item_renderer_tests;
 #[cfg(test)]
 mod join_request_tests;
@@ -94,7 +96,8 @@ use crate::ui_runtime::scene_stack::ScreenSettingsTable;
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime};
 use assets::RuntimeUiAssets;
 pub use containers::{container_screen_reference, engine_screen_for};
-pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
+pub(crate) use recipe_book::BookIconCache;
+pub use recipe_book::{BookIconSources, recipe_book_hover, recipe_book_icons, recipe_book_shown};
 use ui_engine::{
     engine::{FormEngine, PreparedCatalog, screen::PaintFrame},
     frame::EngineFrame,

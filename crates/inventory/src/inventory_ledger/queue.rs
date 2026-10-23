@@ -215,6 +215,7 @@ impl PlayerInventoryLedger {
             view
         });
         self.observe_furnace_cells();
+        self.observe_recipe_selection();
     }
 
     pub(super) fn ensure_queue_capacity(&self) -> Result<(), InventoryGestureError> {
@@ -440,9 +441,7 @@ impl PlayerInventoryLedger {
                 }
                 self.require_rollback_recovery(cell);
             }
-            if self.confirmed.set(cell, backing) && !rejected && cell == Cell::Offhand {
-                self.offhand_written = true;
-            }
+            self.confirmed.set(cell, backing);
             if rejected
                 && to.is_none()
                 && let Some(previous) = self.queue.iter_mut().rev().find(|previous| {

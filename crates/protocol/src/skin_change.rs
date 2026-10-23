@@ -14,6 +14,10 @@ const CLASSIC_SKIN_PACK_ID: &str = "c18e65aa-7b21-4637-9b63-8ad63622ef01";
 /// The pack used for images imported by the player.
 const CUSTOM_SKIN_PACK_ID: &str = "aaaaaaaa-7b21-4637-9b63-8ad63622ef01";
 
+/// Geometry data for a skin without its own model: the styled JSON `null` that Bedrock writes for
+/// an empty geometry document. Servers parse this field as JSON, so it is never left empty.
+const ABSENT_GEOMETRY_DATA: &str = "null\n";
+
 /// Returns a built-in skin's pack identity without minting a per-login UUID.
 pub fn builtin_skin_id(name: &str) -> String {
     format!("{CLASSIC_SKIN_PACK_ID}.{name}")
@@ -103,7 +107,7 @@ pub fn player_skin_packet(
                 image_bytes: skin.rgba8.to_vec().into(),
             },
             geometry_data: geometry
-                .map_or_else(String::new, |source| source.geometry_data.to_string())
+                .map_or(ABSENT_GEOMETRY_DATA, |source| &*source.geometry_data)
                 .into(),
             geometry_data_min_engine_version: DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             arm_size: if arm_size == "slim" {
@@ -218,5 +222,41 @@ mod tests {
             wire.serialized_skin.full_id,
             classic_skin_id("wide").as_str()
         );
+    }
+
+    /// Servers such as Dragonfly disconnect a player whose appearance update has unparsable
+    /// geometry, so a classic skin changing its cape must still send JSON geometry.
+    #[test]
+    fn classic_skin_cape_change_sends_json_geometry() {
+        let cape = render_api::CapeImage {
+            width: render_api::CAPE_DIMENSIONS[0].0,
+            height: render_api::CAPE_DIMENSIONS[0].1,
+            rgba8: vec![
+                9;
+                (render_api::CAPE_DIMENSIONS[0].0 * render_api::CAPE_DIMENSIONS[0].1 * 4)
+                    as usize
+            ]
+            .into(),
+        };
+        for cape in [Some(cape), None] {
+            let skin = render_api::StandardSkin {
+                width: render_api::CLASSIC_SKIN_SIDE as u32,
+                height: render_api::CLASSIC_SKIN_SIDE as u32,
+                rgba8: vec![255; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4]
+                    .into(),
+                cape,
+                geometry: None,
+            };
+            let packet = player_skin_packet([1; 16], &skin, "wide", &classic_skin_id("wide"), "");
+            let encoded = crate::encode(&packet).unwrap();
+            let packet = crate::decode_batch(encoded).unwrap().pop().unwrap();
+            let packets::Packet::PlayerSkin(wire) = *packet.data else {
+                panic!("skin packet")
+            };
+            let geometry: serde_json::Value =
+                serde_json::from_slice(wire.serialized_skin.geometry_data.as_ref())
+                    .expect("geometry data is JSON");
+            assert_eq!(geometry, serde_json::Value::Null);
+        }
     }
 }

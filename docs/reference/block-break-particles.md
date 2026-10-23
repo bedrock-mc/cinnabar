@@ -30,7 +30,10 @@ engine rather than replaced with a hand-tuned visual effect.
 
 ## Implementation and verification
 
-`particles/tiles.rs` selects the resolved bottom-face material and its tint.
+`particles/tiles.rs` selects the resolved bottom-face material and its tint. Entity-drawn
+blocks retain their pack face materials even though terrain geometry remains invisible,
+so chest destruction and mining particles use the block texture binding. The entity model's
+texture atlas does not determine the particle tile.
 `render::block_break_request` supplies the native default count and intensity.
 `ParticleSystem::spawn_terrain` applies effect-local pre-spawn admission checks.
 Regressions cover sequential and hashed grass IDs, untinted dirt selection,

@@ -5,7 +5,7 @@ use pack_compile_input::source::read_bounded_source;
 use super::invalid;
 use assets::{
     AssetError, CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EquipmentBinding,
-    EquipmentTexture, MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
+    EquipmentCategory, EquipmentTexture, MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
     MAX_EQUIPMENT_TEXTURES,
 };
 use image::{ImageFormat, ImageReader, Limits};
@@ -15,15 +15,37 @@ use std::{io::Cursor, path::Path, sync::Arc};
 /// Includes the shared enchantment rasters alongside every requested equipment image.
 pub(super) fn compile_texture_identifiers_with(
     sources: &[EntityAssetSource],
-    mut identifiers: Vec<&str>,
+    identifiers: Vec<&str>,
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
+    compile_texture_identifiers_with_priorities(sources, identifiers, &[], read)
+}
+
+/// Compiles requested rasters while retaining selected identifiers before ordinary art.
+pub(super) fn compile_texture_identifiers_with_priorities(
+    sources: &[EntityAssetSource],
+    mut identifiers: Vec<&str>,
+    priorities: &[&str],
+    read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
+) -> Result<Vec<EquipmentTexture>, AssetError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut ordered = Vec::with_capacity(priorities.len() + identifiers.len());
+    for identifier in priorities.iter().copied() {
+        if seen.insert(identifier) {
+            ordered.push(identifier);
+        }
+    }
     identifiers.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS);
     identifiers.sort_unstable();
     identifiers.dedup();
+    ordered.extend(
+        identifiers
+            .into_iter()
+            .filter(|identifier| seen.insert(*identifier)),
+    );
     let mut textures = Vec::new();
     let mut pixel_bytes = 0usize;
-    for identifier in identifiers {
+    for identifier in ordered {
         if textures.len() == MAX_EQUIPMENT_TEXTURES {
             break;
         }
@@ -56,6 +78,7 @@ pub(super) fn compile_texture_identifiers_with(
             rgba8,
         });
     }
+    textures.sort_by(|a, b| a.identifier.cmp(&b.identifier));
     Ok(textures)
 }
 
@@ -108,6 +131,16 @@ pub fn compile_textures_for_assets_with(
     bindings: &[EquipmentBinding],
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
+    compile_textures_for_assets_with_priorities(assets, bindings, &[], read)
+}
+
+/// In-memory equipment raster compilation with paths that must survive the texture budget.
+pub fn compile_textures_for_assets_with_priorities(
+    assets: &CompiledEntityAssets,
+    bindings: &[EquipmentBinding],
+    priorities: &[&str],
+    read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
+) -> Result<Vec<EquipmentTexture>, AssetError> {
     let mut identifiers = bindings
         .iter()
         .map(|binding| binding.texture.identifier.as_ref())
@@ -157,7 +190,27 @@ pub fn compile_textures_for_assets_with(
             }
         }
     }
-    compile_texture_identifiers_with(&assets.sources, identifiers, read)
+    let mut priority_storage = priorities.to_vec();
+    priority_storage.extend(
+        bindings
+            .iter()
+            .filter(|binding| {
+                matches!(
+                    binding.category,
+                    EquipmentCategory::Armor { .. } | EquipmentCategory::ArmorAndHeld { .. }
+                )
+            })
+            .flat_map(|binding| {
+                std::iter::once(binding.texture.identifier.as_ref())
+                    .chain(binding.resources.textures.values().map(Box::as_ref))
+            }),
+    );
+    compile_texture_identifiers_with_priorities(
+        &assets.sources,
+        identifiers,
+        &priority_storage,
+        read,
+    )
 }
 
 #[cfg(test)]
@@ -179,5 +232,51 @@ mod tests {
         let (_, _, pixels) = decode_raster(&image, ImageFormat::Png, 16).unwrap();
         assert_eq!(pixels.len(), 16);
         assert!(decode_raster(&png(1, 1), ImageFormat::Png, 15).is_some());
+    }
+
+    #[test]
+    fn priority_texture_survives_the_sorted_texture_limit() {
+        let raster = png(1, 1);
+        let mut sources = Vec::new();
+        for index in 0..=MAX_EQUIPMENT_TEXTURES {
+            let path: Box<str> = format!("textures/items/{index:03}.png").into();
+            sources.push(EntityAssetSource {
+                path,
+                source_bytes: raster.len() as u32,
+                source_sha256: [0; 32],
+            });
+        }
+        let identifiers = sources
+            .iter()
+            .map(|source| source.path.trim_end_matches(".png"))
+            .collect::<Vec<_>>();
+        let ordinary = compile_texture_identifiers_with(&sources, identifiers.clone(), &mut |_| {
+            Ok(raster.clone())
+        })
+        .unwrap();
+        assert!(
+            !ordinary
+                .iter()
+                .any(|texture| texture.identifier.as_ref() == "textures/items/256")
+        );
+        let prioritized = compile_texture_identifiers_with_priorities(
+            &sources,
+            identifiers,
+            &["textures/items/256"],
+            &mut |_| Ok(raster.clone()),
+        )
+        .unwrap();
+        assert!(
+            prioritized
+                .iter()
+                .any(|texture| texture.identifier.as_ref() == "textures/items/256")
+        );
+        let mut sorted = prioritized
+            .iter()
+            .map(|texture| texture.identifier.as_ref())
+            .collect::<Vec<_>>();
+        let expected = sorted.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, expected);
     }
 }

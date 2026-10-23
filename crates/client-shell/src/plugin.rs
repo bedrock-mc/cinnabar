@@ -26,7 +26,7 @@ impl Plugin for ClientShellPlugin {
                     menu::observe_keyboard_labels,
                     fullscreen::toggle_fullscreen_hotkey,
                     menu::drive_menu_input,
-                    menu::drive_menu_ime,
+                    menu::drive_window_ime,
                     fullscreen::apply_runtime_fullscreen_setting,
                     settings_runtime::gui_scale::apply_gui_scale_setting,
                     menu::persist_video_settings,

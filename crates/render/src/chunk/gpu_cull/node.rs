@@ -273,6 +273,10 @@ pub(crate) fn late_cull(
             compute_pass_timestamps(world, RuntimeStage::GpuCullLate),
         );
     });
+    cull.encode_feedback(
+        encoder,
+        world.resource::<super::feedback::GpuCullFeedback>(),
+    );
     within_span(spans[2].as_ref(), encoder, |encoder| {
         let pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("terrain late cull pass"),

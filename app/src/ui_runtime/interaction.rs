@@ -445,7 +445,11 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
-    if mouse_bindings && mouse_buttons.just_pressed(MouseButton::Back) {
+    // Platform Back is routed below at its place among this frame's keys.
+    let platform_back = keyboard_events
+        .iter()
+        .any(crate::ui_runtime::platform_back::is_platform_back);
+    if mouse_bindings && !platform_back && mouse_buttons.just_pressed(MouseButton::Back) {
         let inventory_cancelled = inventory::cancel_from_mouse_back(
             &mut player_runtime,
             &mut runtime,
@@ -549,6 +553,28 @@ pub(crate) fn drive_chat_keyboard_input(
             input.state == ButtonState::Pressed,
         );
         if input.state != ButtonState::Pressed {
+            continue;
+        }
+        if crate::ui_runtime::platform_back::is_platform_back(input) {
+            // Back cancels like a mouse Back press; a held key never cancels twice.
+            if !input.repeat {
+                let inventory_cancelled = inventory::cancel_from_mouse_back(
+                    &mut player_runtime,
+                    &mut runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                );
+                if inventory_cancelled
+                    || chat::cancel_from_mouse_back(
+                        &mut runtime,
+                        presentation.as_deref_mut().map(|view| &mut view.0),
+                    )
+                {
+                    dismissed |= !runtime.ui_focused(&player_runtime);
+                    inventory_ownership_changed |= inventory_cancelled;
+                    consumed_gameplay = true;
+                    mouse_buttons.clear_just_pressed(MouseButton::Back);
+                }
+            }
             continue;
         }
         if let Some(presentation) = presentation.as_deref_mut()

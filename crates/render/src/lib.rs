@@ -56,7 +56,7 @@ pub use input_pacing::{FramePacing, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
-pub use media::MediaTexture;
+pub use media::{MediaTexture, MediaUpload};
 mod media_screen;
 
 mod material_shader;

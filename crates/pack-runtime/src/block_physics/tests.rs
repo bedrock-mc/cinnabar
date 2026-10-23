@@ -742,6 +742,7 @@ fn connection_states_select_per_state_collision() {
     };
     let block = CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),

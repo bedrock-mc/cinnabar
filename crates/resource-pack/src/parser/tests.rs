@@ -316,6 +316,44 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
     );
 }
 
+// A plaintext JSON listed with a key must stay readable even when its value tree is too large to
+// build: the syntax probe that picks plaintext over decrypted bytes builds no tree.
+#[test]
+fn keyed_plaintext_json_too_large_for_a_value_tree_is_still_read_as_plaintext() {
+    const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
+    const FILE_KEY: &str = "abcdefghijklmnopqrstuvwxyz012345";
+    let index = format!(r#"{{"content":[{{"path":"dense.json","key":"{FILE_KEY}"}}]}}"#);
+    let mut contents = vec![0u8; 256];
+    let mut body = index.into_bytes();
+    crate::crypto::tests::encrypt(PACK_KEY, &mut body);
+    contents.extend_from_slice(&body);
+    let mut dense = b"[".to_vec();
+    for _ in 0..1_200_000 {
+        dense.extend_from_slice(br#"{"":0},"#);
+    }
+    dense.extend_from_slice(b"0]");
+    assert!(pack_json::parse_jsonc::<serde_json::Value>(&dense).is_err());
+    let manifest = manifest("");
+    let archive = zip_files(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("contents.json", &contents),
+        ("dense.json", &dense),
+    ]);
+    let (pack, _) = validate_archive_parts(
+        PACK_ID,
+        "1.2.3",
+        "",
+        archive,
+        ContentKey::new(PACK_KEY),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        pack.read_file("dense.json").unwrap().unwrap().as_ref(),
+        dense.as_slice()
+    );
+}
+
 #[test]
 fn local_plaintext_archive_with_advertised_key_reads_stored_resources() {
     let Some(path) = std::env::var_os("CINNABAR_PLAINTEXT_PACK_FIXTURE") else {

@@ -534,7 +534,10 @@ impl ActorStore {
                 if movement.position[1].is_some_and(f32::is_finite) {
                     received.y_origin =
                         if movement.position_origin == ActorPositionOrigin::NetworkOffset {
-                            PoseYOrigin::NETWORK
+                            PoseYOrigin {
+                                native_y: movement.position[1],
+                                ..PoseYOrigin::NETWORK
+                            }
                         } else {
                             PoseYOrigin::default()
                         };

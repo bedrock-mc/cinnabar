@@ -23,7 +23,9 @@ impl Content<'_, '_> {
         };
         let description =
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if id == SettingId::GraphicsApi {
+        let description = if id == SettingId::ChunkOcclusionCulling {
+            "Skip terrain hidden behind other blocks. Visible terrain stays available.".to_owned()
+        } else if id == SettingId::GraphicsApi {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
         } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
