@@ -445,6 +445,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   acceptance remain incomplete.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  Server language values decode newline and backslash escapes before text arguments
+  are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
@@ -462,6 +464,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
+  each ingredient draws from one concrete variant. Missing grid ingredients and their
+  result use distinct ghost cells in both renderers and retain hover names.
+  Broader crafting and container acceptance remains incomplete.
   Hover reports and actor use share the attack's game-mode actor cap. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
@@ -834,6 +840,11 @@ retained memory, allocations, uploads and unnecessary rebuilds. Measure release
 performance on hardware; existing source refactors and unmeasured optimizations
 remain incomplete performance evidence. Preserve packed terrain storage and shared
 render resources while measuring implementation choices under the architecture policy.
+Window-sized client targets share bounded allocation retries after memory exhaustion,
+including hands, labels and the base UI raster. Enhanced water, shadows and shafts
+disable sampling while their required targets are unavailable. Injected failures cover
+recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
+remain incomplete.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

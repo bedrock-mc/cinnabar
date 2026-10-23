@@ -235,21 +235,12 @@ impl InventoryProjectionCache {
             decorations_changed |= cell.icon(icons, None, animation.dials, &mut resolve_icon);
             decorations_changed |= cell.bar(bars, &mut fraction);
         }
+        let mut output_is_ghost = self.contents.crafting.output_is_ghost;
         if inventory_open && (first || cells_changed || refresh.recipes || open_changed) {
-            let stack = match crafting_match() {
-                inventory::CraftGridMatch::Unique(recipe) => {
-                    let output = recipe.output();
-                    Some(NetworkItemStack {
-                        network_id: output.network_id,
-                        metadata: u32::from(output.aux),
-                        count: u16::from(output.count),
-                        block_runtime_id: output.block_runtime_id as i32,
-                        ..NetworkItemStack::empty()
-                    })
-                }
-                _ => None,
-            };
-            self.output.read(stack.as_ref(), None);
+            let output = crafting_output(ledger, crafting_match());
+            output_is_ghost = output.as_ref().is_some_and(|(_, ghost)| *ghost);
+            self.output
+                .read(output.as_ref().map(|(stack, _)| stack), None);
         }
         if inventory_open {
             self.output.icon(
@@ -258,9 +249,16 @@ impl InventoryProjectionCache {
                 animation.dials,
                 &mut resolve_icon,
             );
+            for slot in ledger.crafting_grid().slots() {
+                names_changed |= self.ui[usize::from(slot)].name(names, &mut item_name);
+            }
+            names_changed |= self.output.name(names, &mut item_name);
         }
         let crafting = if inventory_open {
-            let mut crafting = CraftingFrame::default();
+            let mut crafting = CraftingFrame {
+                output_is_ghost,
+                ..Default::default()
+            };
             for (icon, slot) in crafting
                 .icons
                 .iter_mut()
@@ -284,6 +282,13 @@ impl InventoryProjectionCache {
                 self.player
                     .iter()
                     .chain(&self.visual_storage)
+                    .chain(
+                        ledger
+                            .crafting_grid()
+                            .slots()
+                            .map(|slot| &self.ui[usize::from(slot)]),
+                    )
+                    .chain(std::iter::once(&self.output))
                     .filter_map(|cell| {
                         let stack = cell.stack.as_ref()?;
                         Some(((stack.network_id, stack.metadata), cell.name.clone()?))
@@ -350,7 +355,9 @@ impl InventoryProjectionCache {
             let stack = if slot == protocol::CREATED_OUTPUT_SLOT {
                 ledger.created_output_stack()
             } else if protocol::ui_slot_container_name(slot).is_some() {
-                ledger.target_stack(InventoryTarget::Craft(slot))
+                ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .or_else(|| ledger.crafting_ghost_stack(slot))
             } else {
                 None
             };

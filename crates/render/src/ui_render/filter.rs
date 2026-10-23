@@ -14,6 +14,7 @@ use super::{
     composite::{UI_LAYER_FORMAT, UiLayerTexture},
     layer::{LayerDrawn, UiLayerDraw, draw_batches, draw_ui_layer},
 };
+use crate::gpu_allocation::checked;
 use bevy::render::{
     render_resource::{
         BindGroupLayout, Extent3d, LoadOp, Operations, RenderPassColorAttachment,
@@ -63,22 +64,33 @@ pub(super) fn prepare<'a>(
         {
             continue;
         }
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("UI element filter group"),
-            size: Extent3d {
-                width: extent[0],
-                height: extent[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: UI_LAYER_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        // Without targets, filter groups draw unblurred (see `draw_layer`).
+        store.filters.remove(&entity);
+        let Some((texture, mut blur)) = store.failed_filters.attempt(entity, extent, || {
+            let bytes = u64::from(extent[0])
+                * u64::from(extent[1])
+                * super::composite::UI_LAYER_BYTES_PER_TEXEL;
+            let texture = checked(device, "UI element filter group", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("UI element filter group"),
+                    size: Extent3d {
+                        width: extent[0],
+                        height: extent[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: UI_LAYER_FORMAT,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+            })?;
+            Some((texture, pyramid(device, layouts[0], sampler, extent)?))
+        }) else {
+            continue;
+        };
         let view = texture.create_view(&TextureViewDescriptor::default());
-        let mut blur = pyramid(device, layouts[0], sampler, extent);
         blur.bind_source(device, layouts, sampler, &view);
         store.filters.insert(
             entity,

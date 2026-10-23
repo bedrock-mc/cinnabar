@@ -144,6 +144,7 @@ fn fixture(modes: &[Option<bool>]) -> (World, Entity, Vec<Entity>) {
         .id();
     world.insert_resource(CurrentView(camera));
     world.run_system_once(prepare_view_targets).unwrap();
+    world.init_resource::<crate::scene_target::MultisampleFallback>();
     world
         .run_system_once(crate::scene_target::prepare_scene_targets)
         .unwrap();
