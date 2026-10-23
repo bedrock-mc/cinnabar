@@ -89,7 +89,9 @@ pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
                 }
             }
             Some("compiler-artifact")
-                if event["manifest_path"].as_str().map(Path::new) == Some(manifest.as_path()) =>
+                if event["manifest_path"]
+                    .as_str()
+                    .is_some_and(|reported| is_manifest(reported, &manifest)) =>
             {
                 if let Some(files) = event["filenames"].as_array() {
                     for file in files
@@ -160,6 +162,14 @@ pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
 }
 
 /// Converts only generated metadata to the existing bundle source; host validation stays canonical.
+/// Whether Cargo's reported manifest path names `manifest`, which is already canonical.
+/// Windows canonical paths are verbatim (`\\?\C:\...`) while Cargo reports plain drive paths.
+fn is_manifest(reported: &str, manifest: &Path) -> bool {
+    Path::new(reported)
+        .canonicalize()
+        .is_ok_and(|reported| reported == manifest)
+}
+
 pub fn source(project: &Project, version: &str) -> Result<bundle::Source> {
     let channels = project
         .channels()
@@ -178,4 +188,23 @@ pub fn source(project: &Project, version: &str) -> Result<bundle::Source> {
         permissions,
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_manifest;
+
+    /// A reported path that isn't spelled canonically still names the project manifest.
+    #[test]
+    fn non_canonical_reported_manifest_paths_match() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("Cargo.toml"), "").unwrap();
+        let manifest = root.path().canonicalize().unwrap().join("Cargo.toml");
+        let reported = root.path().join(".").join("Cargo.toml");
+        assert!(is_manifest(reported.to_str().unwrap(), &manifest));
+        assert!(!is_manifest(
+            root.path().join("Other.toml").to_str().unwrap(),
+            &manifest
+        ));
+    }
 }
