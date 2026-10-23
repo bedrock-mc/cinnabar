@@ -2,21 +2,10 @@
 
 use super::*;
 
-const STATUE: &str = "no inventory raster for the entity-drawn statue model yet";
 const VOID: &str = "its GUI shape has no geometry in the world carrier";
 
 /// Registry items without an icon, each with the reason it stays unresolved.
-const UNRESOLVED: [(&str, &str); 9] = [
-    ("minecraft:copper_golem_statue", STATUE),
-    ("minecraft:exposed_copper_golem_statue", STATUE),
-    ("minecraft:oxidized_copper_golem_statue", STATUE),
-    ("minecraft:structure_void", VOID),
-    ("minecraft:waxed_copper_golem_statue", STATUE),
-    ("minecraft:waxed_exposed_copper_golem_statue", STATUE),
-    ("minecraft:waxed_oxidized_copper_golem_statue", STATUE),
-    ("minecraft:waxed_weathered_copper_golem_statue", STATUE),
-    ("minecraft:weathered_copper_golem_statue", STATUE),
-];
+const UNRESOLVED: [(&str, &str); 1] = [("minecraft:structure_void", VOID)];
 
 fn pinned_icons() -> Option<RuntimeIconCatalog> {
     let (Some(pack), Some(world)) = (
