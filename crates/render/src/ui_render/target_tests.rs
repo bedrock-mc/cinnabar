@@ -41,6 +41,41 @@ fn fixture(render: RenderPlugin) -> App {
     app
 }
 
+/// Creates a validation device without depending on terrain test modules.
+fn noop_renderer() -> RenderPlugin {
+    use bevy::render::{
+        renderer::{RenderAdapter, RenderAdapterInfo},
+        settings::RenderCreation,
+    };
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..default()
+            },
+            ..default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter =
+        bevy::tasks::block_on(instance.request_adapter(&default())).expect("enabled NOOP adapter");
+    let info = adapter.get_info();
+    let (device, queue) =
+        bevy::tasks::block_on(adapter.request_device(&default())).expect("NOOP UI fixture device");
+    RenderPlugin {
+        render_creation: RenderCreation::manual(
+            RenderDevice::from(device),
+            RenderQueue::new(queue),
+            RenderAdapterInfo::new(info),
+            RenderAdapter::new(adapter),
+            RenderInstance::new(instance),
+        ),
+        synchronous_pipeline_compilation: true,
+        ..default()
+    }
+}
+
 /// Attaches a real output while retaining independent low-resolution world metadata.
 fn view(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entity {
     let entity = world.spawn_empty().id();
@@ -106,7 +141,7 @@ fn prepare(world: &mut World) {
 
 #[test]
 fn native_ui_pair_keeps_output_pixels_and_reuses_across_world_scale_changes() {
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     let entity = view(world, [81, 61], [8, 6]);
     let original = world
@@ -171,7 +206,7 @@ fn native_ui_pair_keeps_output_pixels_and_reuses_across_world_scale_changes() {
 
 #[test]
 fn native_ui_target_rejects_stale_output_and_releases_removed_views() {
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     let entity = view(world, [81, 61], [8, 6]);
     world
@@ -192,7 +227,7 @@ fn native_ui_target_rejects_stale_output_and_releases_removed_views() {
 #[test]
 fn screen_ui_layers_stay_native_at_ten_and_fifty_percent_and_follow_output_resize() {
     use super::super::composite::{UiLayerStore, UiLayerTexture, prepare_ui_layers};
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.init_resource::<UiLayerStore>();
     let entity = view(world, [81, 61], [8, 6]);
@@ -501,7 +536,7 @@ fn native_one_pixel_hud(sharpen: bool) {
 
 #[test]
 fn absent_blit_resources_still_release_unscaled_native_targets() {
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     let entity = view(world, [81, 61], [8, 6]);
     world.remove_resource::<BlitPipeline>();
@@ -524,7 +559,7 @@ fn absent_blit_resources_still_release_unscaled_native_targets() {
 /// An allocation failure must not publish unusable textures or keep a stale native target.
 #[test]
 fn failed_native_ui_allocation_withholds_the_target() {
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     let _failure = crate::gpu_allocation::inject(|label, _| label == "native-resolution UI scene");
     let entity = view(world, [81, 61], [8, 6]);
@@ -535,7 +570,7 @@ fn failed_native_ui_allocation_withholds_the_target() {
 #[test]
 fn native_ui_allocation_retries_after_backoff_and_recovers() {
     use std::{cell::Cell, rc::Rc};
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     let entity = view(world, [81, 61], [8, 6]);
     world.entity_mut(entity).remove::<NativeUiTarget>();
