@@ -12,7 +12,7 @@ use objc2::{MainThreadMarker, Message, rc::Retained};
 use objc2_app_kit::{NSView, NSWindowStyleMask};
 use objc2_quartz_core::CAMetalLayer;
 use render::FramePacing;
-use render_model::{FrameRate, VrrStatus};
+use render_model::{FrameRate, PresentModeKind, VrrStatus};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::{DISPLAY_RECHECK, DisplayRefresh, update_frame_pacing};
@@ -106,9 +106,14 @@ fn log_presentation(
     {
         return;
     }
+    let effective = if snapshot.display_sync_enabled {
+        PresentModeKind::Fifo
+    } else {
+        PresentModeKind::Immediate
+    };
     bevy::log::info!(
         requested = ?snapshot.requested,
-        effective = if snapshot.display_sync_enabled { "Fifo" } else { "Immediate" },
+        effective = effective.name(),
         displaySyncEnabled = snapshot.display_sync_enabled,
         presentsWithTransaction = snapshot.presents_with_transaction,
         maximumDrawableCount = snapshot.maximum_drawable_count,
