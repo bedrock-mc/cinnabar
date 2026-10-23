@@ -944,9 +944,15 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   directives and unclosed groups at end of source. Settings properties keep their directive
   diagnostics. Compiler results carry shader modules without duplicate validation data;
   the host revalidates them when decoding.
+  of negative float literals and separates shared-memory array declarations. As in Iris's
+  JCPP, an `#endif` without an open block is skipped with its line. `program.*.enabled` rules
+  govern only the folder they name, as Iris keys them by pack path. Missing vertex
+  varying locations receive zero outputs. Compiler results carry shader modules without
+  duplicate validation data; the host revalidates them when decoding.
   The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
+  Solid and cutout terrain report Iris's single `TERRAIN_SOLID` stage in both passes.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
