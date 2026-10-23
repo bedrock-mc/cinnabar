@@ -23,6 +23,10 @@ impl SyncState {
     pub(super) fn server_flags(&mut self, update: client_world::MovementFlagUpdate) {
         self.flags.merge(update);
         self.pending.merge(update);
+        if self.explicit_size && update.sneaking.is_some() {
+            // A matching local sneak does not request another resize.
+            self.last_pose.0 = self.sneaking_pose();
+        }
         if !self.explicit_size
             && [
                 update.sneaking,
@@ -112,16 +116,17 @@ impl SyncState {
         self.resize();
     }
 
+    /// Whether the accepted sneak bit requests a crouching walking size.
+    fn sneaking_pose(&self) -> bool {
+        self.previous_mode == sim::MovementMode::Walking && self.flags.sneaking.unwrap_or(false)
+    }
+
     /// A pose change replaces an explicit request; unchanged poses retain its dimensions.
     fn resize(&mut self) {
         let horizontal = self.local_spinning
             || self.flags.spinning == Some(true)
             || [self.flags.gliding, self.flags.swimming, self.flags.crawling].contains(&Some(true));
-        let pose = (
-            self.previous_mode == sim::MovementMode::Walking
-                && self.flags.sneaking.unwrap_or(false),
-            horizontal,
-        );
+        let pose = (self.sneaking_pose(), horizontal);
         if pose != self.last_pose {
             self.explicit_size = false;
         }
