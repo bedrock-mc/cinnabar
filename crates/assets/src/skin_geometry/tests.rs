@@ -3,6 +3,26 @@ use super::*;
 const PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
 
 #[test]
+fn negative_inflation_keeps_cubes_that_reverse_a_thin_axis() {
+    let source = serde_json::json!({
+        "format_version":"1.12.0",
+        "minecraft:geometry":[{
+            "description":{"identifier":"geometry.npc","texture_width":64,"texture_height":64},
+            "bones":[{"name":"body","cubes":[{
+                "origin":[0,0,0],"size":[3,7,1],"inflate":-0.75,"uv":[4,8]
+            }]}]
+        }]
+    });
+    let geometry = parse_skin_geometry(PATCH, &source.to_string())
+        .unwrap()
+        .unwrap();
+    let cubes = &geometry.bones[0].cubes;
+    assert_eq!(cubes.len(), 1);
+    assert_eq!(cubes[0].size.map(|value| value.get()), [3.0, 7.0, 1.0]);
+    assert_eq!(cubes[0].inflate.get(), -0.75);
+}
+
+#[test]
 fn redeclared_skin_bones_use_their_own_hidden_flag() {
     for hidden in [None, Some(false), Some(true)] {
         let mut child = serde_json::json!({"name":"hat","cubes":[{

@@ -136,7 +136,6 @@ impl UiRuntime {
             });
         let offhand = match ledger.gear_slot_state(InventoryTarget::Offhand) {
             Some(PlayerInventorySlot::Present(stack)) => Some(stack),
-            Some(PlayerInventorySlot::Unknown) => self.gameplay_hud.offhand_stack(),
             _ => None,
         };
         offhand

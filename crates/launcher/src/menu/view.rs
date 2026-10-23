@@ -422,6 +422,8 @@ pub struct MenuView {
     pub gamepad_input: bool,
     /// Touch hardware remains available when a mouse or controller becomes active.
     pub touch_available: bool,
+    /// The touch-control draft owns this settings surface.
+    pub touch_editor_open: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -465,6 +467,8 @@ pub struct MenuView {
     /// Why the selected shader pack failed to load, for the Shaders tab; see
     /// [`super::shader_pack_status::failure_description`].
     pub renderer_failure: Option<std::sync::Arc<str>>,
+    /// The render host is still loading the selected shader pack.
+    pub shader_pack_loading: bool,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
@@ -695,6 +699,7 @@ impl MenuView {
             navigation_focus_visible: true,
             gamepad_input: false,
             touch_available: cfg!(target_os = "android"),
+            touch_editor_open: false,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,
@@ -725,6 +730,7 @@ impl MenuView {
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,
             renderer_failure: None,
+            shader_pack_loading: false,
             vsync_override: None,
             display_name,
             servers: MenuList::default(),

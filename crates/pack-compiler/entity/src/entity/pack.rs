@@ -348,7 +348,22 @@ fn compile_selected(
                     .is_some_and(|parsed| parsed.symbols.len() >= excess_symbols)
             });
     let remaining_budget = (budget.count - sources.len(), budget.bytes - total);
-    if let Err(error) = super::painting::complete_bindings(
+    let painting = match super::painting::complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        Some(remaining_budget),
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return Some(Err(error)),
+    };
+    let remaining_budget = (
+        budget.count.saturating_sub(sources.len()),
+        remaining_budget.1.saturating_sub(painting),
+    );
+    if let Err(error) = super::native_boat::complete_bindings(
         Path::new(""),
         &mut sources,
         &mut payloads,

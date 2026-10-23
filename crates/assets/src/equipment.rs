@@ -147,6 +147,10 @@ pub enum EquipmentCategory {
     Armor {
         slot: ArmorSlot,
     },
+    /// An attachable that has authored branches for both a worn slot and a hand.
+    ArmorAndHeld {
+        slot: ArmorSlot,
+    },
     Shield,
     Elytra,
     /// A model worn in the separately replicated body slot.

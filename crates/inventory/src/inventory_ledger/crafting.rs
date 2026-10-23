@@ -17,6 +17,8 @@ mod extra_outputs;
 pub(super) use extra_outputs::{ExtraDestination, created_stack};
 mod placement;
 pub(super) use placement::{OutputPlanner, action_amounts};
+mod recipe_fill;
+pub(crate) use recipe_fill::RecipePlacement;
 
 /// Which crafting grid the open screen offers.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

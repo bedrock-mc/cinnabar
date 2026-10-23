@@ -23,7 +23,8 @@ pub(super) struct Footprint {
 
 impl Footprint {
     /// Reuses the tile target until either its extent or actor velocity source changes;
-    /// `layout` is resolved through `cache` only when the target is rebuilt.
+    /// `layout` is resolved through `cache` only when the target is rebuilt. Leaves `state`
+    /// empty when the device is out of memory.
     pub fn prepare(
         state: &mut Option<Self>,
         device: &RenderDevice,
@@ -47,27 +48,31 @@ impl Footprint {
         }) {
             return false;
         }
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("actor motion tiles"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: FORMAT,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        *state = None;
+        let allocate = |label, size: Extent3d, format: TextureFormat| {
+            let bytes = u64::from(size.width)
+                * u64::from(size.height)
+                * u64::from(format.block_copy_size(None).unwrap_or(16));
+            crate::gpu_allocation::checked(device, label, bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some(label),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+            })
+        };
+        let (Some(texture), Some(rows)) = (
+            allocate("actor motion tiles", size, FORMAT),
+            allocate("actor motion row winners", row_size, ROW_FORMAT),
+        ) else {
+            return true;
+        };
         let view = texture.create_view(&Default::default());
-        let rows = device.create_texture(&TextureDescriptor {
-            label: Some("actor motion row winners"),
-            size: row_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: ROW_FORMAT,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
         let row_view = rows.create_view(&Default::default());
         let row_binding = device.create_bind_group(
             "actor motion row source",

@@ -244,6 +244,10 @@ fn a_requested_pack_without_a_picker_entry_offers_its_options() {
 #[test]
 fn pack_failure_details_appear_only_in_shaders() {
     let mut view = settings_view(SettingSection::Video.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".into());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
     assert!(
         !controls(&view)
@@ -273,55 +277,182 @@ fn video_shortcut_shows_off_for_a_remembered_but_disabled_pack() {
     );
 }
 
+/// Paints the Shaders tab at `width` and returns every hit target.
+fn hits_at(view: &MenuView, width: f32) -> Vec<(MenuAction, ui::UiRect)> {
+    crate::review_tests::paint(Default::default(), |canvas| {
+        crate::settings::draw(
+            canvas,
+            view,
+            [width, 1600.0],
+            &|_| None,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
+    })
+    .1
+}
+
+/// Paints the Shaders tab once, tall enough to show the whole library, and returns its texts.
+fn texts(view: &MenuView) -> Vec<String> {
+    crate::review_tests::paint(Default::default(), |canvas| {
+        crate::settings::draw(
+            canvas,
+            view,
+            [1280.0, 1600.0],
+            &|_| None,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
+    })
+    .2
+    .into_iter()
+    .filter_map(|node| match node.visual() {
+        ui::UiVisual::Text { layout, .. } => Some(
+            layout
+                .glyphs()
+                .iter()
+                .map(|glyph| glyph.codepoint)
+                .collect(),
+        ),
+        _ => None,
+    })
+    .collect()
+}
+
+fn hit(hits: &[(MenuAction, ui::UiRect)], action: MenuAction) -> ui::UiRect {
+    hits.iter()
+        .find(|(hit, _)| *hit == action)
+        .unwrap_or_else(|| panic!("{action:?} is painted"))
+        .1
+}
+
 #[test]
-fn shader_pack_rows_stack_at_wide_and_narrow_sizes() {
+fn unselected_shader_pack_rows_stack_without_deletion() {
     if !render_model::SHADER_PACKS_ENABLED {
         return;
     }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen.zip".to_owned()]);
     for width in [800.0, 1280.0, 1920.0] {
-        let (_, hits, _) = crate::review_tests::paint(Default::default(), |canvas| {
-            crate::settings::draw(
-                canvas,
-                &view,
-                [width, 1600.0],
-                &|_| None,
-                None,
-                &mut Default::default(),
-            )
-            .unwrap();
-        });
-        let packs: Vec<_> = hits
-            .iter()
-            .filter_map(|(action, bounds)| {
-                matches!(
-                    action,
-                    MenuAction::SelectRenderer(RendererChoice::ShaderPack(..))
-                )
-                .then_some(bounds)
-            })
-            .collect();
-        assert_eq!(packs.len(), 2);
-        assert!(packs[0].max().y() <= packs[1].min().y());
-        assert_eq!(packs[0].min().x(), packs[1].min().x());
-        assert_eq!(packs[0].max().x(), packs[1].max().x());
-        for (index, pack) in packs.iter().enumerate() {
-            let (_, trash) = hits
-                .iter()
-                .find(|(action, _)| {
-                    *action
-                        == MenuAction::RemoveShaderPackDialog(
-                            index as u16,
-                            view.shader_packs_revision,
-                        )
-                })
-                .expect("every managed pack has a separate trash target");
-            assert!(pack.max().x() <= trash.min().x());
-            assert_eq!(pack.min().y(), trash.min().y());
-            assert_eq!(pack.max().y(), trash.max().y());
+        let hits = hits_at(&view, width);
+        let rows: Vec<_> = [
+            RendererChoice::Vanilla,
+            RendererChoice::ShaderPack(0, view.shader_packs_revision),
+            RendererChoice::ShaderPack(1, view.shader_packs_revision),
+        ]
+        .map(|choice| hit(&hits, MenuAction::SelectRenderer(choice)))
+        .into();
+        for pair in rows.windows(2) {
+            assert!(pair[0].max().y() <= pair[1].min().y(), "Off leads one list");
+            assert_eq!(pair[0].min().x(), pair[1].min().x());
+            assert_eq!(pair[0].max().x(), pair[1].max().x());
         }
+        assert!(
+            !hits
+                .iter()
+                .any(|(action, _)| matches!(action, MenuAction::RemoveShaderPackDialog(..))),
+            "only the selected pack offers deletion"
+        );
     }
+}
+
+#[test]
+fn the_selected_pack_card_holds_its_controls_apart_from_selection() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".into());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.shader_options_available = true;
+    for width in [800.0, 1280.0, 1920.0] {
+        let hits = hits_at(&view, width);
+        let select = hit(&hits, MenuAction::SelectRenderer(view.renderer.unwrap()));
+        let next = hit(
+            &hits,
+            MenuAction::SelectRenderer(RendererChoice::ShaderPack(1, view.shader_packs_revision)),
+        );
+        let remove = hit(
+            &hits,
+            MenuAction::RemoveShaderPackDialog(0, view.shader_packs_revision),
+        );
+        assert!(
+            select.max().x() < remove.min().x(),
+            "delete sits right of selection"
+        );
+        assert!(remove.min().y() >= select.min().y() && remove.max().y() <= select.max().y());
+        assert!(
+            remove.max().x() <= next.max().x(),
+            "delete stays inside the card"
+        );
+        for control in [
+            MenuAction::ShaderOptions(launcher::shader_options::Action::Open),
+            MenuAction::ReloadShaders,
+        ] {
+            let control = hit(&hits, control);
+            assert!(
+                control.min().y() >= select.max().y(),
+                "{width}: below the pack"
+            );
+            assert!(
+                control.max().y() <= next.min().y(),
+                "{width}: before the next pack"
+            );
+        }
+        assert_eq!(
+            hits.iter()
+                .filter(|(action, _)| matches!(action, MenuAction::RemoveShaderPackDialog(..)))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn the_selected_pack_shows_its_load_state_instead_of_its_file_name() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".into());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    let labels = texts;
+    let shown = labels(&view);
+    assert!(shown.iter().any(|text| text == "Active"));
+    assert!(!shown.iter().any(|text| text.contains("Dusk.zip")));
+    assert_eq!(shown.iter().filter(|text| *text == "Lumen").count(), 1);
+    view.shader_pack_loading = true;
+    assert!(labels(&view).iter().any(|text| text == "Loading…"));
+    view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+    let shown = labels(&view);
+    assert!(shown.iter().any(|text| text == "Failed"));
+    assert!(shown.iter().any(|text| text.contains("unknown bloomTint")));
+    view.shader_pack_removing = Some(Arc::from("Dusk.zip"));
+    assert!(labels(&view).iter().any(|text| text == "Removing…"));
+}
+
+#[test]
+fn only_packs_sharing_a_name_show_their_kind() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+    let kinds = |view: &MenuView| {
+        texts(view)
+            .into_iter()
+            .filter(|text| text == "ZIP" || text == "Folder")
+            .collect::<Vec<_>>()
+    };
+    assert!(kinds(&view).is_empty());
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Dusk".to_owned()]);
+    assert_eq!(kinds(&view), ["ZIP", "Folder"]);
 }
 
 #[test]

@@ -253,17 +253,46 @@ fn settings_wrapped_inline_choice_labels_fit_their_selectable_controls() {
             .position(|choice| choice.label == key)
             .map(|choice| std::sync::Arc::<str>::from(labels[choice]))
     };
-    let (_, hits, nodes) = super::review_tests::paint(HashMap::new(), |canvas| {
-        settings::draw(
-            canvas,
-            &view,
-            [1280.0, 720.0],
-            &translate,
-            None,
-            &mut Default::default(),
-        )
-        .unwrap();
-    });
+    let draw = |offsets| {
+        super::review_tests::paint(offsets, |canvas| {
+            settings::draw(
+                canvas,
+                &view,
+                [1280.0, 720.0],
+                &translate,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap();
+        })
+    };
+    // Platform-only rows above it, such as the Windows graphics API, can push the row to the
+    // viewport edge, which clips its hit targets; scroll it clear of both edges first.
+    let mut scrolls = MenuScrolls::<MenuAction>::default();
+    let (mut areas, mut hits, mut nodes) = draw(HashMap::new());
+    for _ in 0..64 {
+        let viewport = areas
+            .iter()
+            .max_by(|left, right| left.viewport.min().x().total_cmp(&right.viewport.min().x()))
+            .expect("settings content scroll view")
+            .viewport;
+        if (0..choices.len()).all(|choice| {
+            let action = MenuAction::SettingsOption(index as u16, choice as i32);
+            hits.iter().any(|(found, bounds)| {
+                *found == action
+                    && bounds.min().y() > viewport.min().y()
+                    && bounds.max().y() < viewport.max().y()
+            })
+        }) {
+            break;
+        }
+        scrolls.set_areas(areas.clone());
+        assert!(
+            scrolls.wheel(centre(viewport), -1.0, false),
+            "camera perspective choices must be reachable by scrolling the Video pane"
+        );
+        (areas, hits, nodes) = draw(scrolls.offsets().clone());
+    }
     let mut wrapped = false;
     for choice in 0..choices.len() {
         let action = MenuAction::SettingsOption(index as u16, choice as i32);
@@ -507,7 +536,7 @@ fn settings_choice_rows_select_their_own_values() {
         ("video_forced_index", "third_person"),
         ("accessibility_forced_index", "toast_notification_duration"),
         ("cinnabar_chat_index", "chat_message_duration"),
-        ("creator_forced_index", "content_log_gui_level"),
+        ("keyboard_and_mouse_forced_index", "macro_modifier"),
     ] {
         let mut view = settings_view(section);
         let index = option_index(name);
@@ -591,7 +620,7 @@ fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
             "controller_sensitivity",
         ),
         ("sound_forced_index", "main_volume"),
-        ("accessibility_forced_index", "texttospeech_volume"),
+        ("accessibility_forced_index", "hud_text_background_opacity"),
     ] {
         let mut view = settings_view(section);
         view.settings.advanced_graphics = section == "video_forced_index";
@@ -854,5 +883,31 @@ fn server_settings_tab_is_available_only_over_a_session() {
         view.over_world = over_world;
         let frame = paint(&view, [1280.0, 1600.0], HashMap::new());
         assert_eq!(frame.hits.iter().any(|(hit, _)| *hit == action), over_world);
+    }
+}
+
+/// Party offered only inert Xbox party rows and is gone from the sidebar. Every remaining page
+/// still paints and lists every remaining tab, so navigation between them is unchanged.
+#[test]
+fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
+    use launcher::menu::settings_sections::{SETTINGS_TABS, SettingSection};
+    let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
+        .iter()
+        .map(|(name, _)| settings::section_index(name))
+        .collect();
+    assert!(!expected.contains(&SettingSection::Party.definition().index));
+    for (name, _) in SETTINGS_TABS {
+        let mut view = settings_view(name);
+        view.over_world = true;
+        let frame = paint(&view, [1280.0, 4000.0], HashMap::new());
+        let tabs: std::collections::BTreeSet<_> = frame
+            .hits
+            .iter()
+            .filter_map(|(action, _)| match action {
+                MenuAction::SettingsSection(index) => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tabs, expected, "from {name}");
     }
 }

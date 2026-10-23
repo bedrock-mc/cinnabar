@@ -7,6 +7,7 @@
 pub mod canvas;
 pub mod gpu;
 pub mod input;
+pub mod startup;
 pub mod view;
 pub mod window;
 

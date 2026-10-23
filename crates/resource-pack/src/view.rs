@@ -104,6 +104,13 @@ impl LayeredPackView {
         }
     }
 
+    /// Records the names under `prefix`, even when no layer is admitted yet.
+    pub fn track_directory(&self, prefix: &str) {
+        if let Some(dependencies) = &self.dependencies {
+            dependencies.directory(prefix);
+        }
+    }
+
     /// Lists the union of logical files under `prefix` in lexical order.
     #[must_use]
     pub fn list(&self, prefix: &str) -> Vec<&str> {

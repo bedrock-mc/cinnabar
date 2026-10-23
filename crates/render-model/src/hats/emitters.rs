@@ -22,14 +22,35 @@ pub(super) struct Definition {
     effect: serde_json::Value,
     #[serde(default)]
     sprites: Option<[u32; 2]>,
+    #[serde(default = "default_sprite_side")]
+    sprite_side: u32,
+    #[serde(default)]
+    trigger: CosmeticTrigger,
+}
+
+/// How an equipped item starts this effect. Ground triggers are one-shot world effects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CosmeticTrigger {
+    #[default]
+    Continuous,
+    Step,
+    Landing,
+}
+
+/// Supplies the historical sprite size for catalogs without an explicit region size.
+fn default_sprite_side() -> u32 {
+    COSMETIC_SPRITE_SIDE
 }
 
 /// A sprite region cut from the item's original texture for `atlas.cosmetic` effects.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CosmeticSprite {
     /// Stable particle-atlas tile key derived from the texture digest and region origin.
     pub key: u64,
-    /// `COSMETIC_SPRITE_SIDE`² RGBA8 texels, row-major.
+    /// Square region side, in texels.
+    pub side: u32,
+    /// `side`² RGBA8 texels, row-major.
     pub pixels: Arc<[u8]>,
 }
 
@@ -42,6 +63,8 @@ pub struct CosmeticEmitter {
     pub effect: Arc<[u8]>,
     /// The sprite an `atlas.cosmetic` effect samples; absent for atlas-path effects.
     pub sprite: Option<CosmeticSprite>,
+    /// Continuous bone playback or a ground contact event.
+    pub trigger: CosmeticTrigger,
     bone: usize,
     offset: [f32; 3],
 }
@@ -73,7 +96,21 @@ pub(super) fn build(
             {
                 return None;
             }
+            if ![16, 32, 64, 128].contains(&definition.sprite_side)
+                || (definition.sprites.is_none() && definition.sprite_side != COSMETIC_SPRITE_SIDE)
+            { return None; }
             let mut effect = definition.effect;
+            if definition.trigger != CosmeticTrigger::Continuous {
+                let components = effect["particle_effect"]["components"].as_object()?;
+                let active = components.get("minecraft:emitter_lifetime_once")?
+                    .get("active_time")?.as_f64()?;
+                if !(0.05..=1.0).contains(&active)
+                    || components.contains_key("minecraft:emitter_lifetime_looping")
+                    || components.contains_key("minecraft:emitter_rate_steady")
+                    || !components.contains_key("minecraft:emitter_rate_instant")
+                { return None; }
+            }
+
             let identifier: Arc<str> =
                 format!("{COSMETIC_EFFECT_NAMESPACE}:{digest}_{index}").into();
             let slot = effect
@@ -92,13 +129,14 @@ pub(super) fn build(
                 return None;
             }
             let sprite = match definition.sprites {
-                Some(origin) => Some(sprite(texture, texture_sha256, origin)?),
+                Some(origin) => Some(sprite(texture, texture_sha256, origin, definition.sprite_side)?),
                 None => None,
             };
             Some(CosmeticEmitter {
                 identifier,
                 effect: serde_json::to_vec(&effect).ok()?.into(),
                 sprite,
+                trigger: definition.trigger,
                 bone,
                 offset: definition.offset,
             })
@@ -107,9 +145,13 @@ pub(super) fn build(
 }
 
 /// Cuts the sprite whose top-left texel is `[u, v]`, rejecting regions outside the texture.
-fn sprite(texture: &CapeImage, texture_sha256: &str, [u, v]: [u32; 2]) -> Option<CosmeticSprite> {
+fn sprite(
+    texture: &CapeImage,
+    texture_sha256: &str,
+    [u, v]: [u32; 2],
+    side: u32,
+) -> Option<CosmeticSprite> {
     use sha2::Digest;
-    let side = COSMETIC_SPRITE_SIDE;
     if u.checked_add(side)? > texture.width || v.checked_add(side)? > texture.height {
         return None;
     }
@@ -122,10 +164,11 @@ fn sprite(texture: &CapeImage, texture_sha256: &str, [u, v]: [u32; 2]) -> Option
                 .copied()
         })
         .collect();
-    let digest = sha2::Sha256::digest(format!("cosmetic-sprite:{texture_sha256}:{u}:{v}"));
+    let digest = sha2::Sha256::digest(format!("cosmetic-sprite:{texture_sha256}:{u}:{v}:{side}"));
     Some(CosmeticSprite {
         key: u64::from_le_bytes(digest[..8].try_into().ok()?),
         pixels,
+        side,
     })
 }
 
@@ -133,6 +176,13 @@ impl HatRig {
     /// Authored particle emitters in declaration order; empty for most items.
     pub fn emitters(&self) -> &[CosmeticEmitter] {
         &self.emitters
+    }
+
+    /// Whether the item is a ground-event effect with gallery geometry only.
+    pub fn is_ground_effect(&self) -> bool {
+        self.emitters
+            .iter()
+            .any(|e| e.trigger != CosmeticTrigger::Continuous)
     }
 
     /// Places an emitter on this rig's posed bones with the actor vertex path's interpolation.
@@ -147,6 +197,9 @@ impl HatRig {
         alpha: f32,
     ) -> Option<crate::ActorEmitterTransform> {
         let emitter = self.emitters.get(index)?;
+        if emitter.trigger != CosmeticTrigger::Continuous {
+            return None;
+        }
         let [x, y, z] = emitter.offset;
         crate::actor::sampled_bone_offset(
             [-x / 16.0, y / 16.0, z / 16.0],

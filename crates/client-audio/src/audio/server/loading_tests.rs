@@ -101,6 +101,22 @@ fn waveform_paths_follow_the_archive_case_insensitive_lookup() {
 }
 
 #[test]
+fn server_blocks_json_supplies_materials_to_sound_routing() {
+    let blocks = br#"{"stone":{"sound":"stone"}}"#;
+    let sounds = br#"{"block_sounds":{"stone":{"events":{"break":"dig.stone"}}}}"#;
+    let pack =
+        ServerSoundPack::from_view(&view(&[("blocks.json", blocks), ("sounds.json", sounds)]))
+            .expect("server block sound tables");
+    let tables = pack.tables.as_ref().expect("tables");
+    assert_eq!(tables.material_of("minecraft:stone"), Some("stone"));
+    assert_eq!(tables.material_of("example:missing"), Some("stone"));
+    assert_eq!(
+        tables.block("stone", "break").unwrap().sound.as_ref(),
+        "dig.stone"
+    );
+}
+
+#[test]
 fn replacing_a_pack_drops_old_failures_cached_pcm_and_pending_decodes() {
     let old = super::tests::wav(1, 8000, &[1234; 4000]);
     let new = super::tests::wav(1, 8000, &[-2345; 4000]);
@@ -215,4 +231,32 @@ fn admitted_custom_sound_reaches_the_output_mixer() {
             ))
             .unwrap();
     }
+}
+
+// Leaving a server must not leave its sounds, and the archives they read, pinned by the mailbox.
+#[test]
+fn ending_the_session_releases_the_published_pack_but_not_a_newer_one() {
+    let _mailbox = super::SERVER_SOUNDS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let wav = super::tests::wav(1, 8000, &[1234, -1234]);
+    let pack = || {
+        Arc::new(ServerSoundPack::from_view(&view(&[("sounds/random/click.wav", &wav)])).unwrap())
+    };
+    let mut engine = crate::audio::AudioEngine::new(None);
+    let ended = pack();
+    let released = Arc::downgrade(&ended);
+    super::publish_server_sounds(Some(ended));
+    engine.poll_server();
+    engine.clear_server_if_current();
+    test_time::eventually("the ended session's sounds are released", || {
+        released.upgrade().is_none()
+    });
+
+    let next = pack();
+    let kept = Arc::downgrade(&next);
+    super::publish_server_sounds(Some(next));
+    engine.clear_server_if_current();
+    assert!(kept.upgrade().is_some(), "a newer session's pack survives");
+    super::publish_server_sounds(None);
 }

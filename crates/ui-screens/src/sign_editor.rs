@@ -139,10 +139,14 @@ fn sign_data(edit: &SignInput<'_>) -> DataSource {
         })
         .collect();
     data.set_global("#sign_text", Scalar::Text(lines.join("\n")));
-    let [r, g, b, _] = edit.color;
+    // Vanilla binds the face's colour as a colour value, which the label's `#color` reads.
     data.set_global(
         "#edit_box_text_color",
-        Scalar::Text(format!("#{r:02x}{g:02x}{b:02x}")),
+        Scalar::Json(Value::from(
+            edit.color
+                .map(|channel| f64::from(channel) / 255.0)
+                .to_vec(),
+        )),
     );
     data.set_global("#close_button_visible", Scalar::Bool(true));
     data

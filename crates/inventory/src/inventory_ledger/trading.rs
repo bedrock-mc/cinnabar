@@ -426,6 +426,14 @@ impl PlayerInventoryLedger {
 
     /// Purchases the selected result through the same stamped request lifecycle as other screens.
     pub fn begin_trade(&mut self) -> Result<i32, InventoryGestureError> {
+        self.begin_trade_into(super::CraftSink::Cursor)
+    }
+
+    /// Purchases the selected result into the cursor or, like a shift-click, the inventory.
+    pub fn begin_trade_into(
+        &mut self,
+        sink: super::CraftSink,
+    ) -> Result<i32, InventoryGestureError> {
         let output = self
             .trade_output()
             .cloned()
@@ -440,7 +448,7 @@ impl PlayerInventoryLedger {
                 .trade_consumption(trade)
                 .ok_or(InventoryGestureError::InvalidRequest)?,
         };
-        let id = self.begin_screen_output(&craft)?;
+        let id = self.begin_screen_output_into(&craft, sink)?;
         self.queue
             .iter_mut()
             .find(|request| request.request_id == id)

@@ -79,7 +79,42 @@ impl PlayerInventoryLedger {
         actions: &mut [StackRequestAction],
         request_id: i32,
     ) {
+        self.rebind_actions_in_order(
+            actions,
+            request_id,
+            |cell| {
+                self.queue
+                    .iter()
+                    .rev()
+                    .find(|pending| {
+                        !pending.locally_committed()
+                            && pending
+                                .predicted
+                                .iter()
+                                .any(|prediction| prediction.cell == cell && prediction.active)
+                    })
+                    .map(|owner| owner.request_id)
+            },
+            |cell| self.view().get(cell).map(|held| held.stack.count),
+        );
+    }
+
+    /// Rebinds `actions`' slots in order: `bind` gives a cell's stack id (`None` keeps the slot's
+    /// own), except that a cell an earlier Consume in the same request emptied is addressed as
+    /// empty. `count` is a cell's count before the request; slots naming `request_id` stay.
+    pub(super) fn rebind_actions_in_order(
+        &self,
+        actions: &mut [StackRequestAction],
+        request_id: i32,
+        bind: impl Fn(Cell) -> Option<i32>,
+        count: impl Fn(Cell) -> Option<u16>,
+    ) {
+        let mut emptied = Vec::new();
         for action in actions {
+            let consumed = match action {
+                StackRequestAction::Consume { amount, source } => Some((*amount, *source)),
+                _ => None,
+            };
             for slot in action_slots_mut(action) {
                 if slot.stack_network_id == request_id {
                     continue;
@@ -87,15 +122,17 @@ impl PlayerInventoryLedger {
                 let Some(cell) = self.request_cell(*slot) else {
                     continue;
                 };
-                if let Some(owner) = self.queue.iter().rev().find(|pending| {
-                    !pending.locally_committed()
-                        && pending
-                            .predicted
-                            .iter()
-                            .any(|prediction| prediction.cell == cell && prediction.active)
-                }) {
-                    slot.stack_network_id = owner.request_id;
+                if emptied.contains(&cell) {
+                    slot.stack_network_id = 0;
+                } else if let Some(id) = bind(cell) {
+                    slot.stack_network_id = id;
                 }
+            }
+            if let Some((amount, source)) = consumed
+                && let Some(cell) = self.request_cell(source)
+                && count(cell).is_some_and(|count| count <= u16::from(amount))
+            {
+                emptied.push(cell);
             }
         }
     }

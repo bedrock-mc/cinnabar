@@ -37,6 +37,16 @@ fn mouse_fixture() -> (World, client_session::CapturedPackets) {
 
 /// Samples all transitions together, finalizes UI authority, then admits one rendered frame.
 fn mouse_frame(world: &mut World, button: MouseButton, states: &[ButtonState]) {
+    mouse_frame_after_collection(world, button, states, |_| {});
+}
+
+/// Edits a collected batch before routing, including explicit backend-gap fixtures.
+fn mouse_frame_after_collection(
+    world: &mut World,
+    button: MouseButton,
+    states: &[ButtonState],
+    edit: impl FnOnce(&mut semantic_input::DesktopEvents),
+) {
     let window = world
         .query_filtered::<Entity, With<PrimaryWindow>>()
         .single(world)
@@ -58,6 +68,9 @@ fn mouse_frame(world: &mut World, button: MouseButton, states: &[ButtonState]) {
     world
         .run_system_cached(crate::semantic_controls::collect_raw_input)
         .unwrap();
+    world
+        .resource_mut::<crate::semantic_controls::PendingDeviceFrame>()
+        .edit_desktop_events(edit);
     world
         .run_system_cached(crate::semantic_controls::route_semantic_input)
         .unwrap();
@@ -124,6 +137,83 @@ fn ordered_mouse_two_taps_in_one_frame_each_send_an_actor_attack() {
         0,
         "drained taps must not replay"
     );
+}
+
+#[test]
+fn ordered_mouse_large_complete_burst_sends_every_actor_attack() {
+    let (mut world, _) = mouse_fixture();
+    let states: Vec<_> = (0..300)
+        .flat_map(|_| [ButtonState::Pressed, ButtonState::Released])
+        .collect();
+    // Keep packet admission available so this exercises input retention rather than transport pressure.
+    let (network, mut captured) =
+        NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(states.len());
+    world.insert_resource(network);
+    mouse_frame(&mut world, MouseButton::Left, &states);
+    assert_eq!(attack_count(&mut captured), 300);
+    mouse_frame(&mut world, MouseButton::Left, &[]);
+    assert_eq!(attack_count(&mut captured), 0, "a burst must not replay");
+}
+
+/// Delivers movement and consumes its telemetry before the next frame.
+fn deliver_movement(world: &mut World) {
+    world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
+        let network = world.resource::<NetworkHandle<PackApplication>>();
+        let mut written = Vec::new();
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut movement,
+            gameplay::movement::OUTBOX_CAPACITY,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard, _| {
+                network.send_physics_packet(identity, packet, guard)?;
+                written.push(identity);
+                Ok::<(), client_session::PacketSendError>(())
+            },
+        )
+        .unwrap();
+        for identity in written {
+            assert!(movement.acknowledge_physics_send(identity));
+        }
+        let _ = movement.take_tick_evidence();
+        assert!(movement.physics_is_authorized());
+    });
+}
+
+#[test]
+fn ordered_mouse_25_cps_sends_each_attack_at_60_and_144_fps() {
+    for fps in [60, 144] {
+        let (mut world, mut captured) = mouse_fixture();
+        let mut edge = 0;
+        for frame in 0..fps * 4 {
+            let first = world.resource::<MovementTicker>().completed_tick() + 1;
+            attack_progress_tests::ticks(&mut world, first, 102 + frame * 20 / fps);
+            let mut states = Vec::new();
+            let mut presses = 0;
+            while edge < 200 && edge * fps < (frame + 1) * 50 {
+                let pressed = edge % 2 == 0;
+                presses += usize::from(pressed);
+                states.push(if pressed {
+                    ButtonState::Pressed
+                } else {
+                    ButtonState::Released
+                });
+                edge += 1;
+            }
+            mouse_frame(&mut world, MouseButton::Left, &states);
+            assert_eq!(
+                attack_count(&mut captured),
+                presses,
+                "every press must send in frame {frame} at {fps} FPS"
+            );
+            deliver_movement(&mut world);
+            let tick = world.resource::<MovementTicker>().completed_tick();
+            world
+                .resource_mut::<SwingTracker>()
+                .published_progress(tick);
+            captured.drain();
+        }
+        assert_eq!(edge, 200);
+    }
 }
 
 #[test]

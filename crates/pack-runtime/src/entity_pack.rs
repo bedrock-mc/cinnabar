@@ -109,17 +109,26 @@ fn compile_encoded(
 ) -> Option<Compiled> {
     let mut files = collect_files(view, vanilla, vanilla_pack_dir);
     let artwork_sources = equipment_artwork::collect(view, base_equipment, &mut files);
+    let equipment_priorities = artwork_sources
+        .iter()
+        .filter_map(|(path, _)| path.rsplit_once('.').map(|(identifier, _)| identifier))
+        .collect::<Vec<_>>();
     if cancelled() {
         return None;
     }
-    let mut compiled = match pack_entity_compiler::compile_actor_pack_unless(files, cancelled)? {
-        Ok(Some(compiled)) => compiled,
-        Ok(None) => return Some((None, None)),
-        Err(error) => {
-            tracing::warn!(%error, "server pack entities were not applied");
-            return Some((None, None));
-        }
-    };
+    let mut compiled =
+        match pack_entity_compiler::compile_actor_pack_unless_with_equipment_priorities(
+            files,
+            &equipment_priorities,
+            cancelled,
+        )? {
+            Ok(Some(compiled)) => compiled,
+            Ok(None) => return Some((None, None)),
+            Err(error) => {
+                tracing::warn!(%error, "server pack entities were not applied");
+                return Some((None, None));
+            }
+        };
     if cancelled() {
         return None;
     }

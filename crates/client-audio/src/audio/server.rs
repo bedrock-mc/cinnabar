@@ -164,8 +164,9 @@ impl ServerSoundPack {
             })
             .collect();
         let routing = view.merged_json_object("sounds.json", None);
-        let tables = (!routing.is_empty())
-            .then(|| SoundEventTables::from_json(&Value::Object(routing), &Value::Null))
+        let blocks = view.merged_json_object("blocks.json", None);
+        let tables = (!routing.is_empty() || !blocks.is_empty())
+            .then(|| SoundEventTables::from_json(&Value::Object(routing), &Value::Object(blocks)))
             .filter(|tables| !tables.is_empty());
         let files: HashSet<Box<str>> = view
             .list("")
@@ -221,6 +222,25 @@ pub fn current_generation() -> u64 {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
         .0
+}
+
+/// Releases the published pack, without a new publication, when `seen` is still the latest one.
+/// The pack may own every archive of the ended session's stack, so it is freed off the frame.
+pub(super) fn release_if_current(seen: u64) {
+    let released = {
+        let mut mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());
+        if mailbox.0 == seen {
+            mailbox.1.take()
+        } else {
+            None
+        }
+    };
+    if let Some(pack) = released {
+        match bevy::tasks::AsyncComputeTaskPool::try_get() {
+            Some(pool) => pool.spawn(async move { drop(pack) }).detach(),
+            None => drop(pack),
+        }
+    }
 }
 
 /// The newly published server sounds since `seen`, if any; `Some(None)` means cleared.

@@ -421,7 +421,7 @@ forbidden_transitive_dependencies = ["asset-compiler"]
 [[crates]]
 name = "cinnabar-android"
 path = "packaging/android/client"
-allowed_dependencies = ["app", "assets", "first-run", "launcher"]
+allowed_dependencies = ["app", "assets", "first-run", "launcher", "launcher-host"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
@@ -1318,7 +1318,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "
 [[crates]]
 name = "bootstrap-ui"
 path = "crates/bootstrap-ui"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
@@ -1369,6 +1369,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/sound_events.rs"
+literal = "stone"
+reason = "Fallback audio material key in sounds.json, independent of the block identifier vocabulary."
 
 [[identifier_literal_exceptions]]
 path = "crates/mod-host/src/hud/samples.rs"

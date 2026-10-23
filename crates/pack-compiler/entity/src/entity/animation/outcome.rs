@@ -16,7 +16,6 @@ pub enum RejectReason {
     AmbiguousGeometryReference,
     MissingRenderControllerReference,
     AmbiguousRenderControllerReference,
-    MissingAnimationReference,
     AmbiguousAnimationReference,
 }
 

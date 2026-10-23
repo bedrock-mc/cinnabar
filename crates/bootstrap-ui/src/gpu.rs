@@ -64,6 +64,7 @@ impl Gpu {
         let runtime = tokio::runtime::Builder::new_current_thread().build()?;
         let adapter = runtime
             .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: Some(&surface),
                 ..Default::default()
             }))
@@ -202,8 +203,18 @@ impl Gpu {
         }
     }
 
+    /// Registers completion of the already-submitted bootstrap frame, without another submit.
+    pub fn on_frame_complete(&self, callback: impl FnOnce() + Send + 'static) {
+        self.queue.on_submitted_work_done(callback);
+    }
+
+    /// Advances this independent window's completion callbacks without waiting on the GPU.
+    pub fn poll(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+    }
+
     /// Presents one frame; a lost or outdated surface is reconfigured and skipped.
-    pub fn draw(&mut self, view: &PanoramaView) -> Result<()> {
+    pub fn draw(&mut self, view: &PanoramaView) -> Result<bool> {
         let Some(frame) = acquire_frame(self.surface.get_current_texture(), |recreate| {
             if recreate {
                 self.surface = self
@@ -215,7 +226,7 @@ impl Gpu {
             Ok(())
         })?
         else {
-            return Ok(());
+            return Ok(false);
         };
         let bytes: Vec<u8> = view
             .shader_uniform()
@@ -255,7 +266,7 @@ impl Gpu {
         }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
-        Ok(())
+        Ok(true)
     }
 }
 
