@@ -65,6 +65,7 @@ domain!(PackBlock {
     Air,
     Stone,
     HeavyCore,
+    Crafter,
     DriedGhast,
     SculkSensor,
     CalibratedSculkSensor,

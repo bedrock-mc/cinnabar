@@ -170,6 +170,8 @@ wit-component = "=0.247.0"
 # A lost device is a `PollError` instead of a poll panic, and queue-write staging OOM is recoverable.
 # Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
+# Keep Linux crash dumps when a thread's stack cannot be read.
+minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
 naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
 wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }
 wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "72ecf2e2af288ebae4d5d486c8c9481d24e424a8" }

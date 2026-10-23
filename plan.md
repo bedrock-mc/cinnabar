@@ -376,6 +376,7 @@ and rendered qualification remain incomplete.
   Shrieker previews retain open inner walls, bone caps and a separate inner floor.
   Barrel previews use a closed south-facing pose with authored face mapping and UV turns.
   Piston previews use their carried body textures independently of placed geometry.
+  Crafter previews use an idle south-facing upright pose with authored face artwork.
   Shared cube face sheets are bounded coverage.
   Aux-only stacks use base block visuals only when aux cannot select a legacy block state.
   Decoding legacy states without a retained block remains incomplete.
@@ -752,6 +753,9 @@ and crash diagnostics, packaging and platform acceptance. Required carriers must
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
+Linux crash capture tolerates unreadable thread stacks and preserves available registers
+and other threads' stacks.
+
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
 rollback acceptance on a desktop remains incomplete.
@@ -827,6 +831,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+  Server Experience block storage and player focus use bound world instances, with opening
+  generations that invalidate stale callback work and migration from dimension-keyed stores.
+  Guest world definitions and creation, coordinated player transfers and world-epoch readiness,
+  typed player/instance stores, player lifecycle events and live transfer acceptance remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
