@@ -504,13 +504,17 @@ mod review_tests {
 
     #[test]
     fn model_thumbnail_hides_rear_faces_but_preserves_two_sided_planes() {
-        let texture = TextureArray {
+        let texture = assets::TextureArray {
             layers: 1,
             mips: vec![assets::TextureMip {
                 size: 1,
                 rgba8: vec![255, 0, 0, 255].into(),
             }]
             .into(),
+        };
+        let overlay = BlockOverlay {
+            textures: vec![texture],
+            ..Default::default()
         };
         let materials = [
             Material::unvaried(),
@@ -542,7 +546,7 @@ mod review_tests {
                     materials: &materials,
                     templates: &templates,
                     quads: &quads,
-                    textures: Textures::Overlay(std::slice::from_ref(&texture), &[], None),
+                    textures: Textures::Overlay(&overlay, None),
                     tint: None,
                 },
                 VisualKind::Model,
