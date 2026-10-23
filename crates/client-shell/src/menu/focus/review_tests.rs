@@ -120,6 +120,48 @@ fn native_gui_scale_choices_commit_only_on_select() {
     );
 }
 
+/// Repainting a world toggle keeps navigation on it through successive activations.
+#[test]
+fn world_toggle_keeps_focus_across_two_activations() {
+    use launcher::local_worlds::{in_world::Action, options::WorldOption};
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.screen = MenuScreen::Settings;
+    let action = |value| MenuAction::WorldSettings(Action::Option(WorldOption::Pvp, value));
+    let rows = |value| {
+        [
+            (MenuAction::AddBack, [0.0, 0.0, 90.0, 10.0]),
+            (action(value), [0.0, 20.0, 90.0, 30.0]),
+        ]
+    };
+    native_rows(&mut menu, &rows(0));
+    menu.move_directional_focus(SettingsFocusAxis::Vertical, 1);
+    for value in [0, 1] {
+        assert_eq!(menu.focus_actions()[menu.focused], action(value));
+        menu.activate_focused();
+        assert_eq!(
+            menu.settings.control_activation.map(|(action, _)| action),
+            Some(action(value))
+        );
+        native_rows(&mut menu, &rows(1 - value));
+        assert_eq!(menu.focus_actions()[menu.focused], action(1 - value));
+    }
+}
+
+/// World option radio choices remain individually reachable by navigation.
+#[test]
+fn world_option_choices_keep_distinct_focus_targets() {
+    use launcher::local_worlds::{in_world::Action, options::WorldOption};
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.screen = MenuScreen::Settings;
+    let actions = [0, 1].map(|value| {
+        MenuAction::WorldSettings(Action::Option(WorldOption::PlayerWaypoints, value))
+    });
+    menu.refresh_settings_focus(actions);
+    assert_eq!(menu.focus_actions(), actions);
+    menu.move_focus(1);
+    assert_eq!(menu.focus_actions()[menu.focused], actions[1]);
+}
+
 #[test]
 fn native_slider_selection_exits_on_back_focus_loss_and_empty_layout() {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());

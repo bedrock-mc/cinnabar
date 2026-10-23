@@ -131,6 +131,7 @@ pub struct HudScreens {
     bindings: HudBindings,
     /// Presentation color kept separate from the factory and collection message inputs.
     chat_color: Option<char>,
+    chat_mention_color: Option<char>,
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
@@ -183,6 +184,7 @@ impl HudScreens {
             None => Arc::clone(&self.crosshair_data),
             Some((model, changes, opacity)) => {
                 self.chat_color = model.chat_color;
+                self.chat_mention_color = model.chat_mention_color;
                 if changes.text {
                     self.model_clocks = hud_clocks(model);
                 }
@@ -234,13 +236,14 @@ impl HudScreens {
         let advance_hunger =
             |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
         let color = self.chat_color;
+        let mention = self.chat_mention_color;
         let history = Reference::HudChatGridItem
             .as_str()
             .rsplit('.')
             .next()
             .unwrap_or_default();
-        let text_color = |node: &json_ui::DrawNode| {
-            crate::settings_chat::message_color(&node.key, history, color)
+        let text_format = |node: &json_ui::DrawNode, text: &str| {
+            crate::settings_chat::message_text(&node.key, history, text, color, mention)
         };
         let bounds = PaintBounds::default();
         let art = ScreenArt {
@@ -248,7 +251,7 @@ impl HudScreens {
                 bounds: &bounds,
                 region: BOTTOM_HUD_REGION,
             }),
-            text_color: Some(&text_color),
+            text_format: Some(&text_format),
             nearest_sampling: true,
             clocks: Some(&self.clocks),
             ..ScreenArt::default()

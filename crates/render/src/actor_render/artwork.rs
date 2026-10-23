@@ -121,7 +121,10 @@ pub(super) struct GpuArtwork {
     /// The held-item glint, sampled when an instance selects the item raster.
     pub item_glint: GpuGlint,
     source_hasher: RandomState,
+    /// Device limits reject the publication until its identity changes.
     rejected: bool,
+    /// A demanded page that could not allocate retries after a bounded backoff.
+    allocation: gpu_allocation::UploadRetry,
     /// The raw-view setting pages and glints are created with.
     raw_views: ArtworkRawViews,
 }
@@ -177,6 +180,7 @@ impl GpuArtwork {
         if changed {
             self.identity = Some(identity);
             self.rejected = false;
+            self.allocation = gpu_allocation::UploadRetry::default();
             let actor_changed = self.glint.prepare(
                 pages.actor_glint.as_ref(),
                 &self.source_hasher,
@@ -230,8 +234,16 @@ impl GpuArtwork {
         if self.rejected {
             return false;
         }
+        if self.allocation.failed() {
+            if !self.allocation.take_ready() {
+                return false;
+            }
+            self.pages.resize_with(pages.pages.len(), || None);
+            self.prewarm_cursor = 0;
+        }
         let mut prepared = 0;
         let mut bytes = 0;
+        let mut released = false;
         let mut attempted = std::collections::HashSet::new();
         let first_background = self.prewarm_cursor;
         let requests = demanded.map(|id| (id, false)).chain(
@@ -274,23 +286,31 @@ impl GpuArtwork {
             let has_fallback = previous
                 .as_ref()
                 .is_some_and(|gpu| gpu.source.contains_layers(page.layers));
+            released |= previous.is_some() && !has_fallback;
             let gpu = match previous {
                 Some(mut gpu) if gpu.source == source && gpu.raw_views == raw_views => {
                     gpu.source = source;
                     Some(gpu)
                 }
                 previous => allocate_page(device, queue, page, source, !has_fallback, raw_views)
+                    .inspect(|_| released |= previous.is_some())
                     .or_else(|| previous.filter(|gpu| gpu.source.contains_layers(page.layers))),
             };
             let Some(gpu) = gpu else {
                 if background {
                     continue;
                 }
-                self.pages.clear();
-                self.rejected = true;
+                // Keep completed pages; retirement can shorten only the first failed wait.
+                self.allocation.record(
+                    false,
+                    (released && !self.allocation.failed()).then_some(queue),
+                );
                 return false;
             };
             self.pages[index] = Some(gpu);
+        }
+        if self.allocation.failed() {
+            self.allocation.record(true, None);
         }
         true
     }

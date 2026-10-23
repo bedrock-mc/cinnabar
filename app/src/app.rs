@@ -45,7 +45,7 @@ use {
 };
 pub(crate) mod logging;
 pub(crate) mod session;
-mod startup;
+pub(crate) mod startup;
 use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
@@ -137,6 +137,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(feature = "acceptance")]
     app.init_resource::<MovementEvidenceEmitter>();
     configure_client_authority_systems(app);
+    crate::melee::server_swings::configure(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
@@ -325,7 +326,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let carriers =
+        startup::take_or_load_startup_carriers(selected_assets, &layout.physics_registry);
     let startup::CoreCarriers {
         assets: loaded_assets,
         actor: actor_catalog,
@@ -544,6 +546,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
+    #[cfg(feature = "shaderpacks")]
+    let shader_compiler = {
+        let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
+        if layout.is_installed() {
+            bundled
+        } else {
+            layout
+                .core_executable
+                .with_file_name(bundled.file_name().context("asset compiler basename")?)
+        }
+    };
     let renderer_data_root = layout.user_data_root.clone();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = MenuRuntime::new_with_import_snapshot(
@@ -629,9 +642,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
     logging::add_default_plugins(&mut app, plugins);
+    #[cfg(feature = "shaderpacks")]
+    app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
+        shader_compiler,
+    ));
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
-        .init_resource::<crate::frame_pacing::PowerSource>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]

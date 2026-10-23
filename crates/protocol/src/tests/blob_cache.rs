@@ -20,6 +20,8 @@ use std::sync::{Arc, Barrier};
 
 #[path = "blob_cache/head_of_line.rs"]
 mod head_of_line;
+#[path = "blob_cache/ordinary_pressure.rs"]
+mod ordinary_pressure;
 #[path = "blob_cache/outstanding_recovery.rs"]
 mod outstanding_recovery;
 #[path = "blob_cache/resolver_lifecycle.rs"]

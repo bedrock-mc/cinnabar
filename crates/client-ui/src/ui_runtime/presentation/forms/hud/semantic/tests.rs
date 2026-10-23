@@ -615,7 +615,7 @@ fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
     let mut fixture = Fixture::default();
     fixture.frame.now_millis = 1000;
     fixture.settings.set(SettingId::ChatColor.index(), 1);
-    let message = ui_screens::test_support::hover_chat::message();
+    let message = ui_screens::test_support::hover_chat::message_with_caption("Hello @Alex");
     fixture.chat(&message, 1);
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
@@ -645,8 +645,5 @@ fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
     let caption = bound
         .find(&|control: &json_ui::ResolvedControl| control.name == "caption")
         .unwrap();
-    assert_eq!(
-        caption.properties["text"],
-        ui_screens::test_support::hover_chat::CAPTION
-    );
+    assert_eq!(caption.properties["text"], "Hello @Alex");
 }
