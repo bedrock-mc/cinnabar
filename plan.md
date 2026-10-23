@@ -500,8 +500,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   remains open.
   Global Resources batches selection edits until Apply or leaving the section. Staged
   selections survive shutdown, which drains queued disk work without waiting for a runtime reload.
-  While closed, imports and runtime outcomes reconcile the saved selection with the reload
-  target. Failed reloads restore the applied stack; live acceptance remains open.
+  Leaving submits one Apply attempt for pending changes. Late imports stay pending until
+  another Apply or leave; failures are not retried automatically. Live acceptance remains open.
   Social → Chat exposes the existing chat preferences, shared opacity, duration and
   position controls, and one reset for all displayed Chat settings. Chat uses the bundled
   Cinnangles Sans font without a typeface selector; font sizing applies directly and

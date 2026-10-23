@@ -20,8 +20,7 @@ pub(super) enum Command {
     Import(PathBuf),
     ImportFiles(Result<Vec<PathBuf>, String>),
     Commit(Vec<resource_pack::ActivePack>),
-    ApplyFailed(Vec<resource_pack::ActivePack>),
-    SectionOpen(bool),
+    Leave,
     Flush(crossbeam_channel::Sender<()>),
 }
 pub(super) enum Event {
@@ -34,19 +33,13 @@ pub(super) enum Event {
     Apply(Arc<ValidatedPackStack>, Vec<resource_pack::ActivePack>),
 }
 
-/// Tracks the selection awaiting a runtime acknowledgement.
-pub(super) struct Awaiting {
-    pub revision: u64,
-    pub selection: Vec<resource_pack::ActivePack>,
-}
-
 #[derive(Resource)]
 pub(super) struct Worker {
     commands: crossbeam_channel::Sender<Command>,
     picker: crossbeam_channel::Sender<()>,
     pub events: crossbeam_channel::Receiver<Event>,
     pub snapshot: Snapshot,
-    pub awaiting: Option<Awaiting>,
+    pub awaiting: Option<(u64, Vec<resource_pack::ActivePack>)>,
     pub minecraft_import_pending: bool,
     /// The menu admits one request until the worker publishes its result.
     pub minecraft_import_request: Option<launcher::minecraft_import::Action>,
@@ -139,8 +132,6 @@ fn run(
     let mut minecraft_import = launcher_host::minecraft_import::Service::new(config_root);
     let mut import_commit_pending = None;
     let mut snapshot = Snapshot::default();
-    let mut target = None;
-    let mut open = false;
     let icon_root = root.join("icons");
     let mut library = match GlobalPackLibrary::open(root, engine_version()) {
         Ok(library) => library,
@@ -152,15 +143,28 @@ fn run(
     };
     library.set_device_memory(launcher_host::memory::physical_bytes());
     super::icons::refresh(&library, &mut snapshot, &icon_root);
-    if let Err(error) = submit(&mut library, &mut snapshot, &mut target, &outgoing) {
-        snapshot.message = error.to_string();
-    } else {
-        snapshot.message.clear();
+    match library.preview() {
+        Ok(stack) => {
+            let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
+        }
+        Err(error) => snapshot.message = error.to_string(),
     }
     refresh(&library, &mut snapshot);
     let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     let initial = files.into_iter().map(Command::Import);
     for command in initial.chain(incoming) {
+        let command = match command {
+            Command::Leave if snapshot.has_pending_changes() => Command::Action {
+                action: Action::Apply,
+                revision: snapshot.revision,
+            },
+            Command::Leave => continue,
+            Command::Flush(done) => {
+                let _ = done.send(());
+                continue;
+            }
+            command => command,
+        };
         if let Command::Action { action, revision } = &command
             && indexed(*action)
             && *revision != snapshot.revision
@@ -184,7 +188,10 @@ fn run(
                     ..
                 }
         );
-        if matches!(
+        if let Command::Commit(selection) = &command {
+            snapshot.applied_selection = Some(selection.clone());
+        }
+        let performs_work = matches!(
             &command,
             Command::MinecraftImport(_)
                 | Command::Import(_)
@@ -194,7 +201,8 @@ fn run(
                     action: Action::Import | Action::Apply,
                     ..
                 }
-        ) {
+        );
+        if performs_work {
             snapshot.busy = true;
             snapshot.message = "Updating resource packs…".into();
             let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
@@ -203,10 +211,6 @@ fn run(
             super::icons::refresh(library, snapshot, &icon_root);
         };
         let result = match command {
-            Command::Flush(done) => {
-                let _ = done.send(());
-                continue;
-            }
             Command::MinecraftImport(request) => {
                 let (outcome, changed) = import_minecraft_data(
                     &mut minecraft_import,
@@ -217,7 +221,6 @@ fn run(
                 );
                 changes_lists = changed;
                 if let Some(stack) = outcome.stack {
-                    target = Some(library.active().to_vec());
                     import_commit_pending = Some(library.active().to_vec());
                     let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
                 }
@@ -229,7 +232,6 @@ fn run(
                 Ok(())
             }
             Command::Commit(selection) => {
-                snapshot.applied_selection = Some(selection.clone());
                 let result = commit_selection(
                     &mut library,
                     &selection,
@@ -239,20 +241,6 @@ fn run(
                 snapshot.message.clear();
                 result
             }
-            Command::ApplyFailed(selection) => {
-                if target.as_ref() == Some(&selection) {
-                    target.clone_from(&snapshot.applied_selection);
-                }
-                Ok(())
-            }
-            Command::SectionOpen(value) => {
-                open = value;
-                Ok(())
-            }
-            Command::Action {
-                action: Action::Apply,
-                ..
-            } => submit(&mut library, &mut snapshot, &mut target, &outgoing),
             Command::Import(path) => {
                 import_files(&mut library, vec![path], &mut snapshot, refresh_icons)
             }
@@ -263,7 +251,8 @@ fn run(
                     Ok(())
                 }
             },
-            Command::Action { action, .. } => act(&mut library, &mut snapshot, action),
+            Command::Leave | Command::Flush(_) => unreachable!("handled before disk work"),
+            Command::Action { action, .. } => act(&mut library, &mut snapshot, action, &outgoing),
         };
         if let Err(error) = result {
             snapshot.message = error.to_string();
@@ -277,31 +266,9 @@ fn run(
                 snapshot.message = error.to_string();
             }
         }
-        if !open
-            && target.as_deref() != Some(library.active())
-            && let Err(error) = submit(&mut library, &mut snapshot, &mut target, &outgoing)
-        {
-            snapshot.message = error.to_string();
-        }
         refresh(&library, &mut snapshot);
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     }
-}
-
-/// Submits the current selection and retains it as the runtime target until failure or replacement.
-fn submit(
-    library: &mut GlobalPackLibrary,
-    snapshot: &mut Snapshot,
-    target: &mut Option<Vec<resource_pack::ActivePack>>,
-    outgoing: &crossbeam_channel::Sender<Event>,
-) -> Result<(), LibraryError> {
-    let _zone = bevy::log::info_span!("pack_apply.preview").entered();
-    let stack = library.preview()?;
-    let selection = library.active().to_vec();
-    *target = Some(selection.clone());
-    let _ = outgoing.send(Event::Apply(stack, selection));
-    snapshot.message = "Preparing resource packs…".into();
-    Ok(())
 }
 
 /// Reports an import acknowledgement against its submitted selection even after staging changes.
@@ -443,6 +410,7 @@ fn act(
     library: &mut GlobalPackLibrary,
     snapshot: &mut Snapshot,
     action: Action,
+    outgoing: &crossbeam_channel::Sender<Event>,
 ) -> Result<(), LibraryError> {
     if !matches!(
         action,
@@ -521,7 +489,15 @@ fn act(
         }
         Action::ToggleAvailable => snapshot.available_expanded = !snapshot.available_expanded,
         Action::ToggleActive => snapshot.active_expanded = !snapshot.active_expanded,
-        Action::Apply | Action::Import => unreachable!("handled by the worker"),
+        Action::Apply => {
+            let stack = {
+                let _zone = bevy::log::info_span!("pack_apply.preview").entered();
+                library.preview()?
+            };
+            let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
+            snapshot.message = "Preparing resource packs…".into();
+        }
+        Action::Import => unreachable!("file picker handled by worker"),
     }
     Ok(())
 }

@@ -35,7 +35,6 @@ fn flush_on_exit(
         let revision = worker.snapshot.revision;
         worker.send(worker::Command::Action { action, revision });
     }
-    worker.send(worker::Command::SectionOpen(false));
     worker.flush_pending();
 }
 
@@ -111,9 +110,6 @@ fn drive(
     let open = menu.scene() == Some(launcher::menu::MenuScreen::Settings)
         && menu.settings_section()
             == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack);
-    if open && !*was_open {
-        worker.send(worker::Command::SectionOpen(true));
-    }
     let mut snapshot_changed = false;
     for request in menu.take_minecraft_import_requests() {
         let action = request.action;
@@ -147,7 +143,7 @@ fn drive(
         worker.send(worker::Command::Action { action, revision });
     }
     if !open && *was_open {
-        worker.send(worker::Command::SectionOpen(false));
+        worker.send(worker::Command::Leave);
     }
     *was_open = open;
     loop {
@@ -183,22 +179,15 @@ fn drive(
             }
             worker::Event::Apply(stack, selection) => {
                 let revision = reload.request_globals(stack);
-                worker.awaiting = Some(worker::Awaiting {
-                    revision,
-                    selection,
-                });
+                worker.awaiting = Some((revision, selection));
             }
         }
     }
-    if worker.awaiting.as_ref().is_some_and(|awaiting| {
-        awaiting.revision <= reload.completed_revision() && reload.error().is_none()
+    if worker.awaiting.as_ref().is_some_and(|(revision, _)| {
+        *revision <= reload.completed_revision() && reload.error().is_none()
     }) {
-        let awaiting = worker.awaiting.take().expect("completed selection");
-        worker.send(worker::Command::Commit(awaiting.selection));
-    } else if reload.error().is_some()
-        && let Some(awaiting) = worker.awaiting.take()
-    {
-        worker.send(worker::Command::ApplyFailed(awaiting.selection));
+        let (_, selection) = worker.awaiting.take().expect("completed selection");
+        worker.send(worker::Command::Commit(selection));
     }
     if worker.minecraft_import_pending {
         if let Some(error) = reload.error() {

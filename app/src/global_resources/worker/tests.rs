@@ -22,7 +22,6 @@ fn events_for(name: &str, queued: Vec<Command>) -> Vec<Event> {
 fn collect_events(root: PathBuf, queued: Vec<Command>) -> Vec<Event> {
     let (commands, incoming) = crossbeam_channel::unbounded();
     let (outgoing, events) = crossbeam_channel::unbounded();
-    commands.send(Command::SectionOpen(true)).unwrap();
     for command in queued {
         commands.send(command).unwrap();
     }
@@ -420,10 +419,11 @@ fn reordered_cards_and_variant_dialogs_follow_the_same_pack() {
     library.activate(second.id).unwrap();
     let mut snapshot = Snapshot::default();
     refresh(&library, &mut snapshot);
+    let (outgoing, _) = crossbeam_channel::unbounded();
 
     snapshot.details_expanded = Some((true, 1));
     snapshot.settings = Some(1);
-    act(&mut library, &mut snapshot, Action::MoveUp(1)).unwrap();
+    act(&mut library, &mut snapshot, Action::MoveUp(1), &outgoing).unwrap();
     refresh(&library, &mut snapshot);
     assert_eq!(snapshot.active[0].id, first.id);
     assert_eq!(snapshot.details_expanded, Some((true, 0)));
@@ -432,7 +432,7 @@ fn reordered_cards_and_variant_dialogs_follow_the_same_pack() {
 
     snapshot.details_expanded = Some((true, 1));
     snapshot.settings = Some(1);
-    act(&mut library, &mut snapshot, Action::MoveDown(0)).unwrap();
+    act(&mut library, &mut snapshot, Action::MoveDown(0), &outgoing).unwrap();
     refresh(&library, &mut snapshot);
     assert_eq!(snapshot.active[0].id, second.id);
     assert_eq!(snapshot.details_expanded, Some((true, 0)));
@@ -440,7 +440,7 @@ fn reordered_cards_and_variant_dialogs_follow_the_same_pack() {
     assert_eq!(snapshot.selected, Some((true, 1)));
 
     snapshot.details_expanded = Some((false, 0));
-    act(&mut library, &mut snapshot, Action::MoveUp(1)).unwrap();
+    act(&mut library, &mut snapshot, Action::MoveUp(1), &outgoing).unwrap();
     assert_eq!(snapshot.details_expanded, Some((false, 0)));
 }
 
@@ -454,22 +454,41 @@ fn changed_pack_lists_clear_indexed_card_and_dialog_state() {
     library.activate(first.id).unwrap();
     let mut snapshot = Snapshot::default();
     refresh(&library, &mut snapshot);
+    let (outgoing, _) = crossbeam_channel::unbounded();
 
-    act(&mut library, &mut snapshot, Action::SelectAvailable(0)).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::SelectAvailable(0),
+        &outgoing,
+    )
+    .unwrap();
     assert_eq!(snapshot.selected, Some((false, 0)));
     snapshot.details_expanded = Some((false, 0));
     snapshot.settings = Some(0);
-    act(&mut library, &mut snapshot, Action::Activate(0)).unwrap();
+    act(&mut library, &mut snapshot, Action::Activate(0), &outgoing).unwrap();
     assert_eq!(snapshot.selected, None);
     assert_eq!(snapshot.details_expanded, None);
     assert_eq!(snapshot.settings, None);
     refresh(&library, &mut snapshot);
 
-    act(&mut library, &mut snapshot, Action::SelectActive(0)).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::SelectActive(0),
+        &outgoing,
+    )
+    .unwrap();
     assert_eq!(snapshot.selected, Some((true, 0)));
     snapshot.details_expanded = Some((true, 0));
     snapshot.settings = Some(1);
-    act(&mut library, &mut snapshot, Action::Deactivate(0)).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::Deactivate(0),
+        &outgoing,
+    )
+    .unwrap();
     assert_eq!(snapshot.selected, None);
     assert_eq!(snapshot.details_expanded, None);
     assert_eq!(snapshot.settings, None);
@@ -498,6 +517,7 @@ fn variant_dialog_closes_only_after_a_successful_selection() {
     library.activate(pack.id).unwrap();
     let mut snapshot = Snapshot::default();
     refresh(&library, &mut snapshot);
+    let (outgoing, _) = crossbeam_channel::unbounded();
     let high = snapshot.active[0]
         .subpacks
         .iter()
@@ -505,14 +525,28 @@ fn variant_dialog_closes_only_after_a_successful_selection() {
         .unwrap();
     snapshot.settings = Some(0);
     snapshot.details_expanded = Some((true, 0));
-    act(&mut library, &mut snapshot, Action::Subpack(high)).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::Subpack(high),
+        &outgoing,
+    )
+    .unwrap();
     assert_eq!(snapshot.settings, None);
     assert_eq!(snapshot.details_expanded, Some((true, 0)));
     assert_eq!(library.active()[0].subpack, "high");
 
     snapshot.settings = Some(0);
     snapshot.active[0].subpacks[high].folder = "missing-variant".into();
-    assert!(act(&mut library, &mut snapshot, Action::Subpack(high)).is_err());
+    assert!(
+        act(
+            &mut library,
+            &mut snapshot,
+            Action::Subpack(high),
+            &outgoing
+        )
+        .is_err()
+    );
     assert_eq!(snapshot.settings, Some(0));
     assert_eq!(library.active()[0].subpack, "high");
 }

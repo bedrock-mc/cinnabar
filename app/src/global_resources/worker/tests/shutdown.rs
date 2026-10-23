@@ -101,7 +101,6 @@ fn shutdown_saves_queued_edits_while_the_import_picker_remains_open() {
         action: Action::Activate(0),
         revision: 0,
     });
-    worker.send(Command::SectionOpen(false));
     let (done, completed) = crossbeam_channel::bounded(1);
     let drain = std::thread::spawn(move || {
         worker.flush_pending();

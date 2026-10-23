@@ -50,7 +50,6 @@ struct Pending {
 pub(crate) struct PackReload {
     geometry: client_runtime::pack_geometry::GeometryPreparation,
     globals: Arc<ValidatedPackStack>,
-    applied_globals: Arc<ValidatedPackStack>,
     server: Arc<ValidatedPackStack>,
     inputs: Arc<PackInputs>,
     items: Option<Arc<client_ui::ui_runtime::item_facts::SessionItemComponents>>,
@@ -76,7 +75,6 @@ impl Default for PackReload {
         Self {
             geometry: Default::default(),
             globals: empty.clone(),
-            applied_globals: empty.clone(),
             server: empty,
             inputs: Arc::default(),
             items: None,
@@ -118,13 +116,6 @@ impl PackReload {
         self.revision += 1;
         self.error = None;
         self.revision
-    }
-
-    /// Retires a failed request and restores the global stack used by later session changes.
-    fn fail(&mut self, error: String) {
-        self.globals = self.applied_globals.clone();
-        self.error = Some(error);
-        self.applied = self.revision;
     }
 
     /// The settings host shows this while a worker prepares a replacement.
@@ -440,7 +431,8 @@ pub(crate) fn reload_resource_packs(
                         }
                         Err(error) => {
                             gpu.cancel_except(current.binding_identity());
-                            reload.fail(error);
+                            reload.error = Some(error);
+                            reload.applied = reload.revision;
                             return;
                         }
                     }
@@ -451,7 +443,8 @@ pub(crate) fn reload_resource_packs(
                         }
                         Some(Err(error)) => {
                             gpu.cancel_except(current.binding_identity());
-                            reload.fail(error);
+                            reload.error = Some(error);
+                            reload.applied = reload.revision;
                             return;
                         }
                         Some(Ok(())) => {}
@@ -566,7 +559,6 @@ pub(crate) fn reload_resource_packs(
                     "resource packs published"
                 );
                 reload.applied = prepared.revision;
-                reload.applied_globals = reload.globals.clone();
                 reload.last_duration = Some(prepared.elapsed);
                 reload.error = None;
             }
@@ -575,7 +567,8 @@ pub(crate) fn reload_resource_packs(
                 if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref()) {
                     gpu.cancel_except(current.binding_identity());
                 }
-                reload.fail(error);
+                reload.error = Some(error);
+                reload.applied = reload.revision;
             }
         }
     }
