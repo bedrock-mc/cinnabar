@@ -217,7 +217,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   queue wait, worker time, upload, submission and present latency independently.
   Ordinary meshing now rechecks higher-priority deferred revisions within a bounded
   poll budget, with backoff while neighbours or light remain unavailable. Hardware
-  dirty-to-visible latency qualification remains open.
+  dirty-to-visible latency qualification remains open. Empty-section evidence and
+  withdrawals use their separate allowance without spending geometry credits;
+  both still share the frame operation cap. Sustained high-speed hardware
+  qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
