@@ -666,7 +666,7 @@ impl MenuRuntime {
     }
 }
 
-/// Dropdown radio rows are distinct controls; slider stops share one control.
+/// Radio choices are distinct controls; toggle values and slider stops share one control.
 pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
     match (a, b) {
         (MenuAction::SettingsOption(a, av), MenuAction::SettingsOption(b, bv)) if a == b => {
@@ -679,6 +679,14 @@ pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
                 )
         }
         (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_)) => true,
+        (
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(a, _)),
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(b, _)),
+        ) if a == b
+            && a.definition().control == launcher::local_worlds::options::Control::Toggle =>
+        {
+            true
+        }
         _ => a == b,
     }
 }

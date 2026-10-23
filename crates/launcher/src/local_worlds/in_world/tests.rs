@@ -92,6 +92,138 @@ fn a_change_shows_before_it_is_saved() {
     assert_eq!(worlds[0].size_bytes, 42, "the measured size is kept");
 }
 
+/// Every successful save refreshes server values, including options the menu did not edit.
+#[test]
+fn successful_saves_refresh_authoritative_world_options() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    for previously_edited in [false, true] {
+        let mut menu = WorldsMenu::default();
+        let mut saved = world(Backend::Bds);
+        let id = saved.id.clone();
+        menu.apply(Event::Listed(vec![saved.clone()]));
+        if previously_edited {
+            let effect = menu
+                .update(Input::InWorld(id.clone(), Action::Option(O::Pvp, 0)))
+                .pop()
+                .unwrap();
+            menu.apply(saved_reply(effect, &mut saved));
+        }
+        let server_value = i32::from(previously_edited);
+        saved.options.set(O::Pvp, server_value);
+        let effect = menu
+            .update(Input::InWorld(
+                id.clone(),
+                Action::Difficulty(Difficulty::Hard),
+            ))
+            .pop()
+            .unwrap();
+        menu.apply(saved_reply(effect, &mut saved));
+        assert_eq!(
+            menu.in_world_view(&id).unwrap().world.options,
+            saved.options
+        );
+        assert_eq!(
+            menu.update(Input::InWorld(id, Action::Option(O::Pvp, 1 - server_value)))
+                .len(),
+            1,
+            "the next toggle saves a different value"
+        );
+    }
+}
+
+/// A pending edit overlays the latest server snapshot and rolls back to it if saving fails.
+#[test]
+fn newer_pending_edits_roll_back_to_authoritative_values() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    let mut menu = WorldsMenu::default();
+    let mut saved = world(Backend::Bds);
+    let id = saved.id.clone();
+    menu.apply(Event::Listed(vec![saved.clone()]));
+    let difficulty = menu
+        .update(Input::InWorld(
+            id.clone(),
+            Action::Difficulty(Difficulty::Hard),
+        ))
+        .pop()
+        .unwrap();
+    let radius = menu
+        .update(Input::InWorld(
+            id.clone(),
+            Action::Option(O::RespawnRadius, 24),
+        ))
+        .pop()
+        .unwrap();
+    saved.options.set(O::RespawnRadius, 30);
+    menu.apply(saved_reply(difficulty, &mut saved));
+    assert_eq!(menu.worlds()[0].options.get(O::RespawnRadius), 24);
+    menu.apply(failed_reply(radius, "radius save failed"));
+    assert_eq!(menu.worlds()[0].options.get(O::RespawnRadius), 30);
+}
+
+/// Refreshing other settings does not hide a failure that arrives after the snapshot.
+#[test]
+fn authoritative_refresh_preserves_delayed_unrelated_failures() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    let mut menu = WorldsMenu::default();
+    let mut saved = world(Backend::Bds);
+    let id = saved.id.clone();
+    menu.apply(Event::Listed(vec![saved.clone()]));
+    let radius = menu
+        .update(Input::InWorld(
+            id.clone(),
+            Action::Option(O::RespawnRadius, 24),
+        ))
+        .pop()
+        .unwrap();
+    let difficulty = menu
+        .update(Input::InWorld(
+            id.clone(),
+            Action::Difficulty(Difficulty::Hard),
+        ))
+        .pop()
+        .unwrap();
+    menu.apply(saved_reply(difficulty, &mut saved));
+    assert_eq!(menu.worlds()[0].options, saved.options);
+    menu.apply(failed_reply(radius, "radius save failed"));
+    assert_eq!(menu.worlds()[0].options, saved.options);
+    assert_eq!(
+        menu.in_world_view(&id).unwrap().error.as_deref(),
+        Some("radius save failed")
+    );
+}
+
+/// Delayed replies cannot replace a newer snapshot, even for options first edited afterward.
+#[test]
+fn older_saves_do_not_replace_a_newer_authoritative_world() {
+    use crate::local_worlds::model::{Event, Input, WorldsMenu};
+    let mut menu = WorldsMenu::default();
+    let mut saved = world(Backend::Bds);
+    let id = saved.id.clone();
+    menu.apply(Event::Listed(vec![saved.clone()]));
+    let mut replies = Vec::new();
+    for difficulty in [Difficulty::Hard, Difficulty::Easy] {
+        let effect = menu
+            .update(Input::InWorld(id.clone(), Action::Difficulty(difficulty)))
+            .pop()
+            .unwrap();
+        saved
+            .options
+            .set(O::Pvp, i32::from(difficulty == Difficulty::Hard));
+        replies.push(saved_reply(effect, &mut saved));
+    }
+    menu.apply(replies.pop().unwrap());
+    let radius = menu
+        .update(Input::InWorld(id, Action::Option(O::RespawnRadius, 24)))
+        .pop()
+        .unwrap();
+    menu.apply(replies.pop().unwrap());
+    assert_eq!(menu.worlds()[0].difficulty, Difficulty::Easy);
+    assert_eq!(menu.worlds()[0].options.get(O::Pvp), 0);
+    assert_eq!(menu.worlds()[0].options.get(O::RespawnRadius), 24);
+    menu.apply(failed_reply(radius, "radius save failed"));
+    assert_eq!(menu.worlds()[0].options, saved.options);
+}
+
 /// Every catalog option is placed once, so a new option cannot silently miss the section.
 #[test]
 fn the_game_section_places_every_option_once() {

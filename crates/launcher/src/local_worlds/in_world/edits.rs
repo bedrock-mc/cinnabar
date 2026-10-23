@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 struct Setting<T> {
     confirmed: T,
-    confirmed_revision: u64,
+    saved_revision: u64,
     pending: BTreeMap<u64, T>,
     failure: Option<(u64, String)>,
 }
@@ -23,19 +23,24 @@ impl<T: Copy> Setting<T> {
     fn new(confirmed: T) -> Self {
         Self {
             confirmed,
-            confirmed_revision: 0,
+            saved_revision: 0,
             pending: BTreeMap::new(),
             failure: None,
         }
     }
 
-    /// Acknowledges only this revision and returns the latest outstanding or confirmed value.
-    fn finish(&mut self, revision: u64, result: Result<T, &str>) -> T {
-        if self.pending.remove(&revision).is_some() && revision > self.confirmed_revision {
+    /// Refreshes the confirmed value on success and returns the newest pending or confirmed value.
+    fn finish(&mut self, revision: u64, confirmed_revision: u64, result: Result<T, &str>) -> T {
+        let pending = self.pending.remove(&revision).is_some();
+        if let Ok(saved) = result
+            && revision == confirmed_revision
+        {
+            self.confirmed = saved;
+        }
+        if pending && revision > self.saved_revision {
             match result {
-                Ok(saved) => {
-                    self.confirmed = saved;
-                    self.confirmed_revision = revision;
+                Ok(_) => {
+                    self.saved_revision = revision;
                     self.failure.take_if(|(failed, _)| *failed <= revision);
                 }
                 Err(error)
@@ -51,7 +56,7 @@ impl<T: Copy> Setting<T> {
         }
         self.pending
             .last_key_value()
-            .filter(|(revision, _)| **revision > self.confirmed_revision)
+            .filter(|(revision, _)| **revision > confirmed_revision)
             .map_or(self.confirmed, |(_, value)| *value)
     }
 }
@@ -59,12 +64,28 @@ impl<T: Copy> Setting<T> {
 /// The settings edited during one visit to a world.
 #[derive(Debug, Default)]
 struct Changes {
+    confirmed_revision: u64,
     game_mode: Option<Setting<GameMode>>,
     difficulty: Option<Setting<super::Difficulty>>,
     options: BTreeMap<WorldOption, Setting<i32>>,
 }
 
 impl Changes {
+    /// Whether this visit still has an edit awaiting the given reply.
+    fn pending(&self, revision: u64) -> bool {
+        self.game_mode
+            .as_ref()
+            .is_some_and(|setting| setting.pending.contains_key(&revision))
+            || self
+                .difficulty
+                .as_ref()
+                .is_some_and(|setting| setting.pending.contains_key(&revision))
+            || self
+                .options
+                .values()
+                .any(|setting| setting.pending.contains_key(&revision))
+    }
+
     /// Returns the newest unresolved failure across this world's edited settings.
     fn error(&self) -> Option<&str> {
         self.game_mode
@@ -144,7 +165,7 @@ impl Edits {
         })
     }
 
-    /// Confirms or rolls back only the replied-to edits, retaining newer choices in every setting.
+    /// Refreshes confirmed settings from successful replies, retaining only newer pending choices.
     pub(crate) fn finish(
         &mut self,
         worlds: &mut [World],
@@ -155,21 +176,44 @@ impl Edits {
         let Some(changes) = self.worlds.get_mut(id) else {
             return;
         };
+        if !changes.pending(revision) {
+            return;
+        }
         let Some(world) = worlds.iter_mut().find(|world| world.id == id) else {
             return;
         };
         let result = result.as_deref().map_err(String::as_str);
+        if let Ok(saved) = result
+            && revision > changes.confirmed_revision
+        {
+            world.game_mode = saved.game_mode;
+            world.difficulty = saved.difficulty;
+            world.options.clone_from(&saved.options);
+            changes.confirmed_revision = revision;
+        }
         if let Some(setting) = &mut changes.game_mode {
-            world.game_mode = setting.finish(revision, result.map(|world| world.game_mode));
+            world.game_mode = setting.finish(
+                revision,
+                changes.confirmed_revision,
+                result.map(|world| world.game_mode),
+            );
         }
         if let Some(setting) = &mut changes.difficulty {
-            world.difficulty = setting.finish(revision, result.map(|world| world.difficulty));
+            world.difficulty = setting.finish(
+                revision,
+                changes.confirmed_revision,
+                result.map(|world| world.difficulty),
+            );
         }
         let mut options = OptionChanges::default();
         for (&id, setting) in &mut changes.options {
             options.insert(
                 id,
-                setting.finish(revision, result.map(|world| world.options.get(id))),
+                setting.finish(
+                    revision,
+                    changes.confirmed_revision,
+                    result.map(|world| world.options.get(id)),
+                ),
             );
         }
         world.options.apply_changes(&options);
