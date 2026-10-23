@@ -255,6 +255,9 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Server sprint metadata preserves the local Toggle Sprint request. Held sprint
+restarts after a server clear when admission conditions hold. Native rendered
+acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
