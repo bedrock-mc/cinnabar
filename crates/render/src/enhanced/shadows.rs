@@ -31,7 +31,11 @@ pub(crate) struct EnhancedShadowPipelines {
 
 impl FromWorld for EnhancedShadowPipelines {
     fn from_world(world: &mut World) -> Self {
-        let (layout, cube, model, offsets) = crate::chunk::enhanced::shadow_sources(world);
+        let (layout, cube, model, offsets, compact) = crate::chunk::enhanced::shadow_sources(world);
+        let mut shader_defs = vec!["ENHANCED_SHADOW".into()];
+        if compact {
+            shader_defs.push("PACKED_TERRAIN".into());
+        }
         let cache = world.resource::<PipelineCache>();
         let queue = |shader: Handle<bevy::shader::Shader>, label: &'static str| {
             cache.queue_render_pipeline(RenderPipelineDescriptor {
@@ -44,14 +48,14 @@ impl FromWorld for EnhancedShadowPipelines {
                 vertex: VertexState {
                     constants: Default::default(),
                     shader: shader.clone(),
-                    shader_defs: vec!["ENHANCED_SHADOW".into()],
+                    shader_defs: shader_defs.clone(),
                     entry_point: Some("vertex".into()),
                     buffers: vec![offsets.clone()],
                 },
                 fragment: Some(FragmentState {
                     constants: Default::default(),
                     shader,
-                    shader_defs: vec!["ENHANCED_SHADOW".into()],
+                    shader_defs: shader_defs.clone(),
                     entry_point: Some("fragment_shadow".into()),
                     targets: vec![],
                 }),

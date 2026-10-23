@@ -202,6 +202,7 @@ fn carried_block_sheet_order_references_and_dimensions_fail_closed() {
 #[test]
 fn block_model_thumbnails_round_trip_beside_carried_sheets() {
     let model = |sprite, visual| IconBlockModel {
+        held_sprite: None,
         sprite,
         visual: BlockVisualId(visual),
     };
@@ -239,4 +240,52 @@ fn block_model_thumbnails_round_trip_beside_carried_sheets() {
             encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, &[], &invalid).is_err()
         );
     }
+}
+
+#[test]
+fn carried_artwork_round_trips_independently_of_gui_thumbnails() {
+    let sprites = [sprite(64, 64, 1), sprite(16, 16, 2)];
+    let entries = [entry("test:pane", 0, 0)];
+    let mut models = [IconBlockModel {
+        sprite: 0,
+        visual: BlockVisualId(7),
+        held_sprite: Some(1),
+    }];
+    let sources = [assets::icon::IconSource {
+        path: "textures/blocks/pane.png".into(),
+        sprite: 1,
+    }];
+    for sources in [None, Some(sources.as_slice())] {
+        let bytes = match sources {
+            Some(sources) => assets::icon::encode_icon_catalog_with_sources(
+                [7; 32],
+                &sprites,
+                &entries,
+                &[],
+                &models,
+                sources,
+            ),
+            None => encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, &[], &models),
+        }
+        .unwrap();
+        let catalog = RuntimeIconCatalog::decode(&bytes).unwrap();
+        assert_eq!(catalog.block_models(), models);
+        assert_eq!(catalog.lookup_index("test:pane", 99), Some(0));
+        assert_eq!(catalog.lookup_held_index("test:pane", 99), Some(1));
+        assert_eq!(
+            catalog.sprites()[catalog.lookup_held_index("test:pane", 0).unwrap()].rgba8[0],
+            2
+        );
+    }
+    models[0].held_sprite = Some(2);
+    assert!(encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, &[], &models).is_err());
+    models[0].held_sprite = None;
+    let legacy = RuntimeIconCatalog::decode(
+        &encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, &[], &models).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        legacy.lookup_held_index("test:pane", 0),
+        legacy.lookup_index("test:pane", 0)
+    );
 }

@@ -157,9 +157,14 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
     let models = |key: &IconKey| (*key == icon_key(other)).then_some(&mesh);
 
     let mut hud = vec![sprite(1, other), sprite(2, other)];
+    let targets = PreviewTargets {
+        key: icon_key(preview),
+        hud: 0..0,
+        in_hud: false,
+    };
     replace_model_icons(
         &mut hud,
-        Some(icon_key(preview)),
+        Some(&targets),
         &BTreeSet::new(),
         player,
         models,
@@ -174,7 +179,7 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
     let mut shown = vec![sprite(1, preview), sprite(2, preview)];
     replace_model_icons(
         &mut shown,
-        Some(icon_key(preview)),
+        Some(&targets),
         &BTreeSet::new(),
         player,
         models,
@@ -247,6 +252,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
                     corners,
                     uvs,
                     material: 0,
+                    two_sided: false,
                 },
                 icon,
             )

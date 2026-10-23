@@ -48,6 +48,16 @@ fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
 }
 
 #[test]
+fn multi_page_overlay_face_sheets_reserve_all_base_pages() {
+    let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
+    let expected = overlay_face_sheet(&source, [1; 6], None).unwrap();
+    source.base_texture_pages = 2;
+    source.materials[1].texture = TextureRef::new(2, 1).unwrap();
+    let actual = overlay_face_sheet(&source, [1; 6], None).unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn carried_face_sheets_sample_every_overlay_shard() {
     let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
     for page in 2..assets::MAX_TEXTURE_PAGES as u32 {
@@ -699,9 +709,14 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
         metadata: 0,
         sprite: 0,
     };
-    for has_model in [false, true] {
+    for (has_model, held_sprite, expected_model) in [
+        (false, None, false),
+        (true, None, true),
+        (true, Some(0), false),
+    ] {
         let bindings = has_model
             .then_some(assets::IconBlockModel {
+                held_sprite,
                 sprite: 0,
                 visual: assets::BlockVisualId(visual),
             })
@@ -719,7 +734,7 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
         )
         .unwrap();
         let held = collect_held(&world, &entities, &icons);
-        assert_eq!(held.models.contains_key(&visual), has_model);
+        assert_eq!(held.models.contains_key(&visual), expected_model);
         if let Some(vertices) = held.models.get(&visual) {
             let (min, max) = vertices
                 .iter()

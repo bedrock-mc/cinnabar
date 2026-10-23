@@ -123,6 +123,10 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         ));
     }
     let mut bds = bds::BdsRunner::new(Arc::clone(&provisioner), pin.bds_container_image.clone());
+    if translation.is_some() {
+        // Translated servers take minutes to start, so they start ahead of opens and outlast leaves.
+        parts.standby = Some(manager::SLOW_START_STANDBY);
+    }
     bds.translation = translation;
     parts.runners.bds = Some(Arc::new(bds));
     parts.setup = Some(Arc::clone(&provisioner));

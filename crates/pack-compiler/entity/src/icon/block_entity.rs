@@ -51,7 +51,6 @@ pub(super) fn raster(
     geometries: &[EntityGeometry],
 ) -> Result<Option<IconSprite>, AssetError> {
     let mut projection: fn([f32; 3]) -> [f32; 3] = assets::gui_item::project_cube;
-    let mut light = 1.0;
     let mut parts = if let Some(color) = geometry::shulker_color_from_block_name(name) {
         let mut part = boxes(
             &geometry::shulker_texture(color),
@@ -65,7 +64,6 @@ pub(super) fn raster(
                 *z = (*z + 8.0) / 16.0;
             }
         }
-        light = assets::gui_item::SHULKER_GUI_LIGHT;
         vec![part]
     } else if let Some(skull_type) = assets::vanilla_skull_type(name) {
         let Some(part) = skull(skull_type, geometries) else {
@@ -176,7 +174,7 @@ pub(super) fn raster(
             quads.push((corners, uvs, texture));
         }
     }
-    let model = Model::textured(quads, projection, light);
+    let model = Model::textured(quads, projection, 1.0);
     Ok(Some(
         if is_banner(name) {
             model.unshaded()
@@ -237,12 +235,13 @@ fn skull(skull_type: u8, geometries: &[EntityGeometry]) -> Option<Part> {
 }
 
 /// Groups the authored lectern faces by their terrain texture.
+/// Turns the shared north-facing stand into its south-facing inventory pose.
 fn lectern() -> Vec<Part> {
     let mut parts: Vec<Part> = Vec::new();
     for (texture_index, (corners, texels)) in geometry::lectern_faces() {
         let texture = geometry::LECTERN_TEXTURES[texture_index];
         let face = (
-            corners.map(|[x, y, z]| [(x + 8.0) / 16.0, y / 16.0, (z + 8.0) / 16.0]),
+            corners.map(|[x, y, z]| [(8.0 - x) / 16.0, y / 16.0, (8.0 - z) / 16.0]),
             texels,
         );
         if let Some(part) = parts.iter_mut().find(|part| part.texture == texture) {

@@ -34,42 +34,6 @@ pub(super) fn flip(mut sprite: IconSprite, flip: u8) -> Result<IconSprite, Asset
     Ok(sprite)
 }
 
-#[cfg(test)]
-mod flip_tests {
-    use super::*;
-
-    #[test]
-    fn carried_face_uv_flips_preserve_corner_artwork() {
-        let pixels: Vec<_> = [1, 2, 3, 4]
-            .into_iter()
-            .flat_map(|red| [red, 0, 0, 255])
-            .collect();
-        let sprite = IconSprite {
-            width: 2,
-            height: 2,
-            rgba8: pixels.into(),
-        };
-        for (value, expected) in [
-            (0, [1, 2, 3, 4]),
-            (1, [3, 1, 4, 2]),
-            (2, [2, 4, 1, 3]),
-            (3, [4, 3, 2, 1]),
-        ] {
-            let shown = flip(sprite.clone(), value).unwrap();
-            assert_eq!(
-                shown
-                    .rgba8
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|pixel| pixel[0])
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-    }
-}
-
 /// Bakes a carried face, optionally selecting a strip's first frame before applying its mask.
 pub(super) fn tile(
     root: &Path,
@@ -132,4 +96,40 @@ fn overlay_rgb(source: &str) -> Option<[u8; 3]> {
     }
     let rgb = u32::from_str_radix(hex, 16).ok()?;
     Some([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8])
+}
+
+#[cfg(test)]
+mod flip_tests {
+    use super::*;
+
+    #[test]
+    fn carried_face_uv_flips_preserve_corner_artwork() {
+        let pixels: Vec<_> = [1, 2, 3, 4]
+            .into_iter()
+            .flat_map(|red| [red, 0, 0, 255])
+            .collect();
+        let sprite = IconSprite {
+            width: 2,
+            height: 2,
+            rgba8: pixels.into(),
+        };
+        for (value, expected) in [
+            (0, [1, 2, 3, 4]),
+            (1, [3, 1, 4, 2]),
+            (2, [2, 4, 1, 3]),
+            (3, [4, 3, 2, 1]),
+        ] {
+            let shown = flip(sprite.clone(), value).unwrap();
+            assert_eq!(
+                shown
+                    .rgba8
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|pixel| pixel[0])
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
 }
