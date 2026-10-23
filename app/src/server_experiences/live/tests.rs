@@ -1104,8 +1104,9 @@ fn a_native_epoch_update_cannot_acknowledge_a_later_server_notice() {
 fn world_acknowledgments_bypass_exhausted_data_credits() {
     for byte_budget in [false, true] {
         let mut live = fixture_v2(1);
-        complete(&mut live, "bundle0");
+        sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
         live.poll(1, 0).unwrap();
+        live.egress = RateLimit::new(0);
         if byte_budget {
             live.egress
                 .charge(server_experience::policy::MAX_BYTES_PER_SECOND as usize, 0)
