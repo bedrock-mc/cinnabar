@@ -100,8 +100,8 @@ impl ActorStore {
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
-            link_arrival: FastHashMap::new(),
-            next_link_arrival: 0,
+            seat_keys: FastHashMap::new(),
+            boardings: 0,
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -277,6 +277,7 @@ impl ActorStore {
         self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
+        self.board_linked_riders();
         self.apply_pending_local_health(runtime_id);
         self.apply_pending_local_death(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {

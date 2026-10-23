@@ -101,6 +101,15 @@ fn a_player_boarding_behind_a_mob_takes_the_controlling_seat() {
         &[(OTHER_PLAYER, ActorLinkType::Passenger)],
     );
     assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+
+    // When the steering player leaves, the next passenger in order steers: the mob it
+    // displaced, not the player who boarded later.
+    board(
+        &mut store,
+        &mut sequence,
+        &[(PLAYER, ActorLinkType::Remove)],
+    );
+    assert_eq!(store.controlling_passenger(BOAT), Some(PIG));
 }
 
 #[test]
