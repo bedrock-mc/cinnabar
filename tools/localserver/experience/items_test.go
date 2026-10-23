@@ -249,7 +249,7 @@ func TestCommitChecksSlots(t *testing.T) {
 	at := probePos(probeStacks)
 	f.place(probeCounter, at, nil)
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: at.cube(), actor: f.actor, call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: at.cube(), actor: f.actor, call: Call{
 		Interact: &InteractCall{Player: f.actorID(), Pos: at, Face: FaceUp},
 	}}
 	snap := f.snapshotOf(ev.call, at)
@@ -293,7 +293,7 @@ func TestCommitRefusesIneligibleOffhand(t *testing.T) {
 	source := cellStack(t, "probe", []byte{7})
 	f.do(func(tx *world.Tx) { _ = f.player(tx).Inventory().SetItem(0, source) })
 	call := Call{Interact: &InteractCall{Player: f.actorID(), Pos: at, Face: FaceUp}}
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: at.cube(), actor: f.actor, call: call}
+	ev := event{w: f.w, instance: f.instance, anchor: at.cube(), actor: f.actor, call: call}
 	snap := f.snapshotOf(call, at)
 	f.host.commit(context.Background(), f.host.dispatchers["probe"], ev, snap, []Op{
 		{SetSlot: &SetSlotOp{Slot: 0}},

@@ -177,6 +177,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			channels = ext
 		}
 		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		if err := host.BindDefaultWorlds(worlds...); err != nil {
+			return errors.Join(err, srv.Close(), host.Close())
+		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.
 		for id := range exps.sups {

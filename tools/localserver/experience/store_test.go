@@ -21,7 +21,7 @@ func openTestStore(t *testing.T, dir string) *Store {
 
 func TestStorePlaceStartsNewGeneration(t *testing.T) {
 	s := openTestStore(t, t.TempDir())
-	k := Key{Dim: 0, X: 1, Y: 64, Z: -3}
+	k := Key{Instance: OverworldInstance, X: 1, Y: 64, Z: -3}
 
 	first := s.Place("demo", k)
 	if first.Revision != 0 {
@@ -47,7 +47,7 @@ func TestStorePlaceStartsNewGeneration(t *testing.T) {
 	if got := s.Budget("demo"); got != dataQuota {
 		t.Fatalf("budget after replacement = %d, want %d", got, dataQuota)
 	}
-	other := s.Place("demo", Key{X: 2})
+	other := s.Place("demo", Key{Instance: OverworldInstance, X: 2})
 	if other.Generation == first.Generation || other.Generation == second.Generation {
 		t.Fatalf("generation %d reused", other.Generation)
 	}
@@ -55,7 +55,7 @@ func TestStorePlaceStartsNewGeneration(t *testing.T) {
 
 func TestStoreRemoveReturnsPreviousData(t *testing.T) {
 	s := openTestStore(t, t.TempDir())
-	k := Key{X: 5}
+	k := Key{Instance: OverworldInstance, X: 5}
 	s.Place("demo", k)
 	if err := s.SetData("demo", k, []byte("hello"), true); err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestStoreRemoveReturnsPreviousData(t *testing.T) {
 func TestStoreAbsentVersusEmpty(t *testing.T) {
 	dir := t.TempDir()
 	s := openTestStore(t, dir)
-	absent, empty := Key{X: 1}, Key{X: 2}
+	absent, empty := Key{Instance: OverworldInstance, X: 1}, Key{Instance: OverworldInstance, X: 2}
 	s.Place("demo", absent)
 	s.Place("demo", empty)
 	if err := s.SetData("demo", empty, []byte{}, true); err != nil {
@@ -127,7 +127,7 @@ func TestStoreAbsentVersusEmpty(t *testing.T) {
 
 func TestStoreRevisionAdvancesOnWrite(t *testing.T) {
 	s := openTestStore(t, t.TempDir())
-	k := Key{Y: 10}
+	k := Key{Instance: OverworldInstance, Y: 10}
 	placed := s.Place("demo", k)
 
 	for i, write := range []struct {
@@ -144,17 +144,17 @@ func TestStoreRevisionAdvancesOnWrite(t *testing.T) {
 		}
 	}
 
-	if err := s.SetData("demo", Key{Y: 11}, []byte{1}, true); !errors.Is(err, ErrNotPlaced) {
+	if err := s.SetData("demo", Key{Instance: OverworldInstance, Y: 11}, []byte{1}, true); !errors.Is(err, ErrNotPlaced) {
 		t.Fatalf("SetData without placement = %v, want ErrNotPlaced", err)
 	}
-	if _, ok := s.Token("demo", Key{Y: 11}); ok {
+	if _, ok := s.Token("demo", Key{Instance: OverworldInstance, Y: 11}); ok {
 		t.Fatal("SetData without placement created an entry")
 	}
 }
 
 func TestStoreQuotaRejectsAndLeavesStateUnchanged(t *testing.T) {
 	s := openTestStore(t, t.TempDir())
-	a, b := Key{X: 1}, Key{X: 2}
+	a, b := Key{Instance: OverworldInstance, X: 1}, Key{Instance: OverworldInstance, X: 2}
 	s.Place("demo", a)
 	s.Place("demo", b)
 
@@ -198,8 +198,8 @@ func TestStoreQuotaRejectsAndLeavesStateUnchanged(t *testing.T) {
 
 func TestStoreIsolationByExperienceAndDimension(t *testing.T) {
 	s := openTestStore(t, t.TempDir())
-	over := Key{Dim: 0, X: 7, Y: 7, Z: 7}
-	nether := Key{Dim: 1, X: 7, Y: 7, Z: 7}
+	over := Key{Instance: OverworldInstance, X: 7, Y: 7, Z: 7}
+	nether := Key{Instance: NetherInstance, X: 7, Y: 7, Z: 7}
 
 	s.Place("alpha", over)
 	if err := s.SetData("alpha", over, []byte("alpha"), true); err != nil {
@@ -244,7 +244,7 @@ func TestStoreIsolationByExperienceAndDimension(t *testing.T) {
 func TestStoreFlushAndReopenRestoresEverything(t *testing.T) {
 	dir := t.TempDir()
 	s := openTestStore(t, dir)
-	keys := []Key{{Dim: 0, X: -1, Y: -64, Z: 1 << 20}, {Dim: 1, X: 2, Y: 3, Z: 4}, {Dim: 2, X: 0, Y: 0, Z: 0}}
+	keys := []Key{{Instance: OverworldInstance, X: -1, Y: -64, Z: 1 << 20}, {Instance: NetherInstance, X: 2, Y: 3, Z: 4}, {Instance: EndInstance, X: 0, Y: 0, Z: 0}}
 	tokens := map[Key]Token{}
 	for i, k := range keys {
 		s.Place("alpha", k)
@@ -286,7 +286,7 @@ func TestStoreFlushAndReopenRestoresEverything(t *testing.T) {
 		used[tok.Generation] = true
 	}
 	used[betaToken.Generation] = true
-	if fresh := r.Place("gamma", Key{X: 99}); used[fresh.Generation] {
+	if fresh := r.Place("gamma", Key{Instance: OverworldInstance, X: 99}); used[fresh.Generation] {
 		t.Fatalf("reopened store reused generation %d", fresh.Generation)
 	}
 
@@ -304,7 +304,7 @@ func TestStoreFlushAndReopenRestoresEverything(t *testing.T) {
 func TestStoreFlushIsAtomic(t *testing.T) {
 	dir := t.TempDir()
 	s := openTestStore(t, dir)
-	k := Key{X: 1}
+	k := Key{Instance: OverworldInstance, X: 1}
 	s.Place("demo", k)
 	if err := s.SetData("demo", k, []byte("old"), true); err != nil {
 		t.Fatal(err)
@@ -391,7 +391,7 @@ func TestStoreLoadedInstalledIsNormalized(t *testing.T) {
 func TestStoreExperienceNamedInstalledKeepsItsData(t *testing.T) {
 	dir := t.TempDir()
 	s := openTestStore(t, dir)
-	k := Key{X: 3}
+	k := Key{Instance: OverworldInstance, X: 3}
 	s.Place("installed", k)
 	if err := s.SetData("installed", k, []byte("mine"), true); err != nil {
 		t.Fatal(err)
@@ -416,7 +416,7 @@ func TestStoreCorruptFileFailsOpenNamingFile(t *testing.T) {
 	emptyData := `{"schema":1,"next_generation":1,"entries":[]}`
 	for name, content := range map[string]string{
 		"syntax.json":     `{"schema":1,"next_generation":`,
-		"schema.json":     `{"schema":2,"next_generation":1,"entries":[]}`,
+		"schema.json":     `{"schema":3,"next_generation":1,"entries":[]}`,
 		"hex.json":        `{"schema":1,"next_generation":2,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":"zz"}]}`,
 		"dup.json":        `{"schema":1,"next_generation":3,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":null},{"dim":0,"x":0,"y":0,"z":0,"generation":2,"revision":0,"data":null}]}`,
 		"_installed.json": `{"schema":1,"ids":`,

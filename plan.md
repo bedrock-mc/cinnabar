@@ -816,6 +816,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+  Server Experience block storage and player focus use bound world instances, with opening
+  generations that invalidate stale callback work and migration from dimension-keyed stores.
+  Guest world definitions and creation, coordinated player transfers and world-epoch readiness,
+  typed player/instance stores, player lifecycle events and live transfer acceptance remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.

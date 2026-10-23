@@ -145,6 +145,9 @@ func TestFocusInOtherDimensionIsNone(t *testing.T) {
 	f, _, _ := focusFixture(t)
 	nether := world.Config{Dim: world.Nether, Log: slog.New(slog.DiscardHandler)}.New()
 	t.Cleanup(func() { nether.Close() })
+	if _, err := f.host.BindWorld(NetherInstance, nether); err != nil {
+		t.Fatal(err)
+	}
 	f.do(func(tx *world.Tx) { tx.RemoveEntity(f.player(tx)) })
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

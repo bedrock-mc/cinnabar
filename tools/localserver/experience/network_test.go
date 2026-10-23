@@ -216,7 +216,7 @@ func TestNetworkRoundTrip(t *testing.T) {
 func (f *hostFixture) snapshotOf(call Call, anchor BlockPos) snapshot {
 	f.t.Helper()
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: anchor.cube(), actor: f.actor, call: call}
+	ev := event{w: f.w, instance: f.instance, anchor: anchor.cube(), actor: f.actor, call: call}
 	snap, err := f.host.snapshot(context.Background(), d, &ev)
 	if err != nil {
 		f.t.Fatalf("snapshot: %v", err)
@@ -290,7 +290,7 @@ func TestNetworkCommitScope(t *testing.T) {
 	f.place(probeCounter, outside, nil)
 	anchor, far := BlockPos{X: 1, Y: 64}, BlockPos{X: 40, Y: 64}
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: anchor.cube(), call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: anchor.cube(), call: Call{
 		Neighbor: &NeighborCall{Pos: anchor, Neighbor: anchor},
 	}}
 	snap := f.snapshotOf(ev.call, anchor)
@@ -332,7 +332,7 @@ func TestNetworkCommitRejectsJoinedBoundary(t *testing.T) {
 			f.placeLine(probeNode, 22, 24)
 			anchor, far := BlockPos{Y: 64}, BlockPos{X: 20, Y: 64}
 			call := Call{Neighbor: &NeighborCall{Pos: anchor, Neighbor: anchor}}
-			ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: anchor.cube(), call: call}
+			ev := event{w: f.w, instance: f.instance, anchor: anchor.cube(), call: call}
 			snap := f.snapshotOf(call, anchor)
 			if len(snap.req.Network.Blocks) != 21 {
 				t.Fatalf("unexpected original network: %+v", snap.req.Network)

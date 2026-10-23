@@ -64,12 +64,13 @@ func (r *tellRecorder) all() []recordedTell {
 // hostFixture is a running Host over a world of the registered blocks, holding a player without
 // a session who acts in every event, and a tellRecorder in place of player messages.
 type hostFixture struct {
-	t     *testing.T
-	store *Store
-	host  *Host
-	w     *world.World
-	actor *world.EntityHandle
-	tells *tellRecorder
+	t        *testing.T
+	store    *Store
+	host     *Host
+	w        *world.World
+	instance worldInstance
+	actor    *world.EntityHandle
+	tells    *tellRecorder
 }
 
 // newHostFixture runs a Host of sups without a server half for client parts, logging to log. It
@@ -118,6 +119,10 @@ func newIdleClientFixture(
 	t.Cleanup(func() { w.Close() })
 	f := &hostFixture{t: t, store: openTestStore(t, t.TempDir()), w: w, tells: &tellRecorder{}}
 	f.host = NewHost(reg, f.store, sups, "world", channels, log)
+	if _, err := f.host.BindWorld(OverworldInstance, w); err != nil {
+		t.Fatal(err)
+	}
+	f.instance, _ = f.host.worlds.of(w)
 	f.host.tell = f.tells
 	f.actor = world.EntitySpawnOpts{Position: mgl64.Vec3{0.5, 100, 40.5}}.
 		New(player.Type, player.Config{Name: "Actor"})
@@ -241,7 +246,7 @@ func dataText(data []byte) string {
 
 // overworldKey is the store key of pos in the overworld.
 func overworldKey(pos BlockPos) Key {
-	return Key{Dim: 0, X: pos.X, Y: pos.Y, Z: pos.Z}
+	return Key{Instance: OverworldInstance, X: pos.X, Y: pos.Y, Z: pos.Z}
 }
 
 // counter is the probe counter's data holding n.
@@ -577,7 +582,7 @@ func TestQuotaCheckedOnNetData(t *testing.T) {
 	f.place(probeCounter, b, full)
 	// Blocks elsewhere fill the rest of the quota.
 	for i := range dataQuota/maxBlockDataBytes - 1 {
-		k := Key{X: 1000 + int32(i), Y: 64}
+		k := Key{Instance: OverworldInstance, X: 1000 + int32(i), Y: 64}
 		f.store.Place("probe", k)
 		if err := f.store.SetData("probe", k, full, true); err != nil {
 			t.Fatalf("filling the quota: %v", err)
@@ -587,7 +592,7 @@ func TestQuotaCheckedOnNetData(t *testing.T) {
 		t.Fatalf("budget = %d, want the quota full", budget)
 	}
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: a.cube(), call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: a.cube(), call: Call{
 		Neighbor: &NeighborCall{Pos: a, Neighbor: b},
 	}}
 	snap, err := f.host.snapshot(context.Background(), d, &ev)

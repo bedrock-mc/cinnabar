@@ -244,7 +244,7 @@ func TestInvalidSendsDiscardResult(t *testing.T) {
 	// commit commits ops as the result of the actor's interaction with pos; commits finish
 	// before they return.
 	commit := func(ops []Op) {
-		ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: pos.cube(), actor: f.actor,
+		ev := event{w: f.w, instance: f.instance, anchor: pos.cube(), actor: f.actor,
 			call: Call{Interact: &InteractCall{Player: actor, Pos: pos, Face: FaceUp}}}
 		snap, err := f.host.snapshot(context.Background(), d, &ev)
 		if err != nil {
