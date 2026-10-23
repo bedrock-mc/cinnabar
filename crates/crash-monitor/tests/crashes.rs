@@ -5,7 +5,7 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
 };
 
 use ::protocol::packet_tap::{
@@ -53,9 +53,15 @@ fn monitor_fixture() {
     }
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let args = crash_monitor::Args::parse(&args).expect("monitor arguments");
-    diagnostics::logging::install(diagnostics::logging::Options::default()).unwrap();
+    diagnostics::logging::install(diagnostics::logging::Options {
+        base_filter: "info".into(),
+        ..Default::default()
+    })
+    .unwrap();
     // A real layout: its own log, and the crash window when the UI is not suppressed.
     let shown = crash_monitor::run(&args, Some(&layout(&root))).expect("the monitor runs");
+    // The subscriber writes on another thread; process exit does not drain its queue.
+    diagnostics::console::flush();
     let shown = shown.map(|folder| folder.to_string_lossy().into_owned());
     fs::write(root.join(MONITOR_DONE), serde_json::to_vec(&shown).unwrap()).unwrap();
 }
@@ -102,6 +108,8 @@ fn client_fixture() {
         std::process::abort();
     }
     assert!(monitor::wait_for_connection(test_time::DEFAULT_TIMEOUT));
+    #[cfg(target_os = "linux")]
+    linux_crash_diagnostics(&root);
     println!("{SETTLED}");
     // SAFETY: Each fault ends this disposable process, which is what the fixture is for.
     unsafe {
@@ -176,6 +184,48 @@ fn panic_on_a_thread() {
         .unwrap()
         .join();
     assert!(panicked.is_err());
+}
+
+/// Saves the Linux settings that affect process inspection and stack-overflow handling.
+#[cfg(target_os = "linux")]
+fn linux_crash_diagnostics(root: &Path) {
+    use std::fmt::Write;
+
+    let mut details = String::new();
+    for path in [
+        "/etc/os-release",
+        "/proc/sys/kernel/osrelease",
+        "/proc/sys/kernel/yama/ptrace_scope",
+        "/proc/sys/kernel/core_pattern",
+    ] {
+        writeln!(details, "{path}: {:?}", fs::read_to_string(path)).unwrap();
+    }
+    if let Ok(status) = fs::read_to_string("/proc/self/status") {
+        for line in status.lines().filter(|line| {
+            [
+                "TracerPid:",
+                "NoNewPrivs:",
+                "Seccomp:",
+                "Cpus_allowed_list:",
+            ]
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+        }) {
+            details.push_str(line);
+            details.push('\n');
+        }
+    }
+    // SAFETY: stack_t is a plain C record whose zero value is valid.
+    let mut stack: libc::stack_t = unsafe { std::mem::zeroed() };
+    // SAFETY: A null first argument queries the calling thread's alternate signal stack.
+    let result = unsafe { libc::sigaltstack(std::ptr::null(), &mut stack) };
+    writeln!(
+        details,
+        "sigaltstack: result={result}, flags={}, bytes={}",
+        stack.ss_flags, stack.ss_size
+    )
+    .unwrap();
+    fs::write(root.join("logs/linux-crash-context.log"), details).unwrap();
 }
 
 /// The packet ID the fixture sends: the first whose body samples keep.
@@ -272,6 +322,7 @@ fn intrude() {
 struct Run {
     root: tempfile::TempDir,
     folders: Vec<PathBuf>,
+    status: Option<ExitStatus>,
     /// The folder the monitor showed, if any.
     shown: Option<PathBuf>,
 }
@@ -284,8 +335,9 @@ impl Drop for Run {
     )]
     fn drop(&mut self) {
         if std::thread::panicking() {
-            for folder in &self.folders {
-                eprintln!("REPORT: {:?}", folder::read(folder));
+            eprintln!("CLIENT STATUS: {:?}", self.status);
+            for folder in folder::list(&self.root.path().join("crashes")) {
+                eprintln!("REPORT: {:?}", folder::read(&folder));
             }
             for log in fs::read_dir(layout(self.root.path()).log_dir())
                 .into_iter()
@@ -303,8 +355,15 @@ impl Drop for Run {
 /// Runs the client fixture for `kind` until its monitor finishes; `kill` kills the client once
 /// it is connected.
 fn crash(kind: &str) -> Run {
-    let root = tempfile::tempdir().unwrap();
-    let logs = root.path().join("logs");
+    // Keep diagnostics alive even when setup or the completion wait fails.
+    let mut run = Run {
+        root: tempfile::tempdir().unwrap(),
+        folders: Vec::new(),
+        status: None,
+        shown: None,
+    };
+    let root = run.root.path();
+    let logs = root.join("logs");
     fs::create_dir_all(&logs).unwrap();
     fs::write(
         logs.join("client.log"),
@@ -314,14 +373,14 @@ fn crash(kind: &str) -> Run {
     let mut client = Command::new(std::env::current_exe().unwrap());
     client
         .args(["--exact", "client_fixture", "--nocapture"])
-        .env(ROOT_ENV, root.path())
+        .env(ROOT_ENV, root)
         .env(KIND_ENV, kind)
         .env(crash_monitor::CRASH_UI_ENV, "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(fs::File::create(logs.join("fixture-stderr.log")).unwrap());
     if kind == "early_panic" {
-        client.env(GO_ENV, root.path().join("go"));
+        client.env(GO_ENV, root.join("go"));
     }
     let mut client: Child = client.spawn().unwrap();
     let mut lines = BufReader::new(client.stdout.take().unwrap()).lines();
@@ -332,16 +391,16 @@ fn crash(kind: &str) -> Run {
     // The harness keeps printing; a closed pipe would fail it after the fixture returns.
     let draining = std::thread::spawn(move || lines.for_each(drop));
     if kind == "hang_then_kill" {
-        let crashes = root.path().join("crashes");
+        let crashes = root.join("crashes");
         test_time::eventually("the hang report", || !folder::list(&crashes).is_empty());
     }
     if kind == "kill" || kind == "hang_then_kill" {
         client.kill().unwrap();
     }
     drop(client.stdin.take());
-    let _ = client.wait();
+    run.status = Some(client.wait().unwrap());
     let _ = draining.join();
-    let done = root.path().join(MONITOR_DONE);
+    let done = root.join(MONITOR_DONE);
     let mut shown = None;
     test_time::eventually(&format!("{kind}: the monitor's complete result"), || {
         fs::read(&done)
@@ -352,11 +411,9 @@ fn crash(kind: &str) -> Run {
                 true
             })
     });
-    Run {
-        folders: folder::list(&root.path().join("crashes")),
-        shown,
-        root,
-    }
+    run.folders = folder::list(&root.join("crashes"));
+    run.shown = shown;
+    run
 }
 
 /// Asserts `folder` holds a `kind` report, with a dump when `dumped`, the client's log section,
@@ -412,6 +469,18 @@ fn assert_one(fixture: &str, kind: Kind, dumped: bool) {
 #[test]
 fn a_panic_is_reported_with_a_dump() {
     assert_one("panic", Kind::Panic, true);
+}
+
+/// Completion includes the monitor's queued dump and shutdown diagnostics.
+#[test]
+fn a_completed_dump_keeps_the_monitor_log() {
+    let run = crash("segfault");
+    assert_eq!(run.folders.len(), 1);
+    assert_report(&run.folders[0], Kind::Native, true);
+    let log =
+        fs::read_to_string(layout(run.root.path()).log_dir().join("crash-monitor.log")).unwrap();
+    assert!(log.contains("minidump written"), "{log}");
+    assert!(log.contains("client ended:"), "{log}");
 }
 
 #[test]
