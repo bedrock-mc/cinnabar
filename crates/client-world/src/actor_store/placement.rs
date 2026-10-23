@@ -334,6 +334,7 @@ mod tests {
             crate::actor_store::riding_control::RiderLink {
                 vehicle: 70,
                 order: 0,
+                pending: false,
             },
         );
         store.rider_to_ridden.insert(
@@ -341,6 +342,7 @@ mod tests {
             crate::actor_store::riding_control::RiderLink {
                 vehicle: 80,
                 order: 1,
+                pending: false,
             },
         );
         for runtime_id in [8, 9] {

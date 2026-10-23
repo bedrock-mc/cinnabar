@@ -40,6 +40,23 @@ impl SyncState {
 
     /// Applies newly supplied components to the current size, preserving the other axis.
     fn server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
+        if let Some(revision) = dimensions.spawn_revision
+            && self.dimensions.spawn_revision != Some(revision)
+        {
+            if self
+                .dimensions
+                .spawn_revision
+                .is_some_and(|current| revision < current)
+            {
+                return;
+            }
+            if self.dimensions.spawn_revision.is_some() {
+                self.size = None;
+                self.explicit_size = false;
+                self.last_pose = (false, false);
+            }
+            self.dimensions = client_world::ExplicitDimensions::for_spawn(revision);
+        }
         let mut size = self
             .size
             .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
