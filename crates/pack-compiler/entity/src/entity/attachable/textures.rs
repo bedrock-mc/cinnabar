@@ -35,7 +35,9 @@ pub(super) fn compile_texture_identifiers_with_priorities(
             ordered.push(identifier);
         }
     }
-    identifiers.extend(assets::entity::shared_equipment_textures());
+    for identifier in assets::entity::shared_equipment_textures() {
+        identifiers.push(identifier);
+    }
     identifiers.sort_unstable();
     identifiers.dedup();
     ordered.extend(
