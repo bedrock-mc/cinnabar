@@ -12,6 +12,7 @@ mod minecraft_import;
 mod mods;
 mod out_of_game;
 mod roster;
+mod server_forms;
 mod settings_screens;
 mod shader_options;
 mod shader_pack;
@@ -277,34 +278,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::SettingsDraft,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-overlap",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::FormOverlap,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "ddui-custom-form",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::DataDriven(protocol::ddui::ScriptedScreen::CustomForm),
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "ddui-message-box",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::DataDriven(protocol::ddui::ScriptedScreen::MessageBox),
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-control-locked",
-        size: [1280, 960],
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::ControlLocked,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -1012,5 +985,6 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(settings_screens::SEARCH_STATES)
         .chain(settings_screens::WORLD_STATES)
         .chain(settings_screens::PAGE_STATES)
+        .chain(server_forms::STATES)
         .chain(touch_editor::STATES)
 }
