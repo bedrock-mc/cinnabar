@@ -869,7 +869,7 @@ fn climber_sync_flags(freeze: Freeze) -> [u64; 3] {
         }
     }
     let mut sent = None;
-    send_movement_prediction_sync(&mut physics, &actor, None, false, |packet| {
+    send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
         sent = Some(packet);
         true
     });
