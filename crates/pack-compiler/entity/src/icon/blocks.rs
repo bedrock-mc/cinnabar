@@ -505,6 +505,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn partial_furnace_carried_faces_keep_the_world_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"furnace":{"textures":"side","carried_textures":{"up":"top"}}}"#,
+            r#"{"texture_data":{"side":{"textures":"textures/blocks/side"},"top":{"textures":"textures/blocks/top"}}}"#,
+            "[]",
+        );
+        for (name, color) in [("side", [61, 79, 97, 255]), ("top", [19, 31, 47, 255])] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        for record in blocks
+            .records
+            .iter()
+            .filter(|r| r.name.as_ref() == "minecraft:furnace")
+        {
+            let tiles = blocks
+                .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                .unwrap()
+                .expect("missing carried faces fall back independently");
+            for face in BlockFace::ALL {
+                let expected = if face == BlockFace::Up {
+                    [19, 31, 47, 255]
+                } else {
+                    [61, 79, 97, 255]
+                };
+                assert_eq!(&tiles[face as usize].rgba8[..4], &expected);
+            }
+        }
+    }
+
     /// Writes the block and texture catalogs needed to load icon test fixtures.
     fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
         std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
