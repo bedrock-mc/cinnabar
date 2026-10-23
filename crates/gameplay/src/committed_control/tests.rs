@@ -502,6 +502,7 @@ fn an_applied_vehicle_correction_resets_presentation() {
             vehicle_angular_velocity: None,
         },
         vehicle_runtime_id: 7,
+        vehicle_revision: 0,
     };
     let mut apply = || {
         CommittedGameplayState {

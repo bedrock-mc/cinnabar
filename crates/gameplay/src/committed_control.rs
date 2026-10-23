@@ -172,6 +172,7 @@ impl CommittedGameplayState<'_> {
         if let CommittedControlEvent::VehicleMovementCorrection {
             correction,
             vehicle_runtime_id,
+            vehicle_revision,
             ..
         } = control
         {
@@ -185,6 +186,7 @@ impl CommittedGameplayState<'_> {
                 .physics
                 .correct_vehicle(&movement::vehicle::VehicleCorrection {
                     runtime_id: vehicle_runtime_id,
+                    revision: vehicle_revision,
                     tick: correction.tick,
                     position: correction.position,
                     velocity: correction.delta,

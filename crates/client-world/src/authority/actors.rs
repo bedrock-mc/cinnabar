@@ -338,10 +338,12 @@ impl WorldAuthority {
         let Some(vehicle_runtime_id) = self.local_controlled_vehicle().map(|v| v.runtime_id) else {
             return;
         };
+        let vehicle_revision = self.local_vehicle_revision();
         self.push_committed_control(CommittedControlEvent::VehicleMovementCorrection {
             sequence,
             correction,
             vehicle_runtime_id,
+            vehicle_revision,
         });
     }
     /// Drives the predicted pose of the boat the local player steers; feeds for any other

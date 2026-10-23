@@ -513,3 +513,21 @@ fn server_motion_of_the_steered_boat_restarts_prediction() {
         [0.5, 0.0, 0.0]
     );
 }
+
+/// A steered boat the client does not yet predict, such as one whose seat is unresolved,
+/// keeps its streamed movement.
+#[test]
+fn a_steered_boat_without_prediction_keeps_streamed_moves() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    sequence += 1;
+    store.apply(1, sequence, boat_move(40.0, false));
+    assert_eq!(
+        store
+            .snapshot_by_unique(BOAT)
+            .unwrap()
+            .last_received_pose()
+            .position[0],
+        40.0
+    );
+}

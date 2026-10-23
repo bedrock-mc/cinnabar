@@ -84,10 +84,12 @@ impl ActorStore {
         self.effect_members.collidable.update(actor);
     }
 
-    /// Whether a server move applies. Moves of the boat the local player steers apply only
-    /// when they teleport or are forced.
+    /// Whether a server move applies. Moves of the boat the local player steers and the
+    /// client predicts apply only when they teleport or are forced; until prediction feeds
+    /// it, the boat keeps its streamed movement.
     pub(super) fn admit_local_vehicle_move(&mut self, movement: &ActorMoveEvent) -> bool {
-        if self.local_steered_boat() == Some(movement.runtime_id)
+        if self.local_vehicle.predicted == Some(movement.runtime_id)
+            && self.local_steered_boat() == Some(movement.runtime_id)
             && !movement.teleported
             && !movement.force_local_move
         {

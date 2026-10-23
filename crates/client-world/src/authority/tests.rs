@@ -945,6 +945,7 @@ fn vehicle_corrections_reach_only_a_vehicle_the_player_steers() {
             sequence: 3,
             correction,
             vehicle_runtime_id: 50,
+            vehicle_revision: 0,
         }]
     );
 }

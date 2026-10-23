@@ -54,6 +54,9 @@ impl PredictedVehicleSample {
 pub struct VehicleCorrection {
     /// The vehicle the player steered when the correction arrived.
     pub runtime_id: u64,
+    /// The vehicle revision when the correction arrived; the corrected session continues
+    /// from it.
+    pub revision: u64,
     pub tick: u64,
     /// Network position.
     pub position: [f32; 3],
@@ -188,8 +191,8 @@ impl VehiclePrediction {
     }
 
     /// Continues the session from a server correction's vehicle state and returns the rider's
-    /// seat feet on it. A correction of another vehicle, from before this session, no newer
-    /// than one already applied, or with non-finite state is ignored.
+    /// seat feet on it. A correction of another vehicle, from before this session or its
+    /// revision, no newer than one already applied, or with non-finite state is ignored.
     pub(super) fn correct(&mut self, correction: &VehicleCorrection) -> Option<[f32; 3]> {
         let session = self.session.as_mut()?;
         let finite = correction
@@ -201,10 +204,13 @@ impl VehiclePrediction {
             .all(|value| value.is_finite());
         if !finite
             || correction.runtime_id != session.owner.runtime_id
+            || correction.revision < session.owner.revision
             || correction.tick <= session.stale_through?
         {
             return None;
         }
+        // The correction is newer than any server change it arrived after.
+        session.owner.revision = correction.revision;
         session.stale_through = Some(correction.tick);
         session.previous_yaw = correction.rotation[1];
         session.state = BoatState {

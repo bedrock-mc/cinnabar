@@ -201,6 +201,7 @@ fn a_correction_restarts_prediction_from_the_newest_server_state() {
     let at = drive(&mut predicted, boat(), 1, 10);
     let correction = |tick, x: f32| VehicleCorrection {
         runtime_id: 7,
+        revision: 0,
         tick,
         position: [x, at.position[1], at.position[2]],
         velocity: [0.0; 3],
@@ -227,6 +228,39 @@ fn a_correction_restarts_prediction_from_the_newest_server_state() {
     // Prediction continues from the corrected boat.
     let next = drive(&mut predicted, boat(), 11, 1);
     assert!((next.position[0] - 2.0).abs() < 0.5);
+}
+
+/// A correction arriving after a server change continues the session at that change's
+/// revision, so the older change does not replace the corrected boat.
+#[test]
+fn a_correction_after_a_server_change_continues_at_its_revision() {
+    let mut predicted = VehiclePrediction::default();
+    let at = drive(&mut predicted, boat(), 1, 10);
+    let correction = VehicleCorrection {
+        runtime_id: 7,
+        revision: 1,
+        tick: 9,
+        position: [2.0, at.position[1], at.position[2]],
+        velocity: [0.0; 3],
+        rotation: [0.0, 0.0],
+        angular_velocity: None,
+        on_ground: false,
+    };
+    predicted.correct(&correction).unwrap();
+    assert_eq!(predicted.feed().unwrap().revision, 1);
+    let changed = SteeredVehicle {
+        revision: 1,
+        ..boat()
+    };
+    let next = drive(&mut predicted, changed, 11, 1);
+    assert!((next.position[0] - 2.0).abs() < 0.5);
+    // A correction from before that change is ignored.
+    let older = VehicleCorrection {
+        revision: 0,
+        tick: 12,
+        ..correction
+    };
+    assert_eq!(predicted.correct(&older), None);
 }
 
 #[test]
@@ -256,6 +290,7 @@ fn a_correction_from_an_earlier_session_is_ignored() {
     let before = predicted.feed().unwrap();
     let stale = VehicleCorrection {
         runtime_id: 7,
+        revision: 0,
         tick: 8,
         position: at.position,
         velocity: [0.0; 3],
