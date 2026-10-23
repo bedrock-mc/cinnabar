@@ -229,99 +229,8 @@
           ],
           "controls": [
             {
-              "utilities@cinnabar_touch.utility_button": {
+              "utilities@cinnabar_touch.menu_button": {
                 "$control": "cinnabar.touch.utilities",
-                "$uv": [
-                  236,
-                  46
-                ],
-                "controls": [
-                  {
-                    "art": {
-                      "visible": false
-                    }
-                  },
-                  {
-                    "background": {
-                      "type": "image",
-                      "texture": "textures/ui/white",
-                      "color": [
-                        0,
-                        0,
-                        0
-                      ],
-                      "alpha": 0.65,
-                      "size": [
-                        "100%",
-                        "100%"
-                      ],
-                      "keep_ratio": false
-                    }
-                  },
-                  {
-                    "bar_0": {
-                      "type": "image",
-                      "texture": "textures/ui/white",
-                      "color": [
-                        1,
-                        1,
-                        1
-                      ],
-                      "size": [
-                        10,
-                        2
-                      ],
-                      "offset": [
-                        0,
-                        -4
-                      ],
-                      "layer": 1,
-                      "keep_ratio": false
-                    }
-                  },
-                  {
-                    "bar_1": {
-                      "type": "image",
-                      "texture": "textures/ui/white",
-                      "color": [
-                        1,
-                        1,
-                        1
-                      ],
-                      "size": [
-                        10,
-                        2
-                      ],
-                      "offset": [
-                        0,
-                        0
-                      ],
-                      "layer": 1,
-                      "keep_ratio": false
-                    }
-                  },
-                  {
-                    "bar_2": {
-                      "type": "image",
-                      "texture": "textures/ui/white",
-                      "color": [
-                        1,
-                        1,
-                        1
-                      ],
-                      "size": [
-                        10,
-                        2
-                      ],
-                      "offset": [
-                        0,
-                        4
-                      ],
-                      "layer": 1,
-                      "keep_ratio": false
-                    }
-                  }
-                ],
                 "layer": 30
               }
             },
@@ -353,12 +262,8 @@
               }
             },
             {
-              "menu@cinnabar_touch.utility_button": {
-                "$control": "cinnabar.touch.menu",
-                "$uv": [
-                  200,
-                  64
-                ]
+              "menu@cinnabar_touch.menu_button": {
+                "$control": "cinnabar.touch.menu"
               }
             }
           ]
@@ -396,7 +301,7 @@
           "anchor_to": "top_left",
           "size": [
             116,
-            78
+            "100%c"
           ],
           "layer": 21,
           "bindings": [
@@ -469,7 +374,7 @@
   "utility_menu_item": {
     "type": "button",
     "size": [
-      116,
+      "100%",
       26
     ],
     "layer": 22,
@@ -483,20 +388,20 @@
     ],
     "controls": [
       {
-        "background": {
-          "type": "image",
-          "texture": "textures/ui/white",
-          "color": [
-            0.1,
-            0.1,
-            0.1
-          ],
-          "alpha": 0.95,
-          "size": [
-            "100%",
-            "100%"
-          ],
-          "keep_ratio": false
+        "background@cinnabar_touch.utility_frame": {
+          "$face": "textures/ui/recipe_book_light_button"
+        }
+      },
+      {
+        "hover@cinnabar_touch.utility_frame": {
+          "$face": "textures/ui/recipe_book_light_button_pressed",
+          "layer": 1
+        }
+      },
+      {
+        "pressed@cinnabar_touch.utility_frame": {
+          "$face": "textures/ui/recipe_book_light_button_pressed",
+          "layer": 1
         }
       },
       {
@@ -505,11 +410,11 @@
           "text": "$text",
           "localize": false,
           "color": [
-            1,
-            1,
-            1
+            0,
+            0,
+            0
           ],
-          "shadow": true,
+          "shadow": false,
           "text_alignment": "left",
           "anchor_from": "left_middle",
           "anchor_to": "left_middle",
@@ -521,21 +426,21 @@
             "100% - 24px",
             16
           ],
-          "layer": 1
+          "layer": 2
         }
       },
       {
         "active": {
           "type": "image",
-          "texture": "textures/ui/white",
+          "texture": "textures/ui/checkmark_white",
           "color": [
-            0.5,
-            1,
-            0.5
+            0,
+            0,
+            0
           ],
           "size": [
-            3,
-            12
+            10,
+            10
           ],
           "anchor_from": "right_middle",
           "anchor_to": "right_middle",
@@ -543,14 +448,55 @@
             -6,
             0
           ],
-          "layer": 1,
+          "layer": 2,
           "bindings": [
             {
               "binding_name": "$active",
               "binding_name_override": "#visible"
             }
           ],
-          "keep_ratio": false
+          "keep_ratio": true
+        }
+      }
+    ],
+    "default_control": "background",
+    "hover_control": "hover",
+    "pressed_control": "pressed"
+  },
+  "menu_button@cinnabar_touch.utility_button": {
+    "$uv": [
+      200,
+      64
+    ]
+  },
+  "utility_frame": {
+    "type": "panel",
+    "size": [
+      "100%",
+      "100%"
+    ],
+    "controls": [
+      {
+        "outline": {
+          "type": "image",
+          "texture": "textures/ui/control",
+          "keep_ratio": false,
+          "size": [
+            "100%",
+            "100%"
+          ]
+        }
+      },
+      {
+        "face": {
+          "type": "image",
+          "texture": "$face",
+          "keep_ratio": false,
+          "size": [
+            "100% - 2px",
+            "100% - 2px"
+          ],
+          "layer": 1
         }
       }
     ]
