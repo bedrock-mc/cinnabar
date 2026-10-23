@@ -53,7 +53,7 @@ fn reported_box(
 /// A width-only update preserves the last local height even if its width is unchanged.
 #[test]
 fn sync_sparse_width_preserves_pose_owned_height() {
-    let height = sim::MovementMode::Walking.hitbox_height(true) as f32;
+    let height = sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32;
     for scale in [1.0, 2.0] {
         for previous_height in [None, Some(1.5)] {
             let mut world = local_actor_authority();
@@ -96,7 +96,7 @@ fn sync_sparse_width_preserves_pose_owned_height() {
 /// A height-only update preserves width after a local resize replaced older metadata.
 #[test]
 fn sync_sparse_height_preserves_pose_owned_width() {
-    let height = sim::MovementMode::Walking.hitbox_height(true) as f32;
+    let height = sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32;
     let mut world = local_actor_authority();
     let mut physics = due_physics();
     write_dimensions(&mut world, 2, &[(ActorDataKey::Width, 0.8)]);
