@@ -441,7 +441,10 @@ fn go_server_half_passes_the_client_verifiers() {
     assert_eq!(wire::encode(&large, &wire).unwrap(), messages[1..]);
     assert_eq!(
         ingress
-            .receive_epoch_request(&read("go/world_change_request.json"), &grant)
+            .receive_epoch_request(
+                &protocol::ExperienceMessage::new(read("go/world_change_request.json")),
+                &grant,
+            )
             .unwrap(),
         Some(world_epoch + 1)
     );

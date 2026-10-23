@@ -96,8 +96,11 @@ fence opens.
 
 The fence takes effect before the notice is written. Notices and their correlated
 acknowledgments bypass the data rate budget, so exhausted data credits cannot delay
-a transfer. A newer world supersedes the pending notice; only its acknowledgment
-opens the fence. Superseded and repeated acknowledgments are ignored. There are no
+a transfer. Each connection has at most one outstanding notice. Further transfers
+record only the latest desired world. After the outstanding acknowledgment arrives,
+the server sends one notice for that world if it differs from the noticed world.
+The fence stays closed until the latest desired world is acknowledged. Retired and
+repeated acknowledgments are ignored. There are no
 retry timers. A write failure ends the optional client part while ordinary play
 continues. `WorldChanged` returns false when there is no usable v2 session or the
 world ID is empty.

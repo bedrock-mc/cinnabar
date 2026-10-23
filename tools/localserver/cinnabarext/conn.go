@@ -96,8 +96,10 @@ type Conn struct {
 	epochChanged bool
 	// requestedEpoch retains the latest notice ID so retired acknowledgments are ignored.
 	requestedEpoch uint64
+	// worldID is the latest desired world; requestedWorld is the world of the latest notice.
 	worldID        WorldID
-	// worldNoticePending fences both directions until the latest notice is acknowledged.
+	requestedWorld WorldID
+	// worldNoticePending fences both directions until the latest desired world is acknowledged.
 	worldNoticePending bool
 }
 
@@ -250,6 +252,11 @@ func (c *Conn) changeEpoch(msg Control) error {
 	c.epoch = e.WorldEpoch
 	if msg.WorldAck != nil {
 		c.worldNoticePending = false
+		if c.worldID != c.requestedWorld {
+			if err := c.requestWorldEpoch(); err != nil {
+				return err
+			}
+		}
 	}
 	c.epochChanged = !c.worldNoticePending
 	c.s.log.Info("client part world epoch", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch)

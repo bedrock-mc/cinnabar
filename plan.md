@@ -795,7 +795,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   notice and invoke the existing client-part epoch callback, including
   same-dimension-type transfers. Notices and their correlated acknowledgments bypass
   data credits at network and runtime admission, with one outstanding size-bounded
-  notice per connection until its acknowledgment is written. Excess control traffic
+  notice per connection until its acknowledgment is written. The server coalesces
+  rapid transfers to the latest desired world, sending its next notice only after
+  the outstanding acknowledgment arrives and keeping messages fenced throughout.
+  Excess control traffic
   is dropped without quarantining data; write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.

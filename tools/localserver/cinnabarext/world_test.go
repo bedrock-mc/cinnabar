@@ -146,3 +146,95 @@ func TestWorldAcknowledgmentsRejectInvalidNotices(t *testing.T) {
 		})
 	}
 }
+
+func TestWorldChangesCoalesceUntilTheOutstandingNoticeIsAcknowledged(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		worlds []WorldID
+	}{
+		{"two transfers", []WorldID{"sample:first", "sample:second"}},
+		{"three transfers", []WorldID{"sample:first", "sample:second", "sample:third"}},
+		{"return to first", []WorldID{"sample:first", "sample:second", "sample:first"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f, accept := readyFixture(t)
+			var desired WorldID
+			var notified []WorldID
+			f.s.OnEpoch(func(uuid.UUID, string) { notified = append(notified, desired) })
+			before := len(f.carrier())
+			for _, world := range test.worlds {
+				desired = world
+				if !f.s.WorldChanged(f.player, world) || len(f.carrier()) != before+1 {
+					t.Fatal("transfer sent a second outstanding notice")
+				}
+				if !f.s.WorldChanged(f.player, world) || len(f.carrier()) != before+1 {
+					t.Fatal("duplicate world allocated another notice")
+				}
+				if f.sendToClient(1) {
+					t.Fatal("transfer opened sends before acknowledgment")
+				}
+			}
+			first := f.lastWorldNotice()
+			f.deliver(f.envelope(accept, 1, nil))
+			if len(f.messages()) != 0 {
+				t.Fatal("old-world traffic crossed the pending fence")
+			}
+			// The client may advance further than requested after a native world change.
+			epoch := first.Epoch.WorldEpoch + 1
+			firstAck := worldAcknowledgment(first, epoch)
+			f.deliver(f.encode(firstAck))
+			latest := first
+			if desired != test.worlds[0] {
+				if len(f.carrier()) != before+2 || len(notified) != 0 || f.sendToClient(2) {
+					t.Fatal("first acknowledgment did not keep the latest world fenced")
+				}
+				latest = f.lastWorldNotice()
+				if latest.Epoch.WorldEpoch <= epoch {
+					t.Fatal("coalesced notice did not exceed the acknowledged client epoch")
+				}
+				f.deliver(f.encode(firstAck))
+				if len(f.carrier()) != before+2 || len(notified) != 0 || f.sendToClient(3) {
+					t.Fatal("retired acknowledgment changed the pending transfer")
+				}
+				f.deliver(f.envelope(accept, 2, func(e *Envelope) { e.WorldEpoch = epoch }))
+				if len(f.messages()) != 0 {
+					t.Fatal("intermediate-world traffic crossed the pending fence")
+				}
+				epoch = latest.Epoch.WorldEpoch
+				f.deliver(f.encode(worldAcknowledgment(latest, epoch)))
+			} else if len(f.carrier()) != before+1 {
+				t.Fatal("returning to the noticed world sent a redundant notice")
+			}
+			if len(notified) != 1 || notified[0] != desired || !f.sendToClient(4) {
+				t.Fatal("latest-world acknowledgment did not resume application messages")
+			}
+			var sent Envelope
+			frames := f.carrier()
+			if err := Decode(frames[len(frames)-1], &sent); err != nil || sent.WorldEpoch != epoch {
+				t.Fatalf("outbound world epoch = %d, want %d: %v", sent.WorldEpoch, epoch, err)
+			}
+			sequence := uint64(3)
+			if desired == test.worlds[0] {
+				sequence = 2
+			}
+			f.deliver(f.envelope(accept, sequence, func(e *Envelope) { e.WorldEpoch = epoch }))
+			if len(f.messages()) != 1 {
+				t.Fatal("latest-world message was not delivered")
+			}
+			f.deliver(f.encode(firstAck), f.encode(worldAcknowledgment(latest, epoch)))
+			if len(notified) != 1 || !f.sendToClient(5) {
+				t.Fatal("repeated acknowledgments changed the completed transfer")
+			}
+			// Another travel after completion must establish and release a new fence.
+			desired = "sample:next"
+			if !f.s.WorldChanged(f.player, desired) || f.sendToClient(6) {
+				t.Fatal("later travel did not establish a new fence")
+			}
+			next := f.lastWorldNotice()
+			f.deliver(f.encode(worldAcknowledgment(next, next.Epoch.WorldEpoch)))
+			if len(notified) != 2 || notified[1] != desired || !f.sendToClient(7) {
+				t.Fatal("later travel did not release its fence")
+			}
+		})
+	}
+}

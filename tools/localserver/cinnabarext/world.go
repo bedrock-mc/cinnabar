@@ -12,6 +12,7 @@ type WorldID string
 
 // WorldChanged requests a fresh client epoch after a committed world transfer, including
 // transfers between worlds of the same dimension type. Duplicate world IDs are idempotent.
+// While a notice is outstanding, further transfers coalesce to the latest world ID.
 // Sends remain unavailable until OnEpoch reports the client's acknowledgment. Call from
 // the destination world transaction after moving the player. Notices bypass data credits.
 // False means there is no usable v2 session or the world ID is empty.
@@ -34,21 +35,29 @@ func (s *Server) WorldChanged(player uuid.UUID, worldID WorldID) bool {
 	if conn.worldID == worldID {
 		return true
 	}
-	next := max(conn.epoch, conn.requestedEpoch) + 1
-	if next == 0 {
-		conn.fallBack(errors.New("world epoch exhausted"))
-		return false
+	conn.worldID = worldID
+	if conn.worldNoticePending {
+		return true
 	}
-	// Establish the fence before writing; acknowledgments take the same connection lock.
-	conn.requestedEpoch, conn.worldID, conn.worldNoticePending = next, worldID, true
-	data, err := Encode(Control{Epoch: &Epoch{Session: conn.session, WorldEpoch: next}})
-	if err != nil {
-		conn.fallBack(err)
-		return false
-	}
-	if err := conn.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
+	if err := conn.requestWorldEpoch(); err != nil {
 		conn.fallBack(err)
 		return false
 	}
 	return true
+}
+
+// requestWorldEpoch fences messages and sends a notice for the latest desired world.
+// The caller holds c.mu and has no outstanding notice.
+func (c *Conn) requestWorldEpoch() error {
+	next := max(c.epoch, c.requestedEpoch) + 1
+	if next == 0 {
+		return errors.New("world epoch exhausted")
+	}
+	// Establish the fence before writing; acknowledgments take the same connection lock.
+	c.requestedEpoch, c.requestedWorld, c.worldNoticePending = next, c.worldID, true
+	data, err := Encode(Control{Epoch: &Epoch{Session: c.session, WorldEpoch: next}})
+	if err != nil {
+		return err
+	}
+	return c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data})
 }
