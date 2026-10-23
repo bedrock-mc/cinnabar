@@ -3,7 +3,38 @@
 use super::{Content, localization};
 use crate::review_tests::paint;
 use launcher::menu::MenuView;
+use launcher::menu::settings_options::SettingId;
 use std::{collections::HashMap, sync::Arc};
+
+#[test]
+fn french_option_descriptions_precede_english_catalog_fallbacks() {
+    let translate = |key: &str| match key {
+        "options.fullscreen.description" => Some(Arc::<str>::from("English fullscreen help")),
+        _ => None,
+    };
+    for locale in ["fr_FR", "fr_CA", "en_US"] {
+        let mut view = MenuView::new(true, "Player".into());
+        assert!(Arc::make_mut(&mut view.settings_options).set_language(locale));
+        paint(HashMap::new(), |canvas| {
+            let content = Content {
+                canvas,
+                view: &view,
+                span: [0.0, 1000.0],
+                column_width: 1000.0,
+                y: 0.0,
+                translate: &translate,
+                nested: false,
+            };
+            let (_, description) = content.option_text(SettingId::FullScreen);
+            let expected = if locale.starts_with("fr") {
+                "Activer ou désactiver l'affichage plein écran"
+            } else {
+                "English fullscreen help"
+            };
+            assert_eq!(description, expected, "{locale}");
+        });
+    }
+}
 
 #[test]
 fn french_settings_text_preserves_accents_and_punctuation() {

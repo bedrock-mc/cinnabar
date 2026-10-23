@@ -147,7 +147,7 @@ pub(super) fn results(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             continue;
         }
         found = true;
-        services::action_row(
+        services::action_row_text(
             content,
             &title,
             "",

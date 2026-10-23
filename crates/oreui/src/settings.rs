@@ -350,9 +350,14 @@ impl Content<'_, '_> {
     pub(super) fn label(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let title = self.word(title);
         let description = self.word(description);
+        self.label_text(&title, &description)
+    }
+
+    /// Draws literal or already translated text without looking it up again.
+    pub(super) fn label_text(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let [left, right] = self.inset();
-        let b = self.row(&title, &description, right - left, None, 0.0)?;
-        self.texts(b, &title, &description, right - left, 0.0)?;
+        let b = self.row(title, description, right - left, None, 0.0)?;
+        self.texts(b, title, description, right - left, 0.0)?;
         Ok(())
     }
 

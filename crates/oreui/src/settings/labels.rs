@@ -21,8 +21,13 @@ impl Content<'_, '_> {
             SettingId::ControllerInvertYAxis => "options.invertYAxis.description".to_owned(),
             _ => format!("{base_key}.description"),
         };
-        let description =
-            (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
+        let description = super::localization::locale_text(
+            &description_key,
+            self.view.settings_options.language(),
+        )
+        .map(str::to_owned)
+        .or_else(|| (self.translate)(&description_key).map(|text| text.to_string()))
+        .unwrap_or_default();
         let description = if id == SettingId::ChunkOcclusionCulling {
             "Skip terrain hidden behind other blocks. Visible terrain stays available.".to_owned()
         } else if id == SettingId::GraphicsApi {
@@ -48,18 +53,11 @@ impl Content<'_, '_> {
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
         } else if description.is_empty() {
-            if let Some(fr) = super::localization::locale_text(
-                &description_key,
-                self.view.settings_options.language(),
-            ) {
-                fr.to_owned()
+            let fallback = super::localization::fallback(&description_key);
+            if fallback == description_key {
+                String::new()
             } else {
-                let fallback = super::localization::fallback(&description_key);
-                if fallback == description_key {
-                    String::new()
-                } else {
-                    fallback.to_owned()
-                }
+                fallback.to_owned()
             }
         } else {
             description
