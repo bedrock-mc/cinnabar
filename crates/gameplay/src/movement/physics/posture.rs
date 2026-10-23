@@ -11,7 +11,7 @@ pub(super) struct SyncState {
     pub flags: client_world::MovementFlagUpdate,
     pub size: Option<[f32; 2]>,
     explicit_size: bool,
-    dimensions_revision: Option<u64>,
+    dimensions: client_world::ExplicitDimensions,
     last_pose: (bool, bool),
     previous_mode: sim::MovementMode,
     pending: client_world::MovementFlagUpdate,
@@ -38,11 +38,26 @@ impl SyncState {
         }
     }
 
-    /// Observes a new explicit request, independently of its numerical dimensions.
-    fn server_dimensions(&mut self, revision: Option<u64>) {
-        if revision.is_some() && revision != self.dimensions_revision {
-            self.dimensions_revision = revision;
-            self.size = None;
+    /// Applies newly supplied components to the current size, preserving the other axis.
+    fn server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
+        let mut size = self
+            .size
+            .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
+        let mut changed = false;
+        for ((previous, received), value) in
+            [&mut self.dimensions.width, &mut self.dimensions.height]
+                .into_iter()
+                .zip([dimensions.width, dimensions.height])
+                .zip(&mut size)
+        {
+            if let Some(write) = received.filter(|write| Some(*write) != *previous) {
+                *previous = Some(write);
+                *value = write.value;
+                changed = true;
+            }
+        }
+        if changed {
+            self.size = Some(size);
             self.explicit_size = true;
         }
     }
@@ -55,12 +70,12 @@ impl SyncState {
     /// Reapplies server writes received after the last completed tick to a replay result.
     pub(super) fn restore_pending(&mut self, live: Self) {
         self.server_flags(live.pending);
-        self.server_dimensions(live.dimensions_revision);
+        self.server_dimensions(live.dimensions);
     }
 
     /// Records producer writes after a successful movement tick.
     pub(super) fn complete_tick(&mut self, frame: &ControllerFrame, state: &PlayerState) {
-        self.server_dimensions(frame.intent.dimensions_revision);
+        self.server_dimensions(frame.intent.explicit_dimensions);
         self.flags.sneaking = Some(frame.input.sneaking);
         self.flags.sprinting = Some(frame.input.sprinting);
         self.flags.has_collision = Some(!frame.input.no_clip);
@@ -129,8 +144,11 @@ impl LocalPhysicsController {
     }
 
     /// Records a server dimension write before any later local resize is evaluated.
-    pub(in crate::movement) fn note_server_dimensions(&mut self, revision: Option<u64>) {
-        self.sync_state.server_dimensions(revision);
+    pub(in crate::movement) fn note_server_dimensions(
+        &mut self,
+        dimensions: client_world::ExplicitDimensions,
+    ) {
+        self.sync_state.server_dimensions(dimensions);
     }
 
     /// Whether a newer explicit dimension request still owns the reported size.

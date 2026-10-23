@@ -338,6 +338,26 @@ impl WorldAuthority {
                 if life_accepted {
                     if let Some(attributes) = local_health_attributes {
                         if local_spawn {
+                            let movement = self
+                                .actors
+                                .get(self.local_player_runtime_id)
+                                .and_then(|actor| {
+                                    actor.attributes.get(Attribute::Movement.wire_name())
+                                })
+                                .and_then(MovementSpeedAttribute::from_attribute);
+                            self.local_movement_speed = movement.map(|attribute| attribute.current);
+                            self.push_committed_control(
+                                CommittedControlEvent::LocalMovementSpeed {
+                                    sequence,
+                                    dimension: self.current_dimension,
+                                    movement,
+                                    movement_received: true,
+                                    underwater: None,
+                                    lava: None,
+                                    air_drag_modifier: None,
+                                    tick: 0,
+                                },
+                            );
                             mount_ui_committed = self.publish_spawn_health(sequence, &attributes);
                         }
                         self.publish_local_life(

@@ -52,8 +52,8 @@ pub struct ModeIntent {
     pub ride_seat: Option<[f32; 3]>,
     /// The mounted vehicle selects this local player as its controller.
     pub vehicle_controlled_locally: bool,
-    /// Arrival revision of the latest explicit server dimension write.
-    pub dimensions_revision: Option<u64>,
+    /// Latest supplied server dimensions and their separate arrivals.
+    pub explicit_dimensions: client_world::ExplicitDimensions,
     /// Abilities permit flight.
     pub can_fly: bool,
     /// Effective flight value and authority retained from the winning ability layer.
