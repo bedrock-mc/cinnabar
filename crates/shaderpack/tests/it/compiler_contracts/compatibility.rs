@@ -144,6 +144,7 @@ fn compatibility_unused_fragment_inputs_do_not_declare_unknown_vertex_names() {
         "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(1.0); }",
         "#version 330\nin vec2 carry; struct Data { vec2 carry; }; out vec4 color; void main() { Data d=Data(vec2(1.0)); color=vec4(d.carry,0.0,1.0); }",
         "#version 330\nin vec2 carry; out vec4 color; void main() { vec2 carry=vec2(1.0); color=vec4(carry,0.0,1.0); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { struct Data { vec2 carry; }; Data d=Data(vec2(1.0)); color=vec4(d.carry,0.0,1.0); }",
     ] {
         let translated = translate(
             "#version 330\nvoid main() { carry=vec2(0.25); gl_Position=vec4(0.0); }",
@@ -209,5 +210,79 @@ fn compatibility_vertex_references_after_local_scope_still_create_outputs() {
     success(
         "#version 330\nvoid main() { { vec2 carry=vec2(1.0); gl_Position=vec4(carry,0.0,1.0); } carry=vec2(0.25,0.75); }",
         "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_implicit_vertex_attributes_do_not_create_outputs() {
+    success(
+        "#version 330\nlayout(location=0) out vec2 sourceUv; void main() { sourceUv=vaUV0; gl_Position=vec4(0.0); }",
+        "#version 330\nlayout(location=0) in vec2 vaUV0; out vec4 color; void main() { color=vec4(vaUV0,0.0,1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_local_struct_fields_do_not_create_outputs() {
+    for name in ["uv", "Data"] {
+        success(
+            "#version 450\nlayout(location=0) out vec2 sourceUv; void main() { struct Data { vec2 uv; }; Data d=Data(vec2(1.0)); sourceUv=d.uv; gl_Position=vec4(0.0); }",
+            &format!(
+                "#version 450\nlayout(location=0) in vec2 {name}; out vec4 color; void main() {{ color=vec4({name},0.0,1.0); }}"
+            ),
+        );
+    }
+}
+
+#[test]
+fn compatibility_initializer_callees_do_not_create_outputs() {
+    success(
+        "#version 450\nvec2 uv() { return vec2(1.0); } vec2 value=uv(); layout(location=0) out vec2 sourceUv; void main() { sourceUv=value; gl_Position=vec4(0.0); }",
+        "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_repaired_outputs_initialize_at_user_main_entry() {
+    let translated = success(
+        "#version 330\nfloat initialize() { carry=vec2(0.25); return 1.0; } float value=initialize(); void main() { gl_Position=vec4(value); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
+    let module = &program(&translated, "composite").stages[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let carry = module
+        .global_variables
+        .iter()
+        .find(|(_, g)| g.name.as_deref() == Some("carry"))
+        .unwrap()
+        .0;
+    let initialize = module
+        .functions
+        .iter()
+        .find(|(_, f)| f.name.as_deref() == Some("initialize"))
+        .unwrap()
+        .0;
+    let (main_handle, main) = module
+        .functions
+        .iter()
+        .find(|(_, f)| f.name.as_deref() == Some("iris_user_main"))
+        .unwrap();
+    assert!(
+        matches!(main.body.first(), Some(naga::Statement::Store { pointer, .. }) if matches!(main.expressions[*pointer], naga::Expression::GlobalVariable(g) if g == carry)),
+        "the repaired output is initialized at user main entry"
+    );
+    assert!(
+        module.functions.iter().any(|(_, function)| {
+            let initialize = function.body.iter().position(
+                |s| matches!(s, naga::Statement::Call { function, .. } if *function == initialize),
+            );
+            let main = function.body.iter().position(
+                |s| matches!(s, naga::Statement::Call { function, .. } if *function == main_handle),
+            );
+            matches!((initialize, main), (Some(initialize), Some(main)) if initialize < main)
+        }),
+        "global initializers still run before user main entry"
     );
 }

@@ -471,6 +471,19 @@ fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
     declarations
 }
 
+/// Finds type names in local declarations, excluding array bounds and initializers.
+pub(super) fn local_type_names(tokens: &[Tok]) -> HashSet<usize> {
+    declarations(tokens)
+        .into_iter()
+        .filter_map(|(start, end, declaration)| {
+            tokens[start..=end]
+                .iter()
+                .position(|token| token.ident() == Some(declaration.ty.as_str()))
+                .map(|index| start + index)
+        })
+        .collect()
+}
+
 /// Marks declaration array bounds, constant initializers, and switch case expressions.
 pub(super) fn constant_contexts(tokens: &[Tok]) -> HashSet<usize> {
     let mut constant = HashSet::new();

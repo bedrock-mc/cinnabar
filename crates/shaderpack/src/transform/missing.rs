@@ -2,13 +2,15 @@
 
 use super::TransformError;
 use super::items::{
-    Decl, func_params, layout_key, loc_size, mat_cols, parse_decl, shadowed_bindings, split_items,
+    Decl, func_params, layout_key, loc_size, local_type_names, mat_cols, parse_decl,
+    shadowed_bindings, split_items, struct_body_end,
 };
 use crate::preprocess::Preprocessed;
+use crate::programs::StageKind;
 use crate::token::{Tok, id, lex, p};
 use std::collections::HashSet;
 
-/// Declares missing numeric outputs before parsing, preserving existing vertex assignments.
+/// Declares missing numeric outputs before parsing, preserving writes in the user's main.
 /// Outputs with no vertex references remain the linker's responsibility.
 pub(crate) fn vertex_outputs(
     vertex: &mut Preprocessed,
@@ -58,7 +60,9 @@ pub(crate) fn vertex_outputs(
         .flat_map(|d| d.decls.iter().map(|(name, _, _)| name.as_str()))
         .collect();
     let live = references(&items, &names);
-    let used = references(&vertex_items, &names);
+    let core = super::legacy::undeclared_core_names(&vertex.tokens, StageKind::Vertex);
+    let used_items = core.as_deref().map(split_items);
+    let used = references(used_items.as_deref().unwrap_or(&vertex_items), &names);
     let mut outputs = Vec::new();
     let mut initializers = Vec::new();
     for declaration in &inputs {
@@ -147,6 +151,7 @@ fn references(items: &[Vec<Tok>], names: &HashSet<&str>) -> HashSet<String> {
                 for (i, token) in initializer.iter().enumerate() {
                     if let Some(name) = token.ident()
                         && names.contains(name)
+                        && !initializer.get(i + 1).is_some_and(|token| token.is("("))
                         && (i == 0 || !initializer[i - 1].is("."))
                     {
                         live.insert(name.to_owned());
@@ -163,8 +168,16 @@ fn references(items: &[Vec<Tok>], names: &HashSet<&str>) -> HashSet<String> {
         };
         let body = &item[brace..];
         let parameters: HashSet<_> = params.into_iter().map(|param| param.name).collect();
-        let shadowed = shadowed_bindings(body, names.iter().copied());
+        let mut shadowed = shadowed_bindings(body, names.iter().copied());
+        shadowed.extend(local_type_names(body));
+        let mut type_end = 0;
         for (i, token) in body.iter().enumerate() {
+            if let Some(end) = struct_body_end(body, i) {
+                type_end = type_end.max(end);
+            }
+            if i < type_end {
+                continue;
+            }
             if let Some(name) = token.ident()
                 && names.contains(name)
                 && !parameters.contains(name)
