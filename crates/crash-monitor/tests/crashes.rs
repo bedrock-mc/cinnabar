@@ -278,6 +278,10 @@ struct Run {
 
 impl Drop for Run {
     /// Prints fixture diagnostics before a failed run removes its temporary files.
+    #[expect(
+        clippy::print_stderr,
+        reason = "keeps crash fixture logs in test failure output"
+    )]
     fn drop(&mut self) {
         if std::thread::panicking() {
             for folder in &self.folders {
