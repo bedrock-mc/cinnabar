@@ -146,8 +146,8 @@ pub struct ActorSnapshot {
     pub source_tick: Option<u64>,
     /// Accepted actor metadata, independent of local animation flags.
     pub metadata: HashMap<u32, ActorMetadataValue>,
-    /// Arrival revision of the latest explicit finite Width or Height write.
-    pub explicit_dimensions_revision: Option<u64>,
+    /// Supplied finite dimensions, with a separate arrival for each component.
+    pub explicit_dimensions: ExplicitDimensions,
     /// Client-derived rendering flags, retired by the next received primary word.
     local_presentation_flags: Option<u64>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
@@ -279,7 +279,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
-            explicit_dimensions_revision: None,
+            explicit_dimensions: ExplicitDimensions::for_spawn(spawn_revision),
             local_presentation_flags: None,
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
@@ -348,7 +348,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
-            explicit_dimensions_revision: None,
+            explicit_dimensions: ExplicitDimensions::for_spawn(revision),
             local_presentation_flags: None,
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
@@ -535,15 +535,7 @@ impl ActorSnapshot {
             if metadata.key == ActorDataKey::Flags.wire_value() {
                 self.local_presentation_flags = None;
             }
-            if [
-                ActorDataKey::Width.wire_value(),
-                ActorDataKey::Height.wire_value(),
-            ]
-            .contains(&metadata.key)
-                && matches!(metadata.value, ActorMetadataValue::Float(value) if value.is_finite())
-            {
-                self.explicit_dimensions_revision = Some(sequence);
-            }
+            self.explicit_dimensions.record(metadata, sequence);
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
         // Falling-block size changes keep the network origin fixed. Other actors retain
@@ -810,7 +802,9 @@ mod hurt;
 mod last_death;
 mod local_health;
 pub use local_health::DEFAULT_PLAYER_HEALTH;
+mod dimensions;
 mod lifecycle;
+pub use dimensions::{DimensionWrite, ExplicitDimensions};
 mod movement_flags;
 mod riding_control;
 pub use movement_flags::MovementFlagUpdate;

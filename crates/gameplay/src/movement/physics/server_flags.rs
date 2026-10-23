@@ -14,7 +14,7 @@
 //! unstamped write only changes the live word. Pose rules then continue or end
 //! a pose and the spin runs its lifetime. Flag writes are not start or stop
 //! actions, so each input reports edges relative to the word its tick started
-//! with. Server item-use writes are not adopted yet.
+//! with. Item-use gameplay adoption is handled separately.
 
 use super::*;
 

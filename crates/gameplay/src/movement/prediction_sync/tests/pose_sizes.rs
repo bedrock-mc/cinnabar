@@ -74,18 +74,22 @@ fn pose_size_regression_current_correction_keeps_dimension_owner() {
         for horizontal in [false, true] {
             let mut physics = due_physics();
             let mut actor = local_actor();
-            actor.0.explicit_dimensions_revision = Some(20);
-            actor.0.metadata.insert(
-                ActorDataKey::Height.wire_value(),
-                ActorMetadataValue::Float(height),
-            );
+            let height_field = protocol::ActorMetadata {
+                key: ActorDataKey::Height.wire_value(),
+                value: ActorMetadataValue::Float(height),
+            };
+            actor.0.explicit_dimensions.record(&height_field, 20);
+            actor
+                .0
+                .metadata
+                .insert(height_field.key, height_field.value);
             let sample = physics
                 .advance_with_context(
                     simulation_clock::TICK_DURATION,
                     sim::MovementInput::default(),
                     crate::movement::PhysicsSampleContext {
                         mode_intent: crate::movement::ModeIntent {
-                            dimensions_revision: Some(20),
+                            explicit_dimensions: actor.0.explicit_dimensions,
                             ..Default::default()
                         },
                         ..Default::default()

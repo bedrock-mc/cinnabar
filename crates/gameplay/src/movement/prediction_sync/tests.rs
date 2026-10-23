@@ -4,7 +4,9 @@ use super::*;
 
 mod authority_writes;
 mod pose_sizes;
+mod progress;
 mod server_writes;
+mod state_updates;
 
 #[test]
 fn flags_read_all_three_words_and_missing_ones_are_zero() {
@@ -190,7 +192,19 @@ fn local_actor_authority() -> client_world::WorldAuthority {
         [0.0; 3],
         None,
     );
-    let spawn = protocol::ActorSpawnEvent {
+    authority
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(local_actor_spawn(attributes))),
+            Some(1),
+        )
+        .unwrap();
+    authority
+}
+
+/// Creates one local actor lifetime with the supplied attribute state.
+fn local_actor_spawn(attributes: Vec<protocol::ActorAttribute>) -> protocol::ActorSpawnEvent {
+    use std::sync::Arc;
+    protocol::ActorSpawnEvent {
         dimension: 0,
         unique_id: 70,
         runtime_id: 7,
@@ -208,14 +222,7 @@ fn local_actor_authority() -> client_world::WorldAuthority {
         attributes: Arc::from(attributes),
         properties: Arc::from([]),
         links: Arc::from([]),
-    };
-    authority
-        .apply_ordered_event(
-            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
-            Some(1),
-        )
-        .unwrap();
-    authority
+    }
 }
 
 /// Advances the correction countdown without completing a movement sample.
