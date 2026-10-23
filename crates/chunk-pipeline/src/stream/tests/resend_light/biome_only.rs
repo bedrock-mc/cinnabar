@@ -121,6 +121,7 @@ fn publish_biome_mesh(stream: &mut WorldStream, key: SubChunkKey) -> PackedBiome
     });
     stream
         .take_mesh_changes()
+        .into_iter()
         .find_map(|change| match change {
             WorldMeshChange::Upsert {
                 key: changed,
