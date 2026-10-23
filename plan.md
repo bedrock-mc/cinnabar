@@ -371,6 +371,7 @@ and rendered qualification remain incomplete.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
   Shared cube face sheets are bounded coverage.
+  Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
