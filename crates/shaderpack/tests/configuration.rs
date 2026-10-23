@@ -234,12 +234,8 @@ fn enable_rules_use_numeric_macros_and_retain_enabled_on_evaluation_errors() {
             .unwrap()
             .is_enabled(&defines)
     );
-    assert!(
-        !properties
-            .program_rule("world-1", "composite")
-            .unwrap()
-            .is_enabled(&defines)
-    );
+    // The root rule does not govern another dimension folder's program.
+    assert!(properties.program_rule("world-1", "composite").is_none());
     assert!(
         properties
             .program_rule("", "final")

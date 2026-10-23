@@ -93,18 +93,13 @@ impl ShaderProperties {
             .map(|(_, value)| value.as_str())
     }
 
-    /// The enable rule for `program` in `dimension` (folder name like "world0"): a
-    /// `program.<dimension>/<program>.enabled` rule wins over `program.<program>.enabled`.
+    /// The last enable rule for `program` in `dimension` (folder name like "world0", empty for
+    /// the root). Iris keys rules by the program's pack path, so `program.<program>.enabled`
+    /// governs only root programs and `program.<dimension>/<program>.enabled` only that folder's.
     pub fn program_rule(&self, dimension: &str, program: &str) -> Option<&ProgramRule> {
-        let for_program = || {
-            self.program_rules
-                .iter()
-                .rev()
-                .filter(move |rule| rule.program == program)
-        };
-        for_program()
-            .find(|rule| rule.dimension.as_deref() == Some(dimension))
-            .or_else(|| for_program().find(|rule| rule.dimension.is_none()))
+        self.program_rules.iter().rev().find(|rule| {
+            rule.program == program && rule.dimension.as_deref().unwrap_or("") == dimension
+        })
     }
 }
 
