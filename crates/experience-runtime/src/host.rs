@@ -2,6 +2,7 @@
 //! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`],
 //! [`v0_3`], [`v0_4`] and [`v0_5`] keep the worlds that older artifacts target.
 
+use experience_sdk::artifact::SERVER_WASM;
 use std::fmt;
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,6 @@ use crate::limits::{
     EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_FRAME_BYTES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES,
     MAX_MEMORY_BYTES, MAX_TABLE_ELEMENTS,
 };
-use crate::manifest::SERVER_WASM;
 
 pub(crate) mod v0_1;
 pub(crate) mod v0_2;

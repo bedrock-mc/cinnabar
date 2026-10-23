@@ -1359,6 +1359,11 @@ path = "crates/update-installer"
 allowed_dependencies = ["update-manifest"]
 forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio"]
 
+# Procedural attributes require a separate compiler plugin crate; the SDK owns their public API.
+[[reexport_allowances]]
+path = "crates/experience-sdk/src/lib.rs"
+exports = ["experience_macros::client", "experience_macros::server"]
+
 # Production identity decisions move to the facts owners; unlisted files have a zero budget.
 [identifier_literals]
 owners = [
@@ -1379,6 +1384,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "tools/cxb/src/project/local.rs"
+literal = "target"
+reason = "Cargo compiler-artifact JSON field, independent of game identifiers."
 
 [[identifier_literal_exceptions]]
 path = "crates/oreui/src/settings/localization.rs"

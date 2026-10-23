@@ -1,6 +1,7 @@
 //! Server WIT 0.5's items: an Experience's own, which `register` declares, and the server's,
 //! which the adapter lists at load with its crafting recipes.
 
+use experience_sdk::artifact::MAX_STACK_SIZE;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -10,7 +11,6 @@ use super::{asset_path, check_display_name, is_block_name};
 use crate::host::cinnabar::experience_server::types as wit;
 use crate::limits::{
     MAX_BLOCK_NAME_BYTES, MAX_ITEMS, MAX_RECIPE_INPUT_ITEMS, MAX_RECIPES, MAX_SERVER_ITEMS,
-    MAX_STACK_SIZE,
 };
 use crate::protocol::{BlockDef, ItemDef, Recipe, ServerItem};
 

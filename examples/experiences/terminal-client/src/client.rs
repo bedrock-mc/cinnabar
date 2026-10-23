@@ -15,8 +15,8 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use experience_sdk::Value;
 use experience_sdk::client::{ClientPart, ui};
+use experience_sdk::{Value, entry::client};
 use serde_json::{Map, json};
 
 /// Calls of `terminal.count` since this instance started.
@@ -24,7 +24,7 @@ static CALLS: AtomicI64 = AtomicI64::new(0);
 
 struct Terminal;
 
-#[experience_sdk::client]
+#[client]
 impl ClientPart for Terminal {
     fn init() {}
 

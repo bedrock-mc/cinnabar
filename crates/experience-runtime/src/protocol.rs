@@ -3,6 +3,7 @@
 //! A frame is a 4-byte little-endian length followed by that many bytes of JSON. Bytes inside
 //! messages are lowercase hex (see [`crate::hex`]).
 
+use experience_sdk::artifact::MAX_STACK_SIZE;
 use std::io::{self, ErrorKind, Read, Write};
 
 use serde::de::DeserializeOwned;
@@ -14,8 +15,8 @@ use crate::limits::{
     MAX_FLIPBOOK_FRAMES, MAX_FRAME_BYTES, MAX_GEOMETRY_BYTES, MAX_ITEM_DATA_BYTES, MAX_ITEMS,
     MAX_MATERIALS, MAX_NAME_BYTES, MAX_NETWORK_BLOCKS, MAX_NETWORK_DATA_BYTES, MAX_PERMUTATIONS,
     MAX_REASON_BYTES, MAX_RECIPE_INPUT_ITEMS, MAX_RECIPES, MAX_SCHEDULE_TICKS,
-    MAX_SCHEDULED_UPDATES, MAX_SERVER_ITEMS, MAX_STACK_SIZE, MAX_STAGED_OPS, MAX_STATE_BITS,
-    MAX_STATE_VALUES, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
+    MAX_SCHEDULED_UPDATES, MAX_SERVER_ITEMS, MAX_STAGED_OPS, MAX_STATE_BITS, MAX_STATE_VALUES,
+    MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
 mod player;

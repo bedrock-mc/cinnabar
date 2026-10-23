@@ -88,11 +88,11 @@ pub struct Travel {{
     Ok(())
 }
 
-const CLIENT: &str = r#"use experience_sdk::{client::ClientPart, message::Registry};
+const CLIENT: &str = r#"use experience_sdk::{client::ClientPart, entry::client, message::Registry};
 
 pub struct Client;
 
-#[experience_sdk::client]
+#[client]
 impl ClientPart for Client {
     /// Confirms the generated definitions before client behavior starts.
     fn registry() -> Option<&'static Registry> { Some(&crate::shared::REGISTRY) }
@@ -105,10 +105,10 @@ impl ClientPart for Client {
 }
 "#;
 
-const SERVER: &str = r#"use experience_sdk::server::Experience;
+const SERVER: &str = r#"use experience_sdk::{entry::server, server::Experience};
 
 struct Server;
 
-#[experience_sdk::server]
+#[server]
 impl Experience for Server {}
 "#;

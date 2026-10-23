@@ -22,10 +22,8 @@ use crate::limits::{MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 pub use experience_sdk::artifact::ASSETS_DIR;
 /// The block-data schema this runtime implements.
 pub use experience_sdk::artifact::DATA_SCHEMA;
-/// The manifest's file name; `[files]` indexes every other file in the artifact.
-pub use experience_sdk::artifact::MANIFEST_FILE;
-/// The guest core module.
-pub use experience_sdk::artifact::SERVER_WASM;
+use experience_sdk::artifact::{DATA_SCHEMA, MANIFEST_FILE};
+
 /// The table that declares the client part, which the runtime ignores.
 pub const CLIENT_TABLE: &str = "client";
 const MAX_ID_BYTES: usize = 32;

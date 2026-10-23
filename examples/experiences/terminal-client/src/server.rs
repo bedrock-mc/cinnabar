@@ -1,6 +1,6 @@
-use experience_sdk::server::Experience;
+use experience_sdk::{entry::server, server::Experience};
 
 struct TerminalServer;
 
-#[experience_sdk::server]
+#[server]
 impl Experience for TerminalServer {}

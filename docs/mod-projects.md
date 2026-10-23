@@ -46,10 +46,10 @@ client consent and developer execution policy still apply.
 ## Entry points and isolation
 
 The generated project has `src/server.rs`, `src/client.rs` and `src/shared.rs`.
-The root module enables exactly one side with Cargo features. `#[experience_sdk::server]`
+The root module enables exactly one side with Cargo features. `#[experience_sdk::entry::server]`
 marks an `impl Experience for Server` and generates its registration and registry
 handshake. Add ordinary Experience callbacks to that implementation.
-`#[experience_sdk::client]` exports the `ClientPart` implementation. Its generated
+`#[experience_sdk::entry::client]` exports the `ClientPart` implementation. Its generated
 `registry()` declaration keeps initialization behind shared-definition confirmation.
 
 Assets under `assets/server/` are available only to the server and are excluded
@@ -191,8 +191,8 @@ supported by the low-level bundle tools and client runtime.
 
 Add `client` and `server` Cargo features forwarding to the matching SDK features,
 turn off default SDK features, and gate each module as the current scaffold does.
-Replace the explicit client export macro with `#[experience_sdk::client]` on its
-implementation. Add a server implementation marked `#[experience_sdk::server]`;
+Replace the explicit client export macro with `#[experience_sdk::entry::client]` on its
+implementation. Add a server implementation marked `#[experience_sdk::entry::server]`;
 that attribute owns `register`, `registration` and `registry`. Move shared content
 IDs to annotated block/item declarations and use generated asset constants.
 The canonical server WIT is unchanged, so existing Experience artifacts keep their

@@ -18,7 +18,10 @@
 //! `client`, and its build script `declarations`.
 
 pub use channel::{Channel, Direction, Field};
-pub use experience_macros::{client, server};
+/// Attributes that export the two separately compiled mod entry points.
+pub mod entry {
+    pub use experience_macros::{client, server};
+}
 pub use value::Value;
 
 pub mod artifact;
