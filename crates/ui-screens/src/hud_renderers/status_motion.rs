@@ -17,6 +17,11 @@ fn mix(tick: u64, index: u32) -> u64 {
     value ^ (value >> 31)
 }
 
+/// Whether hearts move with the tick: low-health vibration or the regeneration wave.
+pub(super) fn hearts_move(halves_with_absorption: u32, regenerating: bool) -> bool {
+    halves_with_absorption <= LOW_HEALTH_HALVES || regenerating
+}
+
 /// Upward lift in GUI px for the heart at `index` (0 = no motion, positive = up).
 pub(super) fn heart_lift(
     index: u32,
@@ -26,6 +31,9 @@ pub(super) fn heart_lift(
     tick: u64,
 ) -> f32 {
     let mut lift = 0.0;
+    if !hearts_move(halves_with_absorption, regenerating) {
+        return lift;
+    }
     if halves_with_absorption <= LOW_HEALTH_HALVES {
         lift += (mix(tick, index) & 1) as f32;
     }
@@ -55,6 +63,23 @@ mod tests {
         for index in 0..10 {
             assert_eq!(heart_lift(index, 10, 20, false, 123), 0.0);
         }
+    }
+
+    /// A new tick repaints the hearts only while they move.
+    #[test]
+    fn heart_ticks_change_the_paint_only_while_hearts_move() {
+        let hearts = |current: u32, regenerating: bool, tick: u64| super::super::HeartPaint {
+            current,
+            health_hearts: 10,
+            total: 10,
+            tick,
+            regenerating,
+            ..Default::default()
+        };
+        assert!(hearts(20, false, 1).paints_as(&hearts(20, false, 2)));
+        assert!(!hearts(4, false, 1).paints_as(&hearts(4, false, 2)));
+        assert!(!hearts(20, true, 1).paints_as(&hearts(20, true, 2)));
+        assert!(!hearts(20, false, 1).paints_as(&hearts(19, false, 1)));
     }
 
     #[test]

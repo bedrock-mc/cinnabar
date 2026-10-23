@@ -576,7 +576,7 @@ fn recorded_paints_replay_only_settled_animations() {
     for frame in 0..120 {
         animator.end_frame();
         assert!(animator.can_replay(&settled));
-        animator.replay(&settled, 1.5 + f64::from(frame) / 60.0);
+        assert!(animator.replay(&settled, 1.5 + f64::from(frame) / 60.0));
     }
     animator.end_frame();
     let later = image.animate(&mut animator, 4.0, None, None);
@@ -606,7 +606,7 @@ fn replays_keep_waiting_animation_clocks_current() {
     for frame in 1..=600 {
         animator.end_frame();
         assert!(animator.can_replay(&waiting));
-        animator.replay(&waiting, f64::from(frame) / 60.0);
+        assert!(animator.replay(&waiting, f64::from(frame) / 60.0));
     }
     let fired = animator.events_fired();
     animator.fire("button.start");
@@ -635,10 +635,49 @@ fn replays_keep_destroyed_controls_removed() {
     for frame in 0..3 {
         animator.end_frame();
         assert!(animator.can_replay(&gone));
-        animator.replay(&gone, 1.4 + f64::from(frame));
+        assert!(animator.replay(&gone, 1.4 + f64::from(frame)));
     }
     assert!(animator.is_destroyed(&button.key));
     animator.end_frame();
     animator.end_frame();
     assert!(!animator.is_destroyed(&button.key) && !animator.can_replay(&gone));
+}
+
+// A flip-book its settled ancestor alpha hides paints nothing, so the paint replays; replays
+// keep it ticking exactly as painting every frame does.
+#[test]
+fn hidden_running_animations_replay_and_keep_ticking() {
+    let nodes = draws(
+        r#""show": { "anim_type": "alpha", "from": 0, "to": 1, "duration": 1,
+            "play_event": "button.show" },
+        "frames": { "anim_type": "flip_book", "initial_uv": [0, 0], "frame_count": 4,
+            "frame_step": 0, "fps": 10, "reversible": true },
+        "fader": { "type": "panel", "size": [50, 50], "alpha": 0.0, "propagate_alpha": true,
+            "anims": ["@audit.show"], "controls": [
+            { "image": { "type": "image", "texture": "textures/ui/strip", "size": [8, 8],
+                "uv_size": [8, 8], "anims": ["@audit.frames"] } } ] }"#,
+        "fader",
+    );
+    let image = node(&nodes, "image");
+    let (mut painted, mut replayed) = (Animator::new(), Animator::new());
+    image.animate(&mut painted, 0.0, None, Some(&Strip));
+    replayed.record();
+    let first = image.animate(&mut replayed, 0.0, None, Some(&Strip));
+    let hidden = replayed.finish_record();
+    assert!(first.opacity <= 0.0, "{}", first.opacity);
+    assert!(
+        !hidden.playing(),
+        "a hidden flip-book does not change the paint"
+    );
+    for frame in 1..30 {
+        let now = f64::from(frame) / 60.0;
+        painted.end_frame();
+        replayed.end_frame();
+        image.animate(&mut painted, now, None, Some(&Strip));
+        assert!(replayed.can_replay(&hidden));
+        assert!(replayed.replay(&hidden, now));
+    }
+    let last = image.animate(&mut painted, 0.5, None, Some(&Strip));
+    assert_ne!(last.uv, first.uv, "the flip-book kept running");
+    assert_eq!(image.animate(&mut replayed, 0.5, None, Some(&Strip)), last);
 }

@@ -93,19 +93,24 @@ pub struct Animator {
     recording: Option<AnimationRecord>,
     /// Button events fired so far; any of them may restart a settled animation.
     events_fired: u64,
+    /// Samples for a draw that paints nothing, which may keep running without changing it.
+    quiet: bool,
 }
 
 /// What one paint did to an [`Animator`]: the components it sampled, the destroyed roots it
 /// kept removed, and whether a sampled animation was still running afterwards.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AnimationRecord {
+    /// Components whose values the paint drew.
     sampled: Vec<String>,
+    /// Components the paint only ticked, for draws their settled alphas hid.
+    ticked: Vec<String>,
     met: Vec<String>,
     playing: bool,
 }
 
 impl AnimationRecord {
-    /// Whether a sampled animation still advances with time, so the paint changes every frame.
+    /// Whether a drawn animation still advances with time, so the paint changes every frame.
     pub fn playing(&self) -> bool {
         self.playing
     }
@@ -166,7 +171,12 @@ impl Animator {
             }
             let written = component.sample(now, &mut self.events, &mut self.destroyed);
             let playing = component.playing();
-            note_sample(&mut self.recording, &anims.key, playing);
+            note_sample(
+                &mut self.recording,
+                &anims.key,
+                playing && !self.quiet,
+                self.quiet,
+            );
             return written;
         }
         let mut component = Component::new(Arc::clone(anims), born, now);
@@ -185,7 +195,12 @@ impl Animator {
         let written = component.sample(now, &mut self.events, &mut self.destroyed);
         let playing = component.playing();
         self.components.insert(anims.key.clone(), component);
-        note_sample(&mut self.recording, &anims.key, playing);
+        note_sample(
+            &mut self.recording,
+            &anims.key,
+            playing && !self.quiet,
+            self.quiet,
+        );
         written
     }
 
@@ -244,15 +259,16 @@ impl Animator {
     /// Ends the recording [`Self::record`] started.
     pub fn finish_record(&mut self) -> AnimationRecord {
         let mut record = self.recording.take().unwrap_or_default();
-        record.sampled.sort_unstable();
-        record.sampled.dedup();
-        record.met.sort_unstable();
-        record.met.dedup();
+        for keys in [&mut record.sampled, &mut record.ticked, &mut record.met] {
+            keys.sort_unstable();
+            keys.dedup();
+        }
         record
     }
 
     /// Whether a paint recorded as `record` would draw exactly as it did: every component it
-    /// sampled still exists and is settled, and every root it found destroyed still is.
+    /// drew still exists and is settled, every component it only ticked still exists, and every
+    /// root it found destroyed still is.
     pub fn can_replay(&self, record: &AnimationRecord) -> bool {
         !record.playing
             && record.sampled.iter().all(|key| {
@@ -261,15 +277,22 @@ impl Animator {
                     .is_some_and(|component| !component.playing())
             })
             && record
+                .ticked
+                .iter()
+                .all(|key| self.components.contains_key(key))
+            && record
                 .met
                 .iter()
                 .all(|root| self.destroyed.contains_key(root))
     }
 
-    /// Repeats a replayable paint's bookkeeping at `now` without painting: its components keep
-    /// their clocks current and survive [`Self::end_frame`], and its destroyed roots stay removed.
-    pub fn replay(&mut self, record: &AnimationRecord, now: f64) {
-        for key in &record.sampled {
+    /// Repeats a replayable paint's bookkeeping at `now` without painting: its components tick
+    /// and survive [`Self::end_frame`], and its destroyed roots stay removed. Returns `false`
+    /// when a ticked animation destroyed a control, so the paint must run again; sampling the
+    /// same components again at the same `now` changes nothing further.
+    pub fn replay(&mut self, record: &AnimationRecord, now: f64) -> bool {
+        let destroyed = self.destroyed.len();
+        for key in record.sampled.iter().chain(&record.ticked) {
             if let Some(component) = self.components.get_mut(key) {
                 component.sample(now, &mut self.events, &mut self.destroyed);
             }
@@ -279,24 +302,39 @@ impl Animator {
                 *met = true;
             }
         }
+        self.destroyed.len() == destroyed
     }
 
     /// Counts fired button events; a change may have restarted a settled animation.
     pub fn events_fired(&self) -> u64 {
         self.events_fired
     }
+
+    /// Marks the following samples as belonging to a draw that paints nothing, returning the
+    /// previous marking.
+    pub(crate) fn set_quiet(&mut self, quiet: bool) -> bool {
+        std::mem::replace(&mut self.quiet, quiet)
+    }
+
+    /// Whether the component at `key` is still running.
+    pub(crate) fn playing(&self, key: &str) -> bool {
+        self.components.get(key).is_some_and(Component::playing)
+    }
 }
 
-/// Adds a sample to the running recording, if any. A playing sample makes the paint
-/// unreplayable, so the recording stops collecting keys.
-fn note_sample(recording: &mut Option<AnimationRecord>, key: &str, playing: bool) {
+/// Adds a sample to the running recording, if any: a `quiet` one only keeps its component
+/// ticking, and a `playing` one makes the paint unreplayable, so collection stops.
+fn note_sample(recording: &mut Option<AnimationRecord>, key: &str, playing: bool, quiet: bool) {
     let Some(record) = recording.as_mut().filter(|record| !record.playing) else {
         return;
     };
     if playing {
-        record.playing = true;
-        record.sampled = Vec::new();
-        record.met = Vec::new();
+        *record = AnimationRecord {
+            playing: true,
+            ..AnimationRecord::default()
+        };
+    } else if quiet {
+        record.ticked.push(key.to_owned());
     } else {
         record.sampled.push(key.to_owned());
     }

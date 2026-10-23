@@ -142,10 +142,11 @@ fn a_fading_chat_line_paints_every_frame_until_it_settles() {
         return;
     };
     fixture.next();
-    fixture
-        .runtime
-        .apply(&mut fixture.player, chat_line(2, "gg"))
-        .unwrap();
+    let line = SequencedUiEvent {
+        local_millis: fixture.now,
+        ..chat_line(2, "gg")
+    };
+    fixture.runtime.apply(&mut fixture.player, line).unwrap();
     for _ in 0..10 {
         let (_, paints) = fixture.next();
         assert_eq!(

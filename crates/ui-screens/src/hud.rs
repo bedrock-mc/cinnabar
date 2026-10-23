@@ -161,7 +161,7 @@ impl RetainedHud {
         self.drawn
             .as_ref()
             .is_some_and(|(drawn, drawn_icons, drawn_color)| {
-                drawn == paint && drawn_icons.as_slice() == icons && *drawn_color == color
+                drawn.paints_as(paint) && drawn_icons.as_slice() == icons && *drawn_color == color
             })
             && (!paint.hunger.saturation_empty || self.hunger.is_empty())
     }

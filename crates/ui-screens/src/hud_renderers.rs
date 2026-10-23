@@ -126,6 +126,34 @@ impl HudPaint {
             ]
         }))
     }
+
+    /// Whether the native renderers paint `other` exactly as they paint `self`.
+    pub fn paints_as(&self, other: &Self) -> bool {
+        let Self {
+            hearts,
+            armor,
+            hunger,
+            bubbles,
+            mount_hearts,
+            effects,
+            java_effects,
+            mount_jump,
+            hotbar_cooldowns,
+            crosshair,
+            crosshair_blend,
+        } = self;
+        hearts.paints_as(&other.hearts)
+            && *armor == other.armor
+            && *hunger == other.hunger
+            && *bubbles == other.bubbles
+            && *mount_hearts == other.mount_hearts
+            && *effects == other.effects
+            && *java_effects == other.java_effects
+            && *mount_jump == other.mount_jump
+            && *hotbar_cooldowns == other.hotbar_cooldowns
+            && *crosshair == other.crosshair
+            && *crosshair_blend == other.crosshair_blend
+    }
 }
 
 /// Advance an admitted hunger control and return its render-update count.

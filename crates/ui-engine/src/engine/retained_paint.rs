@@ -140,7 +140,9 @@ impl RetainedPaint {
         if textures.set.revision(&atlas) != last.textures {
             return None;
         }
-        animator.replay(&last.animation, frame.now);
+        if !animator.replay(&last.animation, frame.now) {
+            return None;
+        }
         frame.nodes.extend_from_slice(&last.nodes);
         *frame.next = last.next;
         Some(last.frame.clone())

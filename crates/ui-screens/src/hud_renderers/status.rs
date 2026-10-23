@@ -1,7 +1,7 @@
 //! The heart and hunger rows' captured state, expanded into cells only when painted.
 
 use super::Cell;
-use super::status_motion::{heart_lift, hunger_shake_offset, hunger_shakes};
+use super::status_motion::{heart_lift, hearts_move, hunger_shake_offset, hunger_shakes};
 
 /// Hearts per row.
 pub const HEART_COLUMNS: u32 = 10;
@@ -34,6 +34,28 @@ impl HeartPaint {
             .iter()
             .flatten()
             .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+    }
+
+    /// Whether `other` paints the same rows: the tick matters only while the hearts move.
+    pub fn paints_as(&self, other: &Self) -> bool {
+        let Self {
+            current,
+            previous,
+            absorption,
+            health_hearts,
+            total,
+            tick,
+            regenerating,
+            sprites,
+        } = self;
+        *current == other.current
+            && *previous == other.previous
+            && *absorption == other.absorption
+            && *health_hearts == other.health_hearts
+            && *total == other.total
+            && *regenerating == other.regenerating
+            && *sprites == other.sprites
+            && (*tick == other.tick || !hearts_move(current + absorption, *regenerating))
     }
 
     /// Enumerates cells lazily, preserving background-before-foreground order.
