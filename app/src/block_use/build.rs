@@ -226,7 +226,7 @@ pub(crate) fn advance(
         .authority()
         .item_identifier(observed.selection.item.network_id())
         .as_deref()
-        .is_some_and(|identifier| identifier.ends_with("bucket"));
+        .is_some_and(assets::facts::has_bucket_name);
     if trigger == ItemUseTrigger::SimulationTick
         && !gameplay::block_use::repeats_while_held(
             &observed.selection.item,

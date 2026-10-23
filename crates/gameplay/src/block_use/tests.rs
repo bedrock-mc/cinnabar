@@ -547,9 +547,21 @@ fn held_block_uses_repeat_for_any_hand() {
     );
     assert_eq!(packets.len(), 2);
     assert_eq!(format!("{:?}", packets[0].kind()), "AnimatePacket");
-    let transaction = protocol::test_support::transactions::observe_transaction(&packets[1])
-        .and_then(|transaction| transaction.item_use().cloned())
-        .unwrap();
+    let mut decoded = protocol::decode_batch(protocol::encode(&packets[0]).unwrap()).unwrap();
+    let Some(protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Action(swing))) =
+        protocol::into_world_event(decoded.remove(0), 0).unwrap()
+    else {
+        panic!("expected swing");
+    };
+    assert_eq!(&*swing.actor_runtime_ids, &[42]);
+    assert_eq!(swing.kind, protocol::ActorActionKind::SwingArm);
+    assert_eq!(swing.data, 0.0);
+    assert_eq!(swing.swing_source.as_deref(), Some("interact"));
+    let envelope = protocol::test_support::transactions::observe_transaction(&packets[1]).unwrap();
+    assert_eq!(envelope.legacy_request_id, 0);
+    assert_eq!(envelope.legacy_set_slots, None);
+    assert!(envelope.actions.is_empty());
+    let transaction = envelope.item_use().unwrap();
     assert_eq!(
         transaction.action,
         protocol::test_support::transactions::ItemUseAction::ClickBlock
@@ -561,8 +573,12 @@ fn held_block_uses_repeat_for_any_hand() {
         ([2, 63, 0], 3, 2)
     );
     assert_eq!(transaction.item.network_id, 0);
+    assert_eq!(transaction.item.count, 0);
+    assert_eq!(transaction.item.stack_network_id, None);
+    assert_eq!(transaction.from_position, [2.5, 65.62, 0.5]);
     assert_eq!(transaction.target_block_id, 9);
     assert_eq!(transaction.click_position, [0.5, 1.0, 0.5]);
+    assert!(!transaction.cooldown_active);
 }
 
 /// Orientation caching applies to placement-direction states, not pillar axes.
