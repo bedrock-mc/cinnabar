@@ -1,6 +1,11 @@
 use super::super::residency::ColumnDue;
 use super::super::*;
 
+#[cfg(test)]
+thread_local! {
+    pub(in crate::stream) static GEOMETRY_CLASSIFICATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl WorldStream {
     /// Keeps zero-byte removals independent of the initial geometry preparation limit.
     pub(in crate::stream) fn dispatch_mesh_jobs_with_limits(
@@ -38,6 +43,14 @@ impl WorldStream {
         if self.mesh_jobs.pending.is_empty() {
             return 0;
         }
+        let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
+        let mesh_worker_cap = super::admission::mesh_worker_cap();
+        let regular_budget = budget.min(mesh_worker_cap.saturating_sub(occupied));
+        let worker_budget = budget.min((mesh_worker_cap + urgent_reserve).saturating_sub(occupied));
+        // Keep wakeups and retries queued until preparation can produce a worker job.
+        if worker_budget == 0 || self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
+            return 0;
+        }
         let (resident, known_air) = (&self.resident, &self.known_air);
         let terrain = self.authority.terrain();
         let classifier = self.classifier;
@@ -60,10 +73,6 @@ impl WorldStream {
             });
         woken.append(&mut self.mesh_jobs.refresh.take_woken());
 
-        let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
-        let mesh_worker_cap = super::admission::mesh_worker_cap();
-        let regular_budget = budget.min(mesh_worker_cap.saturating_sub(occupied));
-        let worker_budget = budget.min((mesh_worker_cap + urgent_reserve).saturating_sub(occupied));
         let probe = |key| {
             let pending = self.mesh_jobs.pending.get(&key).copied()?;
             (needs_geometry(key)
@@ -687,6 +696,8 @@ fn requires_geometry(
     classifier: BlockClassifier,
     key: SubChunkKey,
 ) -> bool {
+    #[cfg(test)]
+    GEOMETRY_CLASSIFICATIONS.update(|count| count + 1);
     full_detail.wants_mesh(key.chunk(), resident)
         && resident.contains(&key)
         && !known_air.contains(&key)

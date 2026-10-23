@@ -279,6 +279,7 @@ mod sky_boundary;
 mod worker_caps;
 
 mod mesh_admission;
+mod mesh_preparation;
 
 mod backlog;
 mod mixed_prefix;
