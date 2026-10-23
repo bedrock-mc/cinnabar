@@ -132,13 +132,13 @@ fn server_closes_end_only_the_named_form_and_are_confirmed() {
     session.apply([UiEvent::DataDrivenUi(DataDrivenUiEvent::Close {
         form_id: Some(9),
     })]);
-    assert!(session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_some());
     assert!(sent(&mut session.runtime).is_empty());
 
     session.apply([UiEvent::DataDrivenUi(DataDrivenUiEvent::Close {
         form_id: Some(4),
     })]);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::ProgrammaticClose)]
@@ -164,7 +164,7 @@ fn unknown_screens_are_closed_so_scripts_finish() {
             data_instance_id: None,
         },
     ))]);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(3, DataDrivenScreenCloseReason::ClientCanceled)]
@@ -272,7 +272,7 @@ fn player_input_writes_the_control_paths_the_server_listens_on() {
             closed(4, DataDrivenScreenCloseReason::ClientCanceled),
         ]
     );
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
 }
 
 #[test]
@@ -334,7 +334,7 @@ fn death_and_session_end_dismiss_the_form() {
     session.show_form(4);
     session.runtime.publish_local_player_alive(true);
     session.runtime.publish_local_player_alive(false);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::ClientCanceled)]
@@ -343,7 +343,7 @@ fn death_and_session_end_dismiss_the_form() {
     session.show_form(5);
     session.player.begin_session(2);
     session.runtime.begin_session(2);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert!(
         session
             .runtime
@@ -359,14 +359,14 @@ fn a_visible_host_menu_answers_screen_requests_busy() {
     let mut session = Session::new();
     session.runtime.set_menu_visible(true);
     session.show_form(4);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::UserBusy)]
     );
     session.runtime.set_menu_visible(false);
     session.show_form(5);
-    assert!(session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_some());
 }
 
 #[test]
@@ -475,7 +475,7 @@ fn an_open_sign_editor_answers_screen_requests_busy() {
             Default::default(),
         ));
     session.show_form(4);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::UserBusy)]
@@ -499,13 +499,13 @@ fn a_disabled_close_button_ignores_presses_but_escape_still_dismisses() {
         Some(false)
     );
     session.runtime.data_driven_action(DataDrivenAction::Close);
-    assert!(session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_some());
     assert!(sent(&mut session.runtime).is_empty());
 
     session
         .runtime
         .data_driven_action(DataDrivenAction::Dismiss);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::ClientCanceled)]
@@ -517,7 +517,7 @@ fn credits_answer_screen_requests_busy() {
     let mut session = Session::new();
     assert!(session.runtime.credits_mut().open(42, 8, 0));
     session.show_form(4);
-    assert!(!session.runtime.data_driven_ui().owns_input());
+    assert!(session.runtime.data_driven_ui().active().is_none());
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::UserBusy)]

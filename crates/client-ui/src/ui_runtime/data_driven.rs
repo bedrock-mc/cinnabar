@@ -33,6 +33,9 @@ pub struct DataDrivenUi {
     active: Option<ActiveScreen>,
     /// The showing screen's control taking text or showing its options.
     focus: Option<actions::Focus>,
+    /// A screen closed this frame: it keeps the frame's input, so screens updating after it
+    /// cannot act on keys and clicks it already handled.
+    closing: bool,
     ignored_store_changes: u64,
     /// Packets for the server, kept until the network flush takes them: every screen request
     /// waits for its answer, so none may be dropped when the shared queue is full.
@@ -54,10 +57,11 @@ impl DataDrivenUi {
         self.active.as_ref()
     }
 
-    /// Whether a screen holds the player's input.
+    /// Whether a screen holds the player's input: while it shows, and for the rest of the frame
+    /// it closes in.
     #[must_use]
     pub fn owns_input(&self) -> bool {
-        self.active.is_some()
+        self.active.is_some() || self.closing
     }
 
     /// Server store changes skipped because they named no known property, were written against
@@ -71,6 +75,7 @@ impl DataDrivenUi {
         self.stores.clear();
         self.active = None;
         self.focus = None;
+        self.closing = false;
         self.outgoing.clear();
     }
 
@@ -166,8 +171,15 @@ impl UiRuntime {
     pub fn close_data_driven_screen(&mut self, reason: DataDrivenScreenCloseReason) {
         self.data_driven.focus = None;
         if let Some(active) = self.data_driven.active.take() {
+            self.data_driven.closing = true;
             self.queue_screen_closed(active.form_id, reason);
         }
+    }
+
+    /// Ends the frame a screen closed in, returning its input to the other screens; the host
+    /// calls it as each frame starts.
+    pub fn release_closed_data_driven_input(&mut self) {
+        self.data_driven.closing = false;
     }
 
     /// The showing screen as OreUI draws it; `None` while nothing readable shows.

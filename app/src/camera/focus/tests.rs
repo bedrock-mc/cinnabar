@@ -902,7 +902,12 @@ fn data_driven_app() -> (App, Entity) {
         .insert_resource(UiPresentationResource(presentation))
         .add_systems(
             Update,
-            drive_data_driven_input.before(client_shell::menu::screen_focus::publish_screen_focus),
+            (
+                crate::ui_runtime::data_driven::publish_menu_visibility,
+                drive_data_driven_input,
+            )
+                .chain()
+                .before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     (app, window)
 }
@@ -939,10 +944,11 @@ fn escaping_a_data_driven_form_returns_capture_after_focus_loss() {
         .write_message(window_key(window, KeyCode::Escape, None));
     app.update();
     assert!(
-        !app.world()
+        app.world()
             .resource::<UiRuntimeResource>()
             .data_driven_ui()
-            .owns_input()
+            .active()
+            .is_none()
     );
     app.update();
     assert_eq!(

@@ -25,11 +25,15 @@ use crate::ui_runtime::interaction::input_capture::{
 };
 
 /// Publishes whether a host menu shows over the world, so screen requests arriving meanwhile
-/// answer busy.
+/// answer busy, and frees the input a form held through the frame it closed in.
 pub(crate) fn publish_menu_visibility(
     menu: Option<Res<MenuRuntime>>,
     mut runtime: ResMut<UiRuntimeResource>,
 ) {
+    // A form closed last frame held that frame's input; this frame's input is free again.
+    if runtime.data_driven_ui().owns_input() && runtime.data_driven_ui().active().is_none() {
+        runtime.release_closed_data_driven_input();
+    }
     let visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
     if runtime.data_driven_ui().menu_visible() != visible {
         runtime.set_menu_visible(visible);
@@ -148,11 +152,13 @@ pub(crate) fn drive_data_driven_input(
         runtime.data_driven_action(DataDrivenAction::Dismiss);
     }
     for input in inputs {
-        if !runtime.data_driven_ui().owns_input() {
+        if runtime.data_driven_ui().active().is_none() {
             break;
         }
         match input {
-            FormInput::Key(key_code, text) => type_key(&mut runtime, key_code, text.as_deref()),
+            FormInput::Key(key_code, text, repeat) => {
+                type_key(&mut runtime, key_code, text.as_deref(), repeat);
+            }
             FormInput::Pointer(down) => {
                 let hit = pointer
                     .filter(|_| painted)
@@ -171,19 +177,19 @@ pub(crate) fn drive_data_driven_input(
             }
         }
     }
-    if !runtime.data_driven_ui().owns_input() {
-        // The player closed the form: the cursor may return to the game, and the closing input
-        // must not also act there or open the pause menu this frame.
+    if runtime.data_driven_ui().active().is_none() {
+        // The player closed the form: the cursor may return to the game once the form's input
+        // is released next frame, and the closing input must not act anywhere else this frame.
         if let Some(focus) = focus.as_deref_mut() {
             focus.authorize_screen_return();
         }
-        *gesture = FormGesture::default();
+        *gesture = FormGesture {
+            owned_last_frame: true,
+            ..FormGesture::default()
+        };
         presentation.set_data_driven_pointer(None, None);
         keys.reset_all();
         mouse.reset_all();
-        if !runtime.ui_focused(&player_runtime) {
-            restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
-        }
         return;
     }
     // A held slider follows the pointer along its track.
@@ -206,8 +212,8 @@ pub(crate) fn drive_data_driven_input(
 
 /// One input the form reads in arrival order.
 enum FormInput {
-    /// A key press and the text it typed.
-    Key(KeyCode, Option<String>),
+    /// A key press, the text it typed, and whether it is an OS repeat of a held key.
+    Key(KeyCode, Option<String>, bool),
     /// A left-button edge; `true` when pressed.
     Pointer(bool),
 }
@@ -219,6 +225,7 @@ impl FormInput {
                 Some(Self::Key(
                     input.key_code,
                     input.text.as_ref().map(|text| text.to_string()),
+                    input.repeat,
                 ))
             }
             WindowEvent::MouseButtonInput(input) if input.button == MouseButton::Left => {
@@ -230,8 +237,22 @@ impl FormInput {
 }
 
 /// One key press: Escape and Enter end text entry, Escape closes an open option list or else
-/// dismisses the form, and the focused text field takes typed text and Backspace.
-fn type_key(runtime: &mut client_ui::ui_runtime::UiRuntime, key_code: KeyCode, text: Option<&str>) {
+/// dismisses the form, and the focused text field takes typed text and Backspace. A held Escape
+/// or Enter acts once; its repeats are ignored, while typing and Backspace repeat.
+fn type_key(
+    runtime: &mut client_ui::ui_runtime::UiRuntime,
+    key_code: KeyCode,
+    text: Option<&str>,
+    repeat: bool,
+) {
+    if repeat
+        && matches!(
+            key_code,
+            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter
+        )
+    {
+        return;
+    }
     let focused = runtime.data_driven_focus_items();
     let editing = focused.editing.is_some();
     match key_code {
@@ -336,6 +357,46 @@ fn slide(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_held_escape_leaves_the_form_after_ending_text_entry() {
+        use client_ui::ui_runtime::{SequencedUiEvent, UiRuntime};
+        use protocol::{ddui::ScriptedScreen, test_support::ddui};
+        let mut runtime = UiRuntime::new(1);
+        let mut player = player_state::PlayerState::new(1);
+        let events = ddui::show_events(
+            ScriptedScreen::CustomForm,
+            4,
+            7,
+            ddui::custom_form_property(),
+        );
+        for (sequence, event) in (1..).zip(events) {
+            runtime
+                .apply(
+                    &mut player,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: sequence,
+                        local_millis: sequence * 10,
+                        server_tick: None,
+                        event,
+                    },
+                )
+                .unwrap();
+        }
+        // Layout entry 6 is the fixture's text field.
+        runtime.data_driven_action(DataDrivenAction::Activate(6));
+        type_key(&mut runtime, KeyCode::Escape, None, false);
+        assert_eq!(runtime.data_driven_focus_items().editing, None);
+        type_key(&mut runtime, KeyCode::Escape, None, true);
+        assert!(runtime.data_driven_ui().active().is_some());
+        type_key(&mut runtime, KeyCode::Escape, None, false);
+        assert!(runtime.data_driven_ui().active().is_none());
+        // The closing frame keeps its input from the screens that update after the form.
+        assert!(runtime.data_driven_ui().owns_input());
+        runtime.release_closed_data_driven_input();
+        assert!(!runtime.data_driven_ui().owns_input());
+    }
 
     #[test]
     fn a_press_does_not_carry_over_to_a_replacement_form() {
