@@ -333,6 +333,9 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+- [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
+  registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
+  cushions) follow the atlas order but are not confirmed against that client.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and
@@ -542,6 +545,9 @@ Ordered desktop interactions still need live input and overload-timing acceptanc
 global camera-sampling qualification, other input modes and device-specific chords.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
+Selection-only hotbar changes coalesce into the next tick's equipment announcement.
+Same-frame hand actions still announce their selection first; matching their complete
+native packet order remains incomplete.
 
 ### Held block placement
 

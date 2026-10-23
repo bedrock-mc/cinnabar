@@ -2,6 +2,8 @@
 pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
+/// Item atlas key whose variants are the tipped arrow icons.
+pub const TIPPED_ARROW_ATLAS_KEY: &str = "tipped_arrow";
 /// Identifies harness items independently of their color and runtime network ID.
 pub const HARNESS_TAG: &str = "minecraft:harness";
 
