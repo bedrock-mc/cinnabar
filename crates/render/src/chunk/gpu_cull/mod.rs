@@ -58,6 +58,14 @@ const POWERVR_VENDOR_ID: u32 = 0x1010;
 fn gpu_cull_unstable(vendor: u32) -> bool {
     matches!(vendor, ARM_MALI_VENDOR_ID | POWERVR_VENDOR_ID)
 }
+
+/// Keeps terrain on CPU culling when its driver, override or storage budget requires it.
+fn cpu_culling_required(vendor: u32, forced_cpu: bool, limits: &wgpu::Limits) -> bool {
+    gpu_cull_unstable(vendor)
+        || forced_cpu
+        || limits.max_storage_buffers_per_shader_stage < required_vertex_storage_buffers()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::chunk) enum GpuCullSubmission {
     Count,
@@ -129,21 +137,19 @@ pub(in crate::chunk) fn install(app: &mut App) {
     ) else {
         return;
     };
-    let info = render_app
-        .world()
-        .resource::<bevy::render::renderer::RenderAdapterInfo>();
+    let info = adapter.get_info();
     let unstable = gpu_cull_unstable(info.vendor);
-    let forced_cpu =
-        unstable || env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
+    let forced_cpu = cpu_culling_required(
+        info.vendor,
+        env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0"),
+        &device.limits(),
+    );
     let draw_mode = select_chunk_draw_mode(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(info.backend),
-        apple_gpu(info),
+        apple_gpu(&info),
     );
-    // The optional cull kernels use more bindings than compact terrain drawing.
-    let forced_cpu = forced_cpu
-        || device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers();
     let submission = gpu_cull_submission(
         draw_mode,
         device.features(),

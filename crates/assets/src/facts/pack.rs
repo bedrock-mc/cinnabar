@@ -66,6 +66,7 @@ domain!(PackBlock {
     Stone,
     HeavyCore,
     Crafter,
+    DriedGhast,
     StrawBed
 });
 domain!(TextureSelector {

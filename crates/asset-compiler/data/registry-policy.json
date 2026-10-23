@@ -6916,6 +6916,7 @@
       "Stone": "minecraft:stone",
       "HeavyCore": "minecraft:heavy_core",
       "Crafter": "minecraft:crafter",
+      "DriedGhast": "minecraft:dried_ghast",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {

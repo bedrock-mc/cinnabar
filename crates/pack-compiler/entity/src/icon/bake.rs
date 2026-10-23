@@ -60,7 +60,8 @@ pub(super) fn run(
     if let (Some(world), Some(blocks)) = (world, blocks) {
         for &visual in block_plan.keys() {
             let id = BlockVisualId(visual);
-            if blocks.is_carried_cube(world, id)
+            if !blocks.name(id).is_some_and(super::shapes::has_model)
+                && blocks.is_carried_cube(world, id)
                 && let Some(tiles) = blocks.carried_cube_tiles(root, id)?
             {
                 carried_tiles.insert(visual, tiles);
@@ -100,7 +101,11 @@ pub(super) fn run(
                     .raster(),
                     None,
                 ))
-            } else if plan.is_ok() {
+            } else if plan.is_ok()
+                && !blocks
+                    .and_then(|blocks| blocks.name(BlockVisualId(visual)))
+                    .is_some_and(super::shapes::has_model)
+            {
                 continue;
             } else {
                 model_raster(root, world, blocks, &compiled.geometries, visual, metadata)?
@@ -315,6 +320,11 @@ fn model_raster(
     metadata: u32,
 ) -> Result<Option<(IconSprite, Option<BlockVisualId>)>, AssetError> {
     let visual = BlockVisualId(visual);
+    if let Some(blocks) = blocks
+        && blocks.name(visual).is_some_and(super::shapes::has_model)
+    {
+        return Ok(super::shapes::raster(root, blocks, visual)?.map(|raster| (raster, None)));
+    }
     let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
     if let Ok(model) = model::Model::read(world, state) {
         return Ok(Some((model.raster(), Some(state))));
@@ -750,3 +760,7 @@ mod block_entity_tests {
         assert_eq!(rasters[1], rasters[2]);
     }
 }
+
+#[cfg(test)]
+#[path = "bake/dried_ghast_tests.rs"]
+mod dried_ghast_tests;

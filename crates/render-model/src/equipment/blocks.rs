@@ -129,8 +129,15 @@ fn collect_shapes(
             if cube.is_some() {
                 return None;
             }
-            let HeldDisplay::Block(shown) = display_state? else {
-                return None;
+            let shown = match display_state {
+                Some(HeldDisplay::Block(shown)) => shown,
+                None if display.is_some()
+                    && definition.key.identifier.as_ref()
+                        == assets::facts::pack::PackBlock::DriedGhast.identifier() =>
+                {
+                    visual
+                }
+                _ => return None,
             };
             if shown as usize >= world.visual_count() {
                 return None;
