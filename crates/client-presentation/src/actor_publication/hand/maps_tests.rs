@@ -74,7 +74,6 @@ fn resident_updates_and_new_sessions_cannot_reuse_stale_map_pixels() {
     assert!(!Arc::ptr_eq(&old.rgba8, &replaced.rgba8));
     let (mut next, _, _, _) = fixture(None);
     update(&mut next, 266, 0, &[4]);
-    assert_eq!(next.replaced_maps(), 0);
     assert_eq!(next.map_image(266).unwrap().revision, 1);
     assert_eq!(
         session_cache.image(&next, 0, Some(266)).unwrap().rgba8[0],

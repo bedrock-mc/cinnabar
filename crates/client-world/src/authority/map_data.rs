@@ -16,15 +16,14 @@ pub struct MapImage {
 
 #[derive(Default)]
 pub(super) struct MapImages {
-    maps: BTreeMap<i64, MapImage>,
-    replaced: u64,
+    maps: BTreeMap<i64, Option<MapImage>>,
     invalid_rectangles: u64,
 }
 
 impl MapImages {
     /// Reads the authoritative pixels retained for the current session.
     fn get(&self, map_id: i64) -> Option<&MapImage> {
-        self.maps.get(&map_id)
+        self.maps.get(&map_id)?.as_ref()
     }
 
     /// Applies a validated rectangle without discarding any earlier map image.
@@ -48,10 +47,14 @@ impl MapImages {
             return;
         }
         let side = MAP_IMAGE_SIDE as usize;
-        let image = self.maps.entry(event.map_id).or_insert_with(|| MapImage {
-            pixels: vec![0; side * side],
-            revision: 0,
-        });
+        let image = self
+            .maps
+            .entry(event.map_id)
+            .or_default()
+            .get_or_insert_with(|| MapImage {
+                pixels: vec![0; side * side],
+                revision: 0,
+            });
         let width = event.width as usize;
         for row in 0..event.height as usize {
             let target = (event.start_y as usize + row) * side + event.start_x as usize;
@@ -74,16 +77,21 @@ impl WorldAuthority {
         self.map_images.apply(event);
     }
 
-    /// The assembled image of `map_id`, if any pixels have arrived in this session.
+    /// The assembled image of `map_id`, once saved map data has arrived in this session.
     #[must_use]
     pub fn map_image(&self, map_id: i64) -> Option<&MapImage> {
         self.map_images.get(map_id)
     }
 
-    /// Retained maps replaced to admit a newer one.
+    /// Whether this session has received the map or admitted a request for it.
     #[must_use]
-    pub const fn replaced_maps(&self) -> u64 {
-        self.map_images.replaced
+    pub fn map_is_known(&self, map_id: i64) -> bool {
+        self.map_images.maps.contains_key(&map_id)
+    }
+
+    /// Records an admitted request without replacing pixels already received.
+    pub fn admit_map_request(&mut self, map_id: i64) {
+        self.map_images.maps.entry(map_id).or_default();
     }
 }
 
@@ -106,6 +114,34 @@ mod tests {
     }
 
     #[test]
+    fn saved_maps_can_exist_before_pixels_and_keep_later_updates() {
+        let mut images = MapImages::default();
+        images.maps.insert(3, None);
+        assert!(images.get(3).is_none(), "a request alone has no saved data");
+        let empty = MapDataEvent {
+            map_id: 3,
+            start_x: 0,
+            start_y: 0,
+            width: 0,
+            height: 0,
+            pixels: Default::default(),
+        };
+        images.apply(&empty);
+        assert!(
+            images
+                .get(3)
+                .unwrap()
+                .pixels
+                .iter()
+                .all(|pixel| *pixel == 0)
+        );
+        images.apply(&event(3, 0, 1, 0x44332211));
+        let painted = images.get(3).unwrap().pixels.clone();
+        images.apply(&empty);
+        assert_eq!(images.get(3).unwrap().pixels, painted);
+    }
+
+    #[test]
     fn earlier_map_pixels_survive_more_than_one_working_set_of_other_maps() {
         let mut images = MapImages::default();
         images.apply(&event(266, 0, 1, 0x44332211));
@@ -125,15 +161,15 @@ mod tests {
     fn review_map_rectangles_cannot_wrap_into_the_next_row() {
         let mut images = MapImages::default();
         images.apply(&event(3, 0, 1, 7));
-        let original = images.maps[&3].clone();
+        let original = images.get(3).unwrap().clone();
         for start_x in [MAP_IMAGE_SIDE - 1, MAP_IMAGE_SIDE, u32::MAX] {
             images.apply(&event(3, start_x, 2, 9));
-            assert_eq!(images.maps[&3], original);
+            assert_eq!(images.get(3), Some(&original));
         }
         let mut vertical = event(3, 0, 1, 9);
         vertical.start_y = MAP_IMAGE_SIDE;
         images.apply(&vertical);
-        assert_eq!(images.maps[&3], original);
+        assert_eq!(images.get(3), Some(&original));
     }
 
     #[test]
@@ -141,7 +177,7 @@ mod tests {
         let mut images = MapImages::default();
         images.apply(&event(3, 4, 2, 0xAABBCCDD));
         images.apply(&event(3, 0, 1, 0x11));
-        let image = &images.maps[&3];
+        let image = images.get(3).unwrap();
         let side = MAP_IMAGE_SIDE as usize;
         assert_eq!(image.pixels[side + 4], 0xAABBCCDD);
         assert_eq!(image.pixels[2 * side + 5], 0xAABBCCDD);

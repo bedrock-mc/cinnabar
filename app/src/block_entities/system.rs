@@ -1,7 +1,7 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
 use crate::runtime::network::resource_packs::PackApplication;
-use bevy::platform::collections::{HashMap, HashSet};
+use bevy::platform::collections::HashMap;
 use bevy::prelude::IntoScheduleConfigs;
 use client_runtime::network::NetworkHandle;
 use std::{path::Path, sync::Arc};
@@ -133,8 +133,6 @@ pub(crate) struct BlockEntityRuntime {
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
-    /// Map identities whose requests have entered this session's output queue.
-    map_requests: HashSet<i64>,
     /// Session and dimension the runtime-id keyed caches were filled from.
     session: Option<(u64, i32)>,
     beam_source: Option<(Arc<assets::RuntimeAssets>, Option<protocol::DimensionRange>)>,
@@ -157,7 +155,6 @@ impl BlockEntityRuntime {
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
             missing_maps: Vec::new(),
-            map_requests: HashSet::new(),
             session: None,
             beam_source: None,
             books: books::TableBooks::default(),
@@ -189,9 +186,6 @@ impl BlockEntityRuntime {
     fn bind_session(&mut self, session: Option<(u64, i32)>) {
         if self.session == session {
             return;
-        }
-        if self.session.map(|(id, _)| id) != session.map(|(id, _)| id) {
-            self.map_requests.clear();
         }
         self.session = session;
         self.beam_source = None;
@@ -750,15 +744,20 @@ const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 pub(crate) fn request_missing_maps(
     mut runtime: ResMut<BlockEntityRuntime>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
-    world: Res<ClientWorld>,
+    mut world: ResMut<ClientWorld>,
     player: Res<client_state::PlayerRuntime>,
     ui: Option<Res<UiRuntimeResource>>,
 ) {
     let Some(network) = network else {
+        runtime.missing_maps.clear();
+        return;
+    };
+    let Some(stream) = world.stream.as_mut() else {
+        runtime.missing_maps.clear();
         return;
     };
     let runtime = &mut *runtime;
-    if let Some(stream) = world.stream.as_ref() {
+    {
         let held = client_presentation::presentation::equipment::local_input(
             &player,
             stream,
@@ -777,12 +776,12 @@ pub(crate) fn request_missing_maps(
     runtime.missing_maps.sort_unstable();
     runtime.missing_maps.dedup();
     for id in std::mem::take(&mut runtime.missing_maps) {
-        if !runtime.map_requests.contains(&id)
+        if !stream.map_is_known(id)
             && network
                 .send_inventory_packet(protocol::map_info_request_packet(id))
                 .is_ok()
         {
-            runtime.map_requests.insert(id);
+            stream.admit_map_request(id);
         }
     }
 }

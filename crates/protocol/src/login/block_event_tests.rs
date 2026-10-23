@@ -126,3 +126,24 @@ fn map_wire_colors_normalize_without_losing_channels_or_alpha() {
         "wire map colors must become canonical RGBA"
     );
 }
+
+#[test]
+fn creation_without_pixels_announces_an_unpainted_saved_map() {
+    assert_eq!(
+        decode_map(ClientboundMapItemData {
+            map_id: ActorUniqueID(77),
+            creation_map_ids: Some(vec![ActorUniqueID(77)]),
+            scale: Some(wire::I8(4)),
+            ..Default::default()
+        }),
+        Some(WorldEvent::MapData(MapDataEvent {
+            map_id: 77,
+            start_x: 0,
+            start_y: 0,
+            width: 0,
+            height: 0,
+            pixels: Default::default(),
+        }))
+    );
+    assert_eq!(decode_map(ClientboundMapItemData::default()), None);
+}

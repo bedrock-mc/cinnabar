@@ -17,9 +17,14 @@ impl WorldStream {
         self.authority.map_image(map_id)
     }
 
-    /// Retained maps replaced to admit a newer one.
+    /// Whether the world session already owns this map or its pending request.
     #[must_use]
-    pub const fn replaced_maps(&self) -> u64 {
-        self.authority.replaced_maps()
+    pub fn map_is_known(&self, map_id: i64) -> bool {
+        self.authority.map_is_known(map_id)
+    }
+
+    /// Commits an accepted outbound request to the same owner as received pixels.
+    pub fn admit_map_request(&mut self, map_id: i64) {
+        self.authority.admit_map_request(map_id);
     }
 }

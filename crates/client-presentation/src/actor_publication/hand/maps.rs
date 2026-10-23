@@ -5,7 +5,6 @@ use bevy::math::Vec3;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ImageKey {
     session: u64,
-    replaced: u64,
     id: i64,
     revision: u64,
 }
@@ -31,7 +30,6 @@ impl MapCache {
         };
         let key = ImageKey {
             session: stream.authority().actor_session_id(),
-            replaced: stream.replaced_maps(),
             id,
             revision: image.revision,
         };

@@ -4,8 +4,8 @@ use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, Open
 
 use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent};
 
-/// The pixel rectangle of a map update; `None` for a partial packet (no pixels) or a rectangle
-/// outside the fixed image or with the wrong pixel count, which are semantic skips.
+/// Preserves a pixel update or an empty rectangle that announces a newly saved map.
+/// Unrelated partial packets and invalid pixel rectangles are semantic skips.
 pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapDataEvent> {
     let (Some(width), Some(height), Some(start_x), Some(start_y), Some(pixels)) = (
         packet.width.map(|value| value.0),
@@ -14,7 +14,15 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapD
         packet.start_y.map(|value| value.0),
         packet.pixels.as_deref(),
     ) else {
-        return None;
+        let ids = packet.creation_map_ids.as_deref()?;
+        return (!ids.is_empty() && ids.len() <= 5).then(|| MapDataEvent {
+            map_id: packet.map_id.0,
+            start_x: 0,
+            start_y: 0,
+            width: 0,
+            height: 0,
+            pixels: Default::default(),
+        });
     };
     let (Ok(width), Ok(height), Ok(start_x), Ok(start_y)) = (
         u32::try_from(width),

@@ -126,24 +126,37 @@ fn framed_map_wire_colors_reach_the_rgba_canvas() {
     );
 }
 
+/// Supplies a world session without installing optional block-entity artwork or its renderer.
+fn map_request_world() -> ClientWorld {
+    let mut world = ClientWorld::default();
+    world.stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    }));
+    world
+}
+
 #[test]
 fn accepted_map_requests_stay_known_until_the_session_changes() {
     let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     let mut runtime = BlockEntityRuntime::new();
-    runtime.bind_session(Some((1, 0)));
     runtime.missing_maps.push(266);
     let mut app = App::new();
     app.insert_resource(runtime)
         .insert_resource(network)
         .init_resource::<Time<Real>>()
-        .init_resource::<ClientWorld>()
+        .insert_resource(map_request_world())
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
         .add_systems(Update, request_missing_maps);
     app.update();
     assert_eq!(packets.drain().len(), 1);
-
     app.world_mut()
         .resource_mut::<Time<Real>>()
         .advance_by(std::time::Duration::from_secs(60));
@@ -153,28 +166,34 @@ fn accepted_map_requests_stay_known_until_the_session_changes() {
         .push(266);
     app.update();
     assert!(packets.drain().is_empty(), "pending maps do not time out");
-
+    *app.world_mut().resource_mut::<ClientWorld>() = map_request_world();
+    app.world_mut()
+        .resource_mut::<BlockEntityRuntime>()
+        .missing_maps
+        .push(266);
+    app.update();
+    assert_eq!(
+        packets.drain().len(),
+        1,
+        "a new session owns a new map table without block-entity artwork"
+    );
+    let session = app
+        .world()
+        .resource::<ClientWorld>()
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor_session_id();
     {
         let mut runtime = app.world_mut().resource_mut::<BlockEntityRuntime>();
-        runtime.bind_session(Some((1, 1)));
+        runtime.bind_session(Some((session, 1)));
         runtime.missing_maps.push(266);
     }
     app.update();
     assert!(
         packets.drain().is_empty(),
         "dimension changes retain known maps"
-    );
-
-    {
-        let mut runtime = app.world_mut().resource_mut::<BlockEntityRuntime>();
-        runtime.bind_session(Some((2, 0)));
-        runtime.missing_maps.push(266);
-    }
-    app.update();
-    assert_eq!(
-        packets.drain().len(),
-        1,
-        "a new session owns a new map table"
     );
 }
 
@@ -190,7 +209,7 @@ fn a_full_output_queue_does_not_mark_a_map_request_as_known() {
     let mut app = App::new();
     app.insert_resource(runtime)
         .insert_resource(network)
-        .init_resource::<ClientWorld>()
+        .insert_resource(map_request_world())
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
