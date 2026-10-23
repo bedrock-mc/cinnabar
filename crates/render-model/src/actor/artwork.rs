@@ -14,9 +14,12 @@ use std::{
 mod color_mask_tests;
 #[path = "artwork/multitexture.rs"]
 mod multitexture;
+#[path = "artwork/page_budget.rs"]
+mod page_budget;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
+use page_budget::push_group;
 #[path = "artwork/pixel_cache.rs"]
 mod pixel_cache;
 #[cfg(test)]
@@ -32,8 +35,6 @@ mod retained_equipment_tests;
 pub type ActorArtworkPageId = u16;
 /// Player skins occupy page zero; generic artwork occupies the remaining page IDs.
 pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
-/// Layers per generic entity page, within every backend's array-layer limit.
-const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
 // startup art takes about 20 MiB. It covers full pack and equipment art; a page past it is
 // downscaled to fit, never dropped.
@@ -61,30 +62,6 @@ impl EquipmentRaster {
             rgba8: rgba8.into(),
         })
     }
-}
-
-fn within_page_budget(generic_pages: usize, declared_pixel_bytes: usize) -> bool {
-    generic_pages < MAX_ACTOR_TEXTURE_PAGES && declared_pixel_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES
-}
-
-/// Appends `page`, box-filtered down until it fits the byte budget, and returns its page id;
-/// `None` only once every page id is taken.
-fn push_page(
-    pages: &mut Vec<ActorTexturePage>,
-    gpu_bytes: &mut usize,
-    page: ActorTexturePage,
-) -> Option<ActorArtworkPageId> {
-    let mut page = page;
-    while !within_page_budget(pages.len() + 1, gpu_bytes.saturating_add(page.rgba8.len())) {
-        let longest = u32::from(page.width.max(page.height));
-        if pages.len() + 1 >= MAX_ACTOR_TEXTURE_PAGES || longest <= 1 {
-            return None;
-        }
-        page = page.fit_within(longest / 2).into_owned();
-    }
-    *gpu_bytes += page.rgba8.len();
-    pages.push(page);
-    ActorArtworkPageId::try_from(pages.len()).ok()
 }
 
 /// Copies ordered texture layers into one allocation without a per-byte iterator.
@@ -257,31 +234,37 @@ impl ActorArtworkPages {
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = player_page_bytes();
         for ((width, height, color_mask, multitexture), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let pixels = multitexture::page_pixels(catalog, indices, width, height);
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: pixels.into(),
-                    color_mask,
-                    multitexture,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
-                    continue;
-                };
-                for (layer, index) in indices.iter().enumerate() {
-                    locations.insert(
-                        *index as u32,
-                        ActorArtworkLocation {
-                            page,
-                            layer: layer as u32,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
-                    );
-                }
-            }
+            push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                multitexture,
+                |indices| {
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
+                        color_mask,
+                        multitexture,
+                    };
+                    (page, ())
+                },
+                |indices, page, (), _| {
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations.insert(
+                            *index as u32,
+                            ActorArtworkLocation {
+                                page,
+                                layer: layer as u32,
+                                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                                multitexture: None,
+                            },
+                        );
+                    }
+                },
+            );
         }
         let routes: BTreeMap<_, _> = catalog
             .bindings()
@@ -415,46 +398,52 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height, color_mask), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update((indices.len() as u32).to_le_bytes());
-                let bytes: usize = indices
-                    .iter()
-                    .map(|index| rasters[*index].rgba8.len())
-                    .sum();
-                hasher.update((bytes as u64).to_le_bytes());
-                hasher.update([u8::from(color_mask)]);
-                hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
-                let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| rasters[*index].rgba8.as_ref()),
-                    &mut hasher,
-                );
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: Arc::clone(&pixels),
-                    color_mask,
-                    multitexture: false,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
-                    continue;
-                };
-                let index = usize::from(page) - 1;
-                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
-                    shared.push((key, index));
-                }
-                for (layer, index) in indices.iter().enumerate() {
-                    locations[*index] = Some(ActorArtworkLocation {
-                        page,
-                        layer: layer as u32,
-                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                        multitexture: None,
-                    });
-                    equipment.insert((page, layer as u32));
-                }
-            }
+            push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                false,
+                |indices| {
+                    hasher.update(width.to_le_bytes());
+                    hasher.update(height.to_le_bytes());
+                    hasher.update((indices.len() as u32).to_le_bytes());
+                    let bytes: usize = indices
+                        .iter()
+                        .map(|index| rasters[*index].rgba8.len())
+                        .sum();
+                    hasher.update((bytes as u64).to_le_bytes());
+                    hasher.update([u8::from(color_mask)]);
+                    hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
+                    let (key, pixels) = pixel_cache::pack(
+                        indices.iter().map(|index| &rasters[*index].rgba8),
+                        &mut hasher,
+                    );
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: pixels,
+                        color_mask,
+                        multitexture: false,
+                    };
+                    (page, key)
+                },
+                |indices, page, key, kept| {
+                    if kept {
+                        shared.push((key, usize::from(page) - 1));
+                    }
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations[*index] = Some(ActorArtworkLocation {
+                            page,
+                            layer: layer as u32,
+                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                            multitexture: None,
+                        });
+                        equipment.insert((page, layer as u32));
+                    }
+                },
+            );
         }
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
@@ -487,48 +476,54 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update((indices.len() as u32).to_le_bytes());
-                let bytes: usize = indices
-                    .iter()
-                    .map(|index| textures[*index].rgba8.len())
-                    .sum();
-                hasher.update((bytes as u64).to_le_bytes());
-                hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
-                hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
-                let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| textures[*index].rgba8.as_ref()),
-                    &mut hasher,
-                );
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: Arc::clone(&pixels),
-                    color_mask: false,
-                    multitexture: false,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
-                    continue;
-                };
-                let index = usize::from(page) - 1;
-                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
-                    shared.push((key, index));
-                }
-                for (layer, index) in indices.iter().enumerate() {
-                    locations.insert(
-                        *index as u32,
-                        ActorArtworkLocation {
-                            page,
-                            layer: layer as u32,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
+            push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                false,
+                |indices| {
+                    hasher.update(width.to_le_bytes());
+                    hasher.update(height.to_le_bytes());
+                    hasher.update((indices.len() as u32).to_le_bytes());
+                    let bytes: usize = indices
+                        .iter()
+                        .map(|index| textures[*index].rgba8.len())
+                        .sum();
+                    hasher.update((bytes as u64).to_le_bytes());
+                    hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
+                    hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
+                    let (key, pixels) = pixel_cache::pack(
+                        indices.iter().map(|index| &textures[*index].rgba8),
+                        &mut hasher,
                     );
-                }
-            }
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: pixels,
+                        color_mask: false,
+                        multitexture: false,
+                    };
+                    (page, key)
+                },
+                |indices, page, key, kept| {
+                    if kept {
+                        shared.push((key, usize::from(page) - 1));
+                    }
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations.insert(
+                            *index as u32,
+                            ActorArtworkLocation {
+                                page,
+                                layer: layer as u32,
+                                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                                multitexture: None,
+                            },
+                        );
+                    }
+                },
+            );
         }
         let pack_source_locations: BTreeMap<u32, ActorArtworkLocation> = textures
             .iter()
@@ -673,6 +668,7 @@ impl ActorArtworkPages {
 
 #[cfg(test)]
 mod tests {
+    use super::page_budget::within_page_budget;
     use super::*;
     use crate::MAX_RENDERED_PLAYERS;
 
@@ -798,54 +794,6 @@ mod tests {
         assert_eq!(locations[1].unwrap().layer(), 1);
         assert_eq!(locations[0].unwrap().page(), locations[1].unwrap().page());
         assert_eq!(pages.identity(), equipment.identity());
-    }
-
-    // A pack with a texture size per page past the old 32-page cap places every texture.
-    #[test]
-    fn pack_art_of_many_sizes_gets_a_page_per_size() {
-        let textures: Vec<_> = (1..=40u16)
-            .map(|side| assets::ActorTexture {
-                source: u32::from(side),
-                width: side,
-                height: 1,
-                pixel_sha256: [0; 32],
-                rgba8: vec![9; usize::from(side) * 4].into(),
-            })
-            .collect();
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
-        assert_eq!(pages.pages().len(), 40);
-    }
-
-    // Same-size equipment rasters past one page's layer limit spill onto further pages.
-    #[test]
-    fn equipment_rasters_past_one_page_spill_onto_more_pages() {
-        let raster = EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8: vec![9; 4].into(),
-        };
-        let rasters = vec![raster; MAX_ACTOR_PAGE_LAYERS + 3];
-        let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
-        assert_eq!(pages.pages().len(), 2);
-        assert!(locations.iter().all(Option::is_some));
-    }
-
-    // Past the byte budget a page is downscaled to fit rather than dropped.
-    #[test]
-    fn a_page_past_the_byte_budget_is_downscaled_not_dropped() {
-        let page = ActorTexturePage {
-            width: 16,
-            height: 16,
-            layers: 1,
-            rgba8: vec![9; 16 * 16 * 4].into(),
-            color_mask: false,
-            multitexture: false,
-        };
-        let mut pages = Vec::new();
-        let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 16 * 16;
-        assert_eq!(push_page(&mut pages, &mut gpu_bytes, page), Some(1));
-        assert_eq!(pages[0].dimensions(), (8, 8));
-        assert_eq!(gpu_bytes, MAX_ACTOR_GPU_PIXEL_BYTES);
     }
 
     #[test]

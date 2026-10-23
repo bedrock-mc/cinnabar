@@ -331,6 +331,7 @@ fn render_frame_options(
                 atmosphere_textures: None,
                 clouds_visible: false,
                 particles: None,
+                particle_atlas_side: 0,
                 precipitation: None,
                 lightning: None,
                 selection: None,

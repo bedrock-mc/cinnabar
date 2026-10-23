@@ -1,5 +1,25 @@
 use super::*;
 
+#[cfg(target_os = "linux")]
+#[test]
+fn an_extracted_linux_install_launches_apprun_without_appimage_arguments() {
+    let root = tempfile::tempdir().unwrap();
+    let command = client_command(root.path());
+    assert_eq!(
+        command.get_program(),
+        root.path().join(crate::target::APP_RUN)
+    );
+    assert_eq!(command.get_args().count(), 0);
+    let image = root.path().join("client.AppImage");
+    fs::write(&image, "image").unwrap();
+    let command = client_command(&image);
+    assert_eq!(command.get_program(), image);
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        ["--appimage-extract-and-run"]
+    );
+}
+
 #[test]
 fn a_silent_start_stalls_after_the_timeout() {
     let directory = tempfile::tempdir().unwrap();

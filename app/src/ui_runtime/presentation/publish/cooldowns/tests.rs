@@ -89,7 +89,7 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
             charge_projectile: None,
             press_consumed: false,
         });
-        assert!(outcome.started || outcome.swung);
+        assert!(outcome.started || outcome.swung.is_some());
         for (elapsed, expected) in [
             (0, 1.0),
             (u64::from(cooldown.ticks) / 2, 0.5),
@@ -175,6 +175,7 @@ fn hotbar_publishes_shared_attack_cooldowns_and_expiry() {
     let outcome = melee.resolve(
         gameplay::melee::Crosshair::Miss,
         &gameplay::melee::PressContext {
+            refused_destroy: None,
             tick: 100,
             player_position: [0.0; 3],
             input_mode: protocol::PlayerInputMode::Mouse,

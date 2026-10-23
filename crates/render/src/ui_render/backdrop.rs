@@ -7,7 +7,9 @@
 //! retained layers never hold scene pixels and a changing scene needs no layer redraw. Without
 //! backdrop batches no pass runs and no pyramid stays allocated.
 
+use super::target::{NativeUiTarget, UiTarget};
 use super::*;
+use crate::gpu_allocation::{FailedRequests, checked};
 use bevy::render::{
     render_resource::{
         BindGroup, BindGroupEntries, BindGroupLayout, Extent3d, LoadOp, Operations,
@@ -276,6 +278,9 @@ pub(crate) struct UiBackdropStore {
     pipelines: HashMap<Entity, [CachedRenderPipelineId; 3]>,
     /// Per-view element-filter targets, kept only while filters are published.
     pub(super) filters: HashMap<Entity, super::filter::FilterTargets>,
+    /// Extents whose pyramid or filter targets ran out of memory; retried on a resize.
+    failed_backdrops: FailedRequests<[u32; 2]>,
+    pub(super) failed_filters: FailedRequests<[u32; 2]>,
 }
 
 impl UiBackdropStore {
@@ -293,13 +298,22 @@ pub(crate) fn prepare_ui_backdrops(
     mut pipeline: ResMut<UiBackdropPipeline>,
     cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
-    views: Query<(Entity, &ViewTarget, &bevy::render::camera::ExtractedCamera)>,
+    views: Query<(
+        Entity,
+        &ViewTarget,
+        &bevy::render::camera::ExtractedCamera,
+        Option<&NativeUiTarget>,
+    )>,
     gpu: Option<Res<UiGpu>>,
 ) {
     let store = &mut *store;
+    store.failed_backdrops.retain(|view| views.contains(view));
+    store.failed_filters.retain(|view| views.contains(view));
     if store.device.as_ref() != Some(device.wgpu_device()) {
         store.views.clear();
         store.filters.clear();
+        store.failed_backdrops = Default::default();
+        store.failed_filters = Default::default();
         store.sampler = None;
         store.device = Some(device.wgpu_device().clone());
     }
@@ -347,13 +361,16 @@ pub(crate) fn prepare_ui_backdrops(
             &device,
             [&filter, &shapes],
             &sampler,
-            views.iter().map(|(entity, target, _)| (entity, target)),
+            views
+                .iter()
+                .map(|(entity, target, _, native)| (entity, UiTarget::new(target, native))),
         );
     }
     if !backdrops {
         return;
     }
-    for (entity, target, camera) in &views {
+    for (entity, target, camera, native) in &views {
+        let target = UiTarget::new(target, native);
         let size = target.main_texture().size();
         let scene = [size.width, size.height];
         if store
@@ -361,9 +378,15 @@ pub(crate) fn prepare_ui_backdrops(
             .get(&entity)
             .is_none_or(|pyramid| pyramid.scene != scene)
         {
-            store
-                .views
-                .insert(entity, pyramid(&device, &filter, &sampler, scene));
+            // Without a pyramid the backdrop draws over the unblurred scene.
+            store.views.remove(&entity);
+            match store
+                .failed_backdrops
+                .attempt(entity, scene, || pyramid(&device, &filter, &sampler, scene))
+            {
+                Some(pyramid) => store.views.insert(entity, pyramid),
+                None => continue,
+            };
         }
         let pyramid = store.views.get_mut(&entity).expect("inserted above");
         let mains = [target.main_texture_view(), target.main_texture_other_view()];
@@ -378,28 +401,33 @@ pub(crate) fn prepare_ui_backdrops(
     }
 }
 
-/// Allocates the levels below `scene` and binds each as the next one's source.
+/// Allocates the levels below `scene` and binds each as the next one's source; `None` when out
+/// of memory.
 pub(super) fn pyramid(
     device: &RenderDevice,
     layout: &BindGroupLayout,
     sampler: &Sampler,
     scene: [u32; 2],
-) -> Pyramid {
+) -> Option<Pyramid> {
     let ([width, height], mips) = pyramid_extent(scene);
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("UI backdrop blur pyramid"),
-        size: Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: mips,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: PYRAMID_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
+    // The mip chain adds a third to the base level.
+    let bytes = u64::from(width) * u64::from(height) * 8 * 4 / 3;
+    let texture = checked(device, "UI backdrop blur pyramid", bytes, || {
+        device.create_texture(&TextureDescriptor {
+            label: Some("UI backdrop blur pyramid"),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: mips,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: PYRAMID_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    })?;
     let levels: Vec<_> = (0..mips)
         .map(|mip| {
             texture.create_view(&TextureViewDescriptor {
@@ -420,13 +448,13 @@ pub(super) fn pyramid(
             )
         })
         .collect();
-    Pyramid {
+    Some(Pyramid {
         scene,
         all: texture.create_view(&TextureViewDescriptor::default()),
         levels,
         chain,
         sources: Vec::new(),
-    }
+    })
 }
 
 /// What [`apply_backdrops`] draws with besides the view's batches.
@@ -437,6 +465,7 @@ pub(super) struct BackdropDraw<'a> {
     pub(super) indices: &'a Buffer,
     pub(super) view: Entity,
     pub(super) viewport: Option<&'a bevy::camera::Viewport>,
+    pub(super) output_extent: Option<[u32; 2]>,
 }
 
 /// Blurs the scene once and draws `backdrops` over it into the next main texture. Returns false,
@@ -444,7 +473,7 @@ pub(super) struct BackdropDraw<'a> {
 pub(super) fn apply_backdrops(
     context: &mut RenderContext,
     draw: &BackdropDraw<'_>,
-    target: &ViewTarget,
+    target: UiTarget<'_>,
     backdrops: &[(usize, &UiRenderBatch, UiTextureLocation)],
 ) -> bool {
     let world = draw.world;
@@ -536,6 +565,7 @@ pub(super) fn apply_backdrops(
         draw.indices,
         draw.viewport,
         crate::render_bounds::extent(post.destination),
+        draw.output_extent,
         backdrops,
         None,
         None,

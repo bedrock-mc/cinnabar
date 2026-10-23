@@ -6,21 +6,32 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-platform-specific = ["macos"]
+platform-specific = ["macos", "windows"]
 
 [lib]
 doctest = false
 
 [dependencies]
 assets = { path = "../assets" }
-naga.workspace = true
+naga = { workspace = true, features = ["serialize", "deserialize"] }
 pp-rs = "0.2.1"
 rayon.workspace = true
 serde_json = "1"
+serde = { version = "1", features = ["derive", "rc"] }
+ciborium = "0.2"
 zip-footer = { path = "../zip-footer" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 tempfile = "3"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+
 [lints]
 workspace = true
+
+[dev-dependencies]
+test-time = { path = "../test-time" }

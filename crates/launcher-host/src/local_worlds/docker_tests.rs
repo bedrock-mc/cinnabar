@@ -12,6 +12,24 @@ const MAC: Platform = Platform {
     arch: "arm64",
 };
 
+#[cfg(unix)]
+#[test]
+fn mobile_hosts_cannot_select_docker_even_when_a_working_cli_is_present() {
+    let dir = scratch();
+    let docker = dir.path().join("docker");
+    write_script(&docker, FAKE_DOCKER);
+    let log = dir.path().join("log");
+    for os in ["android", "ios"] {
+        let info = detect_runtime(
+            Platform { os, arch: "arm64" },
+            &docker.to_string_lossy(),
+            &[("FAKE_DOCKER_LOG".into(), log.clone().into())],
+        );
+        assert_eq!((info.kind, info.unavailable), (RuntimeKind::None, None));
+    }
+    assert!(!log.exists(), "a mobile host must never invoke Docker");
+}
+
 #[test]
 fn native_hosts_never_probe_docker() {
     for platform in [

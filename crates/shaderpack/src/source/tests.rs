@@ -1,6 +1,33 @@
 use super::*;
 use std::io::Write;
 
+#[cfg(unix)]
+#[test]
+fn archive_inputs_reject_device_streams() {
+    for path in ["/dev/null", "/dev/zero"] {
+        let error = open_archive(Path::new(path), small_limits()).unwrap_err();
+        assert!(
+            matches!(error, PackError::Io { error, .. } if error.kind() == io::ErrorKind::InvalidInput)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn saved_options_reject_named_pipes_without_waiting_for_a_writer() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("Pack.zip.txt");
+    let status = std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        crate::read_option_file(&path).unwrap_err().kind(),
+        io::ErrorKind::InvalidInput
+    );
+}
+
 #[test]
 fn frontend_newline_pairs_keep_distinct_breaks() {
     for (source, expected) in [

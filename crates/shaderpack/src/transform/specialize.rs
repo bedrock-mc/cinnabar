@@ -4,6 +4,7 @@
 //! arguments become resource-specific helpers. Each round plans edits against unchanged
 //! tokens, then applies them from the end. Later rounds handle nested helpers.
 
+use super::TransformError;
 use super::items::{
     Item, Param, func_params, is_opaque, local_declarators, matching, shadowed_bindings, split_args,
 };
@@ -12,6 +13,34 @@ use std::collections::{HashMap, HashSet};
 
 /// Rounds of specialization; each round handles one more level of helper nesting.
 const MAX_ROUNDS: usize = 32;
+
+/// Maximum retained token storage generated while specializing one stage.
+const MAX_SPECIALIZATION_BYTES: usize = 4 * crate::source::MAX_TEXT_FILE_BYTES;
+
+/// Accounts for original tokens and every helper copy before allocating generated bodies.
+struct StorageBudget(usize);
+
+impl StorageBudget {
+    /// Reserves the maximum spelling storage of these tokens after identifier substitution.
+    fn reserve(&mut self, tokens: &[Tok], identifier_bytes: usize) -> Result<(), TransformError> {
+        for token in tokens {
+            let spelling = match &token.kind {
+                crate::token::TokKind::Punct(_) => 0,
+                _ => token.text().len().max(identifier_bytes),
+            };
+            self.0 = self
+                .0
+                .checked_sub(size_of::<Tok>() + spelling)
+                .ok_or_else(|| {
+                    TransformError::new(
+                        "shader helper specialization exceeds storage limit",
+                        token.line,
+                    )
+                })?;
+        }
+        Ok(())
+    }
+}
 
 /// An original opaque overload, retained unchanged while generated helpers accumulate.
 struct Template {
@@ -80,7 +109,11 @@ impl Specializer {
     }
 
     /// Plans all calls before changing tokens, then applies disjoint edits in reverse order.
-    fn rewrite_calls(&mut self, items: &mut Vec<(usize, Item)>) -> bool {
+    fn rewrite_calls(
+        &mut self,
+        items: &mut Vec<(usize, Item)>,
+        budget: &mut StorageBudget,
+    ) -> Result<bool, TransformError> {
         let mut edits = Vec::new();
         let mut functions = Vec::new();
         for (item_index, (_, item)) in items.iter().enumerate() {
@@ -185,6 +218,16 @@ impl Specializer {
                 }
                 for (overload, template) in compatible {
                     if self.created.insert((name.clone(), overload)) {
+                        // Substitution can lengthen names. Reserve an upper bound before
+                        // cloning the body, including names made for colliding locals.
+                        let identifier_bytes = bindings
+                            .iter()
+                            .flatten()
+                            .map(String::len)
+                            .chain([format!("iris_specialized_{}", usize::MAX).len()])
+                            .max()
+                            .unwrap_or(0);
+                        budget.reserve(&template.tokens, identifier_bytes)?;
                         functions.push((
                             template.position,
                             Item::Func {
@@ -205,7 +248,7 @@ impl Specializer {
             tokens.splice(edit.token..edit.token + 1, edit.replacement);
         }
         items.extend(functions);
-        changed
+        Ok(changed)
     }
 }
 
@@ -315,11 +358,23 @@ fn instantiate(
 }
 
 /// Generates every resource-compatible overload and leaves value typing to naga.
-pub(super) fn specialize_opaque_params(items: Vec<Item>) -> Vec<Item> {
+pub(super) fn specialize_opaque_params(items: Vec<Item>) -> Result<Vec<Item>, TransformError> {
+    specialize_with_limit(items, MAX_SPECIALIZATION_BYTES)
+}
+
+/// Specializes helpers within a cumulative token-storage budget shared by all rounds.
+fn specialize_with_limit(items: Vec<Item>, limit: usize) -> Result<Vec<Item>, TransformError> {
+    let mut budget = StorageBudget(limit);
+    for item in &items {
+        let tokens = match item {
+            Item::Func { toks, .. } | Item::Decl(_, toks) | Item::Other(toks) => toks,
+        };
+        budget.reserve(tokens, 0)?;
+    }
     let mut pass = Specializer::new(&items);
     let mut items: Vec<_> = items.into_iter().enumerate().collect();
     for _ in 0..MAX_ROUNDS {
-        if !pass.rewrite_calls(&mut items) {
+        if !pass.rewrite_calls(&mut items, &mut budget)? {
             break;
         }
     }
@@ -376,5 +431,52 @@ pub(super) fn specialize_opaque_params(items: Vec<Item>) -> Vec<Item> {
         })
         .collect();
     items.splice(0..0, prototypes);
-    items
+    Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::items::{parse_decl, split_items};
+    use super::*;
+    use crate::token::lex;
+
+    /// Builds a program whose two resource bindings require distinct helper copies.
+    fn fixture() -> Vec<Item> {
+        split_items(&lex("uniform sampler2D a, b;
+            vec4 read(sampler2D source) { return texture(source, vec2(0.5)); }
+            void main() { vec4 result = read(a) + read(b); }"))
+        .into_iter()
+        .map(|tokens| {
+            if let Some(decl) = parse_decl(&tokens) {
+                Item::Decl(decl, tokens)
+            } else {
+                let open = super::super::func_params(&tokens).unwrap().0;
+                let name = tokens[open - 1].ident().unwrap().to_string();
+                Item::Func { name, toks: tokens }
+            }
+        })
+        .collect()
+    }
+
+    #[test]
+    fn helper_copies_cannot_exceed_the_translation_storage_budget() {
+        let items = fixture();
+        let bytes = items
+            .iter()
+            .flat_map(|item| match item {
+                Item::Func { toks, .. } | Item::Decl(_, toks) | Item::Other(toks) => toks,
+            })
+            .map(|token| {
+                size_of::<Tok>()
+                    + if matches!(token.kind, crate::token::TokKind::Punct(_)) {
+                        0
+                    } else {
+                        token.text().len()
+                    }
+            })
+            .sum();
+        let result = specialize_with_limit(items, bytes);
+        assert!(result.is_err(), "specialization must reject excess storage");
+        assert!(specialize_with_limit(fixture(), usize::MAX).is_ok());
+    }
 }

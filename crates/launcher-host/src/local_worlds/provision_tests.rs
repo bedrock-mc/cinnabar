@@ -1,12 +1,43 @@
 use std::sync::atomic::Ordering;
 
 use super::*;
-use crate::local_worlds::test_support::{FakeMojang, build_zip, scratch};
+use crate::local_worlds::test_support::{FakeMojang, VERSION, build_zip, scratch};
+use crate::local_worlds::unpack::INSTALL_MANIFEST;
 
 const MAC: Platform = Platform {
     os: "darwin",
     arch: "arm64",
 };
+
+#[test]
+fn translated_servers_download_and_record_the_linux_platform() {
+    let dir = scratch();
+    let mojang = FakeMojang::start(VERSION, build_zip(&[("bedrock_server", b"server")]));
+    let mut provisioner = mojang.provisioner(dir.path());
+    provisioner.platform = Platform {
+        os: "android",
+        arch: "arm64",
+    };
+    provisioner.set_runtime(RuntimeInfo::translated());
+    assert_eq!(
+        provisioner.download_platform(),
+        Platform {
+            os: "linux",
+            arch: "amd64"
+        }
+    );
+    assert!(matches!(
+        provisioner.ensure(&Cancel::never()),
+        Err(WorldError::EulaRequired)
+    ));
+    provisioner.accept_eula().unwrap();
+    let server = provisioner.ensure(&Cancel::never()).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(server.parent().unwrap().join(INSTALL_MANIFEST)).unwrap())
+            .unwrap();
+    assert_eq!(manifest["platform"], "linux/amd64");
+    assert!(manifest["url"].as_str().unwrap().contains("/bin-linux/"));
+}
 
 #[test]
 fn only_windows_and_linux_x86_64_run_bds() {
@@ -49,7 +80,7 @@ fn ensure_requires_the_eula_then_downloads_and_records_provenance() {
         install.file_name().and_then(|name| name.to_str()),
         Some("1.26.52.3")
     );
-    let manifest = fs::read_to_string(install.join("manifest.json")).expect("manifest");
+    let manifest = fs::read_to_string(install.join(INSTALL_MANIFEST)).expect("manifest");
     assert!(manifest.contains("\"zip_sha256\": \""), "{manifest}");
     assert!(
         manifest.contains("/bin-linux/bedrock-server-1.26.52.3.zip"),
@@ -193,4 +224,40 @@ fn background_detection_reports_checking_then_its_result() {
             Some(UnavailableReason::DockerNotRunning)
         )
     );
+}
+
+/// Preparation belongs to setup, not the world's own launch. Even a configured preparation
+/// failure must not turn an installed server into a missing or unstartable one.
+#[test]
+fn optional_preparation_failure_does_not_block_normal_world_installation() {
+    let dir = scratch();
+    let mojang = FakeMojang::start(VERSION, build_zip(&[("bedrock_server", b"server")]));
+    let provisioner = mojang.provisioner(dir.path());
+    provisioner.set_runtime(RuntimeInfo::translated());
+    provisioner.accept_eula().unwrap();
+    let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let preparing = Arc::clone(&attempts);
+    provisioner.set_preparer(
+        Arc::new(move |_, _, _| {
+            preparing.fetch_add(1, Ordering::SeqCst);
+            Err(failed("fixture code cache unavailable"))
+        }),
+        Arc::new(|_| false),
+    );
+    let binary = provisioner.ensure(&Cancel::never()).unwrap();
+    assert_eq!(attempts.load(Ordering::SeqCst), 0);
+    assert_eq!(provisioner.status().0.state, SetupState::Ready);
+    assert!(provisioner.ensure_prepared(&Cancel::never()).is_err());
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(provisioner.status().0.state, SetupState::Failed);
+    assert_eq!(provisioner.ensure(&Cancel::never()).unwrap(), binary);
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(provisioner.status().0.state, SetupState::Ready);
+    assert!(provisioner.status().0.error.is_none());
+    let (handle, cancel) = crate::local_worlds::cancel_pair();
+    drop(handle);
+    assert!(matches!(
+        provisioner.ensure(&cancel),
+        Err(WorldError::Cancelled)
+    ));
 }

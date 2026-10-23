@@ -166,6 +166,7 @@ impl Harness {
             Some((
                 crosshair,
                 PressContext {
+                    refused_destroy: None,
                     tick: sample.tick,
                     player_position: sample.position,
                     input_mode: protocol::PlayerInputMode::Mouse,
@@ -421,6 +422,7 @@ impl Harness {
 fn target(id: u64) -> DestroyTarget {
     let stack = protocol::NetworkItemStack::empty();
     DestroyTarget {
+        local_runtime_id: 8,
         position: [id as i32, 2, 3],
         face: 1,
         runtime_id: 9,

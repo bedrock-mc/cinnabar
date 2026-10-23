@@ -27,6 +27,7 @@ fn feed() -> LocalPlayerFeed {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         main_hand_metadata: 0,
         held_variants: Default::default(),

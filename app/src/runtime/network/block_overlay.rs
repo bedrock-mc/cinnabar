@@ -47,7 +47,8 @@ const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
 const MIN_TILE: u32 = assets::TILE_SIZE;
 const MAX_OVERLAY_LAYERS: usize = assets::MAX_TEXTURE_LAYERS;
-/// Base carrier page plus this many overlay shards fill [`assets::MAX_TEXTURE_PAGES`].
+/// Maximum shard count when only one base carrier page is reserved.
+#[cfg(test)]
 const MAX_OVERLAY_SHARDS: usize = assets::MAX_TEXTURE_PAGES - 1;
 const DIAGNOSTIC_MATERIAL: u32 = 0;
 
@@ -117,6 +118,7 @@ pub(super) fn compile_block_overlay_with_textures(
     shared: Option<&SharedTextures>,
 ) -> Option<CompiledBlockOverlay> {
     if max_texture_array_layers == 0
+        || base_assets.is_some_and(|base| base.texture_pages().len() >= assets::MAX_TEXTURE_PAGES)
         || base_assets.is_some_and(|base| base.materials().len() >= assets::MAX_MATERIALS)
     {
         return None;
@@ -150,6 +152,7 @@ pub(super) fn compile_block_overlay_with_textures(
         terrain_materials: HashMap::new(),
         overlay: BlockOverlay {
             max_page_layers: max_layers as u32,
+            base_texture_pages: base_assets.map_or(1, |base| base.texture_pages().len() as u32),
             ..BlockOverlay::default()
         },
         fallback: vanilla_keys
@@ -171,7 +174,7 @@ pub(super) fn compile_block_overlay_with_textures(
     };
     builder.sources.push((Source::Diagnostic, 0));
     builder.overlay.materials.push(Material {
-        texture: TextureRef::new(1, 0).expect("layer zero"),
+        texture: TextureRef::new(builder.overlay.base_texture_pages, 0).expect("layer zero"),
         flags: 0,
         animation: NO_ANIMATION,
         ..assets::Material::unvaried()
@@ -257,7 +260,7 @@ enum Source {
 
 #[derive(Clone)]
 struct TextureSlot {
-    /// Page zero borrows the carrier; higher pages address overlay shards.
+    /// Base pages borrow the carrier; higher pages address overlay shards.
     page: u32,
     layer: u32,
     animation: u32,
@@ -368,8 +371,16 @@ impl Builder<'_> {
             return *visual;
         }
         let checkpoint = self.texture_checkpoint();
+        // Quarter turns keep a full cube; positive scale and translation move its faces. A
+        // reflecting or zero scale would turn model faces inside out, so it stays a cube.
+        let cube_transform = components.transformation.is_none_or(|transform| {
+            (transform.scale == [1.0; 3] && transform.translation == [0.0; 3])
+                || transform.scale.iter().any(|&axis| axis <= 0.0)
+        });
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK | FULL_BLOCK_V1) if components.random_offset.is_none() => {
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1)
+                if components.random_offset.is_none() && cube_transform =>
+            {
                 self.cube(components)
             }
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
@@ -703,7 +714,7 @@ impl Builder<'_> {
             .map(|(_, shard)| *shard)
             .max()
             .map_or(0, |last| last + 1);
-        if shards > MAX_OVERLAY_SHARDS {
+        if shards > self.max_shards() {
             return None;
         }
         let mut tiles = Vec::with_capacity(shards);
@@ -938,9 +949,17 @@ fn quantize(
         .position(|&component| component != 0)
         .unwrap_or(0);
     let boundary = if normal[axis] < 0 { 0 } else { 256 };
-    let on_boundary = positions
-        .iter()
-        .all(|corner| i32::from(corner[axis]) == boundary);
+    // Only a quad lying wholly within the neighbour's face can be hidden by that neighbour.
+    let on_boundary = positions.iter().all(|corner| {
+        (0..3).all(|other| {
+            let value = i32::from(corner[other]);
+            if other == axis {
+                value == boundary
+            } else {
+                (0..=256).contains(&value)
+            }
+        })
+    });
     let face_flag = MODEL_FACE_FLAGS[face];
     // Displaced surfaces can be exposed beside an undisplaced neighbour.
     let mut flags = face_flag

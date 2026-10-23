@@ -14,6 +14,7 @@ use ui_screens::container_actions::ReaderButton;
 const SIZE: [u32; 2] = [800, 600];
 
 mod ordered;
+mod scrollbar;
 
 #[test]
 fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {
@@ -98,10 +99,66 @@ fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
     }
 }
 
+#[test]
+fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
+    use bevy::input::mouse::MouseButtonInput;
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::PhysicalControl;
+
+    for ordered in [false, true] {
+        let (mut app, window) = ordered::personal_app(2);
+        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+        assert!(client_shell::menu::test_support::remap_control(
+            &mut menu,
+            BindingId::Hotbar4.row(false).unwrap(),
+            PhysicalControl::MouseButton(
+                client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap(),
+            ),
+        ));
+        app.insert_resource(menu);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        if ordered {
+            app.world_mut()
+                .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                    button: MouseButton::Back,
+                    state: ButtonState::Pressed,
+                    window,
+                }));
+        }
+
+        app.update();
+
+        assert!(
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "ordered={ordered}"
+        );
+        let player = app.world().resource::<client_state::PlayerRuntime>();
+        let ledger = player.inventory.ledger();
+        assert!(ledger.displayed_stack(0).is_none(), "ordered={ordered}");
+        assert_eq!(
+            ledger.displayed_stack(3).map(|stack| stack.count),
+            Some(2),
+            "ordered={ordered}"
+        );
+        assert_eq!(ledger.pending_request_count(), 1, "ordered={ordered}");
+    }
+}
+
 /// Draws original inventory and book fixtures with a close control on each screen.
 fn presentation(
     player: &client_state::PlayerRuntime,
     runtime: &UiRuntime,
+) -> UiPresentationRuntime {
+    presentation_with_controls(player, runtime, &[])
+}
+
+/// Extends the original screen fixture with controls used by pointer-routing tests.
+fn presentation_with_controls(
+    player: &client_state::PlayerRuntime,
+    runtime: &UiRuntime,
+    extra: &[serde_json::Value],
 ) -> UiPresentationRuntime {
     let files = [
         ("ui/_global_variables.json".to_owned(), b"{}".to_vec()),
@@ -118,7 +175,7 @@ fn presentation(
             ("crafting", "inventory_screen", "button.menu_exit"),
         ]
         .map(|(namespace, root, action)| {
-            let source = serde_json::json!({
+            let mut source = serde_json::json!({
                 "namespace": namespace,
                 (root): {
                     "type": "screen", "size": [160, 100],
@@ -131,6 +188,10 @@ fn presentation(
                     }}]
                 }
             });
+            source[root]["controls"]
+                .as_array_mut()
+                .unwrap()
+                .extend_from_slice(extra);
             (
                 format!("ui/{namespace}.json"),
                 serde_json::to_vec(&source).unwrap(),
