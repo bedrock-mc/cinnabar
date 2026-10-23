@@ -101,15 +101,17 @@ fn publish(world: &mut World, value: u8, particles: bool) {
         });
         world.run_system_once(prepare_particle_resources).unwrap();
     } else {
-        let mut blocks = render_scene::BlockEntityFrameResource::default();
-        blocks.atlas = Some(Arc::new(
-            render_model::block_entity::BlockEntityAtlasImage {
-                identity: [value; 32],
-                size: [side; 2],
-                static_height: side,
-                static_rgba8: vec![value; (side * side * 4) as usize].into(),
-            },
-        ));
+        let blocks = render_scene::BlockEntityFrameResource(render_model::BlockEntityFrame {
+            atlas: Some(Arc::new(
+                render_model::block_entity::BlockEntityAtlasImage {
+                    identity: [value; 32],
+                    size: [side; 2],
+                    static_height: side,
+                    static_rgba8: vec![value; (side * side * 4) as usize].into(),
+                },
+            )),
+            ..default()
+        });
         world.insert_resource(blocks);
         world
             .run_system_once(prepare_block_entity_resources)

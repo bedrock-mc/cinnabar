@@ -263,7 +263,7 @@ fn row_bands_preserve_pixels_across_layer_boundaries() {
         })
         .collect();
     pages.pages = Arc::from([page.clone()]);
-    let reference = upload_page(&device, &queue, &page, "complete fixture").unwrap();
+    let reference = upload_page(&device, &queue, &page, "complete fixture", default()).unwrap();
     let view = reference.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
