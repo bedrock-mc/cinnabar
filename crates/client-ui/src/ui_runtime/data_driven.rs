@@ -1,5 +1,8 @@
 //! Data-driven UI: the server's synced data stores and the answers its screen requests receive.
 
+use std::collections::VecDeque;
+
+use protocol::Packet;
 use protocol::ddui::{
     DataDrivenScreenCloseReason, DataDrivenUiEvent, DataStores, StoreApply,
     data_driven_screen_closed_packet,
@@ -12,6 +15,9 @@ use super::{UiApplyOutcome, UiRuntime};
 pub struct DataDrivenUi {
     stores: DataStores,
     ignored_store_changes: u64,
+    /// Packets for the server, kept until the network flush takes them: every screen request
+    /// waits for its answer, so none may be dropped when the shared queue is full.
+    outgoing: VecDeque<Packet>,
 }
 
 impl DataDrivenUi {
@@ -30,6 +36,12 @@ impl DataDrivenUi {
 
     pub(super) fn clear(&mut self) {
         self.stores.clear();
+        self.outgoing.clear();
+    }
+
+    /// The oldest packet waiting for the network flush.
+    pub(super) fn take_packet(&mut self) -> Option<Packet> {
+        self.outgoing.pop_front()
     }
 }
 
@@ -66,10 +78,9 @@ impl UiRuntime {
                     ?reason,
                     "data-driven screen declined"
                 );
-                if !self.queue_client_packet(data_driven_screen_closed_packet(show.form_id, reason))
-                {
-                    tracing::warn!(target: "ddui", form_id = show.form_id, "screen answer dropped");
-                }
+                self.data_driven
+                    .outgoing
+                    .push_back(data_driven_screen_closed_packet(show.form_id, reason));
             }
             // No screen is ever showing, so a close has nothing to close and needs no answer.
             DataDrivenUiEvent::Close { .. } => {}

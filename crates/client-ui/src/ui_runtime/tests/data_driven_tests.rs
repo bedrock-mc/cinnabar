@@ -58,6 +58,29 @@ fn every_screen_request_is_answered_so_server_scripts_finish() {
 }
 
 #[test]
+fn screen_answers_wait_out_a_full_client_queue() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    let filler = closed(1, DataDrivenScreenCloseReason::UserBusy);
+    let mut queued = 0;
+    while runtime.queue_client_packet(data_driven_screen_closed_packet(
+        1,
+        DataDrivenScreenCloseReason::UserBusy,
+    )) {
+        queued += 1;
+    }
+    for (sequence, form_id) in [(1, 4), (2, 5)] {
+        runtime
+            .apply(&mut player, envelope(1, sequence, show(form_id)))
+            .unwrap();
+    }
+    let mut expected = vec![filler; queued];
+    expected.push(closed(4, DataDrivenScreenCloseReason::ClientCanceled));
+    expected.push(closed(5, DataDrivenScreenCloseReason::ClientCanceled));
+    assert_eq!(sent(&mut runtime), expected);
+}
+
+#[test]
 fn data_stores_follow_the_server_until_the_session_ends() {
     let mut runtime = UiRuntime::new(1);
     let mut player = player_state::PlayerState::new(1);
