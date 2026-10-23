@@ -124,6 +124,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = cameraTestListener(listen)
 		}
 	}
+	if cfg.containerTitleTest {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = containerTitleListener(listen)
+		}
+	}
 	if cfg.totemTest || cfg.totemTexture {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = totemTestListener(listen)
