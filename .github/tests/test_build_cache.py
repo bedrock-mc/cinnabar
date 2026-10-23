@@ -228,11 +228,13 @@ class RetentionTests(unittest.TestCase):
 
     def test_save_preserves_the_predecessor(self):
         """Admission never removes a working cache before uploading its replacement."""
+        self.entries.pop()
         cache.make_room(self.env)
         self.deleted.assert_not_called()
 
     def test_save_requires_room_for_both_entries(self):
         """A replacement cannot evict a predecessor by exceeding the shared storage limit."""
+        self.entries[1]["ref"] = "refs/pull/1/merge"
         with patch.object(cache, "CACHE_LIMIT", 60):
             self.assertFalse(cache.make_room(self.env))
         self.deleted.assert_not_called()
@@ -240,12 +242,45 @@ class RetentionTests(unittest.TestCase):
     def test_admission_reserves_every_concurrent_bucket_replacement(self):
         """Separate upload decisions cannot each spend the same remaining repository space."""
         self.budgets.write_text(json.dumps({"cache": {"linux-": 30, "other-": 20}}))
+        self.entries[1]["ref"] = "refs/pull/1/merge"
         with patch.object(cache, "CACHE_LIMIT", 90):
+            self.assertFalse(cache.make_room(self.env))
+        self.deleted.assert_not_called()
+
+    def test_interrupted_pruning_does_not_block_all_future_uploads(self):
+        """An already validated replacement lets admission retire a stranded predecessor."""
+        with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertTrue(cache.make_room(self.env))
+        self.deleted.assert_called_once_with(self.env, [1])
+
+    def test_reconciliation_keeps_the_newest_valid_entry_on_each_ref(self):
+        """A completed newer save protects a working cache through cleanup of stranded entries."""
+        self.entries.extend([
+            {**self.entries[1], "id": 3, "key": "linux-newer", "created_at": "2026-01-03"},
+            {**self.entries[0], "id": 4, "key": "other-old"},
+            {**self.entries[1], "id": 5, "key": "linux-another-ref", "ref": "refs/pull/1/merge"},
+        ])
+        cache.make_room(self.env)
+        self.deleted.assert_called_once_with(self.env, [1, 2])
+
+    def test_reconciliation_can_discard_a_stranded_oversized_upload(self):
+        """An oversized interrupted upload cannot block replacement of the retained valid cache."""
+        self.entries[1]["size_in_bytes"] = 31
+        with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertTrue(cache.make_room(self.env))
+        self.deleted.assert_called_once_with(self.env, [2])
+
+    def test_reconciliation_preserves_the_only_oversized_predecessor(self):
+        """Admission cannot remove a sole working predecessor without a validated replacement."""
+        self.entries.pop()
+        self.entries[0]["size_in_bytes"] = 31
+        with patch.object(cache, "CACHE_LIMIT", 60):
             self.assertFalse(cache.make_room(self.env))
         self.deleted.assert_not_called()
 
     def test_admission_outputs_control_the_upload_step(self):
         """The composite action receives an explicit decision even when storage is full."""
+        self.entries[1]["ref"] = "refs/pull/1/merge"
         for repository_limit, expected in ((80, "true"), (60, "false")):
             with self.subTest(repository_limit=repository_limit), tempfile.TemporaryDirectory() as temporary:
                 output = Path(temporary) / "output"

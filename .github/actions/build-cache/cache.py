@@ -216,10 +216,22 @@ def delete_caches(env, ids):
 
 
 def make_room(env):
-    """Reserve all shared replacements together, preserving predecessors during parallel uploads."""
+    """Reconcile completed saves, then reserve all shared replacements together."""
     budget("cache", env["CACHE_BUCKET"])
-    reserve = sum(json.loads(BUDGETS.read_text())["cache"].values())
-    used = sum(entry["size_in_bytes"] for entry in caches(env))
+    budgets = json.loads(BUDGETS.read_text())["cache"]
+    entries = caches(env)
+    retired = set()
+    for bucket, limit in budgets.items():
+        matching = [entry for entry in entries if entry["key"].startswith(bucket) and entry["ref"] == env["GITHUB_REF"]]
+        saved = max((entry for entry in matching if 0 < entry["size_in_bytes"] <= limit),
+                    key=lambda entry: entry["created_at"], default=None)
+        if saved is not None:
+            retired.update(superseded(entries, saved["key"], bucket, env["GITHUB_REF"]))
+            retired.update(entry["id"] for entry in matching if entry["size_in_bytes"] > limit)
+    if retired:
+        delete_caches(env, sorted(retired))
+    reserve = sum(budgets.values())
+    used = sum(entry["size_in_bytes"] for entry in entries if entry["id"] not in retired)
     if used + reserve > CACHE_LIMIT:
         print(f"::notice::Kept existing caches: {used} bytes used plus the {reserve}-byte concurrent "
               f"replacement reserve exceeds the {CACHE_LIMIT}-byte repository limit; skipping this upload")
