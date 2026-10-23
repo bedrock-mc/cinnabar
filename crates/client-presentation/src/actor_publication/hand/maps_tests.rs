@@ -49,7 +49,7 @@ fn held_map_images_keep_rectangles_and_independent_hands_without_warm_pixel_work
 }
 
 #[test]
-fn replaced_and_new_session_maps_cannot_reuse_pixels_with_the_same_revision() {
+fn resident_updates_and_new_sessions_cannot_reuse_stale_map_pixels() {
     let (mut stream, _, _, _) = fixture(None);
     update(&mut stream, 266, 0, &[1]);
     let mut cache = MapCache::default();
@@ -60,12 +60,15 @@ fn replaced_and_new_session_maps_cannot_reuse_pixels_with_the_same_revision() {
         update(&mut stream, id, 0, &[2]);
     }
     assert!(
-        stream.map_image(266).is_none(),
-        "fixture must evict the original image"
+        stream.map_image(266).is_some(),
+        "earlier authoritative images remain available"
     );
-    assert!(stream.replaced_maps() > 0);
+    assert!(Arc::ptr_eq(
+        &old.rgba8,
+        &cache.image(&stream, 0, Some(266)).unwrap().rgba8
+    ));
     update(&mut stream, 266, 0, &[3]);
-    assert_eq!(stream.map_image(266).unwrap().revision, 1);
+    assert_eq!(stream.map_image(266).unwrap().revision, 2);
     let replaced = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(replaced.rgba8[0], 3);
     assert!(!Arc::ptr_eq(&old.rgba8, &replaced.rgba8));

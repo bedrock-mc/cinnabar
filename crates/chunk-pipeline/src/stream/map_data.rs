@@ -11,7 +11,7 @@ impl WorldStream {
         self.authority.consume_map_data(event);
     }
 
-    /// The assembled image of `map_id`, if any pixels have arrived; marks it recently used.
+    /// The assembled image of `map_id`, if any pixels have arrived in this session.
     #[must_use]
     pub fn map_image(&self, map_id: i64) -> Option<&MapImage> {
         self.authority.map_image(map_id)

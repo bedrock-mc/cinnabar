@@ -358,6 +358,8 @@ and rendered qualification remain incomplete.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
+  Received map pixels remain available for the session; missing map data leaves only
+  the arms visible while the shared request is pending.
   Native pixel comparisons, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
