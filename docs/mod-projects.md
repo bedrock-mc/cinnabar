@@ -177,7 +177,7 @@ To move a personal mod into a client part:
 3. Replace asset literals with generated constants and local-only inputs with typed messages.
 4. Use the canonical drawing interfaces available to client parts, retaining shared
    personal SDK drawing types and following their grants and callback lifecycle.
-5. Replace `export_player_mod!` with the scaffold's `export_client_part!` entry point and rebuild.
+5. Replace `export_player_mod!` with the scaffold's `#[client]` entry point and rebuild.
 
 A personal-mod component is not a client-part component. Personal packet interception,
 native extensions and local settings do not become server privileges. This build

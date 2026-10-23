@@ -10,7 +10,6 @@ use std::sync::LazyLock;
 
 use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
-use experience_runtime::manifest::SERVER_WASM;
 use experience_runtime::protocol::{
     BlockPos, Call, Cell, Crafted, Face, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op, Outcome,
     Recipe, Request, Scalar, ServerItem,

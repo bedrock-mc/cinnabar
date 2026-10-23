@@ -18,10 +18,6 @@ use crate::hex;
 use crate::host::Api;
 use crate::limits::{MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 
-/// The directory that texture paths are relative to.
-pub use experience_sdk::artifact::ASSETS_DIR;
-/// The block-data schema this runtime implements.
-pub use experience_sdk::artifact::DATA_SCHEMA;
 use experience_sdk::artifact::{DATA_SCHEMA, MANIFEST_FILE};
 
 /// The table that declares the client part, which the runtime ignores.
