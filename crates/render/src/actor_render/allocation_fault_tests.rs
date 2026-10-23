@@ -341,7 +341,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 let page = &next.artwork.pages[0];
                 page.width.max(page.height).ilog2() + 1
             };
-            for _ in 0..attempts {
+            for attempt in 0..attempts {
                 let previous_calls = calls.borrow().len();
                 let drawn = draw_frame(&mut app, &next);
                 assert!(
@@ -352,15 +352,29 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 );
                 let expected = if compatible {
                     vec![1, 2]
-                } else {
-                    // Completed pages keep drawing while later demand fails or retries.
+                } else if attempt + 1 < attempts {
+                    // Pending uploads can draw earlier completed pages.
                     (1..occurrence as u16).collect()
+                } else {
+                    // A failed publication suppresses generic draws but retains completed pages.
+                    Vec::new()
                 };
                 assert_eq!(
                     drawn.iter().map(|span| span.page).collect::<Vec<_>>(),
                     expected,
-                    "{label}: only completed or compatible pages can draw"
+                    "{label}: pending pages draw only completed artwork; failed demand draws nothing"
                 );
+                for index in 0..occurrence - 1 {
+                    assert!(
+                        app.sub_app(RenderApp)
+                            .world()
+                            .resource::<ActorGpu>()
+                            .artwork
+                            .page(index)
+                            .is_some(),
+                        "{label}: a later failure retains earlier completed pages"
+                    );
+                }
                 if compatible {
                     let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
                     assert_eq!(
