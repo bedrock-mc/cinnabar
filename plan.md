@@ -366,6 +366,7 @@ and rendered qualification remain incomplete.
   Furnace-family previews use their authored carried front faces.
   Dried-ghast previews keep separate body and tentacle artwork and preserve the held model.
   Shared cube face sheets are bounded coverage.
+  Block-model previews cull one-sided rear faces and preserve two-sided planes.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
