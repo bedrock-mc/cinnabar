@@ -258,6 +258,62 @@ impl sim::CollisionWorld for OpenWorld {
     }
 }
 
+struct BlockedWorld;
+
+impl sim::CollisionWorld for BlockedWorld {
+    /// Keeps the player grounded against a wall in the direction of forward input.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(vec![
+            sim::Aabb::new(
+                sim::Vec3::new(-16.0, -1.0, -16.0),
+                sim::Vec3::new(16.0, 0.0, 16.0),
+            ),
+            sim::Aabb::new(
+                sim::Vec3::new(-16.0, 0.0, 0.3),
+                sim::Vec3::new(16.0, 4.0, 16.0),
+            ),
+        ]))
+    }
+}
+
+/// Sync movement follows completed displacement, including gravity and blocked controls.
+#[test]
+fn sync_moving_flag_uses_displacement_instead_of_input() {
+    for blocked in [false, true] {
+        let mut physics = due_physics();
+        physics.reanchor_network_position(
+            [0.0, protocol::PLAYER_NETWORK_OFFSET, 0.0],
+            100,
+            blocked,
+        );
+        let input = sim::MovementInput {
+            forward: if blocked { 1.0 } else { 0.0 },
+            ..Default::default()
+        };
+        if blocked {
+            physics.advance(std::time::Duration::from_millis(100), input, &BlockedWorld);
+        } else {
+            physics.advance(std::time::Duration::from_millis(100), input, &OpenWorld);
+        }
+        let mut sent = None;
+        send_movement_prediction_sync(&mut physics, &local_actor(), None, None, false, |packet| {
+            sent = Some(packet);
+            true
+        });
+        let words = protocol::test_support::packets::prediction_sync_flags(
+            &sent.expect("due correction sync"),
+        )
+        .expect("prediction sync packet");
+        let mut expected = [0; 3];
+        set_flag(&mut expected, ActorFlag::HasCollision, true);
+        set_flag(&mut expected, ActorFlag::Moving, !blocked);
+        assert_eq!(words, expected, "blocked={blocked}");
+    }
+}
+
 /// Correction sync follows completed walking posture and size before a server echo.
 #[test]
 fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {

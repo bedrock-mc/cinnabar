@@ -2,13 +2,16 @@
 
 use super::*;
 
+/// Minimum squared displacement that marks the completed actor tick as moving.
+const MOVING_FLAG_DISTANCE_SQUARED: f32 = 0.001;
+
 /// Actor flags the client sets on its own flag words, as of the latest completed sample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::movement) struct SyncPose {
     pub sneaking: bool,
     pub sprinting: bool,
     pub mode: sim::MovementMode,
-    /// Nonzero processed movement input.
+    /// Completed displacement exceeds the actor movement threshold.
     pub moving: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
@@ -31,16 +34,19 @@ impl LocalPhysicsController {
 
     /// Locally owned actor flags once a movement sample has completed: the
     /// accepted posture, the current mode (including server flag updates that
-    /// ended a swim, crawl or glide after that sample), movement input and
+    /// ended a swim, crawl or glide after that sample), displacement and
     /// terrain collision.
     pub(in crate::movement) fn prediction_sync_pose(&self) -> Option<SyncPose> {
-        let sample = self.sample_history.back()?;
+        let state = self.state.as_ref()?;
         let (sneaking, sprinting) = self.prediction_sync_posture()?;
+        let dx = state.position.x as f32 - self.previous_position.x as f32;
+        let dy = state.position.y as f32 - self.previous_position.y as f32;
+        let dz = state.position.z as f32 - self.previous_position.z as f32;
         Some(SyncPose {
             sneaking,
             sprinting,
             mode: self.modes.mode(),
-            moving: sample.move_vector != [0.0; 2],
+            moving: dz * dz + dy * dy + dx * dx > MOVING_FLAG_DISTANCE_SQUARED,
             has_collision: self
                 .controller_history
                 .back()
