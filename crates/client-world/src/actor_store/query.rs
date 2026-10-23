@@ -278,13 +278,6 @@ impl ActorStore {
     ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
     }
-    /// Parent links of the skeleton the UI pose poses.
-    pub(crate) fn actor_bone_hierarchy(
-        &self,
-        runtime_id: u64,
-    ) -> Option<actor_animation::BoneHierarchy<'_>> {
-        self.animation.bone_hierarchy(runtime_id)
-    }
     pub(crate) fn actor_retargeted_pose(
         &self,
         runtime_id: u64,

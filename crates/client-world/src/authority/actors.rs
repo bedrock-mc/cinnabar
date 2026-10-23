@@ -359,13 +359,6 @@ impl WorldAuthority {
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[actor_animation::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
-    /// Parent links of the skeleton [`Self::actor_ui_pose`] poses.
-    pub fn actor_bone_hierarchy(
-        &self,
-        runtime_id: u64,
-    ) -> Option<actor_animation::BoneHierarchy<'_>> {
-        self.actors.actor_bone_hierarchy(runtime_id)
-    }
     /// Full-body controller layers paired with the actor's UI pose.
     pub fn actor_ui_layers(
         &self,

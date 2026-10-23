@@ -338,12 +338,6 @@ impl ActorAnimationStore {
         }
     }
 
-    /// Parent links of the skeleton [`Self::ui_pose`] poses.
-    pub fn bone_hierarchy(&self, runtime_id: u64) -> Option<BoneHierarchy<'_>> {
-        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
-        Some(BoneHierarchy(state.posed_bones()))
-    }
-
     /// Full-body controller output from the same UI evaluation as [`Self::ui_pose`].
     pub fn ui_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
         let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;

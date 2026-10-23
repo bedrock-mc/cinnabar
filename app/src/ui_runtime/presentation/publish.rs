@@ -328,9 +328,6 @@ pub(crate) fn prepare_ui_runtime(
             emote_preview,
         );
     }
-    // Live player renderers, in container screens, pack HUDs or mod controls, draw the
-    // animated actor as well.
-    presentation.refresh_screen_player(client_world.stream.as_ref(), runtime.inventory_open());
     let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
         settings.value(SettingId::HideHud) != 0,
         settings.value(SettingId::HideHand) != 0,

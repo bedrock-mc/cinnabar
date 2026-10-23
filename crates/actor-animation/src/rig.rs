@@ -21,26 +21,6 @@ pub struct BoneTransform {
     pub axis_scale: [f32; 3],
 }
 
-/// Parent links of a rig's posed skeleton, indexed like its pose and `bone_names`.
-#[derive(Clone, Copy, Debug)]
-pub struct BoneHierarchy<'a>(pub(super) &'a [RuntimeBone]);
-
-impl BoneHierarchy<'_> {
-    /// Whether `bone` is `ancestor` itself or one of its descendants.
-    pub fn descends_from(self, bone: usize, ancestor: usize) -> bool {
-        let mut current = Some(bone);
-        // Parent links come from validated skeletons; the bound still stops a malformed cycle.
-        for _ in 0..=self.0.len() {
-            match current {
-                Some(index) if index == ancestor => return true,
-                Some(index) => current = self.0.get(index).and_then(|bone| bone.parent),
-                None => return false,
-            }
-        }
-        false
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct ActorRigSnapshot<'a> {
     /// Coordinate frames cached with the selected rig.

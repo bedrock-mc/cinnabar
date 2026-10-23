@@ -1,6 +1,6 @@
-//! The HUD and live player renderers use the same geometry and evaluated bones as the world player.
+//! The HUD uses the same geometry and evaluated bones as the world player.
 
-use super::super::{UiPresentationRuntime, player_preview::PreviewView};
+use super::super::UiPresentationRuntime;
 use glam::{Affine3A, Quat, Vec3, Vec4};
 use render_model::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 
@@ -25,77 +25,6 @@ pub(super) struct LivePlayer {
     pub(super) outer_y: f32,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
-    /// Where the head turns, for renderers that replace the actor's look with their own.
-    head: Option<HeadLook>,
-}
-
-/// The captured head's frame, so each renderer can turn it toward its own pointer offset.
-#[derive(Default)]
-struct HeadLook {
-    /// The capture's model-to-projection frame.
-    frame: Affine3A,
-    /// The head pivot in model blocks, and its posed and rest rotations.
-    pivot: Vec3,
-    rotation: Quat,
-    rest: Quat,
-    /// Which bones the head carries, by bone index.
-    bones: Vec<bool>,
-}
-
-/// A head turn in the capture's projected frame and the vertex parts it moves.
-pub(super) struct HeadTurn<'a> {
-    pub(super) transform: Affine3A,
-    bones: &'a [bool],
-}
-
-impl HeadTurn<'_> {
-    /// Whether a captured body vertex with `part` belongs to the head or a bone it carries.
-    pub(super) fn moves(&self, part: u32) -> bool {
-        part.checked_sub(6)
-            .and_then(|bone| self.bones.get(bone as usize))
-            .copied()
-            .unwrap_or(false)
-    }
-}
-
-impl LivePlayer {
-    /// Turns the captured head toward `view`'s pointer when `view` is a live renderer.
-    ///
-    /// The live player renderer re-renders the actor with its rotations replaced, so the look
-    /// animation's entity-relative head rotation follows the pointer. The replacement is exact
-    /// for that animation alone; other head rotations layered on it are not separated.
-    pub(super) fn head_turn(&self, view: PreviewView) -> Option<HeadTurn<'_>> {
-        if !matches!(view, PreviewView::Live { .. }) {
-            return None;
-        }
-        let head = self.head.as_ref()?;
-        let [pitch, yaw] = view.head_look();
-        // Animation angles turn against the right-hand rule in the mirrored model frame.
-        let target = Quat::from_rotation_y(-yaw.to_radians())
-            * Quat::from_rotation_x(-pitch.to_radians())
-            * head.rest;
-        let turn = Affine3A::from_translation(head.pivot)
-            * Affine3A::from_quat(target * head.rotation.inverse())
-            * Affine3A::from_translation(-head.pivot);
-        Some(HeadTurn {
-            transform: head.frame * turn * head.frame.inverse(),
-            bones: &head.bones,
-        })
-    }
-}
-
-/// The capture `view` poses from: the HUD doll's, or a live renderer's once captured.
-/// Other views, and a live renderer without a capture, use the static menu model.
-pub(super) fn capture_for<'a>(
-    view: PreviewView,
-    hud: &'a LivePlayer,
-    screen: &'a LivePlayer,
-) -> Option<&'a LivePlayer> {
-    match view {
-        PreviewView::Hud => Some(hud),
-        PreviewView::Live { .. } => Some(screen).filter(|live| !live.vertices.is_empty()),
-        _ => None,
-    }
 }
 
 impl UiPresentationRuntime {
@@ -106,7 +35,6 @@ impl UiPresentationRuntime {
     ) {
         let motion: std::collections::HashMap<_, _> = motion.iter().copied().collect();
         if self.gui_models.live_player.hat_motion != motion {
-            self.gui_models.screen_player.hat_motion = motion.clone();
             self.gui_models.live_player.hat_motion = motion;
             self.last_frame = None;
         }
@@ -128,50 +56,10 @@ impl UiPresentationRuntime {
         swimming: bool,
         emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
-        let mut live = std::mem::take(&mut self.gui_models.live_player);
-        self.capture_player(&mut live, stream, swimming, emote);
-        self.gui_models.live_player = live;
-    }
-
-    /// Keeps the `live_player_renderer` capture current while an open container screen or the
-    /// last drawn frame shows that renderer, and drops it otherwise so no later control draws a
-    /// stale pose; such a control first draws the menu model until its capture arrives.
-    pub fn refresh_screen_player(
-        &mut self,
-        stream: Option<&chunk_pipeline::WorldStream>,
-        container_open: bool,
-    ) {
-        let drawn = self
-            .gui_models
-            .live_drawn
-            .load(std::sync::atomic::Ordering::Relaxed);
-        if container_open || drawn {
-            self.capture_screen_player(stream);
-        } else {
-            self.gui_models.screen_player.vertices.clear();
-        }
-    }
-
-    /// Projects the same evaluation for `live_player_renderer`s, separately from the HUD doll.
-    /// Each renderer turns its head toward its own pointer when it is drawn.
-    fn capture_screen_player(&mut self, stream: Option<&chunk_pipeline::WorldStream>) {
-        let mut live = std::mem::take(&mut self.gui_models.screen_player);
-        // Only the HUD lifts a swimming actor's frame.
-        self.capture_player(&mut live, stream, false, None);
-        self.gui_models.screen_player = live;
-    }
-
-    /// Projects the UI evaluation into `live`.
-    fn capture_player(
-        &self,
-        live: &mut LivePlayer,
-        stream: Option<&chunk_pipeline::WorldStream>,
-        swimming: bool,
-        emote: Option<(cosmetics::emotes::Item, f64)>,
-    ) {
         let fire_frames = self.gui_models.fire.frames.len();
         let draw_cape =
             self.menu_preview_model.cape_key.is_some() && !self.gui_models.wearing_elytra;
+        let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.cape_vertices.clear();
         live.hat_vertices.clear();
@@ -185,7 +73,6 @@ impl UiPresentationRuntime {
             0.0
         };
         live.overlay_color = [0.0; 4];
-        let mut head = live.head.take().unwrap_or_default();
         let Some(stream) = stream else {
             live.source = None;
             live.fire = Default::default();
@@ -275,27 +162,6 @@ impl UiPresentationRuntime {
         }
         let frame = offset * actor_scale * basis;
         project_vertices(geometry, &live.bones, frame, &mut live.vertices);
-        if let Some(index) = rig
-            .bone_names
-            .iter()
-            .position(|name| name.as_ref() == "head")
-            && let Some(bone) = live.bones.get(index)
-            && let Some(rotation) = unit_rotation(bone.rotation)
-            && let Some(hierarchy) = stream.authority().actor_bone_hierarchy(id)
-        {
-            head.frame = frame;
-            head.pivot = Vec3::from_slice(&bone.translation_scale[..3]);
-            head.rotation = rotation;
-            head.rest = rig
-                .rest
-                .get(index)
-                .and_then(|bone| unit_rotation(bone.rotation))
-                .unwrap_or(Quat::IDENTITY);
-            head.bones.clear();
-            head.bones
-                .extend((0..live.bones.len()).map(|bone| hierarchy.descends_from(bone, index)));
-            live.head = Some(head);
-        }
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
         for &hat in &self.menu_preview_model.cosmetics {
@@ -358,13 +224,6 @@ impl UiPresentationRuntime {
             discard_collapsed_faces(&mut live.cape_vertices);
         }
     }
-}
-
-/// A bone's `[x, y, z, w]` rotation as a unit quaternion, when it has a direction.
-fn unit_rotation(rotation: [f32; 4]) -> Option<Quat> {
-    Vec4::from_array(rotation)
-        .try_normalize()
-        .map(Quat::from_vec4)
 }
 
 /// Converts a validated bone frame to block coordinates for equipment pose deltas.
@@ -446,6 +305,6 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 #[cfg(test)]
 mod cape_tests;
 #[cfg(test)]
-mod screen_tests;
+mod hud_doll_tests;
 #[cfg(test)]
 mod tests;

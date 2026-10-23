@@ -12,8 +12,6 @@ pub(super) struct Layer<'a> {
     pub(super) vertices: Cow<'a, [ActorVertex]>,
     pub(super) icon: IconRef,
     pub(super) tint: Option<[u8; 3]>,
-    /// Head attachments turn with the head as a whole.
-    head_attachment: bool,
 }
 
 /// Source layers are prepared once, counted without projection, then drawn with admitted hands.
@@ -46,14 +44,12 @@ impl<'a> MeshSources<'a> {
             vertices,
             icon: skin,
             tint: None,
-            head_attachment: false,
         }];
         if let Some((vertices, icon)) = cape {
             layers.push(Layer {
                 vertices: Cow::Borrowed(vertices),
                 icon,
                 tint: None,
-                head_attachment: false,
             });
         }
         for (slot, icon) in armor.into_iter().enumerate() {
@@ -62,7 +58,6 @@ impl<'a> MeshSources<'a> {
                     vertices: Cow::Owned(equipment::armor_vertices(slot)),
                     icon,
                     tint: texture.tint,
-                    head_attachment: false,
                 });
             }
         }
@@ -84,34 +79,7 @@ impl<'a> MeshSources<'a> {
             vertices: Cow::Borrowed(vertices),
             icon,
             tint: None,
-            head_attachment: true,
         });
-        self
-    }
-
-    /// Applies `turn` to the head: body vertices whose part `moves` selects, every head
-    /// attachment and the head's equipment frame. Call it after adding attachments.
-    pub(in crate::ui_runtime::presentation) fn turn_head(
-        mut self,
-        turn: Affine3A,
-        moves: impl Fn(u32) -> bool,
-    ) -> Self {
-        for (index, layer) in self.layers.iter_mut().enumerate() {
-            if index != 0 && !layer.head_attachment {
-                continue;
-            }
-            let whole = layer.head_attachment;
-            for vertex in layer.vertices.to_mut() {
-                if whole || moves(vertex.part) {
-                    vertex.position = turn
-                        .transform_point3(glam::Vec3::from_array(vertex.position))
-                        .to_array();
-                }
-            }
-        }
-        if let Some(head) = &mut self.parts[0] {
-            *head = turn * *head;
-        }
         self
     }
 

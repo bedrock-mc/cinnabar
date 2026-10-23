@@ -48,14 +48,12 @@ impl UiPresentationRuntime {
 
     /// Advances only a painted player control, independently of the world particle system.
     pub(super) fn sync_player_particles(&mut self, shown: bool) {
-        let live = super::live_player::capture_for(
-            self.player_preview_view,
-            &self.gui_models.live_player,
-            &self.gui_models.screen_player,
-        )
-        .map(|live| (live.emitter_owner, &live.emitters));
         let previews = &mut self.gui_models.particles;
-        let owner = live.map_or(Owner::Menu, |(owner, _)| Owner::Hud(owner));
+        let owner = if self.player_preview_view == player_preview::PreviewView::Hud {
+            Owner::Hud(self.gui_models.live_player.emitter_owner)
+        } else {
+            Owner::Menu
+        };
         if previews.owner != Some(owner) {
             previews.reset();
             previews.owner = Some(owner);
@@ -71,8 +69,8 @@ impl UiPresentationRuntime {
                     .each_ref()
                     .map(Option::is_some),
             );
-            if let Some((_, emitters)) = live {
-                for &(item, index, transform) in emitters {
+            if self.player_preview_view == player_preview::PreviewView::Hud {
+                for &(item, index, transform) in &self.gui_models.live_player.emitters {
                     previews.placements.push((
                         (item, index),
                         project_emitter(

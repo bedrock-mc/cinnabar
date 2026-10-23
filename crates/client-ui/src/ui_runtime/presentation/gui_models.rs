@@ -127,12 +127,7 @@ pub(super) struct GuiModels {
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
-    /// The HUD doll's capture, keeping the actor's own look.
     live_player: live_player::LivePlayer,
-    /// A screen's `live_player_renderer` capture, its head turned toward the pointer.
-    screen_player: live_player::LivePlayer,
-    /// Whether the last frame drew a `live_player_renderer`, so its capture must stay current.
-    live_drawn: std::sync::atomic::AtomicBool,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     cape: Option<render_model::cape::CapeRig>,
@@ -444,25 +439,9 @@ impl UiPresentationRuntime {
         effects: TextEffects<'_>,
         hud: std::ops::Range<usize>,
     ) {
-        let mut live_drawn = false;
-        if self.gui_models.enabled {
-            live_drawn = self.apply_enabled_gui_models_in(nodes, viewport, safe_area, effects, hud);
+        if !self.gui_models.enabled {
+            return;
         }
-        self.gui_models
-            .live_drawn
-            .store(live_drawn, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Replaces model icons once GUI models are installed. Returns whether a placeholder drew
-    /// with a `live_player_renderer` pose, which keeps that renderer's capture current.
-    fn apply_enabled_gui_models_in(
-        &self,
-        nodes: &mut [UiNode],
-        viewport: UiRect,
-        safe_area: SafeArea,
-        effects: TextEffects<'_>,
-        hud: std::ops::Range<usize>,
-    ) -> bool {
         let mut modulated_meshes = self
             .gui_models
             .modulated
@@ -483,7 +462,6 @@ impl UiPresentationRuntime {
         );
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
-        let mut live_drawn = false;
         if let Some(key) = self.player_preview_icon.map(icon_key) {
             // Screens draw over the HUD, so their doll is admitted first.
             for (in_hud, view) in [
@@ -495,16 +473,10 @@ impl UiPresentationRuntime {
                     hud: hud.clone(),
                     in_hud,
                 };
-                live_drawn |= matches!(view, player_preview::PreviewView::Live { .. })
-                    && nodes
-                        .iter()
-                        .enumerate()
-                        .any(|(index, node)| targets.shows(index, node.visual()));
                 self.apply_gui_player_model_in(nodes, viewport, safe_area, effects, &targets, view);
             }
         }
         self.apply_cosmetic_gallery_models(nodes);
-        live_drawn
     }
 
     /// Admits the equipped character before optional gallery meshes consume the remaining budget.
@@ -730,15 +702,6 @@ impl UiPresentationRuntime {
         self.project_gui_player_mesh(&self.gui_player_sources(view)?, held, view)
     }
 
-    /// The live capture `view` poses from, as [`live_player::capture_for`] selects it.
-    fn live_capture(&self, view: player_preview::PreviewView) -> Option<&live_player::LivePlayer> {
-        live_player::capture_for(
-            view,
-            &self.gui_models.live_player,
-            &self.gui_models.screen_player,
-        )
-    }
-
     /// Resolves unprojected skin, cape, armor and flame sources once for this frame.
     fn gui_player_sources(
         &self,
@@ -763,7 +726,9 @@ impl UiPresentationRuntime {
                 .map(|icon| icon.with_glint(self.player_preview_gear.armor_glint[slot]))
         });
         let unposed = [None; 6];
-        let live = self.live_capture(view);
+        // Only the HUD doll draws the live actor; other renderers pose the menu model.
+        let live =
+            (view == player_preview::PreviewView::Hud).then_some(&self.gui_models.live_player);
         let body = if let Some(live) = live {
             Some((live.vertices.as_slice(), &live.parts))
                 .filter(|(vertices, _)| !vertices.is_empty())
@@ -809,9 +774,6 @@ impl UiPresentationRuntime {
                 self.gui_models.cosmetics.vertices(hat)
             };
             sources = sources.with_attachment(vertices, icon);
-        }
-        if let Some(turn) = live.and_then(|live| live.head_turn(view)) {
-            sources = sources.turn_head(turn.transform, |part| turn.moves(part));
         }
         // Particles follow the view they were last placed for.
         if view == self.player_preview_view {
