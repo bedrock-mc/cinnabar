@@ -18,6 +18,7 @@ mod blocks;
 mod carried;
 mod cube;
 mod model;
+mod shapes;
 mod shield;
 mod sprites;
 

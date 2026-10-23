@@ -70,7 +70,7 @@ impl IconBlocks {
         ) {
             return Ok(None);
         }
-        self.tiles(root, visual, true)
+        self.tiles(root, visual, true, true)
     }
 
     pub(super) fn read(root: &Path) -> Result<Self, AssetError> {
@@ -151,7 +151,7 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        self.tiles(root, visual, true)
+        self.tiles(root, visual, true, true)
     }
 
     /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
@@ -160,7 +160,16 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        self.tiles(root, visual, false)
+        self.tiles(root, visual, false, true)
+    }
+
+    /// Resolves the placed face artwork without replacing it with carried-only attachments.
+    pub(super) fn terrain_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        self.tiles(root, visual, true, false)
     }
 
     fn tiles(
@@ -168,6 +177,7 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
         world_fallback: bool,
+        carried: bool,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
         let (Some(pack), Some(record)) = (self.pack.as_ref(), self.records.get(visual.0 as usize))
         else {
@@ -180,7 +190,9 @@ impl IconBlocks {
                 .as_ref()
                 .and_then(|key| pack.terrain.get_for_model_record(key, record))
                 .map_or(0, |(_, variant)| variant as usize);
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+            let Some(key) = carried
+                .then(|| resolve_carried_face_key(&pack.blocks, record, face))
+                .flatten()
                 .map(String::into_boxed_str)
                 .or_else(|| world_fallback.then_some(world).flatten())
             else {
