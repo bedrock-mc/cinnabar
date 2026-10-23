@@ -72,6 +72,12 @@ pub(in crate::ui_runtime) fn death_settings() -> ScreenSettings {
     }
 }
 
+/// A data-driven form keeps the world drawn behind it, owns player input, frees the cursor and
+/// counts as a showing menu for later server requests: the default screen settings.
+fn data_driven_settings() -> ScreenSettings {
+    ScreenSettings::default()
+}
+
 impl UiRuntime {
     /// Visits the authoritative scene construction without allocating a stack.
     pub(super) fn visit_scenes_in(
@@ -141,6 +147,9 @@ impl UiRuntime {
                 Scene::ServerForm,
                 json(Some(form.map_or(SERVER_FORM_SCREEN, form_screen))),
             );
+        }
+        if self.data_driven_ui().owns_input() {
+            visit(Scene::DataDriven, data_driven_settings());
         }
         if let Some(screen) = host.menu {
             let reference = if host.over_world || screen.requires_session() {

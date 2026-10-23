@@ -168,6 +168,10 @@ impl SettingsOptions {
         self.value(SettingId::OreuiDarkMode) != 0
     }
 
+    pub fn f5_self_visuals(&self) -> bool {
+        self.value(SettingId::F5SelfVisuals) != 0
+    }
+
     /// Whether launch and Settings layer debug levels for the net, session, core and packs
     /// log categories over the defaults. `CINNABAR_LOG` and `RUST_LOG` take precedence.
     pub fn verbose_logging(&self) -> bool {

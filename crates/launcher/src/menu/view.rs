@@ -458,6 +458,8 @@ pub struct MenuView {
     pub shader_packs_revision: u64,
     /// The imported pack currently being removed by the host.
     pub shader_pack_removing: Option<std::sync::Arc<str>>,
+    /// A picked shader-pack import is open or copying; another waits until it finishes.
+    pub shader_pack_importing: bool,
     /// The requested pack while shader-pack mode is active, even if discovery no longer lists it.
     pub shader_pack: Option<String>,
     /// The highlighted renderer or shader-pack choice; `None` while the selected shader pack is missing.
@@ -741,6 +743,7 @@ impl MenuView {
             shader_packs: std::sync::Arc::from([]),
             shader_packs_revision: 0,
             shader_pack_removing: None,
+            shader_pack_importing: false,
             shader_pack: None,
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,

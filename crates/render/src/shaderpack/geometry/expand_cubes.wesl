@@ -34,7 +34,7 @@ fn expand_cubes(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workg
 /// The face of the block `job` covers within its packed greedy cube quad.
 fn cube_face(job: vec4<u32>) -> JobFace {
     let cube = cube_quad(job.x, job.y);
-    let material = materials[cube.selected_material_id];
+    let material = materials(cube.selected_material_id);
     let extent = vec2(cube.width, cube.height);
     let step = vec2<f32>(f32(job.w & 0xffu), f32((job.w >> 8u) & 0xffu));
     let axes = quad_axes(cube.face);

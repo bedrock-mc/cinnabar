@@ -62,23 +62,36 @@ pub fn block_gui_quads(
     templates: &[ModelTemplate],
     quads: &[ModelQuad],
 ) -> Result<Vec<GuiBlockQuad>, GuiBlockReject> {
+    if kind == VisualKind::Model
+        && template
+            .and_then(|id| templates.get(id as usize))
+            .is_some_and(|template| template.flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0)
+    {
+        let corners = carried_cuboid_faces([112, 0, 0], [144, 256, 256]);
+        return Ok(BlockFace::ALL
+            .into_iter()
+            .zip(corners)
+            .map(|(face, corners)| {
+                let uvs = corners.map(|[x, y, z]| match face {
+                    BlockFace::Up | BlockFace::Down => [x, z],
+                    BlockFace::North | BlockFace::South => [x, 1.0 - y],
+                    BlockFace::West | BlockFace::East => [z, 1.0 - y],
+                });
+                GuiBlockQuad {
+                    corners: corners.map(|[x, y, z]| [x - 0.2, y, z]),
+                    uvs,
+                    material: faces[match face {
+                        BlockFace::West | BlockFace::East => face,
+                        _ => BlockFace::Up,
+                    } as usize],
+                    two_sided: false,
+                }
+            })
+            .collect());
+    }
     let flags = template
         .and_then(|id| templates.get(id as usize))
         .map_or(0, |part| part.flags);
-    if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0 {
-        let body = |face| faces[face as usize];
-        let materials = BlockFace::ALL.map(|face| {
-            body(match face {
-                BlockFace::West | BlockFace::East => face,
-                _ => BlockFace::Up,
-            })
-        });
-        return Ok(inventory_cuboid_quads(
-            [7.0 / 16.0 - 0.2, 0.0, 0.0],
-            [9.0 / 16.0 - 0.2, 1.0, 1.0],
-            materials,
-        ));
-    }
     if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_CHORUS != 0 {
         let boxes = [
             ([0.0; 3], [1.0; 3]),
@@ -611,6 +624,16 @@ mod tests {
             bounds,
             [[7.0 / 16.0 - 0.2, 0.0, 0.0], [9.0 / 16.0 - 0.2, 1.0, 1.0]]
         );
+        for face in [
+            BlockFace::Up,
+            BlockFace::Down,
+            BlockFace::North,
+            BlockFace::South,
+        ] {
+            let u = inventory[face as usize].uvs.map(|uv| uv[0]);
+            assert_eq!(u.into_iter().fold(f32::INFINITY, f32::min), 7.0 / 16.0);
+            assert_eq!(u.into_iter().fold(f32::NEG_INFINITY, f32::max), 9.0 / 16.0);
+        }
         let visible: Vec<_> = inventory
             .iter()
             .filter(|quad| quad.visible_in_gui())
