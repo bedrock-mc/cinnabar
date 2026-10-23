@@ -106,10 +106,11 @@ impl Open {
     /// Takes worker results and commits only saves accepted by storage.
     fn poll(&mut self, writer: &mut Option<Writer>) -> Progress {
         if self.saving.is_some() {
-            return writer
-                .as_mut()
-                .and_then(Writer::poll)
-                .map_or_else(Progress::default, |result| self.finish_save(result));
+            let Some(result) = writer.as_mut().and_then(Writer::poll) else {
+                return Progress::default();
+            };
+            *writer = None;
+            return self.finish_save(result);
         }
         let State::Loading(worker, started) = &mut self.state else {
             return Progress::default();
@@ -183,17 +184,18 @@ impl Open {
                 .file
                 .clone()
                 .ok_or("the pack has no option-file path")?;
-            if writer.is_none() {
-                *writer = Some(Writer::new().map_err(|error| error.to_string())?);
+            if writer.is_some() {
+                return Err("a previous shader options save is still finishing".to_owned());
             }
-            writer
-                .as_ref()
-                .expect("the writer was started")
-                .submit(Request {
+            *writer = Some(
+                Writer::start(Request {
                     path,
                     options: candidate.session().options().to_vec(),
                     values,
                 })
+                .map_err(|error| error.to_string())?,
+            );
+            Ok(())
         })();
         match result {
             Ok(()) => {
@@ -205,7 +207,6 @@ impl Open {
             }
             Err(error) => {
                 self.save_error = Some(error);
-                *writer = None;
             }
         }
         false
@@ -240,6 +241,19 @@ fn settle_reader(retiring: &mut Option<Mutex<shaderpack::worker::Running>>) {
     }
 }
 
+/// Retires saves whose screen has closed; an active editor takes its own completion.
+fn settle_save(open: &Option<Open>, writer: &mut Option<Writer>) {
+    if open.as_ref().is_some_and(|editor| editor.saving.is_some()) {
+        return;
+    }
+    if let Some(result) = writer.as_mut().and_then(Writer::poll) {
+        *writer = None;
+        if let Err(error) = result {
+            warn!("shader options save failed after its screen closed: {error}");
+        }
+    }
+}
+
 /// Runs the screen's commands, saving and reloading the pack when values are applied, and
 /// publishes the screen whenever it changes.
 pub(super) fn drive_shader_options(
@@ -254,6 +268,7 @@ pub(super) fn drive_shader_options(
         writer,
         retiring,
     } = &mut *host;
+    settle_save(open, writer);
     let Some(mut menu) = menu else {
         retire_reader(open, retiring);
         settle_reader(retiring);
@@ -285,7 +300,7 @@ pub(super) fn drive_shader_options(
     }
     settle_reader(retiring);
     if let Some(editor) = open.as_mut() {
-        if retiring.is_none() {
+        if retiring.is_none() && writer.is_none() {
             changed |= editor.start(compiler.as_deref().map(|compiler| compiler.0.as_path()));
         }
         let progress = editor.poll(writer);
