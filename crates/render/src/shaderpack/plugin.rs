@@ -158,6 +158,13 @@ fn drive_loader(
         };
         loader.key = wanted;
         loader.job = None;
+        if let Err(reason) = super::kernels::validate_device(&device.limits()) {
+            progress.finish();
+            loaded.0 = None;
+            settled.0 = request.revision;
+            *status = ShaderPackStatus::Failed { pack: path, reason };
+            return;
+        }
         let gpu = GpuContext {
             device: device.wgpu_device().clone(),
             queue: (**queue).clone(),

@@ -59,8 +59,13 @@ pub fn cosmetic_particle_preview(
         runtime.sync_cosmetic_previews(true);
         runtime.sync_player_particles(emitting);
     }
+    let view = runtime.player_preview_view;
     let mesh = runtime
-        .project_gui_player_mesh(&runtime.gui_player_sources().unwrap(), [None, None])
+        .project_gui_player_mesh(
+            &runtime.gui_player_sources(view).unwrap(),
+            [None, None],
+            view,
+        )
         .unwrap();
     let first = runtime.textures.dynamic_start();
     let mut pages = vec![

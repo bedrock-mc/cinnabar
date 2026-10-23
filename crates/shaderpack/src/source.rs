@@ -89,6 +89,9 @@ pub(crate) fn normalize_newlines(text: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(normalized)
 }
 
+/// Largest shader-pack ZIP accepted by the importer and loader.
+pub const MAX_ARCHIVE_BYTES: usize = 256 * 1024 * 1024;
+
 /// Bounds eager pack ingestion.
 #[derive(Clone, Copy)]
 struct LoadLimits {
@@ -103,7 +106,7 @@ impl LoadLimits {
         file_bytes: MAX_TEXT_FILE_BYTES,
         total_bytes: 64 * 1024 * 1024,
         entries: 16384,
-        archive_bytes: 256 * 1024 * 1024,
+        archive_bytes: MAX_ARCHIVE_BYTES,
     };
 }
 

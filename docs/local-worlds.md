@@ -111,6 +111,14 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
   budget before the exit sweep escalates to SIGTERM and kill.
+- **Standby (translated BDS):** translated servers take minutes to start, so once the menu is up the
+  most recently played world starts in the background if it runs on an installed BDS. Leaving a
+  running BDS world keeps its server for five minutes when it already holds every saved setting;
+  settings for the next start or a missed live command stop it instead. Until the same world is opened, such a server is
+  hidden: status and the core report no open world. Opening it reuses the server after reconciling the
+  host's operator grant. Opening another world, editing or deleting this one, a core restart and
+  client exit save and stop it first. A start still in progress is killed instead. A hidden server
+  that exits is logged, not shown as a failure. Native and container servers stop when left.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds

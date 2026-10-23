@@ -181,6 +181,8 @@ pub struct UiPresentationRuntime {
     player_preview_raster_pose: Option<player_preview::PlayerPreviewPose>,
     /// How the UI last asked to show the model, and the idle sway it was drawn at.
     player_preview_view: player_preview::PreviewView,
+    /// How the HUD's own player renderer last asked to show the model.
+    hud_preview_view: player_preview::PreviewView,
     menu_preview_model: player_preview::model::MenuPreviewModel,
     menu_preview: player_preview::controller::MenuPreview,
     player_preview_drawn: Option<(
