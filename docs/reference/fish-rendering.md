@@ -93,6 +93,6 @@ Full fish parity remains incomplete. Native rendering interpolates phase before
 evaluating trigonometric channels; ordinary Cinnabar rigs sample frame alpha at
 fixed ticks and interpolate bone poses. Exact intermediate-frame timing and the
 complete movement/fish/render scheduler order remain open. Tropical fish also
-need native two-sampler composition with independent base/pattern colors; the
-A-family pattern-five raster contains fractional alpha outside the current
-neutral binary-alpha carrier profile. This correction does not close those gates.
+need native two-sampler composition with independent base/pattern colors; until the
+tropical fish material is verified, the pattern rasters' fractional alpha rounds at
+0.5. This correction does not close those gates.

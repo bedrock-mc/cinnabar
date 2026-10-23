@@ -15,6 +15,12 @@ impl MenuRuntime {
     /// Applies settings navigation and edits without starting a game session.
     pub(in crate::menu) fn activate_settings(&mut self, action: MenuAction) {
         match action {
+            MenuAction::EditTouchControls
+                if self.touch_available && self.screen == launcher::menu::MenuScreen::Settings =>
+            {
+                self.field = None;
+                self.touch_editor_open = true;
+            }
             MenuAction::SearchSettings => {
                 self.settings.slider_selected = None;
                 self.settings.dropdown = None;

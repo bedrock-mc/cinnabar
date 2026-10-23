@@ -43,18 +43,9 @@ pub fn snapshot(
             )
         })
         .collect();
-    let offhand_state = ledger.gear_slot_state(InventoryTarget::Offhand).unwrap();
-    let offhand_state = match offhand_state {
-        PlayerInventorySlot::Unknown => match ui.gameplay_hud().offhand_is_empty() {
-            Some(true) => PlayerInventorySlot::Empty,
-            Some(false) => PlayerInventorySlot::Present(ui.gameplay_hud().offhand_stack()?),
-            None => PlayerInventorySlot::Unknown,
-        },
-        state => state,
-    };
     let offhand = project_slot(
         authority,
-        offhand_state,
+        ledger.gear_slot_state(InventoryTarget::Offhand).unwrap(),
         ledger.presented_target_overlay(InventoryTarget::Offhand),
     );
     let now_tick = ui.estimated_server_tick(now_millis);

@@ -1,6 +1,11 @@
-//! Browser handoff through an Android intent, since Android has no desktop opener.
+//! Browser and document-picker handoff through Android intents, since Android has no desktop
+//! opener or picker tools.
 
-use jni::{JNIEnv, objects::JObject};
+use jni::{
+    JNIEnv,
+    objects::{JClass, JObject, JObjectArray, JString},
+};
+use std::path::PathBuf;
 
 /// `Intent.FLAG_ACTIVITY_NEW_TASK`, required to start an activity from the application context.
 const FLAG_ACTIVITY_NEW_TASK: i32 = 0x1000_0000;
@@ -58,4 +63,95 @@ fn start_view_intent(env: &mut JNIEnv, context: &JObject, url: &str) -> jni::err
         &[(&intent).into()],
     )?;
     Ok(())
+}
+
+/// Opens the Storage Access Framework picker and blocks until the user chooses or cancels.
+///
+/// Returns private copies of the chosen documents, an empty list on cancellation, `None` when no
+/// activity or document provider could show the picker, or an error when a document exceeds
+/// `max_bytes` or could not be copied.
+pub(super) fn pick_documents(
+    multiple: bool,
+    max_bytes: Option<u64>,
+) -> Result<Option<Vec<PathBuf>>, String> {
+    let context = ndk_context::android_context();
+    // The Android runtime owns the VM and the application context for the process lifetime.
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }.map_err(|e| e.to_string())?;
+    let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+    let application = unsafe { JObject::from_raw(context.context().cast()) };
+    // Java has no unsigned long; a negative limit means unlimited.
+    let max_bytes = max_bytes.map_or(-1, |bytes| i64::try_from(bytes).unwrap_or(i64::MAX));
+    let result = call_picker(&mut env, &application, multiple, max_bytes);
+    result.map_err(|error| pending_exception(&mut env).unwrap_or_else(|| error.to_string()))
+}
+
+/// Calls `FilePicker.pick`, loading the class through the app's loader because worker threads
+/// attached from native code only see system classes.
+fn call_picker(
+    env: &mut JNIEnv,
+    application: &JObject,
+    multiple: bool,
+    max_bytes: i64,
+) -> jni::errors::Result<Option<Vec<PathBuf>>> {
+    let package = env
+        .call_method(application, "getPackageName", "()Ljava/lang/String;", &[])?
+        .l()?;
+    let package: String = env.get_string(&JString::from(package))?.into();
+    let loader = env
+        .call_method(
+            application,
+            "getClassLoader",
+            "()Ljava/lang/ClassLoader;",
+            &[],
+        )?
+        .l()?;
+    let name = env.new_string(format!("{package}.FilePicker"))?;
+    let class = env
+        .call_method(
+            &loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[(&name).into()],
+        )?
+        .l()?;
+    let paths = env
+        .call_static_method(
+            JClass::from(class),
+            "pick",
+            "(ZJ)[Ljava/lang/String;",
+            &[multiple.into(), max_bytes.into()],
+        )?
+        .l()?;
+    if paths.is_null() {
+        return Ok(None);
+    }
+    let paths = JObjectArray::from(paths);
+    let count = env.get_array_length(&paths)?;
+    let mut picked = Vec::with_capacity(count.max(0) as usize);
+    for index in 0..count {
+        let path = JString::from(env.get_object_array_element(&paths, index)?);
+        let path: String = env.get_string(&path)?.into();
+        picked.push(PathBuf::from(path));
+    }
+    Ok(Some(picked))
+}
+
+/// Clears a pending Java exception and returns its message, or its class when it has none, for
+/// the import status line.
+fn pending_exception(env: &mut JNIEnv) -> Option<String> {
+    let throwable = env.exception_occurred().ok()?;
+    if throwable.is_null() {
+        return None;
+    }
+    env.exception_clear().ok()?;
+    for method in ["getMessage", "toString"] {
+        let message = env
+            .call_method(&throwable, method, "()Ljava/lang/String;", &[])
+            .and_then(|value| value.l())
+            .ok()?;
+        if !message.is_null() {
+            return Some(env.get_string(&JString::from(message)).ok()?.into());
+        }
+    }
+    None
 }

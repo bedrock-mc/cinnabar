@@ -15,6 +15,8 @@ use ui_engine::{
 use super::super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::UiRuntime;
 
+mod editor;
+
 const SCREEN: &str = "cinnabar_touch.screen";
 const LAYOUT: &[u8] = assets::TOUCH_LAYOUT;
 /// Each control's name in the layout, which its `cinnabar.touch.<name>` button id and
@@ -35,6 +37,12 @@ const CONTROLS: &[(&str, u16)] = &[
 #[derive(Default)]
 pub(in super::super) struct TouchControls {
     enabled: bool,
+    editor: Option<mod_ui::HudEditor>,
+    /// Geometry last installed in the editor, independent of ordinary HUD paints.
+    editor_viewport: Option<([f32; 2], f32, ui::SafeArea)>,
+    pub(super) saved: launcher::menu::settings_options::touch_layout::TouchLayout,
+    base: Option<EngineFrame>,
+    base_viewport: Option<([f32; 2], f32, ui::SafeArea)>,
     catalog: Option<Arc<Catalog>>,
     screen: CachedScreen,
     /// The overlay and the HUD as the last build painted them, which touches resolve against;
@@ -88,7 +96,10 @@ impl UiPresentationRuntime {
         window: [f32; 2],
     ) -> Option<TouchControlRegion> {
         let state = &self.screens.touch;
-        if !state.enabled || window.iter().any(|size| !size.is_finite() || *size <= 0.0) {
+        if state.editor.is_some()
+            || !state.enabled
+            || window.iter().any(|size| !size.is_finite() || *size <= 0.0)
+        {
             return None;
         }
         let point = UiPoint::new(position[0] * window[0], position[1] * window[1]).ok()?;
@@ -133,7 +144,7 @@ impl UiPresentationRuntime {
         content: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         let state = &mut self.screens.touch;
-        if !state.enabled {
+        if !state.enabled && state.editor.is_none() {
             return Ok(());
         }
         let Some(renderer) = self.engine.as_deref() else {
@@ -163,6 +174,7 @@ impl UiPresentationRuntime {
             );
         }
         let mut data = DataSource::new();
+        data.set_global("#touch_editor_open", Scalar::Bool(state.editor.is_some()));
         for &(name, id) in CONTROLS {
             let held = state
                 .contacts
@@ -187,11 +199,62 @@ impl UiPresentationRuntime {
             renderers: &mut [],
         };
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let screen = &mut state.screen;
+        let viewport_key = (content, px, self.safe_area);
+        if state.base_viewport != Some(viewport_key) {
+            let rollback = (paint.nodes.len(), *paint.next);
+            let base_view = ViewState::default();
+            state.base = renderer.draw(ScreenArt::default(), &mut paint, |env, root| {
+                screen.render_with(
+                    SCREEN,
+                    &catalog,
+                    &Context::default(),
+                    DataSource::new(),
+                    (root, px, language),
+                    env,
+                    &base_view,
+                )
+            })?;
+            paint.nodes.truncate(rollback.0);
+            *paint.next = rollback.1;
+            state.base_viewport = Some(viewport_key);
+        }
+        let saved = &state.saved;
+        if let Some(base) = &state.base {
+            for hit in base.hits.iter().filter(|hit| {
+                control_id(hit.pressed.as_deref()).is_some_and(|id| id != touch::LOOK_SURFACE)
+            }) {
+                let name = hit
+                    .pressed
+                    .as_deref()
+                    .unwrap()
+                    .strip_prefix("cinnabar.touch.")
+                    .unwrap();
+                let desired = if let Some(editor) = &state.editor {
+                    editor
+                        .rectangles()
+                        .find(|(id, _)| *id == name)
+                        .map(|(_, r)| [r[0], r[1]])
+                } else {
+                    saved.position(name).map(|position| {
+                        [
+                            f64::from(position[0])
+                                * (f64::from(content[0] / px) - hit.rect.w).max(0.),
+                            f64::from(position[1])
+                                * (f64::from(content[1] / px) - hit.rect.h).max(0.),
+                        ]
+                    })
+                };
+                if let Some(at) = desired {
+                    view.drags
+                        .insert(hit.key.clone(), [at[0] - hit.rect.x, at[1] - hit.rect.y]);
+                }
+            }
+        }
         let art = ScreenArt {
             view: Some(&view),
             ..ScreenArt::default()
         };
-        let screen = &mut state.screen;
         state.frame = renderer.draw(art, &mut paint, |env, root| {
             screen.render_with(
                 SCREEN,
@@ -212,13 +275,35 @@ impl UiPresentationRuntime {
 }
 
 fn layout_catalog() -> Result<Catalog, json_ui::LoadError> {
+    let mut layout: serde_json::Value =
+        serde_json::from_slice(LAYOUT).expect("built-in touch layout parses");
+    editor::enable_placement(&mut layout);
+    let controls = layout["screen"]["controls"]
+        .as_array_mut()
+        .expect("touch controls array");
+    for (name, text, y, scale) in [
+        ("editor_title", "Touch controls", 28., 1.2),
+        (
+            "editor_help",
+            "Drag a control. Guides align edges and centers.",
+            44.,
+            0.65,
+        ),
+    ] {
+        controls.push(serde_json::json!({name: {"type":"label", "text":text,
+            "localize":false, "font_scale_factor":scale, "shadow":true, "text_alignment":"center",
+            "anchor_from":"top_middle", "anchor_to":"top_middle", "offset":[0,y],
+            "size":["100%",14], "color":[1,1,1], "visible":false,
+            "bindings":[{"binding_name":"#touch_editor_open","binding_name_override":"#visible"}]}}));
+    }
+    let bytes = serde_json::to_vec(&layout).expect("touch layout serializes");
     Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),
         (
             "ui/_ui_defs.json",
             &br#"{"ui_defs":["ui/cinnabar_touch.json"]}"#[..],
         ),
-        ("ui/cinnabar_touch.json", LAYOUT),
+        ("ui/cinnabar_touch.json", bytes.as_slice()),
     ])
 }
 
@@ -259,6 +344,9 @@ fn control_id(pressed: Option<&str>) -> Option<u16> {
 
 #[cfg(test)]
 mod layout_tests;
+
+#[cfg(test)]
+mod editor_tests;
 
 #[cfg(test)]
 mod tests {

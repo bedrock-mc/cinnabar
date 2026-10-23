@@ -134,3 +134,60 @@ fn item_user_data_uses_the_wire_nesting_bound() {
         );
     }
 }
+
+/// Appends one restriction list: an `int32` count of `int16`-prefixed names.
+fn push_list(bytes: &mut Vec<u8>, names: &[&str]) {
+    bytes.extend_from_slice(&(names.len() as i32).to_le_bytes());
+    for name in names {
+        bytes.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(name.as_bytes());
+    }
+}
+
+#[test]
+fn item_block_lists_read_after_the_compound_or_its_absence() {
+    let owned = |names: &[&str]| {
+        names
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>()
+    };
+    let list = |extra: &[u8], kind| {
+        item_block_list(extra, kind).map(|names| {
+            names
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>()
+        })
+    };
+    let mut with_compound = vec![255, 255, 1, 10, 0, 0, 3, 1, 0, b'a'];
+    with_compound.extend_from_slice(&7i32.to_le_bytes());
+    with_compound.push(0);
+    push_list(&mut with_compound, &["minecraft:dirt"]);
+    push_list(&mut with_compound, &["stone", "minecraft:glass"]);
+    assert_eq!(
+        list(&with_compound, ItemBlockList::CanPlaceOn),
+        Some(owned(&["minecraft:dirt"]))
+    );
+    assert_eq!(
+        list(&with_compound, ItemBlockList::CanDestroy),
+        Some(owned(&["minecraft:glass", "minecraft:stone"]))
+    );
+
+    let mut bare = 0i16.to_le_bytes().to_vec();
+    push_list(&mut bare, &[]);
+    push_list(&mut bare, &["minecraft:sand"]);
+    assert_eq!(
+        list(&bare, ItemBlockList::CanDestroy),
+        Some(owned(&["minecraft:sand"]))
+    );
+    assert_eq!(
+        item_block_list(&[], ItemBlockList::CanDestroy),
+        Some(vec![])
+    );
+    assert_eq!(list(&[1, 0], ItemBlockList::CanPlaceOn), None);
+    assert_eq!(
+        list(&bare[..bare.len() - 1], ItemBlockList::CanDestroy),
+        None
+    );
+}

@@ -109,3 +109,60 @@ fn inventory_access_tracks_the_painted_hotbar_and_touch_enablement() {
         }
     }
 }
+
+/// Default movement/action centers and dimensions scale with the viewport, independently of GUI size.
+#[test]
+fn crosshair_factory_layout_uses_proportional_centers_and_height_based_sizes() {
+    let Some(mut p) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::menu_runtime();
+    let player = player_state::PlayerState::new(1);
+    p.enable_touch_controls(true);
+    for size in [[854, 460], [1280, 700], [1920, 1080]] {
+        paint(&mut p, &player, &runtime, size);
+        let frame = p.screens.touch.frame.as_ref().unwrap();
+        let window = size.map(f64::from);
+        for (id, center, height) in [
+            (touch::JOYSTICK, [0.15, 0.55], 1. / 3.),
+            (touch::JUMP, [0.925, 0.4], 0.1375),
+            (touch::SPRINT, [0.825, 0.5], 0.1375),
+            (touch::SNEAK, [0.925, 0.6], 0.1375),
+            (touch::ATTACK, [0.825, 0.7], 0.1375),
+            (touch::USE, [0.925, 0.8], 0.1375),
+        ] {
+            let hit = frame
+                .hits
+                .iter()
+                .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+                .unwrap();
+            let actual = [
+                f64::from(frame.origin[0])
+                    + (hit.rect.x + hit.rect.w / 2.) * f64::from(frame.scale),
+                f64::from(frame.origin[1])
+                    + (hit.rect.y + hit.rect.h / 2.) * f64::from(frame.scale),
+            ];
+            assert!(
+                (0..2).all(|axis| (actual[axis] - center[axis] * window[axis]).abs() < 0.1),
+                "{id}: {actual:?}"
+            );
+            assert!(
+                (hit.rect.w - hit.rect.h).abs() < 0.001,
+                "square control {id}"
+            );
+            assert!(
+                (hit.rect.h * f64::from(frame.scale) - height * window[1]).abs() < 0.1,
+                "control size {id}"
+            );
+            assert_eq!(
+                p.gameplay_touch_region(
+                    center.map(|value| value as f32),
+                    size.map(|value| value as f32)
+                )
+                .unwrap()
+                .hit_id,
+                id
+            );
+        }
+    }
+}

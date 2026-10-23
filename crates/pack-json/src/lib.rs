@@ -31,9 +31,101 @@ pub fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
     }
 }
 
+/// Bytes a parsed document may need at most. A pack can inflate one entry to hundreds of MiB, and
+/// a dense value tree costs far more than its text, so larger trees are refused before parsing
+/// rather than aborting the process on allocation failure.
+const MAX_PARSED_BYTES: usize = 1 << 30;
+
+/// Worst-case parsed cost of one value: its tree node plus spare `Vec` capacity after doubling.
+const PARSED_BYTES_PER_VALUE: usize = 2 * size_of::<serde_json::Value>();
+
+/// One map entry's key and value, as a `BTreeMap` node stores them.
+const MAP_ENTRY_BYTES: usize = size_of::<String>() + size_of::<serde_json::Value>();
+
+/// Worst-case extra cost of one object key: entries in nodes that are only half full.
+const PARSED_BYTES_PER_KEY: usize = 2 * MAP_ENTRY_BYTES;
+
+/// Worst-case cost of one non-empty object: a `BTreeMap` leaf sized for 11 entries plus its header.
+const PARSED_BYTES_PER_OBJECT: usize = 11 * MAP_ENTRY_BYTES + 64;
+
+/// Whether a document's value tree fits `budget` bytes, bounded by the separators and openers
+/// outside its strings and comments.
+fn fits_parse_budget(bytes: &[u8], budget: usize) -> bool {
+    let (mut values, mut keys, mut objects) = (1usize, 0usize, 0usize);
+    let (mut in_string, mut escaped) = (false, false);
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        index += 1;
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match (byte, bytes.get(index)) {
+            (b'"', _) => in_string = true,
+            (b'/', Some(b'/')) => {
+                while index < bytes.len() && !matches!(bytes[index], b'\n' | b'\r') {
+                    index += 1;
+                }
+            }
+            (b'/', Some(b'*')) => {
+                index += 1;
+                while index < bytes.len() && bytes.get(index..index + 2) != Some(b"*/") {
+                    index += 1;
+                }
+                index += 2;
+            }
+            (b',' | b'[', _) => values += 1,
+            (b':', _) => {
+                values += 1;
+                keys += 1;
+            }
+            (b'{', _) => {
+                values += 1;
+                objects += 1;
+            }
+            _ => {}
+        }
+    }
+    // An empty object allocates no map node, and every non-empty one has a key.
+    [
+        (values, PARSED_BYTES_PER_VALUE),
+        (keys, PARSED_BYTES_PER_KEY),
+        (objects.min(keys), PARSED_BYTES_PER_OBJECT),
+    ]
+    .into_iter()
+    .try_fold(bytes.len(), |total, (count, cost)| {
+        total.checked_add(count.checked_mul(cost)?)
+    })
+    .is_some_and(|parsed| parsed <= budget)
+}
+
 /// Parses one complete pack document, accepting comments, a BOM and trailing
 /// commas. The requested type keeps its own shape and duplicate-key validation.
+/// A document whose value tree could exceed [`MAX_PARSED_BYTES`] is an error.
 pub fn parse_jsonc<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
+    if !fits_parse_budget(bytes, MAX_PARSED_BYTES) {
+        return Err(<serde_json::Error as serde::de::Error>::custom(
+            "document is too large to parse",
+        ));
+    }
+    parse_unbudgeted(bytes)
+}
+
+/// Checks a pack document's syntax as [`parse_jsonc`] reads it. No value tree is built, so the
+/// tree budget does not apply.
+pub fn validate_jsonc(bytes: &[u8]) -> Result<(), serde_json::Error> {
+    parse_unbudgeted::<serde::de::IgnoredAny>(bytes).map(drop)
+}
+
+/// [`parse_jsonc`] without the tree budget.
+fn parse_unbudgeted<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
     // Byte-oriented deserializers can accept invalid UTF-8 without decode_text's conversion.
     if let Ok(text) = std::str::from_utf8(bytes)
         && let Ok(value) = serde_json::from_str(text)

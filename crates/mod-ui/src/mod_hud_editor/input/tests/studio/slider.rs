@@ -26,7 +26,7 @@ fn scale_editor(autosave: bool) -> HudEditor {
     let mut editor = editor(autosave);
     editor.selected = Some(0);
     editor.catalog = Some(Arc::new(
-        template::catalog(&editor.draft, editor.viewport).unwrap(),
+        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap(),
     ));
     editor
 }
@@ -52,7 +52,7 @@ fn scale_slider_steps_within_range_and_one_gesture_is_one_undo_step() {
             assert!((editor.draft.cards[0].scale - expected).abs() < 1e-6);
             assert!(editor.catalog.is_none());
             editor.catalog = Some(Arc::new(
-                template::catalog(&editor.draft, editor.viewport).unwrap(),
+                template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap(),
             ));
         }
         assert_eq!(editor.history.available(), [false, false]);

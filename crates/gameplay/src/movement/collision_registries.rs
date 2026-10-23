@@ -506,6 +506,21 @@ impl PhysicsCollisionRegistries {
         map.get(&runtime_id).map(|block| block.identifier.as_ref())
     }
 
+    /// Returns a custom block's `minecraft:sound` material for one admitted state.
+    pub fn block_sound_material(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<&str> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)
+            .and_then(|block| block.custom_state.as_ref())
+            .and_then(|(definition, _state)| definition.sound.as_deref())
+    }
+
     /// The offset from `runtime_id`'s block to the other block of its two-block structure
     /// (door halves, double plants, pitcher crops, bed ends), if it is part of one.
     pub fn second_part_offset(

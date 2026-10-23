@@ -87,6 +87,48 @@ fn account_settings_follow_profile_saved_account_and_local_fallback() {
     assert!(!actions.contains(&MenuAction::SignOut));
 }
 
+/// A signed-in account lists only rows that do something; the inert Privacy and Realms
+/// invitation buttons are gone.
+#[test]
+fn signed_in_account_rows_all_have_actions() {
+    let mut view = MenuView::new(true, launcher::PRODUCT_NAME.into());
+    view.auth_state = AuthState::Authenticated;
+    let (labels, actions) = account_panel(&view);
+    let buttons = ["Open", "Manage", "Sign Out"];
+    let drawn = labels
+        .iter()
+        .filter(|label| buttons.contains(&label.as_str()))
+        .count();
+    assert_eq!(drawn, actions.len(), "{labels:?} {actions:?}");
+    assert_eq!(
+        actions,
+        [
+            MenuAction::SettingsSupport(SupportAction::Open(SupportLink::Gamertag)),
+            MenuAction::SettingsSupport(SupportAction::Open(SupportLink::Account)),
+            MenuAction::SignOut,
+        ]
+    );
+}
+
+/// Storage lists only the categories the client fills, so no row is permanently empty.
+#[test]
+fn storage_lists_only_categories_the_client_keeps() {
+    use launcher::menu::settings_storage::StorageAction;
+    let view = MenuView::new(true, launcher::PRODUCT_NAME.into());
+    let (_, actions) = panel(&view, storage);
+    let toggles: Vec<_> = CATEGORIES
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            actions.contains(&MenuAction::SettingsStorage(StorageAction::Toggle(
+                *index as u8,
+            )))
+        })
+        .map(|(_, category)| *category)
+        .collect();
+    assert_eq!(toggles, ["world", "cache"]);
+}
+
 #[test]
 fn storage_offers_folder_buttons_only_when_the_host_can_open_folders() {
     use launcher::menu::settings_storage::{StorageAction, StorageFolder};

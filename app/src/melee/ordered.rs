@@ -11,7 +11,7 @@ pub(crate) fn capture(
     mut target: ResMut<MeleeTarget>,
     movement: Res<MovementTicker>,
 ) -> crosshair::CapturedInputs {
-    let position = movement.interaction_authority_identity().1;
+    let position = movement.position_authority_identity().1;
     if phase == crate::ordered_interactions::DispatchPhase::AfterMovement {
         target.frames.capture_current(&context, position)
     } else {
@@ -44,7 +44,7 @@ pub(crate) fn press(
     let Some(selection) = hand_interaction_selection(&player) else {
         return;
     };
-    let position = movement.interaction_authority_identity().1;
+    let position = movement.position_authority_identity().1;
     let Some((mut picked, _)) =
         crosshair::resolve_captured(&player, &context, &input.context.attack, &input)
     else {
@@ -151,6 +151,15 @@ pub(crate) fn press(
             },
         },
     );
+    if let Some(press_id) = admitted.admitted {
+        bevy::log::trace!(
+            press_id,
+            input_sequence = input.context.identity.1.get(),
+            tick = press.tick,
+            elapsed_millis = now,
+            "attack press admitted"
+        );
+    }
     for request in admitted.cancelled_mining_requests {
         player.inventory.ledger_mut().cancel_mining_request(request);
     }

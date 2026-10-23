@@ -24,8 +24,22 @@ fn session() -> InventorySession {
     let registry = ItemRegistryEvent {
         entries: protocol::vanilla_item_registry(),
     };
-    let output = registry
-        .entries
+    let update = decode_recipe_update(&recipe_body()).unwrap();
+    let mut session = InventorySession::new(1);
+    session.ledger_mut().apply_registry(&registry);
+    session.crafting_authority.observe(
+        1,
+        1,
+        &crate::InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)),
+    );
+    session.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
+    session.crafting_authority.advance();
+    session
+}
+
+/// A CraftingData body with four crafting-table recipes, each a fresh decoded batch.
+fn recipe_body() -> Vec<u8> {
+    let output = protocol::vanilla_item_registry()
         .iter()
         .find(|item| item.identifier.as_ref() == "minecraft:crafting_table")
         .unwrap()
@@ -63,17 +77,7 @@ fn session() -> InventorySession {
         uint(&mut body, 0);
     }
     body.push(1);
-    let update = decode_recipe_update(&body).unwrap();
-    let mut session = InventorySession::new(1);
-    session.ledger_mut().apply_registry(&registry);
-    session.crafting_authority.observe(
-        1,
-        1,
-        &crate::InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)),
-    );
-    session.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
-    session.crafting_authority.advance();
-    session
+    body
 }
 
 #[test]
@@ -160,5 +164,202 @@ fn recipe_book_validates_each_occupied_source_once_per_projection() {
         crate::inventory_ledger::take_source_validations(),
         1,
         "source bytes must be checked once, independent of recipe and ingredient counts"
+    );
+}
+
+#[test]
+fn unchanged_book_inputs_reuse_one_listing_until_materials_change() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    let held = |count| {
+        InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(0),
+            storage_item: NetworkItemStack::empty(),
+            slots: Arc::from([NetworkItemStack {
+                network_id: planks,
+                count,
+                stack_network_id: 1,
+                ..NetworkItemStack::empty()
+            }]),
+        })
+    };
+    session.ledger_mut().apply(&held(4));
+    assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+    crate::inventory_ledger::take_source_validations();
+    // A screen reads the book several times a frame: icons, rows, pages and hover.
+    for _ in 0..8 {
+        assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+        assert_eq!(session.book_recipes(false, true, 1, 1).len(), 1);
+    }
+    assert_eq!(
+        crate::inventory_ledger::take_source_validations(),
+        0,
+        "unchanged inputs reuse the listing without re-checking sources"
+    );
+    session.ledger_mut().apply(&held(4));
+    assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+    assert_eq!(
+        crate::inventory_ledger::take_source_validations(),
+        0,
+        "an identical restatement keeps the listing"
+    );
+    session.ledger_mut().apply(&held(1));
+    assert_eq!(session.book_recipes(true, false, 0, usize::MAX).len(), 2);
+    assert_eq!(session.book_recipes(false, false, 0, usize::MAX).len(), 2);
+    assert_eq!(
+        crate::inventory_ledger::take_source_validations(),
+        1,
+        "a material change rebuilds the listing once"
+    );
+}
+
+#[test]
+fn a_digest_only_update_rebuilds_the_book_listing() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    let held = |nbt_digest| {
+        InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(0),
+            storage_item: NetworkItemStack::empty(),
+            slots: Arc::from([NetworkItemStack {
+                network_id: planks,
+                count: 4,
+                stack_network_id: 1,
+                nbt_digest,
+                ..NetworkItemStack::empty()
+            }]),
+        })
+    };
+    let valid = NetworkItemStack::empty().nbt_digest;
+    session.ledger_mut().apply(&held(valid));
+    let first = session.book_recipes(false, false, 0, usize::MAX);
+    assert!(first.iter().any(|entry| entry.craftable));
+    // The same bytes under a digest that no longer matches them can no longer supply a craft.
+    session.ledger_mut().apply(&held([7; 32]));
+    let listed = session.book_recipes(false, false, 0, usize::MAX);
+    assert!(listed.iter().all(|entry| !entry.craftable));
+    for entry in &listed {
+        assert_eq!(
+            entry.craftable,
+            session.ledger().can_auto_craft(&entry.recipe),
+            "the book agrees with an immediate craftability check"
+        );
+    }
+}
+
+#[test]
+fn grid_only_changes_refresh_recipe_book_availability() {
+    for workbench in [false, true] {
+        let mut session = session();
+        if workbench {
+            session
+                .ledger_mut()
+                .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+                    container: protocol::ContainerIdentity::window(7),
+                    window_type: protocol::WINDOW_TYPE_WORKBENCH,
+                    position: [0; 3],
+                    runtime_entity_id: -1,
+                }));
+        }
+        let planks = protocol::vanilla_item_registry()
+            .iter()
+            .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+            .unwrap()
+            .network_id;
+        let slot = session.ledger().crafting_grid().slots().next().unwrap();
+        for count in [0, 4, 1, 0, 4] {
+            session
+                .ledger_mut()
+                .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                    identity: protocol::SlotIdentity {
+                        container: protocol::ContainerIdentity::window(
+                            protocol::UI_INVENTORY_WINDOW_ID,
+                        ),
+                        slot: u16::from(slot),
+                    },
+                    stack: NetworkItemStack {
+                        network_id: planks,
+                        count,
+                        stack_network_id: 1,
+                        ..NetworkItemStack::empty()
+                    },
+                    storage_item: None,
+                }));
+            let listed = session.book_recipes(false, false, 0, usize::MAX);
+            assert_eq!(listed.len(), 2);
+            assert!(listed.iter().all(|entry| entry.craftable == (count >= 4)));
+            assert_eq!(
+                session.book_recipes(true, false, 0, usize::MAX).len(),
+                if count == 0 { 0 } else { 2 }
+            );
+        }
+    }
+}
+
+#[test]
+fn block_identity_changes_refresh_recipe_book_availability() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    for block_runtime_id in [0, 1, 0] {
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(0),
+                storage_item: NetworkItemStack::empty(),
+                slots: [0, block_runtime_id]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(slot, block_runtime_id)| NetworkItemStack {
+                        network_id: planks,
+                        count: 2,
+                        stack_network_id: slot as i32 + 1,
+                        block_runtime_id,
+                        ..NetworkItemStack::empty()
+                    })
+                    .collect(),
+            }));
+        let listed = session.book_recipes(false, false, 0, usize::MAX);
+        assert_eq!(listed.len(), 2);
+        assert!(
+            listed
+                .iter()
+                .all(|entry| entry.craftable == (block_runtime_id == 0))
+        );
+    }
+}
+
+#[test]
+fn replacing_recipes_while_the_book_is_closed_frees_the_old_batch() {
+    let mut session = session();
+    assert!(!session.book_recipes(false, false, 0, usize::MAX).is_empty());
+    let old = session.screen_catalog().unwrap().recipe(2).unwrap();
+    let revision = session.screen_catalog().unwrap().revision();
+    // A new CraftingData arrives; nothing reads the book afterwards.
+    session.crafting_authority.observe(
+        1,
+        2,
+        &crate::InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(
+            decode_recipe_update(&recipe_body()).unwrap(),
+        )),
+    );
+    session.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+    session.crafting_authority.advance();
+    assert_ne!(session.screen_catalog().unwrap().revision(), revision);
+    assert_eq!(
+        old.batch_owners(),
+        1,
+        "only this test still holds the replaced batch, so its budget credit can return"
     );
 }
