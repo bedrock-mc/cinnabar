@@ -1,5 +1,5 @@
 use super::*;
-use assets::ItemVisualDefinition;
+use assets::{ItemTextureReference, ItemVisualAlias, ItemVisualDefinition};
 
 #[test]
 fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
@@ -19,29 +19,50 @@ fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
 
 const TERRACOTTA: &str = "minecraft:blue_terracotta";
 
-/// One block item drawn as block visual 0, with no artwork or installed packs.
-fn block_item_assets() -> Arc<RuntimeEntityAssets> {
+/// Builds a small visual catalog without artwork or installed packs.
+fn item_assets(
+    identifier: &str,
+    visuals: &[(u32, ItemVisualDefinitionRoute)],
+    aliases: &[(u32, u32)],
+) -> Arc<RuntimeEntityAssets> {
     let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
-    compiled.block_visual_count = 1;
-    compiled.item_visuals = vec![ItemVisualDefinition {
-        key: ItemVisualKey {
-            identifier: TERRACOTTA.into(),
-            metadata: 0,
-        },
-        source: 0,
-        route: ItemVisualDefinitionRoute::BlockItem {
-            block_visual: BlockVisualId(0),
-        },
-        grip: assets::item::grip::ItemGrip::Unresolved,
-        glint: assets::item::glint::ItemGlint::Unresolved,
-        fuel: assets::item::fuel::ItemFuel::Unresolved,
-        armour: assets::item::armour::ItemArmour::Unresolved,
-        durability: assets::item::durability::ItemDurability::Unresolved,
-        first_person: assets::ItemDisplayTransform::identity(),
-        third_person: assets::ItemDisplayTransform::identity(),
-        dropped: assets::ItemDisplayTransform::identity(),
-    }]
-    .into();
+    compiled.block_visual_count = visuals
+        .iter()
+        .filter_map(|(_, route)| match route {
+            ItemVisualDefinitionRoute::BlockItem { block_visual } => Some(block_visual.0 + 1),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+    compiled.item_visuals = visuals
+        .iter()
+        .map(|&(metadata, route)| ItemVisualDefinition {
+            key: ItemVisualKey {
+                identifier: identifier.into(),
+                metadata,
+            },
+            source: 0,
+            route,
+            grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
+            fuel: assets::item::fuel::ItemFuel::Unresolved,
+            armour: assets::item::armour::ItemArmour::Unresolved,
+            durability: assets::item::durability::ItemDurability::Unresolved,
+            first_person: assets::ItemDisplayTransform::identity(),
+            third_person: assets::ItemDisplayTransform::identity(),
+            dropped: assets::ItemDisplayTransform::identity(),
+        })
+        .collect();
+    compiled.item_visual_aliases = aliases
+        .iter()
+        .map(|&(metadata, visual)| ItemVisualAlias {
+            key: ItemVisualKey {
+                identifier: identifier.into(),
+                metadata,
+            },
+            visual: ItemVisualId(visual),
+        })
+        .collect();
     Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_item_use()).unwrap())
 }
 
@@ -49,7 +70,16 @@ fn block_item_assets() -> Arc<RuntimeEntityAssets> {
 /// the item keeps drawing the block it places instead of an unresolved route.
 #[test]
 fn legacy_aux_values_on_block_items_draw_the_base_block() {
-    let store = ItemStateStore::with_assets(block_item_assets());
+    let store = ItemStateStore::with_assets(item_assets(
+        TERRACOTTA,
+        &[(
+            0,
+            ItemVisualDefinitionRoute::BlockItem {
+                block_visual: BlockVisualId(0),
+            },
+        )],
+        &[],
+    ));
     let network_id = protocol::vanilla_item_registry()
         .iter()
         .find(|entry| entry.identifier.as_ref() == TERRACOTTA)
@@ -71,4 +101,59 @@ fn legacy_aux_values_on_block_items_draw_the_base_block() {
             "aux {metadata} with block runtime id {block_runtime_id:#x}"
         );
     }
+}
+
+#[test]
+fn legacy_block_fallback_does_not_select_a_base_sprite() {
+    let identifier = "minecraft:arrow";
+    let store = ItemStateStore::with_assets(item_assets(
+        identifier,
+        &[(
+            0,
+            ItemVisualDefinitionRoute::Sprite {
+                texture: ItemTextureReference {
+                    source: 0,
+                    variant: 0,
+                },
+            },
+        )],
+        &[],
+    ));
+    assert_eq!(
+        store.resolve_visual(identifier, 0),
+        ItemVisualRoute::Compiled(ItemVisualId(0))
+    );
+    assert_eq!(
+        store.resolve_visual(identifier, 65),
+        ItemVisualRoute::Missing
+    );
+}
+
+#[test]
+fn exact_alias_keeps_priority_over_a_base_block_visual() {
+    let store = ItemStateStore::with_assets(item_assets(
+        TERRACOTTA,
+        &[
+            (
+                0,
+                ItemVisualDefinitionRoute::BlockItem {
+                    block_visual: BlockVisualId(0),
+                },
+            ),
+            (
+                2,
+                ItemVisualDefinitionRoute::Sprite {
+                    texture: ItemTextureReference {
+                        source: 0,
+                        variant: 0,
+                    },
+                },
+            ),
+        ],
+        &[(11, 1)],
+    ));
+    assert_eq!(
+        store.resolve_visual(TERRACOTTA, 11),
+        ItemVisualRoute::Compiled(ItemVisualId(1))
+    );
 }

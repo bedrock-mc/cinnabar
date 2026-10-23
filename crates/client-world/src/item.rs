@@ -643,9 +643,8 @@ impl ItemStateStore {
         self.resolve_visual(identifier, 0)
     }
 
-    /// The compiled route for `identifier` at `metadata`. Like the icon catalog, a variant with
-    /// no visual of its own draws the item's base variant, so a server's legacy aux value on a
-    /// flattened block item still draws that block.
+    /// Resolves an exact visual, using the base block visual for legacy aux values.
+    /// Sprite items keep their metadata-specific visual rules.
     fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
         let Some(assets) = self.assets.as_ref() else {
             return ItemVisualRoute::Missing;
@@ -677,7 +676,12 @@ impl ItemStateStore {
                 .map(|index| ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual))
         };
         exact(metadata)
-            .or_else(|| (metadata != 0).then(|| exact(0)).flatten())
+            .or_else(|| {
+                (metadata != 0)
+                    .then(|| exact(0))
+                    .flatten()
+                    .filter(|route| matches!(route, ItemVisualRoute::BlockItem(_)))
+            })
             .unwrap_or(ItemVisualRoute::Missing)
     }
 
