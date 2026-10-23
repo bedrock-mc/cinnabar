@@ -410,23 +410,28 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                     "failed textures must never receive uploads"
                 );
             }
-            // With no other page released, exhaustion retries only after the backoff.
-            // Releasing a completed page can wake the retry as soon as GPU work retires.
-            if compatible || occurrence == 1 {
-                let attempts = calls.borrow().len();
-                let _ = draw_frame(&mut app, &next);
-                if compatible {
-                    assert!(
-                        calls.borrow().len() > attempts,
-                        "compatible fallbacks remain retryable while demanded"
-                    );
-                } else {
-                    assert_eq!(
-                        calls.borrow().len(),
-                        attempts,
-                        "exhausted publication must not spin"
-                    );
-                }
+            let attempts = calls.borrow().len();
+            let released = !compatible && occurrence > 1;
+            if released {
+                // Exhaustion releases earlier completed pages; retirement permits a retry.
+                app.sub_app(RenderApp)
+                    .world()
+                    .resource::<RenderDevice>()
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+            }
+            let _ = draw_frame(&mut app, &next);
+            if compatible || released {
+                assert!(
+                    calls.borrow().len() > attempts,
+                    "demanded artwork retries after a fallback or released pages retire"
+                );
+            } else {
+                assert_eq!(
+                    calls.borrow().len(),
+                    attempts,
+                    "exhausted demand must back off without released pages"
+                );
             }
             drop(fault);
             let recovered = publication(3, &[100, 120], layers);
