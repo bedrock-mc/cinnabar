@@ -11,6 +11,7 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod vsync;
 pub use pose_generation::PoseGeneration;
 mod skin;
 pub mod sprite_mask;
@@ -41,6 +42,7 @@ pub use skin::{
     StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use vrr::VrrPreference;
+pub use vsync::VsyncMode;
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
 pub const MAX_VIEW_RADIUS_CHUNKS: i32 = 255;

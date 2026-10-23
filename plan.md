@@ -26,8 +26,14 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
+   Desktop presentation defaults to Mailbox where available, with an explicit tearing
+   choice; Android retains VSync. Menus use a display-refresh ceiling, and untouched
+   in-world limits use that ceiling on battery. Saved limits remain authoritative.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
+   macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native
+   Metal presentation logs expose the layer state and software cap. Fullscreen
+   VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
@@ -255,6 +261,9 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Server sprint metadata preserves the local Toggle Sprint request. Held sprint
+restarts after a server clear when admission conditions hold. Native rendered
+acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.

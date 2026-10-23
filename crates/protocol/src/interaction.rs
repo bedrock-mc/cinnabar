@@ -552,6 +552,7 @@ pub enum SwingSource {
     Mine,
     Interact,
     Attack,
+    /// A held item's own use, such as a rocket boost while gliding.
     UseItem,
     ThrowItem,
     DropItem,
