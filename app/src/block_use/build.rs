@@ -74,6 +74,11 @@ fn prepare(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
+    let caps = caps.for_edit(stream.authority().held_edit_item(
+        &observed.selection.item,
+        protocol::ItemBlockList::CanPlaceOn,
+        observed.target.runtime_id,
+    ));
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -128,9 +133,17 @@ fn prepare(
             });
         let predicted = predicted.or_else(|| {
             (local_use == LocalUse::Interact)
-                .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
+                .then(|| {
+                    predicted_toggle(
+                        &context.collisions,
+                        stream,
+                        world,
+                        observed.target.position,
+                        observed.target.runtime_id,
+                    )
+                })
                 .flatten()
-                .map(|block| vec![(observed.target.position, 0, block)])
+                .map(|(position, block)| vec![(position, 0, block)])
         });
         for (position, _, _) in predicted.iter().flatten() {
             world.primary_runtime_id(*position).ok()?;

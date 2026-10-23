@@ -3,6 +3,7 @@
 use super::*;
 use oreui::BedHit;
 use ui_screens::chat_screen::ChatHit;
+mod touch;
 
 /// Sends Back to the top chat popup before dismissing the chat itself.
 pub(super) fn cancel_from_mouse_back(
@@ -31,19 +32,23 @@ pub(super) fn cancel_from_mouse_back(
 pub(crate) fn drive_chat_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<(bevy::prelude::Entity, &Window), With<PrimaryWindow>>,
     mut menu: Option<ResMut<client_shell::menu::MenuRuntime>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     wheel: Option<Res<AccumulatedMouseScroll>>,
     touches: Res<Touches>,
+    mut gesture: Local<touch::ChatTouch>,
     gamepads: Query<&Gamepad>,
     coordinates: super::chat_coordinates::ChatCoordinateContext,
     mut presentation: ResMut<UiPresentationResource>,
     mut runtime: ResMut<UiRuntimeResource>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
+    mut keyboard: Option<ResMut<client_shell::platform_text::KeyboardRequests>>,
 ) {
+    let (window_entity, window) = *window;
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+        gesture.cancel();
         return;
     }
     let input_available = driven.is_some()
@@ -80,6 +85,7 @@ pub(crate) fn drive_chat_ui_actions(
     }
     if menu_visible || !runtime.chat_focused() || !input_available {
         presentation.set_chat_pointer(None);
+        gesture.cancel();
         return;
     }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -97,14 +103,27 @@ pub(crate) fn drive_chat_ui_actions(
     {
         presses.push(position);
     }
-    for touch in touches.iter_just_pressed() {
-        let position = touch.position();
-        if let Ok(position) = UiPoint::new(position.x, position.y) {
-            presses.push(position);
+    match gesture.drive(&touches, &mut presentation) {
+        Some(touch::ChatTouchAction::Tap(start, end))
+            if presentation.hit_test_chat(start) == presentation.hit_test_chat(end) =>
+        {
+            presses.push(end);
         }
+        Some(touch::ChatTouchAction::Slider(action)) => {
+            if let Some(menu) = menu.as_deref_mut() {
+                menu.activate(action);
+            }
+        }
+        _ => {}
     }
     for position in presses {
         let hit = presentation.hit_test_chat(position);
+        // A tap on the draft reopens a platform keyboard the OS dismissed.
+        if hit == Some(ChatHit::TextInput)
+            && let Some(keyboard) = keyboard.as_deref_mut()
+        {
+            keyboard.show(window_entity);
+        }
         match hit {
             Some(ChatHit::ExtensionAction(index)) => {
                 presentation.request_chat_extension_action(index);
@@ -147,6 +166,17 @@ pub(crate) fn drive_chat_ui_actions(
             }
             Some(ChatHit::Send) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Accept, None, now_millis);
+            }
+            Some(ChatHit::SubmitCommand(index)) => {
+                if let Some(command) = presentation.chat_submission(index)
+                    && runtime.queue_chat_message(command, now_millis).is_ok()
+                {
+                    runtime.close_chat();
+                    if let Some(focus) = focus.as_deref_mut() {
+                        focus.authorize_screen_return();
+                    }
+                    return;
+                }
             }
             Some(ChatHit::Close) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Cancel, None, now_millis);

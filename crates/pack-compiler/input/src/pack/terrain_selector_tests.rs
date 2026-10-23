@@ -209,3 +209,232 @@ fn lightning_rod_model_arrays_reject_incompatible_ranges() {
         }
     }
 }
+
+/// Each registered state of `name` in the active registry.
+fn registered(name: &str) -> Vec<RegistryRecord> {
+    assets::read_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .iter()
+    .filter(|record| record.name.as_ref() == name)
+    .cloned()
+    .collect()
+}
+
+#[test]
+fn native_block_classes_pick_their_array_entry_for_every_key() {
+    let root = tempfile::tempdir().unwrap();
+    let source = serde_json::json!({"texture_data": {
+        "three": {"textures": ["textures/a", "textures/b", "textures/c"]},
+        "two": {"textures": ["textures/a", "textures/b"]},
+        "one": {"textures": "textures/a"}
+    }});
+    std::fs::write(
+        root.path().join("terrain.json"),
+        serde_json::to_vec(&source).unwrap(),
+    )
+    .unwrap();
+    std::fs::create_dir(root.path().join("textures")).unwrap();
+    for name in ["a", "b", "c"] {
+        tile([90, 90, 90, 255])
+            .save(root.path().join(format!("textures/{name}.png")))
+            .unwrap();
+    }
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let flag = |record: &RegistryRecord, property: &str| {
+        u32::from(
+            record
+                .canonical_state
+                .contains(&format!(r#""{property}":{{"type":"byte","value":1}}"#)),
+        )
+    };
+    let mut checked = 0;
+    for (name, expected) in [
+        ("minecraft:carved_pumpkin", None),
+        ("minecraft:lit_pumpkin", Some(1)),
+        ("minecraft:pumpkin", Some(2)),
+        ("minecraft:cave_vines", Some(0)),
+        ("minecraft:cave_vines_body_with_berries", Some(1)),
+        ("minecraft:cave_vines_head_with_berries", Some(1)),
+        ("minecraft:pale_hanging_moss", None),
+        ("minecraft:mangrove_propagule", None),
+    ] {
+        let records = registered(name);
+        assert!(!records.is_empty(), "{name}");
+        for record in records {
+            let variant = expected.unwrap_or_else(|| match name {
+                "minecraft:pale_hanging_moss" => flag(&record, "tip"),
+                "minecraft:mangrove_propagule" => flag(&record, "hanging"),
+                _ => 0,
+            });
+            let path = |index: u32| ["textures/a", "textures/b", "textures/c"][index as usize];
+            for select in [
+                super::terrain::TerrainTextureMap::get_for_model_record,
+                super::terrain::TerrainTextureMap::get_for_record_variant,
+            ] {
+                assert_eq!(
+                    select(&terrain, "three", &record),
+                    Some((path(variant), variant)),
+                    "{name} {}",
+                    record.canonical_state
+                );
+                let short = if variant < 2 { variant } else { 0 };
+                assert_eq!(select(&terrain, "two", &record), Some((path(short), short)));
+                assert_eq!(select(&terrain, "one", &record), Some(("textures/a", 0)));
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 8);
+}
+
+/// Vanilla arrays of distinct entries still drawn at entry zero: some are picked by a dedicated
+/// rule's own descriptors, the rest await their class's variant source. A new one fails the check.
+const UNSELECTED_VANILLA_ARRAYS: &[&str] = &[
+    "acacia_leaves",
+    "azalea_leaves",
+    "azalea_leaves_flowered",
+    "barrel_top",
+    "bee_nest_front",
+    "beehive_front",
+    "big_oak_leaves",
+    "birch_leaves",
+    "black_candle",
+    "blue_candle",
+    "brown_candle",
+    "bubble_column_down_top",
+    "bubble_column_mid",
+    "bubble_column_outer",
+    "bubble_column_up_top",
+    "cake_west",
+    "candle",
+    "cherry_leaves",
+    "chiseled_bookshelf_front",
+    "chorus_flower",
+    "cocoa",
+    "composter_top",
+    "copper_bulb",
+    "crafter_east",
+    "crafter_north",
+    "crafter_south",
+    "crafter_top",
+    "crafter_west",
+    "creaking_heart_side",
+    "creaking_heart_top",
+    "cyan_candle",
+    "daylight_detector_top",
+    "decorated_pot",
+    "dirt",
+    "dried_ghast_back",
+    "dried_ghast_bottom",
+    "dried_ghast_front",
+    "dried_ghast_left",
+    "dried_ghast_right",
+    "dried_ghast_top",
+    "exposed_copper_bulb",
+    "farmland",
+    "firefly_bush",
+    "gray_candle",
+    "green_candle",
+    "jungle_leaves",
+    "light_blue_candle",
+    "light_gray_candle",
+    "lime_candle",
+    "magenta_candle",
+    "mangrove_leaves",
+    "mycelium_side",
+    "nether_wart",
+    "oak_leaves",
+    "observer_south",
+    "open_eyeblossom",
+    "orange_candle",
+    "orange_poplar_leaves",
+    "oxidized_copper_bulb",
+    "pale_oak_leaves",
+    "pink_candle",
+    "pink_petals",
+    "pitcher_crop_lower_flower",
+    "pitcher_crop_upper_flower",
+    "planks",
+    "pointed_dripstone_base",
+    "pointed_dripstone_frustum",
+    "pointed_dripstone_merge",
+    "pointed_dripstone_middle",
+    "pointed_dripstone_tip",
+    "prismarine",
+    "purple_candle",
+    "reactor_core",
+    "red_candle",
+    "red_poplar_leaves",
+    "redsandstone_bottom",
+    "redsandstone_side",
+    "sandstone_bottom",
+    "sandstone_side",
+    "sculk_catalyst_side",
+    "sculk_catalyst_top",
+    "sniffer_egg_bottom",
+    "sniffer_egg_east",
+    "sniffer_egg_north",
+    "sniffer_egg_south",
+    "sniffer_egg_top",
+    "sniffer_egg_west",
+    "spruce_leaves",
+    "stone",
+    "stonebrick",
+    "structure_block",
+    "sulfur_spike_base",
+    "sulfur_spike_frustum",
+    "sulfur_spike_merge",
+    "sulfur_spike_middle",
+    "sulfur_spike_tip",
+    "sunflower_additional",
+    "suspicious_gravel",
+    "suspicious_sand",
+    "trial_spawner_side",
+    "trial_spawner_top",
+    "turtle_egg",
+    "vault_bottom",
+    "vault_front",
+    "vault_side",
+    "vault_top",
+    "weathered_copper_bulb",
+    "white_candle",
+    "wildflowers",
+    "yellow_candle",
+    "yellow_poplar_leaves",
+];
+
+/// Against the pinned vanilla pack, every multi-entry array a registered block draws picks its
+/// entry by class or state, or is a known open family.
+#[test]
+fn vanilla_multi_entry_arrays_are_selected_or_known_open() {
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ROOT").map(std::path::PathBuf::from) else {
+        eprintln!("skipping missing fixture: CINNABAR_VANILLA_ROOT is not set");
+        return;
+    };
+    let pack = super::read_pack(&root).unwrap();
+    let mut unselected = std::collections::BTreeSet::new();
+    for record in assets::read_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .iter()
+    {
+        for face in assets::BlockFace::ALL {
+            let Some(key) = super::resolve_texture_key(&pack.blocks, record, face).key else {
+                continue;
+            };
+            if pack.terrain.selects_entry(&key, record) == Some(false) {
+                unselected.insert(key.to_string());
+            }
+        }
+    }
+    let expected = UNSELECTED_VANILLA_ARRAYS
+        .iter()
+        .map(|key| (*key).to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(unselected, expected);
+}

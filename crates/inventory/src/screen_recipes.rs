@@ -1,12 +1,15 @@
 //! Recipe lookups for the stonecutter, smithing table and cartography table,
 //! answered from the CraftingData catalog and the items in the open screen.
 
+mod book_cache;
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
 
 use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe, ScreenRecipeKind, WindowKind};
+
+pub(crate) use book_cache::Cache as BookCache;
 
 use super::inventory_ledger::{InventoryTarget, PlayerInventoryLedger};
 use crate::InventorySession;
@@ -166,15 +169,17 @@ impl InventorySession {
             && self.crafting_authority.book_recipe_unlocked(recipe)
     }
 
-    /// Rechecks recipe discovery at the action frontier before allocating any request.
+    /// Rechecks recipe discovery at the action frontier, then auto-crafts once or, with `all`,
+    /// up to one output stack.
     pub fn begin_book_craft(
         &mut self,
         recipe: &RecipeHandle,
+        all: bool,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
         if !self.book_recipe_selectable(recipe) {
             return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
         }
-        self.ledger_mut().begin_auto_craft(recipe)
+        self.ledger_mut().begin_auto_craft(recipe, all)
     }
 
     /// Lists one variant per output for the open grid, with pagination after grouping.
@@ -191,42 +196,24 @@ impl InventorySession {
         let (Some(catalog), Some(rules)) = (self.screen_catalog(), self.crafting_rules()) else {
             return Vec::new();
         };
-        let ledger = self.ledger();
-        let small = ledger.window_kind() != Some(WindowKind::Workbench);
-        let mut listed: Vec<BookGroup> = Vec::new();
-        let mut outputs: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
-        for recipe in catalog.crafting_recipes().filter(|recipe| {
-            let (width, height) = recipe.dimensions();
-            !small
-                || if recipe.is_shapeless() {
-                    recipe.ingredient_views().len() <= 4
+        let listing = book_cache::listing(self);
+        let show_locked = search_active && !rules.limited_crafting_enabled();
+        (0..listing.groups.len())
+            .map(|position| {
+                let index = if filtering {
+                    listing.craftable_first[position]
                 } else {
-                    width <= 2 && height <= 2
-                }
-        }) {
-            let unlocked = self.crafting_authority.book_recipe_unlocked(recipe);
-            let craftable = ledger.can_auto_craft(recipe);
-            let held = craftable || ledger.holds_any_ingredient(recipe);
-            let candidate = BookGroup::new(recipe, unlocked, craftable, held);
-            let output = recipe.output();
-            let key = (output.network_id, output.aux, output.block_runtime_id);
-            if let Some(&index) = outputs.get(&key) {
-                listed[index].include(candidate);
-            } else {
-                outputs.insert(key, listed.len());
-                listed.push(candidate);
-            }
-        }
-        if filtering {
-            listed.sort_by_key(|group| !group.entry.craftable);
-        }
-        listed
-            .into_iter()
-            .filter(|group| {
-                (!filtering || group.held)
-                    && (!group.rank.0 || (search_active && !rules.limited_crafting_enabled()))
+                    position
+                };
+                listing.groups[index]
             })
-            .map(|group| group.entry)
+            .filter(|group| (!filtering || group.held) && (!group.locked || show_locked))
+            .filter_map(|group| {
+                Some(BookRecipe {
+                    recipe: catalog.recipe(group.recipe)?,
+                    craftable: group.craftable,
+                })
+            })
             .skip(skip)
             .take(take)
             .collect()

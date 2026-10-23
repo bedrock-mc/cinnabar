@@ -6,6 +6,41 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Android dedicated-server runtime
+
+Experimental Android builds package [Box64](https://github.com/ptitSeb/box64), copyright (c) 2020 ptitSeb,
+under the MIT license in `assets/licenses/Box64-MIT.txt`. Its source archive is pinned in
+`packaging/android/runtime.json`.
+
+These builds also package the GNU C Library with Android adaptations from
+[glibc-packages](https://github.com/termux-pacman/glibc-packages). GNU C Library code is
+copyright the Free Software Foundation and its other contributors; the Android adaptations
+are copyright (c) 2023 Ivan Max under the MIT license in
+`assets/licenses/Termux-glibc-MIT.txt`. GNU license texts and additional required notices are
+retained in `assets/licenses/glibc-*.txt`. The native package, upstream source archive and
+platform patch set are identified in `packaging/android/runtime.json`. The unchanged native
+package, matching GNU source, platform adaptations and notices are also preserved in the
+[Android runtime dependency release](https://github.com/cinnabar-mc/cinnabar/releases/tag/android-bds-runtime-20261022).
+The adaptations also include Android Bionic code under BSD and Apache 2.0 and
+BSD-licensed `libandroid-shmem`, with Android ashmem code under Apache 2.0. Their notices are retained in
+`assets/licenses/Android-Bionic-BSD.txt`, `libandroid-shmem-BSD.txt`,
+`Android-ashmem-NOTICE.txt` and `Apache-2.0.txt` in the same directory.
+
+The translator uses Android Bionic's application-safe interface enumeration under the BSD
+license. Its sources are pinned in the same manifest; the 2015 and 2016 Android Open Source
+Project notices are retained in `assets/licenses/Android-Bionic-BSD.txt`.
+
+To use a modified native runtime, build those sources with the Android adaptations and set
+`CINNABAR_ANDROID_BDS_NATIVE_DIR` to the resulting library directory when rebuilding the APK.
+The packager uses the source filenames and APK filenames in the manifest's `libraries` list.
+This replaces the shared libraries without changing the client or translator sources.
+
+The translated backend downloads only its required x86 GNU runtime library from the pinned
+upstream revision, verifies the file's size and SHA-256, and caches it locally. It is not bundled in the APK. GNU
+runtime libraries retain the GPL version 3 with the GCC Runtime Library Exception version 3.1;
+the corresponding license texts are in `assets/licenses/GCC-GPL-3.0.txt` and
+`assets/licenses/GCC-Runtime-Exception-3.1.txt`. Mojang's server remains a separate official download.
+
 ## Native Bedrock catalog facts
 
 Block hardness, ordinary-tool tags, harvest requirements and recipe item tags

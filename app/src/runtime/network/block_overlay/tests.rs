@@ -167,6 +167,7 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
@@ -891,4 +892,135 @@ fn review_geometry_catalog_accepts_json_escaped_identifiers() {
     let wanted = std::collections::HashSet::from(["geometry.gen"]);
     let catalog = super::geometry_inputs::geometry_catalog(&view, &wanted);
     assert!(catalog.contains_key("geometry.gen"));
+}
+
+// A scaled or translated full block must draw at its transformed size, not as a whole cube.
+#[test]
+fn scaled_and_translated_full_blocks_draw_their_transformed_bounds() {
+    let transformed = |scale: [f32; 3], translation: [f32; 3]| CustomVisualComponents {
+        materials: materials("lucky"),
+        transformation: Some(CustomTransformation {
+            rotation: [0, 1, 0],
+            scale,
+            translation,
+        }),
+        ..CustomVisualComponents::default()
+    };
+    let blocks = CustomBlocks {
+        blocks: vec![
+            block(
+                "test:turned",
+                1,
+                CustomBlockVisuals {
+                    base: transformed([1.0; 3], [0.0; 3]),
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+            block(
+                "test:half",
+                1,
+                CustomBlockVisuals {
+                    base: transformed([1.0, 0.5, 1.0], [0.0, -0.25, 0.0]),
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+            block(
+                "test:mirrored",
+                1,
+                CustomBlockVisuals {
+                    base: transformed([-1.0, 1.0, 1.0], [0.0; 3]),
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+    assert_eq!(
+        compiled.overlay.visuals[2].kind,
+        VisualKind::Cube,
+        "a reflecting scale keeps the cube instead of an inside-out model"
+    );
+    let half = compiled.overlay.visuals[1];
+    assert_eq!(half.kind, VisualKind::Model);
+    let template = compiled.overlay.model_templates[half.model_template as usize];
+    let heights = compiled.overlay.model_quads[template.quad_start as usize..]
+        [..template.quad_count as usize]
+        .iter()
+        .flat_map(|quad| quad.positions.iter().map(|corner| corner[1]))
+        .collect::<Vec<_>>();
+    assert_eq!(heights.iter().min(), Some(&0));
+    assert_eq!(
+        heights.iter().max(),
+        Some(&128),
+        "half a block in 1/256 units"
+    );
+}
+
+// A translated full block above an opaque cube still shows the underside that overhangs it.
+#[test]
+fn translated_full_block_keeps_its_overhanging_underside_above_an_opaque_cube() {
+    let shifted = CustomVisualComponents {
+        materials: materials("lucky"),
+        transformation: Some(CustomTransformation {
+            rotation: [0; 3],
+            scale: [1.0; 3],
+            translation: [0.25, 0.0, 0.0],
+        }),
+        ..CustomVisualComponents::default()
+    };
+    let blocks = CustomBlocks {
+        blocks: vec![
+            block(
+                "test:shifted",
+                1,
+                CustomBlockVisuals {
+                    base: shifted,
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+            block(
+                "test:stone",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        materials: materials("lucky"),
+                        ..CustomVisualComponents::default()
+                    },
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .unwrap();
+    let visible_mask = |stone_below: bool| {
+        let key = world::SubChunkKey::new(0, 0, 0, 0);
+        let mut store = world::ChunkStore::new();
+        store.mark_sub_chunk_loaded(key).unwrap();
+        store
+            .update_block(key, world::BlockUpdate::new(1, 8, 0, 0, 1), 0)
+            .unwrap();
+        if stone_below {
+            store
+                .update_block(key, world::BlockUpdate::new(1, 7, 0, 0, 2), 0)
+                .unwrap();
+        }
+        let chunk = store.sub_chunk(key).unwrap();
+        let mesh = meshing::mesh_sub_chunk(
+            &meshing::BlockClassifier::new(0),
+            &assets,
+            NetworkIdMode::Sequential,
+            &meshing::Neighbourhood::empty(),
+            &chunk,
+        );
+        mesh.model_refs()[0].words()[3]
+    };
+    assert_eq!(visible_mask(true), visible_mask(false));
 }

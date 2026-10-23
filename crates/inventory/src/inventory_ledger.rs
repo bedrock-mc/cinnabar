@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod auto_craft;
+#[cfg(test)]
+pub(crate) use auto_craft::take_source_validations;
 mod bundles;
 mod cancellation;
 mod cells;
@@ -52,6 +54,9 @@ mod queue;
 mod quick_move;
 #[cfg(test)]
 mod quick_move_role_tests;
+mod recovery;
+#[cfg(test)]
+mod recovery_tests;
 pub(crate) mod registry;
 #[cfg(test)]
 mod request_tests;
@@ -59,6 +64,7 @@ mod response;
 mod revisions;
 mod screen_actions;
 mod trading;
+pub(crate) use auto_craft::AutoCraftMaterials;
 pub use trading::{ResolvedTrade, TradeState};
 #[cfg(test)]
 mod screens_tests;
@@ -76,6 +82,7 @@ use personal::PersonalWindow;
 pub use presentation::InventoryPresentationSnapshot;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
+pub use recovery::INVENTORY_RECOVERY_WINDOW_MILLIS;
 pub use response::StackResponseOverlay;
 pub use screen_actions::{ANVIL_MATERIAL_SLOT, ANVIL_TARGET_SLOT, ScreenCraft};
 
@@ -140,6 +147,10 @@ struct StorageWindow {
     data: BTreeMap<i32, i32>,
     generation: u64,
     identity: Option<ContainerIdentity>,
+    /// The container name of a chest-like block that requests must use instead of the level entity.
+    block_container: Option<u8>,
+    /// The address in-flight requests were sent under before the block entity renamed it.
+    superseded_identity: Option<ContainerIdentity>,
     resync_required: bool,
     /// Set by a local close while admitted predictions still await their
     /// responses, retaining the generation they reconcile against.
@@ -194,8 +205,6 @@ pub struct PlayerInventoryLedger {
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
     /// Personal cells written by the latest event, consumed by the FIFO observer.
     personal_writes: u8,
-    /// Whether the latest inventory event restated the backing offhand cell.
-    offhand_written: bool,
     armor_known: [bool; cells::ARMOR_CELLS],
     offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
@@ -226,6 +235,8 @@ pub struct PlayerInventoryLedger {
     /// Admitted requests abandoned unanswered and the surfaces each put into
     /// recovery, oldest first: a late rejection lifts that recovery.
     abandoned: VecDeque<queue::AbandonedRequest>,
+    /// When the current unverified state first refused gestures.
+    recovery_since_millis: Option<u64>,
     player_resync_required: bool,
     cursor_resync_required: bool,
     armor_resync_required: bool,
@@ -247,7 +258,6 @@ impl Default for PlayerInventoryLedger {
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
             personal_writes: 0,
-            offhand_written: false,
             armor_known: [false; cells::ARMOR_CELLS],
             offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
@@ -270,6 +280,7 @@ impl Default for PlayerInventoryLedger {
             furnace_selection: None,
             controls: control::WindowControls::default(),
             abandoned: VecDeque::new(),
+            recovery_since_millis: None,
             player_resync_required: false,
             cursor_resync_required: false,
             armor_resync_required: false,
@@ -296,11 +307,6 @@ impl PlayerInventoryLedger {
                     .map(|held| &held.stack)
             })
         })
-    }
-
-    /// Reports an admitted offhand write in the most recently applied inventory event.
-    pub const fn offhand_authority_changed(&self) -> bool {
-        self.offhand_written
     }
 
     pub fn begin_session(&mut self, session_generation: u64) {
@@ -715,12 +721,15 @@ impl PlayerInventoryLedger {
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
         let personal_expired = self.poll_control_timeout(now_millis);
         self.expire_overdue_requests(now_millis);
+        self.poll_recovery(now_millis);
         personal_expired
     }
 
     /// Whether polling can change a deadline, request, or deferred close.
     pub(crate) fn timeout_work_due(&self, now_millis: u64) -> bool {
-        self.controls.timeout_due(now_millis) || self.request_timeout_work_due(now_millis)
+        self.controls.timeout_due(now_millis)
+            || self.request_timeout_work_due(now_millis)
+            || self.recovery_work_due(now_millis)
     }
 
     pub fn transport_closed(&mut self) {

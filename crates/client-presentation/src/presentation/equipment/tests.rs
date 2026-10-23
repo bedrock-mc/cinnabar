@@ -1,3 +1,5 @@
+#[path = "runtime/body_tests.rs"]
+mod body_tests;
 use render_api::PoseGeneration;
 #[path = "runtime/elytra_tests.rs"]
 mod elytra_tests;

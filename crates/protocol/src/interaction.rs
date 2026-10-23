@@ -552,6 +552,7 @@ pub enum SwingSource {
     Mine,
     Interact,
     Attack,
+    UseItem,
     ThrowItem,
     DropItem,
 }
@@ -565,6 +566,7 @@ impl SwingSource {
             Self::Mine => "mine",
             Self::Interact => "interact",
             Self::Attack => "attack",
+            Self::UseItem => "useitem",
             Self::ThrowItem => "throwitem",
             Self::DropItem => "dropitem",
         }
@@ -597,6 +599,22 @@ pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> 
         block_position: block_pos(destination),
         result_pos: block_pos([0; 3]),
         face: wire::ZigZag32(0),
+    })
+}
+
+/// Requests that the server destroy the targeted block as a creative player action.
+#[must_use]
+pub fn creative_destroy_block_packet(
+    local_runtime_id: u64,
+    block_position: [i32; 3],
+    face: u8,
+) -> crate::Packet {
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::Creativedestroyblock,
+        block_position: block_pos(block_position),
+        result_pos: block_pos([0; 3]),
+        face: wire::ZigZag32(i32::from(face)),
     })
 }
 

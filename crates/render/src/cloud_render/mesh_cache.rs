@@ -58,7 +58,8 @@ impl CloudMeshCache {
         }
     }
 
-    /// Returns exact records, waiting for native workers or yielding a pending browser view.
+    /// Returns exact records, meshing the window on this thread when no native worker has
+    /// finished it, or yielding a pending browser view; the flag reports that miss.
     /// Cold views and teleports must not publish a late or different window.
     pub fn get(
         &mut self,
@@ -68,23 +69,27 @@ impl CloudMeshCache {
         diagnostics: bool,
     ) -> Option<(Arc<CloudMesh>, bool)> {
         let key = WindowKey::new(viewport, above);
-        self.start(runtime, viewport, above, diagnostics);
-        if let MeshJob::Ready(mesh) = &self.jobs[&key] {
-            return Some((Arc::clone(mesh), false));
-        }
         #[cfg(target_arch = "wasm32")]
-        if let Some(MeshJob::Pending(task)) = self.jobs.get_mut(&key) {
-            let mesh = block_on(bevy::tasks::poll_once(task))?;
-            self.jobs.insert(key, MeshJob::Ready(Arc::clone(&mesh)));
-            return Some((mesh, false));
+        {
+            self.start(runtime, viewport, above, diagnostics);
+            if let Some(MeshJob::Pending(task)) = self.jobs.get_mut(&key) {
+                let mesh = block_on(bevy::tasks::poll_once(task))?;
+                self.jobs.insert(key, MeshJob::Ready(Arc::clone(&mesh)));
+                return Some((mesh, false));
+            }
         }
-        let Some(MeshJob::Pending(task)) = self.jobs.remove(&key) else {
-            unreachable!("requested cloud window has a job")
+        let (mesh, missed) = match self.jobs.remove(&key) {
+            Some(MeshJob::Ready(mesh)) => (mesh, false),
+            Some(MeshJob::Pending(task)) if task.is_finished() => (block_on(task), false),
+            // An unfinished job can sit behind pipeline compiles on the shared pool; meshing
+            // the one requested window here is bounded, waiting for that queue is not.
+            _ => {
+                let identity = self.identity.expect("cloud cache has an asset identity");
+                (build(runtime, viewport, identity, diagnostics), true)
+            }
         };
-        let waited = !task.is_finished();
-        let mesh = block_on(task);
         self.jobs.insert(key, MeshJob::Ready(Arc::clone(&mesh)));
-        Some((mesh, waited))
+        Some((mesh, missed))
     }
 
     /// Keeps the current cell and its eight neighbours ready on both sides of
@@ -145,36 +150,10 @@ impl CloudMeshCache {
             .entry(WindowKey::new(viewport, above))
             .or_insert_with(|| {
                 let runtime = Arc::clone(runtime);
-                MeshJob::Pending(AsyncComputeTaskPool::get().spawn(async move {
-                    let span = bevy::log::info_span!("cloud.rebuild", quads = 0, bytes = 0);
-                    let _guard = span.enter();
-                    let texture = runtime
-                        .texture(AtmosphereRole::Clouds)
-                        .expect("validated atmosphere contains clouds");
-                    let records = mesh_cloud_viewport(texture, viewport)
-                        .expect("validated cloud texture satisfies the finite window contract")
-                        .into_boxed_slice();
-                    span.record("quads", records.len());
-                    span.record("bytes", std::mem::size_of_val(records.as_ref()));
-                    let diagnostic = diagnostics.then(|| {
-                        CloudGeometryDiagnostic::from_viewport_layout(
-                            CloudRenderConfig::legacy_fancy(),
-                            identity,
-                            texture,
-                            &records,
-                            CLOUD_WORLD_PERIOD as u32 * 1_000,
-                            (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
-                            (CLOUD_TOP_Y * 1_000.0) as i32,
-                        )
-                        .expect("validated cloud geometry satisfies the diagnostic contract")
-                    });
-                    Arc::new(CloudMesh {
-                        records,
-                        diagnostic,
-                        #[cfg(test)]
-                        worker_thread: std::thread::current().id(),
-                    })
-                }))
+                MeshJob::Pending(
+                    AsyncComputeTaskPool::get()
+                        .spawn(async move { build(&runtime, viewport, identity, diagnostics) }),
+                )
             });
     }
 
@@ -194,4 +173,41 @@ impl CloudMeshCache {
     pub fn len(&self) -> usize {
         self.jobs.len()
     }
+}
+
+/// Meshes one cell window on the calling thread.
+fn build(
+    runtime: &RuntimeAtmosphereAssets,
+    viewport: CloudViewport,
+    identity: [u8; 32],
+    diagnostics: bool,
+) -> Arc<CloudMesh> {
+    let span = bevy::log::info_span!("cloud.rebuild", quads = 0, bytes = 0);
+    let _guard = span.enter();
+    let texture = runtime
+        .texture(AtmosphereRole::Clouds)
+        .expect("validated atmosphere contains clouds");
+    let records = mesh_cloud_viewport(texture, viewport)
+        .expect("validated cloud texture satisfies the finite window contract")
+        .into_boxed_slice();
+    span.record("quads", records.len());
+    span.record("bytes", std::mem::size_of_val(records.as_ref()));
+    let diagnostic = diagnostics.then(|| {
+        CloudGeometryDiagnostic::from_viewport_layout(
+            CloudRenderConfig::legacy_fancy(),
+            identity,
+            texture,
+            &records,
+            CLOUD_WORLD_PERIOD as u32 * 1_000,
+            (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
+            (CLOUD_TOP_Y * 1_000.0) as i32,
+        )
+        .expect("validated cloud geometry satisfies the diagnostic contract")
+    });
+    Arc::new(CloudMesh {
+        records,
+        diagnostic,
+        #[cfg(test)]
+        worker_thread: std::thread::current().id(),
+    })
 }

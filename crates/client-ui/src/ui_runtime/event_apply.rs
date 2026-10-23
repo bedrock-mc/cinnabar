@@ -131,12 +131,14 @@ impl UiRuntime {
                     title = ?event.title,
                     "form received"
                 );
-                self.forms.admit(
-                    event,
-                    envelope.fifo_sequence,
-                    self.session_id,
-                    self.chat_focused || self.inventory_open,
-                );
+                let busy = self.chat_focused || self.container_shows_menu(player_runtime);
+                self.forms
+                    .admit(event, envelope.fifo_sequence, self.session_id, busy);
+                // A form over a container takes the pointer, so the container never sees the
+                // release that would end a drag in flight; forget the gesture instead.
+                if !busy && self.inventory_open && self.forms.owns_input() {
+                    self.screen.pointer.reset();
+                }
                 UiApplyOutcome::Applied
             }
         };

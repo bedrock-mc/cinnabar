@@ -96,7 +96,10 @@ impl PackApplication {
         blocks: Option<Arc<client_presentation::presentation::equipment::PreparedBlockItems>>,
     ) {
         let Some(base) = base.filter(|_| {
-            self.entities.is_some() || self.block_entity_art.is_some() || blocks.is_some()
+            self.entities.is_some()
+                || self.block_entity_art.is_some()
+                || blocks.is_some()
+                || self.item_icons.is_some()
         }) else {
             self.prepared_actor_artwork = None;
             return;
@@ -108,6 +111,7 @@ impl PackApplication {
                 self.block_entity_art.as_ref(),
             )
             && previous.matches_block_items(blocks.as_ref())
+            && previous.matches_session_icons(self.item_icons.as_ref())
         {
             return;
         }
@@ -117,7 +121,8 @@ impl PackApplication {
                 self.entities.as_ref(),
                 self.block_entity_art.as_ref(),
                 blocks,
-            ),
+            )
+            .with_session_icons(self.item_icons.as_ref()),
         ));
     }
 }
@@ -183,13 +188,28 @@ fn prepare_join_with(
         if let PackAdmission::Validated(stack) = &packs.admission {
             packs.terrain_identity = terrain_identity(stack, &packs.dependencies);
         }
-        packs.prepare_actor_artwork(bases.actor_artwork, None);
+        let stack_artwork = packs.entity_artwork.clone();
+        let artwork = bases
+            .actor_artwork
+            .map(|current| entity_artwork_base(current, stack_artwork.as_deref()));
+        packs.prepare_actor_artwork(artwork, None);
         let source_ui = packs.server_ui.clone();
         packs.prepare_ui_catalog(bases.ui_catalog);
         let now = reuse::CompileEnvironment::current();
         kept.keep_join(environment, &now, &packs, source_ui, cancelled);
         packs
     }))
+}
+
+/// The actor artwork a stack publishes over `current`: its entity texture overrides when they
+/// change the identity, else `current` itself, so prepared resources keep sharing its storage.
+pub(super) fn entity_artwork_base<'a>(
+    current: &'a render_model::ActorArtworkPages,
+    stack: Option<&'a render_model::ActorArtworkPages>,
+) -> &'a render_model::ActorArtworkPages {
+    stack
+        .filter(|next| next.identity() != current.identity())
+        .unwrap_or(current)
 }
 
 /// The recently compiled stacks joins and the post-join reload share.
@@ -520,6 +540,8 @@ fn compile_application(
     let server_ui = record(&mut dependencies, Subscriber::Ui, ui?);
     let server_sounds = record(&mut dependencies, Subscriber::Sounds, sounds?);
     let entities = record(&mut dependencies, Subscriber::Entities, entities?);
+    let block_entity_art =
+        super::block_entity_art::with_entities(block_entity_art, entities.as_deref(), &changes);
     // Artwork reads join the entity subscriber's rather than replacing them.
     let (entity_artwork, artwork_inputs) = artwork?;
     if let Some(inputs) = artwork_inputs {

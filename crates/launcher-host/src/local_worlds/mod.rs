@@ -1,31 +1,40 @@
 //! Local single-player worlds: the saved-world store, the official dedicated-server download and
 //! the local server processes. The core only learns the open world's loopback address.
 
+mod android_setup;
+mod android_trust;
 mod bds;
+mod code_cache;
 mod container;
 mod core_link;
 mod docker;
 mod download;
 mod import;
 mod junction;
+mod level_dat;
 mod manager;
 mod ports;
 mod process;
 mod provision;
+mod startup_timing;
 mod store;
 #[cfg(test)]
 mod test_support;
+mod translated;
+mod translated_setup;
 mod unpack;
 mod world;
 
+pub use android_setup::{android_server_needs_preparation, prepare_android_server};
+pub use android_trust::refresh as refresh_android_server_trust;
 pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
-pub use manager::Manager;
+pub use manager::{Host, Manager};
 pub use world::WorldError;
 
 use std::{
     fs, io,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
 };
 
@@ -35,12 +44,16 @@ use launcher::install_layout::InstallLayout;
 use serde::Deserialize;
 
 const BEDROCK_TARGET_JSON: &str = include_str!("../../../../assets/bedrock-target.json");
-/// The Dragonfly local server, shipped beside the core.
-const LOCAL_SERVER: &str = if cfg!(windows) {
-    "bedrock-local-server.exe"
-} else {
-    "bedrock-local-server"
-};
+
+/// Resolves the local server beside the core, using the APK's executable helper on Android.
+fn local_server_path(core: &Path, platform: provision::Platform) -> PathBuf {
+    let name = match platform.os {
+        "android" => translated::android_runtime().local_server_library.clone(),
+        "windows" => "bedrock-local-server.exe".to_owned(),
+        _ => "bedrock-local-server".to_owned(),
+    };
+    core.with_file_name(name)
+}
 
 /// The dedicated-server build local worlds run, from the target manifest.
 #[derive(Debug, Deserialize)]
@@ -57,15 +70,26 @@ fn server_pin() -> &'static ServerPin {
 }
 
 /// Opens the install's local worlds on the manifest's exact server build and image. Hosts without
-/// a native server probe for Docker in the background, assuming the container runtime meanwhile.
+/// a native server or bundled translator probe Docker in the background, assuming a container
+/// runtime meanwhile.
 pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
     let pin = server_pin();
     let store = Arc::new(store::Store::open(layout.local_worlds_dir())?);
     let platform = provision::Platform::host();
-    let (runtime, pending) = if platform.runs_bds() {
+    let translation = translated::Translation::detect(
+        platform,
+        &layout.core_executable,
+        android_runtime_dir(&layout.user_data_root),
+    )
+    .map(Arc::new);
+    let (runtime, pending) = if let Some(translation) = &translation {
+        (translation.runtime(), false)
+    } else if platform.runs_bds() {
         (provision::RuntimeInfo::native(), false)
-    } else {
+    } else if platform.runs_containers() {
         (provision::RuntimeInfo::checking(), true)
+    } else {
+        (docker::detect_runtime(platform, docker::DOCKER, &[]), false)
     };
     store.set_default_backend(manager::default_backend(&runtime));
     let provisioner = Arc::new(provision::Provisioner::new(
@@ -73,11 +97,19 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         pin.server_version.clone(),
     ));
     provisioner.set_runtime(runtime.clone());
+    if let Some(translation) = &translation {
+        android_setup::configure_preparation(&provisioner, translation);
+    }
+    let detected = translation
+        .as_ref()
+        .map(|translation| translation.runtime());
     provisioner.set_detector(Arc::new(move || {
-        docker::detect_runtime(platform, docker::DOCKER, &[])
+        detected
+            .clone()
+            .unwrap_or_else(|| docker::detect_runtime(platform, docker::DOCKER, &[]))
     }));
     let mut parts = manager::Parts::new(store);
-    let local_server = layout.core_executable.with_file_name(LOCAL_SERVER);
+    let local_server = local_server_path(&layout.core_executable, platform);
     if local_server.is_file() {
         parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server)));
     } else {
@@ -90,10 +122,9 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
             ),
         ));
     }
-    parts.runners.bds = Some(Arc::new(bds::BdsRunner::new(
-        Arc::clone(&provisioner),
-        pin.bds_container_image.clone(),
-    )));
+    let mut bds = bds::BdsRunner::new(Arc::clone(&provisioner), pin.bds_container_image.clone());
+    bds.translation = translation;
+    parts.runners.bds = Some(Arc::new(bds));
     parts.setup = Some(Arc::clone(&provisioner));
     parts.auto_backend = true;
     let manager = Manager::from_parts(parts);
@@ -107,6 +138,16 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         provisioner.detect_in_background(runtime);
     }
     Ok(manager)
+}
+
+/// The Android server's exported platform certificate bundle, refreshed before each app launch.
+pub fn android_server_trust_path(user_data_root: &Path) -> PathBuf {
+    translated::trust_path(&android_runtime_dir(user_data_root))
+}
+
+/// Keeps the translated server's cache and trust store beneath one private runtime directory.
+fn android_runtime_dir(user_data_root: &Path) -> PathBuf {
+    user_data_root.join("bds-runtime")
 }
 
 /// A manager over the worlds in `root` with no server runners, for code that drives one in tests.
@@ -172,6 +213,31 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_launches_the_packaged_server_from_the_native_library_directory() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../packaging/android/runtime.json"))
+                .expect("runtime manifest");
+        let libraries = Path::new("/data/app/fixture/lib/arm64");
+        let core = libraries.join(manifest["core_library"].as_str().expect("core helper"));
+        let server = local_server_path(
+            &core,
+            provision::Platform {
+                os: "android",
+                arch: "arm64",
+            },
+        );
+        assert_eq!(
+            server,
+            libraries.join(
+                manifest["local_server_library"]
+                    .as_str()
+                    .expect("server helper")
+            )
+        );
+        assert_eq!(server.extension().and_then(|ext| ext.to_str()), Some("so"));
+    }
 
     /// A tag alone drifts with upstream releases and can break joins; the image must name a digest.
     #[test]

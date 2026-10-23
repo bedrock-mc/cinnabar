@@ -291,3 +291,107 @@ fn labels_keep_their_colour_after_ldr_and_hdr_world_replacement_and_retain_depth
         );
     }
 }
+
+#[test]
+fn ordinary_views_do_not_warm_shader_pack_label_variants() {
+    use crate::pipeline_warmup::{PrewarmPipelines, WarmView};
+    let (device, _) = wgpu::Device::noop(&default());
+    let cache = PipelineCache::new(RenderDevice::from(device), true);
+    let mut pipeline = NametagPipeline::from_world(&mut World::new());
+    let mut ids = Vec::new();
+    let view = WarmView {
+        msaa: Msaa::Off,
+        hdr: true,
+        enhanced: false,
+        shader_pack: false,
+        output: None,
+    };
+    pipeline.prewarm(&cache, view, &mut ids).unwrap();
+    assert_eq!(ids.len(), 4);
+    ids.clear();
+    pipeline
+        .prewarm(
+            &cache,
+            WarmView {
+                shader_pack: true,
+                ..view
+            },
+            &mut ids,
+        )
+        .unwrap();
+    assert_eq!(ids.len(), if cfg!(feature = "shaderpacks") { 8 } else { 4 });
+}
+
+/// Leaving the pack releases the full-screen label layer; returning prepares a fresh one.
+#[test]
+#[cfg(feature = "shaderpacks")]
+fn leaving_the_pack_releases_the_label_overlay() {
+    use bevy::{
+        camera::{CameraMainTextureUsages, ClearColorConfig},
+        ecs::system::RunSystemOnce,
+        render::{
+            texture::TextureCache,
+            view::{
+                ExtractedView, RetainedViewEntity, ViewDepthStencilTexture, ViewTargetAttachments,
+                prepare_view_targets,
+            },
+        },
+    };
+    use render_scene::shaderpack::ShaderPackRendering;
+
+    let (device, _) = wgpu::Device::noop(&default());
+    let device = RenderDevice::from(device);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.init_resource::<ClearColor>();
+    world.init_resource::<TextureCache>();
+    world.init_resource::<ViewTargetAttachments>();
+    let depth = world.resource_mut::<TextureCache>().get(
+        &device,
+        TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+    );
+    let mut camera = crate::render_test_support::camera(false);
+    camera.physical_target_size = Some(UVec2::splat(4));
+    camera.clear_color = ClearColorConfig::None;
+    let view = world
+        .spawn((
+            camera,
+            CameraMainTextureUsages::default(),
+            Msaa::Off,
+            ViewDepthStencilTexture::new(depth, Some(0.0), None),
+            ExtractedView {
+                retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                target_format: render_scene::SCENE_COLOR_FORMAT,
+                viewport: UVec4::new(0, 0, 4, 4),
+                color_grading: default(),
+                invert_culling: false,
+            },
+        ))
+        .id();
+    world.run_system_once(prepare_view_targets).unwrap();
+    for pack in [false, true, false, true] {
+        if pack {
+            world.entity_mut(view).insert(ShaderPackRendering);
+        } else {
+            world.entity_mut(view).remove::<ShaderPackRendering>();
+        }
+        world.run_system_once(overlay::prepare).unwrap();
+        assert_eq!(world.entity(view).contains::<overlay::Overlay>(), pack);
+    }
+}

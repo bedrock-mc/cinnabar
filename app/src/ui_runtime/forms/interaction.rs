@@ -74,11 +74,12 @@ fn gamepad_keys<'a>(
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven): (
+    (player_runtime, window, mut focus, driven, pointer_source): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
+        Option<Res<crate::ui_runtime::touch_pointer::UiPointerSource>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -189,6 +190,7 @@ pub(crate) fn drive_server_form_input(
     if input_available && let Some(frame) = engine_frame {
         let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
         let input = engine_input::EngineInput {
+            touch: pointer_source.as_ref().is_some_and(|source| source.0),
             pointer_edges,
             cursor: window
                 .cursor_position()

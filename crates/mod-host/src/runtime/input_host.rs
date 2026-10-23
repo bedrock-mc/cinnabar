@@ -4,6 +4,34 @@ use super::{Instance, State, cinnabar, controls};
 use anyhow::Result;
 
 impl cinnabar::extension::input::Host for State {
+    /// Commits bounded, subtractive click policy only after a successful callback.
+    fn set_click_limits(
+        &mut self,
+        attack: Option<u32>,
+        item_use: Option<u32>,
+    ) -> Result<Result<(), String>> {
+        self.environment_writes += 1;
+        if self.environment_writes > super::MAX_IMPORT_WRITES {
+            anyhow::bail!("input policy budget exhausted");
+        }
+        if !self.grants.controls {
+            return Ok(Err("controls capability denied".into()));
+        }
+        let limits = [attack, item_use];
+        if limits
+            .iter()
+            .flatten()
+            .any(|rate| !(1..=mod_api::MAX_CLICK_RATE).contains(rate))
+        {
+            return Ok(Err(format!(
+                "click limits must be between 1 and {}",
+                mod_api::MAX_CLICK_RATE
+            )));
+        }
+        self.pending_click_limits = Some(limits);
+        Ok(Ok(()))
+    }
+
     /// Keeps native text payloads separate from the existing numeric event ABI.
     fn read_text_events(
         &mut self,

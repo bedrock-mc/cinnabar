@@ -12,6 +12,7 @@ mod appearance_preparation;
 mod colliders;
 mod effect_members;
 pub use colliders::ActorCollisionBounds;
+mod death_visibility;
 mod local_presentation;
 mod native_facts;
 #[cfg(test)]
@@ -136,7 +137,7 @@ pub struct ActorSnapshot {
     pub source_tick: Option<u64>,
     /// Accepted actor metadata, independent of local animation flags.
     pub metadata: HashMap<u32, ActorMetadataValue>,
-    /// Primary flags for local rendering, retired by the next received primary word.
+    /// Client-derived rendering flags, retired by the next received primary word.
     local_presentation_flags: Option<u64>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<u32, i32>,
@@ -267,13 +268,11 @@ impl ActorSnapshot {
             hitboxes: None,
         };
         snapshot.set_current_pose(pose);
-        // A falling block's spawn position carries its network offset, which its box sets; the
-        // vanilla offset comes off here and `apply_metadata` rebases onto the spawn's box.
-        if snapshot.is_falling_block() {
-            snapshot.shift_poses_y(
-                -snapshot.falling_block_network_offset(),
-                -snapshot.falling_block_network_offset(),
-            );
+        // Falling-block and boat spawn positions carry their network offset, as movement does;
+        // a falling block's box sets it and `apply_metadata` rebases onto the spawn's box.
+        let spawn_offset = snapshot.spawn_network_offset();
+        if spawn_offset != 0.0 {
+            snapshot.shift_poses_y(-spawn_offset, -spawn_offset);
         }
         snapshot.apply_metadata(&spawn.metadata, hitbox_budget);
         snapshot.apply_attributes(&spawn.attributes);
@@ -484,9 +483,9 @@ impl ActorSnapshot {
         self.shift_interpolation_targets_y(network_delta, spawn_delta);
     }
 
-    /// Spawn packets need vertical normalization only for falling-block constructors.
+    /// Spawn packets need vertical normalization only for falling-block and boat constructors.
     fn spawn_network_offset(&self) -> f32 {
-        if self.is_falling_block() {
+        if self.is_falling_block() || self.entity_fact.native_class == NativeEntityClass::Boat {
             self.network_position_offset()
         } else {
             0.0
@@ -680,6 +679,8 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// Occupied local armor-container slots, independent of item admission and hands.
+    pub equipment_count: u8,
     /// Numerical registry identities for the main hand and off hand; zero means empty.
     pub held_network_ids: [i32; 2],
     /// The main-hand stack's data value.
@@ -788,6 +789,7 @@ pub(crate) struct ActorStore {
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_equipment_count: u8,
     local_held_network_ids: [i32; 2],
     local_main_metadata: u32,
     local_held_variants: [actor_animation::StackVariant; 2],

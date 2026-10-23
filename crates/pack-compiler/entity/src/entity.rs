@@ -29,15 +29,18 @@ mod materials;
 mod molang;
 mod mount;
 mod native_bind_pose;
+mod native_boat;
 mod native_dragon_geometry;
 mod native_held_items;
 mod pack;
 mod painting;
 mod policy_sources;
+mod sample_omissions;
 mod sanitize;
 mod vanilla_refs;
 mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
+pub use sample_omissions::missing_harness_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub(crate) use pack::compile_entity_pack_unless;
@@ -61,6 +64,7 @@ pub use attachable::{
     compile_textures as compile_equipment_textures,
     compile_textures_for_assets as compile_equipment_textures_for_assets,
     compile_textures_for_assets_with as compile_equipment_textures_for_assets_with,
+    compile_textures_for_assets_with_priorities as compile_equipment_textures_for_assets_with_priorities,
     compile_textures_with as compile_equipment_textures_with, decode_equipment_raster,
 };
 
@@ -268,6 +272,21 @@ fn compile_with_behavior(
         &mut symbols,
         &mut geometries,
         None,
+    )?;
+    total_source_bytes += native_boat::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
+        None,
+    )?;
+    total_source_bytes += sample_omissions::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
     )?;
     total_source_bytes = total_source_bytes
         .checked_add(native_binding_bytes)

@@ -17,6 +17,8 @@ pub mod test_support;
 mod tests;
 
 pub use display::FirstPersonHand;
+/// Rig layer identity used by the main-hand equipment submission.
+pub(crate) const LAYER_MAIN_HAND: u8 = 1;
 pub use input::{local_input, remote_input};
 pub use runtime::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation, HeldKind,
@@ -29,6 +31,9 @@ pub use runtime::{
 
 /// Chest equipment occupies the same layer for its pack image and cape replacement.
 pub(crate) const ELYTRA_LAYER: u8 = display::LAYER_CHESTPLATE;
+/// The separately replicated body equipment has an identity apart from humanoid armor.
+const BODY_EQUIPMENT_LAYER: u8 = render_model::ACTOR_LAYER_SKIN_BASE - 1;
+const _: () = assert!(BODY_EQUIPMENT_LAYER > super::cape::ACTOR_LAYER_CAPE);
 /// Worn-wing material groups after the first, in the ids free below the cape.
 const ELYTRA_GROUP_LAYERS: std::ops::Range<u8> =
     display::LAYER_BOOTS + 1..super::cape::ACTOR_LAYER_CAPE;

@@ -15,6 +15,7 @@ fn remote_move(runtime_id: u64) -> WorldEvent {
         head_yaw: None,
         on_ground: None,
         teleported: false,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: Default::default(),
@@ -679,4 +680,69 @@ fn remote_player_moves_apply_while_unrelated_terrain_decode_is_pending() {
         complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.committed_sequence(), 5);
     }
+}
+
+#[test]
+fn admitted_lethal_attribute_burst_retains_both_controls_without_overflow() {
+    let mut stream = block_entity_visual_stream();
+    // Delay a barrier so the entire light admission allowance commits in one pass.
+    stream
+        .order
+        .admit(1, client_world::ingestion::Footprint::barrier(), 0)
+        .unwrap();
+    let count = MAX_ADMITTED_WORLD_EVENTS - 1;
+    for index in 0..count {
+        let attributes = [
+            (protocol_ids::Attribute::Health, 20.0),
+            (protocol_ids::Attribute::Health, 0.0),
+            (protocol_ids::Attribute::Health, 20.0),
+            (protocol_ids::Attribute::Health, 0.0),
+            (protocol_ids::Attribute::Movement, 0.1),
+        ]
+        .map(|(attribute, current)| ActorAttribute {
+            name: attribute.wire_name().into(),
+            min: 0.0,
+            max: 20.0,
+            current,
+            default: None,
+            modifiers: Default::default(),
+        });
+        stream
+            .submit(
+                index as u64 + 2,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    tick: 0,
+                    attributes: Arc::from(attributes),
+                })),
+            )
+            .unwrap();
+    }
+    assert_eq!(stream.light_admission_capacity(), 0);
+    stream
+        .order
+        .insert_ready(1, client_world::ingestion::PreparedWorldEvent::CommitOnly)
+        .unwrap();
+    stream.apply_ready();
+    let controls = stream.take_committed_controls();
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|event| matches!(event, CommittedControlEvent::LocalMovementSpeed { .. }))
+            .count(),
+        count
+    );
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|event| matches!(event, CommittedControlEvent::LocalDeath { .. }))
+            .count(),
+        count
+    );
+    assert_eq!(stream.committed_sequence(), count as u64 + 1);
+    stream
+        .authority
+        .restore_committed_controls(controls.into_iter());
+    assert_eq!(stream.take_committed_controls().len(), count * 2);
 }

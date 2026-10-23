@@ -21,6 +21,7 @@ pub(super) fn hud_model(
     let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
     let selected = player_runtime.selected_hotbar_slot();
     let survival = player_runtime.facts.survival_stats_visible();
+    let facts = player_runtime.inventory.ledger().item_facts();
     let mut slot = |stack: Option<&protocol::NetworkItemStack>,
                     icon: Option<IconRef>,
                     durability: Option<f32>,
@@ -31,6 +32,7 @@ pub(super) fn hud_model(
         });
         HudSlot {
             icon,
+            id_aux: stack.map(|stack| facts.id_aux(stack)),
             count: stack.map_or(0, |stack| u32::from(stack.count)),
             selected,
             durability: stack.and(durability).map(f64::from),
@@ -46,7 +48,7 @@ pub(super) fn hud_model(
             )
         })
         .collect();
-    let offhand = runtime.gameplay_hud().offhand_stack().map(|stack| {
+    let offhand = runtime.local_offhand_stack(player_runtime).map(|stack| {
         slot(
             Some(stack),
             frame.offhand_icon,
@@ -112,6 +114,7 @@ pub(super) fn hud_model(
             .armor()
             .is_some_and(|armor| armor.current() > 0),
         hotbar_visible: mode_allows_hotbar && selected.is_some(),
+        touch_inventory: false,
         xp_bar: survival && experience.is_some() && frame.mount_jump.is_none(),
         exp_progress: experience.map_or(0.0, |xp| f64::from(xp.progress)),
         level: experience.map_or(0, |xp| xp.level),
@@ -147,6 +150,7 @@ pub(super) fn hud_model(
         chat_color: ui_screens::settings_chat::default_color(settings),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
+        chat_text: ui_screens::settings_chat::chat_text(settings),
         sidebar,
         boss_bars: runtime
             .boss_bars()

@@ -39,8 +39,17 @@ pub(super) fn recipe_entries(
                 icon,
             );
         } else {
+            let sources = presentation::forms::BookIconSources {
+                registry: items.authority.map(|authority| {
+                    std::sync::Arc::clone(authority.item_presentation_generation())
+                }),
+                catalog: presentation.icon_catalog.clone(),
+                session_icons: presentation.session_icon_generation(),
+                dials: presentation.dial_frames(),
+            };
             window_icons.book_entries =
-                presentation::forms::recipe_book_icons(player_runtime, runtime, icon);
+                presentation::forms::recipe_book_icons(player_runtime, runtime, sources, icon)
+                    .to_vec();
         }
     }
 }
@@ -145,10 +154,12 @@ pub(super) fn screen_outputs(
             .inventory_ledger(player_runtime)
             .created_output_stack()
             .is_none();
-        if kind == protocol::WindowKind::Anvil
-            && no_server_output
-            && let Some(stack) = runtime.anvil_output(player_runtime)
-        {
+        let derived = match kind {
+            protocol::WindowKind::Anvil => runtime.anvil_output(player_runtime),
+            protocol::WindowKind::Grindstone => runtime.grindstone_output(player_runtime),
+            _ => None,
+        };
+        if no_server_output && let Some(stack) = derived {
             let icon = items.icon(&stack, None);
             let durability = items.durability(&stack, None);
             window_icons.recipe_output = Some(ui_screens::container_source::StationOutput {
