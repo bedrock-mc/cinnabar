@@ -71,7 +71,9 @@ pub fn drive_window_ime(
         && focus.as_ref().is_none_or(|focus| focus.available())
         && !consent.as_ref().is_some_and(|consent| consent.0)
         && !runtime.as_ref().is_some_and(|runtime| {
-            runtime.server_forms().owns_input() || runtime.credits().owns_input()
+            runtime.server_forms().owns_input()
+                || runtime.credits().owns_input()
+                || runtime.data_driven_ui().owns_input()
         });
     let owner = text_owner(
         available,

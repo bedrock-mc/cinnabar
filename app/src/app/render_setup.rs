@@ -42,21 +42,69 @@ impl bevy::prelude::Plugin for RendererSetup {
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut settings = WgpuSettings::default();
         render::device_settings::configure(&mut settings);
-        let renderer = guarded::render_plugin(
+        let result = guarded::render_plugin(
             app,
             &self.data_root,
             self.video_override,
             self.graphics_api_revision,
             settings,
-        )
-        .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
-        app.add_plugins(renderer);
+        );
+        install_result(app, result);
+    }
+}
+
+/// Carries a plugin-build failure back to the fallible application entry point.
+#[derive(bevy::prelude::Resource)]
+struct StartupFailure(anyhow::Error);
+
+/// Installs a successful renderer or retains its error without unwinding plugin setup.
+fn install_result(
+    app: &mut bevy::prelude::App,
+    result: anyhow::Result<bevy::render::RenderPlugin>,
+) {
+    match result {
+        Ok(renderer) => {
+            app.add_plugins(renderer);
+            render::install_error_policy(app);
+        }
+        Err(error) => {
+            app.insert_resource(StartupFailure(error));
+            // Later default plugins still register shader assets before the caller returns.
+            app.add_plugins(bevy::render::RenderPlugin {
+                render_creation: WgpuSettings {
+                    backends: None,
+                    ..Default::default()
+                }
+                .into(),
+                ..Default::default()
+            });
+        }
+    }
+}
+
+/// Returns renderer failures before application systems can require GPU resources.
+pub(super) fn finish(app: &mut bevy::prelude::App) -> anyhow::Result<()> {
+    match app.world_mut().remove_resource::<StartupFailure>() {
+        Some(failure) => Err(failure.0.context("Renderer startup failed")),
+        None => Ok(()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_candidate_returns_a_startup_error_without_panicking() {
+        let mut app = bevy::prelude::App::new();
+        app.add_plugins((
+            bevy::prelude::MinimalPlugins,
+            bevy::asset::AssetPlugin::default(),
+        ));
+        install_result(&mut app, Err(anyhow::anyhow!("GPU lacks VERTEX_STORAGE")));
+        let error = finish(&mut app).unwrap_err();
+        assert!(format!("{error:#}").contains("GPU lacks VERTEX_STORAGE"));
+    }
 
     #[cfg(target_arch = "wasm32")]
     #[test]

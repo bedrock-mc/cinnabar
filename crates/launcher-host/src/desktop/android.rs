@@ -65,7 +65,8 @@ fn start_view_intent(env: &mut JNIEnv, context: &JObject, url: &str) -> jni::err
     Ok(())
 }
 
-/// Opens the Storage Access Framework picker and blocks until the user chooses or cancels.
+/// Opens the Storage Access Framework picker for `mime_type` and blocks until the user chooses
+/// or cancels. Custom file types use `*/*` and the caller checks filename extensions.
 ///
 /// Returns private copies of the chosen documents, an empty list on cancellation, `None` when no
 /// activity or document provider could show the picker, or an error when a document exceeds
@@ -73,6 +74,7 @@ fn start_view_intent(env: &mut JNIEnv, context: &JObject, url: &str) -> jni::err
 pub(super) fn pick_documents(
     multiple: bool,
     max_bytes: Option<u64>,
+    mime_type: &str,
 ) -> Result<Option<Vec<PathBuf>>, String> {
     let context = ndk_context::android_context();
     // The Android runtime owns the VM and the application context for the process lifetime.
@@ -81,7 +83,7 @@ pub(super) fn pick_documents(
     let application = unsafe { JObject::from_raw(context.context().cast()) };
     // Java has no unsigned long; a negative limit means unlimited.
     let max_bytes = max_bytes.map_or(-1, |bytes| i64::try_from(bytes).unwrap_or(i64::MAX));
-    let result = call_picker(&mut env, &application, multiple, max_bytes);
+    let result = call_picker(&mut env, &application, multiple, max_bytes, mime_type);
     result.map_err(|error| pending_exception(&mut env).unwrap_or_else(|| error.to_string()))
 }
 
@@ -92,6 +94,7 @@ fn call_picker(
     application: &JObject,
     multiple: bool,
     max_bytes: i64,
+    mime_type: &str,
 ) -> jni::errors::Result<Option<Vec<PathBuf>>> {
     let package = env
         .call_method(application, "getPackageName", "()Ljava/lang/String;", &[])?
@@ -114,12 +117,13 @@ fn call_picker(
             &[(&name).into()],
         )?
         .l()?;
+    let mime_type = env.new_string(mime_type)?;
     let paths = env
         .call_static_method(
             JClass::from(class),
             "pick",
-            "(ZJ)[Ljava/lang/String;",
-            &[multiple.into(), max_bytes.into()],
+            "(ZJLjava/lang/String;)[Ljava/lang/String;",
+            &[multiple.into(), max_bytes.into(), (&mime_type).into()],
         )?
         .l()?;
     if paths.is_null() {

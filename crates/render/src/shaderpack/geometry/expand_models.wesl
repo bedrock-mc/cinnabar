@@ -24,7 +24,7 @@ fn model_face(job: vec4<u32>) -> JobFace {
         var invalid: JobFace;
         return invalid;
     }
-    let material = materials[quad.selected_material_id];
+    let material = materials(quad.selected_material_id);
     var corners: FaceCorners;
     var raw_uvs: array<vec2<f32>, 4>;
     var lowest = vec2(1e9);

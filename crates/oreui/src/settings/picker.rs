@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use super::super::modal::{self, Modal};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE, TEXT};
-use super::super::widgets::MenuItem;
-use super::{button, gui_scale, sections};
+use super::super::widgets::{Interaction, MenuItem};
+use super::{button, gui_scale, localization};
 use crate::images::CHEVRON_DOWN_IMAGE;
 use launcher::menu::{
     MenuAction, MenuView,
@@ -38,12 +38,7 @@ pub(super) fn draw(
     let SettingKind::Dropdown(choices) = option.kind else {
         return Ok(());
     };
-    let word = |key: &str| {
-        translate(key).map_or_else(
-            || sections::fallback(key).to_owned(),
-            |text| text.to_string(),
-        )
-    };
+    let word = |key: &str| localization::word(key, view.settings_options.language(), translate);
     let title = word(option.oreui_label.unwrap_or(option.label));
     let visible: Vec<_> = (0..choices.len())
         .filter(|choice| view.setting_choice_visible(option, *choice))
@@ -143,6 +138,17 @@ pub(super) fn select(
     action: MenuAction,
 ) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
+    select_face(canvas, bounds, label, state)?;
+    button::stationary_hit(canvas, action, bounds)
+}
+
+/// A closed dropdown's light face showing `label` and a down chevron; the caller owns input.
+pub(crate) fn select_face(
+    canvas: &mut Canvas<'_>,
+    bounds: Bounds,
+    label: &str,
+    state: Interaction,
+) -> Result<(), PaintError> {
     let role = canvas.role(theme::SECONDARY);
     let (_, face) = button::procedural_face(canvas, bounds, state, true)?;
     let pad = canvas.r(1.6);
@@ -181,5 +187,5 @@ pub(super) fn select(
             )?;
         }
     }
-    button::stationary_hit(canvas, action, bounds)
+    Ok(())
 }
