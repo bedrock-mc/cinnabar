@@ -193,6 +193,10 @@ impl ActionFilterState {
         if interrupted || failed {
             verdict.release = [true; 2];
         }
+        // A failed owner cannot publish a mod-generated edge from its earlier frame callback.
+        if failed && repeat {
+            *verdict.accepted.last_mut().expect("observed repeat") = false;
+        }
         let mut held = logical;
         let mut edges = [ActionPhase::default(); 2];
         let mut output = Vec::with_capacity(events.len() + 3);

@@ -288,3 +288,31 @@ fn phase_only_devices_preserve_masks_and_idle_physical_holds_skip_callbacks() {
     state.filter(&mut done, Some(1), 3, false, |_| decide(&[], [true, false]));
     assert!(done.phases[Action::Attack as usize].released);
 }
+
+/// Failures restore physical input while dropping callback-generated pulses.
+#[test]
+fn failed_callback_cannot_publish_an_earlier_mod_pulse() {
+    let mut state = ActionFilterState::default();
+    let mut input = ordered([true, false], &[]);
+    assert!(!state.filter(&mut input, Some(1), 0, true, |_| None));
+    assert!(input.phases[Action::Attack as usize].held);
+    assert!(!input.phases[Action::Attack as usize].pressed);
+}
+
+/// A suppressed gesture cannot resume from repeated press notifications alone.
+#[test]
+fn duplicate_physical_press_does_not_restart_a_suppressed_hold() {
+    let mut state = ActionFilterState::default();
+    let mut first = ordered([false; 2], &[(Action::Attack, true)]);
+    state.filter(&mut first, Some(1), 0, false, |_| {
+        decide(&[false], [false; 2])
+    });
+    let mut duplicate = ordered([true, false], &[(Action::Attack, true)]);
+    state.filter(&mut duplicate, Some(1), 1, false, |_| {
+        decide(&[true], [false; 2])
+    });
+    assert_eq!(
+        duplicate.phases[Action::Attack as usize],
+        ActionPhase::default()
+    );
+}
