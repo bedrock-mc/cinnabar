@@ -528,37 +528,6 @@ fn horizontal_poses_send_the_width_as_the_height() {
 }
 
 #[test]
-fn horizontal_poses_resize_custom_dimensions() {
-    for width in [0.4, 0.75, 2.0] {
-        for height in [0.6, 1.49, 1.8, 2.5] {
-            let metadata = HashMap::from([
-                (
-                    ActorDataKey::Scale.wire_value(),
-                    ActorMetadataValue::Float(2.0),
-                ),
-                (
-                    ActorDataKey::Width.wire_value(),
-                    ActorMetadataValue::Float(width),
-                ),
-                (
-                    ActorDataKey::Height.wire_value(),
-                    ActorMetadataValue::Float(height),
-                ),
-            ]);
-            for flag in HORIZONTAL_POSE_FLAGS {
-                let mut words = [0; 3];
-                set_flag(&mut words, flag, true);
-                assert_eq!(
-                    predicted_bounding_box(&metadata, Some(1.49), words),
-                    [2.0, width, width],
-                    "{flag:?}: {width} by {height}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
 fn riding_sync_retains_the_effective_flight_ability() {
     use client_world::game_mode_capabilities::FlightAuthority;
     for flying in [false, true] {

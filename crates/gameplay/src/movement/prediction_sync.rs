@@ -162,22 +162,17 @@ const HORIZONTAL_POSE_FLAGS: [ActorFlag; 4] = [
     ActorFlag::Crawling,
 ];
 
-/// Uses the unscaled width as the height for every horizontal player pose.
-/// Completed walking size applies to the standard player model; other upright
-/// models retain their supplied dimensions.
+/// Sizes the standard player model from the sent pose, as vanilla's player
+/// size update does: a horizontal pose uses the width as its height, otherwise
+/// the current accepted walking size applies once a sample exists. The sent
+/// size is unscaled, so any scale keeps the pose sizing. Other models retain
+/// their supplied metadata until their local contracts are available.
 fn predicted_bounding_box(
     metadata: &HashMap<u32, ActorMetadataValue>,
     walking_height: Option<f32>,
     flags: [u64; 3],
 ) -> [f32; 3] {
     let mut size = bounding_box(metadata);
-    if HORIZONTAL_POSE_FLAGS
-        .into_iter()
-        .any(|flag| flag_set(&flags, flag))
-    {
-        size[2] = size[1];
-        return size;
-    }
     let width = sim::PLAYER_WIDTH as f32;
     let pose_heights = [
         sim::PLAYER_HEIGHT as f32,
@@ -187,7 +182,12 @@ fn predicted_bounding_box(
     if size[1] != width || !pose_heights.contains(&size[2]) {
         return size;
     }
-    if let Some(height) = walking_height {
+    if HORIZONTAL_POSE_FLAGS
+        .into_iter()
+        .any(|flag| flag_set(&flags, flag))
+    {
+        size[2] = width;
+    } else if let Some(height) = walking_height {
         size[2] = height;
     }
     size
