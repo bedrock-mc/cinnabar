@@ -53,7 +53,13 @@ fn shrieker_inventory_keeps_open_walls_and_first_inner_frame() {
     .unwrap()
     .expect("shrieker has an inventory preview");
     assert!(live.is_none());
-    let pixels: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+    let pixels: Vec<_> = icon
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[3] != 0)
+        .collect();
     assert!(pixels.iter().any(|p| p[0] > 0 && p[1] == 0), "outer walls");
     assert!(
         pixels.iter().any(|p| p[1] > 0 && p[0] == 0),
