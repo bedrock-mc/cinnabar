@@ -129,6 +129,10 @@ fn apply_and_done_retain_edits_until_storage_accepts_them() {
             Some("true")
         );
         let host = app.world().resource::<ShaderOptionsHost>();
+        assert!(
+            host.writer.is_none(),
+            "a completed save releases its worker"
+        );
         if action == Action::Done {
             assert!(host.open.is_none());
         } else {
@@ -166,4 +170,81 @@ fn leaving_the_options_screen_releases_its_queued_reader() {
     .add_systems(Update, drive_shader_options);
     app.update();
     assert!(app.world().resource::<ShaderOptionsHost>().open.is_none());
+}
+
+#[test]
+fn closing_the_screen_preserves_and_retires_an_accepted_save() {
+    /// Releases the held save before app teardown, including when an assertion fails.
+    struct ReleaseOnDrop(Option<std::sync::mpsc::Sender<()>>);
+
+    impl Drop for ReleaseOnDrop {
+        /// Lets the save finish before its owner joins it at teardown.
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("accepted-save");
+    let destination = path.clone();
+    let (release, held) = std::sync::mpsc::channel();
+    let mut app = App::new();
+    let mut release = ReleaseOnDrop(Some(release));
+    let open = Open::pending(SelectedPack {
+        name: "fixture".into(),
+        path: "not-opened".into(),
+        options: None,
+    });
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.sync_shader_options(Some(open.view()));
+    app.insert_resource(RenderModeConfig {
+        cli: None,
+        attributable: false,
+        path: None,
+        cli_shader_pack: None,
+        shader_packs: None,
+        shader_pack_revision: 0,
+    })
+    .init_resource::<RuntimeSettings>()
+    .insert_resource(menu)
+    .insert_resource(ShaderOptionsHost {
+        open: Some(open),
+        writer: Some(
+            Writer::spawn(move || {
+                held.recv().map_err(|error| error.to_string())?;
+                std::fs::write(destination, "complete").map_err(|error| error.to_string())
+            })
+            .unwrap(),
+        ),
+        ..Default::default()
+    })
+    .add_systems(Update, drive_shader_options);
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<ShaderOptionsHost>()
+            .open
+            .as_ref()
+            .unwrap()
+            .view()
+            .status,
+        Status::Loading,
+        "a reopened editor waits for the accepted save before reading"
+    );
+    app.world_mut().remove_resource::<MenuRuntime>();
+    app.update();
+    let host = app.world().resource::<ShaderOptionsHost>();
+    assert!(host.open.is_none());
+    assert!(
+        host.writer.is_some(),
+        "closing the screen preserves accepted work"
+    );
+    release.0.take().unwrap().send(()).unwrap();
+    test_time::eventually("the closed screen's accepted save", || {
+        app.update();
+        app.world().resource::<ShaderOptionsHost>().writer.is_none()
+    });
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "complete");
 }
