@@ -15,6 +15,8 @@ impl PhysicsSampleContext {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    pub sync_state: posture::SyncState,
+    pub sync_server: client_world::MovementFlagUpdate,
     /// Feet position before travel, retained independently of live position updates.
     pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
