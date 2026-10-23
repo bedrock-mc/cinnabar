@@ -70,6 +70,11 @@ pub enum Fixture {
     TouchEditor {
         phase: u8,
     },
+    /// Gameplay touch controls with an optional utility dropdown.
+    #[cfg(feature = "test-support")]
+    TouchUtilities {
+        open: bool,
+    },
     Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,

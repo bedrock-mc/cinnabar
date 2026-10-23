@@ -28,7 +28,7 @@ fn paint(
 
 /// Utility buttons keep one centered row and use their painted bounds for input at both scales.
 #[test]
-fn utility_row_keeps_chat_between_emotes_and_pause() {
+fn utility_row_keeps_chat_between_utilities_and_pause() {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -41,7 +41,7 @@ fn utility_row_keeps_chat_between_emotes_and_pause() {
         let window = size.map(|value| value as f32);
         let px = TextMetrics::for_viewport(size, ui::DpiScale::new(1.0).unwrap(), None).gui_scale;
         for (id, offset) in [
-            (touch::EMOTE, -20.0),
+            (touch::UTILITIES, -20.0),
             (touch::CHAT, 0.0),
             (touch::MENU, 20.0),
         ] {
@@ -165,4 +165,118 @@ fn crosshair_factory_layout_uses_proportional_centers_and_height_based_sizes() {
             );
         }
     }
+}
+
+/// Paints the overlay with deterministic in-memory fixtures, so menu interaction needs no install.
+fn paint_touch(p: &mut UiPresentationRuntime, runtime: &UiRuntime, size: [u32; 2]) {
+    let metrics = TextMetrics::for_viewport(size, ui::DpiScale::new(1.).unwrap(), None);
+    p.append_touch_controls(
+        runtime,
+        &mut Vec::new(),
+        &mut 0,
+        metrics,
+        [
+            size[0] as f32 - p.safe_area.left() - p.safe_area.right(),
+            size[1] as f32 - p.safe_area.top() - p.safe_area.bottom(),
+        ],
+    )
+    .unwrap();
+}
+
+/// Resolves a painted control's center through the same hit test used by gameplay.
+fn hit_center(p: &UiPresentationRuntime, id: u16, size: [u32; 2]) -> TouchControlRegion {
+    let frame = p.screens.touch.frame.as_ref().unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+        .unwrap();
+    let window = size.map(|v| v as f32);
+    let center = [
+        (frame.origin[0] + (hit.rect.x + hit.rect.w / 2.) as f32 * frame.scale) / window[0],
+        (frame.origin[1] + (hit.rect.y + hit.rect.h / 2.) as f32 * frame.scale) / window[1],
+    ];
+    p.gameplay_touch_region(center, window).unwrap()
+}
+
+#[test]
+fn dropdown_choices_are_reachable_and_outside_taps_cannot_drive_gameplay() {
+    let mut p = crate::test_support::mini_engine_presentation();
+    let runtime = UiRuntime::new(1);
+    p.enable_touch_controls(true);
+    for size in [[854, 480], [720, 1600]] {
+        paint_touch(&mut p, &runtime, size);
+        assert_eq!(
+            hit_center(&p, touch::UTILITIES, size).hit_id,
+            touch::UTILITIES
+        );
+        assert!(
+            !p.screens
+                .touch
+                .frame
+                .as_ref()
+                .unwrap()
+                .hits
+                .iter()
+                .any(|hit| control_id(hit.pressed.as_deref()) == Some(touch::EMOTE))
+        );
+        p.toggle_touch_utilities();
+        paint_touch(&mut p, &runtime, size);
+        for id in [
+            touch::DEBUG_OVERLAY,
+            touch::PLAYER_LIST,
+            touch::EMOTE,
+            touch::UTILITIES,
+        ] {
+            assert_eq!(hit_center(&p, id, size).hit_id, id);
+        }
+        assert_eq!(
+            p.gameplay_touch_region([0.15, 0.55], size.map(|v| v as f32))
+                .unwrap()
+                .hit_id,
+            touch::DISMISS_UTILITIES
+        );
+        p.close_touch_utilities();
+        paint_touch(&mut p, &runtime, size);
+        assert_eq!(
+            p.gameplay_touch_region([0.15, 0.55], size.map(|v| v as f32))
+                .unwrap()
+                .hit_id,
+            touch::JOYSTICK
+        );
+    }
+}
+
+#[test]
+fn dropdown_follows_saved_trigger_and_fits_safe_area_at_screen_edges() {
+    let mut p = crate::test_support::mini_engine_presentation();
+    let runtime = UiRuntime::new(1);
+    let size = [854, 480];
+    p.set_safe_area(ui::SafeArea::new(25., 12., 30., 18.).unwrap());
+    p.enable_touch_controls(true);
+    p.toggle_touch_utilities();
+    for at in [[0., 0.], [1., 0.], [0., 1.], [1., 1.]] {
+        p.screens.touch.saved.set("utilities", at);
+        paint_touch(&mut p, &runtime, size);
+        for id in [touch::DEBUG_OVERLAY, touch::PLAYER_LIST, touch::EMOTE] {
+            let hit = hit_center(&p, id, size);
+            assert_eq!(hit.hit_id, id);
+            assert!(hit.bounds.min[0] * size[0] as f32 >= 24.99);
+            assert!(hit.bounds.max[0] * size[0] as f32 <= size[0] as f32 - 29.99);
+            assert!(hit.bounds.min[1] * size[1] as f32 >= 11.99);
+            assert!(hit.bounds.max[1] * size[1] as f32 <= size[1] as f32 - 17.99);
+        }
+    }
+}
+
+#[test]
+fn touch_debug_requests_are_consumed_once_and_cancel_in_pairs() {
+    let mut p = crate::test_support::mini_engine_presentation();
+    assert!(!p.take_touch_debug_toggle());
+    p.request_touch_debug_toggle();
+    assert!(p.take_touch_debug_toggle());
+    assert!(!p.take_touch_debug_toggle());
+    p.request_touch_debug_toggle();
+    p.request_touch_debug_toggle();
+    assert!(!p.take_touch_debug_toggle());
 }

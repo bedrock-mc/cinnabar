@@ -5,6 +5,27 @@ use super::*;
 pub(super) const STATES: &[State] = &[
     #[cfg(feature = "test-support")]
     State {
+        name: "touch-utilities-closed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities { open: false },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-open",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities { open: true },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-tall",
+        size: [1080, 1920],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities { open: true },
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "touch-editor-default-tall",
         size: [720, 1600],
         gui_scale: GUI_SCALE,

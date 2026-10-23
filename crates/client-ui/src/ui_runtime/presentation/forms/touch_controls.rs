@@ -16,6 +16,7 @@ use super::super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::UiRuntime;
 
 mod editor;
+mod utilities;
 
 const SCREEN: &str = "cinnabar_touch.screen";
 const LAYOUT: &[u8] = assets::TOUCH_LAYOUT;
@@ -31,12 +32,20 @@ const CONTROLS: &[(&str, u16)] = &[
     ("use", touch::USE),
     ("menu", touch::MENU),
     ("chat", touch::CHAT),
+    ("utilities", touch::UTILITIES),
+];
+const UTILITY_ACTIONS: &[(&str, u16)] = &[
     ("emote", touch::EMOTE),
+    ("debug_overlay", touch::DEBUG_OVERLAY),
+    ("player_list", touch::PLAYER_LIST),
+    ("dismiss_utilities", touch::DISMISS_UTILITIES),
 ];
 
 #[derive(Default)]
 pub(in super::super) struct TouchControls {
     enabled: bool,
+    utilities_open: bool,
+    debug_toggle_pending: bool,
     editor: Option<mod_ui::HudEditor>,
     /// Geometry last installed in the editor, independent of ordinary HUD paints.
     editor_viewport: Option<([f32; 2], f32, ui::SafeArea)>,
@@ -78,6 +87,9 @@ impl UiPresentationRuntime {
     /// Shows the gameplay touch controls; platforms without a touchscreen leave them off.
     pub fn enable_touch_controls(&mut self, enabled: bool) {
         self.screens.touch.enabled = enabled;
+        if !enabled {
+            self.close_touch_utilities();
+        }
     }
 
     pub fn touch_controls_enabled(&self) -> bool {
@@ -103,6 +115,11 @@ impl UiPresentationRuntime {
             return None;
         }
         let point = UiPoint::new(position[0] * window[0], position[1] * window[1]).ok()?;
+        if state.utilities_open {
+            let frame = state.frame.as_ref()?;
+            let hit = hit_test(&frame.hits, frame.to_virtual(point))?;
+            return region_bounds(frame, hit, window, control_id(hit.pressed.as_deref())?);
+        }
         if let Some(frame) = &state.hud
             && let Some(hit) = hit_test(&frame.hits, frame.to_virtual(point))
         {
@@ -175,6 +192,19 @@ impl UiPresentationRuntime {
         }
         let mut data = DataSource::new();
         data.set_global("#touch_editor_open", Scalar::Bool(state.editor.is_some()));
+        data.set_global(
+            "#touch_utilities_open",
+            Scalar::Bool(state.utilities_open && state.editor.is_none()),
+        );
+        data.set_global(
+            "#touch_debug_overlay_active",
+            Scalar::Bool(self.debug_lines.is_some()),
+        );
+        data.set_global(
+            "#touch_player_list_active",
+            Scalar::Bool(runtime.player_list_held()),
+        );
+        data.set_global("#touch_never_active", Scalar::Bool(false));
         for &(name, id) in CONTROLS {
             let held = state
                 .contacts
@@ -204,12 +234,14 @@ impl UiPresentationRuntime {
         if state.base_viewport != Some(viewport_key) {
             let rollback = (paint.nodes.len(), *paint.next);
             let base_view = ViewState::default();
+            let mut base_data = DataSource::new();
+            base_data.set_global("#touch_utilities_open", Scalar::Bool(true));
             state.base = renderer.draw(ScreenArt::default(), &mut paint, |env, root| {
                 screen.render_with(
                     SCREEN,
                     &catalog,
                     &Context::default(),
-                    DataSource::new(),
+                    base_data,
                     (root, px, language),
                     env,
                     &base_view,
@@ -221,9 +253,11 @@ impl UiPresentationRuntime {
         }
         let saved = &state.saved;
         if let Some(base) = &state.base {
-            for hit in base.hits.iter().filter(|hit| {
-                control_id(hit.pressed.as_deref()).is_some_and(|id| id != touch::LOOK_SURFACE)
-            }) {
+            for hit in base
+                .hits
+                .iter()
+                .filter(|hit| control_id(hit.pressed.as_deref()).is_some_and(placeable_control))
+            {
                 let name = hit
                     .pressed
                     .as_deref()
@@ -251,6 +285,7 @@ impl UiPresentationRuntime {
                 }
             }
         }
+        utilities::place_dropdown(state.base.as_ref(), &mut view, content, px);
         let art = ScreenArt {
             view: Some(&view),
             ..ScreenArt::default()
@@ -335,10 +370,16 @@ fn region_bounds(
     })
 }
 
+/// Only permanent controls participate in saved placement and the layout editor.
+fn placeable_control(id: u16) -> bool {
+    id != touch::LOOK_SURFACE && CONTROLS.iter().any(|&(_, control)| control == id)
+}
+
 fn control_id(pressed: Option<&str>) -> Option<u16> {
     let name = pressed?.strip_prefix("cinnabar.touch.")?;
     CONTROLS
         .iter()
+        .chain(UTILITY_ACTIONS)
         .find_map(|&(control, id)| (control == name).then_some(id))
 }
 
@@ -355,14 +396,37 @@ mod tests {
     /// Every overlay control names a layout button, so a renamed control cannot go unreachable.
     #[test]
     fn every_control_is_a_layout_button() {
-        let layout = std::str::from_utf8(LAYOUT).unwrap();
-        for (name, _) in CONTROLS {
-            assert!(
-                layout.contains(&format!("\"cinnabar.touch.{name}\"")),
-                "{name} has no button in the touch layout"
-            );
-        }
-        layout_catalog().unwrap();
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        presentation.enable_touch_controls(true);
+        presentation.toggle_touch_utilities();
+        presentation
+            .append_touch_controls(
+                &UiRuntime::new(1),
+                &mut Vec::new(),
+                &mut 0,
+                TextMetrics::for_viewport([854, 480], ui::DpiScale::new(1.).unwrap(), None),
+                [854., 480.],
+            )
+            .unwrap();
+        let actual: std::collections::BTreeSet<_> = presentation
+            .screens
+            .touch
+            .base
+            .as_ref()
+            .unwrap()
+            .hits
+            .iter()
+            .filter_map(|hit| hit.pressed.as_deref())
+            .filter(|action| action.starts_with("cinnabar.touch."))
+            .map(|action| control_id(Some(action)).expect("painted touch action has an input id"))
+            .collect();
+        let expected: std::collections::BTreeSet<_> = CONTROLS
+            .iter()
+            .chain(UTILITY_ACTIONS)
+            .map(|&(_, id)| id)
+            .collect();
+        assert_eq!(expected.len(), CONTROLS.len() + UTILITY_ACTIONS.len());
+        assert_eq!(actual, expected);
     }
 
     /// Hotbar cells and overlay controls from an earlier build cannot take touches once a build

@@ -75,3 +75,22 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     frame(&mut presentation, &player, &runtime);
     assert!(presentation.screens.player_list.is_none());
 }
+
+#[test]
+fn touch_toggle_survives_keyboard_release_and_resets_with_the_session() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.toggle_touch_player_list();
+    runtime.set_player_list_held(false);
+    assert!(runtime.player_list_held());
+    runtime.toggle_touch_player_list();
+    assert!(!runtime.player_list_held());
+    runtime.set_player_list_held(true);
+    runtime.toggle_touch_player_list();
+    runtime.toggle_touch_player_list();
+    assert!(runtime.player_list_held());
+    runtime.set_player_list_held(false);
+    assert!(!runtime.player_list_held());
+    runtime.toggle_touch_player_list();
+    runtime.begin_session(2);
+    assert!(!runtime.player_list_held());
+}

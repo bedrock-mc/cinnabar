@@ -229,12 +229,100 @@
           ],
           "controls": [
             {
-              "emote@cinnabar_touch.utility_button": {
-                "$control": "cinnabar.touch.emote",
+              "utilities@cinnabar_touch.utility_button": {
+                "$control": "cinnabar.touch.utilities",
                 "$uv": [
                   236,
                   46
-                ]
+                ],
+                "controls": [
+                  {
+                    "art": {
+                      "visible": false
+                    }
+                  },
+                  {
+                    "background": {
+                      "type": "image",
+                      "texture": "textures/ui/white",
+                      "color": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "alpha": 0.65,
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "keep_ratio": false
+                    }
+                  },
+                  {
+                    "bar_0": {
+                      "type": "image",
+                      "texture": "textures/ui/white",
+                      "color": [
+                        1,
+                        1,
+                        1
+                      ],
+                      "size": [
+                        10,
+                        2
+                      ],
+                      "offset": [
+                        0,
+                        -4
+                      ],
+                      "layer": 1,
+                      "keep_ratio": false
+                    }
+                  },
+                  {
+                    "bar_1": {
+                      "type": "image",
+                      "texture": "textures/ui/white",
+                      "color": [
+                        1,
+                        1,
+                        1
+                      ],
+                      "size": [
+                        10,
+                        2
+                      ],
+                      "offset": [
+                        0,
+                        0
+                      ],
+                      "layer": 1,
+                      "keep_ratio": false
+                    }
+                  },
+                  {
+                    "bar_2": {
+                      "type": "image",
+                      "texture": "textures/ui/white",
+                      "color": [
+                        1,
+                        1,
+                        1
+                      ],
+                      "size": [
+                        10,
+                        2
+                      ],
+                      "offset": [
+                        0,
+                        4
+                      ],
+                      "layer": 1,
+                      "keep_ratio": false
+                    }
+                  }
+                ],
+                "layer": 30
               }
             },
             {
@@ -275,6 +363,73 @@
             }
           ]
         }
+      },
+      {
+        "utilities_dismiss": {
+          "type": "input_panel",
+          "size": [
+            "100%",
+            "100%"
+          ],
+          "layer": 20,
+          "bindings": [
+            {
+              "binding_name": "#touch_utilities_open",
+              "binding_name_override": "#visible"
+            }
+          ],
+          "button_mappings": [
+            {
+              "from_button_id": "button.menu_select",
+              "to_button_id": "cinnabar.touch.dismiss_utilities",
+              "mapping_type": "pressed",
+              "scope": "view"
+            }
+          ]
+        }
+      },
+      {
+        "utilities_dropdown": {
+          "type": "stack_panel",
+          "orientation": "vertical",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "size": [
+            116,
+            78
+          ],
+          "layer": 21,
+          "bindings": [
+            {
+              "binding_name": "#touch_utilities_open",
+              "binding_name_override": "#visible"
+            }
+          ],
+          "controls": [
+            {
+              "debug_overlay@cinnabar_touch.utility_menu_item": {
+                "$control": "cinnabar.touch.debug_overlay",
+                "$text": "Debug Overlay",
+                "$active": "#touch_debug_overlay_active"
+              }
+            },
+            {
+              "player_list@cinnabar_touch.utility_menu_item": {
+                "$control": "cinnabar.touch.player_list",
+                "$text": "Player List",
+                "$active": "#touch_player_list_active"
+              }
+            },
+            {
+              "emote@cinnabar_touch.utility_menu_item": {
+                "$control": "cinnabar.touch.emote",
+                "$text": "Emotes",
+                "$active": "#touch_never_active"
+              }
+            }
+          ],
+          "draggable": "both"
+        }
       }
     ]
   },
@@ -307,6 +462,95 @@
             "100%",
             "100%"
           ]
+        }
+      }
+    ]
+  },
+  "utility_menu_item": {
+    "type": "button",
+    "size": [
+      116,
+      26
+    ],
+    "layer": 22,
+    "button_mappings": [
+      {
+        "from_button_id": "button.menu_select",
+        "to_button_id": "$control",
+        "mapping_type": "pressed",
+        "scope": "view"
+      }
+    ],
+    "controls": [
+      {
+        "background": {
+          "type": "image",
+          "texture": "textures/ui/white",
+          "color": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "alpha": 0.95,
+          "size": [
+            "100%",
+            "100%"
+          ],
+          "keep_ratio": false
+        }
+      },
+      {
+        "label": {
+          "type": "label",
+          "text": "$text",
+          "localize": false,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "shadow": true,
+          "text_alignment": "left",
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "offset": [
+            8,
+            0
+          ],
+          "size": [
+            "100% - 24px",
+            16
+          ],
+          "layer": 1
+        }
+      },
+      {
+        "active": {
+          "type": "image",
+          "texture": "textures/ui/white",
+          "color": [
+            0.5,
+            1,
+            0.5
+          ],
+          "size": [
+            3,
+            12
+          ],
+          "anchor_from": "right_middle",
+          "anchor_to": "right_middle",
+          "offset": [
+            -6,
+            0
+          ],
+          "layer": 1,
+          "bindings": [
+            {
+              "binding_name": "$active",
+              "binding_name_override": "#visible"
+            }
+          ],
+          "keep_ratio": false
         }
       }
     ]

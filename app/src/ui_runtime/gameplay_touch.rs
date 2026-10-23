@@ -42,7 +42,14 @@ fn apply_touch_events(
                 if let Some(hit_id) = region.map(|region| region.hit_id).filter(|hit_id| {
                     matches!(
                         *hit_id,
-                        touch::INVENTORY | touch::MENU | touch::CHAT | touch::EMOTE
+                        touch::INVENTORY
+                            | touch::MENU
+                            | touch::CHAT
+                            | touch::EMOTE
+                            | touch::UTILITIES
+                            | touch::DEBUG_OVERLAY
+                            | touch::PLAYER_LIST
+                            | touch::DISMISS_UTILITIES
                     )
                 }) {
                     return Err(hit_id);
@@ -109,6 +116,7 @@ pub(crate) fn drive_gameplay_touch_targets(
     let (Some(window), Some(mut player)) = (gameplay, player) else {
         state.clear();
         presentation.set_touch_contacts(Vec::new());
+        presentation.close_touch_utilities();
         return;
     };
     let size = [window.width().max(1.0), window.height().max(1.0)];
@@ -124,18 +132,36 @@ pub(crate) fn drive_gameplay_touch_targets(
     }) {
         Ok(frame) => frame,
         Err(hit_id) => {
-            if hit_id == touch::INVENTORY {
-                let authority = world
-                    .as_deref()
-                    .and_then(|world| world.stream.as_ref())
-                    .map(|stream| stream.authority());
-                let _ = ui.toggle_inventory(&mut player, authority);
-            } else if hit_id == touch::CHAT {
-                ui.open_chat(&mut player);
-            } else if hit_id == touch::EMOTE {
-                ui.emotes_mut().open();
-            } else if let Some(menu) = menu.as_mut() {
-                menu.open_pause();
+            match hit_id {
+                touch::INVENTORY => {
+                    let authority = world
+                        .as_deref()
+                        .and_then(|world| world.stream.as_ref())
+                        .map(|stream| stream.authority());
+                    let _ = ui.toggle_inventory(&mut player, authority);
+                }
+                touch::CHAT => {
+                    ui.open_chat(&mut player);
+                }
+                touch::UTILITIES => presentation.toggle_touch_utilities(),
+                touch::DEBUG_OVERLAY => {
+                    presentation.request_touch_debug_toggle();
+                    presentation.close_touch_utilities();
+                }
+                touch::PLAYER_LIST => {
+                    ui.toggle_touch_player_list();
+                    presentation.close_touch_utilities();
+                }
+                touch::DISMISS_UTILITIES => presentation.close_touch_utilities(),
+                touch::EMOTE => {
+                    ui.emotes_mut().open();
+                    presentation.close_touch_utilities();
+                }
+                _ => {
+                    if let Some(menu) = menu.as_mut() {
+                        menu.open_pause();
+                    }
+                }
             }
             // The opened screen must not read this frame's presses as its own taps.
             let started: Vec<_> = touches
@@ -311,7 +337,16 @@ mod tests {
     /// Screen-opening touches stop processing before a later contact can drive gameplay.
     #[test]
     fn screen_controls_open_instead_of_capturing() {
-        for hit_id in [touch::MENU, touch::INVENTORY, touch::CHAT, touch::EMOTE] {
+        for hit_id in [
+            touch::MENU,
+            touch::INVENTORY,
+            touch::CHAT,
+            touch::EMOTE,
+            touch::UTILITIES,
+            touch::DEBUG_OVERLAY,
+            touch::PLAYER_LIST,
+            touch::DISMISS_UTILITIES,
+        ] {
             let mut state = TouchControlState::default();
             let screen = |_| {
                 Some(TouchControlRegion {
