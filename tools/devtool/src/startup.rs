@@ -12,6 +12,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+const WARM_CACHE: &str = "warm";
+const COLD_CACHE: &str = "cold";
+/// Each supported driver override owns its isolated directory name.
+const DRIVER_CACHE_ENVIRONMENT: [(&str, &str); 2] = [
+    ("MESA_SHADER_CACHE_DIR", "mesa"),
+    ("__GL_SHADER_DISK_CACHE_PATH", "gl"),
+];
+
 #[derive(Debug)]
 struct OwnedClient(std::process::Child);
 
@@ -78,7 +86,7 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
     let mut options = Options {
         client: PathBuf::from("target/release/cinnabar"),
         runs: 30,
-        modes: vec!["warm"],
+        modes: vec![WARM_CACHE],
         budget_ms: 1000.0,
         cold_budget_ms: 4000.0,
         out: None,
@@ -100,9 +108,9 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
             "--runs" => options.runs = value.parse().map_err(|_| error("invalid run count"))?,
             "--cache" => {
                 options.modes = match value.as_str() {
-                    "warm" => vec!["warm"],
-                    "cold" => vec!["cold"],
-                    "both" => vec!["warm", "cold"],
+                    WARM_CACHE => vec![WARM_CACHE],
+                    COLD_CACHE => vec![COLD_CACHE],
+                    "both" => vec![WARM_CACHE, COLD_CACHE],
                     _ => return Err(error("--cache must be warm, cold or both")),
                 }
             }
@@ -125,7 +133,7 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
         return Err(error("startup acceptance requires a release client"));
     }
     if cfg!(any(target_os = "macos", target_os = "windows"))
-        && options.modes.contains(&"cold")
+        && options.modes.contains(&COLD_CACHE)
         && options.cold_reset.is_none()
     {
         return Err(error(
@@ -152,15 +160,17 @@ fn error(message: impl std::fmt::Display) -> DevtoolError {
 
 /// Launches one owned process and waits for its structured report and orderly exit.
 fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
-    for directory in [cache.join("mesa"), cache.join("gl")] {
-        std::fs::create_dir_all(directory).map_err(error)?;
-    }
-    let child = Command::new(&options.client)
+    let mut command = Command::new(&options.client);
+    command
         .args(&options.args)
         .env(render_api::STARTUP_BENCHMARK_ENV, "1")
-        .env("MESA_SHADER_CACHE_DIR", cache.join("mesa"))
-        .env("__GL_SHADER_DISK_CACHE_PATH", cache.join("gl"))
-        .env("NO_COLOR", "1")
+        .env("NO_COLOR", "1");
+    for (variable, directory) in DRIVER_CACHE_ENVIRONMENT {
+        let directory = cache.join(directory);
+        std::fs::create_dir_all(&directory).map_err(error)?;
+        command.env(variable, directory);
+    }
+    let child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -365,18 +375,18 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         .transpose()?;
     let mut summary = Summary { modes: Vec::new() };
     for &cache in &options.modes {
-        let warm = caches.path().join("warm");
-        if cache == "warm" {
+        let warm = caches.path().join(WARM_CACHE);
+        if cache == WARM_CACHE {
             launch(&options, &warm)?;
         }
         let mut samples = Vec::with_capacity(options.runs);
         for index in 0..options.runs {
-            let directory = if cache == "warm" {
+            let directory = if cache == WARM_CACHE {
                 warm.clone()
             } else {
                 caches.path().join(format!("cold-{index}"))
             };
-            if cache == "cold"
+            if cache == COLD_CACHE
                 && let Some(reset) = &options.cold_reset
             {
                 let status =
@@ -392,7 +402,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             }
             samples.push(launch(&options, &directory)?);
         }
-        let budget = if cache == "warm" {
+        let budget = if cache == WARM_CACHE {
             options.budget_ms
         } else {
             options.cold_budget_ms
@@ -452,8 +462,8 @@ mod tests {
         assert_eq!(result.p99_ms, 99.0);
         let sample =
             |menu, stage| serde_json::json!({"menu_ms": menu, "stages_ms": {"device": stage}});
-        let before = summarize("warm", 10.0, vec![sample(5.0, 2.0)]).unwrap();
-        let after = summarize("warm", 10.0, vec![sample(11.0, 4.0)]).unwrap();
+        let before = summarize(WARM_CACHE, 10.0, vec![sample(5.0, 2.0)]).unwrap();
+        let after = summarize(WARM_CACHE, 10.0, vec![sample(11.0, 4.0)]).unwrap();
         assert!(after.menu.p99_ms > after.budget_ms);
         assert_eq!(growth(&after, Some(&before)), "device +2.00 ms");
     }
@@ -463,7 +473,7 @@ mod tests {
         for value in ["NaN", "inf", "0", "-1"] {
             assert!(positive(value).is_err());
         }
-        let cold = ["--cache".to_owned(), "cold".to_owned()];
+        let cold = ["--cache".to_owned(), COLD_CACHE.to_owned()];
         assert_eq!(
             parse(&cold).is_err(),
             cfg!(any(target_os = "macos", target_os = "windows"))
@@ -478,7 +488,7 @@ mod tests {
             render_api::STARTUP_TIMING_MARKER
         );
         assert!(observe(&line, &mut report, &mut tail).is_err());
-        assert!(summarize("warm", 1.0, vec![serde_json::json!({"menu_ms": -1})]).is_err());
+        assert!(summarize(WARM_CACHE, 1.0, vec![serde_json::json!({"menu_ms": -1})]).is_err());
     }
 }
 
@@ -516,8 +526,9 @@ mod process_tests {
             .unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
             let result = launch(&options, directory.path());
-            assert!(directory.path().join("mesa").is_dir());
-            assert!(directory.path().join("gl").is_dir());
+            for (_, name) in DRIVER_CACHE_ENVIRONMENT {
+                assert!(directory.path().join(name).is_dir());
+            }
             assert_eq!(result.is_ok(), succeeds, "{result:?}");
             if succeeds {
                 assert_eq!(result.unwrap()["menu_ms"], 7);
