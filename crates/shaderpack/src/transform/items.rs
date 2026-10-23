@@ -421,6 +421,9 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
 fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
     let mut declarations = Vec::new();
     let mut fields_end = 0;
+    let bodies: HashSet<_> = (0..toks.len())
+        .filter_map(|index| control_body(toks, index))
+        .collect();
     for start in 0..toks.len() {
         if start < fields_end {
             continue;
@@ -429,12 +432,19 @@ fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
         if let Some(end) = struct_end {
             fields_end = end;
         }
+        let condition = start > 1
+            && toks[start - 1].is("(")
+            && matches!(
+                toks[start - 2].ident(),
+                Some("if" | "for" | "while" | "switch")
+            );
         if start > 0
             && !toks[start - 1].is("{")
             && !toks[start - 1].is(";")
             && !toks[start - 1].is("}")
             && !toks[start - 1].is(":")
-            && !(toks[start - 1].is("(") && start > 1 && toks[start - 2].ident() == Some("for"))
+            && !condition
+            && !bodies.contains(&start)
         {
             continue;
         }
@@ -448,15 +458,24 @@ fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
             }
             depth < 0 || (token.is(";") || token.is("{") || token.is("}")) && depth == 0
         });
-        let Some(end) = end.filter(|&end| toks[end].is(";")) else {
+        let Some(end) = end.filter(|&end| toks[end].is(";") || condition && toks[end].is(")"))
+        else {
             continue;
         };
         let inline;
+        let terminated;
         let tokens = if let Some(end_struct) = struct_end {
             inline = std::iter::once(id("_struct"))
                 .chain(toks[end_struct..=end].iter().cloned())
                 .collect::<Vec<_>>();
             &inline
+        } else if !toks[end].is(";") {
+            terminated = toks[start..end]
+                .iter()
+                .cloned()
+                .chain(std::iter::once(p(";")))
+                .collect::<Vec<_>>();
+            &terminated
         } else {
             &toks[start..=end]
         };
@@ -469,6 +488,17 @@ fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
         declarations.push((start, end, declaration));
     }
     declarations
+}
+
+/// Finds the substatement following a control-flow keyword and its optional condition.
+fn control_body(tokens: &[Tok], start: usize) -> Option<usize> {
+    match tokens.get(start)?.ident()? {
+        "if" | "for" | "while" | "switch" if tokens.get(start + 1)?.is("(") => {
+            Some(matching(tokens, start + 1, "(", ")") + 1)
+        }
+        "else" | "do" => Some(start + 1),
+        _ => None,
+    }
 }
 
 /// Finds type names in local declarations, excluding array bounds and initializers.
@@ -631,6 +661,10 @@ pub(super) fn shadowed_bindings<'a>(
 ) -> std::collections::HashSet<usize> {
     let names: std::collections::HashSet<_> = names.into_iter().collect();
     let declarators = local_declarators(tokens);
+    let bodies: std::collections::HashMap<_, _> = (0..tokens.len())
+        .filter_map(|index| control_body(tokens, index))
+        .map(|start| (start, statement_end(tokens, start)))
+        .collect();
     let mut scopes: Vec<(Vec<&str>, usize)> = vec![(vec![], tokens.len() + 1)];
     let mut pending = None;
     let mut depth = 0;
@@ -639,9 +673,12 @@ pub(super) fn shadowed_bindings<'a>(
         while scopes.last().is_some_and(|(_, end)| *end <= i) {
             scopes.pop();
         }
-        if token.ident() == Some("for") && tokens.get(i + 1).is_some_and(|token| token.is("(")) {
-            let header_end = matching(tokens, i + 1, "(", ")");
-            scopes.push((vec![], statement_end(tokens, header_end + 1)));
+        if let Some(&end) = bodies.get(&i) {
+            scopes.push((vec![], end));
+        }
+        if control_body(tokens, i).is_some() && tokens.get(i + 1).is_some_and(|token| token.is("("))
+        {
+            scopes.push((vec![], statement_end(tokens, i)));
         } else if token.is("{") {
             scopes.push((vec![], matching(tokens, i, "{", "}") + 1));
         }
@@ -649,6 +686,12 @@ pub(super) fn shadowed_bindings<'a>(
             depth += 1;
         } else if token.is(")") {
             depth -= 1;
+            if let Some((name, declared_depth)) = pending
+                && declared_depth == depth + 1
+            {
+                scopes.last_mut().unwrap().0.push(name);
+                pending = None;
+            }
         } else if (token.is(";") || token.is(","))
             && let Some((name, declared_depth)) = pending
             && declared_depth == depth
@@ -695,6 +738,32 @@ mod tests {
             .map(|(i, _)| bound.contains(&i))
             .collect();
         assert_eq!(flags, [true, true, true, true, false]);
+    }
+
+    #[test]
+    fn binding_in_an_unbraced_body_ends_at_its_statement() {
+        for body in [
+            "if (true) float value=1.0;",
+            "if (false) {} else float value=1.0;",
+            "while (false) float value=1.0;",
+            "for (int i=0; i<1; i++) float value=1.0;",
+            "do float value=1.0; while (false);",
+            "if (bool value=true) { bool copied=value; }",
+        ] {
+            let tokens = lex(&format!("{{ {body} float result=value; }}"));
+            let bound = shadowed_bindings(&tokens, ["value"]);
+            let flags: Vec<_> = tokens
+                .iter()
+                .enumerate()
+                .filter(|(_, token)| token.ident() == Some("value"))
+                .map(|(i, _)| bound.contains(&i))
+                .collect();
+            assert!(
+                flags[..flags.len() - 1].iter().all(|bound| *bound),
+                "{body}"
+            );
+            assert_eq!(flags.last(), Some(&false), "{body}");
+        }
     }
 
     #[test]

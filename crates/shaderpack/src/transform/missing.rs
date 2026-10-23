@@ -23,6 +23,11 @@ pub(crate) fn vertex_outputs(
         return Ok(());
     }
     let mut declared = HashSet::new();
+    declared.extend(
+        super::builtins::IMPLICIT_VERTEX_INPUTS
+            .iter()
+            .map(|(name, _)| (*name).to_owned()),
+    );
     let mut main_body = None;
     let mut offset = 0;
     let vertex_items = split_items(&vertex.tokens);

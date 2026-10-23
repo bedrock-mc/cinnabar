@@ -269,8 +269,14 @@ fn compatibility_repaired_outputs_initialize_at_user_main_entry() {
         .iter()
         .find(|(_, f)| f.name.as_deref() == Some("iris_user_main"))
         .unwrap();
+    let first_effect = main.body.iter().find(|statement| {
+        matches!(
+            statement,
+            naga::Statement::Store { .. } | naga::Statement::Call { .. }
+        )
+    });
     assert!(
-        matches!(main.body.first(), Some(naga::Statement::Store { pointer, .. }) if matches!(main.expressions[*pointer], naga::Expression::GlobalVariable(g) if g == carry)),
+        matches!(first_effect, Some(naga::Statement::Store { pointer, .. }) if matches!(main.expressions[*pointer], naga::Expression::GlobalVariable(g) if g == carry)),
         "the repaired output is initialized at user main entry"
     );
     assert!(
@@ -285,4 +291,50 @@ fn compatibility_repaired_outputs_initialize_at_user_main_entry() {
         }),
         "global initializers still run before user main entry"
     );
+}
+
+#[test]
+fn compatibility_binding_implicit_inputs_remain_attributes() {
+    for (name, ty, qualifier) in [
+        ("mc_chunkFade", "float", ""),
+        ("dhMaterialId", "int", "flat"),
+    ] {
+        let translated = success(
+            &format!(
+                "#version 450\nlayout(location=0) {qualifier} out {ty} sourceValue; void main() {{ sourceValue={name}; gl_Position=vec4(0.0); }}"
+            ),
+            &format!(
+                "#version 450\nlayout(location=0) {qualifier} in {ty} {name}; out vec4 color; void main() {{ color=vec4(float({name})); }}"
+            ),
+        );
+        let module = &program(&translated, "composite").stages[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .module;
+        assert_eq!(interface_locations(module, true), [("sourceValue", 0)]);
+        assert!(
+            interface_locations(module, false)
+                .iter()
+                .any(|(input, _)| *input == name)
+        );
+    }
+}
+
+#[test]
+fn compatibility_binding_unbraced_locals_do_not_create_outputs() {
+    for body in [
+        "if (true) vec2 uv=vec2(1.0);",
+        "if (false) {} else vec2 uv=vec2(1.0);",
+        "while (false) vec2 uv=vec2(1.0);",
+        "for (int i=0; i<1; i++) vec2 uv=vec2(1.0);",
+        "do vec2 uv=vec2(1.0); while (false);",
+    ] {
+        success(
+            &format!(
+                "#version 450\nlayout(location=0) out vec2 sourceUv; void main() {{ {body} sourceUv=vec2(1.0); gl_Position=vec4(0.0); }}"
+            ),
+            "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+        );
+    }
 }
