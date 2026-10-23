@@ -86,7 +86,10 @@ fn show_folder(dir: &Path) -> bool {
     #[cfg(target_os = "macos")]
     return run_tool(dir);
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-    return false;
+    {
+        let _ = dir;
+        false
+    }
 }
 
 /// Opens `url` in the desktop's default handler; cancellation suppresses further handlers.

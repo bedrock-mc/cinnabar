@@ -629,6 +629,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
     logging::add_default_plugins(&mut app, plugins);
+    render_setup::finish(&mut app)?;
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .init_resource::<crate::frame_pacing::PowerSource>()

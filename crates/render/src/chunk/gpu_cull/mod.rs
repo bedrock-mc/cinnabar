@@ -119,6 +119,9 @@ pub(in crate::chunk) fn install(app: &mut App) {
         Backends::from(adapter.get_info().backend),
         apple_gpu(&adapter.get_info()),
     );
+    // The optional cull kernels use more bindings than compact terrain drawing.
+    let forced_cpu = forced_cpu
+        || device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers();
     let submission = gpu_cull_submission(
         draw_mode,
         device.features(),

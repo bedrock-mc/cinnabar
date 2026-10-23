@@ -695,7 +695,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
-  rendering acceptance remains incomplete.
+  rendering acceptance remains incomplete. Terrain has a four-storage-buffer layout for constrained
+  devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  startup error through the desktop dialog or Android activity. The compact table still needs paging
+  when its combined sources exceed one storage binding. Physical-device rendering and fallback
+  performance acceptance remain incomplete.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
