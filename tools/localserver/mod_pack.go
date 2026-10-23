@@ -33,6 +33,12 @@ func exportModPack(args []string) error {
 	if _, err := experience.Register([]experience.Loaded{loaded}); err != nil {
 		return err
 	}
+	return exportRegisteredPack(args[2], loaded.ID)
+}
+
+// exportRegisteredPack writes the ordinary pack of the current process's registrations without listening.
+func exportRegisteredPack(path, id string) error {
+	log := slog.New(slog.DiscardHandler)
 	dir, err := os.MkdirTemp("", "mod-pack-")
 	if err != nil {
 		return err
@@ -51,10 +57,10 @@ func exportModPack(args []string) error {
 	conf.Listeners = []func(server.Config) (server.Listener, error){func(c server.Config) (server.Listener, error) {
 		if len(c.Resources) == 0 {
 			// No declared art is a valid empty mod; still emit a normal empty resource pack.
-			packErr = writeEmptyModPack(args[2], loaded.ID)
+			packErr = writeEmptyModPack(path, id)
 		} else {
 			pack := c.Resources[len(c.Resources)-1]
-			file, err := os.Create(args[2])
+			file, err := os.Create(path)
 			if err != nil {
 				packErr = err
 				return nil, sentinel
@@ -65,6 +71,8 @@ func exportModPack(args []string) error {
 		return nil, sentinel
 	}}
 	srv := conf.New()
+	// No listener was created; start the lifecycle so Close can stop the temporary worlds.
+	srv.Listen()
 	if err := srv.Close(); err != nil {
 		return fmt.Errorf("close pack builder: %w", err)
 	}

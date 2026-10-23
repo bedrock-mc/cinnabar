@@ -36,10 +36,10 @@ an existing mod. Stop the server and remove the old package directory under
 `world/mods/<id>` before an operator-managed update. Saved block identities still
 have to remain compatible.
 
-`mod run` builds the package and client tools, replaces this project's development
+`mod run` builds the package, prepares carriers and client tools through `make play-build`, replaces this project's development
 installation, starts an offline loopback server, seeds the isolated client's bundle
 cache and joins it. It uses `.local/world` and `.local/client` under the project;
-the repository's normal carriers must already be prepared with `make assets`.
+the repository's normal runtime asset preparation supplies the game carriers.
 Closing the client stops the server and its Experience helpers. The ordinary
 client consent and developer execution policy still apply.
 

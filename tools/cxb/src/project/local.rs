@@ -29,6 +29,11 @@ fn rust_tool(package: &str) -> Result<PathBuf> {
             "--message-format=json-render-diagnostics",
         ])
         .output()?;
+    executable(output, package)
+}
+
+/// Finds one executable in Cargo output, preserving diagnostics and surrounding Make progress.
+fn executable(output: std::process::Output, package: &str) -> Result<PathBuf> {
     std::io::stderr().write_all(&output.stderr)?;
     let mut artifact = None;
     for line in output
@@ -36,6 +41,11 @@ fn rust_tool(package: &str) -> Result<PathBuf> {
         .split(|b| *b == b'\n')
         .filter(|l| !l.is_empty())
     {
+        if !line.starts_with(b"{") {
+            std::io::stderr().write_all(line)?;
+            std::io::stderr().write_all(b"\n")?;
+            continue;
+        }
         let event: Value = serde_json::from_slice(line)?;
         if let Some(rendered) = event["message"]["rendered"].as_str() {
             std::io::stderr().write_all(rendered.as_bytes())?;
@@ -46,6 +56,21 @@ fn rust_tool(package: &str) -> Result<PathBuf> {
     }
     ensure!(output.status.success(), "building {package} failed");
     artifact.context("Cargo produced no tool executable")
+}
+
+/// Uses the normal client preparation pipeline for carriers, the core and execution helpers.
+fn build_client() -> Result<PathBuf> {
+    let output = Command::new("make")
+        .current_dir(repository())
+        .args([
+            "play-build",
+            "PROFILE=dev",
+            "CLIENT_MESSAGE_FORMAT=json-render-diagnostics",
+        ])
+        .env(server_experience::policy::DEVELOPER_ENV, "1")
+        .output()
+        .context("preparing the development client")?;
+    executable(output, "cinnabar")
 }
 
 /// Builds the existing local server once per command using Go's normal incremental cache.
@@ -113,16 +138,7 @@ pub(super) fn run(root: &Path, release: bool) -> Result<()> {
         experience_sdk::project::Project::parse(&fs::read_to_string(root.join("src/shared.rs"))?)?;
     let installed = world.join("mods").join(&project.id);
     super::package::replace(&package, &world)?;
-    let client = rust_tool("cinnabar")?;
-    let binary_dir = client.parent().context("client binary directory missing")?;
-    let status = Command::new("go")
-        .args(["build", "-o"])
-        .arg(binary_dir.join(format!("bedrock-core{}", std::env::consts::EXE_SUFFIX)))
-        .arg("./core/cmd/bedrock-core")
-        .current_dir(repository())
-        .status()?;
-    ensure!(status.success(), "building the client core failed");
-    rust_tool("mod-host")?;
+    let client = build_client()?;
     let verifier = rust_tool("cinnabar-cxb")?;
     let runtime = rust_tool("experience-runtime")?;
     let user = root.join(".local/client");

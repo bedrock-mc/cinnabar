@@ -294,7 +294,13 @@ fn install_at(package: &Path, world: &Path, replace: bool) -> Result<PathBuf> {
     let previous = staged.path().join("previous");
     fs::rename(&destination, &previous)?;
     if let Err(error) = fs::rename(next, &destination) {
-        fs::rename(previous, &destination).context("restoring the previous mod installation")?;
+        if let Err(restore) = fs::rename(&previous, &destination) {
+            let saved = staged.keep().join("previous");
+            return Err(anyhow::anyhow!(
+                "publishing mod: {error}; restoring mod: {restore}; previous installation retained at {}",
+                saved.display()
+            ));
+        }
         return Err(error.into());
     }
     Ok(destination)
