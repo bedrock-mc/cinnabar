@@ -478,3 +478,76 @@ mod entity_tests {
         assert!(state.render.output().retained.is_empty());
     }
 }
+
+impl super::cinnabar::world_draw::assets::Host for State {
+    /// Reports only the length of this context's verified immutable asset.
+    fn length(&mut self, path: String) -> anyhow::Result<Result<u64, wit::DrawError>> {
+        if let Err(error) = self.drawing_allowed()? {
+            return Ok(Err(error));
+        }
+        Ok(self
+            .asset_files
+            .get(&path)
+            .map(|bytes| bytes.len() as u64)
+            .ok_or_else(|| {
+                convert_error(domain::DrawError {
+                    code: domain::ErrorCode::Denied,
+                    detail: "unowned drawing asset",
+                })
+            }))
+    }
+
+    /// Copies one bounded asset range, allowing large files to stream across callbacks.
+    fn read_range(
+        &mut self,
+        path: String,
+        offset: u64,
+        length: u32,
+    ) -> anyhow::Result<Result<Vec<u8>, wit::DrawError>> {
+        if let Err(error) = self.drawing_allowed()? {
+            return Ok(Err(error));
+        }
+        let Some(bytes) = self.asset_files.get(&path) else {
+            return Ok(Err(convert_error(domain::DrawError {
+                code: domain::ErrorCode::Denied,
+                detail: "unowned drawing asset",
+            })));
+        };
+        let Ok(start) = usize::try_from(offset) else {
+            return Ok(Err(convert_error(domain::DrawError {
+                code: domain::ErrorCode::Invalid,
+                detail: "asset range",
+            })));
+        };
+        let Some(range) = start
+            .checked_add(length as usize)
+            .and_then(|end| bytes.get(start..end.min(bytes.len())))
+        else {
+            return Ok(Err(convert_error(domain::DrawError {
+                code: domain::ErrorCode::Invalid,
+                detail: "asset range",
+            })));
+        };
+        if let Err(error) = self.render.retained.charge_bytes(range.len()) {
+            return Ok(Err(convert_error(error)));
+        }
+        Ok(Ok(range.to_vec()))
+    }
+
+    /// Copies verified package data within the same callback mutation budget as geometry.
+    fn read(&mut self, path: String) -> anyhow::Result<Result<Vec<u8>, wit::DrawError>> {
+        if let Err(error) = self.drawing_allowed()? {
+            return Ok(Err(error));
+        }
+        let Some(bytes) = self.asset_files.get(&path) else {
+            return Ok(Err(convert_error(domain::DrawError {
+                code: domain::ErrorCode::Denied,
+                detail: "unowned drawing asset",
+            })));
+        };
+        if let Err(error) = self.render.retained.charge_bytes(bytes.len()) {
+            return Ok(Err(convert_error(error)));
+        }
+        Ok(Ok(bytes.clone()))
+    }
+}

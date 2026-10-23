@@ -830,3 +830,22 @@ fn entity_reference_release_commits_without_geometry_or_instance_edits() {
     store.begin();
     assert_ne!(store.observe_entities().unwrap()[0].0, observed[0].0);
 }
+
+#[test]
+fn celestial_camera_geometry_keeps_topology_budgets_without_local_extent_limits() {
+    let mut store = Store::default();
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let mut planet = drawing(geometry);
+    planet.transform.translation = [0., 0., -20_000.];
+    planet.transform.scale = [6000.; 3];
+    assert!(
+        store
+            .create(planet.clone(), DrawingPermissions::ALL)
+            .is_err()
+    );
+    planet.anchor = Anchor::Camera;
+    store.create(planet, DrawingPermissions::ALL).unwrap();
+    store.commit();
+    assert_eq!(store.snapshot().instances.len(), 1);
+    assert_eq!(store.snapshot().geometry.len(), 1);
+}

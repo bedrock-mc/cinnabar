@@ -173,7 +173,7 @@ pub(super) fn instance(
         || !instance.width.is_finite()
         || instance.width <= 0.
         || instance.width > MAX_PRIMITIVE_EXTENT_BLOCKS
-        || !extent(geometry, transform)
+        || !extent(geometry, transform, instance.anchor)
     {
         return Err(error(
             ErrorCode::Invalid,
@@ -197,7 +197,12 @@ pub(super) fn instance(
 
 /// Checks cached box and sphere bounds in constant work, including nonuniform signed scales.
 /// The sphere is exact for uniform scales; either bound may admit a nonuniform scale.
-fn extent(geometry: &Geometry, transform: Transform) -> bool {
+fn extent(geometry: &Geometry, transform: Transform, anchor: Anchor) -> bool {
+    let limit = if matches!(anchor, Anchor::Camera) {
+        MAX_PRIMITIVE_COORDINATE
+    } else {
+        MAX_PRIMITIVE_EXTENT_BLOCKS
+    };
     let translation = transform
         .translation
         .iter()
@@ -215,10 +220,10 @@ fn extent(geometry: &Geometry, transform: Transform) -> bool {
         .sum::<f32>()
         .sqrt()
         + translation;
-    bound <= MAX_PRIMITIVE_EXTENT_BLOCKS
+    bound <= limit
         || geometry.radius * transform.scale.iter().map(|s| s.abs()).fold(0., f32::max)
             + translation
-            <= MAX_PRIMITIVE_EXTENT_BLOCKS
+            <= limit
 }
 
 /// Requires finite linear RGBA with bounded coverage.

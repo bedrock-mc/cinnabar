@@ -61,3 +61,14 @@ interface masks {
     /// Arbitrary sampling also requires the separately negotiated render-post capability.
     register-effect: func(spec: effect-spec) -> result<_, draw-error>;
 }
+
+/// Reads only immutable package files verified by the host, without filesystem access.
+interface assets {
+    use drawing.{draw-error};
+    /// A missing or unowned file is refused. Reads share the callback's byte budget.
+    read: func(path: string) -> result<list<u8>, draw-error>;
+    /// Returns the verified file length without copying it into guest memory.
+    length: func(path: string) -> result<u64, draw-error>;
+    /// Streams an asset across callbacks within the same per-callback byte allowance.
+    read-range: func(path: string, offset: u64, length: u32) -> result<list<u8>, draw-error>;
+}

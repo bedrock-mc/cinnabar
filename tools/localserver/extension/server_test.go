@@ -136,7 +136,7 @@ func TestNewServerOffersItsBundles(t *testing.T) {
 	}
 	scope := offer.Scope
 	union := cfg.Bundles[0].Manifest.Permissions | another.Manifest.Permissions
-	if scope.Permissions != union || !slices.Equal(scope.Origins, []string{DeliveryOrigin}) || scope.GPUBytes != 0 {
+	if scope.Permissions != union || !slices.Equal(scope.Origins, []string{DeliveryOrigin}) || scope.GPUBytes != MediaGPUBytes {
 		t.Errorf("scope %+v, want permissions %v and origins [%s]", scope, union.List(), DeliveryOrigin)
 	}
 	if guest := min(scope.MemoryBytes/uint64(len(cfg.Bundles)), MaxGuestMemory); guest == 0 || scope.MemoryBytes > MaxSessionMemory {
@@ -292,5 +292,16 @@ func TestAudienceMatchesClientURLHost(t *testing.T) {
 		if err := checkAudience(audience); err != nil {
 			t.Errorf("rejected canonical audience %q: %v", audience, err)
 		}
+	}
+}
+
+// A drawing-only client part needs a nonzero signed GPU reservation before it can draw.
+func TestDrawingOnlyBundleReservesGPU(t *testing.T) {
+	s, _ := testServer(t, func(cfg *Config) {
+		cfg.Bundles[0].Manifest.Permissions = NewPermissions(PermissionWorldDraw, PermissionRenderMaterial)
+	})
+	offer := s.Offer()
+	if offer.Scope.GPUBytes == 0 || offer.Scope.GPUBytes > MaxGPUBytes {
+		t.Fatalf("drawing reservation %d is outside the host budget", offer.Scope.GPUBytes)
 	}
 }

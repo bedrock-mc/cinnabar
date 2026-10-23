@@ -9,10 +9,11 @@ pub mod mesh;
 pub use entities::EntityKey;
 #[cfg(test)]
 mod tests;
+pub mod transfer;
 mod validation;
 
 /// Linear vertex inputs for shared unlit drawing materials.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Vertex {
     pub position: [f32; 3],
     pub color: [f32; 4],
@@ -21,7 +22,7 @@ pub struct Vertex {
 }
 
 /// Immutable topology; polyline distances are computed by the host on admission.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum GeometrySpec {
     Triangles {
         vertices: Vec<Vertex>,
@@ -53,6 +54,16 @@ impl Geometry {
         self.bounds
     }
 
+    /// Counts the immutable native storage needed by this admitted mesh.
+    pub fn gpu_bytes(&self) -> u64 {
+        (self.expanded_vertices * std::mem::size_of::<mesh::GpuVertex>()) as u64
+    }
+
+    /// Bounds expanded triangles, including immutable line joins and caps.
+    pub fn triangles(&self) -> usize {
+        self.expanded_vertices / 3
+    }
+
     /// Reports whether line expansion and width handling apply to this geometry.
     pub fn is_polyline(&self) -> bool {
         self.polyline
@@ -60,14 +71,14 @@ impl Geometry {
 }
 
 /// An actor reference includes both the drawing owner and the actor's spawn generation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EntityAnchor {
     pub entity: Handle,
     pub body_rotation: bool,
 }
 
 /// Placement never grants observations of the anchored world or block.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Anchor {
     World { dimension: i32, origin: [f64; 3] },
     Block { dimension: i32, position: [i32; 3] },
@@ -76,7 +87,7 @@ pub enum Anchor {
 }
 
 /// Local translation, normalized XYZW rotation and scale, applied after the anchor.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Transform {
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
@@ -93,32 +104,54 @@ impl Default for Transform {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Depth {
     #[default]
     Test,
     Always,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Blend {
     #[default]
     Premultiplied,
     Additive,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WidthMode {
     #[default]
     World,
     Pixels,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Join {
     #[default]
     Bevel,
     Miter,
     Round,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Cap {
     #[default]
     Butt,
@@ -126,7 +159,7 @@ pub enum Cap {
 }
 
 /// Instances select the shared unlit material or an owner-scoped procedural fragment.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Instance {
     pub geometry: Handle,
     pub material: Option<Handle>,
@@ -217,6 +250,19 @@ impl Store {
         });
     }
 
+    /// Attaches initial callback resources to their first native session without recycling tokens.
+    /// A previously bound session must use `bind_session`, which revokes its resources.
+    pub fn attach_session(&mut self, connection: u64, dimension: i32) -> bool {
+        if self.committed.connection != 0 {
+            return false;
+        }
+        let mut resources = (*self.committed).clone();
+        resources.connection = connection;
+        resources.dimension = dimension;
+        self.committed = Arc::new(resources);
+        true
+    }
+
     /// Returns the last successful callback without copying its resources.
     pub fn snapshot(&self) -> &Arc<Resources> {
         &self.committed
@@ -267,6 +313,19 @@ impl Store {
         self.retired_materials.clear();
         self.material_compiles = 0;
         self.entity_candidates.clear();
+    }
+
+    /// Charges copied asset bytes against this callback's shared mutation allowance.
+    pub fn charge_bytes(&mut self, bytes: usize) -> Result<(), DrawError> {
+        let total = self
+            .mutation_bytes
+            .checked_add(bytes)
+            .ok_or(error(ErrorCode::BudgetExceeded, "mutation bytes"))?;
+        if total > mod_api::MAX_DRAW_MUTATION_BYTES {
+            return Err(error(ErrorCode::BudgetExceeded, "mutation bytes"));
+        }
+        self.mutation_bytes = total;
+        Ok(())
     }
 
     /// Validates and retains an immutable mesh, charging live and retiring resources.

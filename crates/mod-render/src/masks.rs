@@ -16,7 +16,7 @@ pub enum MaskError {
 }
 
 /// One admitted selection. Coverage is the union of the body's admitted equipment layers.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mask {
     pub position: Option<[f32; 3]>,
     pub handle: DrawingHandle,
@@ -287,6 +287,31 @@ pub fn attachment_bytes(width: u32, height: u32, samples: u32) -> Option<u64> {
         .checked_mul(u64::from(height))?
         .checked_mul(4)?
         .checked_mul(u64::from(samples).checked_mul(2)? + u64::from(samples > 1))
+}
+
+/// Lists the physical dimensions of every downsampled halo attachment, including pixel tails.
+pub fn halo_sizes(
+    mut width: u32,
+    mut height: u32,
+) -> [[u32; 2]; mod_api::drawing::MASK_BLUR_LEVELS] {
+    std::array::from_fn(|_| {
+        width = width.div_ceil(2).max(1);
+        height = height.div_ceil(2).max(1);
+        [width, height]
+    })
+}
+
+/// Charges the exact shared halo pyramid using the same dimensions as its allocator.
+pub fn halo_bytes(width: u32, height: u32) -> Option<u64> {
+    halo_sizes(width, height)
+        .into_iter()
+        .try_fold(0u64, |sum, [width, height]| {
+            sum.checked_add(
+                u64::from(width)
+                    .checked_mul(u64::from(height))?
+                    .checked_mul(4)?,
+            )
+        })
 }
 
 #[cfg(test)]

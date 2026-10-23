@@ -35,8 +35,14 @@ pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::M
 #[derive(Resource, Clone, Debug, Default)]
 pub struct ModRenderScene {
     generation: u64,
+    personal_generation: u64,
+    server_generation: u64,
+    personal: RenderOutput,
+    server: RenderOutput,
+    merge: mod_render::RenderMerge,
     pub passes: Vec<mod_render::Pass>,
     pub retained: Vec<Arc<mod_render::retained::Resources>>,
+    pub gpu_reservations: Vec<mod_render::GpuReservation>,
     pub masks: Arc<[mod_render::masks::Mask]>,
     pub vertices: Arc<[ModVertex]>,
     primitives: Arc<mod_render::Primitives>,
@@ -59,12 +65,32 @@ impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
 impl ModRenderScene {
     /// Adopts `output` unless `generation` is already applied.
     pub fn apply(&mut self, output: &RenderOutput, generation: u64) {
-        if generation == self.generation {
+        if generation == self.personal_generation {
             return;
         }
-        self.generation = generation;
+        self.personal_generation = generation;
+        self.personal = output.clone();
+        self.publish_layers();
+    }
+
+    /// Publishes session-owned client-part drawing beside personal mod output.
+    pub fn apply_server(&mut self, output: &RenderOutput, generation: u64) -> bool {
+        if generation == self.server_generation {
+            return false;
+        }
+        self.server_generation = generation;
+        self.server = output.clone();
+        self.publish_layers();
+        true
+    }
+
+    /// Combines both owners through the same renderer budgets and publication path.
+    fn publish_layers(&mut self) {
+        let output = self.merge.merge([&self.personal, &self.server]);
+        self.generation = self.generation.wrapping_add(1);
         self.passes.clone_from(&output.passes);
         self.retained.clone_from(&output.retained);
+        self.gpu_reservations.clone_from(&output.gpu_reservations);
         self.masks = Arc::clone(&output.masks);
         if !Arc::ptr_eq(&self.primitives, &output.primitives) {
             self.primitives = Arc::clone(&output.primitives);
@@ -159,6 +185,8 @@ impl ModRenderScene {
 
 #[cfg(test)]
 mod block_highlights_tests;
+#[cfg(test)]
+mod layers_tests;
 #[cfg(test)]
 mod position_box_tests;
 

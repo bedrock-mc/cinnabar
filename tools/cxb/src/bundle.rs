@@ -39,6 +39,8 @@ pub struct Source {
     pub templates: BTreeSet<String>,
     /// Images and sidecars under `textures/` the screens draw, by bundle path.
     pub textures: BTreeSet<String>,
+    /// Drawing files read only from the signed bundle.
+    pub assets: BTreeSet<String>,
     /// Each template's and texture's bytes, read beside `experience.toml` at its bundle path.
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -66,6 +68,8 @@ struct Client {
     templates: BTreeSet<String>,
     #[serde(default)]
     textures: BTreeSet<String>,
+    #[serde(default)]
+    assets: BTreeSet<String>,
 }
 
 impl Source {
@@ -93,10 +97,20 @@ impl Source {
             actions: client.actions,
             templates: client.templates,
             textures: client.textures,
+            assets: client.assets,
             files: BTreeMap::new(),
         };
         let root = path.parent().unwrap_or(Path::new("."));
-        for file in source.templates.iter().chain(&source.textures) {
+        for file in source
+            .templates
+            .iter()
+            .chain(&source.textures)
+            .chain(&source.assets)
+        {
+            ensure!(
+                server_experience::bundle::safe_path(file),
+                "invalid bundle asset path {file}"
+            );
             let bytes = std::fs::read(root.join(file))
                 .with_context(|| format!("reading {}", root.join(file).display()))?;
             source.files.insert(file.clone(), bytes);
@@ -122,13 +136,20 @@ pub fn build(
 ) -> Result<Bundle> {
     let component = componentize(wasm)?;
     let mut entries: Vec<(&str, &[u8])> = vec![(COMPONENT_PATH, &component)];
-    for path in source.templates.iter().chain(&source.textures) {
+    for path in source
+        .templates
+        .iter()
+        .chain(&source.textures)
+        .chain(&source.assets)
+    {
         let bytes = source
             .files
             .get(path)
             .with_context(|| format!("{path}: listed without its bytes"))?;
         ensure!(
-            source.templates.contains(path) || path.starts_with(TEXTURE_DIR),
+            source.templates.contains(path)
+                || source.assets.contains(path)
+                || path.starts_with(TEXTURE_DIR),
             "{path}: textures live under {TEXTURE_DIR}"
         );
         entries.push((path, bytes));

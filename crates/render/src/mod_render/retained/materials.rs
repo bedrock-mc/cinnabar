@@ -320,7 +320,10 @@ mod tests {
     #[test]
     fn completed_hidden_variants_stop_blocking_readiness() {
         let pool = bevy::tasks::TaskPoolBuilder::new().num_threads(0).build();
-        let material = Arc::new(Material { shader: "".into() });
+        let material = Arc::new(Material {
+            source: "".into(),
+            shader: "".into(),
+        });
         let handle = DrawingHandle {
             owner: 1,
             generation: 1,
@@ -378,7 +381,10 @@ mod tests {
 
     #[test]
     fn removed_materials_stay_charged_until_frame_retirement() {
-        let material = Arc::new(Material { shader: "".into() });
+        let material = Arc::new(Material {
+            source: "".into(),
+            shader: "".into(),
+        });
         let handle = DrawingHandle {
             owner: 1,
             generation: 1,

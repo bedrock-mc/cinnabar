@@ -21,38 +21,11 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
     let Some(authority) = authority else { return };
     let dimension = authority.current_dimension();
     let session = authority.actor_session_id();
-    let mut nearest = BinaryHeap::new();
-    if let Some(view) = context.view.as_ref() {
-        let origin = view.feet_translation().to_array();
-        for actor in authority.remote_actors() {
-            let distance = actor
-                .position
-                .iter()
-                .zip(origin)
-                .map(|(a, b)| (a - b).powi(2))
-                .sum::<f32>();
-            if !distance.is_finite()
-                || distance > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2)
-                || actor.spawn_revision == 0
-            {
-                continue;
-            }
-            nearest.push((distance.to_bits(), actor.runtime_id, actor.spawn_revision));
-            if nearest.len() > mod_api::MAX_DRAW_ENTITIES {
-                nearest.pop();
-            }
-        }
-    }
-    let candidates: Vec<_> = nearest
-        .into_sorted_vec()
-        .into_iter()
-        .map(|(_, runtime_id, spawn_revision)| EntityKey {
-            session,
-            dimension,
-            runtime_id,
-            spawn_revision,
-        })
-        .collect();
+    let candidates = context
+        .view
+        .as_ref()
+        .map(|view| candidates(authority, view.feet_translation().to_array()))
+        .unwrap_or_default();
     for index in 0..hosts.host_count() {
         let host = hosts.host_mut(index);
         let removed: Vec<_> = host
@@ -74,6 +47,42 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
             warn!("Drawing entity admission failed: {}", error.detail);
         }
     }
+}
+
+/// Selects the same bounded nearest actor references for every drawing context.
+pub(crate) fn candidates(
+    authority: &client_world::WorldAuthority,
+    origin: [f32; 3],
+) -> Vec<EntityKey> {
+    let mut nearest = BinaryHeap::new();
+    for actor in authority.remote_actors() {
+        let distance = actor
+            .position
+            .iter()
+            .zip(origin)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>();
+        if !distance.is_finite()
+            || distance > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2)
+            || actor.spawn_revision == 0
+        {
+            continue;
+        }
+        nearest.push((distance.to_bits(), actor.runtime_id, actor.spawn_revision));
+        if nearest.len() > mod_api::MAX_DRAW_ENTITIES {
+            nearest.pop();
+        }
+    }
+    nearest
+        .into_sorted_vec()
+        .into_iter()
+        .map(|(_, runtime_id, spawn_revision)| EntityKey {
+            session: authority.actor_session_id(),
+            dimension: authority.current_dimension(),
+            runtime_id,
+            spawn_revision,
+        })
+        .collect()
 }
 
 /// Publishes only exact, still-live body roots after the actor renderer's same-frame commit.

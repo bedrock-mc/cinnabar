@@ -16,6 +16,7 @@ impl Store {
         let shader = crate::material::compose(source)
             .map_err(|_| error(ErrorCode::Invalid, "material shader"))?;
         let material = Arc::new(crate::material::Material {
+            source: source.into(),
             shader: shader.into(),
         });
         let handle = self.token()?;

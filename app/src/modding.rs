@@ -30,8 +30,8 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod admission;
-mod anchors;
-mod drawing_policy;
+pub(crate) mod anchors;
+pub(crate) mod drawing_policy;
 mod drive;
 
 use drive::drive_mod;
@@ -215,6 +215,10 @@ pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
         .collect();
     Some(serde_json::json!({ "suspended": runtime.suspended, "hosts": hosts }))
 }
+
+/// Publishes personal and packet drawing before session-owned client-part drawing.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DrawingPublication;
 
 /// Installs the developer extension only when its component path is explicit.
 pub(crate) fn configure_from_environment(app: &mut App) {
@@ -436,6 +440,7 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.add_systems(
         Update,
         anchors::publish
+            .in_set(DrawingPublication)
             .after(ClientFrameSet::ActorPublication)
             .after(drive_mod)
             .before(ClientFrameSet::UiPublication),

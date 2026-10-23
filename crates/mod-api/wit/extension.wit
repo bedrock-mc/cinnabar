@@ -383,7 +383,7 @@ interface render {
 /// against the vanilla catalog, as a client part's modal templates do. Every function but
 /// `layout` errs when the `screen` permission is denied.
 interface screen {
-    use cinnabar:server-experience/ui@1.3.0.{value, gui-size};
+    use cinnabar:server-experience/ui@1.4.0.{value, gui-size};
 
     /// A rectangle in GUI units, from the top left of the screen root.
     record rect {
@@ -543,6 +543,7 @@ interface terrain {
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
     import cinnabar:world-draw/masks@0.1.0;
+    import cinnabar:world-draw/assets@0.1.0;
     import terrain;
     import player-state;
     import item-use;

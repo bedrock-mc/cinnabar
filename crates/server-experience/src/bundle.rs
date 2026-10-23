@@ -233,7 +233,7 @@ impl VerifiedBundle {
 }
 
 /// Permits a narrow portable path subset with no ambiguous aliases.
-fn safe_path(path: &str) -> bool {
+pub fn safe_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= 256
         && path.split('/').count() <= 8

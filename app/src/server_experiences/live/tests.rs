@@ -1,5 +1,6 @@
 use super::*;
 
+mod drawing;
 mod shift;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
@@ -16,6 +17,8 @@ const SCREEN: &str = "ui/screen.json";
 
 struct FakeWorker {
     response: Option<Transaction>,
+    /// Ordered snapshot pieces delivered alongside successful callbacks.
+    presentation: VecDeque<mod_host::presentation::Chunk>,
     /// A failure reply that the next poll delivers before any response.
     failure: Option<CallFailure>,
     /// Makes each dispatch fail its callback instead of completing it.
@@ -30,9 +33,17 @@ struct FakeWorker {
 
 impl Worker for FakeWorker {
     /// Leaves initialization pending until the test supplies its completion.
-    fn spawn(_: &Path, _: Vec<u8>, owner: Principal, _: Capabilities, _: u64) -> Result<Self> {
+    fn spawn(
+        _: &Path,
+        _: Vec<u8>,
+        owner: Principal,
+        _: Capabilities,
+        _: u64,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self> {
         Ok(Self {
             response: None,
+            presentation: VecDeque::new(),
             failure: None,
             fail: false,
             dispatched: Vec::new(),
@@ -50,6 +61,7 @@ impl Worker for FakeWorker {
             Ok(Reply::Committed {
                 transaction,
                 fuel: 1,
+                presentation: self.presentation.pop_front().map(Box::new),
             })
         })
     }
@@ -152,6 +164,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                 owner.bundle.clone(),
                 Instance {
                     helper: None,
+                    assets: Default::default(),
+                    presentation: Default::default(),
                     component: Some(vec![0]),
                     capabilities: Capabilities {
                         scope: scope.clone(),
@@ -173,6 +187,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     callback: "init",
                     items_sent: None,
                     shift: Some(false),
+                    drawing_context: Default::default(),
+                    pending_drawing_context: Default::default(),
                 },
             )
         })
@@ -196,6 +212,13 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         epoch: 1,
         modal_order: 0,
         gui: None,
+        drawing_connection: 1,
+        drawing_dimension: 0,
+        drawing: Default::default(),
+        drawing_generation: mod_render::next_owner(),
+        drawing_sources: Vec::new(),
+        drawing_merge: Default::default(),
+        frame_cursor: None,
         session: None,
     };
     live.initialize().unwrap();

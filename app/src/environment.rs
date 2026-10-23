@@ -11,6 +11,13 @@ mod time_override;
 /// Validated local weather target; authoritative weather continues to receive updates.
 #[derive(Resource, Default)]
 pub(crate) struct VisualWeatherOverride(pub(crate) Option<[f32; 2]>);
+
+/// Session-scoped environment contribution from server-offered client parts.
+#[derive(Resource, Default)]
+pub(crate) struct ClientPartEnvironment {
+    pub(crate) time: Option<u32>,
+    pub(crate) weather: Option<[f32; 2]>,
+}
 mod weather;
 
 pub(crate) use atmosphere::update_atmosphere_frame;

@@ -1,4 +1,4 @@
-package cinnabar:server-experience@1.3.0;
+package cinnabar:server-experience@1.4.0;
 
 /// Host-owned JSON-UI widgets and the bundle's signed modal screens.
 interface ui {

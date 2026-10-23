@@ -1,5 +1,5 @@
 //! The client part: a component of the `server-bundle` world, which Cinnabar runs from the
-//! Experience's `.cxb`, generated from `wit/client/client.wit`.
+//! Experience's `.cxb`, generated from `../mod-api/wit/client.wit`.
 //!
 //! Implement [`ClientPart`] on a type and export it with
 //! [`export_client_part!`](crate::export_client_part). Records travel as [`Value`]s:
@@ -7,18 +7,20 @@
 //! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`],
 //! [`media`] and [`items`]; each refuses what the bundle's grants do not allow.
 
-/// Bindings generated from `wit/client/client.wit`.
+/// Bindings generated from `../mod-api/wit/client.wit`.
 pub mod bindings {
     wit_bindgen::generate!({
-        path: ["wit/session", "wit/client"],
+        path: ["wit/client/deps/server-experience", "wit/session", "../mod-api/wit"],
         world: "cinnabar:extension/server-bundle@0.1.0",
         generate_all,
         pub_export_macro: true,
     });
 }
 
+pub use bindings::cinnabar::extension::{environment, render};
 pub use bindings::cinnabar::server_experience::{input, media, messaging, scene, ui};
 pub use bindings::cinnabar::session::items;
+pub use bindings::cinnabar::world_draw::{assets, drawing, masks};
 
 use crate::{Channel, Value};
 
@@ -28,6 +30,9 @@ use crate::{Channel, Value};
 pub trait ClientPart {
     /// Runs once, when the client part starts.
     fn init();
+
+    /// Runs on an admitted presentation frame, coalesced while a callback is busy.
+    fn frame() {}
 
     /// Handles `dispatch`: the server half sent `record` on the to-client channel `channel`. The
     /// host has validated it against the channel's declaration.
@@ -92,6 +97,10 @@ macro_rules! export_client_part {
         impl $crate::client::bindings::Guest for $ty {
             fn init() {
                 <$ty as $crate::client::ClientPart>::init()
+            }
+
+            fn frame() {
+                <$ty as $crate::client::ClientPart>::frame()
             }
 
             fn dispatch(channel: ::std::string::String, record_json: ::std::vec::Vec<u8>) {

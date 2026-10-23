@@ -13,7 +13,7 @@ no server SDK, BDS script, or server sidecar is included.
 | --- | --- | --- |
 | Discovery and delivery | Admitted-pack marker, Ed25519 offer and challenge verification, destination/key/scope pins, HTTPS fetch policy, digest cache, indexed ZIP verification | Real vanilla marker compatibility; optional-pack provenance in the Go handoff; CDN and hostile archive fixtures |
 | Consent | Private JSON-UI catalog, join-time popup that holds the loading screen, once/always/never/not now, changed-key disclosure, persistent settings, running indicator and F9 revocation | Visual/layout/accessibility review; settings editor; controller/touch consent and disable controls |
-| Runtime | Versioned WIT, fuel and memory limits, transactional capability checks, per-bundle developer processes, bounded IPC and watchdog, typed channels and JSON-UI label preview | Restricted OS launch and compiler containment; full screen, focus/input, scene, particle and material adapters; snapshot recovery |
+| Runtime | Versioned WIT, fuel and memory limits, transactional capability checks, per-bundle developer processes, bounded IPC and watchdog, typed channels, JSON-UI preview and shared retained drawing/materials/primitives | Restricted OS launch and compiler containment; full screen and focus/input adapters; legacy scene/particle assets; snapshot recovery |
 | Media | Signed descriptors, authenticated HTTPS ranges, developer `media.control` routing, memory-limited decoder process, AV1/Opus decode, emissive scene-quad surfaces, resampled mixer audio steered onto the media clock, rebuffering, end-of-stream events | Production restricted launch; server clock wire; keyframe seeking (restarts decode from the start); seamless loops; device output latency; UI/entity surfaces |
 | Fallback | No marker means no probe/download/helper/prompt; pre-consent messages dropped before the world FIFO; ordinary session survives extension failure | Compare real packet captures; verify no-advertisement equivalence |
 
@@ -23,10 +23,12 @@ bundle without `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Without that switch, its hel
 advertises an empty capability set and it never sends `ready`.
 
 With the switch, the developer app advertises `ui`, `modal_ui`, `input`,
-`messaging`, `scene`, `media` and `items`. The UI adapter renders bounded labels in a
+`messaging`, `scene`, `media`, `items` and the fine-grained drawing permissions
+listed below. The UI adapter renders bounded labels in a
 separate JSON-UI area and draws a bundle's signed JSON-UI templates as a modal over
-gameplay (see "Modal screens"). Scene objects are validated, but only quads whose
-texture names one of the bundle's playing media descriptors are drawn; see
+gameplay (see "Modal screens"). The legacy `scene.put` adapter draws quads whose
+texture names a playing media descriptor; mesh drawing uses the shared `world-draw`
+imports described below. See
 [Developer media path](#developer-media-path). A data-only bundle is accepted
 without a component, but its media is not automatically played.
 
@@ -181,9 +183,9 @@ or disconnected client. A protocol failure or a helper that dies ends the sessio
 runtime with no restart, as before.
 
 A failed client part callback does not. The developer helper (`mod-host server-helper`,
-helper IPC protocol 2, which the client and its helper share) answers a callback that
+the current helper IPC protocol, which the client and its helper share) answers a callback that
 traps, runs out of fuel, panics or breaks a host rule with a failure reply naming the
-bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
+bundle, the callback (`init`, `dispatch`, `action`, `frame` or `epoch`), the kind (`fuel`,
 `panic`, `trap`, `refused` or `startup`) and a reason of at most
 `MAX_FAILURE_REASON_BYTES`: the error chain with the guest backtrace, control characters
 removed, and the fuel it consumed. A committed reply also carries its callback's fuel,
@@ -375,15 +377,17 @@ pending until all bundles finish initialization.
 ## Host capabilities and containment
 
 The component world is `server-bundle` in
-[`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
+[`client.wit`](../crates/mod-api/wit/client.wit), whose package keeps the name
 `cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
 guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
-`cinnabar:server-experience@1.3.0`, defined in
+`cinnabar:server-experience@1.4.0`, defined in
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
 collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)`,
-`secondary-action(id, collection-index)`, `scroll-changed(view, range)` and `shift-changed(held)`.
-A component built against an earlier 1.x still links (its imports resolve to the 1.3.0 host
+`secondary-action(id, collection-index)`, `scroll-changed(view, range)` and `shift-changed(held)`. Version 1.4 adds optional `frame()` and imports the canonical
+`world-draw` drawing, mask and verified-asset interfaces, plus the shared render and
+environment interfaces. The personal-mod interface names stay unchanged.
+A component built against an earlier 1.x still links (its imports resolve to the 1.4.0 host
 by semver) and receives only the callbacks it exports: one built against 1.0.0 exports only
 `init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
 `epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
@@ -402,6 +406,46 @@ read, under the `items` permission; a component built without that import still 
 | `scene` | Put/remove a declarative quad, mesh or particle object | Media-textured quads drawn as emissive screens; other objects ignored |
 | `media` | Control an indexed media descriptor | Developer decoder process, see below |
 | `items` | Read the session's items (`cinnabar:session/items`) | The client's item data, sent to the helper with a dispatch whenever its revision changed |
+
+### Shared world drawing
+
+Client parts and personal mods import `cinnabar:world-draw@0.1.0` and call the same
+transactional host and renderer. `world_draw` admits retained triangle meshes and
+polylines, immediate decals, ribbons, beams and billboards, and local visual time
+and weather. Procedural fragments need `render_material`; post effects need
+`render_post`. Actor references, highlights and elevated depth retain their separate
+`entity_observe`, `entity_highlight` and `render_through_walls` grants. Client parts
+receive only permissions in the consented signed bundle. `scene` continues to name
+the legacy media surface adapter.
+
+`frame()` is optional and coalesces while the helper is busy. Messages and input
+have priority over frames. A callback publishes drawing and environment only after
+it returns successfully. The application checks portable drawing inputs again and
+maps helper tokens into its own owner namespace. Larger committed snapshots stream
+in bounded callback replies and become visible only when complete; this keeps the
+existing output limit without rejecting an otherwise admissible retained model.
+Revoke, disconnect, bundle
+replacement and a world epoch change drop the old scene. The `epoch()` callback
+lets the guest rebuild without restarting its component.
+
+List drawing files in `[client].assets` beside `experience.toml`.
+`cinnabar-cxb build` signs and indexes them with the other bundle files; the client
+checks every digest before exposing bytes through `world-draw/assets.read`.
+`experience-sdk::declarations::generate` generates typed `Asset` constants and
+fails an author's build if a listed asset is missing. Reads share the callback
+mutation-byte limit; `Asset::read_range` streams larger files across callbacks.
+Bundle download, memory, draw, triangle, particle, output and GPU ceilings remain
+in force.
+
+Camera-anchored geometry may use celestial-sized transforms within the shared
+coordinate range; topology and byte budgets still apply. It draws without terrain
+residency. World, block and actor anchors keep their existing bounds. The personal
+mod contract currently provides procedural and vertex-coloured meshes, rather than
+a native model-file importer or texture-sampling material. Guests can decode their
+own signed models and colour maps. The original
+[`space-client`](../examples/experiences/space-client) sample demonstrates a planet
+and a star cube using that shared path. This remains a developer preview; production
+execution still fails closed.
 
 ### Modal screens
 
@@ -493,6 +537,12 @@ publish. Guest fuel, one linear-memory allowance, stack, instance/table counts,
 output size and host-call counts are bounded. Aggregate session reservations and
 callback fuel prevent multiplying allowances by adding bundles. Startup callbacks
 also consume the aggregate budget and wait across slices when it is exhausted.
+Drawing frame callbacks rotate between ready bundles. Committed drawing snapshots
+continue across callbacks until every piece arrives. Expanded retained triangles
+count per placement and share the triangle allowance with immediate primitives.
+Each bundle's GPU reservation covers geometry and actor-mask coverage, depth,
+resolve and halo attachments across every view. Resizing or changing multisampling
+rechecks that combined allowance before allocating; coverage resumes when it fits.
 Readiness waits for every initializer; their bounded sends follow the ready record.
 These are not OS resident-memory or compiler limits.
 

@@ -86,13 +86,13 @@ fn fixed_time_outranks_mod_output() {
     let clock_at = |ticks| VisualTimeOverride(Some(ticks)).rendering_clock(server);
     let fixed = FixedTime(Some(13_013));
     let visual = VisualTimeOverride(Some(18_000));
-    assert_eq!(rendered_clock(server, None, None), server);
+    assert_eq!(rendered_clock(server, None, None, None), server);
     assert_eq!(
-        rendered_clock(server, Some(&FixedTime(None)), Some(&visual)),
+        rendered_clock(server, Some(&FixedTime(None)), Some(&visual), None),
         clock_at(18_000)
     );
     assert_eq!(
-        rendered_clock(server, Some(&fixed), Some(&visual)),
+        rendered_clock(server, Some(&fixed), Some(&visual), None),
         clock_at(13_013)
     );
 

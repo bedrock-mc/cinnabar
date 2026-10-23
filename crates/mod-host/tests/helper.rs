@@ -105,6 +105,7 @@ fn reply(helper: &mut Helper) -> Reply {
 fn call(helper: &mut Helper, channel: &str) -> Reply {
     helper
         .dispatch(Dispatch {
+            drawing: None,
             event: Event::Message {
                 channel: channel.into(),
                 record: b"[]".to_vec(),
@@ -126,7 +127,9 @@ fn failure(reply: Reply) -> CallFailure {
 
 fn count(reply: Reply) -> i64 {
     match reply {
-        Reply::Committed { transaction, fuel } => match transaction.commands.as_slice() {
+        Reply::Committed {
+            transaction, fuel, ..
+        } => match transaction.commands.as_slice() {
             _ if fuel == 0 || fuel >= CALLBACK_FUEL => panic!("used {fuel} fuel"),
             [Command::Collection { rows, .. }] => match rows[0]["#count"] {
                 screen::Value::Integer(count) => count,

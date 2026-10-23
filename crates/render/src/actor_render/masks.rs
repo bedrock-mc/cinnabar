@@ -338,6 +338,42 @@ fn compatible(a: &mod_render::masks::Mask, b: &mod_render::masks::Mask) -> bool 
         && a.position == b.position
 }
 
+/// Charges each bundle's unique coverage and halo groups across all views before allocation.
+fn admit_reservations(
+    active: &mut Vec<&mod_render::masks::Mask>,
+    reservations: &[mod_render::GpuReservation],
+    costs: Option<(u64, u64)>,
+) {
+    for reservation in reservations {
+        let mut coverage: Vec<&mod_render::masks::Mask> = Vec::new();
+        let mut halos: Vec<&mod_render::masks::Mask> = Vec::new();
+        for &mask in active
+            .iter()
+            .filter(|mask| reservation.owners.contains(&mask.handle.owner))
+        {
+            if !coverage.iter().any(|other| compatible(mask, other)) {
+                coverage.push(mask);
+            }
+            if mask
+                .style
+                .is_some_and(|style| style.glow[3] > 0.0 && style.glow_radius > 0.0)
+                && !halos.iter().any(|other| compatible(mask, other))
+            {
+                halos.push(mask);
+            }
+        }
+        let bytes = costs.and_then(|(coverage_bytes, halo_bytes)| {
+            reservation
+                .geometry_bytes
+                .checked_add(coverage_bytes.checked_mul(coverage.len() as u64)?)?
+                .checked_add(halo_bytes.checked_mul(halos.len() as u64)?)
+        });
+        if bytes.is_none_or(|bytes| bytes > reservation.limit_bytes) {
+            active.retain(|mask| !reservation.owners.contains(&mask.handle.owner));
+        }
+    }
+}
+
 /// Keeps fitting coverage groups, offering each owner one group before its next.
 fn admit_groups(groups: &mut Vec<&mod_render::masks::Mask>, bytes: Option<u64>) -> u64 {
     let Some(bytes) = bytes.filter(|bytes| *bytes != 0) else {
@@ -433,11 +469,25 @@ pub(crate) fn prepare(
         masks.attachment_bytes = 0;
         return;
     };
-    let active: Vec<_> = scene
+    let mut active: Vec<_> = scene
         .masks
         .iter()
         .filter(|mask| mask.authorized() && !mask.entities.is_empty())
         .collect();
+    let costs = views
+        .iter()
+        .try_fold((0u64, 0u64), |(coverage, halo), (_, _, depth)| {
+            let size = depth.texture().size();
+            Some((
+                coverage.checked_add(mod_render::masks::attachment_bytes(
+                    size.width,
+                    size.height,
+                    depth.texture().sample_count(),
+                )?)?,
+                halo.checked_add(mod_render::masks::halo_bytes(size.width, size.height)?)?,
+            ))
+        });
+    admit_reservations(&mut active, &scene.gpu_reservations, costs);
     let mut groups: Vec<&mod_render::masks::Mask> = Vec::new();
     for mask in &active {
         if !groups.iter().any(|other| compatible(mask, other)) {
@@ -445,15 +495,7 @@ pub(crate) fn prepare(
         }
     }
     // Charge one group's attachments across all views before admitting its coverage.
-    let bytes = views.iter().try_fold(0u64, |sum, (_, _, depth)| {
-        let size = depth.texture().size();
-        sum.checked_add(mod_render::masks::attachment_bytes(
-            size.width,
-            size.height,
-            depth.texture().sample_count(),
-        )?)
-    });
-    masks.attachment_bytes = admit_groups(&mut groups, bytes);
+    masks.attachment_bytes = admit_groups(&mut groups, costs.map(|(coverage, _)| coverage));
     // A previous union can split into several groups. Keep each old attachment for
     // at most one representative before rebuilding this frame's shared aliases.
     let mut retained = std::collections::HashSet::new();

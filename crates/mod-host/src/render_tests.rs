@@ -362,3 +362,56 @@ fn native_lines_reconcile_retained_output_and_revoke_both() {
     render.revoke();
     assert_eq!(render.output(), &RenderOutput::default());
 }
+
+#[test]
+fn bundle_and_personal_pass_revisions_share_one_namespace() {
+    use crate::presentation::{Context, Output, Pass, Receiver};
+
+    let mut state = state();
+    for index in 0..4 {
+        let before = mod_render::next_owner();
+        state.render.begin_frame();
+        state
+            .register_render_pass(
+                wit::PassSpec {
+                    name: "personal".into(),
+                    order: 0,
+                    depth: false,
+                    source: format!(
+                        "fn effect(uv: vec2<f32>) -> vec3<f32> {{ return scene(uv) * {index}.0; }}"
+                    ),
+                },
+                Vec::new(),
+            )
+            .unwrap()
+            .unwrap();
+        state.render.commit();
+        let personal = state.render.output().passes[0].revision;
+        let mut receiver = Receiver::default();
+        receiver
+            .apply(
+                Output {
+                    passes: vec![Pass {
+                        name: "bundle".into(),
+                        order: 0,
+                        source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }"
+                            .into(),
+                        enabled: true,
+                        params: [0.; mod_api::MAX_PASS_PARAMS],
+                        masks: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+                mod_api::drawing::DrawingPermissions::ALL,
+                &Context {
+                    connection: 7,
+                    ..Default::default()
+                },
+                u64::MAX,
+            )
+            .unwrap();
+        let bundle = receiver.output().0.passes[0].revision;
+        let after = mod_render::next_owner();
+        assert!(before < personal && personal < bundle && bundle < after);
+    }
+}

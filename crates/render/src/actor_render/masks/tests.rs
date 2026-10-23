@@ -1,6 +1,8 @@
 use super::*;
 use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
 
+#[path = "reservation_tests.rs"]
+mod reservation_tests;
 mod viewport_raster;
 use bevy::prelude::UVec4;
 

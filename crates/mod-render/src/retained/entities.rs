@@ -2,7 +2,9 @@
 use super::*;
 
 /// Exact actor incarnation in the world authority's namespace.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct EntityKey {
     pub session: u64,
     pub dimension: i32,

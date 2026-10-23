@@ -27,8 +27,9 @@ pub(super) struct ExperienceService {
     settings: Option<Settings>,
     generation: u64,
     attempted: bool,
+    deployment: Option<(String, String)>,
     download: Option<server_experience::download::Download>,
-    live: Option<super::live::Live>,
+    pub(super) live: Option<super::live::Live>,
     /// The session's items that client parts granted `items` read.
     items: client_ui::ui_runtime::session_data::SessionDataCache,
     /// This frame's keys pressed over a slot of the focused modal's inventory rows.
@@ -38,8 +39,37 @@ pub(super) struct ExperienceService {
     )>,
 }
 
+impl ExperienceService {
+    /// Drops every old helper and contribution before another signed deployment can run.
+    fn select_deployment(&mut self, grant: &server_experience::negotiation::Grant) -> bool {
+        let selected = (grant.session.clone(), grant.offer.digest.clone());
+        let changed = self
+            .deployment
+            .as_ref()
+            .is_some_and(|previous| previous != &selected);
+        if changed {
+            self.download = None;
+            self.live = None;
+            self.attempted = false;
+        }
+        self.deployment = Some(selected);
+        changed
+    }
+}
+
 /// Registers a silent controller; disk and network work wait for a valid marker.
 pub(crate) fn configure(app: &mut App) {
+    if !app.is_plugin_added::<render::ModRenderPlugin>() {
+        app.add_plugins(render::ModRenderPlugin);
+    }
+    app.init_resource::<crate::environment::ClientPartEnvironment>();
+    app.add_systems(
+        Update,
+        super::drawing::present
+            .after(crate::modding::DrawingPublication)
+            .before(ClientFrameSet::UiPublication)
+            .before(crate::environment::update_atmosphere_frame),
+    );
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
@@ -49,6 +79,7 @@ pub(crate) fn configure(app: &mut App) {
         settings: None,
         generation: 0,
         attempted: false,
+        deployment: None,
         download: None,
         live: None,
         items: Default::default(),
@@ -147,6 +178,7 @@ fn drive(
     let extension = &mut runtime.experiences;
     if service.generation != generation {
         service.generation = generation;
+        service.deployment = None;
         service.attempted = false;
         service.download = None;
         service.live = None;
@@ -385,7 +417,23 @@ fn drive(
             extension.session.disable();
         }
     }
-    if let Err(error) = advance_runtime(&mut service, extension, &network, generation, now_ms) {
+    if let Err(error) = advance_runtime(
+        &mut service,
+        extension,
+        &network,
+        generation,
+        now_ms,
+        world
+            .stream
+            .as_ref()
+            .map(|stream| {
+                (
+                    stream.authority().actor_session_id(),
+                    stream.authority().current_dimension(),
+                )
+            })
+            .unwrap_or_default(),
+    ) {
         extension.session.disable();
         extension.active = false;
         service.download = None;
@@ -484,6 +532,7 @@ fn advance_runtime(
     network: &NetworkHandle<PackApplication>,
     generation: u64,
     now_ms: u64,
+    drawing_fence: (u64, i32),
 ) -> anyhow::Result<()> {
     let State::Granted(grant) = &extension.session.state else {
         service.download = None;
@@ -492,6 +541,7 @@ fn advance_runtime(
         while extension.pop().is_some() {}
         return Ok(());
     };
+    let deployment_changed = service.select_deployment(grant);
     if !service.attempted {
         service.attempted = true;
         if std::env::var(server_experience::policy::DEVELOPER_ENV).as_deref() != Ok("1") {
@@ -527,7 +577,11 @@ fn advance_runtime(
         )?);
         extension.active = true;
     }
+    if deployment_changed {
+        while extension.pop().is_some() {}
+    }
     if let Some(live) = &mut service.live {
+        live.bind_drawing(drawing_fence.0, drawing_fence.1);
         while let Some((received_ms, bytes)) = extension.pop() {
             live.receive(&bytes, received_ms)?;
         }
