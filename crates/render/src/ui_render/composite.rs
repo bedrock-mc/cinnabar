@@ -750,16 +750,19 @@ fn encode_composite(
     pass.draw(0..3, 0..1);
 }
 
+/// Attachments and native composition state needed by the final per-view presentation pass.
+type UiPresentQuery = (
+    &'static ViewTarget,
+    &'static bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
+    Option<&'static ExtractedCamera>,
+    Option<&'static UiLayerTexture>,
+    Option<&'static NativeUiTarget>,
+);
+
 /// Presents native screen UI after the world upscale, with or without a final alpha layer.
 pub(crate) fn ui_present(
     world: &World,
-    view: bevy::render::renderer::ViewQuery<(
-        &ViewTarget,
-        &bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
-        Option<&ExtractedCamera>,
-        Option<&UiLayerTexture>,
-        Option<&NativeUiTarget>,
-    )>,
+    view: bevy::render::renderer::ViewQuery<UiPresentQuery>,
     mut context: RenderContext,
 ) {
     let entity = view.entity();

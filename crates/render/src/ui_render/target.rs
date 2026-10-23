@@ -277,6 +277,9 @@ fn encode_blit(
     pass.draw(0..3, 0..1);
 }
 
+/// Includes device, extent and both formats so changed allocation requests retry immediately.
+type NativeUiRequest = (wgpu::Device, [u32; 2], TextureFormat, TextureFormat);
+
 /// Allocates only for an admitted scaled view whose real output still matches its marker.
 #[allow(clippy::too_many_arguments)] // View admission and the two pipeline owners share one allocation boundary.
 pub(crate) fn prepare_native_ui_targets(
@@ -286,7 +289,7 @@ pub(crate) fn prepare_native_ui_targets(
     blit: Option<Res<BlitPipeline>>,
     mut pipelines: Option<ResMut<SpecializedRenderPipelines<BlitPipeline>>>,
     mut upscale: Option<ResMut<UpscalePipeline>>,
-    mut failed: Local<FailedRequests<(wgpu::Device, [u32; 2], TextureFormat, TextureFormat)>>,
+    mut failed: Local<FailedRequests<NativeUiRequest>>,
     views: Query<(
         Entity,
         &ViewTarget,

@@ -87,6 +87,16 @@ pub(super) fn init_gpu(
     });
 }
 
+/// Carries the native output identity alongside the current scaled hand attachments.
+type HandPrepareView = (
+    &'static MainEntity,
+    &'static ExtractedView,
+    &'static bevy::render::camera::ExtractedCamera,
+    &'static Msaa,
+    &'static bevy::render::view::ViewTarget,
+    Option<&'static crate::render_scale::RenderScaleOutput>,
+);
+
 #[derive(SystemParam)]
 pub(super) struct PrepareViewmodel<'w, 's> {
     pub(super) scene: Res<'w, ViewmodelScene>,
@@ -98,18 +108,7 @@ pub(super) struct PrepareViewmodel<'w, 's> {
     pub(super) gpu: ResMut<'w, HandGpu>,
     pub(super) gate: Res<'w, ViewmodelCompletionGate>,
     pub(super) drawn: Res<'w, HandDrawn>,
-    pub(super) views: Query<
-        'w,
-        's,
-        (
-            &'static MainEntity,
-            &'static ExtractedView,
-            &'static bevy::render::camera::ExtractedCamera,
-            &'static Msaa,
-            &'static bevy::render::view::ViewTarget,
-            Option<&'static crate::render_scale::RenderScaleOutput>,
-        ),
-    >,
+    pub(super) views: Query<'w, 's, HandPrepareView>,
     pub(super) coverage: Option<Res<'w, crate::ui_render::UiHandCoverage>>,
     pub(super) tick: SystemChangeTick,
 }

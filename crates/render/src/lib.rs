@@ -87,7 +87,7 @@ mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
 mod render_scale;
-pub use render_scale::RenderScaleOutput;
+pub use render_scale::{RenderScaleOutput, RenderScaleSharpen};
 
 mod runtime_profile_phases;
 
