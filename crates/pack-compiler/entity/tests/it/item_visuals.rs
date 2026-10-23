@@ -10,6 +10,9 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 
+#[path = "item_visuals/fireworks.rs"]
+mod fireworks;
+
 #[path = "item_visuals/spawn_eggs.rs"]
 mod spawn_eggs;
 

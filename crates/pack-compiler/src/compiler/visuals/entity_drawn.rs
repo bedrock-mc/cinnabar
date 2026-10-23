@@ -33,6 +33,7 @@ pub(in crate::compiler) fn compile_rule(
             materials,
             [0, 0, 0],
             [256, ENCHANTING_TABLE_HEIGHT, 256],
+            0,
             templates,
             storage.templates,
             storage.quads,

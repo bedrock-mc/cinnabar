@@ -65,3 +65,9 @@ pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";
 
 /// Requests an acceptance client to exit after reporting its first completed menu frame.
 pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";
+
+/// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
+pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
+
+/// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
+pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;

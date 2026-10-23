@@ -6,6 +6,7 @@ use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 /// Places a small test tile on the requested atlas page.
 fn tile(page: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page,
         uv: [16, 32, 32, 48],
         glint: false,
@@ -19,17 +20,22 @@ fn quad(face: BlockFace) -> GuiBlockQuad {
         corners,
         uvs,
         material: 0,
+        two_sided: false,
     }
 }
 
 #[test]
 fn quads_draw_through_the_cube_projection_with_their_own_depth() {
-    // A bottom slab's top face sits in front of the full block's bottom face.
+    // A raised top face sits in front of a lower top face.
     let mut slab_top = quad(BlockFace::Up);
     for corner in &mut slab_top.corners {
         corner[1] = 0.5;
     }
-    let quads = [(quad(BlockFace::Down), tile(3)), (slab_top, tile(3))];
+    let mut lower_top = quad(BlockFace::Up);
+    for corner in &mut lower_top.corners {
+        corner[1] = 0.0;
+    }
+    let quads = [(lower_top, tile(3)), (slab_top, tile(3))];
     let mesh = mesh(&quads).unwrap();
     assert_eq!(mesh.vertices().len(), 8);
     assert_eq!(mesh.batches().len(), 1);
@@ -85,4 +91,21 @@ fn a_uv_outside_its_tile_keeps_the_thumbnail() {
     let mut wrapped = quad(BlockFace::Up);
     wrapped.uvs[2] = [1.5, 1.0];
     assert!(mesh(&[(wrapped, tile(1))]).is_none());
+}
+
+#[test]
+fn rear_faces_do_not_fill_cutout_holes() {
+    let mesh = mesh(&[
+        (quad(BlockFace::Up), tile(1)),
+        (quad(BlockFace::Down), tile(1)),
+    ])
+    .unwrap();
+    assert_eq!(mesh.vertices().len(), 4, "only the outward top face draws");
+}
+
+#[test]
+fn authored_two_sided_planes_remain_visible_from_the_back() {
+    let mut plane = quad(BlockFace::Down);
+    plane.two_sided = true;
+    assert_eq!(mesh(&[(plane, tile(1))]).unwrap().vertices().len(), 4);
 }

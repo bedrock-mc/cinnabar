@@ -19,6 +19,7 @@ fn pause_scales_actions_together_at_the_window_minimum() {
             c.metrics = metrics;
             c.rem = rem;
             c.title_artwork = Some(ui::IconRef {
+                color_mask: None,
                 page: 18,
                 uv: [0, 0, 400, 80],
                 glint: false,
@@ -62,6 +63,7 @@ fn pause_keeps_existing_geometry_at_short_desktop_and_normal_sizes() {
     for size in [[1000.0, 560.0], [1920.0, 1080.0]] {
         let (_, hits, _) = paint(Default::default(), |c| {
             c.title_artwork = Some(ui::IconRef {
+                color_mask: None,
                 page: 18,
                 uv: [0, 0, 400, 80],
                 glint: false,

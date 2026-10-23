@@ -145,6 +145,7 @@ mod tests {
                 &mut presentation,
                 (
                     Some(IconRef {
+                        color_mask: None,
                         page: 0,
                         uv: [slot * 8, 0, slot * 8 + 8, 8],
                         glint: false,
@@ -162,6 +163,7 @@ mod tests {
             &mut presentation,
             (
                 Some(IconRef {
+                    color_mask: None,
                     page: 0,
                     uv: [0, 0, 8, 8],
                     glint: false,

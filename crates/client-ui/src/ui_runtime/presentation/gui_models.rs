@@ -140,6 +140,7 @@ pub(super) struct GuiModels {
 /// Static item meshes and atlas pages prepared off the menu frame.
 #[derive(Default)]
 pub struct PreparedGuiModels {
+    pub(super) color_masks: super::color_icons::MaskRefs,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) cape: Option<render_model::cape::CapeRig>,
     pub(super) models: BTreeMap<IconKey, Arc<UiMesh>>,
@@ -382,6 +383,11 @@ impl GuiModelPreparation {
             render_model::hats::rig(hat);
         }
         Ok(PreparedGuiModels {
+            color_masks: super::color_icons::prepare(
+                entities,
+                icons,
+                self.icon_refs.as_deref().unwrap_or_default(),
+            ),
             pages,
             models,
             optional_models,
@@ -766,6 +772,7 @@ impl UiPresentationRuntime {
         let skin = self.gui_models.skin.as_ref()?;
         let [width, height] = skin.dimensions();
         let skin = IconRef {
+            color_mask: None,
             page: (self.textures.dynamic_start() + SKIN_PAGE) as u16,
             uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
             glint: false,

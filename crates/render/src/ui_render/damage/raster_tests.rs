@@ -1,5 +1,6 @@
 //! Exact pixel comparisons for damage replay through the production UI shader.
 
+mod color_mask_tests;
 #[path = "raster_fixture.rs"]
 mod fixture;
 mod repeat_tests;

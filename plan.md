@@ -227,8 +227,12 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   poll budget, with backoff while neighbours or light remain unavailable. Hardware
   dirty-to-visible latency qualification remains open. Empty-section evidence and
   withdrawals use their separate allowance without spending geometry credits;
-  both still share the frame operation cap. Sustained high-speed hardware
-  qualification remains open.
+  both still share the frame operation cap. Ready air and withdrawals bypass geometry
+  scheduler ingress and receive bounded service before decode and lighting, using the
+  same publication limits and poll deadline. Staged worker completions receive a bounded
+  share first, so fresh removals cannot starve staged empty or geometry results.
+  Late blob replies for retired transactions no longer discard valid, still-needed
+  blobs in the same response. Sustained high-speed hardware qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
@@ -362,11 +366,27 @@ and rendered qualification remain incomplete.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
-  inventory preview and resource-pack geometry acceptance remain incomplete.
+  inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
+  textures retain their unshaded brightness; camera, sizing and mob poses still need qualification.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
-  and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+  and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
+  carried sprites; remaining special shapes and animation still need matched comparisons.
+  Crystal and spike items use their flat carried sprites.
+  Shulker previews apply each face brightness once.
+  Lectern previews turn their reading surface toward the viewer.
+  Furnace-family previews use their authored carried front faces.
+  Barrel previews use a closed south-facing pose with authored face mapping and UV turns.
+  Shared cube face sheets are bounded coverage.
+  Firework-star previews preserve their mask artwork and per-stack colors.
+  Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
+  Block-model previews cull one-sided rear faces and preserve two-sided planes.
+  Glass-pane previews use thin plates with separate edges and retain their held sprites.
+  Chorus plant previews show their carried protrusions without changing placed or held shapes.
+  Heavy-core inventory previews use their carried scale and screen offset.
+  Shelf inventory previews use their carried scale and position.
+  Azalea previews keep separate stems and open-bottom canopies.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
@@ -550,6 +570,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
   their JSON-UI collection. Actor portraits, matched acceptance for larger action
   lists and touch/console behavior remain incomplete.
+  URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
+  and remaining image admission and download-deadline parity remain incomplete.
+  Data-driven UI (DDUI) data stores follow the server's replacements, path updates,
+  removals and update counters. Script `CustomForm` and `MessageBox` screens draw as an
+  OreUI panel over the world; one shows at a time, later requests answer `UserBusy`,
+  server closes, death and the close button answer with vanilla's reasons, and controls
+  write the paths and counters the server accepts. Panel geometry, Escape closing,
+  message-box layout, images, gamepad and touch input, pack-defined DDUI screens and
+  reloads remain incomplete; a matched native capture remains open.
   URL images use the UI texture-file allowance. The download cache evicts its oldest
   handed-off bodies beyond the aggregate byte budget while preserving display readiness;
   atlas misses fetch released bodies again. Unclaimed bodies remain until first handoff.
@@ -648,7 +677,10 @@ featured-server, menu and gameplay qualification remains open, including large-p
 preparation and broader sparse-startup coverage.
 Server handoff keeps the advertised UUID and version for stack selection when a valid
 archive's manifest names another identity; local imports and library selections still match
-exactly. The matching Gophertunnel transfer change and live acceptance remain incomplete.
+exactly, preserving numeric array versions through import and installed-pack admission.
+Pack version components use the supported 16-bit range; format-version arrays narrow their
+components before parser selection, and versions below the first parser slice are rejected.
+The matching Gophertunnel transfer change and broader live acceptance remain incomplete.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a
@@ -740,20 +772,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   device-bounded shards; world textures, fallback faces and carried items share page/layer addresses.
   Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
-  tombstone shows a driver shader compiler abort. The driver faults are not isolated,
-  so these vendor workarounds and target-device visual acceptance stay incomplete.
-  rendering acceptance remains incomplete. Terrain has a four-storage-buffer layout for constrained
+  tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
+  time because a Mali-G57 tombstone shows the driver compiler faulting while two threads compile
+  pipelines. The driver faults are not isolated, so these vendor workarounds and target-device
+  visual acceptance stay incomplete. Terrain has a four-storage-buffer layout for constrained
   devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
   Physical-device rendering and fallback
   performance acceptance remain incomplete.
-  Android Mali culls terrain on the CPU because the
-  compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
-  vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
-  vanilla page against their 1,024-layer array limit; smaller pages first need session block
-  overlays to accept multi-page base carriers.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates

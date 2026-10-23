@@ -175,7 +175,11 @@ impl PackRules {
                 return Err("invalid alias texture path".into());
             }
         }
-        for name in self.item_visuals.keys() {
+        for name in self
+            .item_visuals
+            .keys()
+            .chain(self.default_item_tints.keys())
+        {
             if !retail.contains(name.as_str()) {
                 return Err(format!("unknown retail item visual rule {name}"));
             }

@@ -151,6 +151,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         }
         player_preview_page = Some(page);
         player_preview_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 0,
@@ -161,6 +162,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             glint: false,
         });
         left_hand_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 0,
@@ -171,6 +173,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             glint: false,
         });
         right_hand_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 player_preview::HAND_WIDTH as u16,
@@ -345,6 +348,7 @@ mod tests {
             std::collections::HashMap::from([(
                 ui_engine::textures::TITLE_KEY.to_owned(),
                 IconRef {
+                    color_mask: None,
                     page: 0,
                     uv: [0, 0, 8, 4],
                     glint: false,

@@ -3895,6 +3895,35 @@
       ]
     },
     {
+      "id": "flat-icon-metal-bars",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "suffix": "_bars"
+    },
+    {
+      "id": "flat-icon-crystals-and-spikes",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:amethyst_cluster",
+        "minecraft:large_amethyst_bud",
+        "minecraft:medium_amethyst_bud",
+        "minecraft:small_amethyst_bud",
+        "minecraft:pointed_dripstone",
+        "minecraft:sulfur_spike"
+      ]
+    },
+    {
+      "id": "flat-icon-eggs-and-frogspawn",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:turtle_egg",
+        "minecraft:sniffer_egg",
+        "minecraft:frog_spawn"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",
@@ -6983,6 +7012,9 @@
         "path": "textures/blocks/sulfur"
       }
     ],
+    "default_item_tints": {
+      "minecraft:firework_star": [0, 0, 0]
+    },
     "item_visuals": {
       "minecraft:banner": "BlockModel",
       "minecraft:bed": "Sprite",

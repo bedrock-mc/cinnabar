@@ -15,12 +15,13 @@ use assets::{
 
 use pack_compile_input::image::decode_texture;
 use pack_compile_input::pack::{
-    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key, resolve_texture_key,
+    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key,
+    resolve_carried_fallback_key, resolve_texture_key,
 };
 use pack_compile_input::static_texture_path;
 
 /// Registry families whose vanilla block shapes render as flat item icons.
-const FLAT_FAMILIES: [ModelFamily; 11] = [
+const FLAT_FAMILIES: [ModelFamily; 10] = [
     ModelFamily::Cross,
     ModelFamily::Rail,
     ModelFamily::Torch,
@@ -28,7 +29,6 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::Vine,
     ModelFamily::GlowLichen,
     ModelFamily::SculkVein,
-    ModelFamily::Pane,
     ModelFamily::Aquatic,
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
@@ -93,15 +93,38 @@ impl IconBlocks {
             || FLAT_FAMILIES.contains(&record.model_family)
             || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
-            || (record.model_family == ModelFamily::Unknown
-                && assets::facts::block_render_fact(&record.name).flat_icon)
+            || (matches!(
+                record.model_family,
+                ModelFamily::Unknown | ModelFamily::Pane
+            ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// The state an item draws: a wall item shows a post with east and west arms.
+    /// Selects the carried pose: walls have two arms and barrels face south while closed.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::Barrel
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    if candidate.name != record.name {
+                        return false;
+                    }
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    state[BlockProperty::FacingDirection.name()]["value"] == 3
+                        && state[BlockProperty::OpenBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if record.model_family != ModelFamily::Wall {
             return visual;
         }
@@ -151,7 +174,7 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        self.tiles(root, visual, true)
+        self.tiles(root, self.icon_state(visual), true)
     }
 
     /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
@@ -175,14 +198,44 @@ impl IconBlocks {
         };
         let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
         for face in BlockFace::ALL {
-            let world = resolve_texture_key(&pack.blocks, record, face).key;
+            let (source_face, flip) = if assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::Barrel
+            {
+                let Some(assets::facts::StateValue::Int(direction)) =
+                    record.property(assets::facts::BlockProperty::FacingDirection)
+                else {
+                    return Ok(None);
+                };
+                let Some(transform) = usize::try_from(*direction).ok().and_then(|direction| {
+                    pack_compile_input::barrel::face_transform(face, direction)
+                }) else {
+                    return Ok(None);
+                };
+                transform
+            } else {
+                (face, 0)
+            };
+            let world = resolve_texture_key(&pack.blocks, record, source_face).key;
             let variant = world
                 .as_ref()
                 .and_then(|key| pack.terrain.get_for_model_record(key, record))
                 .map_or(0, |(_, variant)| variant as usize);
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, source_face)
                 .map(String::into_boxed_str)
-                .or_else(|| world_fallback.then_some(world).flatten())
+                .or_else(|| {
+                    if !world_fallback {
+                        return None;
+                    }
+                    if matches!(
+                        assets::facts::block_render_fact(&record.name).kind,
+                        assets::facts::BlockRenderKind::Furnace
+                            | assets::facts::BlockRenderKind::LitFurnace
+                    ) {
+                        resolve_carried_fallback_key(&pack.blocks, record, face)
+                    } else {
+                        world
+                    }
+                })
             else {
                 return Ok(None);
             };
@@ -198,9 +251,17 @@ impl IconBlocks {
             else {
                 return Ok(None);
             };
-            tiles.push(tile);
+            tiles.push(super::carried::flip(tile, flip)?);
         }
         Ok(tiles.try_into().ok())
+    }
+
+    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+            return None;
+        }
+        self.texture_path(visual)
     }
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
@@ -308,6 +369,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn glass_panes_are_models_while_metal_bars_remain_flat() {
+        let blocks = IconBlocks::read(tempfile::tempdir().unwrap().path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let panes: Vec<_> = blocks
+            .records
+            .iter()
+            .filter(|record| record.model_family == ModelFamily::Pane)
+            .collect();
+        assert!(!panes.is_empty());
+        for record in panes {
+            assert_eq!(
+                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
+                record.name.ends_with("_bars"),
+                "{}",
+                record.name
+            );
+        }
+    }
+
+    #[test]
+    fn crystal_and_spike_items_use_the_flat_inventory_variant() {
+        let records = read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let selected: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                assets::facts::block_render_fact(&record.name).kind
+                    == assets::facts::BlockRenderKind::Crystal
+                    || record.traits.contains(BlockTraits::DRIPSTONE_OFFSET)
+            })
+            .collect();
+        assert!(!selected.is_empty());
+        let mut catalog = serde_json::Map::new();
+        for record in &selected {
+            catalog.insert(
+                record.name.strip_prefix("minecraft:").unwrap().into(),
+                serde_json::json!({"textures": "tile"}),
+            );
+        }
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            &serde_json::Value::Object(catalog).to_string(),
+            r#"{"texture_data":{"tile":{"textures":["textures/blocks/inventory","textures/blocks/placed"]}}}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        for record in selected {
+            let visual = BlockVisualId(record.sequential_id);
+            assert!(blocks.is_flat(&world, visual), "{}", record.name);
+            assert_eq!(
+                blocks.texture_path(visual).as_deref(),
+                Some("textures/blocks/inventory"),
+                "{} {}",
+                record.name,
+                record.canonical_state
+            );
+        }
+    }
+
+    #[test]
     fn candles_keep_their_carried_icons_without_world_model_geometry() {
         let blocks = IconBlocks {
             records: assets::read_registry_for_protocol(
@@ -393,6 +519,46 @@ mod tests {
         assert!(flat_textures("minecraft:stone").iter().all(Option::is_none));
     }
 
+    /// Egg and small creature blocks keep their carried art independent of placed geometry.
+    #[test]
+    fn eggs_and_small_creatures_use_the_carried_sprite() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{
+                "turtle_egg":{"textures":"world","carried_textures":"carried"},
+                "sniffer_egg":{"textures":"world","carried_textures":"carried"},
+                "frog_spawn":{"textures":"carried"}
+            }"#,
+            r#"{"texture_data":{
+                "world":{"textures":"textures/blocks/world"},
+                "carried":{"textures":"textures/items/carried"}
+            }}"#,
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        for name in ["turtle_egg", "sniffer_egg", "frog_spawn"] {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == format!("minecraft:{name}"))
+                .collect();
+            assert!(!states.is_empty(), "registered block {name}");
+            for record in states {
+                let visual = BlockVisualId(record.sequential_id);
+                assert!(
+                    blocks.is_flat(&world, visual),
+                    "{name} uses its carried sprite"
+                );
+                assert_eq!(
+                    blocks.texture_path(visual).as_deref(),
+                    Some("textures/items/carried")
+                );
+            }
+        }
+    }
+
     #[test]
     fn leaf_litter_uses_a_flat_carried_icon_for_every_state() {
         let directory = tempfile::tempdir().unwrap();
@@ -426,6 +592,147 @@ mod tests {
                     .as_deref(),
                 Some("textures/items/litter")
             );
+        }
+    }
+
+    /// Inventory furnace faces use authored slots regardless of the placed state's direction.
+    #[test]
+    fn furnace_inventory_faces_show_the_unrotated_front() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{
+                "furnace":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}},
+                "blast_furnace":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}},
+                "smoker":{"textures":{"up":"top","down":"top","north":"side","south":"front","west":"side","east":"side"}}
+            }"#,
+            r#"{"texture_data":{
+                "top":{"textures":"textures/blocks/top"},
+                "side":{"textures":"textures/blocks/side"},
+                "front":{"textures":"textures/blocks/front"}
+            }}"#,
+            "[]",
+        );
+        for (name, pixel) in [
+            ("top", [19, 31, 47, 255]),
+            ("side", [61, 79, 97, 255]),
+            ("front", [101, 127, 151, 255]),
+        ] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(pixel))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        for name in [
+            "minecraft:furnace",
+            "minecraft:blast_furnace",
+            "minecraft:smoker",
+        ] {
+            let states: Vec<_> = blocks
+                .records
+                .iter()
+                .filter(|r| r.name.as_ref() == name)
+                .collect();
+            assert!(!states.is_empty(), "registered block {name}");
+            for record in states {
+                let tiles = blocks
+                    .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    &tiles[BlockFace::South as usize].rgba8[..4],
+                    &[101, 127, 151, 255],
+                    "front of {name} in {}",
+                    record.canonical_state
+                );
+                assert_eq!(
+                    &tiles[BlockFace::West as usize].rgba8[..4],
+                    &[61, 79, 97, 255]
+                );
+                assert_eq!(
+                    &tiles[BlockFace::Up as usize].rgba8[..4],
+                    &[19, 31, 47, 255]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn barrel_inventory_faces_use_the_closed_south_facing_pose() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"barrel":{"textures":{"up":"side","down":"side","north":"top","south":"bottom","west":"side","east":"side"}}}"#,
+            r#"{"texture_data":{"top":{"textures":"textures/blocks/top"},"bottom":{"textures":"textures/blocks/bottom"},"side":{"textures":"textures/blocks/side"}}}"#,
+            "[]",
+        );
+        for (name, pixel) in [
+            ("top", [180, 30, 40, 255]),
+            ("bottom", [30, 180, 40, 255]),
+            ("side", [30, 40, 180, 255]),
+        ] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(pixel))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let mut seen = 0;
+        for record in blocks
+            .records
+            .iter()
+            .filter(|record| record.name.as_ref() == "minecraft:barrel")
+        {
+            let tiles = blocks
+                .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                &tiles[BlockFace::South as usize].rgba8[..4],
+                &[180, 30, 40, 255],
+                "{}",
+                record.canonical_state
+            );
+            assert_eq!(
+                &tiles[BlockFace::Up as usize].rgba8[..4],
+                &[30, 40, 180, 255]
+            );
+            seen += 1;
+        }
+        assert!(seen > 1);
+    }
+
+    #[test]
+    fn partial_furnace_carried_faces_keep_the_world_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"furnace":{"textures":"side","carried_textures":{"up":"top"}}}"#,
+            r#"{"texture_data":{"side":{"textures":"textures/blocks/side"},"top":{"textures":"textures/blocks/top"}}}"#,
+            "[]",
+        );
+        for (name, color) in [("side", [61, 79, 97, 255]), ("top", [19, 31, 47, 255])] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        for record in blocks
+            .records
+            .iter()
+            .filter(|r| r.name.as_ref() == "minecraft:furnace")
+        {
+            let tiles = blocks
+                .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                .unwrap()
+                .expect("missing carried faces fall back independently");
+            for face in BlockFace::ALL {
+                let expected = if face == BlockFace::Up {
+                    [19, 31, 47, 255]
+                } else {
+                    [61, 79, 97, 255]
+                };
+                assert_eq!(&tiles[face as usize].rgba8[..4], &expected);
+            }
         }
     }
 

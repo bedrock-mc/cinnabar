@@ -57,6 +57,7 @@ fn review_recipe_cell_clears_an_icon_when_replacement_has_no_art() {
     for has_icon in [true, false, true] {
         let mut frame = HudFrame::default();
         frame.window_icons.book_entries = vec![has_icon.then_some(IconRef {
+            color_mask: None,
             page: 0,
             uv: [0, 0, 16, 16],
             glint: false,

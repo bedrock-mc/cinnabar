@@ -47,6 +47,7 @@ fn paint(view: &MenuView, gamerpic: Option<IconRef>) -> Vec<ui::UiNode> {
 
 fn picture() -> IconRef {
     IconRef {
+        color_mask: None,
         page: 7,
         uv: [1, 2, 9, 10],
         glint: false,
