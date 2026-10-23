@@ -281,6 +281,9 @@ impl UiPresentationRuntime {
                             content_height,
                         )?;
                     }
+                    Scene::DataDriven => {
+                        self.append_data_driven_screen(runtime, nodes, next, metrics, content)?;
+                    }
                     Scene::Menu(_) => {
                         menu_hit_targets = self.append_menu(
                             runtime,
@@ -300,6 +303,9 @@ impl UiPresentationRuntime {
             }
             if !scenes.contains(&Scene::Chat) {
                 self.close_chat_screen();
+            }
+            if !scenes.contains(&Scene::DataDriven) {
+                self.retire_data_driven_screen();
             }
             if !scenes.contains(&Scene::Emote) {
                 self.close_emote_screen();

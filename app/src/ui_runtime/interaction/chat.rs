@@ -47,7 +47,10 @@ pub(crate) fn drive_chat_ui_actions(
     mut keyboard: Option<ResMut<client_shell::platform_text::KeyboardRequests>>,
 ) {
     let (window_entity, window) = *window;
-    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input()
+        || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
+    {
         gesture.cancel();
         return;
     }

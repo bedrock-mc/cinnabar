@@ -383,13 +383,25 @@ pub fn resolve_carried_face_key(
     carried_or_world_key(blocks, record, face, false).map(std::borrow::Cow::into_owned)
 }
 
-/// Retains the unrotated carried fallback used when a block has no carried override.
+/// Resolves an unrotated world face independently of partial carried overrides.
 pub fn resolve_carried_fallback_key(
     blocks: &BlockTextureMap,
     record: &RegistryRecord,
     face: BlockFace,
 ) -> Option<Box<str>> {
-    carried_or_world_key(blocks, record, face, true).map(|key| key.into_owned().into_boxed_str())
+    let name = record
+        .name
+        .strip_prefix("minecraft:")
+        .unwrap_or(&record.name);
+    let entry = blocks
+        .entries
+        .get(name)
+        .or_else(|| blocks.entries.get(legacy_resource_pack_block_alias(name)?))?;
+    let key = match &entry.textures {
+        TextureValue::Key(key) => key.as_str(),
+        TextureValue::Faces(faces) => faces.resolve(face)?,
+    };
+    (!key.is_empty()).then(|| key.into())
 }
 
 fn carried_or_world_key<'a>(

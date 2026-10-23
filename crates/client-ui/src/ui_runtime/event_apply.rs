@@ -131,7 +131,9 @@ impl UiRuntime {
                     title = ?event.title,
                     "form received"
                 );
-                let busy = self.chat_focused || self.container_shows_menu(player_runtime);
+                let busy = self.chat_focused
+                    || self.container_shows_menu(player_runtime)
+                    || self.data_driven.owns_input();
                 self.forms
                     .admit(event, envelope.fifo_sequence, self.session_id, busy);
                 // A form over a container takes the pointer, so the container never sees the
@@ -140,6 +142,10 @@ impl UiRuntime {
                     self.screen.pointer.reset();
                 }
                 UiApplyOutcome::Applied
+            }
+            UiEvent::DataDrivenUi(event) => {
+                let busy = self.data_driven_busy(player_runtime);
+                self.apply_data_driven_ui(event, busy)
             }
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);

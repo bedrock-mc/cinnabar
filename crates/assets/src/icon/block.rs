@@ -23,6 +23,8 @@ pub struct IconBlockSheet {
 pub struct IconBlockModel {
     pub sprite: u32,
     pub visual: BlockVisualId,
+    /// Independent carried artwork when the GUI model replaces a flat item preview.
+    pub held_sprite: Option<u32>,
 }
 
 /// Checks that model bindings are bounded, sorted and reference existing sprites.
@@ -40,6 +42,12 @@ pub(super) fn validate_models(
         }
         if model.sprite as usize >= sprites.len() {
             return Err(invalid("block model thumbnail references a missing sprite"));
+        }
+        if model
+            .held_sprite
+            .is_some_and(|sprite| sprite as usize >= sprites.len())
+        {
+            return Err(invalid("held block sprite references a missing sprite"));
         }
         previous = Some(model.sprite);
     }
