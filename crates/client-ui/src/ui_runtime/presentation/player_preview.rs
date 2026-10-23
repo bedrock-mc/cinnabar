@@ -421,6 +421,13 @@ impl PreviewView {
             }
         }
     }
+
+    /// The head's turn relative to the body, `[pitch, yaw]` in degrees, as the look
+    /// animation reads its target rotation.
+    pub(super) fn head_look(self) -> [f32; 2] {
+        let [body, head_yaw, head_pitch, _] = self.angles();
+        [head_pitch, head_yaw - body]
+    }
 }
 
 /// Builds the live preview or paper-doll pose and logical rect around the model-part origin.

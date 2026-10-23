@@ -1,6 +1,6 @@
-//! The HUD uses the same geometry and evaluated bones as the world player.
+//! The HUD and live player renderers use the same geometry and evaluated bones as the world player.
 
-use super::super::UiPresentationRuntime;
+use super::super::{UiPresentationRuntime, player_preview::PreviewView};
 use glam::{Affine3A, Quat, Vec3, Vec4};
 use render_model::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 
@@ -27,6 +27,20 @@ pub(super) struct LivePlayer {
     pub(super) fire: super::fire::FirePlayback,
 }
 
+/// The capture `view` poses from: the HUD doll's, or a live renderer's once captured.
+/// Other views, and a live renderer without a capture, use the static menu model.
+pub(super) fn capture_for<'a>(
+    view: PreviewView,
+    hud: &'a LivePlayer,
+    screen: &'a LivePlayer,
+) -> Option<&'a LivePlayer> {
+    match view {
+        PreviewView::Hud => Some(hud),
+        PreviewView::Live { .. } => Some(screen).filter(|live| !live.vertices.is_empty()),
+        _ => None,
+    }
+}
+
 impl UiPresentationRuntime {
     /// Shares the actor frame's evaluated motion without advancing a second animation clock.
     pub fn set_cosmetic_motion(
@@ -35,6 +49,7 @@ impl UiPresentationRuntime {
     ) {
         let motion: std::collections::HashMap<_, _> = motion.iter().copied().collect();
         if self.gui_models.live_player.hat_motion != motion {
+            self.gui_models.screen_player.hat_motion = motion.clone();
             self.gui_models.live_player.hat_motion = motion;
             self.last_frame = None;
         }
@@ -56,10 +71,37 @@ impl UiPresentationRuntime {
         swimming: bool,
         emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
+        let mut live = std::mem::take(&mut self.gui_models.live_player);
+        self.capture_player(&mut live, stream, swimming, emote, None);
+        self.gui_models.live_player = live;
+    }
+
+    /// Projects the same evaluation for a screen's `live_player_renderer`, separately from the
+    /// HUD doll. Its head looks toward the pointer offset the renderer last painted with.
+    pub fn capture_screen_player(&mut self, stream: Option<&chunk_pipeline::WorldStream>) {
+        let offset = match self.player_preview_view {
+            PreviewView::Live { offset } => offset,
+            _ => [0.0; 2],
+        };
+        let look = PreviewView::Live { offset }.head_look();
+        let mut live = std::mem::take(&mut self.gui_models.screen_player);
+        // Only the HUD lifts a swimming actor's frame.
+        self.capture_player(&mut live, stream, false, None, Some(look));
+        self.gui_models.screen_player = live;
+    }
+
+    /// Projects the UI evaluation into `live`, optionally replacing the head's look.
+    fn capture_player(
+        &self,
+        live: &mut LivePlayer,
+        stream: Option<&chunk_pipeline::WorldStream>,
+        swimming: bool,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
+        look: Option<[f32; 2]>,
+    ) {
         let fire_frames = self.gui_models.fire.frames.len();
         let draw_cape =
             self.menu_preview_model.cape_key.is_some() && !self.gui_models.wearing_elytra;
-        let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.cape_vertices.clear();
         live.hat_vertices.clear();
@@ -110,13 +152,22 @@ impl UiPresentationRuntime {
             actor_animation::sample_custom_emote(&rig, emote, phase, phase)
         });
         let rig = emote_pose.as_ref().map_or(rig, |pose| pose.snapshot(rig));
-        let Some(pose) = emote_pose
+        let Some(mut pose) = emote_pose
             .as_ref()
             .map(|pose| pose.current.as_ref())
             .or_else(|| stream.authority().actor_ui_pose(id))
         else {
             return;
         };
+        let looked;
+        if let Some(look) = look
+            && let Some(hierarchy) = stream.authority().actor_bone_hierarchy(id)
+        {
+            let mut turned = pose.to_vec();
+            look_toward(&mut turned, &rig, hierarchy, look);
+            looked = turned;
+            pose = &looked;
+        }
         let basis = Affine3A::from_scale(Vec3::new(-1., 1., -1.));
         let swim_offset = live.outer_y / super::super::player_preview::PLAYER_MODEL_SCALE;
         let offset = Affine3A::from_translation(Vec3::Y * swim_offset);
@@ -226,6 +277,60 @@ impl UiPresentationRuntime {
     }
 }
 
+/// Turns the head toward `[pitch, yaw]` degrees relative to the body, the angles the
+/// player's look animation reads, carrying every descendant bone with it.
+///
+/// The live player renderer re-renders the actor with its rotations replaced, so the look
+/// animation's entity-relative head rotation follows the pointer. The replacement is exact for
+/// that animation alone; other head rotations layered on it are not separated.
+fn look_toward(
+    pose: &mut [actor_animation::BoneTransform],
+    rig: &actor_animation::ActorRigSnapshot<'_>,
+    hierarchy: actor_animation::BoneHierarchy<'_>,
+    [pitch, yaw]: [f32; 2],
+) {
+    let Some(head) = rig
+        .bone_names
+        .iter()
+        .position(|name| name.as_ref() == "head")
+    else {
+        return;
+    };
+    let Some(&current) = pose.get(head) else {
+        return;
+    };
+    let rest = rig
+        .rest
+        .get(head)
+        .and_then(|bone| unit_rotation(bone.rotation))
+        .unwrap_or(Quat::IDENTITY);
+    // Animation angles turn against the right-hand rule in the mirrored model frame.
+    let target = Quat::from_rotation_y(-yaw.to_radians())
+        * Quat::from_rotation_x(-pitch.to_radians())
+        * rest;
+    let Some(current_rotation) = unit_rotation(current.rotation) else {
+        return;
+    };
+    let correction = target * current_rotation.inverse();
+    let pivot = Vec3::from_slice(&current.translation_scale[..3]);
+    for (index, bone) in pose.iter_mut().enumerate() {
+        if !hierarchy.descends_from(index, head) {
+            continue;
+        }
+        let translation =
+            pivot + correction * (Vec3::from_slice(&bone.translation_scale[..3]) - pivot);
+        bone.translation_scale[..3].copy_from_slice(&translation.to_array());
+        bone.rotation = (correction * Quat::from_array(bone.rotation)).to_array();
+    }
+}
+
+/// A bone's `[x, y, z, w]` rotation as a unit quaternion, when it has a direction.
+fn unit_rotation(rotation: [f32; 4]) -> Option<Quat> {
+    Vec4::from_array(rotation)
+        .try_normalize()
+        .map(Quat::from_vec4)
+}
+
 /// Converts a validated bone frame to block coordinates for equipment pose deltas.
 fn bone_matrix(bone: &actor_animation::BoneTransform) -> Option<Affine3A> {
     let bone = render_bone(bone)?;
@@ -304,5 +409,7 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 
 #[cfg(test)]
 mod cape_tests;
+#[cfg(test)]
+mod screen_tests;
 #[cfg(test)]
 mod tests;

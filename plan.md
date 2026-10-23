@@ -456,6 +456,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and lifecycle behavior without leaking UI-owned input into movement.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
+  The HUD paper doll and a screen's live player renderer draw separate meshes from the
+  actor's animated UI evaluation; the live renderer turns the head toward the pointer.
+  Its gliding, swimming and emote look variants, hurt tint and flames remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.

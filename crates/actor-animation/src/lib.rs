@@ -40,8 +40,8 @@ mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
 mod rig;
 pub use rig::{
-    ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
-    ItemAnimationState, LocalSwingProgress,
+    ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneHierarchy, BoneTransform,
+    EntityRigId, HandPhase, ItemAnimationState, LocalSwingProgress,
 };
 mod state;
 use state::{

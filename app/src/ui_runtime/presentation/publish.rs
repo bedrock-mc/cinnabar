@@ -295,11 +295,11 @@ pub(crate) fn prepare_ui_runtime(
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
+    // The HUD doll keeps animating under an open screen, beside that screen's own doll.
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
         && settings.value(SettingId::HideHud) == 0
         && settings.value(SettingId::HidePaperdoll) == 0
-        && !menu_visible
-        && !runtime.inventory_open();
+        && !menu_visible;
     // A visible control preview may need the local model while the gameplay doll stays hidden.
     let control_preview_player = presentation.control_preview_needs_player(runtime.session_id());
     let emote_preview = runtime
@@ -327,6 +327,10 @@ pub(crate) fn prepare_ui_runtime(
             doll_state.is_some_and(|state| state.swimming),
             emote_preview,
         );
+    }
+    // A container screen's live player renderer draws the animated actor as well.
+    if runtime.inventory_open() {
+        presentation.capture_screen_player(client_world.stream.as_ref());
     }
     let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
         settings.value(SettingId::HideHud) != 0,
