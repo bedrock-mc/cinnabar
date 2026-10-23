@@ -873,14 +873,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated
-  helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
+  helpers. Compatibility rewriting accepts empty top-level declarations, defers square roots
+  of negative float literals and separates shared-memory array declarations. Missing vertex
+  varying locations receive zero outputs. Compiler results carry shader modules without
+  duplicate validation data; the host revalidates them when decoding.
+  The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
-  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  Incomplete: geometry shader translation, comma expressions containing void calls and full
+  GLSL preprocessing compatibility; in-game acceptance across packs and platforms (Metal is
+  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
   of celestial layers, effects without depth writes and private-depth first-person scenes,
   which keep the native scene copy; actor colour masks, multitexture materials, dissolve
