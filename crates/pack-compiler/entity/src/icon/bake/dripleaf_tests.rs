@@ -56,11 +56,19 @@ fn dripleaf_inventory_keeps_leaf_tops_edges_and_crossed_stems() {
         assert!(live.is_none());
         assert!(
             icon.rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|p| p[3] == 0 || p[0] == 0 || p[1] == 0),
             "{name}: cropped small-leaf artwork excludes other atlas quarters"
         );
-        let pixels: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+        let pixels: Vec<_> = icon
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .collect();
         for channel in 0..3 {
             assert!(
                 pixels.iter().any(|p| p[channel] > 0
