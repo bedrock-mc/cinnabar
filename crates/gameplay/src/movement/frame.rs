@@ -345,32 +345,35 @@ impl LocomotionState {
     /// Retains riding input even when transport admission pauses physics, preserving server links.
     pub fn observe_dismount(&mut self, frame: &PhysicsFrameInput, session: u64) {
         // A boat maps both jump and sneak to dismount; other mounts keep jump for themselves.
+        // A press counts through whichever pressed button its locks still allow.
         let boat = frame.facts.ride == Some(super::RideKind::Boat);
-        let trigger = if boat && frame.jump.pressed {
-            ClientInputLock::Jump
-        } else {
-            ClientInputLock::Sneak
-        };
+        let allowed = |lock| !frame.facts.input_locks.blocks(lock);
+        let trigger = [
+            (boat && frame.jump.pressed, ClientInputLock::Jump),
+            (frame.sneak.pressed, ClientInputLock::Sneak),
+        ]
+        .into_iter()
+        .find(|(pressed, lock)| *pressed && allowed(*lock))
+        .map(|(_, lock)| lock);
         let mount = frame
             .facts
             .ride
             .and(frame.facts.mount_runtime_id)
             .filter(|mount| *mount != 0)
             .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
-            .map(|mount| (session, mount, trigger));
+            .map(|mount| (session, mount));
         // A retained press survives later frames on the same mount, whichever button made it.
-        let identity = |request: Option<(u64, u64, ClientInputLock)>| {
-            request.map(|(session, mount, _)| (session, mount))
-        };
-        if identity(self.pending_dismount) != identity(mount) {
+        if self
+            .pending_dismount
+            .map(|(session, mount, _)| (session, mount))
+            != mount
+        {
             self.pending_dismount = None;
         }
-        let pressed = frame.sneak.pressed || (boat && frame.jump.pressed);
-        if pressed
-            && !frame.facts.input_locks.blocks(ClientInputLock::Dismount)
-            && !frame.facts.input_locks.blocks(trigger)
+        if let (Some(trigger), Some((session, mount))) = (trigger, mount)
+            && allowed(ClientInputLock::Dismount)
         {
-            self.pending_dismount = mount;
+            self.pending_dismount = Some((session, mount, trigger));
         }
     }
 }
