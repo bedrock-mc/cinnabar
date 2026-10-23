@@ -44,7 +44,9 @@ fn dried_ghast_inventory_keeps_separate_body_and_tentacle_artwork() {
     );
     let pixels = icon
         .rgba8
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|p| p[3] != 0)
         .collect::<Vec<_>>();
     assert!(
