@@ -79,11 +79,7 @@ fn failed_replacement_keeps_the_installed_package() {
 
 #[test]
 fn changed_indexed_file_is_rejected() {
-    let mut bytes = package(None);
-    let position = bytes
-        .windows(b"fixture-server".len())
-        .position(|part| part == b"fixture-server")
-        .unwrap();
-    bytes[position] ^= 1;
-    assert!(verify(&bytes).is_err());
+    assert!(verify(&package(None)).is_ok());
+    let changed = package(Some((&format!("server/{SERVER_WASM}"), b"changed-server")));
+    assert!(verify(&changed).is_err());
 }

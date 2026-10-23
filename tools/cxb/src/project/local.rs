@@ -54,7 +54,10 @@ fn local_server() -> Result<PathBuf> {
         return Ok(path.into());
     }
     let root = repository();
-    let binary = root.join("target/mod-tools/bedrock-local-server");
+    let binary = root.join("target/mod-tools").join(format!(
+        "bedrock-local-server{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     fs::create_dir_all(binary.parent().context("tool directory missing")?)?;
     let status = Command::new("go")
         .args(["build", "-o"])
@@ -114,7 +117,7 @@ pub(super) fn run(root: &Path, release: bool) -> Result<()> {
     let binary_dir = client.parent().context("client binary directory missing")?;
     let status = Command::new("go")
         .args(["build", "-o"])
-        .arg(binary_dir.join("bedrock-core"))
+        .arg(binary_dir.join(format!("bedrock-core{}", std::env::consts::EXE_SUFFIX)))
         .arg("./core/cmd/bedrock-core")
         .current_dir(repository())
         .status()?;
