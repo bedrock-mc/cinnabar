@@ -90,6 +90,7 @@ pub fn advance_actor_motion(
     state: &mut ActorFrameState,
     stream: Option<&mut WorldStream>,
     delta: std::time::Duration,
+    local_vehicle: Option<client_world::LocalVehicleFeed>,
 ) {
     let session_id = stream
         .as_ref()
@@ -100,6 +101,9 @@ pub fn advance_actor_motion(
     }
     let step = state.actor_clock.advance(delta);
     if let Some(stream) = stream {
+        // The steered boat's prediction lands first, so picks, the camera and the rider's
+        // seat all read this frame's boat.
+        stream.sync_local_vehicle_pose(local_vehicle);
         stream.predict_remote_actor_motion(step.ticks);
     }
     state.motion_step = Some(step);
@@ -317,8 +321,6 @@ pub fn advance_actor_frame(
                 charged: timing.hand_charged,
             };
         }
-        // The predicted boat lands first, so a locked seat faces along its current heading.
-        stream.sync_local_vehicle_pose(input.local_vehicle);
         // A seat that locks rotation faces the rider's body along the vehicle.
         if let Some(feed) = &mut local_feed
             && let Some(lock) = stream.authority().local_seat_view_lock(step.partial_tick)

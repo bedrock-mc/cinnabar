@@ -693,3 +693,52 @@ fn a_locked_seat_turns_the_rider_s_body_along_the_seat() {
     // The boat faces 45 degrees; the seat faces 90 degrees to its side.
     assert!((body_yaw - -45.0).abs() < 1.0e-3, "{body_yaw}");
 }
+
+/// Passengers of the predicted boat move with its fed render pose between actor ticks.
+#[test]
+fn passengers_ride_the_predicted_boat_between_ticks() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    sequence += 1;
+    store.apply(
+        1,
+        sequence,
+        spawn(
+            OTHER_PLAYER,
+            player("Other"),
+            vec![ActorMetadata {
+                key: ActorDataKey::SeatOffset.wire_value(),
+                value: ActorMetadataValue::Vector([0.0, 0.5, 0.0]),
+            }],
+        ),
+    );
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (PLAYER, ActorLinkType::Rider),
+            (OTHER_PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    let feed = |x: f32| LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        revision: crate::VehicleRevision::default(),
+        position: [12.0, 5.0, 10.0],
+        yaw: 0.0,
+        velocity: [0.0; 3],
+        render_position: [x, 5.0, 10.0],
+        render_yaw: 0.0,
+    };
+    store.sync_local_vehicle(Some(feed(11.0)));
+    store.advance_interpolation_ticks(1);
+    let seated = |store: &ActorStore| {
+        store
+            .snapshot_by_unique(OTHER_PLAYER)
+            .unwrap()
+            .interpolated_position(0.5)
+            .unwrap()[0]
+    };
+    let before = seated(&store);
+    // A frame without an actor tick still carries the passenger with the boat.
+    store.sync_local_vehicle(Some(feed(11.5)));
+    assert!((seated(&store) - before - 0.5).abs() < 1.0e-4);
+}

@@ -146,7 +146,6 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                 let input = super::super::ActorFrameInput {
                     cosmetics: Vec::new(),
                     local_feed: None,
-                    local_vehicle: None,
                     predicted_eye: None,
                     predicted_feet: None,
                     local_equipment: local_equipment.clone(),
@@ -521,7 +520,6 @@ fn sample_shared_bodies<'a>(
     let input = super::super::ActorFrameInput {
         cosmetics: Vec::new(),
         local_feed: None,
-        local_vehicle: None,
         predicted_eye: None,
         predicted_feet: None,
         local_equipment: local_equipment.clone(),

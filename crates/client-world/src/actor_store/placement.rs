@@ -270,6 +270,38 @@ impl ActorStore {
         }
     }
 
+    /// Seats the riders of `vehicle_runtime_id` at its current pose and holds them there
+    /// whatever the actor clock's point between ticks, as the predicted boat is held.
+    pub(super) fn hold_passengers_on(&mut self, vehicle_runtime_id: u64) {
+        let Some(vehicle) = self
+            .actors
+            .get(&vehicle_runtime_id)
+            .map(|actor| actor.unique_id)
+        else {
+            return;
+        };
+        let placements: Vec<_> = self
+            .rider_placements(|mount| (mount.position, mount.yaw))
+            .into_iter()
+            .filter(|placement| {
+                self.actors
+                    .get(&placement.runtime_id)
+                    .and_then(|rider| self.rider_to_ridden.get(&rider.unique_id))
+                    == Some(&vehicle)
+            })
+            .collect();
+        for placement in placements {
+            let Some(rider) = self.actors.get_mut(&placement.runtime_id) else {
+                continue;
+            };
+            let mut state = rider.motion_state();
+            state.seat(&placement);
+            rider.apply_motion_state(state);
+            rider.previous_pose = rider.current_pose();
+            self.effect_members.collidable.update(rider);
+        }
+    }
+
     /// Seats predicted riders exactly as [`Self::seat_riders`] seats live ones.
     pub(super) fn seat_pick_riders(&mut self) {
         if self.rider_to_ridden.is_empty() {

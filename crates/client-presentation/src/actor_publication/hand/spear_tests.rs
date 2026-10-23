@@ -162,7 +162,6 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         super::super::ActorFrameInput {
             cosmetics: Vec::new(),
             local_feed: None,
-            local_vehicle: None,
             predicted_eye: Some([feet[0], feet[1] + protocol::PLAYER_NETWORK_OFFSET, feet[2]]),
             predicted_feet: Some(feet),
             local_equipment: input,

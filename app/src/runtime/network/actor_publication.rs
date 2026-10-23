@@ -69,12 +69,14 @@ pub(crate) struct ActorObservations<'w> {
 pub(crate) fn advance_actor_motion(
     mut world: ResMut<ClientWorld>,
     mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
+    physics: Option<Res<LocalPhysicsController>>,
     time: Res<Time<Real>>,
 ) {
     client_presentation::actor_publication::advance_actor_motion(
         &mut state,
         world.stream.as_mut(),
         time.delta().min(simulation_clock::MAX_FRAME_ELAPSED),
+        physics.and_then(|physics| physics.predicted_vehicle_feed()),
     );
 }
 
@@ -167,7 +169,6 @@ pub(crate) fn advance_actor_frame(
         ActorFrameInput {
             cosmetics: skin.cosmetics.clone(),
             local_feed,
-            local_vehicle: physics.predicted_vehicle_feed(),
             predicted_eye,
             predicted_feet,
             local_equipment,

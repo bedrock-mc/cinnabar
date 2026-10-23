@@ -127,6 +127,7 @@ impl ActorStore {
             actor.status.predicted_render_yaw = Some(pose.yaw);
             self.effect_members.collidable.update(actor);
         }
+        self.hold_passengers_on(runtime_id);
     }
 
     /// Returns a boat no longer fed to its ticked pose and body yaw.

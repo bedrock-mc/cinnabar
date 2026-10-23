@@ -68,8 +68,6 @@ pub struct ActorFrameInput {
     /// Authenticated nearby hats bound to current actor lifetimes.
     pub remote_hats: Vec<RemoteHat>,
     pub local_feed: Option<LocalPlayerFeed>,
-    /// The predicted pose of the vehicle the local player steers.
-    pub local_vehicle: Option<client_world::LocalVehicleFeed>,
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
     pub local_equipment: crate::presentation::equipment::ActorEquipmentInput,
@@ -522,6 +520,9 @@ mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;
+
+#[cfg(test)]
+mod vehicle_motion_tests;
 
 #[cfg(test)]
 mod billboard_frame_tests;
