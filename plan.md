@@ -233,7 +233,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open. Column light
   batches reuse one resident sky-ceiling scan for section snapshots and boundary
-  waiters. Matched-output hardware preparation and streaming qualification remain open.
+  waiters. Biome-only inline updates preserve current light while remeshing tint;
+  block changes and new residency still invalidate light. Matched-output hardware
+  preparation and streaming qualification remain open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.

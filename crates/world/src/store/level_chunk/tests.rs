@@ -2,6 +2,93 @@ use super::*;
 use crate::{BlockUpdate, ChunkStore, RawBiomeIds, RawBlockIds, SubChunkKey};
 use std::cell::Cell;
 
+mod biome_only {
+    use super::*;
+
+    #[test]
+    fn biome_changes_preserve_block_identity_and_report_only_mesh_changes() {
+        for reuse in [false, true] {
+            let mut store = ChunkStore::new();
+            let key = ChunkKey::new(0, 0, 0);
+            let ids = RawBlockIds { air: 0 };
+            store
+                .commit_level_chunk(key, decode(&payload(2, 0), &ids, None))
+                .unwrap();
+            let previous = store.chunk(key).unwrap().shared_sub_chunks();
+            let revision = store.collision_revision(key);
+            let replacement = decode(&payload(2, 1), &ids, reuse.then_some(previous.as_ref()));
+
+            let applied = store.commit_level_chunk(key, replacement).unwrap();
+
+            assert!(applied.block_changed.is_empty());
+            assert_eq!(
+                applied.changed,
+                vec![
+                    SubChunkKey::from_chunk(key, 0),
+                    SubChunkKey::from_chunk(key, 1)
+                ]
+            );
+            assert!(!applied.dirty.is_empty());
+            assert_eq!(store.collision_revision(key), revision);
+            for (y, section) in previous.iter() {
+                assert!(Arc::ptr_eq(
+                    section,
+                    &store.sub_chunk(SubChunkKey::from_chunk(key, *y)).unwrap()
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn block_changes_are_rechecked_when_the_prepared_snapshot_is_stale() {
+        let mut store = ChunkStore::new();
+        let key = ChunkKey::new(0, 0, 0);
+        let section = SubChunkKey::from_chunk(key, 0);
+        let ids = RawBlockIds { air: 0 };
+        store
+            .commit_level_chunk(key, decode(&payload(2, 0), &ids, None))
+            .unwrap();
+        let previous = store.chunk(key).unwrap().shared_sub_chunks();
+        let replacement = decode(&payload(2, 1), &ids, Some(previous.as_ref()));
+        store
+            .update_block(section, BlockUpdate::new(8, 8, 8, 0, 7), 0)
+            .unwrap();
+
+        let applied = store.commit_level_chunk(key, replacement).unwrap();
+
+        assert_eq!(applied.block_changed, vec![section]);
+        assert_eq!(
+            applied.changed,
+            vec![section, SubChunkKey::from_chunk(key, 1)]
+        );
+        assert_eq!(
+            store.sub_chunk(section).unwrap().runtime_id(0, 8, 8, 8),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn new_and_removed_stored_sections_remain_block_changes() {
+        let mut store = ChunkStore::new();
+        let key = ChunkKey::new(0, 0, 0);
+        let keys = vec![
+            SubChunkKey::from_chunk(key, 0),
+            SubChunkKey::from_chunk(key, 1),
+        ];
+        let ids = RawBlockIds { air: 0 };
+        let arrived = store
+            .commit_level_chunk(key, decode(&payload(2, 0), &ids, None))
+            .unwrap();
+        assert_eq!(arrived.block_changed, keys);
+
+        let removed = store
+            .commit_level_chunk(key, DecodedLevelChunk::decode(0, 0, &[], &ids))
+            .unwrap();
+        assert_eq!(removed.block_changed, keys);
+        assert_eq!(removed.changed, keys);
+    }
+}
+
 struct CountingIds {
     calls: Cell<usize>,
     air: u32,

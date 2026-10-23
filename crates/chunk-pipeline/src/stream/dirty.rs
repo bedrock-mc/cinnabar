@@ -119,16 +119,16 @@ impl WorldStream {
     ) {
         self.mark_changed_sources_with_mesh_dirty(sources, std::iter::empty(), now);
     }
-    /// Expands one inline commit before invalidating meshes, and relights only changed inputs.
+    /// Invalidates combined block/biome meshes while relighting only block and residency changes.
     pub(super) fn mark_inline_changed_sources(
         &mut self,
         sources: BTreeSet<SubChunkKey>,
         preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
-        light_neutral: &BTreeSet<SubChunkKey>,
+        relight_sources: &BTreeSet<SubChunkKey>,
         now: Instant,
     ) {
         self.mark_light_changed_sources_reaching(
-            sources.difference(light_neutral).copied(),
+            relight_sources.iter().copied(),
             false,
             NeighbourReach::ALL,
             None,

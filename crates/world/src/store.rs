@@ -32,6 +32,8 @@ pub struct ChunkCollisionRevision {
 /// Result of atomically replacing a full inline chunk column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyLevelChunk {
+    /// Source keys whose stored blocks changed at commit, excluding biome metadata.
+    pub block_changed: Vec<SubChunkKey>,
     /// Exact changed source keys before mesh-dependency expansion, sorted and
     /// deduplicated for dependency-aware invalidation by the app.
     pub changed: Vec<SubChunkKey>,
@@ -854,9 +856,11 @@ impl ChunkStore {
                 block_entities.iter().map(|(&key, nbt)| (key, nbt.as_ref())),
             )?
         };
-        let mut changed = block_changed;
+        let block_changed = block_changed.into_iter().collect::<Vec<_>>();
+        let mut changed = block_changed.clone();
         changed.extend(biome_changed.iter().copied());
-        let changed = changed.into_iter().collect::<Vec<_>>();
+        changed.sort_unstable();
+        changed.dedup();
         let dirty = expand_mesh_dependents(changed.clone())
             .into_iter()
             .chain(expand_biome_mesh_dependents(biome_changed))
@@ -893,6 +897,7 @@ impl ChunkStore {
         }
         self.apply_reserved_revision(key, revision);
         Ok(ApplyLevelChunk {
+            block_changed,
             changed,
             dirty,
             bytes_consumed,
