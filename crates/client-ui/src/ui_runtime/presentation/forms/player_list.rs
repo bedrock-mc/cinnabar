@@ -45,7 +45,7 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
-        let top_inset = self.touch_utility_row_bottom(runtime, nodes, next, metrics, content)?;
+        let available_y = self.touch_roster_region(runtime, nodes, next, metrics, content)?;
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
@@ -71,7 +71,7 @@ impl UiPresentationRuntime {
             renderer,
             runtime.player_roster.rows(),
             &mut paint_frame,
-            top_inset,
+            available_y,
         )?;
         Ok(())
     }

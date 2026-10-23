@@ -12,17 +12,17 @@ impl UiPresentationRuntime {
         self.screens.touch.utilities_open = false;
     }
 
-    /// Measures the authored utility row before a roster's first paint or viewport change.
-    pub(in super::super) fn touch_utility_row_bottom(
+    /// Finds the largest vertical roster region clear of placed utility controls.
+    pub(in super::super) fn touch_roster_region(
         &mut self,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
         metrics: TextMetrics,
         content: [f32; 2],
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<std::ops::Range<f32>, UiPresentationError> {
         if !self.screens.touch.enabled {
-            return Ok(0.);
+            return Ok(0. ..content[1]);
         }
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         if self.screens.touch.base_viewport != Some((content, px, self.safe_area)) {
@@ -31,19 +31,38 @@ impl UiPresentationRuntime {
             nodes.truncate(rollback.0);
             *next = rollback.1;
         }
-        Ok(self.screens.touch.base.as_ref().map_or(0., |frame| {
-            frame
-                .hits
-                .iter()
-                .filter(|hit| {
-                    matches!(
-                        control_id(hit.pressed.as_deref()),
-                        Some(touch::UTILITIES | touch::CHAT | touch::MENU)
-                    )
-                })
-                .map(|hit| (hit.rect.y + hit.rect.h) as f32 * frame.scale)
-                .fold(0., f32::max)
-        }))
+        let state = &self.screens.touch;
+        let mut view = ViewState::default();
+        place_controls(state, &mut view, content, px);
+        let mut occupied = Vec::new();
+        if let Some(frame) = &state.base {
+            for hit in &frame.hits {
+                if !matches!(
+                    control_id(hit.pressed.as_deref()),
+                    Some(touch::UTILITIES | touch::CHAT | touch::MENU)
+                ) {
+                    continue;
+                }
+                let dy = view.drags.get(&hit.key).map_or(0., |shift| shift[1]);
+                let top = ((hit.rect.y + dy) as f32 * frame.scale).clamp(0., content[1]);
+                let bottom =
+                    ((hit.rect.y + dy + hit.rect.h) as f32 * frame.scale).clamp(top, content[1]);
+                occupied.push(top..bottom);
+            }
+        }
+        occupied.sort_by(|a, b| a.start.total_cmp(&b.start));
+        let mut clear = 0. ..0.;
+        let mut cursor: f32 = 0.;
+        for band in occupied
+            .into_iter()
+            .chain(std::iter::once(content[1]..content[1]))
+        {
+            if band.start - cursor > clear.end - clear.start {
+                clear = cursor..band.start;
+            }
+            cursor = cursor.max(band.end);
+        }
+        Ok(clear)
     }
 
     /// Requests the same debug visibility toggle as the desktop binding.
@@ -54,6 +73,47 @@ impl UiPresentationRuntime {
     /// Consumes pending touch requests once, preserving the parity of repeated toggles.
     pub fn take_touch_debug_toggle(&mut self) -> bool {
         std::mem::take(&mut self.screens.touch.debug_toggle_pending)
+    }
+}
+
+/// Applies the same saved or draft control positions to painting and roster avoidance.
+pub(super) fn place_controls(
+    state: &TouchControls,
+    view: &mut ViewState,
+    content: [f32; 2],
+    px: f32,
+) {
+    let saved = &state.saved;
+    if let Some(base) = &state.base {
+        for hit in base
+            .hits
+            .iter()
+            .filter(|hit| control_id(hit.pressed.as_deref()).is_some_and(placeable_control))
+        {
+            let name = hit
+                .pressed
+                .as_deref()
+                .unwrap()
+                .strip_prefix("cinnabar.touch.")
+                .unwrap();
+            let desired = if let Some(editor) = &state.editor {
+                editor
+                    .rectangles()
+                    .find(|(id, _)| *id == name)
+                    .map(|(_, r)| [r[0], r[1]])
+            } else {
+                saved.position(name).map(|position| {
+                    [
+                        f64::from(position[0]) * (f64::from(content[0] / px) - hit.rect.w).max(0.),
+                        f64::from(position[1]) * (f64::from(content[1] / px) - hit.rect.h).max(0.),
+                    ]
+                })
+            };
+            if let Some(at) = desired {
+                view.drags
+                    .insert(hit.key.clone(), [at[0] - hit.rect.x, at[1] - hit.rect.y]);
+            }
+        }
     }
 }
 

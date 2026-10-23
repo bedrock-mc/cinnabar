@@ -451,7 +451,7 @@ fn png_fixture(
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
-                list.paint(&engine, &rows, &mut frame, 0.)
+                list.paint(&engine, &rows, &mut frame, 0. ..state.size[1] as f32)
                     .map_err(|error| error.to_string())?;
             }
             add_server_pages(&mut engine, &mut carriers.pages);

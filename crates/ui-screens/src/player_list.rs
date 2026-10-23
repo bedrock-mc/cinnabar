@@ -247,18 +247,19 @@ impl Default for PlayerList {
 }
 
 impl PlayerList {
-    /// Paints the roster below a logical-pixel inset, badging each eligible player.
+    /// Paints the roster inside a clear vertical region in logical pixels.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
         players: &[RosterRow],
         frame: &mut PaintFrame<'_>,
-        top_inset: f32,
+        available_y: std::ops::Range<f32>,
     ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
-        let top_inset = top_inset.clamp(0., frame.content[1]);
-        let max_rows = ((f64::from((frame.content[1] - top_inset) / px) - 40.0) / ROW_HEIGHT)
+        let top_inset = available_y.start.clamp(0., frame.content[1]);
+        let bottom = available_y.end.clamp(top_inset, frame.content[1]);
+        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0) / ROW_HEIGHT)
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
         let [columns, rows] = self.refresh(players, max_rows);

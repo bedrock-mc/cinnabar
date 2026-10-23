@@ -280,3 +280,46 @@ fn touch_debug_requests_are_consumed_once_and_cancel_in_pairs() {
     p.request_touch_debug_toggle();
     assert!(!p.take_touch_debug_toggle());
 }
+
+#[test]
+fn held_utility_choice_paints_pressed_feedback() {
+    let mut p = crate::test_support::mini_engine_presentation();
+    let runtime = UiRuntime::new(1);
+    let size = [854, 480];
+    p.enable_touch_controls(true);
+    p.toggle_touch_utilities();
+    for held in [false, true, false] {
+        p.set_touch_contacts(if held {
+            vec![TouchContact {
+                contact_id: 1,
+                activity_sequence: 0,
+                position: [0.5; 2],
+                delta: [0.; 2],
+                hit_id: Some(touch::DEBUG_OVERLAY),
+            }]
+        } else {
+            vec![]
+        });
+        let mut nodes = Vec::new();
+        p.append_touch_controls(
+            &runtime,
+            &mut nodes,
+            &mut 0,
+            TextMetrics::for_viewport(size, ui::DpiScale::new(1.).unwrap(), None),
+            size.map(|v| v as f32),
+        )
+        .unwrap();
+        let light_labels = nodes
+            .iter()
+            .filter(|node| {
+                matches!(node.visual(),
+            ui::UiVisual::Text { color, .. } if color[0] > 200 && color[3] > 0)
+            })
+            .count();
+        assert_eq!(light_labels, usize::from(held));
+        assert_eq!(
+            hit_center(&p, touch::DEBUG_OVERLAY, size).hit_id,
+            touch::DEBUG_OVERLAY
+        );
+    }
+}

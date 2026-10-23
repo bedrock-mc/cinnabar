@@ -147,3 +147,62 @@ fn touch_roster_heading_stays_below_utility_buttons_on_first_paint() {
         );
     }
 }
+
+#[test]
+fn saved_utility_positions_leave_a_visible_clear_roster_region() {
+    for size in [[1280, 720], [1080, 1920]] {
+        let mut presentation = mini_engine_presentation();
+        enable_empty_hud(&mut presentation);
+        let safe = ui::SafeArea::new(12., 8., 14., 6.).unwrap();
+        presentation.set_safe_area(safe);
+        presentation.enable_touch_controls(true);
+        let mut runtime = UiRuntime::new(1);
+        runtime.player_roster.set_entries(names(80));
+        runtime.toggle_touch_player_list();
+        let dpi = DpiScale::new(1.).unwrap();
+        for at in [0.12, 0.95, 0.2] {
+            presentation.screens.touch.saved.set("chat", [0.5, at]);
+            presentation
+                .build(&player_state::PlayerState::new(1), &runtime, 0, size, dpi)
+                .unwrap();
+            let scale =
+                ui_engine::text_metrics::TextMetrics::for_viewport(size, dpi, None).gui_scale;
+            let height = size[1] as f32 - safe.top() - safe.bottom();
+            let chat_top = safe.top() + at * (height - 18. * scale);
+            let chat = presentation
+                .gameplay_touch_region(
+                    [
+                        (safe.left() + (size[0] as f32 - safe.left() - safe.right()) / 2.)
+                            / size[0] as f32,
+                        (chat_top + 9. * scale) / size[1] as f32,
+                    ],
+                    size.map(|v| v as f32),
+                )
+                .unwrap();
+            assert_eq!(chat.hit_id, semantic_input::touch::CHAT);
+            let nodes = &presentation.last_frame.as_ref().unwrap().nodes;
+            let mut tree = ui::UiTree::new(nodes.clone()).unwrap();
+            let viewport = ui::UiRect::new(
+                ui::UiPoint::new(0., 0.).unwrap(),
+                ui::UiPoint::new(size[0] as f32, size[1] as f32).unwrap(),
+            )
+            .unwrap();
+            let laid = tree.layout(viewport, ui::UiScale::default(), safe).unwrap();
+            for node in nodes
+                .iter()
+                .filter(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+            {
+                let bounds = laid.bounds(node.id()).unwrap();
+                assert!(
+                    bounds.max().y() <= chat.bounds.min[1] * size[1] as f32
+                        || bounds.min().y() >= chat.bounds.max[1] * size[1] as f32,
+                    "roster overlaps saved chat position {at}"
+                );
+                assert!(
+                    bounds.min().y() >= safe.top()
+                        && bounds.max().y() <= size[1] as f32 - safe.bottom()
+                );
+            }
+        }
+    }
+}

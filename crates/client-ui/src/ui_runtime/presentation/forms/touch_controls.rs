@@ -251,39 +251,21 @@ impl UiPresentationRuntime {
             *paint.next = rollback.1;
             state.base_viewport = Some(viewport_key);
         }
-        let saved = &state.saved;
-        if let Some(base) = &state.base {
-            for hit in base
-                .hits
-                .iter()
-                .filter(|hit| control_id(hit.pressed.as_deref()).is_some_and(placeable_control))
-            {
-                let name = hit
-                    .pressed
-                    .as_deref()
-                    .unwrap()
-                    .strip_prefix("cinnabar.touch.")
-                    .unwrap();
-                let desired = if let Some(editor) = &state.editor {
-                    editor
-                        .rectangles()
-                        .find(|(id, _)| *id == name)
-                        .map(|(_, r)| [r[0], r[1]])
-                } else {
-                    saved.position(name).map(|position| {
-                        [
-                            f64::from(position[0])
-                                * (f64::from(content[0] / px) - hit.rect.w).max(0.),
-                            f64::from(position[1])
-                                * (f64::from(content[1] / px) - hit.rect.h).max(0.),
-                        ]
-                    })
-                };
-                if let Some(at) = desired {
-                    view.drags
-                        .insert(hit.key.clone(), [at[0] - hit.rect.x, at[1] - hit.rect.y]);
-                }
-            }
+        utilities::place_controls(state, &mut view, content, px);
+        if state.utilities_open {
+            view.pressed = state.base.as_ref().and_then(|base| {
+                base.hits.iter().find_map(|hit| {
+                    let id = control_id(hit.pressed.as_deref())?;
+                    if !UTILITY_ACTIONS.iter().any(|(_, action)| *action == id) {
+                        return None;
+                    }
+                    state
+                        .contacts
+                        .iter()
+                        .any(|contact| contact.hit_id == Some(id))
+                        .then(|| hit.key.clone())
+                })
+            });
         }
         utilities::place_dropdown(state.base.as_ref(), &mut view, content, px);
         let art = ScreenArt {
