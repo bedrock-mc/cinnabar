@@ -26,9 +26,9 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
-   Desktop presentation defaults to Mailbox where available, with an explicit tearing
-   choice; Android retains VSync. Menus use a display-refresh ceiling, and untouched
-   in-world limits use that ceiling on battery. Saved limits remain authoritative.
+   Desktop VSync defaults to Off, preferring Mailbox, then Immediate, then FIFO;
+   Android defaults to On. The diagnostic `--no-vsync` flag prefers Immediate.
+   Menus use a display-refresh ceiling, and untouched in-world limits use that ceiling on battery. Saved limits remain authoritative.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
    Displayed cadence, input latency and surface-reconfiguration

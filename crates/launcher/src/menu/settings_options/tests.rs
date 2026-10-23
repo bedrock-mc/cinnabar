@@ -519,6 +519,16 @@ fn vsync_defaults_and_saved_toggle_values_survive_loading() {
     }
 }
 
+/// Both settings interfaces use the registry's binary toggle contract.
+#[test]
+fn vsync_is_a_toggle() {
+    let option = SettingId::Vsync.definition();
+    assert!(matches!(option.kind, SettingKind::Toggle));
+    assert_eq!(option.min, render_api::VsyncMode::Off as i32);
+    assert_eq!(option.max, render_api::VsyncMode::On as i32);
+    assert_eq!(option.default, render_api::VsyncMode::DEFAULT as i32);
+}
+
 #[test]
 fn motion_blur_defaults_off_persists_every_preset_and_resets_with_video() {
     let mut settings = SettingsOptions::default();

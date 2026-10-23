@@ -152,7 +152,6 @@ pub(crate) fn apply_present_mode(
             let preference = match user_settings.video.vsync {
                 render_api::VsyncMode::On => PresentModePreference::Auto,
                 render_api::VsyncMode::Off => PresentModePreference::NoVsync,
-                render_api::VsyncMode::AllowTearing => PresentModePreference::AllowTearing,
             };
             if preference != runtime.policy.preference() {
                 runtime.remedy_adopted = None;

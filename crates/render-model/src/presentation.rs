@@ -5,7 +5,7 @@
 //! | --- | --- |
 //! | Synchronized (VSync on) | FIFO |
 //! | LowLatency (VSync off) | Mailbox, Immediate, FIFO |
-//! | AllowTearing (explicit opt-in) | Immediate, Mailbox, FIFO |
+//! | AllowTearing (`--no-vsync` diagnostic flag) | Immediate, Mailbox, FIFO |
 //! | Unpaced (hidden developer surfaces only) | Immediate, Mailbox, FIFO |
 //!
 //! Low latency prefers non-tearing Mailbox. Surfaces without it fall back to Immediate.
@@ -26,7 +26,7 @@ pub enum PresentationIntent {
     Synchronized,
     /// Fresh input with non-tearing Mailbox preferred where available.
     LowLatency,
-    /// Explicitly prefers Immediate for tearing and minimum display backpressure.
+    /// Diagnostic launch flag: prefers Immediate and minimum display backpressure.
     AllowTearing,
     /// Diagnostic only: a hidden developer surface never reaches a display, so it never waits
     /// for one. No setting selects it.

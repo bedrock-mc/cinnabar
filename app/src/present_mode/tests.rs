@@ -40,24 +40,21 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
     }
 }
 
-/// The explicit diagnostic flag retains the player's lowest-latency presentation choice.
+/// The diagnostic flag prefers Immediate even when Mailbox is available.
 #[test]
-fn the_explicit_diagnostic_flag_matches_the_players_tearing_choice() {
-    for supported in [
-        METAL,
-        MAILBOX_ONLY,
-        MAILBOX_ONLY.with(PresentModeKind::Immediate),
-        SurfacePresentModes::FIFO_ONLY,
+fn the_explicit_diagnostic_flag_prefers_immediate() {
+    for (supported, expected) in [
+        (METAL, PresentMode::Immediate),
+        (MAILBOX_ONLY, PresentMode::Mailbox),
+        (
+            MAILBOX_ONLY.with(PresentModeKind::Immediate),
+            PresentMode::Immediate,
+        ),
+        (SurfacePresentModes::FIFO_ONLY, PresentMode::Fifo),
     ] {
         let flag = PresentModeRuntime::from_startup(false, true, false, false);
         flag.policy.publish_capabilities(Some(supported));
-
-        let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
-        publish_capabilities(&app, supported);
-        publish_video(&mut app, |video| {
-            video.vsync = render_api::VsyncMode::AllowTearing
-        });
-        assert_eq!(primary_present_mode(&mut app), flag.window_present_mode());
+        assert_eq!(flag.window_present_mode(), expected, "{supported:?}");
     }
 }
 
@@ -132,20 +129,6 @@ fn toggling_the_user_setting_switches_the_present_mode_live() {
     assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
-#[test]
-fn tearing_is_an_explicit_player_choice_when_mailbox_is_available() {
-    let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
-    publish_capabilities(&app, MAILBOX_ONLY.with(PresentModeKind::Immediate));
-    publish_video(&mut app, |video| video.vsync = render_api::VsyncMode::Off);
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
-    publish_video(&mut app, |video| {
-        video.vsync = render_api::VsyncMode::AllowTearing
-    });
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
-    publish_video(&mut app, |video| video.vsync = render_api::VsyncMode::On);
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
-}
-
 /// The safe pre-probe FIFO request is replaced by the best advertised VSync-off mode.
 #[test]
 fn the_vsync_setting_applies_the_surface_latency_policy() {
@@ -206,7 +189,7 @@ fn a_completed_probe_moves_no_vsync_to_mailbox() {
 
 /// The launch flag and the runtime setting both select nonblocking presentation when available.
 #[test]
-fn no_vsync_flag_and_setting_prefer_immediate() {
+fn no_vsync_flag_and_setting_use_immediate_without_mailbox() {
     let flag = PresentModeRuntime::from_startup(false, true, false, false);
     flag.policy.publish_capabilities(Some(METAL));
     assert_eq!(flag.window_present_mode(), PresentMode::Immediate);
@@ -414,11 +397,22 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
 fn vsync_off_uses_the_best_supported_nonblocking_mode() {
     for (supported, expected) in [
         (MAILBOX_ONLY, PresentMode::Mailbox),
+        (
+            MAILBOX_ONLY.with(PresentModeKind::Immediate),
+            PresentMode::Mailbox,
+        ),
+        (METAL, PresentMode::Immediate),
         (SurfacePresentModes::FIFO_ONLY, PresentMode::Fifo),
     ] {
         let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
         publish_capabilities(&app, supported);
         publish_vsync(&mut app, false);
         assert_eq!(primary_present_mode(&mut app), expected, "{supported:?}");
+        publish_vsync(&mut app, true);
+        assert_eq!(
+            primary_present_mode(&mut app),
+            PresentMode::Fifo,
+            "{supported:?}"
+        );
     }
 }
