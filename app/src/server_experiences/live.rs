@@ -246,7 +246,12 @@ impl<H: Worker> Live<H> {
                 .epoch
                 .checked_add(1)
                 .ok_or_else(|| anyhow::anyhow!("world epoch exhausted"))?;
-            self.change_epoch(next.max(requested.unwrap_or(next)), now_ms, &mut packets)?;
+            self.change_epoch(
+                next.max(requested.unwrap_or(next)),
+                requested,
+                now_ms,
+                &mut packets,
+            )?;
             self.native_epoch = epoch;
         }
         let epoch = self.epoch;
@@ -419,18 +424,32 @@ impl<H: Worker> Live<H> {
     }
 
     /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,
-    /// an `epoch` control names the new one ahead of every later send, and each guest is called
-    /// back to resend its state. A v1 session cannot continue.
-    fn change_epoch(&mut self, epoch: u64, now_ms: u64, packets: &mut Vec<Vec<u8>>) -> Result<()> {
+    /// an `epoch` update or a notice-specific `world_ack` names the new one ahead of every later
+    /// send, and each guest is called back to resend its state. A v1 session cannot continue.
+    fn change_epoch(
+        &mut self,
+        epoch: u64,
+        requested: Option<u64>,
+        now_ms: u64,
+        packets: &mut Vec<Vec<u8>>,
+    ) -> Result<()> {
         ensure!(
             self.grant.wire.version != WIRE_VERSION,
             "world epoch changed; extension snapshot required"
         );
         self.epoch = epoch;
         if self.ready {
-            let control = serde_json::to_vec(&Control::Epoch {
-                session: self.grant.session.clone(),
-                world_epoch: epoch,
+            let session = self.grant.session.clone();
+            let control = serde_json::to_vec(&match requested {
+                Some(requested_epoch) => Control::WorldAck {
+                    session,
+                    world_epoch: epoch,
+                    requested_epoch,
+                },
+                None => Control::Epoch {
+                    session,
+                    world_epoch: epoch,
+                },
             })?;
             self.egress.charge(control.len(), now_ms)?;
             packets.push(control);

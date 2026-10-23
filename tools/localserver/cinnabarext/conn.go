@@ -94,9 +94,11 @@ type Conn struct {
 	sequence uint64
 	// epochChanged is set by a v2 epoch control until receive tells the Experiences.
 	epochChanged bool
-	// requestedEpoch fences sends until the client acknowledges a server world change.
-	requestedEpoch uint64
-	worldID        WorldID
+	// requestedEpoch fences both directions until this server notice is acknowledged.
+	requestedEpoch    uint64
+	worldID           WorldID
+	worldNoticeSent   bool
+	worldRetryPending bool
 }
 
 // ReadPacket returns the next packet that is not on the carrier, handling carrier messages on the
@@ -188,7 +190,7 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 	if c.wire.Version == WireVersion {
 		envelope, err = c.ingress.Receive(data, nowMs, c.epoch, c.grant)
 	} else if err = c.ingress.charge(len(data), nowMs); err == nil {
-		// After Ready a v2 client sends one kind of control message besides its envelopes.
+		// After Ready a v2 client sends epoch updates and world-notice acknowledgments.
 		if msg, controlErr := control(data); controlErr == nil {
 			return nil, c.changeEpoch(msg)
 		}
@@ -215,9 +217,20 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 // running, so its later envelopes, and the server's, carry the new epoch.
 func (c *Conn) changeEpoch(msg Control) error {
 	e := msg.Epoch
+	if ack := msg.WorldAck; ack != nil {
+		switch {
+		case ack.RequestedEpoch == 0 || ack.RequestedEpoch > c.requestedEpoch:
+			return errors.New("acknowledgment for an unrequested world notice")
+		case ack.RequestedEpoch == c.requestedEpoch && !c.worldNoticeSent:
+			return errors.New("acknowledgment for an unsent world notice")
+		case ack.WorldEpoch < ack.RequestedEpoch:
+			return errors.New("acknowledgment below the requested world epoch")
+		}
+		e = &Epoch{Session: ack.Session, WorldEpoch: ack.WorldEpoch}
+	}
 	switch {
 	case e == nil:
-		return errors.New("a control message other than epoch after Ready")
+		return errors.New("a control message other than epoch or world_ack after Ready")
 	case e.Session != c.session:
 		return errors.New("epoch for another session")
 	case e.WorldEpoch <= c.epoch:
@@ -226,10 +239,10 @@ func (c *Conn) changeEpoch(msg Control) error {
 		return errors.New("epoch inside a fragmented message")
 	}
 	c.epoch = e.WorldEpoch
-	if c.epoch >= c.requestedEpoch {
+	if msg.WorldAck != nil && msg.WorldAck.RequestedEpoch == c.requestedEpoch {
 		c.requestedEpoch = 0
 	}
-	c.epochChanged = true
+	c.epochChanged = c.requestedEpoch == 0
 	c.s.log.Info("client part world epoch", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch)
 	return nil
 }

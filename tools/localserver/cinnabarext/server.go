@@ -75,6 +75,8 @@ type Server struct {
 	bundles map[string]*Bundle
 	log     *slog.Logger
 	now     func() time.Time
+	// deferWorldNotice retries once after the rate limiter can fully refill.
+	deferWorldNotice func(func())
 
 	randMu sync.Mutex
 	rand   io.Reader
@@ -109,13 +111,14 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		key:      cfg.Key,
-		bundles:  make(map[string]*Bundle, len(cfg.Bundles)),
-		log:      cfg.Log,
-		now:      cfg.Now,
-		rand:     cfg.Rand,
-		active:   make(map[uuid.UUID]*Conn),
-		handlers: make(map[Route]func(uuid.UUID, Record)),
+		key:              cfg.Key,
+		bundles:          make(map[string]*Bundle, len(cfg.Bundles)),
+		log:              cfg.Log,
+		now:              cfg.Now,
+		deferWorldNotice: func(retry func()) { time.AfterFunc(time.Second, retry) },
+		rand:             cfg.Rand,
+		active:           make(map[uuid.UUID]*Conn),
+		handlers:         make(map[Route]func(uuid.UUID, Record)),
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)

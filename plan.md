@@ -791,8 +791,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
 - The reusable Dragonfly client-part helper offers bundles and typed wire v2 messages;
   the local server imports the same implementation. Explicit world notices fence
-  messages until the client acknowledges a new logical epoch and invoke the existing
-  client-part epoch callback, including same-dimension-type transfers. A two-world
+  messages before notice admission until the client acknowledges that specific
+  notice and invoke the existing client-part epoch callback, including
+  same-dimension-type transfers. Rate exhaustion retries the latest notice once
+  after refill or ends the optional session. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/

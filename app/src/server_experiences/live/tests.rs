@@ -1030,7 +1030,11 @@ fn a_server_world_notice_advances_the_epoch_without_a_dimension_packet() {
     let packets = live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
-        Control::Epoch { world_epoch: 2, .. }
+        Control::WorldAck {
+            world_epoch: 2,
+            requested_epoch: 2,
+            ..
+        }
     ));
     assert_eq!(live.epoch, 2);
     assert_eq!(
@@ -1047,6 +1051,52 @@ fn a_server_world_notice_advances_the_epoch_without_a_dimension_packet() {
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Epoch { world_epoch: 3, .. }
+    ));
+}
+
+#[test]
+fn a_native_epoch_update_cannot_acknowledge_a_later_server_notice() {
+    let mut live = fixture_v2(1);
+    sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
+    live.poll(1, 0).unwrap();
+    let packets = live.poll(2, CALLBACK_INTERVAL_MS).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::Epoch { world_epoch: 2, .. }
+    ));
+    for requested_epoch in [2, 3] {
+        let notice = serde_json::to_vec(&Control::Epoch {
+            session: live.grant.session.clone(),
+            world_epoch: requested_epoch,
+        })
+        .unwrap();
+        live.receive(&notice, CALLBACK_INTERVAL_MS + 1).unwrap();
+    }
+    let packets = live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::WorldAck {
+            world_epoch: 3,
+            requested_epoch: 3,
+            ..
+        }
+    ));
+    // A later notice can name an epoch the native update has already reached.
+    live.poll(3, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    let notice = serde_json::to_vec(&Control::Epoch {
+        session: live.grant.session.clone(),
+        world_epoch: 4,
+    })
+    .unwrap();
+    live.receive(&notice, 3 * CALLBACK_INTERVAL_MS + 1).unwrap();
+    let packets = live.poll(3, 4 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::WorldAck {
+            world_epoch: 5,
+            requested_epoch: 4,
+            ..
+        }
     ));
 }
 

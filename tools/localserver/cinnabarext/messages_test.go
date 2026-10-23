@@ -1,8 +1,9 @@
 package cinnabarext
 
 import (
-	"github.com/google/uuid"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // testMessage encodes the integer fixture channel as a typed application message.
@@ -82,7 +83,7 @@ func TestWorldChangedFencesMessagesUntilAcknowledgment(t *testing.T) {
 	if len(f.messages()) != 0 {
 		t.Fatal("old-world message reached the application")
 	}
-	f.deliver(f.encode(notice))
+	f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
 	if epochs != 1 || !f.sendToClient(8) {
 		t.Fatal("world acknowledgment did not reopen sends")
 	}
@@ -133,11 +134,11 @@ func TestNewestWorldNoticeKeepsTheFenceClosed(t *testing.T) {
 	if err := Decode(out[len(out)-1], &last); err != nil {
 		t.Fatal(err)
 	}
-	f.deliver(f.encode(first))
+	f.deliver(f.encode(worldAcknowledgment(first, first.Epoch.WorldEpoch)))
 	if f.sendToClient(1) {
 		t.Fatal("intermediate acknowledgment opened the fence")
 	}
-	f.deliver(f.encode(last))
+	f.deliver(f.encode(worldAcknowledgment(last, last.Epoch.WorldEpoch)))
 	if !f.sendToClient(2) {
 		t.Fatal("latest acknowledgment did not open the fence")
 	}

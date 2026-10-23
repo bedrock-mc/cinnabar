@@ -186,12 +186,17 @@ def go_scalars(enum):
 def outputs(schema):
     """Render every binding from the single ordered schema."""
     rust={}; go={}
+    record_names={record['name'] for record in schema['records']}
     for r in schema['records']:
         if r['module']: rust.setdefault(r['module'],[]).append(rust_record(r))
         module=r['module'] or 'session'
         go.setdefault(module,[]).append(go_record(r))
     for e in schema['enums']:
         rust.setdefault(e['module'],[]).append(rust_enum(e))
+        if e['name']=='Control':
+            for v in e['variants']:
+                if 'fields' in v and v['go'] not in record_names:
+                    go.setdefault(e['module'],[]).append(go_record({'name':v['go'],'fields':v['fields']}))
         render={'Field':go_fields,'Scalar':go_scalars,'Control':go_control}.get(e['name'],go_enum)
         go.setdefault(e['module'],[]).append(render(e))
     rules_rust,rules_go=render_constraints(schema)

@@ -88,10 +88,18 @@ Repeated calls with the same nonempty ID are idempotent for that connection.
 
 On wire v2 the server sends the existing `epoch` control as a request for a fresh
 logical epoch. The client keeps its runtime, invokes the existing client-part
-`epoch` callback and acknowledges the new epoch. Until acknowledgment, sends are
-unavailable and old-world inbound messages are discarded. Use `OnEpoch` to resend
-current state after the fence opens. Several outstanding world notices keep the
-fence closed until the newest requested epoch is acknowledged.
+`epoch` callback and replies with `world_ack`, naming both the requested epoch and
+its new logical epoch. A native `epoch` update cannot acknowledge a server notice.
+Until the newest notice is acknowledged, sends are unavailable and old-world
+inbound messages are discarded. Use `OnEpoch` to resend current state after the
+fence opens.
+
+The fence takes effect before the notice is admitted to the rate budget.
+`WorldChanged` returns false if the notice cannot be sent immediately. On an active
+v2 session it retries the latest notice once after one second of rate refill,
+keeping both directions fenced. If delivery still fails, the optional client part
+ends and ordinary play continues. Repeating the same world ID can send a pending
+notice sooner without allocating another epoch.
 
 Native dimension changes and explicit notices both advance the logical epoch.
 Logical epochs are independent of the native dimension counter. The client never
@@ -99,6 +107,9 @@ resets its logical epoch to that counter on a later frame. Wire v1 remains usabl
 for its existing messages, but `WorldChanged` returns false for it. Clients that
 predate server-originated epoch requests fall back from the optional extension
 when a request arrives; their ordinary session continues. Existing bundle WIT
-interfaces are unchanged.
+interfaces are unchanged. Server-notice acknowledgments require matching client
+and helper revisions; the earlier plain `epoch` acknowledgment no longer opens a
+server world fence. Existing native epoch updates and v1/v2 message records keep
+their formats.
 
 See [the two-world example](../../../examples/dragonfly-extension/README.md).

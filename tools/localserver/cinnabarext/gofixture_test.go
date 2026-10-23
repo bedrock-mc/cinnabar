@@ -39,8 +39,13 @@ func TestGoFixturesAreCurrent(t *testing.T) {
 	}
 	notices := f.carrier()
 	notice := notices[len(notices)-1]
+	var request Control
+	if err := Decode(notice, &request); err != nil || request.Epoch == nil {
+		t.Fatalf("world notice: %v", err)
+	}
 	files := map[string][]byte{
 		"world_change_request.json": notice,
+		"world_change_ack.json":     f.encode(worldAcknowledgment(request, request.Epoch.WorldEpoch+1)),
 		"marker.json":               f.encode(f.s.Marker()),
 		"hello_message.json":        f.encode(Control{Hello: &h}),
 		"accept_message.json":       out[0],

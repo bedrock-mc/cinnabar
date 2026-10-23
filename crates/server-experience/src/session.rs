@@ -37,6 +37,11 @@ pub enum Control {
         session: String,
         world_epoch: u64,
     },
+    WorldAck {
+        session: String,
+        world_epoch: u64,
+        requested_epoch: u64,
+    },
     Disabled,
 }
 // END GENERATED EXTENSION CONTRACT

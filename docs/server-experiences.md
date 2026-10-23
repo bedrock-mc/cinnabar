@@ -313,6 +313,17 @@ sends carry the epoch it began in. An epoch control that names another session, 
 not move forward, arrives before Ready or inside a fragmented message is a
 violation.
 
+The Dragonfly helper can request an epoch for a committed world transfer,
+including a transfer between worlds of the same dimension type. The request uses
+the same `epoch` control. Its acknowledgment is
+`{"kind":"world_ack","body":{"session":…, "world_epoch":…, "requested_epoch":…}}`:
+`requested_epoch` echoes the server notice, while `world_epoch` is the client's
+strictly newer logical epoch. This keeps an earlier native epoch update from
+acknowledging a notice the client has not received. The server fences both
+directions before attempting delivery and reopens them only for the newest
+notice's acknowledgment. Deploy matching client and helper revisions for this
+control; native epoch updates and message envelopes retain their formats.
+
 On the server, the guest's `client-message` and `epoch` callbacks (server WIT 0.4)
 get the snapshot of the player's focus, the Experience block the player last used,
 so a client part's action can change that block's data and resend its state

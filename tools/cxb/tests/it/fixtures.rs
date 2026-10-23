@@ -445,6 +445,17 @@ fn go_server_half_passes_the_client_verifiers() {
             .unwrap(),
         Some(world_epoch + 1)
     );
+    let Control::WorldAck {
+        session,
+        world_epoch: acknowledged_epoch,
+        requested_epoch,
+    } = canonical("go/world_change_ack.json")
+    else {
+        panic!("world_change_ack.json is not a world acknowledgment");
+    };
+    assert_eq!(session, grant.session);
+    assert_eq!(requested_epoch, world_epoch + 1);
+    assert_eq!(acknowledged_epoch, requested_epoch + 1);
 }
 
 #[test]

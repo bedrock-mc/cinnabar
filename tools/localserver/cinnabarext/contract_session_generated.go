@@ -79,11 +79,46 @@ func (v *Epoch) decodeJSON(r *reader) error {
 	})
 }
 
+// WorldAck is the schema-defined WorldAck document.
+type WorldAck struct {
+	Session        string
+	WorldEpoch     uint64
+	RequestedEpoch uint64
+}
+
+var worldAckFields = []string{"session", "world_epoch", "requested_epoch"}
+
+// appendJSON writes WorldAck in canonical field order.
+func (v WorldAck) appendJSON(b []byte) ([]byte, error) {
+	o := object{b: b, names: worldAckFields}
+	o.str(v.Session)
+	o.uint(uint64(v.WorldEpoch))
+	o.uint(uint64(v.RequestedEpoch))
+	return o.end()
+}
+
+// decodeJSON reads a strict WorldAck object.
+func (v *WorldAck) decodeJSON(r *reader) error {
+	*v = WorldAck{}
+	return r.fields(worldAckFields, func(name string) (err error) {
+		switch name {
+		case "session":
+			v.Session, err = r.str()
+		case "world_epoch":
+			v.WorldEpoch, err = readUint[uint64](r)
+		case "requested_epoch":
+			v.RequestedEpoch, err = readUint[uint64](r)
+		}
+		return err
+	})
+}
+
 type Control struct {
 	Hello    *Hello
 	Accept   *SignedDocument
 	Ready    *Ready
 	Epoch    *Epoch
+	WorldAck *WorldAck
 	Disabled bool
 }
 
@@ -108,6 +143,10 @@ func (c Control) appendJSON(b []byte) ([]byte, error) {
 	}
 	if c.Epoch != nil {
 		kind, body = "epoch", *c.Epoch
+		count++
+	}
+	if c.WorldAck != nil {
+		kind, body = "world_ack", *c.WorldAck
 		count++
 	}
 	if c.Disabled {
@@ -152,6 +191,9 @@ func (c *Control) decodeJSON(r *reader) error {
 	case "epoch":
 		c.Epoch = new(Epoch)
 		body = c.Epoch
+	case "world_ack":
+		c.WorldAck = new(WorldAck)
+		body = c.WorldAck
 	case "disabled":
 		c.Disabled = true
 	default:
