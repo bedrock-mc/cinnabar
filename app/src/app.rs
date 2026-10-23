@@ -45,7 +45,7 @@ use {
 };
 pub(crate) mod logging;
 pub(crate) mod session;
-mod startup;
+pub(crate) mod startup;
 use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
@@ -69,7 +69,8 @@ use {
         runtime::{
             network::receive_network_events,
             shutdown::{
-                TerminalCause, exit_on_fatal_runtime_error, exit_on_window_close_requested,
+                TerminalCause, exit_on_fatal_runtime_error, exit_on_gpu_failure,
+                exit_on_window_close_requested,
             },
             telemetry::{
                 publish_runtime_stage_profile, record_metrics, update_visibility_diagnostics,
@@ -137,6 +138,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(feature = "acceptance")]
     app.init_resource::<MovementEvidenceEmitter>();
     configure_client_authority_systems(app);
+    crate::melee::server_swings::configure(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
@@ -248,6 +250,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             Update,
             (
                 exit_on_window_close_requested,
+                exit_on_gpu_failure,
                 flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
@@ -277,8 +280,9 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
-    let app = App::new();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    let feedback = crate::startup_feedback::Feedback::start();
+    let app = App::new();
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
@@ -324,13 +328,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let carriers =
+        startup::take_or_load_startup_carriers(selected_assets, &layout.physics_registry);
     let startup::CoreCarriers {
         assets: loaded_assets,
         actor: actor_catalog,
         equipment: equipment_catalog,
         authored_texture_loading,
     } = carriers.core.context("load startup block assets")?;
+    if feedback.cancelled() {
+        return Ok(());
+    }
     logging::loaded_assets(&loaded_assets);
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
@@ -401,6 +409,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut block_entity_scene =
         crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
     block_entity_scene.install_entity_assets(&entity_runtime);
+    feedback.progress(launcher::startup::Stage::PreparingInterface);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
     let font_dir = loaded_assets.selected_path.parent();
@@ -497,25 +506,41 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .transpose()
         .context("load persistent login client ID")?;
 
-    // Validate local carriers before starting a connection: an asset failure
-    // must not launch the core or wait on a server the client cannot render.
+    // Validate local carriers before admitting a connection, including a cancelled launch.
     if let Some(address) = args.address.as_deref() {
-        let child = spawn_core_for_address(
-            &layout,
-            &socket_dir,
-            address,
-            None,
-            client_blob_cache.enables_upstream_client_cache(),
-            false,
-        )
-        .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
-        core_process.replace(child);
-        if let Err(error) = wait_for_core(&socket_dir) {
-            launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
-            return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
+        let admitted = crate::startup_feedback::while_active(
+            || feedback.cancelled(),
+            || {
+                let child = spawn_core_for_address(
+                    &layout,
+                    &socket_dir,
+                    address,
+                    None,
+                    client_blob_cache.enables_upstream_client_cache(),
+                    false,
+                )
+                .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
+                core_process.replace(child);
+                wait_for_core(&socket_dir)
+                    .with_context(|| format!("wait for Go core endpoint for {address}"))
+            },
+        );
+        match admitted {
+            Ok(Some(())) => {}
+            outcome => {
+                launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
+                outcome?;
+                return Ok(());
+            }
         }
-    } else if connection_requested {
-        preflight_bridge_endpoint(&socket_dir)?;
+    } else if connection_requested
+        && crate::startup_feedback::while_active(
+            || feedback.cancelled(),
+            || preflight_bridge_endpoint(&socket_dir),
+        )?
+        .is_none()
+    {
+        return Ok(());
     }
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
@@ -523,6 +548,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
+    #[cfg(feature = "shaderpacks")]
+    let shader_compiler = {
+        let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
+        if layout.is_installed() {
+            bundled
+        } else {
+            layout
+                .core_executable
+                .with_file_name(bundled.file_name().context("asset compiler basename")?)
+        }
+    };
     let renderer_data_root = layout.user_data_root.clone();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = MenuRuntime::new_with_import_snapshot(
@@ -571,7 +607,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     let startup_vsync = present_mode_runtime
         .vsync_override()
-        .unwrap_or_else(|| saved_settings.user_settings().video.vsync);
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync.enabled());
+    if feedback.cancelled() {
+        return Ok(());
+    }
+    feedback.progress(launcher::startup::Stage::OpeningWindow);
     let primary_window = render_setup::primary_window(
         launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
@@ -582,6 +622,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
     let mut app = app;
     app.insert_resource(packet_mods);
+    app.insert_resource(feedback.clone());
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
@@ -603,6 +644,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
     logging::add_default_plugins(&mut app, plugins);
+    render_setup::finish(&mut app)?;
+    #[cfg(feature = "shaderpacks")]
+    app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
+        shader_compiler,
+    ));
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
@@ -611,6 +657,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
+    #[cfg(target_os = "macos")]
+    crate::frame_pacing::macos_presentation::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
@@ -859,10 +907,21 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     executor::configure_frame_schedule_executors(&mut app);
     app.add_plugins(render::startup_presentation::StartupPresentationPlugin)
-        .add_systems(First, crate::lifecycle::acknowledge_startup);
+        .add_systems(
+            First,
+            (
+                crate::lifecycle::acknowledge_startup,
+                (
+                    crate::startup_feedback::synchronize_surface,
+                    crate::startup_feedback::finish,
+                )
+                    .chain(),
+            ),
+        );
     crate::lifecycle::heartbeat::configure(&mut app);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
+    feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);

@@ -24,6 +24,13 @@ biomes; `sky_fog` and `BiomeColors` give Java's sky and fog colours.
 The render crate's `shaderpacks` feature (off by default) runs translated packs in the
 client; `plan.md` lists the remaining gaps.
 
+The client uses `assetc` as a disposable CPU compiler process. Build both with the
+`shaderpacks` feature (`make play SHADERPACKS=1` does this). The compiler limits
+live Rust heap storage, CPU time, elapsed time and result size. The client kills and
+reaps a cancelled or expired compiler, and reports a crashed compiler as a pack load
+failure. GPU pipelines are built on the client's load thread after CPU translation.
+`ShaderPack::translate` remains an in-process API for trusted fixtures and tools.
+
 ```sh
 cargo test --locked -p shaderpack
 ```

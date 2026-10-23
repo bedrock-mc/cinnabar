@@ -206,6 +206,8 @@ fn prepare_nametags(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<NametagGpu>,
 ) {
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!("nametag.upload").entered();
     if scene.is_changed() || gpu.is_added() || uploads.queue.is_changed() {
         let total = scene.records.len().min(MAX_NAMETAG_RECORDS);
         gpu.total = total as u32;
@@ -572,8 +574,8 @@ impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
             crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced),
         );
         let overlay_mode = (view.msaa, false, true);
-        let warm_overlay = overlay::enabled(view.enhanced, cfg!(feature = "shaderpacks"))
-            && ordinary != overlay_mode;
+        let warm_overlay =
+            overlay::enabled(view.enhanced, view.shader_pack) && ordinary != overlay_mode;
         for (msaa, hdr, gamma_blend) in
             std::iter::once(ordinary).chain(warm_overlay.then_some(overlay_mode))
         {

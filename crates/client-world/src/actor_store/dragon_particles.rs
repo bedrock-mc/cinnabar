@@ -46,7 +46,7 @@ impl ActorStore {
                 );
             }
             actor.status.native_velocity = [0.0; 3];
-            actor.position[1] += DEATH_LIFT_PER_TICK;
+            actor.translate_native_height(DEATH_LIFT_PER_TICK);
             self.effect_members.collidable.update(actor);
             let Some(dimension) = dimension else {
                 continue;

@@ -195,6 +195,7 @@ mod tests {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: Arc::from("test:roof"),
                 tags: Default::default(),
                 state_count: 2,

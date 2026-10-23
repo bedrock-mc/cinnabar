@@ -134,3 +134,32 @@ fn recurring_vertices_do_not_allocate_native_staging_buffers() {
     assert!(stats.staged_writes >= staged + 3);
     assert_eq!(stats.fallback_writes, 0);
 }
+
+/// A list the device had no memory for retries on the next frame even when nothing changed.
+#[test]
+fn failed_vertex_growth_retries_without_a_new_revision() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.init_resource::<render_scene::BlockEntityFrameResource>();
+    world.init_resource::<render_scene::BlockSelectionFrameResource>();
+    world.run_system_once(init_gpu).unwrap();
+    {
+        let mut frame = world.resource_mut::<render_scene::BlockEntityFrameResource>();
+        frame.portal = Arc::from([BlockEntityVertex::default(); 3]);
+        frame.revision += 1;
+    }
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "portal encoded plane vertices");
+        world.run_system_once(prepare_resources).unwrap();
+    }
+    let gpu = world.resource::<BlockEntityGpu>();
+    assert_eq!(gpu.portal.count, 0);
+    assert!(gpu.uploaded.portal.is_empty());
+    world.run_system_once(prepare_resources).unwrap();
+    let gpu = world.resource::<BlockEntityGpu>();
+    assert_eq!(gpu.portal.count, 3);
+    assert_eq!(gpu.uploaded.portal.len(), 3);
+}

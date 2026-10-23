@@ -29,6 +29,7 @@ fn admit_attack(
     }
     let stack = protocol::NetworkItemStack::empty();
     let press = PressContext {
+        refused_destroy: None,
         tick: 100,
         player_position: [0.0, 1.62, 0.0],
         input_mode: protocol::PlayerInputMode::Mouse,

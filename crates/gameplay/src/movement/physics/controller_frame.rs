@@ -36,6 +36,7 @@ pub(super) struct ControllerFrame {
     pub grounded_before_tick: bool,
     pub jump_repeated: bool,
     pub ride_delta: Option<[f32; 3]>,
+    pub actor_position: Option<super::actor_move::ActorPositionUpdate>,
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
@@ -64,6 +65,10 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        if let Some(position) = self.actor_position {
+            position.apply(state);
+            anchor_state.note_hard_anchor();
+        }
         input.no_clip = self.intent.no_clip;
         let previous_sprinting = input.sprinting;
         if let Some(sprinting) = self.server_sprinting {
@@ -139,7 +144,7 @@ impl ControllerFrame {
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,
-            sim::MovementMode::Crawling | sim::MovementMode::Gliding | sim::MovementMode::Riding
+            sim::MovementMode::Crawling | sim::MovementMode::Riding
         ) {
             input.sprinting = false;
         }

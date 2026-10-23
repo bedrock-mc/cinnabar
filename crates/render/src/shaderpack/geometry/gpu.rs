@@ -519,8 +519,8 @@ pub(crate) struct GeometryInputs<'w> {
     block_ids: Option<Res<'w, ShaderpackBlockIds>>,
     /// The pack's `far`, the client render distance in blocks.
     frame: Option<Res<'w, render_scene::shaderpack::ShaderPackFrameInputs>>,
-    pipelines: Res<'w, ExpansionPipelines>,
-    cache: Res<'w, PipelineCache>,
+    pipelines: Option<Res<'w, ExpansionPipelines>>,
+    cache: Option<Res<'w, super::super::kernels::Kernels>>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
@@ -539,22 +539,25 @@ type GeometryViews<'w, 's> = Query<
 
 /// Plans this frame's expansion and rebuilds every view's draw lists.
 pub(crate) fn prepare_shaderpack_geometry(
-    mut geometry: ResMut<ShaderpackGeometry>,
+    geometry: Option<ResMut<ShaderpackGeometry>>,
     inputs: GeometryInputs,
     sources: PackedChunkSources,
     mut sections: ResidentSections,
     views: GeometryViews,
 ) {
-    let _timer = inputs
-        .profiler
-        .as_deref()
-        .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
+    let Some(mut geometry) = geometry else {
+        return;
+    };
     geometry.prepared = PreparedExpansion::default();
     let settings = inputs.settings.as_deref().cloned().unwrap_or_default();
     if !settings.enabled || !geometry.supported {
         geometry.release_all();
         return;
     }
+    let _timer = inputs
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
     if settings.layout != geometry.layout {
         geometry.set_layout(settings.layout);
     }
@@ -607,7 +610,11 @@ pub(crate) fn prepare_shaderpack_geometry(
         geometry.release_all();
         return;
     }
-    let kernels_ready = geometry.pipelines_ready(&inputs.cache, &inputs.pipelines);
+    let kernels_ready = inputs
+        .pipelines
+        .as_deref()
+        .zip(inputs.cache.as_deref())
+        .is_some_and(|(pipelines, kernels)| geometry.pipelines_ready(&kernels.cache, pipelines));
     let attribute_key = AttributeKey {
         assets: std::sync::Arc::as_ptr(&textures.assets) as usize,
         revision: textures.revision,
@@ -732,6 +739,9 @@ fn plan_frame(
     budget: u32,
     eye: Option<DVec3>,
 ) -> u32 {
+    let Some(cache) = inputs.cache.as_deref().map(|kernels| &kernels.cache) else {
+        return 0;
+    };
     let tables = MaterialTables {
         materials: textures.assets.materials(),
         model_templates: textures.assets.model_templates(),
@@ -870,7 +880,7 @@ fn plan_frame(
         &planned,
     );
     let job_buffer = geometry.expansion.jobs().expect("written above");
-    let output_layout = inputs.cache.get_bind_group_layout(&output_layout());
+    let output_layout = cache.get_bind_group_layout(&output_layout());
     let mut source_groups: [Option<BindGroup>; 3] = Default::default();
     for (index, (kind_index, page)) in keys.into_iter().enumerate() {
         let kind = JOB_KINDS[kind_index];
@@ -897,7 +907,7 @@ fn plan_frame(
             ],
         );
         let sources = source_groups[kind_index]
-            .get_or_insert_with(|| source_group(device, &inputs.cache, kind, buffers))
+            .get_or_insert_with(|| source_group(device, cache, kind, buffers))
             .clone();
         geometry.prepared.dispatches.push(Dispatch {
             kind,
@@ -928,12 +938,17 @@ fn expand_params(
 
 /// Records this frame's expansion dispatches ahead of camera passes.
 pub(crate) fn record_geometry_expansion(
-    mut geometry: ResMut<ShaderpackGeometry>,
-    pipelines: Res<ExpansionPipelines>,
-    cache: Res<PipelineCache>,
+    geometry: Option<ResMut<ShaderpackGeometry>>,
+    pipelines: Option<Res<ExpansionPipelines>>,
+    kernels: Option<Res<super::super::kernels::Kernels>>,
     timestamps: Option<Res<crate::gpu_timing::GpuTimestamps>>,
     mut context: RenderContext,
 ) {
+    let (Some(mut geometry), Some(pipelines), Some(kernels)) = (geometry, pipelines, kernels)
+    else {
+        return;
+    };
+    let cache = &kernels.cache;
     let prepared = std::mem::take(&mut geometry.prepared);
     if prepared.dispatches.is_empty() {
         return;

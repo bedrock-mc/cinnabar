@@ -53,6 +53,7 @@ pub use store::ActorAnimationStore;
 use store::{PackCatalog, PoseStep, model_scale};
 
 mod attachable;
+mod boat;
 mod cape;
 pub use cape::CapePreparationQueue;
 mod clock;

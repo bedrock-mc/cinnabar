@@ -25,7 +25,7 @@ pub(in crate::ui_runtime::presentation) struct SemanticHud {
     // Keep the language tables alive so their addresses cannot be reused under this key.
     _translator: Translator,
     chat_rows: Vec<u64>,
-    chat_options: Option<(f64, char, bool)>,
+    chat_options: Option<(f64, char, char, bool)>,
     sidebar_key: Option<(u64, u64, bool)>,
     bosses: Vec<BossBarView>,
     world_text: components::WorldTextInput,
@@ -187,9 +187,11 @@ impl SemanticHud {
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> bool {
+        let facts = player.inventory.ledger().item_facts();
         self.model.hotbar.len() == frame.hotbar_stacks.len()
             && self.model.hotbar.iter().enumerate().all(|(index, slot)| {
                 self.slot_matches(
+                    facts,
                     slot,
                     frame.hotbar_stacks[index].as_ref(),
                     frame.hotbar_icons[index],
@@ -197,9 +199,10 @@ impl SemanticHud {
                     player.selected_hotbar_slot() == Some(index as u8),
                 )
             })
-            && match (&self.model.offhand, runtime.gameplay_hud().offhand_stack()) {
+            && match (&self.model.offhand, runtime.local_offhand_stack(player)) {
                 (None, None) => true,
                 (Some(slot), Some(stack)) => self.slot_matches(
+                    facts,
                     slot,
                     Some(stack),
                     frame.offhand_icon,
@@ -213,6 +216,7 @@ impl SemanticHud {
     /// Checks an item cell against its retained icon index and displayed stack values.
     fn slot_matches(
         &self,
+        facts: &inventory::SessionItemFacts,
         slot: &HudSlot,
         stack: Option<&protocol::NetworkItemStack>,
         icon: Option<IconRef>,
@@ -220,6 +224,7 @@ impl SemanticHud {
         selected: bool,
     ) -> bool {
         slot.count == stack.map_or(0, |stack| u32::from(stack.count))
+            && slot.id_aux == stack.map(|stack| facts.id_aux(stack))
             && slot.selected == selected
             && slot.durability == stack.and(durability).map(f64::from)
             && slot.icon.and_then(|index| self.icons.get(index).copied()) == stack.and(icon)
@@ -233,6 +238,7 @@ impl SemanticHud {
         frame: &HudFrame,
     ) {
         self.icons.clear();
+        let facts = player.inventory.ledger().item_facts();
         let mut slot = |stack: Option<&protocol::NetworkItemStack>,
                         icon: Option<IconRef>,
                         durability: Option<f32>,
@@ -243,6 +249,7 @@ impl SemanticHud {
             });
             HudSlot {
                 icon,
+                id_aux: stack.map(|stack| facts.id_aux(stack)),
                 count: stack.map_or(0, |stack| u32::from(stack.count)),
                 selected,
                 durability: stack.and(durability).map(f64::from),
@@ -258,7 +265,7 @@ impl SemanticHud {
                 )
             })
             .collect();
-        self.model.offhand = runtime.gameplay_hud().offhand_stack().map(|stack| {
+        self.model.offhand = runtime.local_offhand_stack(player).map(|stack| {
             slot(
                 Some(stack),
                 frame.offhand_icon,
@@ -317,7 +324,13 @@ impl SemanticHud {
         reset: bool,
     ) -> bool {
         let hidden = settings.value(SettingId::HideChat) != 0;
-        let options = (settings.chat_lifetime(), settings.chat_color_code(), hidden);
+        let mention_code = settings.mentions_color_code();
+        let options = (
+            settings.chat_lifetime(),
+            settings.chat_color_code(),
+            mention_code,
+            hidden,
+        );
         let horizon = seconds(now) - options.0 - 1.0;
         let rows = || {
             runtime
@@ -336,6 +349,7 @@ impl SemanticHud {
             &mut self.model.chat_color,
             ui_screens::settings_chat::default_color(settings),
         );
+        changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         if reset
             || self.chat_options != Some(options)
             || !rows().map(|(id, _)| id).eq(self.chat_rows.iter().copied())
@@ -367,6 +381,10 @@ impl SemanticHud {
         changed |= replace(
             &mut self.model.chat_background_opacity,
             f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0,
+        );
+        changed |= replace(
+            &mut self.model.chat_text,
+            ui_screens::settings_chat::chat_text(settings),
         );
         changed
     }

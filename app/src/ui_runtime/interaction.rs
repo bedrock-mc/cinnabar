@@ -67,6 +67,18 @@ pub(crate) fn dispatch_bound_inventory_hotbar(
     matched
 }
 
+/// Returns whether a mouse button is assigned to one or more hotbar slots.
+fn mouse_button_bound_to_hotbar(
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    button: MouseButton,
+) -> bool {
+    client_shell::physical_input::mouse_button_code(button).is_some_and(|code| {
+        hotbar_control_slots(menu, semantic_input::PhysicalControl::MouseButton(code))
+            .next()
+            .is_some()
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_inventory_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
@@ -82,9 +94,11 @@ pub(crate) fn drive_inventory_ui_actions(
     mut runtime: ResMut<UiRuntimeResource>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
+    consent: Option<Res<client_state::ConsentInput>>,
 ) {
-    let input_available = driven.is_some()
-        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    let input_available = !consent.is_some_and(|consent| consent.0)
+        && (driven.is_some()
+            || (window.focused && focus.as_ref().is_none_or(|focus| focus.available())));
     let notches: Vec<(f32, MouseScrollUnit)> = wheel_messages
         .as_deref()
         .map(|messages| {
@@ -95,16 +109,14 @@ pub(crate) fn drive_inventory_ui_actions(
         })
         .unwrap_or_default();
     // Button state is reset below while the inventory owns the pointer, so a later
-    // physical release no longer surfaces as `just_released`; read raw releases too.
-    let (mut raw_primary_release, mut raw_secondary_release) = (false, false);
+    // physical release no longer surfaces as `just_released`; read raw edges too.
+    let (mut primary_edge, mut secondary_edge) = (None, None);
     if let Some(messages) = mouse_messages.as_deref() {
         for input in release_cursor.read(messages) {
-            if input.state == ButtonState::Released {
-                match input.button {
-                    MouseButton::Left => raw_primary_release = true,
-                    MouseButton::Right => raw_secondary_release = true,
-                    _ => {}
-                }
+            match input.button {
+                MouseButton::Left => primary_edge = Some(input.state),
+                MouseButton::Right => secondary_edge = Some(input.state),
+                _ => {}
             }
         }
     }
@@ -112,6 +124,7 @@ pub(crate) fn drive_inventory_ui_actions(
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         runtime.screen_state_mut().container_close_armed = false;
+        runtime.screen_state_mut().container_scroll_drag = None;
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
@@ -119,6 +132,7 @@ pub(crate) fn drive_inventory_ui_actions(
         || !input_available
     {
         runtime.screen_state_mut().container_close_armed = false;
+        runtime.screen_state_mut().container_scroll_drag = None;
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
         runtime.screen_state_mut().pointer.reset();
@@ -126,6 +140,14 @@ pub(crate) fn drive_inventory_ui_actions(
             runtime.screen_state_mut().book = None;
         }
         return;
+    }
+    // ButtonInput retains both edge flags for a release followed by a press.
+    // The last raw edge decides whether that new inventory gesture remains held.
+    if primary_edge == Some(ButtonState::Pressed) {
+        mouse_buttons.clear_just_released(MouseButton::Left);
+    }
+    if secondary_edge == Some(ButtonState::Pressed) {
+        mouse_buttons.clear_just_released(MouseButton::Right);
     }
     let now_millis = time.map_or(0, |time| {
         u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -137,7 +159,10 @@ pub(crate) fn drive_inventory_ui_actions(
         &presentation,
         menu.as_deref(),
         &mut mouse_buttons,
-        (raw_primary_release, raw_secondary_release),
+        (
+            primary_edge == Some(ButtonState::Released),
+            secondary_edge == Some(ButtonState::Released),
+        ),
         (presses, shift, control),
         &notches,
         focus.as_deref_mut(),
@@ -174,6 +199,7 @@ fn route_press(
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
     if button == MouseButton::Back
+        && !mouse_button_bound_to_hotbar(menu, button)
         && inventory::cancel_from_mouse_back(player_runtime, runtime, presentation.as_deref())
     {
         return (PressRoute::Binding, true);
@@ -432,12 +458,17 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
-    if mouse_bindings && mouse_buttons.just_pressed(MouseButton::Back) {
-        let inventory_cancelled = inventory::cancel_from_mouse_back(
-            &mut player_runtime,
-            &mut runtime,
-            presentation.as_deref().map(|view| &view.0),
-        );
+    // Platform Back is routed below at its place among this frame's keys.
+    let platform_back = keyboard_events
+        .iter()
+        .any(crate::ui_runtime::platform_back::is_platform_back);
+    if mouse_bindings && !platform_back && mouse_buttons.just_pressed(MouseButton::Back) {
+        let inventory_cancelled = !mouse_button_bound_to_hotbar(menu.as_deref(), MouseButton::Back)
+            && inventory::cancel_from_mouse_back(
+                &mut player_runtime,
+                &mut runtime,
+                presentation.as_deref().map(|view| &view.0),
+            );
         if inventory_cancelled
             || chat::cancel_from_mouse_back(
                 &mut runtime,
@@ -536,6 +567,28 @@ pub(crate) fn drive_chat_keyboard_input(
             input.state == ButtonState::Pressed,
         );
         if input.state != ButtonState::Pressed {
+            continue;
+        }
+        if crate::ui_runtime::platform_back::is_platform_back(input) {
+            // Back cancels like a mouse Back press; a held key never cancels twice.
+            if !input.repeat {
+                let inventory_cancelled = inventory::cancel_from_mouse_back(
+                    &mut player_runtime,
+                    &mut runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                );
+                if inventory_cancelled
+                    || chat::cancel_from_mouse_back(
+                        &mut runtime,
+                        presentation.as_deref_mut().map(|view| &mut view.0),
+                    )
+                {
+                    dismissed |= !runtime.ui_focused(&player_runtime);
+                    inventory_ownership_changed |= inventory_cancelled;
+                    consumed_gameplay = true;
+                    mouse_buttons.clear_just_pressed(MouseButton::Back);
+                }
+            }
             continue;
         }
         if let Some(presentation) = presentation.as_deref_mut()

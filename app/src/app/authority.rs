@@ -4,6 +4,7 @@ use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_befor
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
+    app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
     app.add_systems(
         bevy::prelude::Startup,
         (
@@ -33,6 +34,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .run_if(|| cfg!(target_os = "android")),
     )
     .add_systems(
+        bevy::prelude::PreUpdate,
+        crate::ui_runtime::platform_back::press_mouse_back_for_platform_back
+            .after(bevy::input::InputSystems)
+            .run_if(|| cfg!(target_os = "android")),
+    )
+    .add_systems(
         Update,
         route_semantic_input.in_set(ClientFrameSet::SemanticSample),
     )
@@ -50,9 +57,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_chat_keyboard_input
                 .run_if(client_extensions::server_experiences::input::ordinary_input)
                 .before(client_state::ShellFrameSet::MenuInput),
-            drive_inventory_ui_actions
-                .run_if(client_extensions::server_experiences::input::ordinary_input)
-                .after(client_state::ShellFrameSet::MenuInput),
+            drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
             drive_menu_services,
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
@@ -100,5 +105,10 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         drain_committed_ui_before_authority
             .after(reconcile_world_stream_before_physics)
             .before(ClientFrameSet::UiAuthority),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::data_driven::publish_host_screens
+            .before(drain_committed_ui_before_authority),
     );
 }

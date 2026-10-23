@@ -340,11 +340,8 @@ impl ModeTracker {
         };
         self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
-        self.sprinting = sprinting
-            && !matches!(
-                mode,
-                MovementMode::Crawling | MovementMode::Gliding | MovementMode::Riding
-            );
+        self.sprinting =
+            sprinting && !matches!(mode, MovementMode::Crawling | MovementMode::Riding);
         Ok(ModeChoice {
             mode,
             forced_sneak,

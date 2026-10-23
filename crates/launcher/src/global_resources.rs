@@ -42,6 +42,11 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Whether the Apply changes action is enabled for the staged selection.
+    pub fn can_apply(&self) -> bool {
+        !self.busy && self.has_pending_changes()
+    }
+
     /// Reports edits relative to the last acknowledged runtime stack.
     pub fn has_pending_changes(&self) -> bool {
         self.applied_selection

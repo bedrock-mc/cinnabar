@@ -1,4 +1,7 @@
-use super::{decode_text, normalize_jsonc, parse_jsonc, prepare_jsonc};
+use super::{
+    MAX_PARSED_BYTES, PARSED_BYTES_PER_OBJECT, PARSED_BYTES_PER_VALUE, decode_text,
+    fits_parse_budget, normalize_jsonc, parse_jsonc, prepare_jsonc, validate_jsonc,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::cell::Cell;
@@ -182,4 +185,76 @@ fn malformed_syntax_is_rejected_and_comments_separate_tokens() {
     }
     let error = parse_jsonc::<Value>(b"{/* first\nsecond */\n\"a\":}\n").unwrap_err();
     assert_eq!(error.line(), 3);
+}
+
+// A pack entry inflating to a dense array must be refused before its value tree can exhaust memory.
+#[test]
+fn a_document_whose_tree_could_exhaust_memory_is_refused_before_parsing() {
+    let values = MAX_PARSED_BYTES / PARSED_BYTES_PER_VALUE;
+    let mut dense = Vec::with_capacity(2 * values + 2);
+    dense.push(b'[');
+    for _ in 0..values {
+        dense.extend_from_slice(b"0,");
+    }
+    dense.extend_from_slice(b"0]");
+    let error = parse_jsonc::<Value>(&dense).unwrap_err();
+    assert!(error.to_string().contains("too large"), "{error}");
+}
+
+// Small objects each allocate a whole map node, far more than their text suggests.
+#[test]
+fn many_small_objects_are_refused_by_their_map_cost() {
+    let objects = MAX_PARSED_BYTES / PARSED_BYTES_PER_OBJECT;
+    let mut dense = Vec::with_capacity(7 * objects + 2);
+    dense.push(b'[');
+    for _ in 0..objects {
+        dense.extend_from_slice(br#"{"":0},"#);
+    }
+    dense.extend_from_slice(b"0]");
+    let error = parse_jsonc::<Value>(&dense).unwrap_err();
+    assert!(error.to_string().contains("too large"), "{error}");
+}
+
+#[test]
+fn the_parse_budget_counts_values_outside_strings_and_comments() {
+    let budget = 64 + 5 * PARSED_BYTES_PER_VALUE;
+    assert!(fits_parse_budget(br#"[0,1,2,3]"#, budget));
+    assert!(!fits_parse_budget(br#"[0,1,2,3,4,5,6,7,8]"#, budget));
+    assert!(fits_parse_budget(br#"["0,1,2,3,4,5,6,\",7,8"]"#, budget));
+    assert!(fits_parse_budget(
+        b"/* , , , , , , */ [0,1,2,3] // , , , , ,",
+        budget
+    ));
+    // A quote inside a comment opens no string, so the commas after it still count.
+    assert!(!fits_parse_budget(
+        br#"/* " */ [0,1,2,3,4,5,6,7,8]"#,
+        budget + 16
+    ));
+    assert!(fits_parse_budget(
+        br#"// "
+["0,1,2,3,4,5,6,7,8"]"#,
+        budget
+    ));
+}
+
+// Syntax-only validation builds no tree, so the tree budget must not reject it.
+#[test]
+fn syntax_validation_accepts_documents_beyond_the_tree_budget() {
+    let objects = MAX_PARSED_BYTES / PARSED_BYTES_PER_OBJECT;
+    let mut dense = b"[".to_vec();
+    for _ in 0..objects {
+        dense.extend_from_slice(br#"{"":0},"#);
+    }
+    dense.extend_from_slice(b"0]");
+    assert!(parse_jsonc::<Value>(&dense).is_err());
+    assert!(validate_jsonc(&dense).is_ok());
+    assert!(validate_jsonc(b"[0,").is_err());
+}
+
+// Empty objects allocate no map node, so many of them stay within the budget.
+#[test]
+fn empty_objects_are_not_charged_a_map_node() {
+    let budget = 64 + 8 * PARSED_BYTES_PER_VALUE;
+    assert!(fits_parse_budget(b"[{},{},{}]", budget));
+    assert!(!fits_parse_budget(br#"[{"":0}]"#, budget));
 }

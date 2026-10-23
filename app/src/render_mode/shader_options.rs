@@ -3,12 +3,14 @@
 //! pack and reloads it, as Iris applies them.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, mpsc};
+use std::sync::Mutex;
+use std::time::Instant;
 
 use bevy::prelude::*;
 use launcher::shader_options::{Action, Editor, Status, View};
 
 mod writer;
+#[cfg(test)]
 use shaderpack::{OptionSession, OptionValues, ShaderPack};
 use writer::{Request, Writer};
 
@@ -20,6 +22,7 @@ use super::{MenuRuntime, RenderModeConfig, RuntimeSettings};
 pub(super) struct ShaderOptionsHost {
     open: Option<Open>,
     writer: Option<Writer>,
+    retiring: Option<Mutex<shaderpack::worker::Running>>,
 }
 
 /// One open screen and where its pack's values are saved.
@@ -46,38 +49,49 @@ struct Progress {
 }
 
 enum State {
-    Loading(Mutex<mpsc::Receiver<Result<OptionSession, String>>>),
+    Waiting(shaderpack::worker::Request),
+    Loading(Mutex<shaderpack::worker::Running>, Instant),
     Ready(Box<Editor>),
     Failed(String),
 }
 
 impl Open {
-    /// Starts reading `pack` on a worker.
-    fn start(pack: SelectedPack) -> Open {
-        let (send, receive) = mpsc::channel();
-        let (path, file) = (pack.path, pack.options.clone());
-        let spawned = std::thread::Builder::new()
-            .name("shader pack options".into())
-            .spawn(move || {
-                let _ = send.send(read_session(&path, file.as_deref()));
-            });
-        let state = match spawned {
-            Ok(_) => State::Loading(Mutex::new(receive)),
-            Err(error) => State::Failed(error.to_string()),
-        };
+    /// Keeps the latest request queued until the previous reader has retired.
+    fn pending(pack: SelectedPack) -> Open {
         Open {
             name: pack.name,
-            file: pack.options,
-            state,
+            file: pack.options.clone(),
+            state: State::Waiting(shaderpack::worker::Request {
+                pack: pack.path,
+                options: pack.options,
+                dimension: String::new(),
+                environment: shaderpack::Environment::default(),
+                purpose: shaderpack::worker::Purpose::Options,
+            }),
             saving: None,
             save_error: None,
         }
     }
 
+    /// Starts the queued reader without allowing overlapping readers or result decoders.
+    fn start(&mut self, compiler: Option<&Path>) -> bool {
+        let State::Waiting(request) = &self.state else {
+            return false;
+        };
+        let result = compiler
+            .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
+            .and_then(|compiler| shaderpack::worker::Running::start(compiler, request));
+        self.state = match result {
+            Ok(worker) => State::Loading(Mutex::new(worker), Instant::now()),
+            Err(reason) => State::Failed(reason),
+        };
+        true
+    }
+
     /// The screen to show.
     fn view(&self) -> View {
         let mut view = match &self.state {
-            State::Loading(_) => View::loading(&self.name),
+            State::Waiting(_) | State::Loading(..) => View::loading(&self.name),
             State::Ready(editor) => editor.view(),
             State::Failed(reason) => View::failed(&self.name, reason.clone()),
         };
@@ -92,25 +106,25 @@ impl Open {
     /// Takes worker results and commits only saves accepted by storage.
     fn poll(&mut self, writer: &mut Option<Writer>) -> Progress {
         if self.saving.is_some() {
-            return writer
-                .as_mut()
-                .and_then(Writer::poll)
-                .map_or_else(Progress::default, |result| self.finish_save(result));
+            let Some(result) = writer.as_mut().and_then(Writer::poll) else {
+                return Progress::default();
+            };
+            *writer = None;
+            return self.finish_save(result);
         }
-        let State::Loading(receive) = &mut self.state else {
+        let State::Loading(worker, started) = &mut self.state else {
             return Progress::default();
         };
-        let received = receive
+        let Some(result) = worker
             .get_mut()
-            .unwrap_or_else(|e| e.into_inner())
-            .try_recv();
-        self.state = match received {
-            Ok(Ok(session)) => State::Ready(Box::new(Editor::new(session, &self.name))),
-            Ok(Err(reason)) => State::Failed(reason),
-            Err(mpsc::TryRecvError::Empty) => return Progress::default(),
-            Err(mpsc::TryRecvError::Disconnected) => {
-                State::Failed("the options reader stopped".to_owned())
-            }
+            .unwrap_or_else(|error| error.into_inner())
+            .poll(started.elapsed(), false)
+        else {
+            return Progress::default();
+        };
+        self.state = match result.and_then(shaderpack::worker::Response::into_options) {
+            Ok(session) => State::Ready(Box::new(Editor::new(session, &self.name))),
+            Err(reason) => State::Failed(reason),
         };
         Progress {
             changed: true,
@@ -170,17 +184,18 @@ impl Open {
                 .file
                 .clone()
                 .ok_or("the pack has no option-file path")?;
-            if writer.is_none() {
-                *writer = Some(Writer::new().map_err(|error| error.to_string())?);
+            if writer.is_some() {
+                return Err("a previous shader options save is still finishing".to_owned());
             }
-            writer
-                .as_ref()
-                .expect("the writer was started")
-                .submit(Request {
+            *writer = Some(
+                Writer::start(Request {
                     path,
                     options: candidate.session().options().to_vec(),
                     values,
                 })
+                .map_err(|error| error.to_string())?,
+            );
+            Ok(())
         })();
         match result {
             Ok(()) => {
@@ -192,22 +207,51 @@ impl Open {
             }
             Err(error) => {
                 self.save_error = Some(error);
-                *writer = None;
             }
         }
         false
     }
 }
 
-/// Opens the pack at `path` with the values saved in `file`.
-fn read_session(path: &Path, file: Option<&Path>) -> Result<OptionSession, String> {
-    let pack = ShaderPack::open(path).map_err(|error| error.to_string())?;
-    let saved = match file {
-        Some(file) => shaderpack::read_option_file(file)
-            .map_err(|error| format!("{}: {error}", file.display()))?,
-        None => OptionValues::new(),
-    };
-    Ok(OptionSession::new(&pack, &saved))
+/// Cancels a screen's active reader without making the frame wait for its result decoder.
+fn retire_reader(
+    open: &mut Option<Open>,
+    retiring: &mut Option<Mutex<shaderpack::worker::Running>>,
+) {
+    if let Some(Open {
+        state: State::Loading(reader, _),
+        ..
+    }) = open.take()
+    {
+        debug_assert!(retiring.is_none(), "only one reader may run at a time");
+        *retiring = Some(reader);
+    }
+}
+
+/// Reaps a cancelled reader after it has stopped, without waiting on the frame thread.
+fn settle_reader(retiring: &mut Option<Mutex<shaderpack::worker::Running>>) {
+    if retiring.as_mut().is_some_and(|reader| {
+        reader
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .poll(std::time::Duration::ZERO, true)
+            .is_some()
+    }) {
+        *retiring = None;
+    }
+}
+
+/// Retires saves whose screen has closed; an active editor takes its own completion.
+fn settle_save(open: &Option<Open>, writer: &mut Option<Writer>) {
+    if open.as_ref().is_some_and(|editor| editor.saving.is_some()) {
+        return;
+    }
+    if let Some(result) = writer.as_mut().and_then(Writer::poll) {
+        *writer = None;
+        if let Err(error) = result {
+            warn!("shader options save failed after its screen closed: {error}");
+        }
+    }
 }
 
 /// Runs the screen's commands, saving and reloading the pack when values are applied, and
@@ -217,18 +261,27 @@ pub(super) fn drive_shader_options(
     settings: Res<RuntimeSettings>,
     menu: Option<ResMut<MenuRuntime>>,
     mut host: ResMut<ShaderOptionsHost>,
+    compiler: Option<Res<render_scene::shaderpack::ShaderPackCompilerExecutable>>,
 ) {
+    let ShaderOptionsHost {
+        open,
+        writer,
+        retiring,
+    } = &mut *host;
+    settle_save(open, writer);
     let Some(mut menu) = menu else {
+        retire_reader(open, retiring);
+        settle_reader(retiring);
         return;
     };
-    let ShaderOptionsHost { open, writer } = &mut *host;
     let mut changed = false;
     for action in menu.take_shader_option_actions() {
         changed = true;
         if action == Action::Open {
             if open.as_ref().is_none_or(|open| open.saving.is_none()) {
+                retire_reader(open, retiring);
                 *open = selected_pack(&config, &settings.user_settings_update().1.video)
-                    .map(Open::start);
+                    .map(Open::pending);
             }
             continue;
         }
@@ -236,17 +289,27 @@ pub(super) fn drive_shader_options(
             continue;
         };
         if editor.handle(action, writer) {
-            *open = None;
+            retire_reader(open, retiring);
         }
     }
+    if open.as_ref().is_some_and(|editor| editor.saving.is_none())
+        && menu.view().shader_options.is_none()
+    {
+        retire_reader(open, retiring);
+        changed = true;
+    }
+    settle_reader(retiring);
     if let Some(editor) = open.as_mut() {
+        if retiring.is_none() && writer.is_none() {
+            changed |= editor.start(compiler.as_deref().map(|compiler| compiler.0.as_path()));
+        }
         let progress = editor.poll(writer);
         changed |= progress.changed;
         if progress.reload {
             menu.request_shader_pack_reload();
         }
         if progress.close {
-            *open = None;
+            retire_reader(open, retiring);
         }
     }
     if changed {

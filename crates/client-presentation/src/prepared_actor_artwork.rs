@@ -1,6 +1,7 @@
 //! Pack workers prepare immutable artwork and meshes before session publication.
-use crate::presentation::equipment::{EquipmentRuntime, PreparedBlockItems};
+use crate::presentation::equipment::{EquipmentRuntime, PreparedBlockItems, StagedSessionIcons};
 use assets::SessionEntityPack;
+use client_ui::ui_runtime::presentation::SessionIcons;
 use render_model::{ActorArtworkLocation, ActorArtworkPages};
 use render_model::{
     ActorRigGeometry, EntityRigId, PreparedBlockEntityArtwork, block_entity::HeldBlockEntity,
@@ -14,6 +15,27 @@ pub struct PreparedActorArtwork {
     pack: Option<Arc<SessionEntityPack>>,
     block_entity_art: Option<Arc<PreparedBlockEntityArtwork>>,
     resources: PreparedSessionResources,
+    /// The icon snapshot [`Self::session_icons`] was staged from, kept even when none stage.
+    icons_source: Option<Arc<SessionIcons>>,
+    session_icons: Option<PlacedSessionIcons>,
+}
+
+/// Session item icons staged and appended to the prepared pages off the frame thread.
+#[derive(Clone)]
+pub(crate) struct PlacedSessionIcons {
+    pub(crate) staged: StagedSessionIcons,
+    /// The prepared pages with the icon rasters appended.
+    pub(crate) pages: ActorArtworkPages,
+    pub(crate) locations: Vec<Option<ActorArtworkLocation>>,
+}
+
+impl std::fmt::Debug for PlacedSessionIcons {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PlacedSessionIcons")
+            .field("locations", &self.locations.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// All pack-owned pixels and meshes; copies retain their immutable backing allocations.
@@ -100,6 +122,13 @@ impl PreparedSessionResources {
                 .entered();
                 resources.equipment = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
             }
+            // The frame's catalog layout then matches duplicates by pointer, not by bytes.
+            render_model::share_identical_vertices(
+                resources
+                    .entities
+                    .iter_mut()
+                    .chain(&mut resources.equipment),
+            );
         }
         if let Some(artwork) = block_entity_art {
             let (pages, held) =
@@ -137,6 +166,8 @@ impl PreparedActorArtwork {
             base: base.clone(),
             pack: pack.cloned(),
             block_entity_art: block_entity_art.cloned(),
+            icons_source: None,
+            session_icons: None,
             resources: PreparedSessionResources::new(
                 base,
                 pack.map(AsRef::as_ref),
@@ -155,6 +186,37 @@ impl PreparedActorArtwork {
             });
         }
         prepared
+    }
+
+    /// Stages `icons` and appends their rasters to the prepared pages, as the frame would.
+    #[must_use]
+    pub fn with_session_icons(mut self, icons: Option<&Arc<SessionIcons>>) -> Self {
+        self.icons_source = icons.cloned();
+        self.session_icons = icons.and_then(|icons| {
+            let staged = StagedSessionIcons::stage_icons(icons)?;
+            let (pages, locations) = self
+                .resources
+                .pages
+                .clone()
+                .with_equipment_rasters(staged.rasters());
+            Some(PlacedSessionIcons {
+                staged,
+                pages,
+                locations,
+            })
+        });
+        self
+    }
+
+    /// Whether these icons were staged from the exact `icons` snapshot, or both are absent.
+    pub fn matches_session_icons(&self, icons: Option<&Arc<SessionIcons>>) -> bool {
+        same_snapshot(self.icons_source.as_ref(), icons)
+    }
+
+    /// The artwork snapshot these resources were prepared over; the frame publishes them only
+    /// while its live artwork shares this storage.
+    pub fn base(&self) -> &ActorArtworkPages {
+        &self.base
     }
 
     /// Reuses held-block preparation only for the exact retained terrain carrier.
@@ -211,6 +273,21 @@ impl PreparedActorArtwork {
         self.resources_for(base, pack).is_some()
             && same_snapshot(self.block_entity_art.as_ref(), block_entity_art)
     }
+}
+
+/// Icons placed on the worker for exactly these sources; `None` means the frame stages them.
+pub(crate) fn session_icons<'a>(
+    base: &ActorArtworkPages,
+    pack: Option<&Arc<SessionEntityPack>>,
+    icons: Option<&Arc<SessionIcons>>,
+    prepared: Option<&'a PreparedActorArtwork>,
+) -> Option<&'a PlacedSessionIcons> {
+    let prepared = prepared?;
+    prepared.resources_for(base, pack)?;
+    let source = prepared.icons_source.as_ref()?;
+    icons
+        .filter(|icons| Arc::ptr_eq(source, icons))
+        .and(prepared.session_icons.as_ref())
 }
 
 /// Compares optional immutable source allocations without scanning their contents.

@@ -72,6 +72,9 @@ fn pinned_facts_preserve_classes_components_and_equipment() {
         NativeEntityClass::Painting
     );
     assert_eq!(facts.get("fixture:unknown"), EntityFact::default());
+    assert_eq!(facts.get("minecraft:shulker").pick_radius, 0.0);
+    assert_eq!(facts.get("minecraft:fireball").pick_radius, 1.0);
+    assert_eq!(facts.player().pick_radius, DEFAULT_ACTOR_PICK_RADIUS);
 }
 
 #[test]
@@ -92,6 +95,16 @@ fn corrupt_stale_or_trailing_carriers_are_rejected() {
     forged.records.swap(0, 1);
     forged.records[0].fact.shadow = ShadowRadius::Width(-1.0);
     assert!(forged.encode().is_err());
+}
+
+#[test]
+fn entity_pick_radius_must_be_finite_and_nonnegative() {
+    for radius in [-0.1, f32::INFINITY, f32::NAN] {
+        let mut facts =
+            EntityFacts::decode(SOURCE_BYTES, crate::active_content_registry_protocol()).unwrap();
+        facts.records[0].fact.pick_radius = radius;
+        assert!(facts.encode().is_err(), "radius {radius}");
+    }
 }
 
 #[test]
@@ -120,4 +133,13 @@ fn compiled_fish_animation_preserves_the_constructor_membership() {
             record.identifier
         );
     }
+}
+
+/// Bamboo is the one boat variant drawn as a raft.
+#[test]
+fn the_raft_variant_is_bamboo() {
+    assert_eq!(
+        super::BOAT_WOOD_TEXTURES[super::BOAT_RAFT_VARIANT],
+        "bamboo"
+    );
 }

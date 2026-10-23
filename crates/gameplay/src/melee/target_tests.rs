@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn shulker_pick_does_not_expand_its_interaction_box() {
+    let actor =
+        super::super::tests::actor(1, "minecraft:shulker", [0.0, 0.0, -2.0], Some((1.0, 1.0)));
+    let hit = pick_actor(
+        [&actor].into_iter(),
+        None,
+        [0.0, 0.5, 0.0],
+        [0.0, 0.0, -1.0],
+        3.0,
+    )
+    .unwrap();
+    assert_eq!(hit.point, [0.0, 0.5, -1.5]);
+    assert!(
+        pick_actor(
+            [&actor].into_iter(),
+            None,
+            [0.55, 0.5, 0.0],
+            [0.0, 0.0, -1.0],
+            3.0
+        )
+        .is_none()
+    );
+}
+
+#[test]
 fn block_occlusion_rounds_the_world_intercept_before_measuring() {
     let origin = [8192.0, 65.62, 4096.0];
     let block = [8194, 66, 4097];

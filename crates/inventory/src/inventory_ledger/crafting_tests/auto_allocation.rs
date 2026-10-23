@@ -73,15 +73,40 @@ fn auto_craft_reassigns_the_only_exact_item_from_an_earlier_tag() {
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 1), (10, PLANKS, 102, 1)]);
     assert!(ledger.can_auto_craft(&recipe));
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(consumes(&ledger), [(10, 1, 102), (9, 1, 101)]);
     assert!(ledger.target_stack(InventoryTarget::Player(9)).is_none());
     assert!(ledger.target_stack(InventoryTarget::Player(10)).is_none());
-    assert_eq!(ledger.cursor_stack().unwrap().network_id, FURNACE);
+    assert_eq!(placed_outputs(&ledger)[0].1.network_id, FURNACE);
+    assert!(ledger.cursor_stack().is_none());
 }
 
 #[test]
-fn auto_craft_splits_quantities_across_slots_and_reuses_one_stack_for_two_demands() {
+fn auto_craft_splits_one_variant_across_slots_and_reserves_the_exact_variant() {
+    let recipe = recipe(vec![
+        IngredientFixture {
+            count: 3,
+            ..IngredientFixture::tagged("test:wood")
+        },
+        IngredientFixture {
+            count: 2,
+            ..IngredientFixture::named("minecraft:oak_log", 0)
+        },
+    ]);
+    let mut ledger = stocked(&[(9, LOG, 101, 3), (10, PLANKS, 102, 1), (11, PLANKS, 103, 2)]);
+    assert!(ledger.can_auto_craft(&recipe));
+    ledger.begin_auto_craft(&recipe, false).unwrap();
+    assert_eq!(consumes(&ledger), [(10, 1, 102), (11, 2, 103), (9, 2, 101)]);
+    for slot in [10, 11] {
+        assert!(ledger.target_stack(InventoryTarget::Player(slot)).is_none());
+    }
+    assert_eq!(ledger.displayed_stack(9).unwrap().count, 1);
+    assert_eq!(placed_outputs(&ledger)[0].1.count, 1);
+}
+
+/// A single ingredient cannot pool two concrete variants to meet its count.
+#[test]
+fn auto_craft_refuses_a_demand_that_only_mixed_variants_can_supply() {
     let recipe = recipe(vec![
         IngredientFixture {
             count: 3,
@@ -93,16 +118,43 @@ fn auto_craft_splits_quantities_across_slots_and_reuses_one_stack_for_two_demand
         },
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 3), (10, PLANKS, 102, 1), (11, PLANKS, 103, 1)]);
-    assert!(ledger.can_auto_craft(&recipe));
-    ledger.begin_auto_craft(&recipe).unwrap();
+    assert!(!ledger.can_auto_craft(&recipe));
     assert_eq!(
-        consumes(&ledger),
-        [(9, 1, 101), (10, 1, 102), (11, 1, 103), (9, 2, 101)]
+        ledger.begin_auto_craft(&recipe, false),
+        Err(InventoryGestureError::InvalidRequest)
     );
-    for slot in [9, 10, 11] {
-        assert!(ledger.target_stack(InventoryTarget::Player(slot)).is_none());
-    }
-    assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+    assert_eq!(ledger.pending_request_count(), 0);
+}
+
+/// Shift-crafting stops at what one declared plank variant can supply in one request.
+#[test]
+fn shift_craft_names_and_consumes_only_one_plank_variant_per_ingredient() {
+    let recipe = recipe(vec![IngredientFixture {
+        count: 2,
+        ..IngredientFixture::tagged("test:wood")
+    }]);
+    let mut ledger = plank_ledger(&[(9, PLANKS, 101, 3), (10, BIRCH_PLANKS, 102, 2)]);
+    ledger.begin_auto_craft(&recipe, true).unwrap();
+    let Some(StackRequestAction::AutoCraft {
+        crafts,
+        ingredients,
+        ..
+    }) = ledger.newest_action()
+    else {
+        panic!("expected auto-craft");
+    };
+    assert_eq!(crafts, 1);
+    assert_eq!(ingredients.len(), 1);
+    assert_eq!(
+        ingredients[0].descriptor,
+        protocol::StackItemDescriptor::Name {
+            identifier: Arc::from("minecraft:oak_planks"),
+            aux: i32::from(protocol::RECIPE_ANY_AUX),
+        }
+    );
+    assert_eq!(consumes(&ledger), [(9, 2, 101)]);
+    assert_eq!(ledger.displayed_stack(9).unwrap().count, 1);
+    assert_eq!(ledger.displayed_stack(10).unwrap().count, 2);
 }
 
 #[test]
@@ -114,7 +166,7 @@ fn auto_craft_follows_a_chain_of_prior_tag_assignments() {
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 1), (10, PLANKS, 102, 1), (11, COBBLE, 103, 1)]);
     assert!(ledger.can_auto_craft(&recipe));
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(consumes(&ledger), [(10, 1, 102), (11, 1, 103), (9, 1, 101)]);
 }
 
@@ -125,7 +177,7 @@ fn successful_first_choice_allocations_keep_their_existing_order() {
         IngredientFixture::named("minecraft:oak_log", 0),
     ]);
     let mut ledger = stocked(&[(9, LOG, 101, 2), (10, PLANKS, 102, 1)]);
-    ledger.begin_auto_craft(&recipe).unwrap();
+    ledger.begin_auto_craft(&recipe, false).unwrap();
     assert_eq!(consumes(&ledger), [(9, 1, 101), (9, 1, 101)]);
     assert_eq!(
         ledger
@@ -149,7 +201,7 @@ fn an_incomplete_allocation_leaves_inventory_and_request_queue_unchanged() {
     let pending = ledger.pending_request_count();
     assert!(!ledger.can_auto_craft(&recipe));
     assert_eq!(
-        ledger.begin_auto_craft(&recipe),
+        ledger.begin_auto_craft(&recipe, false),
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(ledger.pending_request_count(), pending);
@@ -163,4 +215,33 @@ fn an_incomplete_allocation_leaves_inventory_and_request_queue_unchanged() {
         );
     }
     assert!(ledger.cursor_stack().is_none());
+}
+
+/// Servers refuse a recipe-book craft whose tag ingredient is not named by the consumed item.
+#[test]
+fn auto_craft_names_a_tag_ingredient_by_the_item_it_consumes() {
+    let recipe = recipe(vec![
+        IngredientFixture::tagged("test:wood"),
+        IngredientFixture::named("minecraft:oak_log", 0),
+    ]);
+    let mut ledger = stocked(&[(9, LOG, 101, 1), (10, PLANKS, 102, 1)]);
+    ledger.begin_auto_craft(&recipe, false).unwrap();
+    let Some(StackRequestAction::AutoCraft { ingredients, .. }) = ledger.newest_action() else {
+        panic!("expected an auto-craft request");
+    };
+    let named = |identifier: &str, aux| protocol::StackItemDescriptor::Name {
+        identifier: Arc::from(identifier),
+        aux,
+    };
+    let descriptors: Vec<_> = ingredients
+        .iter()
+        .map(|ingredient| ingredient.descriptor.clone())
+        .collect();
+    assert_eq!(
+        descriptors,
+        [
+            named("minecraft:oak_planks", i32::from(protocol::RECIPE_ANY_AUX)),
+            named("minecraft:oak_log", 0),
+        ]
+    );
 }

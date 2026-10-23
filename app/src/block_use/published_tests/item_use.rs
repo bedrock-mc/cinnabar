@@ -91,6 +91,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
     }
     let press = PressContext {
+        refused_destroy: None,
         tick: 101,
         player_position: [4.5, 2.620_01, 8.5],
         input_mode: protocol::PlayerInputMode::Mouse,

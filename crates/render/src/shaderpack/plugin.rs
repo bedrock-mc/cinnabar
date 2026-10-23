@@ -12,6 +12,7 @@ use super::geometry::{
     GeometryCategory, ShaderpackBlockIds, ShaderpackGeometry, ShaderpackGeometryPlugin,
     ShaderpackGeometrySettings, ShadowFrustum, UNASSIGNED_BLOCK_ID, device_geometry_budget,
 };
+use super::load_failures::{ViewFailures, receive_view_failures};
 use super::loader::{PackGpu, load};
 use super::passes::{DrawContext, FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
@@ -21,7 +22,6 @@ use super::targets::AtlasViews;
 use super::uniforms::{FAR_PLANE_SCALE, FrameClock, FrameUniforms, ViewCamera};
 use assets::facts::java_mapping::JavaDimension;
 use bevy::render::render_phase::TrackedRenderPass;
-use bevy::render::render_resource::PipelineCache;
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
@@ -71,6 +71,7 @@ type LoaderKey = (PathBuf, Option<PathBuf>, i32, u64);
 struct Loader {
     key: Option<LoaderKey>,
     job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
+    retiring: bool,
 }
 
 /// Identifies the request whose load can be reused in the current dimension.
@@ -110,8 +111,39 @@ fn drive_loader(
     mut loader: ResMut<Loader>,
     gpu: MainWorldGpu,
     atmosphere: Option<Res<render_scene::AtmosphereTextureAssets>>,
+    compiler: Option<Res<render_scene::shaderpack::ShaderPackCompilerExecutable>>,
 ) {
     let wanted = loader_key(&request, inputs.dimension);
+    if loader.job.is_some() && (wanted != loader.key || loader.retiring) {
+        progress.finish();
+        loader.retiring = true;
+        let keep_shown = wanted.as_ref().is_some_and(
+            |(path, ..)| matches!(&*status, ShaderPackStatus::Ready(shown) if shown == path),
+        );
+        if !keep_shown {
+            loaded.0 = None;
+            status.set_if_neq(
+                wanted
+                    .as_ref()
+                    .map_or(ShaderPackStatus::Idle, |(path, ..)| {
+                        ShaderPackStatus::Loading(path.clone())
+                    }),
+            );
+        }
+        // Keep the receiver until the old worker exits. Rapid selections coalesce into the
+        // latest request rather than accumulating detached CPU and GPU load workers.
+        if loader.job.as_mut().is_some_and(|job| {
+            matches!(
+                job.get_mut().unwrap_or_else(|e| e.into_inner()).try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            )
+        }) {
+            return;
+        }
+        loader.job = None;
+        loader.key = None;
+        loader.retiring = false;
+    }
     if wanted != loader.key {
         let Some((path, _, dimension, _)) = wanted.clone() else {
             loader.key = None;
@@ -126,6 +158,13 @@ fn drive_loader(
         };
         loader.key = wanted;
         loader.job = None;
+        if let Err(reason) = super::kernels::validate_device(&device.limits()) {
+            progress.finish();
+            loaded.0 = None;
+            settled.0 = request.revision;
+            *status = ShaderPackStatus::Failed { pack: path, reason };
+            return;
+        }
         let gpu = GpuContext {
             device: device.wgpu_device().clone(),
             queue: (**queue).clone(),
@@ -138,6 +177,7 @@ fn drive_loader(
         }
         let cache_dir = request.cache_dir.clone();
         let options = request.options.clone();
+        let compiler = compiler.as_deref().map(|compiler| compiler.0.clone());
         let vanilla = atmosphere
             .as_deref()
             .map(VanillaTextures::from_atmosphere)
@@ -156,6 +196,7 @@ fn drive_loader(
                     &gpu,
                     &vanilla,
                     &worker_progress,
+                    compiler.as_deref(),
                 );
                 let _ = send.send(outcome);
             });
@@ -333,18 +374,23 @@ pub(super) fn configure_replacement(
     mut replaced: ResMut<ShaderPackEffects>,
     textures: Option<Res<ShaderpackEffectTextures>>,
 ) {
-    let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
-    let ready = pack
+    let Some(pack) = pack
         .as_ref()
         .and_then(|pack| pack.0.as_ref())
-        .filter(|pack| {
-            !cameras.is_empty()
-                && cameras.iter().all(|entity| {
-                    states.get(&entity).is_some_and(|state| {
-                        Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
-                    })
-                })
-        });
+        .filter(|_| !cameras.is_empty())
+    else {
+        drawn.set_if_neq(ShaderPackDrawnCategories::default());
+        replaced.set_if_neq(ShaderPackEffects::default());
+        return;
+    };
+    let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
+    let ready = Some(pack).filter(|pack| {
+        cameras.iter().all(|entity| {
+            states.get(&entity).is_some_and(|state| {
+                Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
+            })
+        })
+    });
     let replaces = ready
         .is_some_and(|pack| replacement_ready(pack, cameras.iter(), geometry.as_deref(), &states));
     drawn.set_if_neq(ShaderPackDrawnCategories {
@@ -394,7 +440,15 @@ fn prepare_views(
     effect_textures: Option<Res<ShaderpackEffectTextures>>,
     hand: Option<Res<render_scene::HandRigScene>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    failures: Option<Res<ViewFailures>>,
 ) {
+    let ShaderPackViews { states, failed } = &mut *views;
+    let states = states.get_mut().unwrap_or_else(|e| e.into_inner());
+    let (Some(pack), Some(inputs)) = (pack.and_then(|p| p.0.clone()), inputs) else {
+        states.clear();
+        failed.clear();
+        return;
+    };
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::ShaderpackUniforms));
@@ -404,13 +458,6 @@ fn prepare_views(
         .map_or(DEFAULT_HAND_FOV_DEGREES.to_radians(), |frame| {
             frame.fov_radians
         });
-    let ShaderPackViews { states, failed } = &mut *views;
-    let states = states.get_mut().unwrap_or_else(|e| e.into_inner());
-    let (Some(pack), Some(inputs)) = (pack.and_then(|p| p.0.clone()), inputs) else {
-        states.clear();
-        failed.clear();
-        return;
-    };
     states.retain(|entity, _| cameras.contains(*entity));
     let render_distance = inputs.render_distance;
     if let Some(geometry) = geometry.as_deref_mut() {
@@ -441,6 +488,9 @@ fn prepare_views(
                     states.remove(&entity);
                     failed.insert(entity, (Arc::clone(&pack), screen));
                     warn!(pack = %pack.name, "shader pack view could not be prepared: {error}");
+                    if let Some(failures) = &failures {
+                        failures.record(Arc::clone(&pack), error);
+                    }
                     continue;
                 }
             }
@@ -656,6 +706,9 @@ fn shaderpack_post(
             .get_resource::<render_scene::CloudVisibility>()
             .is_some_and(|visible| visible.0),
         particles: world.get_resource::<render_scene::ParticleGpuFrame>(),
+        particle_atlas_side: world
+            .get_resource::<ShaderpackEffectTextures>()
+            .map_or(0, |textures| textures.particle_atlas_size()[0] as u32),
         precipitation: world.get_resource::<render_scene::PrecipitationScene>(),
         lightning: world.get_resource::<render_scene::LightningScene>(),
         selection: world
@@ -674,7 +727,11 @@ fn shaderpack_post(
     });
     let kernels = world
         .get_resource::<ActorSkinPipelines>()
-        .zip(world.get_resource::<PipelineCache>())
+        .zip(
+            world
+                .get_resource::<super::kernels::Kernels>()
+                .map(|kernels| &kernels.cache),
+        )
         .and_then(|(pipelines, cache)| pipelines.kernels(cache));
     let actors = ActorSources {
         kernels,
@@ -754,13 +811,18 @@ fn install_graph(world: &mut World) {
                     .before(tonemapping)
                     .in_set(Core3dSystems::PostProcess),
             );
-            schedule.add_systems(shaderpack_post.in_set(ShaderpackPass));
+            schedule.add_systems(shaderpack_post.in_set(ShaderpackPass).run_if(pack_loaded));
             super::native_passes::install(schedule);
         })
         .is_ok();
     if installed {
         world.insert_resource(GraphInstalled);
     }
+}
+
+/// Whether the render world holds a loaded pack; pack passes have nothing to draw otherwise.
+pub(super) fn pack_loaded(pack: Option<Res<LoadedShaderPack>>) -> bool {
+    pack.is_some_and(|pack| pack.0.is_some())
 }
 
 /// Publishes the loaded pack's entity and item ids for the app's actor and held-item ids.
@@ -794,7 +856,6 @@ fn admit_cameras(
 }
 
 pub(super) fn build(app: &mut App) {
-    actors::load_shaders(app);
     app.init_resource::<ShaderPackRequest>()
         .init_resource::<ShaderPackStatus>()
         .init_resource::<ShaderPackLoadProgress>()
@@ -804,6 +865,7 @@ pub(super) fn build(app: &mut App) {
         .init_resource::<ShaderPackActorIds>()
         .init_resource::<LoadedShaderPack>()
         .init_resource::<Loader>()
+        .init_resource::<ViewFailures>()
         .add_plugins((
             ExtractComponentPlugin::<ShaderPackRendering>::default(),
             ExtractResourcePlugin::<LoadedShaderPack>::default(),
@@ -813,26 +875,57 @@ pub(super) fn build(app: &mut App) {
             ShaderpackGeometryPlugin,
             ShaderpackAtlasPlugin,
         ))
-        .add_systems(Update, (drive_loader, publish_id_maps).chain())
+        .add_systems(
+            Update,
+            (drive_loader, receive_view_failures, publish_id_maps).chain(),
+        )
         .add_systems(PostUpdate, admit_cameras);
 }
 
+/// Queues actor conversion kernels only for a loaded pack with an opted-in camera.
+fn prepare_actor_pipelines(
+    mut commands: Commands,
+    pack: Option<Res<LoadedShaderPack>>,
+    cameras: Query<(), With<ShaderPackRendering>>,
+    pipelines: Option<Res<ActorSkinPipelines>>,
+    kernels: Option<Res<super::kernels::Kernels>>,
+) {
+    if pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty() && kernels.is_some() {
+        if pipelines.is_none() {
+            commands.init_resource::<ActorSkinPipelines>();
+        }
+    } else if pipelines.is_some() {
+        commands.remove_resource::<ActorSkinPipelines>();
+    }
+}
+
 pub(super) fn finish(app: &mut App) {
+    app.init_resource::<ViewFailures>();
+    let failures = app.world().resource::<ViewFailures>().clone();
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     render_app
+        .insert_resource(failures)
         .init_resource::<ShaderPackViews>()
         .init_resource::<ShaderPackEffects>()
         .init_resource::<ShaderpackEffectTextures>()
         .init_resource::<ShaderPackDrawnCategories>()
-        .init_resource::<ActorSkinPipelines>()
+        .init_resource::<crate::actor::gpu::ArtworkRawViews>()
+        .add_systems(
+            bevy::render::ExtractSchedule,
+            crate::actor::gpu::extract_artwork_raw_views,
+        )
         .add_systems(
             Render,
             (
+                prepare_actor_pipelines
+                    .after(super::kernels::prepare_kernels)
+                    .before(prepare_views),
                 configure_geometry
                     .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue)
+                    .before(super::geometry::prepare_geometry_resources)
                     .before(super::geometry::prepare_shaderpack_geometry),
                 prepare_effect_textures
                     .in_set(RenderSystems::PrepareResources)
@@ -866,4 +959,4 @@ mod camera_tests;
 
 #[cfg(test)]
 #[path = "plugin_native_tests.rs"]
-mod native_tests;
+pub(super) mod native_tests;

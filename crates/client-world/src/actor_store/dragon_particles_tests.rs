@@ -49,6 +49,32 @@ fn dragon_death_does_not_start_an_ordinary_red_overlay() {
 }
 
 #[test]
+fn cached_height_dragon_death_rays_follow_the_rising_body_after_network_movement() {
+    let mut store = dying("minecraft:ender_dragon");
+    let ActorEvent::Move(mut movement) = crate::actor_store::tests::network_move(7, 64.0, true)
+    else {
+        unreachable!();
+    };
+    movement.on_ground = Some(false);
+    store.apply(1, 3, ActorEvent::Move(movement));
+    let offset = store.actors[&7].network_position_offset();
+    let mut native = 64.0;
+    for _ in 0..4 {
+        let previous = store.actors[&7].position;
+        store.advance_interpolation_ticks(1);
+        native += DEATH_LIFT_PER_TICK;
+        let actor = &store.actors[&7];
+        assert_eq!(actor.native_position()[1], native);
+        assert_eq!(actor.position[1], native - offset);
+        assert_eq!(store.dragon_death_rays(0.0)[0].owner_position, previous);
+        assert_eq!(
+            store.dragon_death_rays(1.0)[0].owner_position,
+            actor.position
+        );
+    }
+}
+
+#[test]
 fn dragon_death_status_resets_its_native_counter_without_inheriting_mob_ticks() {
     let mut store = dying("minecraft:ender_dragon");
     store.advance_interpolation_ticks(40);
@@ -151,6 +177,7 @@ fn dragon_death_lift_resumes_from_later_authoritative_movement_targets() {
             head_yaw: None,
             on_ground: None,
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),

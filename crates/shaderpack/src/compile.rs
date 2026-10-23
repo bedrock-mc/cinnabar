@@ -7,12 +7,13 @@ use naga::valid::ModuleInfo;
 
 mod inputs;
 mod order;
+mod wire;
 
 #[cfg(test)]
 mod tests;
 
 /// A validated stage module.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct CompiledStage {
     pub stage: StageKind,
     /// The translated GLSL 4.50 that naga parsed.
@@ -20,6 +21,7 @@ pub struct CompiledStage {
     pub module: naga::Module,
     /// Validation info for `module`, validated with every capability; the host checks the
     /// capabilities and limits its device actually has.
+    #[serde(skip_serializing)]
     pub info: ModuleInfo,
 }
 

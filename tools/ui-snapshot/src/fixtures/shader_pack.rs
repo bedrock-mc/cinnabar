@@ -1,7 +1,7 @@
 //! Shader-pack picker and load feedback fixtures using the client's screen state.
 
 use launcher::menu::{
-    MenuAction, RendererChoice,
+    MenuAction, MenuView, RendererChoice,
     settings_options::SettingId,
     settings_sections::SettingSection,
     shader_pack_status::{
@@ -9,7 +9,7 @@ use launcher::menu::{
     },
 };
 
-use super::Fixture;
+use super::{Fixture, GUI_SCALE, SHADER_PACK_ROW_SIZE, SIZE, State};
 use std::sync::Arc;
 
 const PACK: &str = "Dusk.zip";
@@ -66,6 +66,15 @@ pub(super) fn failed() -> Fixture {
     ])
 }
 
+/// The Shaders tab while the render host is still loading the selected pack.
+pub(super) fn settings_shaders_loading() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.shader_pack_loading = true;
+    Fixture::Menu(view)
+}
+
 /// The Shaders tab with `PACK` chosen as the renderer, failed or not.
 pub(super) fn settings_shaders(failed: bool) -> Fixture {
     let mut view = super::settings(SettingSection::Shaders.definition().name);
@@ -82,11 +91,75 @@ pub(super) fn settings_shaders(failed: bool) -> Fixture {
 pub(super) fn pack_picker() -> Fixture {
     let mut view = super::settings(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
+    desktop(&mut view);
     view.focused_action = Some(MenuAction::SettingsSection(
         SettingSection::Shaders.definition().index,
     ));
     Fixture::Menu(Box::new(view))
+}
+
+/// Shows first-use import guidance without installed packs or a saved selection.
+pub(super) fn empty_library() -> Fixture {
+    let mut view = super::settings(SettingSection::Shaders.definition().name);
+    desktop(&mut view);
+    Fixture::Menu(Box::new(view))
+}
+
+/// The empty library on a host like Android, whose window takes no dropped files and has no
+/// file manager, so the import target opens the file picker.
+pub(super) fn empty_library_without_drops() -> Fixture {
+    Fixture::Menu(Box::new(super::settings(
+        SettingSection::Shaders.definition().name,
+    )))
+}
+
+/// A desktop host's folder shortcut and window file drops.
+fn desktop(view: &mut MenuView) {
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.opens_folders = true;
+    storage.accepts_file_drops = true;
+}
+
+/// Exercises wrapping and scrolling in a narrow viewport, with a selected card and a zip and
+/// folder that share a name.
+pub(super) fn long_library() -> Fixture {
+    let mut view = super::settings(SettingSection::Shaders.definition().name);
+    view.shader_packs =
+        std::iter::once("Evening Light 0 with a long descriptive release name".to_owned())
+            .chain((0..16).map(|index| {
+                format!("Evening Light {index} with a long descriptive release name.zip")
+            }))
+            .collect();
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some(view.shader_packs[0].clone());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.shader_options_available = true;
+    Fixture::Menu(Box::new(view))
+}
+
+/// The failed selected card with every control at the narrowest settings width, enlarged.
+pub(super) fn narrow_extra_large() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(true) else {
+        unreachable!()
+    };
+    desktop(&mut view);
+    let enlarged = Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::GuiAccessibilityScaling.index(), 1);
+    debug_assert!(enlarged);
+    Fixture::Menu(view)
+}
+
+/// Shows the standard confirmation before deleting an imported shader pack.
+pub(super) fn removal_dialog() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.dialog = Some(launcher::menu::MenuDialog::RemoveShaderPack(
+        0,
+        view.shader_packs_revision,
+    ));
+    view.focused_action = Some(MenuAction::DismissDialog);
+    Fixture::Menu(view)
 }
 
 /// Frames the Video shortcut above the graphics controls so its full row is visible.
@@ -107,6 +180,58 @@ pub(super) fn settings_video() -> Fixture {
         SettingSection::Video.definition().name,
     )))
 }
+
+/// Shader-pack load toasts and the library's selected, loading and failed states.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "settings-video",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_video,
+    },
+    State {
+        name: "toast-shader-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: loading,
+    },
+    State {
+        name: "toast-shader-pack-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: loaded,
+    },
+    State {
+        name: "toast-shader-pack-failed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: failed,
+    },
+    State {
+        name: "settings-shaders-selected",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_shaders(false),
+    },
+    State {
+        name: "settings-shaders-narrow-extra-large",
+        size: [240, 2400],
+        gui_scale: GUI_SCALE,
+        fixture: narrow_extra_large,
+    },
+    State {
+        name: "settings-shaders-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_shaders_loading,
+    },
+    State {
+        name: "settings-shaders-failed",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_shaders(true),
+    },
+];
 
 #[cfg(test)]
 mod tests {
