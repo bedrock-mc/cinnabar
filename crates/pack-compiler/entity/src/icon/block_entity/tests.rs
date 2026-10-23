@@ -247,7 +247,13 @@ fn copper_golem_statue_inventory_uses_standing_geometry_and_oxidation() {
             ""
         };
         let expected = colors.iter().find(|(name, _)| *name == suffix).unwrap().1;
-        let pixels: Vec<_> = icon.rgba8.chunks_exact(4).filter(|p| p[3] != 0).collect();
+        let pixels: Vec<_> = icon
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .collect();
         assert!(pixels.len() > SIDE * SIDE / 4);
         assert!(
             pixels.iter().all(|p| **p == expected),
@@ -267,7 +273,9 @@ fn copper_golem_statue_inventory_uses_standing_geometry_and_oxidation() {
         .unwrap();
     assert!(
         eyes.rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|p| p[3] != 0)
             .all(|p| p == [255, 0, 0, 255]),
         "eye artwork overlays equal-depth body faces"
