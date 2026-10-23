@@ -170,6 +170,7 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
+            "alpha": "$chat_background_opacity",
             "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
             "size": [ "100%", "100%" ]
           } }
@@ -182,6 +183,9 @@
     "size": [ "100% - 8px", "default" ],
     "anchor_from": "top_left",
     "anchor_to": "top_left",
+    "font_type": "$chat_font_type",
+    "font_scale_factor": "$chat_font_scale_factor",
+    "line_padding": "($chat_line_spacing - 1)",
     "shadow": true,
     "layer": 1
   }

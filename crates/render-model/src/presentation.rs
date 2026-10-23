@@ -5,7 +5,7 @@
 //! | --- | --- |
 //! | Synchronized (VSync on) | FIFO |
 //! | LowLatency (VSync off) | Mailbox, Immediate, FIFO |
-//! | AllowTearing (explicit opt-in) | Immediate, Mailbox, FIFO |
+//! | AllowTearing (`--no-vsync` diagnostic flag) | Immediate, Mailbox, FIFO |
 //! | Unpaced (hidden developer surfaces only) | Immediate, Mailbox, FIFO |
 //!
 //! Low latency prefers non-tearing Mailbox. Surfaces without it fall back to Immediate.
@@ -26,7 +26,7 @@ pub enum PresentationIntent {
     Synchronized,
     /// Fresh input with non-tearing Mailbox preferred where available.
     LowLatency,
-    /// Explicitly prefers Immediate for tearing and minimum display backpressure.
+    /// Diagnostic launch flag: prefers Immediate and minimum display backpressure.
     AllowTearing,
     /// Diagnostic only: a hidden developer surface never reaches a display, so it never waits
     /// for one. No setting selects it.
@@ -184,12 +184,7 @@ pub fn frame_rate_target(
     context: FrameRateContext,
 ) -> Option<FrameRate> {
     let requested = match limit {
-        FrameRateLimit::Automatic
-            if context == (FrameRateContext::Gameplay { on_battery: true }) =>
-        {
-            display.refresh
-        }
-        FrameRateLimit::Automatic | FrameRateLimit::Unlimited => None,
+        FrameRateLimit::Unlimited => None,
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
     };
     let requested = if context == FrameRateContext::Menus {
@@ -213,11 +208,11 @@ pub fn frame_rate_target(
     }
 }
 
-/// Whether the player is in a world and whether its untouched default should save battery.
+/// Whether gameplay or menus determine the frame-rate ceiling.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameRateContext {
     Menus,
-    Gameplay { on_battery: bool },
+    Gameplay,
 }
 
 /// The highest rate that keeps variable refresh in range: 97% of the maximum, rounded down to

@@ -382,16 +382,13 @@ mod tests {
         }
     }
 
-    /// Native VSync remains Off/On while the client also offers an explicit tearing choice.
+    /// Importing either VSync value replaces the previous toggle state.
     #[test]
     fn imported_vsync_retains_the_native_binary_choice() {
-        for mode in [render_api::VsyncMode::Off, render_api::VsyncMode::On] {
+        for mode in render_api::VsyncMode::ALL {
             let parsed = parse(format!("gfx_vsync:{}", mode as i32).as_bytes());
             let mut settings = SettingsOptions::default();
-            settings.set(
-                SettingId::Vsync.index(),
-                render_api::VsyncMode::AllowTearing as i32,
-            );
+            settings.set(SettingId::Vsync.index(), i32::from(!mode.enabled()));
             parsed.apply(&mut settings);
             assert_eq!(parsed.skipped, 0);
             assert_eq!(settings.user_settings().video.vsync, mode);

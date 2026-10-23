@@ -3,7 +3,8 @@
 mod display;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_display_link;
-mod power;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_presentation;
 
 use std::time::{Duration, Instant};
 
@@ -25,17 +26,10 @@ use crate::present_mode::{DisplayRefresh, PresentModeRuntime};
 /// Monitors can change refresh while a window stays put, so it is re-read this often.
 const DISPLAY_RECHECK: Duration = Duration::from_secs(1);
 
-/// Active desktop power source, refreshed alongside the display instead of every frame.
-#[derive(Resource, Default)]
-pub(crate) struct PowerSource {
-    on_battery: bool,
-}
-
-/// Display, power and session facts used to choose the current frame-rate context.
+/// Display and session facts used to choose the current frame-rate context.
 #[derive(SystemParam)]
 pub(crate) struct FramePacingEnvironment<'w> {
     display: Res<'w, DisplayRefresh>,
-    power: Res<'w, PowerSource>,
     world: Option<Res<'w, crate::runtime::world::ClientWorld>>,
     ui: Option<Res<'w, client_shell::ui_resources::UiPresentationResource>>,
     failure: Option<Res<'w, crate::runtime::shutdown::FatalError>>,
@@ -58,9 +52,7 @@ impl FramePacingEnvironment<'_> {
                     .as_ref()
                     .is_none_or(|failure| failure.0.is_none()))
         {
-            FrameRateContext::Gameplay {
-                on_battery: !ignore_window_state && self.power.on_battery,
-            }
+            FrameRateContext::Gameplay
         } else {
             FrameRateContext::Menus
         }
@@ -204,14 +196,12 @@ pub(crate) fn track_display_refresh(
     mut display: ResMut<DisplayRefresh>,
     mut checked: Local<Option<Instant>>,
     _main_thread: NonSendMarker,
-    mut power: ResMut<PowerSource>,
 ) {
     let now = Instant::now();
     if checked.is_some_and(|last| now.saturating_duration_since(last) < DISPLAY_RECHECK) {
         return;
     }
     *checked = Some(now);
-    power.on_battery = power::on_battery();
     let timing = windows.single().ok().and_then(|window| {
         WINIT_WINDOWS.with_borrow(|windows| {
             windows

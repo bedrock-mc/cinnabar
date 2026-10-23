@@ -7,6 +7,9 @@ use ui::{
     ScoreAction, ScoreEntry, ScoreOwner, ScoreRenderType, ScoreboardEvent, ScoreboardStore,
 };
 
+#[path = "scoreboard_display_slots.rs"]
+mod display_slots;
+
 fn display(slot: &str, objective: &str, sort_order: i32) -> ScoreboardEvent {
     display_with_criteria(slot, objective, "dummy", sort_order)
 }

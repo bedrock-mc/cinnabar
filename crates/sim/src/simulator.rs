@@ -1,3 +1,4 @@
+mod boat;
 mod collision;
 mod controls;
 mod effects;
@@ -24,6 +25,10 @@ use crate::{
 use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
+pub use boat::{
+    BoatBody, BoatBuoyancy, BoatFloat, BoatPaddles, BoatState, BoatTick, boat_paddle_power,
+    tick_boat,
+};
 pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;

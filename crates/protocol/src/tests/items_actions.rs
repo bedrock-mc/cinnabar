@@ -275,7 +275,7 @@ fn actor_attack_events_reach_the_shared_swing_path() {
         assert_eq!(action.actor_runtime_ids.as_ref(), &[id]);
         assert_eq!(action.kind, ActorActionKind::SwingArm);
         assert_eq!(action.data, 0.0);
-        assert_eq!(action.swing_source, None);
+        assert_eq!(action.swing_source.as_deref(), Some("attack"));
     }
     for event_id in [ActorEventType::StopAttacking, ActorEventType::Unknown(200)] {
         let packet = ActorEventPacket {

@@ -14,7 +14,7 @@
 //!
 //! `normals` binds a flat normal and `specular` zero, Iris's defaults without PBR maps.
 
-use super::super::plugin::LoadedShaderPack;
+use super::super::plugin::{LoadedShaderPack, ShaderPackViews};
 use super::super::resources::ATLAS_FORMAT;
 use super::super::targets::AtlasViews;
 use super::Effect;
@@ -59,6 +59,60 @@ pub(crate) struct ShaderpackEffectTextures {
 const WHITE: usize = 0;
 const FLAT_NORMAL: usize = 1;
 const NO_SPECULAR: usize = 2;
+
+/// Shared atlas owners that must release their views before a native atlas is replaced.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct SharedAtlasRelease<'w> {
+    textures: Option<ResMut<'w, ShaderpackEffectTextures>>,
+    views: Option<ResMut<'w, ShaderPackViews>>,
+}
+
+impl SharedAtlasRelease<'_> {
+    /// Drops shared views and cached draw bindings of `texture` before its replacement allocates.
+    pub(crate) fn release(&mut self, texture: Option<&Texture>) {
+        let Some(texture) = texture else {
+            return;
+        };
+        if let Some(textures) = self.textures.as_deref_mut() {
+            let mut changed = false;
+            if textures
+                .particles
+                .as_ref()
+                .is_some_and(|shared| shared.texture == texture.id())
+            {
+                textures.particles = None;
+                textures.particle_side = 0;
+                changed = true;
+            }
+            if textures
+                .cracks
+                .as_ref()
+                .is_some_and(|shared| shared.texture == texture.id())
+            {
+                textures.cracks = None;
+                changed = true;
+            }
+            if changed {
+                textures.generation += 1;
+            }
+        }
+        if let Some(views) = self.views.as_deref_mut() {
+            for state in views
+                .states
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .values_mut()
+            {
+                state.actors.release_texture(texture.id());
+                // Geometry bindings rebuild together when the texture generation changes.
+                for binding in &mut state.bindings.draws {
+                    binding.groups = Default::default();
+                }
+                state.atlas_generation = None;
+            }
+        }
+    }
+}
 
 fn texture(device: &wgpu::Device, label: &str, size: [u32; 2]) -> (wgpu::Texture, TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -324,6 +378,10 @@ pub(crate) fn prepare_effect_textures(
         textures.generation += 1;
     }
 }
+
+#[cfg(test)]
+#[path = "textures/release_tests.rs"]
+pub(crate) mod release_tests;
 
 #[cfg(test)]
 mod gpu_tests {

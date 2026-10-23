@@ -80,7 +80,7 @@ pub(super) fn results(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         .iter()
         .filter(|section| section.tab_title.is_some())
     {
-        if section.id == SettingSection::Server && !content.view.over_world {
+        if !content.view.settings_section_shown(section.id) {
             continue;
         }
         let title = content.word(section.tab_title.unwrap());
@@ -147,7 +147,7 @@ pub(super) fn results(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             continue;
         }
         found = true;
-        services::action_row(
+        services::action_row_text(
             content,
             &title,
             "",

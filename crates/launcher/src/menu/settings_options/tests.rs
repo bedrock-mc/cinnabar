@@ -519,6 +519,16 @@ fn vsync_defaults_and_saved_toggle_values_survive_loading() {
     }
 }
 
+/// Both settings interfaces use the registry's binary toggle contract.
+#[test]
+fn vsync_is_a_toggle() {
+    let option = SettingId::Vsync.definition();
+    assert!(matches!(option.kind, SettingKind::Toggle));
+    assert_eq!(option.min, render_api::VsyncMode::Off as i32);
+    assert_eq!(option.max, render_api::VsyncMode::On as i32);
+    assert_eq!(option.default, render_api::VsyncMode::DEFAULT as i32);
+}
+
 #[test]
 fn motion_blur_defaults_off_persists_every_preset_and_resets_with_video() {
     let mut settings = SettingsOptions::default();
@@ -717,10 +727,10 @@ fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
 
 /// Missing and unsupported FPS values use the default without becoming a one-FPS cap.
 #[test]
-fn frame_rate_missing_and_invalid_values_keep_the_automatic_default() {
-    use render_api::FrameRateLimit::Automatic;
+fn frame_rate_missing_and_invalid_values_are_unlimited() {
+    use render_api::FrameRateLimit::Unlimited;
 
-    assert_eq!(limit(&SettingsOptions::default()), Automatic);
+    assert_eq!(limit(&SettingsOptions::default()), Unlimited);
     for schema in [None, Some(SETTINGS_SCHEMA)] {
         for value in [None, Some(0), Some(-1), Some(i32::MIN), Some(i32::MAX)] {
             let mut saved = serde_json::json!({ "values": {} });
@@ -731,7 +741,7 @@ fn frame_rate_missing_and_invalid_values_keep_the_automatic_default() {
                 saved["values"]["max_framerate"] = value.into();
             }
             let settings = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
-            assert_eq!(limit(&settings), Automatic, "{saved}");
+            assert_eq!(limit(&settings), Unlimited, "{saved}");
             assert_eq!(
                 settings.value(SettingId::MaxFramerate),
                 FRAME_RATE_UNLIMITED,
@@ -739,21 +749,24 @@ fn frame_rate_missing_and_invalid_values_keep_the_automatic_default() {
             );
             let reloaded =
                 SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert_eq!(limit(&reloaded), Automatic, "{saved}");
+            assert_eq!(limit(&reloaded), Unlimited, "{saved}");
         }
     }
 }
 
 #[test]
-fn explicitly_choosing_unlimited_survives_saves_and_video_reset_restores_automatic() {
+fn choosing_unlimited_survives_saves_and_video_reset_restores_unlimited() {
     use render_api::FrameRateLimit;
     let mut settings = SettingsOptions::default();
+    assert!(!settings.set(SettingId::MaxFramerate.index(), FRAME_RATE_UNLIMITED));
+    assert!(settings.set(SettingId::MaxFramerate.index(), MIN_FIXED_FRAME_RATE));
     assert!(settings.set(SettingId::MaxFramerate.index(), FRAME_RATE_UNLIMITED));
     assert_eq!(limit(&settings), FrameRateLimit::Unlimited);
     let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert_eq!(limit(&loaded), FrameRateLimit::Unlimited);
+    loaded.set(SettingId::MaxFramerate.index(), MIN_FIXED_FRAME_RATE);
     loaded.reset_group(SettingsGroup::Video);
-    assert_eq!(limit(&loaded), FrameRateLimit::Automatic);
+    assert_eq!(limit(&loaded), FrameRateLimit::Unlimited);
 }
 
 #[test]

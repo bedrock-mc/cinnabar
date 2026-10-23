@@ -8,7 +8,8 @@ standard GITHUB_REF, GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GH_TOKEN.
 Dispatch must check out TARGET_BRANCH with full history and tags. A nightly
 dispatch is read-only and limited to the default branch; a tagged
 dispatch writes a release commit/tag; GitHub's token does not trigger another
-tag workflow. Outputs: channel, track, tag, version, ref, commit. ref is a commit SHA.
+tag workflow. Outputs: channel, track, tag, version, ref, commit, cargo_features.
+ref is a commit SHA; cargo_features is a comma-separated list for every Cargo build.
 """
 
 import os
@@ -36,6 +37,12 @@ def channel_for_track(track: str) -> tuple[str, dict]:
     matches = [(name, release) for name, release in channels.items() if release["track"] == track]
     if len(matches) != 1:
         raise ReleaseError(f"release metadata must declare exactly one {track} channel")
+    features = matches[0][1].get("cargo_features", [])
+    if not isinstance(features, list) or any(
+        not isinstance(feature, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", feature)
+        for feature in features
+    ) or len(set(features)) != len(features):
+        raise ReleaseError(f"{track} cargo_features must be unique Cargo feature names")
     return matches[0]
 
 
@@ -160,7 +167,7 @@ def validate_api_origin() -> None:
 
 def prepare() -> dict[str, str]:
     validate_api_origin()
-    tagged_channel, _ = channel_for_track("tagged")
+    tagged_channel, tagged_release = channel_for_track("tagged")
     rolling_channel, rolling_release = channel_for_track("rolling")
     event = os.environ.get("EVENT_NAME", os.environ.get("GITHUB_EVENT_NAME", ""))
     default_branch = os.environ.get("DEFAULT_BRANCH", "main")
@@ -209,8 +216,10 @@ def prepare() -> dict[str, str]:
         raise ReleaseError("EVENT_NAME must be push, schedule or workflow_dispatch")
     commit = git("rev-parse", "HEAD")
     track = "tagged" if channel == tagged_channel else "rolling"
+    release = tagged_release if track == "tagged" else rolling_release
     return {"channel": channel, "track": track, "tag": tag, "version": source_version,
-            "ref": commit, "commit": commit}
+            "ref": commit, "commit": commit,
+            "cargo_features": ",".join(release.get("cargo_features", []))}
 
 
 def main() -> int:

@@ -1,4 +1,5 @@
 //! Immutable single-layer pages let persona arrivals replace only their own slots.
+use super::page_budget::within_page_budget;
 use super::*;
 
 /// Adds the immutable source's exact pixel bytes to its content digest.

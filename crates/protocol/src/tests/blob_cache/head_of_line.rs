@@ -795,3 +795,94 @@ fn ordinary_lane_reports_its_independent_hard_boundary_without_dropping_retained
     assert_eq!(resolver.stats().skipped_world_events, 0);
     assert_eq!(resolver.stats().ordinary_ready_events, 0);
 }
+
+/// The 3-link chain behind the terrain-load stall: a pending column (7, 13) holds back a
+/// reconstructed SubChunk naming (4, 9) and (7, 13), which holds back a block update on (4, 9).
+/// No pending transaction names the update's own column, so only the transitive owner unblocks it.
+fn transitively_blocked_update() -> BlobCacheResolver {
+    let payload = b"resident sub-chunk";
+    let cache = ClientBlobCache::with_limits(limits(1_024));
+    let resident = cache.insert(payload).expect("seed the resident sub-chunk");
+    let mut resolver = BlobCacheResolver::new(cache);
+    resolver
+        .accept_cached_packet(protocol::Packet::new(cached_level_chunk(
+            7,
+            13,
+            vec![client_blob_hash(b"missing column")],
+            b"",
+        )))
+        .expect("pending column owner");
+    let status = resolver
+        .accept_cached_packet(cached_subchunk_multi_column(resident, b"tail"))
+        .expect("multi-column hit");
+    assert_eq!(status.have(), [resident]);
+    resolver
+        .accept_world_event(
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [4 * 16, 0, 9 * 16],
+                layer: 0,
+                network_id: 123,
+            }]),
+            size_of::<BlockUpdateEvent>(),
+        )
+        .expect("ordinary update is retained");
+    resolver
+}
+
+#[test]
+fn ordinary_work_blocked_through_a_multi_column_ready_packet_abandons_its_pending_owner() {
+    let mut resolver = transitively_blocked_update();
+    assert!(
+        resolver.pop_ready().is_none(),
+        "the update and the reconstructed SubChunk both wait for column (7, 13)"
+    );
+    assert!(resolver.ordinary_lane_needs_drain());
+    assert!(
+        resolver
+            .unblock_ordinary_lane()
+            .expect("abandonment remains non-fatal"),
+        "the pending owner blocking the update through another column must be abandoned"
+    );
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            ChunkResyncEvent { x: 7, z: 13, .. }
+        )))
+    ));
+    let sub_chunk = pop_packet(&mut resolver, "the reconstructed SubChunk keeps its order");
+    assert!(matches!(&*sub_chunk.data, packets::Packet::SubChunk(_)));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(updates)))
+            if updates[0].network_id == 123
+    ));
+    assert!(!resolver.ordinary_lane_needs_drain());
+    assert_eq!(resolver.stats().ordinary_lane_stalls, 0);
+}
+
+#[test]
+fn ordinary_lane_without_an_abandonable_blocker_reports_no_progress_once_per_episode() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 7 }), 8)
+        .expect("ordinary event");
+    for _ in 0..3 {
+        assert!(
+            !resolver
+                .unblock_ordinary_lane()
+                .expect("no abandonment is non-fatal"),
+            "nothing can be abandoned, so callers must not treat this as progress"
+        );
+    }
+    assert_eq!(resolver.stats().ordinary_lane_stalls, 1);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::SetTime(_)))
+    ));
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 8 }), 8)
+        .expect("second ordinary event");
+    assert!(!resolver.unblock_ordinary_lane().unwrap());
+    assert_eq!(resolver.stats().ordinary_lane_stalls, 2);
+}

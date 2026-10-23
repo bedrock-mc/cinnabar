@@ -5,7 +5,7 @@ use FrameRateLimit::{Fixed, Unlimited};
 use PresentModeKind::{Fifo, FifoRelaxed, Immediate, Mailbox};
 use PresentationIntent::{AllowTearing, LowLatency, Synchronized, Unpaced};
 
-const GAMEPLAY: FrameRateContext = FrameRateContext::Gameplay { on_battery: false };
+const GAMEPLAY: FrameRateContext = FrameRateContext::Gameplay;
 
 const INTENTS: [PresentationIntent; 4] = [Synchronized, LowLatency, AllowTearing, Unpaced];
 
@@ -58,13 +58,13 @@ fn selection_table_matches_backend_capability_sets() {
     }
 }
 
-/// Low latency prefers Mailbox, while the explicit tearing choice prefers Immediate.
+/// Low latency prefers Mailbox, while the diagnostic launch flag prefers Immediate.
 #[test]
 fn presentation_intents_respect_the_tearing_boundary() {
     for surface in all_surfaces() {
-        assert_ne!(
+        assert_eq!(
             select_present_mode(Synchronized, surface),
-            Immediate,
+            Fifo,
             "{surface:?}"
         );
         assert_eq!(
@@ -112,7 +112,7 @@ fn unprobed_player_requests_start_on_fifo() {
 fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() {
     for intent in INTENTS {
         let timing = display(144, VrrStatus::Inactive);
-        for limit in [FrameRateLimit::Automatic, Unlimited, fixed(240)] {
+        for limit in [Unlimited, fixed(240)] {
             assert_eq!(
                 frame_rate_target(intent, limit, timing, FrameRateContext::Menus),
                 timing.refresh
@@ -135,34 +135,11 @@ fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() 
 }
 
 #[test]
-fn only_the_untouched_gameplay_default_changes_on_battery() {
-    for intent in INTENTS {
-        let timing = display(120, VrrStatus::Inactive);
-        for on_battery in [false, true] {
-            let context = FrameRateContext::Gameplay { on_battery };
-            assert_eq!(
-                frame_rate_target(intent, FrameRateLimit::Automatic, timing, context),
-                on_battery.then_some(timing.refresh).flatten()
-            );
-            assert_eq!(frame_rate_target(intent, Unlimited, timing, context), None);
-            assert_eq!(
-                frame_rate_target(intent, fixed(75), timing, context),
-                Some(hz(75))
-            );
-        }
-    }
-}
-
-#[test]
-fn the_vrr_ceiling_survives_menu_and_battery_defaults() {
+fn the_vrr_ceiling_applies_in_menus_and_gameplay() {
     let timing = display(144, VrrStatus::Active);
     for intent in [LowLatency, AllowTearing] {
-        for context in [
-            FrameRateContext::Menus,
-            GAMEPLAY,
-            FrameRateContext::Gameplay { on_battery: true },
-        ] {
-            for limit in [FrameRateLimit::Automatic, Unlimited, fixed(240)] {
+        for context in [FrameRateContext::Menus, GAMEPLAY] {
+            for limit in [Unlimited, fixed(240)] {
                 assert_eq!(
                     frame_rate_target(intent, limit, timing, context),
                     Some(vrr_ceiling(timing.refresh.unwrap(), None))

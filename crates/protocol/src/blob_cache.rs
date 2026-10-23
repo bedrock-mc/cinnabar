@@ -144,6 +144,8 @@ pub struct BlobCacheStats {
     /// inline on a status packet is counted when it is queued.
     pub recovery_requests: u64,
     pub ordinary_backpressure: u64,
+    /// Times retained ordinary work had no abandonable cached blocker, counted once per episode.
+    pub ordinary_lane_stalls: u64,
     pub reconstructed_level_chunks: u64,
     pub reconstructed_sub_chunks: u64,
 }
@@ -481,6 +483,8 @@ pub struct BlobCacheResolver {
     immediate_ready: BTreeMap<u64, ImmediateReady>,
     recovery_ready: BTreeMap<ColumnKey, RecoveryReady>,
     fast_transfer_reset_armed: bool,
+    /// Set while retained ordinary work has no abandonable blocker, so each episode counts once.
+    ordinary_lane_stalled: bool,
     next_ready_sequence: u64,
     stats: BlobCacheStats,
     /// Sum of every `pending_by_hash` set's capacity, updated at each index mutation so

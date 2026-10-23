@@ -573,21 +573,11 @@ fn overlay_face_tile(
     material: &Material,
     base: Option<&RuntimeAssets>,
 ) -> Option<IconSprite> {
-    if material.texture.page() == 0 {
-        let texture = &base?.texture_pages().first()?.texture;
+    let texture = overlay.texture_page(material.texture.page(), base)?;
+    if material.texture.page() < overlay.base_texture_pages {
         return face_tile(material, texture, texture.mips.first()?.size, 0);
     }
-    let shard = material.texture.page().checked_sub(1)? as usize;
-    let texture = overlay.textures.get(shard)?;
-    let layer = material.texture.layer() as usize;
-    if layer >= texture.layers as usize {
-        return None;
-    }
-    let flat = overlay.textures[..shard]
-        .iter()
-        .map(|shard| shard.layers as usize)
-        .sum::<usize>()
-        + layer;
+    let flat = overlay.flat_texture_layer(material.texture)?;
     let base = texture.mips.first()?;
     let grid = overlay.texture_source_grids.get(flat).copied().unwrap_or(0);
     let source_side = match overlay.texture_source_sizes.get(flat) {

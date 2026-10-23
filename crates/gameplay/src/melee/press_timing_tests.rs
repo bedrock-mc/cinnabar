@@ -98,6 +98,7 @@ fn block_press_waits_for_older_movement_before_its_current_frame_tick() {
 fn press(tick: u64) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
+        refused_destroy: None,
         tick,
         player_position: [0.0, 1.62, 0.0],
         input_mode: PlayerInputMode::Mouse,

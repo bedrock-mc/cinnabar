@@ -32,7 +32,7 @@ fn liquid_face(job: vec4<u32>) -> JobFace {
         corners.ao[corner] = 1.0;
     }
     let normal = face_normal(first.face);
-    let material = materials[first.selected_material_id];
+    let material = materials(first.selected_material_id);
     var tint = vec4(1.0);
     if ((first.packed_material & LIQUID_DEPTH_WRITE_BIT) == 0u) {
         let water = blended_biome_tint(0x30u, 0u, u32(first.chunk_origin.w), vec3<f32>(first.block_coordinate), vec3<f32>(first.chunk_origin.xyz));

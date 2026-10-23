@@ -129,6 +129,22 @@ fn a_started_server_pauses_and_stops() {
     );
 }
 
+/// Only a successful exit counts as a clean save; a failing one still stops the server.
+#[cfg(unix)]
+#[test]
+fn only_a_successful_exit_is_clean() {
+    let dir = scratch();
+    let failing = b"#!/bin/sh\necho ready\nwhile IFS= read -r line; do\n  [ \"$line\" = stop ] && exit 3\ndone\n";
+    for (body, clean) in [(FAKE_SERVER, true), (&failing[..], false)] {
+        let instance = runner(dir.path(), body)
+            .start(&spec(dir.path()), &Cancel::never())
+            .expect("start");
+        assert!(!instance.exited_cleanly(), "still running");
+        instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+        assert_eq!(instance.exited_cleanly(), clean);
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_crash_during_startup_fails_the_start() {

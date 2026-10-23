@@ -213,11 +213,6 @@ fn maintain_block_use(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     };
-    if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
-    {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
-        return;
-    }
     let mut attempt = build::BuildInput::new(observed, state, trigger, due, clock, *context.view);
     build::advance(
         &mut player_runtime,

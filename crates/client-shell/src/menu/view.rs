@@ -60,6 +60,7 @@ impl MenuRuntime {
             shader_packs: std::sync::Arc::clone(&self.shader_packs),
             shader_packs_revision: self.shader_packs_revision,
             shader_pack_removing: self.shader_pack_removing.clone(),
+            shader_pack_importing: self.shader_pack_import != super::renderer::PackImport::Idle,
             shader_pack: (self.render_mode == ui::RenderMode::ShaderPack)
                 .then(|| self.shader_pack.clone())
                 .flatten(),
@@ -102,6 +103,7 @@ impl MenuRuntime {
             language_choices: std::sync::Arc::clone(&self.language_choices),
             feeds: self.presented_feeds(),
             hosting: self.hosting_world(),
+            world_settings: self.world_settings_view(),
             invite: self.invite_view(),
             realm_membership: self.realm_membership.state.clone(),
             join_request: self.join_request_view(),

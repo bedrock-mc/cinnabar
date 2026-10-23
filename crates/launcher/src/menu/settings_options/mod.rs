@@ -14,6 +14,7 @@ pub mod layout;
 pub mod macro_modifier;
 pub mod persistence;
 pub mod render_distance;
+pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
 pub mod touch_layout;
@@ -45,7 +46,7 @@ pub use definitions::{
     MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
     SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
     THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VIEW_BOBBING_CHOICES, VRR_CHOICES,
-    VRR_OPTION, VSYNC_CHOICES,
+    VRR_OPTION, VSYNC_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -167,6 +168,10 @@ impl SettingsOptions {
         self.value(SettingId::OreuiDarkMode) != 0
     }
 
+    pub fn f5_self_visuals(&self) -> bool {
+        self.value(SettingId::F5SelfVisuals) != 0
+    }
+
     /// Whether launch and Settings layer debug levels for the net, session, core and packs
     /// log categories over the defaults. `CINNABAR_LOG` and `RUST_LOG` take precedence.
     pub fn verbose_logging(&self) -> bool {
@@ -245,10 +250,11 @@ impl SettingsOptions {
             .copied()
             .unwrap_or_else(|| self.option_default(definition))
             == value
-            && (definition.id != SettingId::RenderDistance
-                || self.values.contains_key(definition.name))
-            && (definition.id != SettingId::MaxFramerate
-                || self.values.contains_key(definition.name))
+            && (self.values.contains_key(definition.name)
+                || !matches!(
+                    definition.id,
+                    SettingId::RenderDistance | SettingId::RenderResolution
+                ))
         {
             return false;
         }

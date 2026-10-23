@@ -49,12 +49,26 @@ fn bounds_cache_releases_departed_candidates_and_excess_capacity() {
     cache.begin_frame();
     for id in 0..MAX_PRESENTED_NAMETAGS {
         tag.runtime_id = id as u64;
-        cache.intersects_view(&tag, Mat4::ZERO, Quat::IDENTITY, &font, &mut layouts, None);
+        assert!(!cache.intersects_view(
+            &tag,
+            Mat4::IDENTITY,
+            Quat::IDENTITY,
+            &font,
+            &mut layouts,
+            None
+        ));
     }
     cache.finish_frame();
     assert_eq!(cache.entries.len(), MAX_PRESENTED_NAMETAGS);
     cache.begin_frame();
-    cache.intersects_view(&tag, Mat4::ZERO, Quat::IDENTITY, &font, &mut layouts, None);
+    assert!(!cache.intersects_view(
+        &tag,
+        Mat4::IDENTITY,
+        Quat::IDENTITY,
+        &font,
+        &mut layouts,
+        None
+    ));
     cache.finish_frame();
     assert_eq!(cache.entries.len(), 1);
     assert!(cache.entries.capacity() <= 4);

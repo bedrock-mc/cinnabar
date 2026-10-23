@@ -148,6 +148,123 @@ fn unused_shader_support_never_initializes_gpu_work() {
     assert!(!world.contains_resource::<ActorSkinPipelines>());
 }
 
+/// Four-buffer devices keep native rendering even when optional geometry is requested.
+#[test]
+fn four_buffer_devices_never_prepare_optional_layouts() {
+    use bevy::ecs::system::RunSystemOnce;
+    for selected in [false, true] {
+        let mut world = super::native_tests::ready_world();
+        world.remove_resource::<ActorSkinPipelines>();
+        world.remove_resource::<super::super::kernels::Kernels>();
+        world.remove_resource::<ShaderpackGeometry>();
+        if !selected {
+            world.remove_resource::<LoadedShaderPack>();
+        }
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_storage_buffers_per_shader_stage: 4,
+                ..default()
+            },
+            ..default()
+        });
+        world.insert_resource(RenderDevice::from(device));
+        world.insert_resource(ShaderpackGeometrySettings {
+            enabled: true,
+            ..default()
+        });
+        let mut schedule = Schedule::default();
+        schedule.add_systems(
+            (
+                super::super::kernels::prepare_kernels,
+                prepare_actor_pipelines,
+            )
+                .chain(),
+        );
+        schedule.run(&mut world);
+        assert!(!world.contains_resource::<super::super::kernels::Kernels>());
+        assert!(!world.contains_resource::<ActorSkinPipelines>());
+        world
+            .run_system_once(super::super::geometry::prepare_geometry_resources)
+            .unwrap();
+        assert!(!world.contains_resource::<ShaderpackGeometry>());
+        world.run_system_once(configure_replacement).unwrap();
+        assert_eq!(
+            *world.resource::<ShaderPackDrawnCategories>(),
+            ShaderPackDrawnCategories::default()
+        );
+    }
+}
+
+/// An unsupported device reports the failure before starting a compiler or loading GPU data.
+#[test]
+fn four_buffer_pack_request_reports_failure_and_keeps_native_rendering() {
+    use bevy::ecs::system::RunSystemOnce;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..default()
+            },
+            ..default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..default()
+        },
+        ..default()
+    }))
+    .unwrap();
+    let gpu = GpuContext {
+        device,
+        queue,
+        adapter,
+    };
+    let request = ShaderPackRequest {
+        pack: Some("fixture.zip".into()),
+        revision: 1,
+        ..default()
+    };
+    let error = load(
+        request.pack.as_deref().unwrap(),
+        None,
+        JAVA_DIMENSIONS[0],
+        None,
+        &gpu,
+        &default(),
+        &default(),
+        None,
+    )
+    .err()
+    .expect("unsupported helpers must reject the load");
+    assert!(error.contains("storage buffers"), "{error}");
+    let mut world = super::native_tests::ready_world();
+    world.insert_resource(request);
+    world.init_resource::<ShaderPackFrameInputs>();
+    world.init_resource::<ShaderPackStatus>();
+    world.init_resource::<ShaderPackSettledRevision>();
+    world.init_resource::<ShaderPackLoadProgress>();
+    world.init_resource::<Loader>();
+    world.insert_resource(RenderDevice::from(gpu.device));
+    world.insert_resource(RenderQueue::new(gpu.queue));
+    world.insert_resource(RenderAdapter::new(gpu.adapter));
+    world.run_system_once(drive_loader).unwrap();
+    assert!(matches!(world.resource::<ShaderPackStatus>(),
+        ShaderPackStatus::Failed { reason, .. } if reason == &error));
+    assert_eq!(world.resource::<ShaderPackSettledRevision>().0, 1);
+    assert!(world.resource::<LoadedShaderPack>().0.is_none());
+    assert!(world.resource::<Loader>().job.is_none());
+    world.run_system_once(configure_replacement).unwrap();
+    assert_eq!(
+        *world.resource::<ShaderPackDrawnCategories>(),
+        ShaderPackDrawnCategories::default()
+    );
+}
+
 #[test]
 fn superseded_loads_retire_before_another_worker_can_start() {
     use bevy::ecs::system::RunSystemOnce;
@@ -194,4 +311,40 @@ fn superseded_loads_retire_before_another_worker_can_start() {
         *world.resource::<ShaderPackStatus>(),
         ShaderPackStatus::Idle
     ));
+}
+
+#[test]
+fn idle_shader_views_do_not_record_work() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.init_resource::<ShaderPackViews>();
+    let profiler = RuntimeStageProfiler::new(true);
+    world.insert_resource(profiler.clone());
+    world.run_system_once(prepare_views).unwrap();
+    let snapshot = profiler
+        .take_snapshot_if_due(std::time::Duration::ZERO)
+        .unwrap();
+    assert_eq!(
+        snapshot.samples[RuntimeStage::ShaderpackUniforms as usize].count,
+        0
+    );
+}
+
+#[test]
+fn shader_registration_keeps_builtin_assets_unprepared_until_requested() {
+    let mut app = App::new();
+    app.init_resource::<Assets<Shader>>();
+    let mut render = bevy::app::SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    build(&mut app);
+    assert!(app.world().resource::<Assets<Shader>>().is_empty());
+    assert!(
+        !app.sub_app(RenderApp)
+            .world()
+            .contains_resource::<super::super::kernels::Kernels>()
+    );
 }

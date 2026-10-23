@@ -227,6 +227,12 @@ fn immediate_respawn_ready_closes_death_without_waiting_for_health() {
 #[test]
 fn status_only_death_opens_respawn_controls_while_input_is_held() {
     let (mut app, _) = fixture_app();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .apply_death_rules(protocol::DeathRules {
+            immediate_respawn: Some(true),
+            ..Default::default()
+        });
     health(&mut app, 1, 20);
     submit(
         &mut app,
@@ -294,6 +300,12 @@ fn positive_set_health_after_an_invalid_range_keeps_both_consumers_alive() {
 #[test]
 fn repeated_health_entries_reopen_both_respawn_consumers_after_readiness() {
     let (mut app, _) = fixture_app();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .apply_death_rules(protocol::DeathRules {
+            immediate_respawn: Some(true),
+            ..Default::default()
+        });
     health(&mut app, 1, 0);
     app.update();
     ready(&mut app, 2);

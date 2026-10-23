@@ -3,6 +3,7 @@ use super::pipeline::{UiPipeline, UiPipelineKey};
 #[cfg(test)]
 use super::segments::UiSegment;
 use super::segments::plan_ui_passes;
+use super::target::{NativeUiTarget, UiTarget};
 use super::*;
 use super::{
     damage::UiDamage,
@@ -411,6 +412,8 @@ type UiOverlayQuery = (
     &'static ExtractedCamera,
     Option<&'static MainPassResolutionOverride>,
     Option<&'static super::composite::UiLayerTexture>,
+    Option<&'static crate::render_scale::RenderScaleOutput>,
+    Option<&'static NativeUiTarget>,
 );
 
 /// Draws the retained HUD after world post-processing.
@@ -420,7 +423,7 @@ pub(crate) fn ui_overlay(
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    let (target, main, camera, resolution_override, layer) = query.into_inner();
+    let (target, main, camera, resolution_override, layer, output, native) = query.into_inner();
     let context = &mut context;
     crate::screen_overlay_render::draw_before_hud(
         view_entity,
@@ -430,6 +433,16 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
+    // Keep screen UI reachable in the reduced view if native composition is unavailable.
+    let native = native.filter(|native| {
+        UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
+    });
+    let target = UiTarget::new(target, native);
+    let output_extent = if target.is_native() {
+        None
+    } else {
+        output.map(|output| output.0.to_array())
+    };
     let (Some(gpu), Some(pipeline_cache), Some(composite)) = (
         world.get_resource::<UiGpu>(),
         world.get_resource::<PipelineCache>(),
@@ -492,6 +505,7 @@ pub(crate) fn ui_overlay(
                 indices,
                 view: view_entity,
                 viewport: viewport.as_ref(),
+                output_extent,
             },
             target,
             &backdrops,
@@ -538,6 +552,7 @@ pub(crate) fn ui_overlay(
             layer: raster,
             model_depth,
             viewport: viewport.as_ref(),
+            output_extent,
             skip: skip.as_ref(),
             clear: composite.clear_pipeline(pipeline_cache),
             keep: false,
@@ -576,7 +591,8 @@ pub(crate) fn ui_overlay(
             _ if held.is_some() => animation,
             (Some(content), Some(input)) => raster.damage(content, input).union(animation),
             _ => UiDamage::Full,
-        };
+        }
+        .for_projection(output_extent.is_none());
         let damage = super::layer::damage_for_passes(
             proposed,
             layered.first().map(|(_, batch, _)| *batch),
@@ -707,6 +723,7 @@ pub(crate) fn ui_overlay(
                 indices,
                 viewport.as_ref(),
                 crate::render_bounds::extent(target.main_texture_view()),
+                output_extent,
                 std::slice::from_ref(inverted),
                 skip.as_ref(),
                 None,

@@ -9,20 +9,8 @@ pub struct SettingChoice {
     pub label: &'static str,
 }
 
-/// Derives each VSync radio choice from the persisted mode contract.
-const fn vsync_choice(mode: render_api::VsyncMode) -> SettingChoice {
-    SettingChoice {
-        name: mode.binding(),
-        label: mode.label(),
-    }
-}
-
-pub const VSYNC_CHOICES: &[SettingChoice] = &[
-    vsync_choice(render_api::VsyncMode::ALL[0]),
-    vsync_choice(render_api::VsyncMode::ALL[1]),
-    vsync_choice(render_api::VsyncMode::ALL[2]),
-];
-const _: () = assert!(VSYNC_CHOICES.len() == render_api::VsyncMode::ALL.len());
+/// Shared VSync toggle definition for both settings interfaces.
+pub const VSYNC_OPTION: SettingDefinition = SettingId::Vsync.definition();
 
 #[derive(Clone, Copy, Debug)]
 pub enum SettingKind {
@@ -384,7 +372,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 5)], [SettingsGroup::Video], None, None;
     MotionBlur => "motion_blur", dropdown("Motion Blur", MOTION_BLUR_CHOICES, ui::MotionBlurQuality::Off.index()),
         [(SettingPanel::VideoGraphics, 6)], [SettingsGroup::Video], None, None;
-    Vsync => "vsync", dropdown("options.vsync", VSYNC_CHOICES, render_api::VsyncMode::DEFAULT as i32),
+    Vsync => "vsync", toggle("options.vsync", render_api::VsyncMode::DEFAULT.enabled()),
         [(SettingPanel::VideoGraphics, 2)], [SettingsGroup::Video], None, None;
     Vrr => "vrr", dropdown("Variable Refresh Rate", VRR_CHOICES, render_api::VrrPreference::Automatic as i32),
         [(SettingPanel::VideoGraphics, 3)], [SettingsGroup::Video], None, None;
@@ -508,6 +496,8 @@ settings! {
         [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 10)], [SettingsGroup::Video], None, None;
+    F5SelfVisuals => "f5_self_visuals", toggle("options.f5SelfVisuals", true),
+        [(SettingPanel::VideoCustomization, 12)], [SettingsGroup::Video], None, Some("options.f5SelfVisuals.name");
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
     DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
@@ -526,6 +516,10 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
+        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
+    RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
+        [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

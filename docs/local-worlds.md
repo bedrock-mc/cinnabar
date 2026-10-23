@@ -57,6 +57,15 @@ The edit screen exposes the remaining options.
 Older and imported worlds recover their options from level data. A `level.dat` over 1 MiB is
 never parsed or rewritten; that world's options show as unavailable.
 
+While the host plays a BDS world, Settings lists a Game section under World in vanilla's in-game
+order and wording. Name, seed, world type, starting map, bonus chest, simulation distance and
+hardcore stay locked; cheat rules wait for cheats, and turning cheats off keeps them. Each change
+saves at once. Live changes reach the running server through its console (`gamerule`, `difficulty`,
+`alwaysday`, `changesetting allow-cheats`); container BDS takes the line through the server's stdin.
+Default game mode and default player permission apply on the next start. If a console write fails,
+the Game section explains that the saved change applies on the next start. Rules applied live stay
+pending until the server exits successfully. A crash or forced shutdown keeps them pending.
+
 Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
 friends-broadcast settings are not exposed on the local BDS multiplayer page. Hardcore remains
 unavailable, as do custom flat presets and Education Edition. Runtime acceptance of every option across supported BDS platforms remains open.
@@ -102,6 +111,14 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
   budget before the exit sweep escalates to SIGTERM and kill.
+- **Standby (translated BDS):** translated servers take minutes to start, so once the menu is up the
+  most recently played world starts in the background if it runs on an installed BDS. Leaving a
+  running BDS world keeps its server for five minutes when it already holds every saved setting;
+  settings for the next start or a missed live command stop it instead. Until the same world is opened, such a server is
+  hidden: status and the core report no open world. Opening it reuses the server after reconciling the
+  host's operator grant. Opening another world, editing or deleting this one, a core restart and
+  client exit save and stop it first. A start still in progress is killed instead. A hidden server
+  that exits is logged, not shown as a failure. Native and container servers stop when left.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
