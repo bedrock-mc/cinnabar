@@ -27,9 +27,10 @@ impl WorldStream {
             })
             .min(removal_budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
-        let scan_limit = authority
-            .max(MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
-            .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
+        let scan_limit = authority.clamp(
+            MAX_PENDING_SCHEDULER_SCANS_PER_POLL,
+            MAX_PENDING_MESH_QUEUE_WORK_PER_POLL,
+        );
         self.prune_air_requeued();
         self.mesh_jobs.wake_lane(
             MESH_REMOVAL_LANE,
