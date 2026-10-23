@@ -358,6 +358,8 @@ impl WorldStream {
             self.air_removals.remove(&key);
             self.mesh_jobs.enqueue_prioritized(key, pending, startup);
         } else {
+            // Air retires a queued geometry return, even when its revision is coalesced.
+            self.air_requeued.remove(&key);
             self.mesh_jobs.enqueue_unrouted(key, pending);
             self.air_removals.insert(key, pending.revision);
             if pending.urgent || startup {
