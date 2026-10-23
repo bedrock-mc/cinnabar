@@ -235,6 +235,24 @@ impl IconBlocks {
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
+        let (path, overlay) = self.carried_material(visual)?;
+        overlay.is_none().then(|| path.into())
+    }
+
+    /// Loads carried model artwork with its declared animation frame and overlay tint.
+    pub(super) fn carried_model_tile(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let Some((path, overlay)) = self.carried_material(visual) else {
+            return Ok(None);
+        };
+        super::carried::model_tile(self, root, path, overlay)
+    }
+
+    /// Selects the carried down-face material at the block's world variant.
+    fn carried_material(&self, visual: BlockVisualId) -> Option<(&str, Option<&str>)> {
         let pack = self.pack.as_ref()?;
         let record = self.records.get(visual.0 as usize)?;
         let key = resolve_carried_down_key(&pack.blocks, record)?;
@@ -243,9 +261,7 @@ impl IconBlocks {
             .key
             .and_then(|world| pack.terrain.get_for_model_record(&world, record))
             .map_or(0, |(_, variant)| variant as usize);
-        pack.terrain
-            .get_clamped_untinted(&key, variant)
-            .map(Into::into)
+        pack.terrain.get_clamped_carried(&key, variant)
     }
 
     /// A flat block icon; a declared flipbook shows its first frame.
