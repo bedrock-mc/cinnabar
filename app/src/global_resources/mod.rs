@@ -18,23 +18,7 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, file
         .add_systems(
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),
-        )
-        .add_systems(Last, enqueue_exit_actions);
-}
-
-/// Queues exit-frame edits so worker teardown saves them with earlier disk work.
-fn enqueue_exit_actions(
-    mut worker: ResMut<worker::Worker>,
-    mut menu: ResMut<MenuRuntime>,
-    mut exits: MessageReader<AppExit>,
-) {
-    if exits.read().next().is_none() {
-        return;
-    }
-    for action in std::mem::take(&mut menu.global_resource_actions) {
-        let revision = worker.snapshot.revision;
-        worker.send(worker::Command::Action { action, revision });
-    }
+        );
 }
 
 /// Pack-reload status folded into the published snapshot, borrowed for comparison.
@@ -103,14 +87,9 @@ fn drive(
     mut reload: ResMut<PackReload>,
     mut drops: MessageReader<bevy::window::FileDragAndDrop>,
     mut published: Local<Option<PublishedOverlay>>,
-    mut was_open: Local<bool>,
     worlds: Option<ResMut<LocalWorlds>>,
 ) {
-    let open = menu.scene() == Some(launcher::menu::MenuScreen::Settings)
-        && menu.settings_section()
-            == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack);
     let mut snapshot_changed = false;
-    let picker_was_open = worker.picker_open;
     for request in menu.take_minecraft_import_requests() {
         let action = request.action;
         if !worker.send_minecraft_import(request) {
@@ -142,10 +121,6 @@ fn drive(
         let revision = worker.snapshot.revision;
         worker.send(worker::Command::Action { action, revision });
     }
-    if !open && *was_open {
-        worker.send(worker::Command::Leave);
-    }
-    *was_open = open;
     loop {
         let event = match worker.events.try_recv() {
             Ok(event) => event,
@@ -159,13 +134,11 @@ fn drive(
                     worker.minecraft_import_pending = false;
                 }
                 worker.awaiting = None;
-                worker.picker_open = false;
                 snapshot_changed |= std::mem::take(&mut worker.snapshot.busy);
                 break;
             }
         };
         match event {
-            worker::Event::PickerClosed => worker.picker_open = false,
             worker::Event::MinecraftImportStatus(message) => {
                 worker.minecraft_import_pending = false;
                 menu.publish_minecraft_import_pack_status(&message);
@@ -185,17 +158,11 @@ fn drive(
             }
         }
     }
-    if worker
-        .awaiting
-        .as_ref()
-        .is_some_and(|(revision, _)| *revision <= reload.completed_revision())
-    {
+    if worker.awaiting.as_ref().is_some_and(|(revision, _)| {
+        *revision <= reload.completed_revision() && reload.error().is_none()
+    }) {
         let (_, selection) = worker.awaiting.take().expect("completed selection");
-        worker.send(if reload.error().is_none() {
-            worker::Command::Commit(selection)
-        } else {
-            worker::Command::ApplyFailed(selection)
-        });
+        worker.send(worker::Command::Commit(selection));
     }
     if worker.minecraft_import_pending {
         if let Some(error) = reload.error() {
@@ -207,7 +174,6 @@ fn drive(
         }
     }
     let overlay = Overlay::current(&reload, &worker.snapshot.message);
-    snapshot_changed |= picker_was_open != worker.picker_open;
     if !snapshot_changed
         && published
             .as_ref()
@@ -216,7 +182,6 @@ fn drive(
         return;
     }
     let mut snapshot = worker.snapshot.clone();
-    snapshot.busy |= worker.picker_open;
     match overlay {
         Overlay::Progress(progress) => {
             snapshot.busy = true;

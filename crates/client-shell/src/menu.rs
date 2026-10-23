@@ -329,6 +329,9 @@ impl MenuRuntime {
     }
 
     pub fn set_visible(&mut self, visible: bool) {
+        if !visible {
+            self.apply_global_resources_on_leave();
+        }
         self.visible = visible;
         if !visible {
             self.field = None;
@@ -778,6 +781,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
                 if !self.over_world() {
+                    self.apply_global_resources_on_leave();
                     self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
                         .definition()
                         .index;

@@ -14,7 +14,6 @@ pub(super) fn prune(root: &Path, catalog: &mut Catalog) -> Result<(), LibraryErr
             .active
             .iter()
             .chain(&candidate.restore)
-            .chain(candidate.pending.iter().flatten())
             .any(|active| active.id == pack.id && active.revision == pack.revision)
         {
             return true;
