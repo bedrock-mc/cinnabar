@@ -2,6 +2,78 @@ use super::*;
 use render_model::{UiRenderBatch, UiScissor, UiTextureCatalog, UiTexturePage};
 
 #[test]
+fn reduced_layers_defer_full_output_to_the_upscaler_and_follow_resize() {
+    use bevy::{
+        camera::{CameraMainTextureUsages, RenderTarget},
+        ecs::system::RunSystemOnce,
+        math::UVec4,
+        prelude::{GlobalTransform, Mat4},
+        render::{
+            camera::CameraMainPassTextureFormats,
+            texture::{OutputColorAttachment, TextureCache},
+            view::{RetainedViewEntity, ViewTargetAttachments, prepare_view_targets},
+        },
+    };
+    let mut world = super::super::ordered_command_tests::binding_world();
+    world.init_resource::<UiLayerStore>();
+    world.init_resource::<TextureCache>();
+    world.init_resource::<ClearColor>();
+    world.init_resource::<CameraMainPassTextureFormats>();
+    let device = world.resource::<RenderDevice>().clone();
+    let output = retained_layer(
+        &device,
+        Extent3d {
+            width: 800,
+            height: 600,
+            depth_or_array_layers: 1,
+        },
+    )
+    .unwrap();
+    let target = RenderTarget::Window(bevy::window::WindowRef::Entity(Entity::PLACEHOLDER))
+        .normalize(None)
+        .unwrap();
+    let mut attachments = ViewTargetAttachments::default();
+    attachments.insert(
+        target.clone(),
+        OutputColorAttachment::new(output.view.clone(), output.texture.format()),
+    );
+    world.insert_resource(attachments);
+    let mut camera = crate::render_test_support::camera(false);
+    camera.target = Some(target);
+    let entity = world
+        .spawn((
+            camera,
+            ExtractedView {
+                retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                target_format: render_scene::SCENE_COLOR_FORMAT,
+                viewport: UVec4::new(0, 0, 800, 600),
+                color_grading: default(),
+                invert_culling: false,
+            },
+            CameraMainTextureUsages::default(),
+            Msaa::Off,
+        ))
+        .id();
+    for size in [[800, 600], [400, 300], [536, 402], [800, 600]] {
+        let mut camera = world.get_mut::<ExtractedCamera>(entity).unwrap();
+        camera.physical_target_size = Some(UVec2::from_array(size));
+        camera.physical_viewport_size = Some(UVec2::from_array(size));
+        world.run_system_once(prepare_view_targets).unwrap();
+        world.run_system_once(prepare_ui_layers).unwrap();
+        let layer = world.get::<UiLayerTexture>(entity).unwrap();
+        assert_eq!([layer.texture.width(), layer.texture.height()], size);
+        assert_eq!(
+            layer.direct_output,
+            size == [800, 600],
+            "integer-load composite needs matching output pixels"
+        );
+    }
+}
+
+#[test]
 fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources() {
     let world = super::super::ordered_command_tests::binding_world();
     let device = world.resource::<RenderDevice>();
@@ -13,8 +85,11 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
         height: 2,
         depth_or_array_layers: 1,
     };
-    let layer = retained_layer(device, size);
-    let scenes = [retained_layer(device, size), retained_layer(device, size)];
+    let layer = retained_layer(device, size).unwrap();
+    let scenes = [
+        retained_layer(device, size).unwrap(),
+        retained_layer(device, size).unwrap(),
+    ];
     let frame = frame_layer(&layer, false);
     let live_scenes = scenes.each_ref().map(|scene| scene.view.id());
     let first = frame.bindings.lock().unwrap().get(
@@ -48,7 +123,7 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
         );
     }
     assert_eq!(test_alloc::thread_allocations(), allocated);
-    let replacement = retained_layer(device, size);
+    let replacement = retained_layer(device, size).unwrap();
     let changed = frame.bindings.lock().unwrap().get(
         device,
         &layout,
@@ -58,7 +133,10 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
     assert_ne!(changed, first);
     assert_ne!(changed, second);
     assert_eq!(frame.bindings.lock().unwrap().entries.len(), 2);
-    let next_pair = [retained_layer(device, size), retained_layer(device, size)];
+    let next_pair = [
+        retained_layer(device, size).unwrap(),
+        retained_layer(device, size).unwrap(),
+    ];
     frame.bindings.lock().unwrap().get(
         device,
         &layout,
@@ -127,6 +205,7 @@ fn held(input: Arc<UiRenderInput>) -> HeldLayer {
             model_depth: false,
         },
         encoded: true,
+        nonempty: true,
         publication: Some(input),
     }
 }
@@ -222,6 +301,7 @@ fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
                         msaa,
                         hdr,
                         enhanced: false,
+                        shader_pack: false,
                         output: None,
                     },
                     &mut ids,
@@ -246,7 +326,10 @@ fn independent_segment_rasters_reuse_and_invalidate_separately() {
         height: 40,
         depth_or_array_layers: 1,
     };
-    let layers = [retained_layer(device, size), retained_layer(device, size)];
+    let layers = [
+        retained_layer(device, size).unwrap(),
+        retained_layer(device, size).unwrap(),
+    ];
     let mut frame = frame_layer(&layers[1], false);
     frame.segments.push(frame_layer(&layers[0], false));
     let content = UiLayerContent {
@@ -367,7 +450,10 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
     for remove_device in [false, true] {
         let publication = input();
         let weak = Arc::downgrade(&publication);
-        let layers = vec![retained_layer(device, size), retained_layer(device, size)];
+        let layers = vec![
+            retained_layer(device, size).unwrap(),
+            retained_layer(device, size).unwrap(),
+        ];
         let content = UiLayerContent {
             revision: 1,
             texture_generation: 0,
@@ -377,7 +463,8 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
             segment: 0..1,
             inverted: None,
         };
-        frame_layer(&layers[0], false).hold_publication(Some((content, true)), Some(publication));
+        frame_layer(&layers[0], false)
+            .hold_publication(Some((content, true, true)), Some(publication));
         store.views.insert(owner, layers);
         assert!(weak.upgrade().is_some());
         if remove_device {
@@ -389,5 +476,166 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
         }
         assert!(store.views.is_empty());
         assert!(weak.upgrade().is_none());
+    }
+}
+
+/// Startup handoff needs complete content, and a retained raster is not a new presentation.
+#[test]
+fn destination_readiness_rejects_incomplete_segments_and_previous_frame_presentation() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let raster = retained_layer(
+        device,
+        Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+    )
+    .unwrap();
+    let frame = frame_layer(&raster, true);
+    assert!(!frame.complete_content());
+    assert!(!frame.presented_complete_content());
+    frame.record_content_draw(true, true);
+    assert!(
+        frame.held.lock().unwrap().is_none(),
+        "scratch output need not be cached"
+    );
+    assert!(frame.complete_content());
+    assert!(
+        !frame.presented_complete_content(),
+        "encoding alone is not presentation"
+    );
+    frame.record_content_draw(false, true);
+    assert!(
+        !frame.complete_content(),
+        "partial encoding must keep feedback visible"
+    );
+    frame.record_content_draw(true, false);
+    assert!(
+        !frame.complete_content(),
+        "empty encoding must keep feedback visible"
+    );
+    frame.content_presented.store(true, Ordering::Relaxed);
+    assert!(frame.presented_complete_content());
+    assert!(!frame_layer(&raster, true).presented_complete_content());
+}
+
+/// Out of memory drops extra UI segments to the single-layer replay, or to no layer at all,
+/// instead of quitting.
+#[test]
+fn layer_allocation_failure_falls_back_to_full_replay() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let size = Extent3d {
+        width: 40,
+        height: 40,
+        depth_or_array_layers: 1,
+    };
+    let allocated = std::rc::Rc::new(std::cell::Cell::new(0));
+    let mut layers = Vec::new();
+    {
+        let allocated = allocated.clone();
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            if label != "retained gamma-space UI layer" {
+                return false;
+            }
+            allocated.set(allocated.get() + 1);
+            allocated.get() > 1
+        });
+        synchronize_layers(&mut layers, device, size, 3);
+    }
+    assert_eq!(layers.len(), 1);
+    layers.clear();
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "retained gamma-space UI layer");
+        synchronize_layers(&mut layers, device, size, 3);
+    }
+    assert!(layers.is_empty());
+}
+
+/// Extra rasters that ran out of memory back off as a set instead of reallocating every frame,
+/// while the content raster stays resident, and the segments return once memory frees.
+#[test]
+fn failed_segment_rasters_back_off_then_recover() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let size = Extent3d {
+        width: 40,
+        height: 40,
+        depth_or_array_layers: 1,
+    };
+    let view = Entity::PLACEHOLDER;
+    let mut layers = Vec::new();
+    let mut failed = crate::gpu_allocation::FailedRequests::default();
+    let allocations = std::rc::Rc::new(std::cell::Cell::new(0));
+    {
+        let allocations = allocations.clone();
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            if label != "retained gamma-space UI layer" {
+                return false;
+            }
+            allocations.set(allocations.get() + 1);
+            allocations.get() == 3
+        });
+        for _ in 0..3 {
+            synchronize_view_layers(&mut layers, &mut failed, view, device, size, 3);
+            assert_eq!(layers.len(), 1);
+        }
+    }
+    assert_eq!(allocations.get(), 3, "the backed-off set was reallocated");
+    for _ in 0..4 {
+        synchronize_view_layers(&mut layers, &mut failed, view, device, size, 3);
+    }
+    assert_eq!(layers.len(), 3);
+}
+
+/// The base raster uses the same retry policy even when every allocation fails.
+#[test]
+fn base_raster_allocation_failure_backs_off_then_recovers() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    for count in [1, 3] {
+        let size = Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        };
+        let mut layers = Vec::new();
+        let mut failed = crate::gpu_allocation::FailedRequests::default();
+        let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+        let failure = crate::gpu_allocation::inject({
+            let attempts = attempts.clone();
+            move |label, _| {
+                if label != "retained gamma-space UI layer" {
+                    return false;
+                }
+                attempts.set(attempts.get() + 1);
+                true
+            }
+        });
+        for _ in 0..3 {
+            synchronize_view_layers(
+                &mut layers,
+                &mut failed,
+                Entity::PLACEHOLDER,
+                device,
+                size,
+                count,
+            );
+            assert!(layers.is_empty());
+        }
+        assert_eq!(attempts.get(), 1, "base raster bypassed retry backoff");
+        drop(failure);
+        synchronize_view_layers(
+            &mut layers,
+            &mut failed,
+            Entity::PLACEHOLDER,
+            device,
+            size,
+            count,
+        );
+        assert_eq!(layers.len(), count);
     }
 }

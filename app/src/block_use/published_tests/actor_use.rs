@@ -42,7 +42,7 @@ fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
             })),
         )
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "fixture actor spawn", || {
+    test_time::eventually("fixture actor spawn", || {
         stream.poll([4.5, 2.620_01, 8.5], 0);
         stream.committed_sequence() >= sequence
     });
@@ -398,4 +398,55 @@ fn native_startup_then_empty_live_registry_still_throws_after_actor_interact() {
         throw_at_entity_in_session("minecraft:zombie", no_component_offering(), "", true),
         ["interact", "use"]
     );
+}
+/// Removes the fixture chest so the eye ray reaches actors beyond it.
+pub(super) fn clear_line(world: &mut World) {
+    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+    let stream = client.stream.as_mut().unwrap();
+    stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+}
+
+/// The fixture actor's intercept and its distance from the eye along the full mouse pick ray.
+pub(super) fn ray_hit(world: &World) -> ([f32; 3], f64) {
+    let client = world.resource::<crate::runtime::world::ClientWorld>();
+    let authority = client.stream.as_ref().unwrap().authority();
+    let hit = gameplay::melee::pick_actor(
+        authority.remote_actors(),
+        None,
+        [4.5, 2.5, 8.5],
+        [0.0, 0.0, -1.0],
+        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
+    )
+    .unwrap();
+    (hit.point, hit.distance)
+}
+
+#[test]
+fn actor_use_targets_an_actor_only_within_the_survival_cap() {
+    for (z, within) in [(5.6, true), (4.1, false)] {
+        let (mut world, mut captured) = fixture();
+        spawn(&mut world, z);
+        clear_line(&mut world);
+        let (point, distance) = ray_hit(&world);
+        // Both actors lie on the pick ray; only the near one is inside the 3-block cap.
+        assert_eq!(distance + 0.1 < 3.0, within, "distance {distance}");
+        world.run_system_cached(produce_block_use).unwrap();
+        let interactions: Vec<_> = captured
+            .drain()
+            .iter()
+            .filter_map(observe_transaction)
+            .filter_map(|tx| tx.actor_use().cloned())
+            .collect();
+        if within {
+            assert_eq!(interactions.len(), 1);
+            let tx = &interactions[0];
+            assert_eq!(tx.action, Some(ActorUseAction::Interact));
+            assert_eq!(tx.runtime_id, 99);
+            assert_eq!(tx.slot, 0);
+            assert_eq!(tx.from_position, [4.5, 2.620_01, 8.5]);
+            assert_eq!(tx.hit_position, point);
+        } else {
+            assert!(interactions.is_empty(), "{interactions:?}");
+        }
+    }
 }

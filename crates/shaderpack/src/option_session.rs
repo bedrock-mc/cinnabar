@@ -12,7 +12,7 @@ use crate::options::{OptionValues, PackOption, find_option, normalize_values};
 use crate::pack::ShaderPack;
 
 /// A pack's option menu with the player's values; holds no pack files.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct OptionSession {
     options: Vec<PackOption>,
     menu: OptionMenu,

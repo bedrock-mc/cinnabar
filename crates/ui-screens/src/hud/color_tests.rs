@@ -75,7 +75,12 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
     let font = fixture_font();
     for server_content in [false, true] {
         let engine = engine(server_content);
-        for caption in ["Plain caption", "§dServer-colored caption"] {
+        for caption in [
+            "Plain caption",
+            "§dServer-colored caption",
+            "Hello @Alex tail",
+            "§d§l§oHello @Alex tail",
+        ] {
             let mut screens = HudScreens::default();
             let context = screens.context(&Context::desktop(), false);
             let mut model = HudModel {
@@ -94,6 +99,10 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
             for (index, color) in [0, 1, 0].into_iter().enumerate() {
                 let mut options = SettingsOptions::default();
                 options.set(SettingId::ChatColor.index(), color);
+                options.set(
+                    SettingId::MentionsColor.index(),
+                    if index == 1 { 0 } else { 5 },
+                );
                 crate::settings_chat::apply_hud(&options, &mut model);
                 let data = screens.begin(
                     Some((
@@ -151,6 +160,41 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     )),
                     "caption stays decoded after binding: server={server_content}, color={color}, caption={caption}"
                 );
+                if caption.contains('@') {
+                    let glyphs = nodes
+                        .iter()
+                        .find_map(|node| match node.visual() {
+                            UiVisual::Text { layout, .. }
+                                if layout.glyphs().iter().any(|glyph| glyph.codepoint == '@') =>
+                            {
+                                Some(layout.glyphs())
+                            }
+                            _ => None,
+                        })
+                        .expect("decoded mention paints");
+                    let mention = glyphs.iter().find(|glyph| glyph.codepoint == '@').unwrap();
+                    assert_eq!(
+                        mention.style.color,
+                        if index == 1 {
+                            BedrockColor::White
+                        } else {
+                            BedrockColor::Yellow
+                        }
+                    );
+                    let tail = glyphs.last().unwrap();
+                    assert_eq!(
+                        tail.style.color,
+                        if caption.starts_with('§') {
+                            BedrockColor::LightPurple
+                        } else if color == 0 {
+                            BedrockColor::Base
+                        } else {
+                            BedrockColor::Green
+                        }
+                    );
+                    assert_eq!(tail.style.bold, caption.contains("§l"));
+                    assert_eq!(tail.style.italic, caption.contains("§o"));
+                }
                 let colors = nodes
                     .iter()
                     .filter_map(|node| match node.visual() {
@@ -169,7 +213,8 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     BedrockColor::Green
                 };
                 let first = caption
-                    .strip_prefix("§d")
+                    .strip_prefix("§d§l§o")
+                    .or_else(|| caption.strip_prefix("§d"))
                     .unwrap_or(caption)
                     .chars()
                     .next()

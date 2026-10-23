@@ -87,6 +87,10 @@ pub fn compile_block_entity_assets(
                 .iter()
                 .copied(),
         )
+        .chain(
+            assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL
+                .map(|size| size.texture()),
+        )
     {
         if let Some(path) = resolve_texture(pack, name)? {
             sources.insert(name.to_owned(), path);
@@ -423,6 +427,32 @@ pub fn overlay_block_entity_assets(
             textures[index].1.rgba8 = rgba8;
         }
     }
+    for size in assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL {
+        let name = size.texture();
+        if base.placement(name).is_some() {
+            continue;
+        }
+        let Some(texture) = read(name).filter(|texture| {
+            texture.width > 0
+                && texture.width <= ATLAS_WIDTH
+                && texture.height > 0
+                && texture.height <= MAX_STRIP_HEIGHT
+                && texture.rgba8.len() == texture.width as usize * texture.height as usize * 4
+        }) else {
+            continue;
+        };
+        textures.push((
+            name.into(),
+            Texture {
+                width: texture.width,
+                height: texture.height,
+                rgba8: texture.rgba8.into_vec(),
+            },
+        ));
+        if textures.len() > MAX_BLOCK_ENTITY_PLACEMENTS || fits(&textures).is_err() {
+            textures.pop();
+        }
+    }
     let (width, height, pixels, placements) = pack_atlas(textures)?;
     base.repack(width, height, &pixels, &placements)
 }
@@ -510,6 +540,70 @@ mod tests {
         let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
         let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
         assert!(runtime.placement(name).is_some());
+    }
+
+    #[test]
+    fn chalkboard_world_textures_are_packed_without_borrowing_item_icons() {
+        use assets::block_entity_geometry::chalkboard::ChalkboardSize;
+        let pack = tempfile::tempdir().unwrap();
+        for size in ChalkboardSize::ALL {
+            write_png(
+                &pack.path().join(format!("{}.png", size.texture())),
+                32,
+                16,
+                90,
+            );
+        }
+        write_png(
+            &pack.path().join("textures/items/chalkboard_small.png"),
+            16,
+            16,
+            12,
+        );
+        let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
+        let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
+        for size in ChalkboardSize::ALL {
+            assert_eq!(tile_pixel(&runtime, size.texture()), [90, 0, 0, 255]);
+        }
+        assert!(
+            runtime
+                .placement("textures/items/chalkboard_small")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn chalkboard_pack_adds_world_artwork_absent_from_startup_and_removal_restores_it() {
+        use assets::block_entity_geometry::chalkboard::ChalkboardSize;
+        let pack = tempfile::tempdir().unwrap();
+        write_png(
+            &pack.path().join("textures/entity/chest/normal.png"),
+            64,
+            64,
+            10,
+        );
+        let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
+        let base = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
+        let changed = overlay_block_entity_assets(
+            &base,
+            |_| true,
+            |name| {
+                ChalkboardSize::ALL
+                    .into_iter()
+                    .any(|size| size.texture() == name)
+                    .then(|| BlockEntityTexture {
+                        width: 32,
+                        height: 16,
+                        rgba8: [20, 60, 100, 255].repeat(32 * 16).into_boxed_slice(),
+                    })
+            },
+        )
+        .unwrap();
+        for size in ChalkboardSize::ALL {
+            assert_eq!(tile_pixel(&changed, size.texture()), [20, 60, 100, 255]);
+        }
+        let removed = overlay_block_entity_assets(&base, |_| true, |_| None).unwrap();
+        assert_eq!(removed.identity(), base.identity());
     }
 
     /// Reads the first pixel of one logical atlas tile.

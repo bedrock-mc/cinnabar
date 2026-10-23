@@ -444,9 +444,32 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("material.animation == 4294967295u"));
     assert!(shader.contains("var block_textures_page_0: texture_2d_array<f32>"));
     assert!(shader.contains("var block_textures_page_1: texture_2d_array<f32>"));
-    assert!(shader.contains("var<storage, read> animations: array<AnimationGpu>"));
-    assert!(shader.contains("var<storage, read> animation_frames: array<u32>"));
-    assert!(shader.contains("var<uniform> clock: AnimationClockGpu"));
+    for (binding, stride) in [(9, 16), (10, 4)] {
+        let variable = shader_binding(&module, binding);
+        assert_eq!(
+            variable.space,
+            naga::AddressSpace::Storage {
+                access: naga::StorageAccess::LOAD,
+            }
+        );
+        assert!(matches!(
+            module.types[variable.ty].inner,
+            naga::TypeInner::Array {
+                stride: actual,
+                size: naga::ArraySize::Dynamic,
+                ..
+            } if actual == stride
+        ));
+        assert!(entry_points_use_binding(
+            &module,
+            naga::ShaderStage::Vertex,
+            binding,
+        ));
+    }
+    assert_eq!(
+        shader_binding(&module, 11).space,
+        naga::AddressSpace::Uniform
+    );
     assert!(!shader.contains("debug_color"));
 }
 
@@ -518,13 +541,23 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
 #[test]
 fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bindings() {
     let shader = include_str!("../../../src/chunk.wesl");
-    assert!(shader.contains("struct ChunkOrigin"));
-    assert!(shader.contains("stream_bases: vec4<u32>"));
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.stream_bases.x"));
     assert!(shader.contains("chunk_origin.stream_bases.y + local_quad_index"));
     let module = naga::front::wgsl::parse_str(&standalone_world_shader(shader))
         .expect("parse packed chunk WGSL");
+    let naga::TypeInner::Array { base, stride, .. } =
+        module.types[shader_binding(&module, 2).ty].inner
+    else {
+        panic!("section origins must be an array");
+    };
+    assert_eq!(stride, 32);
+    let naga::TypeInner::Struct { ref members, span } = module.types[base].inner else {
+        panic!("section origins must contain placement and stream bases");
+    };
+    assert_eq!(span, stride);
+    assert_eq!(members.len(), 2);
+    assert_eq!(members[1].offset, 16);
     assert!(entry_points_use_binding(
         &module,
         naga::ShaderStage::Vertex,
@@ -532,6 +565,21 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bi
     ));
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
+}
+
+/// Finds a compiled world binding without depending on source variable names.
+fn shader_binding(module: &naga::Module, binding: u32) -> &naga::GlobalVariable {
+    module
+        .global_variables
+        .iter()
+        .find(|(_, variable)| {
+            variable
+                .binding
+                .as_ref()
+                .is_some_and(|resource| resource.group == 0 && resource.binding == binding)
+        })
+        .expect("world shader binding must exist")
+        .1
 }
 
 fn uniform_biome_record(tint_index: u32) -> PackedBiomeRecord {

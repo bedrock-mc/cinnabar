@@ -26,16 +26,6 @@ pub(super) fn draw(
         SettingSection::Mods => super::mods::draw(content)?,
         SettingSection::StorageManagement => storage(content)?,
         SettingSection::Touch => touch(content)?,
-        SettingSection::Party => {
-            content.heading("options.party", "")?;
-            for title in [
-                "options.partyInviteReceivedFilter",
-                "options.partyPrivacy",
-                "options.partyInviteSendPrivileges",
-            ] {
-                action_row(content, title, "", "gui.select", None)?;
-            }
-        }
         _ => return Ok(false),
     }
     Ok(true)
@@ -86,8 +76,8 @@ fn account(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.account.tab.title", "menu.account.tab.description")?;
     let view = content.view;
     if matches!(view.auth_state, AuthState::Authenticated) {
-        content.label(
-            "menu.account.gamertag.title",
+        content.label_text(
+            &content.word("menu.account.gamertag.title"),
             launcher::menu::profile::current_name(view),
         )?;
         for (title, button, link) in [
@@ -110,20 +100,6 @@ fn account(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 Some(MenuAction::SettingsSupport(SupportAction::Open(link))),
             )?;
         }
-        action_row(
-            content,
-            "menu.account.privacyAndSafety.title",
-            "",
-            "menu.account.privacyAndSafety.buttonLabel",
-            None,
-        )?;
-        action_row(
-            content,
-            "menu.account.realmMembershipInvites.title",
-            "",
-            "menu.account.realmMembershipInvites.buttonLabel",
-            None,
-        )?;
         action_row(
             content,
             "menu.account.signOutOfMicrosoft.title",
@@ -158,14 +134,17 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "hbui.Settings.storage.cachedData.title",
     ];
     for (category_index, (category, title)) in CATEGORIES.iter().zip(titles).enumerate() {
-        let items = view.storage.items(category);
+        let Some(items) = view.storage.items(category) else {
+            continue;
+        };
         let bytes = items
             .iter()
             .fold(0_u64, |total, item| total.saturating_add(item.bytes));
         let description = format!("{} · {}", items.len(), size_text(content, bytes));
-        action_row(
+        let category_title = content.word(title);
+        action_row_text(
             content,
-            title,
+            &category_title,
             &description,
             if view.storage.expanded[category_index] {
                 "−"
@@ -182,8 +161,8 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         if items.is_empty() {
             let empty = content
                 .word("hbui.Settings.storage.emptyList.title")
-                .replace("%1$s", &content.word(title));
-            content.label("", &empty)?;
+                .replace("%1$s", &category_title);
+            content.label_text("", &empty)?;
         }
         for (index, item) in items.iter().enumerate() {
             let select = match *category {
@@ -197,7 +176,7 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 _ => false,
             };
             let description = format!("{} · {}", size_text(content, item.bytes), item.date);
-            action_row(
+            action_row_text(
                 content,
                 &item.name,
                 &description,
@@ -267,6 +246,7 @@ fn size_text(content: &Content<'_, '_>, bytes: u64) -> String {
     format!("{:.2} {}", bytes as f64 / divisor as f64, content.word(key))
 }
 
+/// Draws a row whose title, description and button label are localization keys.
 pub(super) fn action_row(
     content: &mut Content<'_, '_>,
     title: &str,
@@ -276,6 +256,17 @@ pub(super) fn action_row(
 ) -> Result<(), PaintError> {
     let title = content.word(title);
     let description = content.word(description);
+    action_row_text(content, &title, &description, label, action)
+}
+
+/// Draws a literal title and description with a localized button label.
+pub(super) fn action_row_text(
+    content: &mut Content<'_, '_>,
+    title: &str,
+    description: &str,
+    label: &str,
+    action: Option<MenuAction>,
+) -> Result<(), PaintError> {
     let label = content.word(label);
     let pad = content.canvas.r(2.4);
     let left = content.span[0] + pad;
@@ -294,7 +285,7 @@ pub(super) fn action_row(
     } else {
         content
             .canvas
-            .measure_height(&title, text_width, BODY)?
+            .measure_height(title, text_width, BODY)?
             .max(content.canvas.r(BODY.line))
     };
     let description_height = if description.is_empty() {
@@ -302,7 +293,7 @@ pub(super) fn action_row(
     } else {
         content
             .canvas
-            .measure_height(&description, text_width, CAPTION)?
+            .measure_height(description, text_width, CAPTION)?
             .max(content.canvas.r(CAPTION.line))
     };
     let text_height = title_height + description_height;
@@ -330,9 +321,9 @@ pub(super) fn action_row(
     };
     content
         .canvas
-        .text(&title, [left, text_y], text_width, BODY, TEXT, false)?;
+        .text(title, [left, text_y], text_width, BODY, TEXT, false)?;
     content.canvas.text(
-        &description,
+        description,
         [left, text_y + title_height],
         text_width,
         CAPTION,
@@ -372,6 +363,13 @@ fn touch(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         for option in launcher::menu::settings_options::layout::SettingPanel::Touch.options() {
             content.option(option.id)?;
         }
+        action_row(
+            content,
+            "Control layout",
+            "Move touch controls and align them with guides.",
+            "Edit layout",
+            Some(MenuAction::EditTouchControls),
+        )?;
         content.label(
             "Touch controls",
             "Move with the left stick. Drag outside the buttons to look around.",

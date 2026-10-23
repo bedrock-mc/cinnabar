@@ -325,6 +325,34 @@ fn hi_z_never_culls_a_visible_sub_chunk_and_culls_hidden_ones() {
     culler.encode(&mut encoder, &input, CullPhase::Late, Some(&pyramid));
     gpu.queue.submit([encoder.finish()]);
     let kept = culler.history();
+    let decisions = read_buffer(
+        &gpu,
+        &culler.storage.record_draws,
+        u64::from(culler.slots) * 4,
+    );
+    let decisions = bytemuck::cast_slice::<u8, u32>(&decisions);
+    let candidates = decisions
+        .iter()
+        .enumerate()
+        .filter(|(_, decision)| **decision & model::DECISION_CANDIDATE != 0)
+        .map(|(slot, _)| slot)
+        .collect::<BTreeSet<_>>();
+    let hidden = decisions
+        .iter()
+        .enumerate()
+        .filter(|(_, decision)| **decision & model::DECISION_HIDDEN != 0)
+        .map(|(slot, _)| slot)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(hidden, candidates.difference(&kept).copied().collect());
+    assert!(
+        !hidden.is_empty(),
+        "feedback must record occlusion, not just frustum rejection"
+    );
+    assert_eq!(
+        culler.run(&input, CullPhase::Late, Some(&pyramid)),
+        Args::default(),
+        "feedback-only decisions must not emit duplicate draws"
+    );
     let in_frustum = (0..records.len())
         .filter(|&slot| bevy_visible(&camera.frustum, records[slot].origin))
         .collect::<BTreeSet<_>>();
@@ -341,4 +369,83 @@ fn hi_z_never_culls_a_visible_sub_chunk_and_culls_hidden_ones() {
         kept.len() < in_frustum.len(),
         "the wall must hide some sub-chunks"
     );
+}
+
+/// Empty history supplies no early terrain depth; a warm frame exposes the actual rejection.
+#[test]
+fn rejection_feedback_needs_occluders_from_a_preceding_gpu_frame() {
+    let Some(gpu) = Gpu::for_fixture("terrain rejection history") else {
+        return;
+    };
+    let camera = camera(Vec3::new(8.0, 72.0, 8.0), Vec3::new(8.0, 72.0, -48.0));
+    let origins = [[0, 64, -16], [0, 64, -48]];
+    let records = origins
+        .iter()
+        .enumerate()
+        .map(|(slot, &origin)| {
+            CullRecord::new(&CullRecordSource {
+                origin,
+                bounds: [[0; 3], [16, 16, 1]],
+                base_vertex: slot as i32 * 4,
+                cube: slot as u32 * 6..slot as u32 * 6 + 6,
+                solid_ends: [1, 2, 3, 4, 5, 6],
+                ..Default::default()
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let culler = Culler::new(&gpu, &records, &[u32::MAX]);
+    culler.set_history(&[0, 0]);
+    let target = Target::new(&gpu, wgpu::TextureFormat::R32Uint, 1);
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    drop(target.pass(&mut encoder, true));
+    let cold = target.pyramid(&gpu, &culler.kernels, &mut encoder);
+    gpu.queue.submit([encoder.finish()]);
+    let input = view_input(&camera, cold.mip_count());
+    culler.run(&input, CullPhase::Late, Some(&cold));
+    let decisions = || {
+        let bytes = read_buffer(
+            &gpu,
+            &culler.storage.record_draws,
+            u64::from(culler.slots) * 4,
+        );
+        bytemuck::cast_slice::<u8, u32>(&bytes).to_vec()
+    };
+    assert!(
+        decisions()
+            .iter()
+            .all(|decision| decision & model::DECISION_HIDDEN == 0)
+    );
+
+    let early = culler.history();
+    assert_eq!(
+        early.len(),
+        records.len(),
+        "the cold late pass restores both early occluders"
+    );
+    let boxes = early
+        .into_iter()
+        .map(|slot| {
+            let [x, y, z] = origins[slot].map(|value| value as f32);
+            [x, y, z, (slot + 1) as f32, x + 16.0, y + 16.0, z + 1.0, 0.0]
+        })
+        .collect::<Vec<_>>();
+    render_scene(
+        &gpu,
+        &target,
+        ("box_vertex", "id_fragment"),
+        &camera.clip_from_world.to_cols_array(),
+        &boxes,
+    );
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    let warm = target.pyramid(&gpu, &culler.kernels, &mut encoder);
+    gpu.queue.submit([encoder.finish()]);
+    culler.run(&input, CullPhase::Late, Some(&warm));
+    let warm = decisions();
+    assert_ne!(
+        warm[1] & model::DECISION_HIDDEN,
+        0,
+        "the preceding frame's front wall hides the rear section"
+    );
+    assert_eq!(culler.history(), BTreeSet::from([0]));
 }

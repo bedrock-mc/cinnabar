@@ -78,15 +78,46 @@ fn ordered_mining_denied_clicks_keep_swings_and_actor_attacks() {
         attack_progress_tests::ticks(app.world_mut(), 102, 104);
         frame(&mut app);
         let packets = captured.drain();
+        let actions: Vec<_> = packets
+            .iter()
+            .flat_map(protocol::test_support::packets::input_block_actions)
+            .collect();
+        if server_denial {
+            assert!(actions.is_empty(), "the Mine ability vetoes destruction");
+        } else {
+            assert_eq!(actions, [(1, TARGET, 0)]);
+        }
+        let denial = protocol::encode(&protocol::deny_destroy_block_packet(42, TARGET, 3)).unwrap();
         assert_eq!(
-            destroy_actions(&packets),
-            0,
-            "denied mining must emit no block actions"
+            packets
+                .iter()
+                .filter(|packet| protocol::encode(packet).unwrap() == denial)
+                .count(),
+            usize::from(!server_denial)
+        );
+        assert_eq!(
+            packets
+                .iter()
+                .filter_map(protocol::player_auth_input_trace_sample)
+                .filter(|sample| sample.flag_names.contains(&"MissedSwing"))
+                .count(),
+            usize::from(!server_denial)
         );
         assert_eq!(target_block(app.world()), before);
-        assert!(packets.iter().any(
-            |p| p.kind() == protocol::swing_arm_packet(42, protocol::SwingSource::Mine).kind()
-        ));
+        let swing = protocol::encode(&protocol::swing_arm_packet(
+            42,
+            if server_denial {
+                protocol::SwingSource::Mine
+            } else {
+                protocol::SwingSource::Attack
+            },
+        ))
+        .unwrap();
+        assert!(
+            packets
+                .iter()
+                .any(|packet| protocol::encode(packet).unwrap() == swing)
+        );
         let (mut actor_world, mut actor_packets) = mouse_fixture();
         actor_world
             .resource_mut::<client_state::PlayerRuntime>()
@@ -147,7 +178,7 @@ fn ordered_mining_authoritative_replacement_cancels_a_refused_press() {
                 }]),
             )
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "replacement block ingress", || {
+        test_time::eventually("replacement block ingress", || {
             stream.poll([4.5, 2.620_01, 8.5], 0);
             stream.committed_sequence() == sequence
         });

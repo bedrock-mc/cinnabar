@@ -44,9 +44,10 @@ fn native_wind_charge_raster_and_both_projectile_bindings_survive_actor_compilat
         assert!(layer.uv_anim.is_some());
         let texture = &runtime.textures()[binding.texture as usize];
         let source = &entities.sources[texture.source as usize];
-        assert!(assets::native_actor_texture_preserves_fractional_alpha(
-            source
-        ));
+        assert!(
+            assets::actor_sources_keeping_alpha(runtime_entities.render_data(), &entities.sources)
+                .contains(&texture.source)
+        );
         let raster = image::open(root.join(source.path.as_ref()))
             .unwrap()
             .into_rgba8()
@@ -71,9 +72,6 @@ fn native_wind_charge_raster_and_both_projectile_bindings_survive_actor_compilat
 }
 
 #[test]
-fn custom_wind_material_does_not_claim_the_pinned_fractional_alpha_contract() {
-    let fixture = pack(127, "breeze_wind", false);
-    let compiled = compile_actor_assets(fixture.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.bindings, 0);
-    assert_eq!(compiled.report.textures, 0);
+fn custom_art_drawn_by_the_blended_wind_material_keeps_its_alpha() {
+    assert_eq!(probe_alpha(127, "breeze_wind"), (1, 127));
 }

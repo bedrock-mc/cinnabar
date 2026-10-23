@@ -1,5 +1,38 @@
 use super::*;
 
+/// Ordinary and urgent polls use removal authority when no geometry credit is available.
+#[test]
+fn polling_removals_does_not_require_geometry_credits() {
+    for urgent in [false, true] {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        });
+        let allowance = super::PublicationAllowance::new(super::PublicationServiceConfig::DEFAULT);
+        allowance.begin_frame(1, 0, 0, 1, 1);
+        stream.set_publication_allowance(allowance);
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        stream.mark_dirty_exact_with_priority(key, Instant::now(), urgent);
+
+        if urgent {
+            stream.urgent_work_due = true;
+            stream.dispatch_urgent_work();
+        } else {
+            stream.poll([0.0; 3], 0);
+        }
+
+        assert!(matches!(
+            stream.pop_mesh_change(),
+            Some(WorldMeshChange::Remove { key: removed, permit: Some(_), .. }) if removed == key
+        ));
+    }
+}
+
 #[test]
 fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
     let mut stream = WorldStream::new(WorldBootstrap {

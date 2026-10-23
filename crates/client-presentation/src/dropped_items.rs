@@ -24,6 +24,14 @@ use {
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
+/// Sampled frame inputs shared by dropped-item and rope publication.
+#[derive(Default)]
+pub(crate) struct DroppedItemFrame<'a> {
+    pub(crate) partial_tick: f32,
+    pub(crate) fishing_line_anchors:
+        &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+}
+
 mod dials;
 mod lighting;
 mod preparation;
@@ -376,18 +384,23 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
+    /// Publishes sampled item and rope geometry for the current frame.
     pub(super) fn publish(
         &mut self,
         icons: Option<&UiPresentationRuntime>,
         stream: Option<&WorldStream>,
         collisions: Option<&dyn crate::observations::CollisionLookup>,
         camera: (Option<([f32; 3], f32)>, Option<ActorCullView>),
-        partial_tick: f32,
+        frame: DroppedItemFrame<'_>,
         glint: (
             Option<render_model::EquipmentRaster>,
             render_model::ActorGlint,
         ),
     ) {
+        let DroppedItemFrame {
+            partial_tick,
+            fishing_line_anchors,
+        } = frame;
         let (camera, cull_view) = camera;
         let frustum = self.culling_view(cull_view);
         let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
@@ -640,8 +653,17 @@ impl DroppedItemPublisher<'_, '_> {
         if let Some((camera, _)) = camera {
             stream.authority().ropes_into(partial_tick, ropes);
             for rope in ropes.iter() {
-                let length = rope
-                    .from
+                let from = (rope.kind == RopeKind::FishingLine)
+                    .then_some(rope.owner_runtime_id)
+                    .flatten()
+                    .and_then(|runtime_id| {
+                        fishing_line_anchors
+                            .iter()
+                            .find(|anchor| anchor.runtime_id == runtime_id)
+                            .map(|anchor| anchor.from)
+                    })
+                    .unwrap_or(rope.from);
+                let length = from
                     .iter()
                     .zip(&rope.to)
                     .map(|(a, b)| (a - b) * (a - b))
@@ -662,7 +684,7 @@ impl DroppedItemPublisher<'_, '_> {
                     ),
                 };
                 rope_ribbon(
-                    rope.from, rope.to, camera, segments, sag, half_width, color, lines,
+                    from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
             }
         }

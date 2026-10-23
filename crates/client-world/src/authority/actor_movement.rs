@@ -18,9 +18,7 @@ impl WorldAuthority {
         let Some(actor) = self.actors.get(movement.runtime_id) else {
             return;
         };
-        let Some(mut target) = actor.native_position_at(actor.last_received_pose().position) else {
-            return;
-        };
+        let mut target = actor.last_received_native_position();
         for (coordinate, update) in target.iter_mut().zip(movement.position) {
             if let Some(value) = update.filter(|value| value.is_finite()) {
                 *coordinate = value;

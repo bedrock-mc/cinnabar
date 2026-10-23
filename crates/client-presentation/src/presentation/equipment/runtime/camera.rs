@@ -80,15 +80,46 @@ impl EquipmentRuntime {
         profile: render_api::CombatVisuals,
         input: actor_animation::AttachableAnimationInput<'_>,
     ) -> Option<FirstPersonItem> {
+        let mesh = self.held_mesh_with_use(item, input)?;
+        self.first_person_item_from_mesh(body, item, hand, profile, input, mesh)
+    }
+
+    /// Places a custom item's ordinary icon under the first-person hand stack.
+    pub fn first_person_item_icon_with_use(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        hand: FirstPersonHand,
+        profile: render_api::CombatVisuals,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, span) = self.held_icon_mesh(item)?;
+        self.first_person_item_from_mesh(
+            body,
+            item,
+            hand,
+            profile,
+            input,
+            (mesh, location, false, span),
+        )
+    }
+
+    /// Places an admitted mesh under the native first-person hand transform.
+    fn first_person_item_from_mesh(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        hand: FirstPersonHand,
+        profile: render_api::CombatVisuals,
+        input: actor_animation::AttachableAnimationInput<'_>,
+        (mesh, location, block, span): (EntityRigId, ActorArtworkLocation, bool, [f32; 2]),
+    ) -> Option<FirstPersonItem> {
         let (_, bones) = self.body_bones_for(body.input.rig)?;
         let pose_len = bones.names.len();
         if body.input.previous_bones.len() != pose_len || body.input.current_bones.len() != pose_len
         {
             return None;
         }
-        // Modern attachables are evaluated in their own first-person state before this
-        // fallback. Never substitute a third-person grip for their camera-space animation.
-        let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
         let shape = if block {
             FirstPersonShape::Block
         } else {
@@ -170,6 +201,40 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
+        })
+    }
+
+    /// Places a custom item's ordinary icon in the native offhand pose.
+    pub fn first_person_offhand_icon(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, span) = self.held_icon_mesh(item)?;
+        let equipped = item.grip.upright().unwrap_or(false);
+        let dimensions = self
+            .session_sprite(&item.identifier, item.metadata)
+            .and_then(|(index, _, _)| self.session_sprite_pixels(index))
+            .map(|sprite| [sprite.width, sprite.height])
+            .or_else(|| {
+                self.held_icon_index(item)
+                    .and_then(|index| self.icons.sprites().get(index))
+                    .map(|sprite| [sprite.width, sprite.height])
+            })?;
+        let bone = super::super::first_person::offhand_sprite_pose(equipped, dimensions)?;
+        let poses = self
+            .poses
+            .share(body, FIRST_PERSON_OFFHAND_LAYER, [&[bone], &[bone]]);
+        Some(FirstPersonItem {
+            presentation: push::held_glint(
+                layer_presentation(body, LAYER_OFF_HAND, mesh, poses, location, 0),
+                item,
+                span,
+            ),
+            camera_space: true,
+            alpha_mode: self.first_person_alpha_mode(item, false),
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })

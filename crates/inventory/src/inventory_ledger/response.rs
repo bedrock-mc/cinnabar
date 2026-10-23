@@ -122,9 +122,11 @@ impl PlayerInventoryLedger {
     }
 
     /// Resolve the request independently of later sparse owners. Unknown or
-    /// repeated ids cannot mutate the backing inventory.
+    /// repeated ids cannot mutate the backing inventory. Every result other than
+    /// success is an error that rolls the request back, whatever its error code.
     pub(super) fn apply_response(&mut self, event: &ItemStackResponseEvent) {
         for response in event.responses.iter() {
+            let accepted = response.status == StackResponseStatus::Accepted;
             tracing::debug!(target: "cinnabar::inventory_requests",
                 request_id = response.request_id, status = ?response.status,
                 pending = self.queue.len(), "inventory response received");
@@ -146,23 +148,20 @@ impl PlayerInventoryLedger {
                     pending.request_id == response.request_id
                 }
             }) else {
-                if response.status == StackResponseStatus::Rejected {
+                if !accepted {
                     self.settle_abandoned_rejection(response.request_id);
                 }
                 continue;
             };
             let request = self.queue.remove(index).expect("index observed");
             let current = self.request_is_current(&request);
-            if response.status == StackResponseStatus::Accepted {
+            if accepted {
                 self.accept_trade_purchase(&request);
                 self.settle(&request, &response.containers);
-            } else if response.status == StackResponseStatus::Rejected && current {
+            } else if current {
                 self.reject_request(&request);
             }
-            self.finish_request_retirement(
-                request.request_id,
-                current && response.status == StackResponseStatus::Accepted,
-            );
+            self.finish_request_retirement(request.request_id, current && accepted);
         }
         self.refold();
         // Settlement may have released the last request of a closing window.

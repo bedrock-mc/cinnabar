@@ -32,6 +32,9 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     mut context: RenderContext,
 ) {
     let entity = query.entity();
+    if super::unavailable(world, entity) {
+        return;
+    }
     let draw_native = crate::shaderpack::native_pass_enabled(world, entity, AFTER_PACK);
     if AFTER_PACK && !draw_native {
         return;

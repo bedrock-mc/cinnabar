@@ -196,11 +196,31 @@ pub fn world_worker_threads(cores: usize) -> usize {
     PoolSize::for_cores(cores).threads()
 }
 
+/// Diagnostic cap on the logical processors every thread pool sizes itself for.
+const CORES_ENV: &str = "CINNABAR_CPU_CORES";
+
+/// Logical processors the client's pools are sized for: the machine's count, or fewer when
+/// [`CORES_ENV`] asks for a smaller machine.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn logical_cores() -> usize {
+    let available = std::thread::available_parallelism().map_or(1, usize::from);
+    capped_cores(available, std::env::var(CORES_ENV).ok().as_deref())
+}
+
+/// Applies a positive integer cap below `available`; anything else keeps `available`.
+#[cfg(any(test, not(target_arch = "wasm32")))]
+fn capped_cores(available: usize, requested: Option<&str>) -> usize {
+    requested
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|&cores| cores > 0)
+        .map_or(available, |cores| cores.min(available))
+}
+
 /// Runs pre-stream work on a temporary normal-priority pool sized like the world pool.
 /// Falls back to the caller pool if worker threads cannot start.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
-    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let cores = logical_cores();
     match rayon::ThreadPoolBuilder::new()
         .num_threads(world_worker_threads(cores))
         .thread_name(|index| format!("world-borrowed-{index}"))
@@ -213,7 +233,7 @@ pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
     #[cfg(not(target_arch = "wasm32"))]
-    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let cores = logical_cores();
     #[cfg(target_arch = "wasm32")]
     let cores = 1;
     WorldPool::new(PoolSize::for_cores(cores))

@@ -20,18 +20,18 @@
     "twin_names": 119,
     "twin_fingerprint": "8241b13c69a52d991beb3b2ffff30357a5cbf83fda18abad50b5ec0ceb5f7ec3",
     "unresolved_retail": [],
-    "denied_count": 474,
-    "denied_fingerprint": "5f19eb90b4354ea262201f8aa4e07949d04c51572bb18d45378ee365777c1008",
-    "education_states": 164
+    "denied_count": 458,
+    "denied_fingerprint": "5e5ac215beb739b5653ef4ede24b258c81b8628bc803e47861b229450e31a223",
+    "education_states": 180
   },
   "output": {
     "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "7139dd715e10cc9f86f53ef923145104d8e235210a80eecb0c134307584eb525"
+    "sha256": "87f97e5a8d7c5fb0593df269bcfb4487dd010c26343a508a82091301f6d03795"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "26f4f585cdb6fd1c40bdf99a77ad2103bee9fbb6b460d719c10700bca5753232"
+    "sha256": "d89540683d475b48a039536c973bc06e9dc1e3df687e647b21793a44f6dcd790"
   }
 }

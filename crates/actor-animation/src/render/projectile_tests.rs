@@ -18,10 +18,12 @@ fn projectile_assets(identifier: &str, secondary: bool) -> Arc<RuntimeEntityAsse
             EntityRenderSlot {
                 first_candidate: 0,
                 candidate_count: 1,
+                default_candidate: None,
             },
             EntityRenderSlot {
                 first_candidate: 1,
                 candidate_count: 1,
+                default_candidate: None,
             },
         ]
         .into();
@@ -91,6 +93,7 @@ fn separate_projectile_controllers_keep_their_draw_layers() {
         EntityRenderSlot {
             first_candidate: compiled.render.candidates.len() as u32,
             candidate_count: 1,
+            default_candidate: None,
         },
     ]
     .into();

@@ -406,6 +406,9 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
     };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.insert_resource(VisualTimeOverride(host.time_override()));
+    app.insert_resource(crate::environment::VisualWeatherOverride(
+        host.weather_override(),
+    ));
     let mut runtime = ModRuntime::new(host, metadata);
     for (host, metadata) in hosts {
         runtime.push_host(host, metadata);
