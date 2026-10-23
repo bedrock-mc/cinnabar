@@ -51,6 +51,45 @@ pub enum GuiBlockReject {
     Texture,
 }
 
+/// Inventory geometry, independent of the placed block's connection shape.
+pub fn block_gui_quads(
+    kind: VisualKind,
+    faces: [u32; 6],
+    template: Option<u32>,
+    templates: &[ModelTemplate],
+    quads: &[ModelQuad],
+) -> Result<Vec<GuiBlockQuad>, GuiBlockReject> {
+    if kind == VisualKind::Model
+        && template
+            .and_then(|id| templates.get(id as usize))
+            .is_some_and(|template| template.flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0)
+    {
+        let corners = carried_cuboid_faces([112, 0, 0], [144, 256, 256]);
+        return Ok(BlockFace::ALL
+            .into_iter()
+            .zip(corners)
+            .map(|(face, corners)| {
+                let corners = corners.map(|[x, y, z]| [x - 0.2, y, z]);
+                let uvs = corners.map(|[x, y, z]| match face {
+                    BlockFace::Up | BlockFace::Down => [x, z],
+                    BlockFace::North | BlockFace::South => [x, 1.0 - y],
+                    BlockFace::West | BlockFace::East => [z, 1.0 - y],
+                });
+                GuiBlockQuad {
+                    corners,
+                    uvs,
+                    material: faces[match face {
+                        BlockFace::West | BlockFace::East => face,
+                        _ => BlockFace::Up,
+                    } as usize],
+                    two_sided: false,
+                }
+            })
+            .collect());
+    }
+    block_item_quads(kind, faces, template, templates, quads)
+}
+
 /// The quads a block item draws: a cube's camera-facing GUI surfaces, a fence's inventory
 /// shape, or its template's quads.
 pub fn block_item_quads(
@@ -370,6 +409,66 @@ pub fn face_brightness(corners: [[f32; 3]; 4]) -> f32 {
 mod tests {
     use super::*;
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
+
+    #[test]
+    fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
+        let materials = BlockFace::ALL.map(|face| face as u32 + 1);
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_PANE,
+        }];
+        let source = [ModelQuad {
+            positions: [
+                [112, 0, 112],
+                [112, 0, 144],
+                [112, 256, 144],
+                [112, 256, 112],
+            ],
+            uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+            material: materials[BlockFace::West as usize],
+            flags: 0,
+        }];
+        let inventory =
+            block_gui_quads(VisualKind::Model, materials, Some(0), &templates, &source).unwrap();
+        let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
+        for point in inventory.iter().flat_map(|quad| quad.corners) {
+            for axis in 0..3 {
+                bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                bounds[1][axis] = bounds[1][axis].max(point[axis]);
+            }
+        }
+        assert_eq!(
+            bounds,
+            [[7.0 / 16.0 - 0.2, 0.0, 0.0], [9.0 / 16.0 - 0.2, 1.0, 1.0]]
+        );
+        let visible: Vec<_> = inventory
+            .iter()
+            .filter(|quad| quad.visible_in_gui())
+            .collect();
+        assert_eq!(visible.len(), 3);
+        assert_eq!(
+            visible
+                .iter()
+                .filter(|quad| quad.material == materials[BlockFace::Up as usize])
+                .count(),
+            2
+        );
+        assert_eq!(
+            visible
+                .iter()
+                .filter(|quad| quad.material == materials[BlockFace::West as usize])
+                .count(),
+            1
+        );
+        let held =
+            block_item_quads(VisualKind::Model, materials, Some(0), &templates, &source).unwrap();
+        assert_eq!(
+            held.len(),
+            source.len(),
+            "held geometry keeps the placed template"
+        );
+    }
 
     #[test]
     fn walls_use_two_carried_posts_with_a_lower_connecting_span() {

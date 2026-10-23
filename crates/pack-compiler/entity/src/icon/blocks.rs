@@ -20,7 +20,7 @@ use pack_compile_input::pack::{
 use pack_compile_input::static_texture_path;
 
 /// Registry families whose vanilla block shapes render as flat item icons.
-const FLAT_FAMILIES: [ModelFamily; 11] = [
+const FLAT_FAMILIES: [ModelFamily; 10] = [
     ModelFamily::Cross,
     ModelFamily::Rail,
     ModelFamily::Torch,
@@ -28,7 +28,6 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::Vine,
     ModelFamily::GlowLichen,
     ModelFamily::SculkVein,
-    ModelFamily::Pane,
     ModelFamily::Aquatic,
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
@@ -93,8 +92,10 @@ impl IconBlocks {
             || FLAT_FAMILIES.contains(&record.model_family)
             || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
-            || (record.model_family == ModelFamily::Unknown
-                && assets::facts::block_render_fact(&record.name).flat_icon)
+            || (matches!(
+                record.model_family,
+                ModelFamily::Unknown | ModelFamily::Pane
+            ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
     /// The state an item draws: a wall item shows a post with east and west arms.
@@ -306,6 +307,26 @@ mod respawn_anchor_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glass_panes_are_models_while_metal_bars_remain_flat() {
+        let blocks = IconBlocks::read(tempfile::tempdir().unwrap().path()).unwrap();
+        let world = RuntimeAssets::diagnostic();
+        let panes: Vec<_> = blocks
+            .records
+            .iter()
+            .filter(|record| record.model_family == ModelFamily::Pane)
+            .collect();
+        assert!(!panes.is_empty());
+        for record in panes {
+            assert_eq!(
+                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
+                record.name.ends_with("_bars"),
+                "{}",
+                record.name
+            );
+        }
+    }
 
     #[test]
     fn candles_keep_their_carried_icons_without_world_model_geometry() {

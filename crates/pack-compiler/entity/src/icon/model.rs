@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_item_quads, cube_face,
+    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads, cube_face,
     face_brightness, material_tile,
 };
 use assets::{
@@ -183,7 +183,7 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
+        let faces = block_gui_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
             .filter(|quad| quad.visible_in_gui())

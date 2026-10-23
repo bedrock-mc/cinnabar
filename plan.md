@@ -359,6 +359,7 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+  Glass-pane inventory previews use a full thin plate with separate body and edge textures.
   Block-model inventory previews cull one-sided rear faces while preserving two-sided planes;
   the wider shape, tint and animation acceptance remains open.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
