@@ -200,6 +200,109 @@ fn changing_view_formats_restarts_pending_uploads_and_keeps_complete_pages() {
 
 #[cfg(feature = "shaderpacks")]
 #[test]
+fn shaderpack_activation_keeps_pending_fallback_pages_native() {
+    use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
+    use crate::shaderpack::actors::RigSource;
+
+    let mut app = fixture();
+    let mut frame = publication(1, &[55, 77], 1);
+    let large = &mut Arc::make_mut(&mut Arc::make_mut(&mut frame.artwork).pages)[1];
+    large.width = 1024;
+    large.height = 1024;
+    large.layers = 3;
+    large.rgba8 = [77, 64, 128, 255]
+        .repeat(usize::from(large.width) * usize::from(large.height) * large.layers as usize)
+        .into();
+    let frames = large.rgba8.len().div_ceil(UPLOAD_BYTES_PER_FRAME);
+    assert!(frames > 1);
+    for _ in 0..frames {
+        draw_frame(&mut app, &frame);
+    }
+    let previous = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<ActorGpu>()
+        .artwork
+        .page(1)
+        .unwrap()
+        ._texture
+        .id();
+    app.sub_app_mut(RenderApp)
+        .insert_resource(ArtworkRawViews(true));
+    for step in 1..=frames {
+        assert_eq!(draw_frame(&mut app, &frame).len(), 2);
+        let world = app.sub_app(RenderApp).world();
+        let gpu = world.resource::<ActorGpu>();
+        let ready = step == frames;
+        assert_eq!(
+            gpu.artwork.page(1).unwrap()._texture.id() != previous,
+            ready
+        );
+        assert!(gpu.pack_supports_span(&gpu.spans[0]));
+        assert_eq!(gpu.pack_supports_span(&gpu.spans[1]), ready);
+        let mut replaced = Vec::new();
+        crate::actor_render::shaderpack_source::shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| replaced.push(instance.index));
+        assert_eq!(replaced, if ready { vec![0, 1] } else { vec![0] });
+    }
+}
+
+#[test]
+fn pending_retries_preserve_backoff_until_demanded_uploads_complete() {
+    let (device, queue) = device();
+    let pages = publication(1, 1);
+    let budget = usize::from(pages.pages[0].width) * 4 * 3;
+    for boundary in ["actor page upload", "actor page view"] {
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&ActorArtworkPages::default(), &device, &queue));
+        {
+            let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
+            assert!(!gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+        }
+        let writes = Rc::new(Cell::new(0));
+        let observed = writes.clone();
+        let failure = gpu_allocation::inject(move |label, _| {
+            if label == "actor page upload" {
+                observed.set(observed.get() + 1);
+            }
+            label == boundary
+        });
+        let mut delay = gpu_allocation::MIN_RETRY_FRAMES;
+        for _ in 0..3 {
+            let before = writes.get();
+            for _ in 1..delay {
+                assert!(!gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+                assert_eq!(writes.get(), before, "{boundary}: retries must back off");
+            }
+            let exhausted = (0..pages.pages[0].rgba8.len()).any(|_| {
+                let before = writes.get();
+                let prepared = gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget);
+                assert!(
+                    writes.get() > before,
+                    "{boundary}: an active retry must advance on consecutive frames"
+                );
+                assert!(gpu.page(0).is_none());
+                !prepared
+            });
+            assert!(exhausted, "{boundary}: reduced sizes must exhaust");
+            delay *= 2;
+        }
+        drop(failure);
+        for _ in 1..delay {
+            assert!(!gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+        }
+        let frames = pages.pages[0].rgba8.len().div_ceil(budget);
+        for step in 1..=frames {
+            assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+            assert_eq!(gpu.page(0).is_some(), step == frames);
+        }
+        assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+    }
+}
+
+#[cfg(feature = "shaderpacks")]
+#[test]
 fn reduced_pending_pages_keep_the_requested_view_format() {
     let (device, queue) = device();
     let pages = publication(1, 1);

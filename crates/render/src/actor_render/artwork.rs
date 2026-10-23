@@ -299,10 +299,7 @@ impl GpuArtwork {
             .chain((first_background..pages.pages.len()).map(|index| (index, true)));
         for (index, background) in requests {
             let page = &pages.pages[index];
-            let current = self.pages[index].as_ref().is_some_and(|gpu| {
-                gpu.source.shares_pixels_with(page) && gpu.raw_views == raw_views
-            });
-            if current || attempted.contains(&index) {
+            if self.page_is_current(index, page) || attempted.contains(&index) {
                 if background {
                     self.prewarm_cursor = index + 1;
                 }
@@ -328,10 +325,21 @@ impl GpuArtwork {
                 return self.allocation_failed(queue);
             }
         }
-        if self.allocation.failed() {
+        if self.allocation.failed()
+            && demanded
+                .iter()
+                .all(|&index| self.page_is_current(index, &pages.pages[index]))
+        {
             self.allocation.record(true, None);
         }
         true
+    }
+
+    /// Reports whether a completed page has the current pixels and view formats.
+    fn page_is_current(&self, index: usize, source: &render_model::ActorTexturePage) -> bool {
+        self.page(index).is_some_and(|page| {
+            page.source.shares_pixels_with(source) && page.raw_views == self.raw_views
+        })
     }
 
     /// Advances one slot before allocating another; failures keep a compatible old page.
