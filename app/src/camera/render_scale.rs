@@ -33,6 +33,7 @@ pub(super) fn install(app: &mut App) {
             Render,
             scale_extracted_camera
                 .in_set(RenderSystems::CreateViews)
+                .in_set(render::RenderScaleSystems)
                 .before(sort_cameras),
         );
 }

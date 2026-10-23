@@ -772,10 +772,7 @@ pub(crate) fn ui_present(
         layer.content_presented.store(false, Ordering::Relaxed);
         layer.composited.store(false, Ordering::Relaxed);
     }
-    // A native layer cannot be composited against an unseeded or reduced scene.
-    if native.is_some_and(|native| !native.is_ready()) {
-        return;
-    }
+    let native = native.filter(|native| native.is_ready());
     let target = UiTarget::new(output, native);
     let resources = world
         .get_resource::<UiGpu>()
@@ -868,7 +865,7 @@ fn observe_ui_output(
     if layer.present.load(Ordering::Relaxed) && !layer.composited.load(Ordering::Relaxed) {
         return;
     }
-    if let Some(native) = native {
+    if let Some(native) = native.filter(|native| native.is_ready()) {
         layer
             .content_presented
             .store(native.was_presented(), Ordering::Relaxed);

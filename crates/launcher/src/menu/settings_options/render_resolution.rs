@@ -1,17 +1,6 @@
-//! World-resolution help and historical saved dropdown choices.
+//! World-resolution help and saved percentage settings.
 
 pub const DESCRIPTION: &str = "Lower values improve frame rate by rendering the world at a lower resolution. Menus and the HUD stay at native resolution. Applies to a single full-window game view.";
-
-/// Converts historical dropdown indices, which do not overlap today's valid percentages.
-pub(super) fn migrate_saved_percent(value: i32) -> i32 {
-    match value {
-        0 => 50,
-        1 => 67,
-        2 => 75,
-        3 => 100,
-        percent => percent,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -35,26 +24,6 @@ mod tests {
     }
 
     #[test]
-    fn historical_resolution_choices_migrate_once_without_changing_other_values() {
-        for (index, expected) in [(0, 50), (1, 67), (2, 75), (3, 100)] {
-            let json = format!(r#"{{"values":{{"render_resolution":{index},"gamma":37}}}}"#);
-            let mut loaded = SettingsOptions::decode(json.as_bytes()).unwrap();
-            for _ in 0..3 {
-                assert_eq!(loaded.value(SettingId::RenderResolution), expected);
-                assert_eq!(
-                    loaded.user_settings().video.render_scale_percent,
-                    expected as u8
-                );
-                assert_eq!(loaded.value(SettingId::Gamma), 37);
-                let bytes = serde_json::to_vec(&loaded).unwrap();
-                let encoded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                assert_eq!(encoded["values"]["render_resolution"], expected);
-                loaded = SettingsOptions::decode(&bytes).unwrap();
-            }
-        }
-    }
-
-    #[test]
     fn every_integer_resolution_round_trips_and_invalid_percentages_stay_bounded() {
         let index = SettingId::RenderResolution.index();
         for expected in ui::MIN_RENDER_SCALE_PERCENT..=ui::MAX_RENDER_SCALE_PERCENT {
@@ -66,6 +35,10 @@ mod tests {
         for (percent, expected) in [
             (i32::MIN, ui::MIN_RENDER_SCALE_PERCENT),
             (-1, ui::MIN_RENDER_SCALE_PERCENT),
+            (0, ui::MIN_RENDER_SCALE_PERCENT),
+            (1, ui::MIN_RENDER_SCALE_PERCENT),
+            (2, ui::MIN_RENDER_SCALE_PERCENT),
+            (3, ui::MIN_RENDER_SCALE_PERCENT),
             (4, ui::MIN_RENDER_SCALE_PERCENT),
             (9, ui::MIN_RENDER_SCALE_PERCENT),
             (101, ui::MAX_RENDER_SCALE_PERCENT),

@@ -38,6 +38,22 @@ fn fixture(render: RenderPlugin) -> App {
     app.finish();
     app.cleanup();
     app.update();
+    let shaders = {
+        let render = app.sub_app(RenderApp).world();
+        let blit = render.resource::<BlitPipeline>();
+        [
+            blit.fullscreen_shader.shader(),
+            blit.fragment_shader.clone(),
+        ]
+    };
+    test_time::eventually("native UI fixture blit shaders", || {
+        app.update();
+        let assets = app.world().resource::<bevy::asset::AssetServer>();
+        shaders
+            .iter()
+            .all(|shader| assets.is_loaded_with_dependencies(shader.id()))
+    });
+    app.update();
     app
 }
 
@@ -78,6 +94,13 @@ fn noop_renderer() -> RenderPlugin {
 
 /// Attaches a real output while retaining independent low-resolution world metadata.
 fn view(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entity {
+    let entity = view_target(world, output, internal);
+    world.run_system_once(prepare_native_ui_targets).unwrap();
+    entity
+}
+
+/// Builds the world/output pair without requesting any upscale pipeline.
+fn view_target(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entity {
     let entity = world.spawn_empty().id();
     let target = RenderTarget::Window(bevy::window::WindowRef::Entity(entity))
         .normalize(None)
@@ -129,7 +152,7 @@ fn view(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entity {
         Msaa::Off,
         crate::render_scale::RenderScaleOutput(UVec2::from_array(output)),
     ));
-    prepare(world);
+    world.run_system_once(prepare_view_targets).unwrap();
     entity
 }
 
@@ -144,6 +167,7 @@ fn native_ui_pair_keeps_output_pixels_and_reuses_across_world_scale_changes() {
     let mut app = fixture(noop_renderer());
     let world = app.sub_app_mut(RenderApp).world_mut();
     let entity = view(world, [81, 61], [8, 6]);
+    ready_pipelines(world);
     let original = world
         .get::<NativeUiTarget>(entity)
         .unwrap()
@@ -231,6 +255,7 @@ fn screen_ui_layers_stay_native_at_ten_and_fifty_percent_and_follow_output_resiz
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.init_resource::<UiLayerStore>();
     let entity = view(world, [81, 61], [8, 6]);
+    ready_pipelines(world);
     world.run_system_once(prepare_ui_layers).unwrap();
     let original_layer = world.get::<UiLayerTexture>(entity).unwrap().texture.id();
     let original_native = world.get::<NativeUiTarget>(entity).unwrap().textures[0].id();
@@ -537,7 +562,7 @@ fn native_one_pixel_hud(sharpen: bool) {
                 .lock()
                 .unwrap()
                 .len(),
-            2
+            1 + usize::from(sharpen)
         );
     }
 }
@@ -899,24 +924,7 @@ fn a_failed_fsr_shader_still_reconstructs_with_the_independent_bilinear_fallback
 /// Loads real GPU resources and the presentation shaders before offscreen comparisons.
 fn raster_fixture() -> Option<App> {
     let renderer = crate::render_test_support::scene_raster::renderer()?;
-    let mut app = fixture(renderer);
-    let shaders = {
-        let render = app.sub_app(RenderApp).world();
-        let blit = render.resource::<BlitPipeline>();
-        [
-            blit.fullscreen_shader.shader(),
-            blit.fragment_shader.clone(),
-        ]
-    };
-    test_time::eventually("native UI fixture blit shaders", || {
-        app.update();
-        let assets = app.world().resource::<bevy::asset::AssetServer>();
-        shaders
-            .iter()
-            .all(|shader| assets.is_loaded_with_dependencies(shader.id()))
-    });
-    app.update();
-    Some(app)
+    Some(fixture(renderer))
 }
 
 /// Waits for native reconstruction and presentation, reporting shader errors directly.
@@ -944,4 +952,8 @@ fn ready_pipelines(world: &mut World) {
                 _ => false,
             })
     });
+    world.run_system_once(prepare_native_ui_targets).unwrap();
 }
+
+#[path = "fallback_tests.rs"]
+mod fallback_tests;

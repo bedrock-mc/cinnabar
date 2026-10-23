@@ -433,16 +433,10 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
-    // A resizing output may not yet have a matching native target; never shrink its UI.
-    if output.is_some() && native.is_none() {
-        return Ok(());
-    }
-    // Finish the 3D image before drawing any screen-space UI at native resolution.
-    if let Some(native) = native
-        && !native.seed(world, context, target)
-    {
-        return Ok(());
-    }
+    // Keep screen UI reachable in the reduced view if native composition is unavailable.
+    let native = native.filter(|native| {
+        UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
+    });
     let target = UiTarget::new(target, native);
     let output_extent = if target.is_native() {
         None

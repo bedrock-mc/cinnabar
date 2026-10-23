@@ -1,6 +1,6 @@
 //! Native-resolution UI composition after the reduced world has finished rendering.
 
-use super::upscale::{FsrConstants, UpscalePipeline, UpscalePipelines};
+use super::upscale::{FsrConstants, UpscalePass, UpscalePipeline, UpscalePipelines};
 use crate::gpu_allocation::{self, FailedRequests};
 use bevy::{
     core_pipeline::blit::{BlitPipeline, BlitPipelineKey},
@@ -24,6 +24,7 @@ pub(crate) struct NativeUiTarget {
     views: [TextureView; 2],
     current: AtomicUsize,
     ready: AtomicBool,
+    available: AtomicBool,
     presented: AtomicBool,
     output_format: TextureFormat,
     sampler: Sampler,
@@ -78,6 +79,7 @@ impl NativeUiTarget {
             views,
             current: AtomicUsize::new(0),
             ready: AtomicBool::new(false),
+            available: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             output_format,
             sampler: device.create_sampler(&SamplerDescriptor {
@@ -94,10 +96,20 @@ impl NativeUiTarget {
     }
 
     /// Keeps only this frame's native scene and presentation observations.
-    fn begin_frame(&self) {
+    fn begin_frame(&self, cache: &PipelineCache, sharpen: bool) {
+        self.available.store(
+            self.seed_pipelines.ready_pass(cache, sharpen).is_some()
+                && cache.get_render_pipeline(self.present_pipeline).is_some(),
+            Ordering::Relaxed,
+        );
         self.current.store(0, Ordering::Relaxed);
         self.ready.store(false, Ordering::Relaxed);
         self.presented.store(false, Ordering::Relaxed);
+    }
+
+    /// Keeps preparation and drawing on the same target while pipelines compile.
+    fn is_available(&self) -> bool {
+        self.available.load(Ordering::Relaxed)
     }
 
     /// The native output dimensions, independent of the world texture's resolution.
@@ -154,28 +166,13 @@ impl NativeUiTarget {
         ) else {
             return false;
         };
-        let [bilinear, easu, rcas] = self
-            .seed_pipelines
-            .ids()
-            .map(|id| cache.get_render_pipeline(id));
-        let fsr_failed = [self.seed_pipelines.easu, self.seed_pipelines.rcas]
-            .iter()
-            .any(|&id| {
-                matches!(
-                    cache.get_render_pipeline_state(id),
-                    CachedPipelineState::Err(error) if !matches!(error,
-                        bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                        | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable)
-                )
-            });
-        let use_fsr = easu.is_some() && rcas.is_some();
-        // Pending shaders wait for warmup; only failed pipelines select the fallback.
-        if !use_fsr && (!fsr_failed || bilinear.is_none()) {
-            return false;
-        }
         let sharpness = world
             .get_resource::<crate::render_scale::RenderScaleSharpen>()
             .and_then(|filter| filter.0);
+        let Some(pass) = self.seed_pipelines.ready_pass(cache, sharpness.is_some()) else {
+            return false;
+        };
+        let sharpen = pass == UpscalePass::Easu && sharpness.is_some();
         let source = target.main_texture_view();
         let live = [
             source.id(),
@@ -216,7 +213,7 @@ impl NativeUiTarget {
             crate::render_bounds::extent(target.main_texture_view()),
             None,
         );
-        let rcas_binding = use_fsr.then(|| binding(&self.views[1], self.extent(), sharpness));
+        let rcas_binding = sharpen.then(|| binding(&self.views[1], self.extent(), sharpness));
         drop(bindings);
         self.current.store(0, Ordering::Relaxed);
         if let Some(rcas_binding) = rcas_binding {
@@ -224,7 +221,7 @@ impl NativeUiTarget {
                 world,
                 context,
                 &self.views[1],
-                easu.unwrap(),
+                cache.get_render_pipeline(self.seed_pipelines.easu).unwrap(),
                 &source_binding,
                 "FSR1 EASU",
             );
@@ -232,7 +229,7 @@ impl NativeUiTarget {
                 world,
                 context,
                 &self.views[0],
-                rcas.unwrap(),
+                cache.get_render_pipeline(self.seed_pipelines.rcas).unwrap(),
                 &rcas_binding,
                 "FSR1 RCAS",
             );
@@ -241,9 +238,18 @@ impl NativeUiTarget {
                 world,
                 context,
                 &self.views[0],
-                bilinear.unwrap(),
+                cache
+                    .get_render_pipeline(match pass {
+                        UpscalePass::Easu => self.seed_pipelines.easu,
+                        _ => self.seed_pipelines.bilinear,
+                    })
+                    .unwrap(),
                 &source_binding,
-                "bilinear world fallback",
+                if pass == UpscalePass::Easu {
+                    "FSR1 EASU"
+                } else {
+                    "bilinear world fallback"
+                },
             );
         }
         self.ready.store(true, Ordering::Relaxed);
@@ -349,6 +355,7 @@ pub(crate) fn prepare_native_ui_targets(
     mut pipelines: Option<ResMut<SpecializedRenderPipelines<BlitPipeline>>>,
     mut upscale: Option<ResMut<UpscalePipeline>>,
     mut failed: Local<FailedRequests<NativeUiRequest>>,
+    sharpen: Option<Res<crate::render_scale::RenderScaleSharpen>>,
     views: Query<(
         Entity,
         &ViewTarget,
@@ -392,7 +399,10 @@ pub(crate) fn prepare_native_ui_targets(
         if let Some(previous) =
             previous.filter(|previous| previous.matches(&device, target, extent))
         {
-            previous.begin_frame();
+            previous.begin_frame(
+                &cache,
+                sharpen.as_ref().is_some_and(|filter| filter.0.is_some()),
+            );
             continue;
         }
         // Standalone UI preparation does not need the core pipeline's blit resources.
@@ -434,6 +444,10 @@ pub(crate) fn prepare_native_ui_targets(
                 &cache,
             )
         }) {
+            native.begin_frame(
+                &cache,
+                sharpen.as_ref().is_some_and(|filter| filter.0.is_some()),
+            );
             commands.entity(entity).insert(native);
         } else if previous.is_some() {
             commands.entity(entity).remove::<NativeUiTarget>();
@@ -451,7 +465,10 @@ pub(crate) struct UiTarget<'a> {
 impl<'a> UiTarget<'a> {
     /// Preparation selects the native extent before the world's pixels are seeded later.
     pub(crate) fn new(output: &'a ViewTarget, native: Option<&'a NativeUiTarget>) -> Self {
-        Self { output, native }
+        Self {
+            output,
+            native: native.filter(|native| native.is_available()),
+        }
     }
 
     /// Reports whether screen UI has its own output-sized scene.

@@ -24,7 +24,6 @@ pub(super) fn install(app: &mut App) {
         "../world_bilinear.wgsl",
         crate::shader_safety::from_wgsl
     );
-    crate::pipeline_warmup::register::<UpscalePipeline>(app);
     app.sub_app_mut(RenderApp)
         .init_resource::<UpscalePipeline>();
 }
@@ -52,7 +51,21 @@ pub(super) struct UpscalePipelines {
 }
 
 impl UpscalePipelines {
+    /// Uses bilinear until every requested FSR stage is ready, even after a compile failure.
+    pub(super) fn ready_pass(self, cache: &PipelineCache, sharpen: bool) -> Option<UpscalePass> {
+        if cache.get_render_pipeline(self.easu).is_some()
+            && (!sharpen || cache.get_render_pipeline(self.rcas).is_some())
+        {
+            Some(UpscalePass::Easu)
+        } else {
+            cache
+                .get_render_pipeline(self.bilinear)
+                .map(|_| UpscalePass::Bilinear)
+        }
+    }
+
     /// Enumerates all stages for readiness checks; a new field must be handled here.
+    #[cfg(test)]
     pub(super) fn ids(self) -> [CachedRenderPipelineId; 3] {
         let Self {
             bilinear,
@@ -213,7 +226,7 @@ impl UpscalePipeline {
             .expect("valid world upscale specialization")
     }
 
-    /// Queues every stage once for a scene format, sharing the draw path with warmup.
+    /// Queues every stage once for a scene format, only when a scaled view first needs it.
     pub(super) fn stages(
         &mut self,
         cache: &PipelineCache,
@@ -263,24 +276,6 @@ impl UpscalePipeline {
             &cache.get_bind_group_layout(&self.layout),
             &BindGroupEntries::sequential((source, sampler, buffer.as_entire_binding())),
         )
-    }
-}
-
-impl crate::pipeline_warmup::PrewarmPipelines for UpscalePipeline {
-    /// Warms both FSR passes and their fallback, including HDR camera variants.
-    fn prewarm(
-        &mut self,
-        cache: &PipelineCache,
-        view: crate::pipeline_warmup::WarmView,
-        ids: &mut crate::pipeline_warmup::WarmupIds,
-    ) -> Result<(), BevyError> {
-        let format = if view.hdr {
-            render_scene::SCENE_HDR_FORMAT
-        } else {
-            render_scene::SCENE_COLOR_FORMAT
-        };
-        ids.extend(self.stages(cache, format).ids());
-        Ok(())
     }
 }
 
