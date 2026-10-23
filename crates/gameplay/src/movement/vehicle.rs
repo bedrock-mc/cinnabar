@@ -238,6 +238,23 @@ impl VehiclePrediction {
     }
 }
 
+/// Position, delta and vehicle an input reports: those of the predicted vehicle, if any.
+pub(super) fn reported_motion(
+    sample: &super::PhysicsMovementSample,
+) -> ([f32; 3], [f32; 3], Option<protocol::PredictedVehicleInput>) {
+    match sample.processed.vehicle {
+        Some(vehicle) => (
+            vehicle.position,
+            vehicle.velocity,
+            Some(protocol::PredictedVehicleInput {
+                unique_id: vehicle.unique_id,
+                rotation: vehicle.rotation,
+            }),
+        ),
+        None => (sample.position, sample.velocity, None),
+    }
+}
+
 /// Feet of a rider whose seat sits at `seat` in the boat's frame.
 fn seat_feet(state: &BoatState, seat: [f32; 3]) -> [f32; 3] {
     let offset = client_world::seat_world_offset(seat, state.yaw);

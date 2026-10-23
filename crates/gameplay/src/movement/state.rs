@@ -35,7 +35,7 @@ pub struct ProcessedMovementState {
     /// Double-tap flight start (true) or stop (false); the only source of the wire flight edges.
     pub flight_request: Option<bool>,
     /// The boat this tick predicted, which the input reports instead of the player.
-    pub vehicle: Option<super::PredictedVehicleSample>,
+    pub vehicle: Option<super::vehicle::PredictedVehicleSample>,
 }
 
 impl ProcessedMovementState {

@@ -172,7 +172,7 @@ impl CommittedGameplayState<'_> {
         if let CommittedControlEvent::VehicleMovementCorrection { correction, .. } = control {
             if self.movement.physics_is_authorized() {
                 self.physics.correct_vehicle(
-                    &movement::VehicleCorrection {
+                    &movement::vehicle::VehicleCorrection {
                         tick: correction.tick,
                         position: correction.position,
                         velocity: correction.delta,

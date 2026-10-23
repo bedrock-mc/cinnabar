@@ -39,7 +39,7 @@ impl super::LocalPhysicsController {
     /// Applies a server correction of the steered boat and reseats the rider on it.
     pub fn correct_vehicle(
         &mut self,
-        correction: &crate::movement::VehicleCorrection,
+        correction: &crate::movement::vehicle::VehicleCorrection,
         world: &impl CollisionWorld,
     ) {
         let Some(seat) = self.vehicle.correct(correction, world) else {

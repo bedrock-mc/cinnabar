@@ -36,7 +36,7 @@ mod speed_authority;
 mod state;
 mod teleport_ack;
 pub mod trace;
-mod vehicle;
+pub mod vehicle;
 pub use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
@@ -83,7 +83,6 @@ pub use trace::note_click_drop;
 #[cfg(any(test, feature = "test-support"))]
 pub use trace::trace_line_if;
 pub use trace::{pending_trace_line, write_trace_line};
-pub use vehicle::{PredictedVehicleSample, SteeredVehicle, VehicleCorrection};
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///
@@ -462,13 +461,12 @@ impl MovementTicker {
             .next_tick_rotation
             .take()
             .unwrap_or((sample.pitch, sample.yaw));
-        // A predicted vehicle's input reports the vehicle's position and motion.
-        let vehicle = sample.processed.vehicle;
+        let (position, delta, vehicle) = vehicle::reported_motion(sample);
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
-            position: vehicle.map_or(sample.position, |vehicle| vehicle.position),
+            position,
             // Vanilla sends the end-of-tick velocity as the position delta.
-            delta: vehicle.map_or(sample.velocity, |vehicle| vehicle.velocity),
+            delta,
             move_vector,
             analogue_move_vector,
             raw_move_vector,
@@ -480,10 +478,7 @@ impl MovementTicker {
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
             input_mode: sample.input_mode,
-            vehicle: vehicle.map(|vehicle| protocol::PredictedVehicleInput {
-                unique_id: vehicle.unique_id,
-                rotation: vehicle.rotation,
-            }),
+            vehicle,
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;

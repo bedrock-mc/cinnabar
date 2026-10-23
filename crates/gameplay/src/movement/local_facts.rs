@@ -21,7 +21,7 @@ pub struct LocalMovementFacts {
     pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
     /// The boat the player steers from its controlling seat.
-    pub vehicle: Option<super::SteeredVehicle>,
+    pub vehicle: Option<super::vehicle::SteeredVehicle>,
     pub can_fly: bool,
     pub flight: FlightAuthority,
     pub ability_sequence: Option<u64>,
@@ -136,10 +136,10 @@ pub fn read(
 }
 
 /// The boat the local player steers, with its seat in the boat's frame.
-fn steered_vehicle(stream: &impl crate::GameplayWorld) -> Option<super::SteeredVehicle> {
+fn steered_vehicle(stream: &impl crate::GameplayWorld) -> Option<super::vehicle::SteeredVehicle> {
     let vehicle = stream.local_controlled_vehicle()?;
     let (seat, _) = stream.local_rider_seat_on([0.0; 3], 0.0)?;
-    Some(super::SteeredVehicle {
+    Some(super::vehicle::SteeredVehicle {
         runtime_id: vehicle.runtime_id,
         unique_id: vehicle.unique_id,
         position: vehicle.last_received_native_position(),

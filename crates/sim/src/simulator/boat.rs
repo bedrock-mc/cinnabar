@@ -232,9 +232,9 @@ pub fn tick_boat(
     } else {
         state.on_ground && request[1] == 0.0
     };
-    for axis in 0..3 {
-        if collided[axis] {
-            state.velocity[axis] = 0.0;
+    for (velocity, collided) in state.velocity.iter_mut().zip(collided) {
+        if collided {
+            *velocity = 0.0;
         }
     }
 
