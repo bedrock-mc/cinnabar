@@ -247,6 +247,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
                     corners,
                     uvs,
                     material: 0,
+                    two_sided: false,
                 },
                 icon,
             )

@@ -186,6 +186,7 @@ impl<'a> Model<'a> {
         let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
+            .filter(|quad| quad.visible_in_gui())
             .map(|quad| {
                 let tile = match tiles.entry(quad.material) {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -517,6 +518,60 @@ mod review_tests {
             }
             composite_fragments(&mut pixels, &depth, &mut fragments);
             assert_eq!(&pixels[..4], &[128, 0, 127, 255]);
+        }
+    }
+
+    #[test]
+    fn model_thumbnail_hides_rear_faces_but_preserves_two_sided_planes() {
+        let texture = TextureArray {
+            layers: 1,
+            mips: vec![assets::TextureMip {
+                size: 1,
+                rgba8: vec![255, 0, 0, 255].into(),
+            }]
+            .into(),
+        };
+        let materials = [
+            Material::unvaried(),
+            Material {
+                texture: assets::TextureRef::new(1, 0).unwrap(),
+                flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                ..Material::unvaried()
+            },
+        ];
+        for two_sided in [false, true] {
+            let (corners, uvs) = cube_face(BlockFace::Down);
+            let quads = [ModelQuad {
+                positions: corners.map(|p| p.map(|v| (v * 256.0) as i16)),
+                uvs: uvs.map(|p| p.map(|v| (v * 4096.0) as u16)),
+                material: 1,
+                flags: if two_sided {
+                    assets::MODEL_QUAD_FLAG_TWO_SIDED
+                } else {
+                    0
+                },
+            }];
+            let templates = [ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            }];
+            let icon = Model::build(
+                Parts {
+                    materials: &materials,
+                    templates: &templates,
+                    quads: &quads,
+                    textures: Textures::Overlay(std::slice::from_ref(&texture), &[], None),
+                    tint: None,
+                },
+                VisualKind::Model,
+                [1; 6],
+                Some(0),
+            )
+            .unwrap()
+            .raster();
+            let visible = icon.rgba8.chunks_exact(4).any(|pixel| pixel[3] != 0);
+            assert_eq!(visible, two_sided, "one-sided rear faces stay transparent");
         }
     }
 
