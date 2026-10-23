@@ -14,6 +14,10 @@ use sha2::{Digest, Sha256};
 
 use super::{blocks::IconBlocks, cube, model};
 
+#[cfg(test)]
+#[path = "bake/pane_tests.rs"]
+mod pane_tests;
+
 pub(super) struct BakedBlocks {
     pub flat_sprites: BTreeMap<u32, u32>,
     pub model_sprites: BTreeMap<(u32, u32), u32>,
@@ -33,24 +37,21 @@ pub(super) fn run(
     sprites: &mut Vec<IconSprite>,
 ) -> Result<BakedBlocks, AssetError> {
     let mut block_models = BTreeMap::new();
+    let mut held_sprites = BTreeMap::new();
     let mut flat_by_path: BTreeMap<Box<str>, Option<u32>> = BTreeMap::new();
     let mut flat_sprites = BTreeMap::new();
     for (&visual, path) in flat_plan {
         let Some(path) = path else {
             continue;
         };
-        let sprite = match flat_by_path.get(path) {
-            Some(existing) => *existing,
-            None => {
-                let sprite = blocks
-                    .map(|blocks| blocks.flat_sprite(root, path))
-                    .transpose()?
-                    .flatten()
-                    .map(|sprite| insert_sprite(sprites, sprite, &block_models));
-                flat_by_path.insert(path.clone(), sprite);
-                sprite
-            }
-        };
+        let sprite = cached_flat_sprite(
+            root,
+            blocks,
+            path,
+            sprites,
+            &block_models,
+            &mut flat_by_path,
+        )?;
         if let Some(sprite) = sprite {
             flat_sprites.insert(visual, sprite);
         }
@@ -110,6 +111,22 @@ pub(super) fn run(
                 model_raster(root, world, blocks, &compiled.geometries, visual, metadata)?
             };
             if let Some((raster, state)) = raster {
+                let held = if state.is_some() {
+                    match blocks.and_then(|blocks| blocks.held_texture_path(BlockVisualId(visual)))
+                    {
+                        Some(path) => cached_flat_sprite(
+                            root,
+                            blocks,
+                            &path,
+                            sprites,
+                            &block_models,
+                            &mut flat_by_path,
+                        )?,
+                        None => None,
+                    }
+                } else {
+                    None
+                };
                 let sprite = if let Some(state) = state {
                     *model_sprites_by_state.entry(state.0).or_insert_with(|| {
                         let sprite = sprites.len() as u32;
@@ -120,6 +137,9 @@ pub(super) fn run(
                 } else {
                     insert_sprite(sprites, raster, &block_models)
                 };
+                if let Some(held) = held {
+                    held_sprites.insert(sprite, held);
+                }
                 model_sprites.insert((visual, metadata), sprite);
             }
         }
@@ -196,9 +216,34 @@ pub(super) fn run(
         block_sheets,
         block_models: block_models
             .into_iter()
-            .map(|(sprite, visual)| IconBlockModel { sprite, visual })
+            .map(|(sprite, visual)| IconBlockModel {
+                sprite,
+                visual,
+                held_sprite: held_sprites.get(&sprite).copied(),
+            })
             .collect(),
     })
+}
+
+/// Shares flat carried artwork by source path without aliasing GUI model thumbnails.
+fn cached_flat_sprite(
+    root: &Path,
+    blocks: Option<&IconBlocks>,
+    path: &str,
+    sprites: &mut Vec<IconSprite>,
+    models: &BTreeMap<u32, BlockVisualId>,
+    cache: &mut BTreeMap<Box<str>, Option<u32>>,
+) -> Result<Option<u32>, AssetError> {
+    if let Some(sprite) = cache.get(path) {
+        return Ok(*sprite);
+    }
+    let sprite = blocks
+        .map(|blocks| blocks.flat_sprite(root, path))
+        .transpose()?
+        .flatten()
+        .map(|sprite| insert_sprite(sprites, sprite, models));
+    cache.insert(path.into(), sprite);
+    Ok(sprite)
 }
 
 /// Reuses thumbnail pixels only when the sprite is not bound to a native block model.

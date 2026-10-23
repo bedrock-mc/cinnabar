@@ -3895,6 +3895,12 @@
       ]
     },
     {
+      "id": "flat-icon-metal-bars",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "suffix": "_bars"
+    },
+    {
       "id": "flat-icon-crystals-and-spikes",
       "fact": "render_flag:flat_icon",
       "status": "verified",
