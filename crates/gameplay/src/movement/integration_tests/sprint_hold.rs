@@ -53,6 +53,17 @@ fn held_sprint_resumes_after_metadata_and_position_corrections() {
                     &VersionedFloor(1),
                 )
                 .unwrap();
+                let mut correction_frame = super::speed_frame(held);
+                correction_frame.toggle_sprint = toggle_sprint;
+                correction_frame.delta = Duration::ZERO;
+                assert!(locals.advance(
+                    correction_frame,
+                    &mut physics,
+                    &mut ticker,
+                    &mut effects,
+                    &mut speed,
+                    &VersionedFloor(1),
+                ));
                 let tick = physics.state().unwrap().tick + 1;
                 let mut frame = super::speed_frame(held);
                 frame.toggle_sprint = toggle_sprint;
