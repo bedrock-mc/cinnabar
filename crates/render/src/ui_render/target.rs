@@ -265,7 +265,7 @@ fn encode_blit(
         label: Some(label),
         color_attachments: &attachments,
         depth_stencil_attachment: None,
-        timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
             render_scene::RuntimeStage::GpuBlit,
         ),

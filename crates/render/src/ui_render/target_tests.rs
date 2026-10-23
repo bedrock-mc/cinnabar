@@ -328,26 +328,9 @@ fn native_one_pixel_hud_survives_ten_percent_world_upscale_and_empty_next_frame(
 
 /// Checks both filters through real GPU draws and output readback, including an empty next HUD.
 fn native_one_pixel_hud(sharpen: bool) {
-    let Some(renderer) = crate::render_test_support::scene_raster::renderer() else {
+    let Some(mut app) = raster_fixture() else {
         return;
     };
-    let mut app = fixture(renderer);
-    let shaders = {
-        let render = app.sub_app(RenderApp).world();
-        let blit = render.resource::<BlitPipeline>();
-        [
-            blit.fullscreen_shader.shader(),
-            blit.fragment_shader.clone(),
-        ]
-    };
-    test_time::eventually("native UI fixture blit shaders", || {
-        app.update();
-        let assets = app.world().resource::<bevy::asset::AssetServer>();
-        shaders
-            .iter()
-            .all(|shader| assets.is_loaded_with_dependencies(shader.id()))
-    });
-    app.update();
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
     let entity = view(world, [40, 30], [4, 3]);
@@ -581,7 +564,9 @@ fn native_ui_allocation_retries_after_backoff_and_recovers() {
 /// HDR world targets keep their format while native UI retains the output's dimensions.
 #[test]
 fn native_ui_supports_scaled_hdr_views() {
-    let mut app = fixture(crate::chunk::noop_render_plugin(wgpu::Features::empty()));
+    let Some(mut app) = raster_fixture() else {
+        return;
+    };
     let world = app.sub_app_mut(RenderApp).world_mut();
     let entity = view(world, [81, 61], [40, 30]);
     world.get_mut::<ExtractedCamera>(entity).unwrap().hdr = true;
@@ -606,4 +591,72 @@ fn native_ui_supports_scaled_hdr_views() {
             .width(),
         40
     );
+    world.resource_mut::<PipelineCache>().process_queue();
+    let device = world.resource::<RenderDevice>().clone();
+    for sharpen in [false, true] {
+        world.insert_resource(crate::render_scale::RenderScaleSharpen(sharpen));
+        world.run_system_once(prepare_native_ui_targets).unwrap();
+        let (_, commands) = crate::render_test_support::record(world, &device, |world, context| {
+            let target = world.get::<ViewTarget>(entity).unwrap();
+            let native = world.get::<NativeUiTarget>(entity).unwrap();
+            {
+                let attachments = [Some(wgpu::RenderPassColorAttachment {
+                    view: target.main_texture_view(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.25,
+                            g: 0.5,
+                            b: 0.75,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })];
+                context
+                    .command_encoder()
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("scaled HDR colour witness"),
+                        color_attachments: &attachments,
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+            }
+            assert!(native.seed(world, context, target));
+            assert!(native.present(world, context, target));
+        });
+        world.resource::<RenderQueue>().submit(commands);
+        assert!(pixels(world, entity).iter().all(|pixel| {
+            pixel
+                .iter()
+                .zip([137, 188, 225, 255])
+                .all(|(actual, expected)| actual.abs_diff(expected) <= 1)
+        }));
+    }
+}
+
+/// Loads real GPU resources and the presentation shaders before offscreen comparisons.
+fn raster_fixture() -> Option<App> {
+    let renderer = crate::render_test_support::scene_raster::renderer()?;
+    let mut app = fixture(renderer);
+    let shaders = {
+        let render = app.sub_app(RenderApp).world();
+        let blit = render.resource::<BlitPipeline>();
+        [
+            blit.fullscreen_shader.shader(),
+            blit.fragment_shader.clone(),
+        ]
+    };
+    test_time::eventually("native UI fixture blit shaders", || {
+        app.update();
+        let assets = app.world().resource::<bevy::asset::AssetServer>();
+        shaders
+            .iter()
+            .all(|shader| assets.is_loaded_with_dependencies(shader.id()))
+    });
+    app.update();
+    Some(app)
 }
