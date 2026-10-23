@@ -18,6 +18,8 @@ pub struct DataDrivenUi {
     /// Packets for the server, kept until the network flush takes them: every screen request
     /// waits for its answer, so none may be dropped when the shared queue is full.
     outgoing: VecDeque<Packet>,
+    /// Whether a host menu (pause, settings) shows over the world, as the host last published.
+    menu_visible: bool,
 }
 
 impl DataDrivenUi {
@@ -39,6 +41,12 @@ impl DataDrivenUi {
         self.outgoing.clear();
     }
 
+    /// Whether a host menu showed over the world when the host last published it.
+    #[must_use]
+    pub fn menu_visible(&self) -> bool {
+        self.menu_visible
+    }
+
     /// The oldest packet waiting for the network flush.
     pub(super) fn take_packet(&mut self) -> Option<Packet> {
         self.outgoing.pop_front()
@@ -46,6 +54,11 @@ impl DataDrivenUi {
 }
 
 impl UiRuntime {
+    /// Records whether a host menu shows over the world; screen requests then answer busy.
+    pub fn set_menu_visible(&mut self, visible: bool) {
+        self.data_driven.menu_visible = visible;
+    }
+
     /// Applies a DDUI event. `busy` is true while another screen holds the player's attention.
     ///
     /// Every screen request is answered so the server's script can finish: a busy client reports

@@ -58,6 +58,23 @@ fn every_screen_request_is_answered_so_server_scripts_finish() {
 }
 
 #[test]
+fn a_visible_host_menu_answers_screen_requests_busy() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    runtime.set_menu_visible(true);
+    runtime.apply(&mut player, envelope(1, 1, show(4))).unwrap();
+    runtime.set_menu_visible(false);
+    runtime.apply(&mut player, envelope(1, 2, show(5))).unwrap();
+    assert_eq!(
+        sent(&mut runtime),
+        [
+            closed(4, DataDrivenScreenCloseReason::UserBusy),
+            closed(5, DataDrivenScreenCloseReason::ClientCanceled),
+        ]
+    );
+}
+
+#[test]
 fn screen_answers_wait_out_a_full_client_queue() {
     let mut runtime = UiRuntime::new(1);
     let mut player = player_state::PlayerState::new(1);
