@@ -466,3 +466,58 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
         );
     }
 }
+
+/// A vehicle correction that snaps the rider resets presentation like any correction; one
+/// already applied changes nothing.
+#[test]
+fn an_applied_vehicle_correction_resets_presentation() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    physics.steer_completed(
+        crate::movement::vehicle::SteeredVehicle {
+            runtime_id: 7,
+            unique_id: -7,
+            body: sim::BoatBody {
+                width: 1.4,
+                height: 0.455,
+                height_offset: 0.375,
+            },
+            position: [0.5, 2.0, 0.5],
+            yaw: 0.0,
+            velocity: [0.0; 3],
+            seat: [0.0, -0.2, 0.0],
+            revision: 0,
+        },
+        100,
+    );
+    let control = CommittedControlEvent::VehicleMovementCorrection {
+        sequence: 1,
+        correction: protocol::PlayerMovementCorrectionEvent {
+            position: [4.5, 2.0, 0.5],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject: protocol::MovementCorrectionSubject::Vehicle,
+            on_ground: false,
+            tick: 101,
+            vehicle_angular_velocity: None,
+        },
+        vehicle_runtime_id: 7,
+    };
+    let mut apply = || {
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(control, &NoQueries, |_| {})
+    };
+    assert_eq!(
+        apply(),
+        ControlDisposition::Spatial(SpatialReset::Correction)
+    );
+    assert_eq!(apply(), ControlDisposition::Handled);
+}

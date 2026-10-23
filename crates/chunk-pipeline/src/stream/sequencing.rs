@@ -609,12 +609,8 @@ impl WorldStream {
                 // A vehicle correction names the predicted vehicle's position, so it stays out
                 // of the player's position resolution, retention and correction-tick guard.
                 if correction.subject.is_vehicle() {
-                    self.authority.push_committed_control(
-                        CommittedControlEvent::VehicleMovementCorrection {
-                            sequence,
-                            correction,
-                        },
-                    );
+                    self.authority
+                        .commit_vehicle_correction(sequence, correction);
                     return;
                 }
                 if !correction.subject.is_player() {

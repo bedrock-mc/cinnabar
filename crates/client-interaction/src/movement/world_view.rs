@@ -46,8 +46,8 @@ impl gameplay::GameplayWorld for GameplayWorldView<'_> {
             .local_rider_seat_on(vehicle_feet, vehicle_yaw)
     }
     /// Counts server teleports of the steered vehicle.
-    fn local_vehicle_server_moves(&self) -> u64 {
-        self.0.authority().local_vehicle_server_moves()
+    fn local_vehicle_revision(&self) -> u64 {
+        self.0.authority().local_vehicle_revision()
     }
     /// Reads the current network palette encoding.
     fn network_id_mode(&self) -> assets::NetworkIdMode {

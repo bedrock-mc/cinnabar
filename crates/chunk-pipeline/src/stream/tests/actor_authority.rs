@@ -231,7 +231,7 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
 }
 
 #[test]
-fn vehicle_corrections_reach_vehicle_prediction_without_advancing_the_player_tick_guard() {
+fn vehicle_corrections_never_advance_the_player_tick_guard() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -252,9 +252,9 @@ fn vehicle_corrections_reach_vehicle_prediction_without_advancing_the_player_tic
         vehicle_angular_velocity: None,
     };
 
-    // A vehicle rewind names the vehicle's position: it must reach vehicle prediction
-    // unresolved and leave the player's monotonic guard alone, which would otherwise
-    // silence a later ordinary player correction.
+    // A vehicle rewind names the vehicle's position: it must leave the player's monotonic
+    // guard alone, which would otherwise silence a later ordinary player correction. With
+    // no steered vehicle nothing predicts it, so it is dropped.
     stream
         .submit(
             1,
@@ -276,10 +276,6 @@ fn vehicle_corrections_reach_vehicle_prediction_without_advancing_the_player_tic
 
     let controls = stream.take_committed_controls();
     let [
-        super::CommittedControlEvent::VehicleMovementCorrection {
-            sequence: vehicle_sequence,
-            correction: vehicle,
-        },
         super::CommittedControlEvent::PlayerMovementCorrection {
             sequence,
             correction,
@@ -289,9 +285,6 @@ fn vehicle_corrections_reach_vehicle_prediction_without_advancing_the_player_tic
     else {
         panic!("unexpected committed controls {controls:?}");
     };
-    assert_eq!(*vehicle_sequence, 1);
-    assert_eq!(vehicle.tick, 200);
-    assert_eq!(vehicle.position, [50.0, 80.0, -50.0]);
     assert_eq!(*sequence, 2);
     assert_eq!(correction.tick, 100);
     assert_eq!(correction.subject, MovementCorrectionSubject::Player);

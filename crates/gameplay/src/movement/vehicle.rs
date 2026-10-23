@@ -20,8 +20,8 @@ pub struct SteeredVehicle {
     pub velocity: [f32; 3],
     /// The rider's seat relative to the boat's feet, in the boat's frame.
     pub seat: [f32; 3],
-    /// Server teleports of the boat; a new one restarts prediction.
-    pub server_moves: u64,
+    /// Server changes to the boat; a new one restarts prediction.
+    pub revision: u64,
 }
 
 /// The predicted vehicle reported in one tick's input.
@@ -52,6 +52,8 @@ impl PredictedVehicleSample {
 /// A server correction of the predicted vehicle at one input tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VehicleCorrection {
+    /// The vehicle the player steered when the correction arrived.
+    pub runtime_id: u64,
     pub tick: u64,
     /// Network position.
     pub position: [f32; 3],
@@ -62,13 +64,13 @@ pub struct VehicleCorrection {
     pub on_ground: bool,
 }
 
-/// Identifies one prediction session: the steered boat and the count of server moves it
-/// started from. A change of owner starts a new session.
+/// Identifies one prediction session: the steered boat and the revision it started from.
+/// A change of owner starts a new session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SessionOwner {
     runtime_id: u64,
     unique_id: i64,
-    server_moves: u64,
+    revision: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +95,7 @@ pub(super) struct VehiclePrediction {
 
 impl VehiclePrediction {
     /// Paddles the steered boat for the coming tick and returns the rider's seat feet, or
-    /// `None` without a steered boat. A new boat or server move starts a session from the
+    /// `None` without a steered boat. A new boat or server change starts a session from the
     /// boat's retained pose and motion. A boat whose terrain is unavailable fails the tick, so
     /// its input never silently reports the rider instead.
     pub(super) fn step(
@@ -110,7 +112,7 @@ impl VehiclePrediction {
         let owner = SessionOwner {
             runtime_id: vehicle.runtime_id,
             unique_id: vehicle.unique_id,
-            server_moves: vehicle.server_moves,
+            revision: vehicle.revision,
         };
         let session = match &mut self.session {
             Some(session) if session.owner == owner => session,
@@ -178,7 +180,7 @@ impl VehiclePrediction {
         let [x, _, z] = session.state.position;
         Some(client_world::LocalVehicleFeed {
             runtime_id: session.owner.runtime_id,
-            server_moves: session.owner.server_moves,
+            revision: session.owner.revision,
             position: [x, session.state.feet_y(), z],
             yaw: session.state.yaw,
             velocity: session.state.velocity,
@@ -186,8 +188,8 @@ impl VehiclePrediction {
     }
 
     /// Continues the session from a server correction's vehicle state and returns the rider's
-    /// seat feet on it. A correction from before this session, no newer than one already
-    /// applied, or with non-finite state is ignored.
+    /// seat feet on it. A correction of another vehicle, from before this session, no newer
+    /// than one already applied, or with non-finite state is ignored.
     pub(super) fn correct(&mut self, correction: &VehicleCorrection) -> Option<[f32; 3]> {
         let session = self.session.as_mut()?;
         let finite = correction
@@ -197,7 +199,10 @@ impl VehiclePrediction {
             .chain(&correction.rotation)
             .chain(correction.angular_velocity.as_ref())
             .all(|value| value.is_finite());
-        if !finite || correction.tick <= session.stale_through? {
+        if !finite
+            || correction.runtime_id != session.owner.runtime_id
+            || correction.tick <= session.stale_through?
+        {
             return None;
         }
         session.stale_through = Some(correction.tick);
@@ -214,6 +219,27 @@ impl VehiclePrediction {
         };
         self.pending = None;
         Some(seat_feet(&session.state, session.seat))
+    }
+}
+
+#[cfg(test)]
+impl VehiclePrediction {
+    /// Predicts `vehicle` from a session whose ticks through `completed` already ran.
+    pub(crate) fn completed_session(vehicle: SteeredVehicle, completed: u64) -> Self {
+        Self {
+            session: Some(Session {
+                owner: SessionOwner {
+                    runtime_id: vehicle.runtime_id,
+                    unique_id: vehicle.unique_id,
+                    revision: vehicle.revision,
+                },
+                seat: vehicle.seat,
+                state: BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw),
+                previous_yaw: vehicle.yaw,
+                stale_through: Some(completed),
+            }),
+            ..Self::default()
+        }
     }
 }
 

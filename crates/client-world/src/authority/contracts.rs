@@ -142,6 +142,8 @@ pub enum CommittedControlEvent {
     VehicleMovementCorrection {
         sequence: u64,
         correction: PlayerMovementCorrectionEvent,
+        /// The vehicle the local player steered when the correction committed.
+        vehicle_runtime_id: u64,
     },
     /// A server-authoritative velocity impulse for the local player
     /// (knockback, explosion, launch). Other actors have no velocity consumer.

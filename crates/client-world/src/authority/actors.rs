@@ -328,14 +328,30 @@ impl WorldAuthority {
             .then(|| self.actors.snapshot_by_unique(vehicle))
             .flatten()
     }
+    /// Commits a server correction of the vehicle the local player steers, naming that
+    /// vehicle. Without one nothing is predicted, so the correction is dropped.
+    pub fn commit_vehicle_correction(
+        &mut self,
+        sequence: u64,
+        correction: protocol::PlayerMovementCorrectionEvent,
+    ) {
+        let Some(vehicle_runtime_id) = self.local_controlled_vehicle().map(|v| v.runtime_id) else {
+            return;
+        };
+        self.push_committed_control(CommittedControlEvent::VehicleMovementCorrection {
+            sequence,
+            correction,
+            vehicle_runtime_id,
+        });
+    }
     /// Drives the predicted pose of the boat the local player steers; feeds for any other
     /// actor, or `None`, change nothing.
     pub fn sync_local_vehicle_pose(&mut self, feed: Option<crate::LocalVehicleFeed>) {
         self.actors.sync_local_vehicle(feed);
     }
-    /// Counts server teleports and forced moves of the predicted vehicle.
-    pub const fn local_vehicle_server_moves(&self) -> u64 {
-        self.actors.local_vehicle_server_moves()
+    /// Counts server changes to the predicted vehicle that prediction restarts from.
+    pub const fn local_vehicle_revision(&self) -> u64 {
+        self.actors.local_vehicle_revision()
     }
     /// Borrows the current actor with this persistent unique ID.
     pub fn actor_by_unique_id(&self, unique_id: i64) -> Option<&ActorSnapshot> {

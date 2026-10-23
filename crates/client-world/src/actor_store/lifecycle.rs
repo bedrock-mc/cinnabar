@@ -116,7 +116,7 @@ impl ActorStore {
             pending_local_damage: None,
             local_health_skips: 0,
             pending_local_death: Vec::new(),
-            pending_local_metadata: Vec::new(),
+            pending_local_metadata: FastHashMap::new(),
             local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,

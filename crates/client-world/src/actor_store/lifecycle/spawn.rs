@@ -78,6 +78,8 @@ impl ActorStore {
         }
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.board_linked_riders();
+        // A respawned boat restarts its prediction from the new spawn.
+        self.note_local_vehicle_change(runtime_id);
         self.adopt_spawned_unique_id(runtime_id);
         self.prune_unlisted_players();
         if let Some(actor) = self.actors.get(&runtime_id) {

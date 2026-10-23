@@ -163,12 +163,12 @@ fn boat_move(x: f32, teleported: bool) -> ActorEvent {
 }
 
 #[test]
-fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
+fn a_predicted_vehicle_takes_revision_only_when_teleported() {
     let (mut store, mut sequence) = harbour(Vec::new());
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     let feed = LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        server_moves: 0,
+        revision: 0,
         position: [12.0, 5.0, 10.0],
         yaw: 30.0,
         velocity: [0.1, 0.0, 0.0],
@@ -180,12 +180,12 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     let boat = store.snapshot_by_unique(BOAT).unwrap();
     assert_eq!(boat.position, [12.0, 5.0, 10.0]);
     assert_eq!(boat.yaw, 30.0);
-    assert_eq!(store.local_vehicle_server_moves(), 0);
+    assert_eq!(store.local_vehicle_revision(), 0);
 
     sequence += 1;
     store.apply(1, sequence, boat_move(40.0, true));
     assert_eq!(store.snapshot_by_unique(BOAT).unwrap().position[0], 40.0);
-    assert_eq!(store.local_vehicle_server_moves(), 1);
+    assert_eq!(store.local_vehicle_revision(), 1);
 
     // A frame without a new prediction keeps feeding the old pose; the teleport stays the
     // target until prediction restarts from it.
@@ -195,7 +195,7 @@ fn a_predicted_vehicle_takes_server_moves_only_when_teleported() {
     assert_eq!(boat.last_received_pose().position[0], 40.0);
     assert_eq!(boat.position[0], 40.0);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
-        server_moves: 1,
+        revision: 1,
         position: [41.0, 5.0, 10.0],
         ..feed
     }));
@@ -228,7 +228,7 @@ fn regaining_control_restarts_prediction_from_moves_made_meanwhile() {
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        server_moves: 0,
+        revision: 0,
         position: [12.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
@@ -241,7 +241,7 @@ fn regaining_control_restarts_prediction_from_moves_made_meanwhile() {
     sequence += 1;
     store.apply(1, sequence, boat_move(40.0, false));
     board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
-    assert_eq!(store.local_vehicle_server_moves(), 1);
+    assert_eq!(store.local_vehicle_revision(), 1);
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
     store.apply_link(1, 3, link(PLAYER, ActorLinkType::Rider));
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        server_moves: 0,
+        revision: 0,
         position: [10.0, 5.0, 10.0],
         yaw: 20.0,
         velocity: [0.0; 3],
@@ -348,7 +348,7 @@ fn a_feed_for_a_boat_the_player_does_not_steer_is_ignored() {
     );
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
-        server_moves: 0,
+        revision: 0,
         position: [30.0, 5.0, 10.0],
         yaw: 0.0,
         velocity: [0.0; 3],
@@ -389,4 +389,62 @@ fn a_seat_sent_before_the_local_actor_exists_still_seats_it() {
         .expect("the held seat applies");
     assert_eq!([feet[0], feet[2]], [10.0, 10.0]);
     assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+}
+
+/// Metadata held for an absent local actor stays within the actor's own metadata limit.
+#[test]
+fn metadata_held_for_the_absent_local_actor_is_bounded() {
+    let limit = protocol::MAX_ACTOR_METADATA_ENTRIES;
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(PLAYER as u64);
+    for (sequence, keys) in [(1, 0..limit), (2, limit..limit + 8)] {
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: PLAYER as u64,
+                metadata: keys
+                    .map(|key| ActorMetadata {
+                        key: u32::try_from(key).unwrap(),
+                        value: ActorMetadataValue::Int(1),
+                    })
+                    .collect(),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+    }
+    assert_eq!(store.pending_local_metadata.len(), limit);
+}
+
+/// A boat removed and respawned under the same ids restarts prediction from the new spawn.
+#[test]
+fn a_respawned_boat_restarts_prediction() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        revision: 0,
+        position: [12.0, 5.0, 10.0],
+        yaw: 0.0,
+        velocity: [0.0; 3],
+    }));
+    sequence += 1;
+    store.apply(
+        1,
+        sequence,
+        ActorEvent::Remove(protocol::ActorRemoveEvent {
+            dimension: 0,
+            unique_id: BOAT,
+        }),
+    );
+    sequence += 1;
+    store.apply(
+        1,
+        sequence,
+        spawn(BOAT, entity("minecraft:boat"), Vec::new()),
+    );
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    assert_ne!(store.local_vehicle_revision(), 0);
 }

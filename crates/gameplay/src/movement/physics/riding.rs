@@ -69,6 +69,18 @@ impl super::LocalPhysicsController {
 }
 
 #[cfg(test)]
+impl super::LocalPhysicsController {
+    /// Predicts `vehicle` as if its ticks through `completed` already ran.
+    pub(crate) fn steer_completed(
+        &mut self,
+        vehicle: crate::movement::vehicle::SteeredVehicle,
+        completed: u64,
+    ) {
+        self.vehicle = VehiclePrediction::completed_session(vehicle, completed);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use sim::{Aabb, CollisionQuery};
 
@@ -109,7 +121,7 @@ mod tests {
                 yaw: 0.0,
                 velocity: [0.0; 3],
                 seat: [0.0, -0.2, 0.0],
-                server_moves: 0,
+                revision: 0,
             }),
             // The streamed seat sampled before the tick, which replay must not reuse.
             ride_seat: Some([9.0, 9.0, 9.0]),

@@ -47,20 +47,29 @@ impl ActorSnapshot {
 impl super::ActorStore {
     /// Keeps the latest value of each metadata key the server sends for the local player
     /// before its actor exists, such as the seat a restored ride puts it in.
+    /// A new key beyond the actor metadata limit is dropped, as the actor itself would drop it.
     pub(super) fn hold_local_metadata(&mut self, metadata: &[protocol::ActorMetadata]) {
         for entry in metadata {
+            if self.pending_local_metadata.len() >= protocol::MAX_ACTOR_METADATA_ENTRIES
+                && !self.pending_local_metadata.contains_key(&entry.key)
+            {
+                continue;
+            }
             self.pending_local_metadata
-                .retain(|held| held.key != entry.key);
-            self.pending_local_metadata.push(entry.clone());
+                .insert(entry.key, entry.value.clone());
         }
     }
 
     /// Applies held local metadata once the local actor exists.
     pub(super) fn apply_held_local_metadata(&mut self, runtime_id: u64) {
-        let held = std::mem::take(&mut self.pending_local_metadata);
-        if held.is_empty() {
+        if self.pending_local_metadata.is_empty() {
             return;
         }
+        let held: Vec<_> = self
+            .pending_local_metadata
+            .drain()
+            .map(|(key, value)| protocol::ActorMetadata { key, value })
+            .collect();
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
             let _ = actor.apply_metadata(&held, &mut self.hitbox_budget);
             self.effect_members.update(actor);

@@ -1,6 +1,7 @@
 //! The boat the local player steers. The client predicts its pose, so server movement lands
 //! on it only when the server teleports or forces the move; which boat that is follows the
-//! current links.
+//! current links. Each server change the prediction must restart from, an admitted move or a
+//! respawn of the boat, advances the vehicle revision.
 
 use protocol::ActorMoveEvent;
 
@@ -10,8 +11,8 @@ use super::{ActorPose, ActorStore};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LocalVehicleFeed {
     pub runtime_id: u64,
-    /// The count of admitted server moves this prediction started from.
-    pub server_moves: u64,
+    /// The vehicle revision this prediction started from.
+    pub revision: u64,
     /// Collision feet: the bottom centre of the vehicle's box.
     pub position: [f32; 3],
     pub yaw: f32,
@@ -21,18 +22,17 @@ pub struct LocalVehicleFeed {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct LocalVehicle {
-    /// Server moves admitted for the predicted vehicle, which prediction must restart from.
-    server_moves: u64,
-    /// The vehicle the latest feed predicted. Its server moves count even while the local
-    /// player does not steer it, so a prediction resumed after regaining control restarts
-    /// from them.
+    /// Server changes to the predicted vehicle, which prediction must restart from.
+    revision: u64,
+    /// The vehicle the latest feed predicted. Its changes count even while the local player
+    /// does not steer it, so a prediction resumed after regaining control restarts from them.
     predicted: Option<u64>,
 }
 
 impl ActorStore {
     /// The boat the local player currently steers, from the current links; the client
     /// predicts it while this holds.
-    fn local_steered_boat(&self) -> Option<u64> {
+    pub(crate) fn local_steered_boat(&self) -> Option<u64> {
         let local = self
             .actors
             .get(&self.remote_state_excluded_runtime_id?)?
@@ -61,7 +61,7 @@ impl ActorStore {
         };
         self.local_vehicle.predicted = Some(feed.runtime_id);
         if self.local_steered_boat() != Some(feed.runtime_id)
-            || feed.server_moves != self.local_vehicle.server_moves
+            || feed.revision != self.local_vehicle.revision
         {
             return;
         }
@@ -85,21 +85,30 @@ impl ActorStore {
     }
 
     /// Whether a server move applies. Moves of the boat the local player steers apply only
-    /// when they teleport or are forced. Every admitted move of the steered or last predicted
-    /// boat counts as a restart for prediction.
+    /// when they teleport or are forced.
     pub(super) fn admit_local_vehicle_move(&mut self, movement: &ActorMoveEvent) -> bool {
-        let steered = self.local_steered_boat() == Some(movement.runtime_id);
-        if steered && !movement.teleported && !movement.force_local_move {
+        if self.local_steered_boat() == Some(movement.runtime_id)
+            && !movement.teleported
+            && !movement.force_local_move
+        {
             return false;
         }
-        if steered || self.local_vehicle.predicted == Some(movement.runtime_id) {
-            self.local_vehicle.server_moves = self.local_vehicle.server_moves.wrapping_add(1);
-        }
+        self.note_local_vehicle_change(movement.runtime_id);
         true
     }
 
-    /// Counts server moves admitted for the predicted vehicle.
-    pub(crate) const fn local_vehicle_server_moves(&self) -> u64 {
-        self.local_vehicle.server_moves
+    /// Advances the vehicle revision when the server changed the steered or last predicted
+    /// boat, so prediction restarts from the change.
+    pub(super) fn note_local_vehicle_change(&mut self, runtime_id: u64) {
+        if self.local_vehicle.predicted == Some(runtime_id)
+            || self.local_steered_boat() == Some(runtime_id)
+        {
+            self.local_vehicle.revision = self.local_vehicle.revision.wrapping_add(1);
+        }
+    }
+
+    /// Counts server changes to the predicted vehicle.
+    pub(crate) const fn local_vehicle_revision(&self) -> u64 {
+        self.local_vehicle.revision
     }
 }

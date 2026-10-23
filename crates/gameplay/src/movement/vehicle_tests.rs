@@ -93,7 +93,7 @@ fn boat() -> SteeredVehicle {
         yaw: 0.0,
         velocity: [0.0; 3],
         seat: [0.0, -0.2, 0.0],
-        server_moves: 0,
+        revision: 0,
     }
 }
 
@@ -146,7 +146,7 @@ fn a_server_teleport_restarts_prediction_from_the_new_pose() {
     let teleported = SteeredVehicle {
         position: [40.5, 62.6, 40.5],
         yaw: 90.0,
-        server_moves: 1,
+        revision: 1,
         ..boat()
     };
     let sample = drive(&mut prediction, teleported, 21, 1);
@@ -200,6 +200,7 @@ fn a_correction_restarts_prediction_from_the_newest_server_state() {
     let mut predicted = VehiclePrediction::default();
     let at = drive(&mut predicted, boat(), 1, 10);
     let correction = |tick, x: f32| VehicleCorrection {
+        runtime_id: 7,
         tick,
         position: [x, at.position[1], at.position[2]],
         velocity: [0.0; 3],
@@ -207,6 +208,12 @@ fn a_correction_restarts_prediction_from_the_newest_server_state() {
         angular_velocity: Some(0.0),
         on_ground: false,
     };
+    // A correction of a vehicle this session does not predict changes nothing.
+    let other = VehicleCorrection {
+        runtime_id: 8,
+        ..correction(9, 2.0)
+    };
+    assert_eq!(predicted.correct(&other), None);
     let seat = predicted.correct(&correction(9, 2.0)).unwrap();
     assert_eq!(seat[0], 2.0);
     let feed = predicted.feed().unwrap();
@@ -242,12 +249,13 @@ fn a_correction_from_an_earlier_session_is_ignored() {
     let at = drive(&mut predicted, boat(), 1, 10);
     let teleported = SteeredVehicle {
         position: [40.5, 62.6, 0.5],
-        server_moves: 1,
+        revision: 1,
         ..boat()
     };
     drive(&mut predicted, teleported, 11, 2);
     let before = predicted.feed().unwrap();
     let stale = VehicleCorrection {
+        runtime_id: 7,
         tick: 8,
         position: at.position,
         velocity: [0.0; 3],

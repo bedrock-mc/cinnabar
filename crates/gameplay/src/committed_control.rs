@@ -169,43 +169,53 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
-        if let CommittedControlEvent::VehicleMovementCorrection { correction, .. } = control {
+        if let CommittedControlEvent::VehicleMovementCorrection {
+            correction,
+            vehicle_runtime_id,
+            ..
+        } = control
+        {
             // Prediction restarts from the corrected boat and the rider snaps to its seat at
-            // the local tick, discarding stale inputs as a teleport does.
-            if self.movement.physics_is_authorized()
-                && let Some(seat) =
-                    self.physics
-                        .correct_vehicle(&movement::vehicle::VehicleCorrection {
-                            tick: correction.tick,
-                            position: correction.position,
-                            velocity: correction.delta,
-                            rotation: [correction.pitch, correction.yaw],
-                            angular_velocity: correction.vehicle_angular_velocity,
-                            on_ground: correction.on_ground,
-                        })
-                && let Err(fault) = movement::reconcile_physics_anchor(
-                    self.movement,
-                    self.physics,
-                    movement::PhysicsAnchor {
-                        network_position: [
-                            seat[0],
-                            seat[1] + protocol::PLAYER_NETWORK_OFFSET,
-                            seat[2],
-                        ],
-                        tick: correction.tick,
-                        on_ground: false,
-                        velocity: Some([0.0; 3]),
-                    },
-                    movement::PhysicsCorrectionMode::Snap,
-                    world,
-                )
-            {
-                warn!(
-                    ?fault,
-                    "local physics authority failed while applying a vehicle correction"
-                );
+            // the local tick, discarding stale inputs as a teleport does. A snap resets the
+            // local frame and camera history like any other correction.
+            if !self.movement.physics_is_authorized() {
+                return ControlDisposition::Handled;
             }
-            return ControlDisposition::Handled;
+            let Some(seat) = self
+                .physics
+                .correct_vehicle(&movement::vehicle::VehicleCorrection {
+                    runtime_id: vehicle_runtime_id,
+                    tick: correction.tick,
+                    position: correction.position,
+                    velocity: correction.delta,
+                    rotation: [correction.pitch, correction.yaw],
+                    angular_velocity: correction.vehicle_angular_velocity,
+                    on_ground: correction.on_ground,
+                })
+            else {
+                return ControlDisposition::Handled;
+            };
+            return match movement::reconcile_physics_anchor(
+                self.movement,
+                self.physics,
+                movement::PhysicsAnchor {
+                    network_position: [seat[0], seat[1] + protocol::PLAYER_NETWORK_OFFSET, seat[2]],
+                    tick: correction.tick,
+                    on_ground: false,
+                    velocity: Some([0.0; 3]),
+                },
+                movement::PhysicsCorrectionMode::Snap,
+                world,
+            ) {
+                Ok(_) => ControlDisposition::Spatial(SpatialReset::Correction),
+                Err(fault) => {
+                    warn!(
+                        ?fault,
+                        "local physics authority failed while applying a vehicle correction"
+                    );
+                    ControlDisposition::Handled
+                }
+            };
         }
         if let CommittedControlEvent::LocalActorMotion { event, .. } = control {
             // A server-driven impulse (knockback, explosion) must enter the

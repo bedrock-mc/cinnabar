@@ -58,6 +58,11 @@ pub(crate) fn apply_committed_control(
             }
             resolved
         }
+        // The rider snapped to its corrected seat; the view keeps its position source.
+        CommittedControlEvent::VehicleMovementCorrection { .. } => {
+            view.reanchor_camera();
+            return;
+        }
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::WorldClocks { .. }
@@ -69,7 +74,6 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::LocalMovementFlags { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
-        | CommittedControlEvent::VehicleMovementCorrection { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
         | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
@@ -171,6 +175,36 @@ mod tests {
         assert_eq!(anchor, Some([3, 8]));
         assert!(!settings.preserves_teleport_rotation());
     }
+    #[test]
+    fn a_vehicle_snap_reanchors_camera_history_without_moving_the_eye() {
+        let mut settings = CameraSettingsAuthority::default();
+        let mut view = LocalViewPose::new(Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
+        let previous_epoch = view.camera_reanchor_epoch();
+        let mut anchor = None;
+        apply_committed_control(
+            CommittedControlEvent::VehicleMovementCorrection {
+                sequence: 1,
+                correction: protocol::PlayerMovementCorrectionEvent {
+                    position: [40.0, 64.0, 40.0],
+                    delta: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    subject: protocol::MovementCorrectionSubject::Vehicle,
+                    on_ground: false,
+                    tick: 5,
+                    vehicle_angular_velocity: None,
+                },
+                vehicle_runtime_id: 7,
+            },
+            &mut view,
+            &mut settings,
+            &mut anchor,
+        );
+        assert_ne!(view.camera_reanchor_epoch(), previous_epoch);
+        assert_eq!(view.eye_translation(), Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(anchor, None);
+    }
+
     #[test]
     fn only_ready_respawn_reanchors_camera_motion_history() {
         let mut settings = CameraSettingsAuthority::default();
