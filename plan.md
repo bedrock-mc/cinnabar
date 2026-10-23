@@ -731,7 +731,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete. Terrain has a four-storage-buffer layout for constrained
   devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
-  startup error through the desktop dialog or Android activity. The compact table still needs paging
+  startup error through the desktop dialog or Android activity. Shader packs report a load error and
+  keep native rendering when their helper kernels exceed the device's per-stage storage budget.
+  The compact table still needs paging
   when its combined sources exceed one storage binding. Physical-device rendering and fallback
   performance acceptance remain incomplete.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library

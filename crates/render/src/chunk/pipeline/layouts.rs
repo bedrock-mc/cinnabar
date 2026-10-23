@@ -629,6 +629,34 @@ mod enhanced_tests {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    /// Capable GPUs retain the original separate storage layouts for every terrain pass.
+    #[test]
+    fn desktop_terrain_keeps_the_existing_storage_layout() {
+        for available in [
+            required_vertex_storage_buffers(),
+            required_vertex_storage_buffers() + 1,
+        ] {
+            let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+                required_limits: wgpu::Limits {
+                    max_storage_buffers_per_shader_stage: available,
+                    ..default()
+                },
+                ..default()
+            });
+            let mut world = World::new();
+            world.insert_resource(RenderDevice::from(device));
+            world.init_resource::<ChunkPipeline>();
+            let pipeline = world.resource::<ChunkPipeline>();
+            assert!(!pipeline.compact);
+            assert_eq!(pipeline.bind_group_layout, opaque_chunk_bind_group_layout());
+            assert_eq!(
+                pipeline.transparent_bind_group_layout,
+                chunk_bind_group_layout()
+            );
+        }
+    }
+
     #[test]
     fn compact_layout_matches_its_requirement_and_all_terrain_programs() {
         let layout = compact_chunk_bind_group_layout();

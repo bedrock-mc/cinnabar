@@ -10,12 +10,20 @@ const SUBALLOCATED_BLOCK_BYTES: std::ops::Range<u64> = (4 << 20)..(16 << 20);
 pub(crate) fn vertex_storage_buffers(
     layout: &bevy::render::render_resource::BindGroupLayoutDescriptor,
 ) -> u32 {
-    use bevy::render::render_resource::{BindingType, BufferBindingType, ShaderStages};
+    storage_buffers(layout, bevy::render::render_resource::ShaderStages::VERTEX)
+}
+
+/// Counts storage bindings visible to one stage in a renderer layout.
+pub(crate) fn storage_buffers(
+    layout: &bevy::render::render_resource::BindGroupLayoutDescriptor,
+    stage: bevy::render::render_resource::ShaderStages,
+) -> u32 {
+    use bevy::render::render_resource::{BindingType, BufferBindingType};
     layout
         .entries
         .iter()
         .filter(|entry| {
-            entry.visibility.contains(ShaderStages::VERTEX)
+            entry.visibility.contains(stage)
                 && matches!(
                     entry.ty,
                     BindingType::Buffer {
