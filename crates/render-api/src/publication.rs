@@ -28,19 +28,16 @@ pub struct PublicationServiceConfig {
 }
 
 impl PublicationServiceConfig {
-    const DEFAULT_FRAME_OPERATIONS: usize = 512;
-
     pub const DEFAULT: Self = Self {
         minimum_items_per_second: 4_096,
         minimum_bytes_per_second: 64 * 1024 * 1024,
         target_items_per_second: 8_192,
         target_bytes_per_second: 128 * 1024 * 1024,
-        maximum_frame_items: Self::DEFAULT_FRAME_OPERATIONS,
+        maximum_frame_items: 512,
         maximum_frame_bytes: 64 * 1024 * 1024,
         maximum_burst_items: 8_192,
         maximum_burst_bytes: 128 * 1024 * 1024,
-        // Leave a quarter of the shared frame budget available for geometry payloads.
-        maximum_zero_byte_operations_per_frame: Self::DEFAULT_FRAME_OPERATIONS * 3 / 4,
+        maximum_zero_byte_operations_per_frame: 256,
         urgent_zero_byte_reserve: 16,
     };
 }
@@ -583,10 +580,7 @@ mod tests {
             config.maximum_zero_byte_operations_per_frame,
             config.maximum_frame_items,
         );
-        assert_eq!(
-            allowance.zero_byte_admission_capacity(),
-            config.maximum_zero_byte_operations_per_frame
-        );
+        assert_eq!(allowance.zero_byte_admission_capacity(), 256);
         let payload = (0..256)
             .map(|_| allowance.try_admit_payload(1))
             .collect::<Vec<_>>();
@@ -599,10 +593,7 @@ mod tests {
         assert_eq!(allowance.remaining_items(), 256);
         assert_eq!(allowance.frame_remaining_items(), 0);
         assert_eq!(allowance.remaining_bytes(), 256);
-        assert_eq!(
-            allowance.remaining_zero_byte_operations(),
-            config.maximum_zero_byte_operations_per_frame - 256
-        );
+        assert_eq!(allowance.remaining_zero_byte_operations(), 0);
         assert_eq!(allowance.zero_byte_admission_capacity(), 0);
         assert!(allowance.try_admit_payload(1).is_none());
         assert!(allowance.try_admit_zero_byte().is_none());
