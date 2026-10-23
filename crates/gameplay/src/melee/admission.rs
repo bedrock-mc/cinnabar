@@ -116,7 +116,7 @@ fn admit(
             }
             Work::Refused { tick, payload } => {
                 if movement.unsent_sample_at(tick).is_some() {
-                    if !movement.attach_survival_mining(tick, *payload) {
+                    if !mining.attach_refused_press(movement, tick, *payload, frame.authority) {
                         break;
                     }
                 } else if tick > movement.completed_tick() {
