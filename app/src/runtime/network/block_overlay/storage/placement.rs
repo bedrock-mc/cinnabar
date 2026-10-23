@@ -1,6 +1,6 @@
 //! Plans complete frame runs using layer room and the shared upload budget.
 
-use super::super::{Builder, MAX_OVERLAY_SHARDS, MIN_TILE};
+use super::super::{Builder, MIN_TILE};
 use std::cmp::Reverse;
 
 /// One contiguous portion of a run and the cost of adding it to its shard.
@@ -21,10 +21,15 @@ struct Candidate {
 }
 
 impl Builder<'_> {
+    /// Reserves every base page before counting available overlay arrays.
+    pub(in super::super) fn max_shards(&self) -> usize {
+        assets::MAX_TEXTURE_PAGES.saturating_sub(self.overlay.base_texture_pages as usize)
+    }
+
     /// Counts free layers across the device arrays, capped by the overlay format capacity.
     pub(super) fn remaining_layers(&self) -> usize {
         self.max_layers
-            .saturating_mul(MAX_OVERLAY_SHARDS)
+            .saturating_mul(self.max_shards())
             .saturating_sub(self.sources.len())
     }
 
@@ -41,8 +46,11 @@ impl Builder<'_> {
         frames: usize,
         page_tiles: &[u32],
     ) -> Vec<FramePlacement> {
-        let mut counts: [usize; MAX_OVERLAY_SHARDS] =
-            std::array::from_fn(|shard| self.shard_len(shard));
+        let mut page_counts = [0; assets::MAX_TEXTURE_PAGES];
+        let counts = &mut page_counts[..self.max_shards()];
+        for (shard, layers) in counts.iter_mut().enumerate() {
+            *layers = self.shard_len(shard);
+        }
         let mut tiles = page_tiles.to_vec();
         let mut upload_bytes = counts
             .iter()
@@ -57,7 +65,10 @@ impl Builder<'_> {
         let mut remaining = frames;
         let mut placements = Vec::new();
         while remaining > 0 {
-            let next = (tiles.len().max(usize::from(counts[0] > 0))..MAX_OVERLAY_SHARDS)
+            let next = (tiles
+                .len()
+                .max(usize::from(counts.first().is_some_and(|&count| count > 0)))
+                ..self.max_shards())
                 .find(|&shard| counts[shard] < self.max_layers);
             let mut candidates = Vec::new();
             for (shard, &layers) in counts.iter().enumerate() {

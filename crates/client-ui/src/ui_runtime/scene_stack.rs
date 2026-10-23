@@ -210,6 +210,13 @@ impl UiRuntime {
             .is_none_or(|scene| scene.settings.should_steal_mouse)
     }
 
+    /// Whether the top scene shows a menu, as its screen definition or host policy declares.
+    pub fn shows_menu(&self, player_runtime: &player_state::PlayerState, host: SceneHost) -> bool {
+        self.scenes(player_runtime, host)
+            .top()
+            .is_some_and(|scene| scene.settings.is_showing_menu)
+    }
+
     /// Whether an open container screen counts as a menu. Vanilla answers a server form busy
     /// while the top screen shows a menu, which every screen does unless its definition sets
     /// `is_showing_menu` false, as server packs may for menus built from containers.

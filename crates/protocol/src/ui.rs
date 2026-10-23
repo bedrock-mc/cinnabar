@@ -13,6 +13,7 @@ use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 
 mod commands;
+pub mod ddui;
 mod death;
 mod forms;
 mod text;
@@ -23,6 +24,7 @@ pub use commands::{
     ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatAutocompleteCompletion,
     CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent, CompletionContext,
 };
+pub(crate) use ddui::{normalize_close_screen, normalize_data_store, normalize_show_screen};
 pub(crate) use death::normalize_death_info;
 pub use death::{DeathInfoEvent, DeathRules};
 
@@ -188,6 +190,8 @@ pub enum UiEvent {
     },
     /// The world's sleep status (LevelEventGeneric `SleepingPlayers`).
     SleepStatus(SleepStatusEvent),
+    /// A data-driven UI screen or data store packet.
+    DataDrivenUi(ddui::DataDrivenUiEvent),
 }
 
 /// The `SleepingPlayers` level event's NetworkLittleEndian NBT compound
@@ -551,11 +555,20 @@ pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiP
 pub(crate) fn normalize_display_objective(
     packet: SetDisplayObjective,
 ) -> Result<UiEvent, UiPacketError> {
+    let objective_name = bounded_text(packet.objective_name)?;
+    let (display_name, criteria_name) = if objective_name.is_empty() {
+        (Arc::from(""), Arc::from(""))
+    } else {
+        (
+            bounded_text(packet.objective_display_name)?,
+            bounded_text(packet.criteria_name)?,
+        )
+    };
     Ok(UiEvent::Objective(ObjectiveEvent::Display {
         display_slot: bounded_text(packet.display_slot_name)?,
-        objective_name: bounded_text(packet.objective_name)?,
-        display_name: bounded_text(packet.objective_display_name)?,
-        criteria_name: bounded_text(packet.criteria_name)?,
+        objective_name,
+        display_name,
+        criteria_name,
         sort_order: packet.sort_order.0,
     }))
 }

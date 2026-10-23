@@ -56,6 +56,8 @@ pub(super) struct HandRigGpu {
     pub(super) spans: Option<Buffer>,
     pub(super) previous_bones: Option<Buffer>,
     pub(super) current_bones: Option<Buffer>,
+    /// Reused only by the compact layout to upload both pose endpoints together.
+    compact_pose: Vec<u8>,
     pub(super) skin: Option<HandRigSkin>,
     pub(super) atlases: [Option<HandRigAtlas>; 2],
     /// The raw-view setting new artwork textures are created with; artwork created under
@@ -76,6 +78,12 @@ pub(super) struct HandRigGpu {
 
 /// Allocates persistent rig buffers, layouts and nearest-sampled artwork bindings.
 pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+    let mut layout = hand_rig_layout();
+    if device.limits().max_storage_buffers_per_shader_stage
+        < crate::device_settings::vertex_storage_buffers(&layout)
+    {
+        layout.entries.retain(|entry| entry.binding != 5);
+    }
     let uniform = |label: &'static str, contents: &[u8]| {
         device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some(label),
@@ -89,7 +97,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         usage: BufferUsages::UNIFORM,
     });
     commands.insert_resource(HandRigGpu {
-        layout: hand_rig_layout(),
+        layout,
         sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person rig binary-alpha nearest"),
             mag_filter: FilterMode::Nearest,
@@ -110,6 +118,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         spans: None,
         previous_bones: None,
         current_bones: None,
+        compact_pose: Vec::new(),
         skin: None,
         atlases: [None, None],
         raw_views: ArtworkRawViews::default(),
@@ -292,6 +301,18 @@ pub(super) fn upload_pose(
     if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
         return true;
     }
+    let compact = !gpu.layout.entries.iter().any(|entry| entry.binding == 5);
+    if compact {
+        if frame.rig.previous_bones.len() != frame.rig.current_bones.len() {
+            return false;
+        }
+        gpu.compact_pose.clear();
+        gpu.compact_pose
+            .extend_from_slice(bytemuck::cast_slice(&frame.rig.previous_bones));
+        gpu.compact_pose
+            .extend_from_slice(bytemuck::cast_slice(&frame.rig.current_bones));
+    }
+    let stream_count = if compact { 2 } else { 3 };
     // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
     let streams = [
         (
@@ -300,7 +321,11 @@ pub(super) fn upload_pose(
         ),
         (
             "first-person rig previous bones",
-            bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones),
+            if compact {
+                &gpu.compact_pose
+            } else {
+                bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones)
+            },
         ),
         (
             "first-person rig current bones",
@@ -311,7 +336,12 @@ pub(super) fn upload_pose(
     // Resized streams are all allocated before any write, so out of memory keeps the last
     // consistent pose and retries next frame.
     let mut replacements: [Option<Buffer>; 3] = [None, None, None];
-    for ((slot, (label, bytes)), replacement) in slots.iter().zip(streams).zip(&mut replacements) {
+    for ((slot, (label, bytes)), replacement) in slots
+        .iter()
+        .zip(streams)
+        .zip(&mut replacements)
+        .take(stream_count)
+    {
         if slot
             .as_ref()
             .is_some_and(|buffer| buffer.size() == bytes.len() as u64)
@@ -335,7 +365,12 @@ pub(super) fn upload_pose(
         &mut gpu.previous_bones,
         &mut gpu.current_bones,
     ];
-    for ((slot, (_label, bytes)), replacement) in slots.into_iter().zip(streams).zip(replacements) {
+    for ((slot, (_label, bytes)), replacement) in slots
+        .into_iter()
+        .zip(streams)
+        .zip(replacements)
+        .take(stream_count)
+    {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "hand.pose_upload",
@@ -602,6 +637,11 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
     if gpu.bind_group.is_some() {
         return;
     }
+    let current = if gpu.layout.entries.iter().any(|entry| entry.binding == 5) {
+        gpu.current_bones.as_ref()
+    } else {
+        gpu.previous_bones.as_ref()
+    };
     let (
         Some(instances),
         Some(vertices),
@@ -615,7 +655,7 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
         gpu.vertices.buffer(),
         gpu.spans.as_ref(),
         gpu.previous_bones.as_ref(),
-        gpu.current_bones.as_ref(),
+        current,
         gpu.skin.as_ref(),
         gpu.glint.as_ref(),
     )
@@ -654,6 +694,12 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
             resource: buffer.as_entire_binding(),
         }),
     );
+    entries.retain(|entry| {
+        gpu.layout
+            .entries
+            .iter()
+            .any(|kept| kept.binding == entry.binding)
+    });
     gpu.bind_group = Some(device.create_bind_group(
         "first-person rig bind group",
         &cache.get_bind_group_layout(&gpu.layout),
@@ -700,7 +746,8 @@ pub(super) fn specialized_pipeline(
 
 /// Defines lit rig drawing with straight-alpha blending and private reverse-Z depth.
 pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
-    RenderPipelineDescriptor {
+    let compact = !layout.entries.iter().any(|entry| entry.binding == 5);
+    let mut descriptor = RenderPipelineDescriptor {
         label: Some("first-person animated rig".into()),
         layout: vec![layout, crate::lighting::layout()],
         vertex: VertexState {
@@ -727,7 +774,17 @@ pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPi
             bias: default(),
         }),
         ..default()
+    };
+    if compact {
+        descriptor.vertex.shader_defs.push("COMPACT_BONES".into());
+        descriptor
+            .fragment
+            .as_mut()
+            .unwrap()
+            .shader_defs
+            .push("COMPACT_BONES".into());
     }
+    descriptor
 }
 
 /// Declares the rig, pose, lighting and hand artwork bindings.
