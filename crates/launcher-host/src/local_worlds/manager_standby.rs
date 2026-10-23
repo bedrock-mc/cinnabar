@@ -8,9 +8,10 @@ use std::{
 };
 
 use bridge::{Backend, WorldState};
+use crossbeam_channel::{Sender, TryRecvError};
 use launcher::local_worlds::{options::OptionChanges, world::SetupState};
 
-use super::{Life, Manager, host_xuid_of};
+use super::{Life, Manager, Retiring, host_xuid_of};
 use crate::local_worlds::{
     Cancel, cancel_pair, lock,
     process::{HostGrant, Instance},
@@ -56,8 +57,9 @@ impl Manager {
     }
 
     /// Leaves the open world. With standby configured, a running BDS world's server keeps
-    /// running, hidden, for the standby period, so returning to it skips its startup; any other
-    /// world or state closes as [`Self::close`] does.
+    /// running, hidden, for the standby period, so returning to it skips its startup. A world with
+    /// saved settings its server has not taken live, any other world and any other state close as
+    /// [`Self::close`] does, so the next open starts with those settings.
     pub fn leave(&self) {
         let Some(keep) = self.inner.standby else {
             return self.close();
@@ -69,7 +71,8 @@ impl Manager {
             && life
                 .world
                 .as_ref()
-                .is_some_and(|world| world.backend == Backend::Bds);
+                .is_some_and(|world| world.backend == Backend::Bds)
+            && self.server_current(&life);
         if !keeps {
             return self.close_locked(life);
         }
@@ -98,6 +101,30 @@ impl Manager {
         }
     }
 
+    /// Whether the running server already holds every saved setting of its world: nothing it was
+    /// launched without remains pending, apart from edits it took live, and the world's name, game
+    /// mode and difficulty are those it was launched with.
+    fn server_current(&self, life: &Life) -> bool {
+        let (Some(open), Some(launched)) = (&life.world, &life.launched) else {
+            return false;
+        };
+        let Ok((saved, mut pending, _)) = self.inner.store.snapshot(&open.id) else {
+            return false;
+        };
+        if let Some(applied) = &life.unrecorded {
+            pending.acknowledge(applied);
+        }
+        if let Some((generation, live)) = &life.live_applied
+            && *generation == life.generation
+        {
+            pending.acknowledge(live);
+        }
+        pending.is_empty()
+            && saved.name == launched.name
+            && saved.game_mode == launched.game_mode
+            && saved.difficulty == launched.difficulty
+    }
+
     /// Closes the hidden server whose keep-alive wait `timer` ended, unless an open adopted it or
     /// a close already ended it.
     fn end_standby(&self, timer: &Cancel) {
@@ -109,8 +136,9 @@ impl Manager {
     }
 
     /// Hands the hidden server to an open of its world. One still starting finishes as a normal
-    /// start; a running one reports running once the host's operator grant is reconciled.
-    pub(super) fn adopt(&self, life: &mut MutexGuard<'_, Life>) {
+    /// start; a running one reports running once the host's operator grant is reconciled. Returns
+    /// the cleanup to run after the lifecycle lock is released when no worker could take it over.
+    pub(super) fn adopt(&self, life: &mut MutexGuard<'_, Life>) -> Option<AdoptCleanup> {
         life.standby = false;
         life.standby_timer = None;
         tracing::info!("opening the local world whose server is already starting or running");
@@ -119,32 +147,45 @@ impl Manager {
             _ => {
                 let state = life.state;
                 self.set_state(life, state);
-                return;
+                return None;
             }
         };
         let (handle, cancel) = cancel_pair();
         let (running, done) = crossbeam_channel::bounded::<()>(0);
         life.cancel_start = Some(handle);
-        life.start_done = Some(done);
+        life.start_done = Some(done.clone());
         self.set_state(life, WorldState::Starting);
         let granted = life.granted.clone();
         let generation = life.generation;
         let fallback = Arc::clone(&instance);
+        let barrier = running.clone();
         let started = self.background(move |manager| {
             manager.finish_adopt(instance, granted, &cancel, generation);
             drop(running);
         });
-        if !started {
-            // The exit sweep reaps the server once it has saved.
-            fallback.request_stop();
-            life.instance = None;
-            life.failure = Some(super::WorldError::Cancelled.status_text());
-            self.set_state(life, WorldState::Failed);
+        if started {
+            return None;
         }
+        // Keeps the save ahead of any later open, as a close does.
+        if let Some(world_id) = life.world.as_ref().map(|world| world.id.clone()) {
+            life.retiring.push(Retiring { world_id, done });
+        }
+        let saved = Self::take_saved(life);
+        life.cancel_start = None;
+        life.start_done = None;
+        life.instance = None;
+        life.failure = Some(super::WorldError::Cancelled.status_text());
+        self.set_state(life, WorldState::Failed);
+        Some(AdoptCleanup {
+            instance: fallback,
+            saved,
+            barrier,
+        })
     }
 
     /// Reconciles an adopted server's operator grant, launched as `granted`, then reports it
-    /// running; a cancelled adoption stops the server.
+    /// running unless it exited meanwhile. A cancelled or failed adoption stops the server and
+    /// records the live edits it saved.
     fn finish_adopt(
         &self,
         instance: Arc<dyn Instance>,
@@ -152,44 +193,54 @@ impl Manager {
         cancel: &Cancel,
         generation: u64,
     ) {
+        let adopted = Arc::clone(&instance);
         let deadline = Instant::now() + self.inner.host_wait;
         let reconciled = match self.inner.runners.host_grant(Backend::Bds) {
             HostGrant::WhenReady => self
                 .grant_when_ready(instance, granted.as_deref(), deadline, cancel)
-                .map(|(instance, host)| (instance, Some(host))),
-            HostGrant::None | HostGrant::AtLaunch => Ok((instance, None)),
+                .map(|(_, host)| Some(host)),
+            HostGrant::None | HostGrant::AtLaunch => Ok(None),
         };
         let mut life = lock(&self.inner.life);
-        if cancel.is_cancelled() {
-            drop(life);
-            if let Ok((instance, host)) = reconciled {
-                drop(host);
-                self.stop_instance(instance.as_ref());
-            }
-            self.idle_if_current(generation);
-            return;
-        }
-        match reconciled {
-            Ok((_, host)) => {
-                if let Some(host) = &host {
-                    life.granted = host_xuid_of(host);
-                }
-                let applied = life.unrecorded.take().unwrap_or_default();
-                let id = life.world.as_ref().map(|world| world.id.clone());
-                self.set_state(&mut life, WorldState::Running);
-                drop(host);
-                drop(life);
-                if let Some(id) = id {
-                    self.record_played(&id, &applied);
-                }
-            }
-            Err(error) => {
+        if cancel.is_cancelled() || reconciled.is_err() {
+            let saved = (life.generation == generation)
+                .then(|| Self::take_saved(&mut life))
+                .flatten();
+            if let Err(error) = &reconciled
+                && !cancel.is_cancelled()
+            {
                 // The failed grant already stopped the server.
                 tracing::error!("adopt the running local world: {error}");
                 life.instance = None;
                 life.failure = Some(error.status_text());
                 self.set_state(&mut life, WorldState::Failed);
             }
+            drop(life);
+            if let Ok(host) = reconciled {
+                drop(host);
+            }
+            self.stop_and_acknowledge(adopted.as_ref(), saved);
+            if cancel.is_cancelled() {
+                self.idle_if_current(generation);
+            }
+            return;
+        }
+        let Ok(host) = reconciled else { return };
+        if matches!(adopted.exited().try_recv(), Err(TryRecvError::Disconnected)) {
+            // Its watcher saw the adoption's start state and left the exit to this check.
+            drop(host);
+            return self.fail_exited(life, &adopted);
+        }
+        if let Some(host) = &host {
+            life.granted = host_xuid_of(host);
+        }
+        let applied = life.unrecorded.take().unwrap_or_default();
+        let id = life.world.as_ref().map(|world| world.id.clone());
+        self.set_state(&mut life, WorldState::Running);
+        drop(host);
+        drop(life);
+        if let Some(id) = id {
+            self.record_played(&id, &applied);
         }
     }
 
@@ -219,5 +270,21 @@ impl Manager {
         if let Err(error) = self.inner.store.touch(id, applied) {
             tracing::warn!("record when {id} was last played: {error}");
         }
+    }
+}
+
+/// Stops a server whose adoption no worker took over, outside the lifecycle lock.
+pub(super) struct AdoptCleanup {
+    instance: Arc<dyn Instance>,
+    saved: Option<(String, OptionChanges)>,
+    /// Releases the save barrier once the server has stopped.
+    barrier: Sender<()>,
+}
+
+impl AdoptCleanup {
+    /// Stops the server, records the live edits it saved, then releases its barrier.
+    pub(super) fn run(self, manager: &Manager) {
+        manager.stop_and_acknowledge(self.instance.as_ref(), self.saved);
+        drop(self.barrier);
     }
 }

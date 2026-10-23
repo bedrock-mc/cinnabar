@@ -179,6 +179,8 @@ struct Life {
     granted: Option<String>,
     /// Option edits a hidden start applied, recorded once an open adopts its server.
     unrecorded: Option<OptionChanges>,
+    /// The world as the running server was launched, before any live setting changes.
+    launched: Option<World>,
 }
 
 /// A world whose exited or closing server has not finished backend cleanup.
@@ -456,7 +458,10 @@ impl Manager {
             let same = life.world.as_ref().is_some_and(|world| world.id == id)
                 && life.view_distance == view_distance;
             if same {
-                self.adopt(&mut life);
+                if let Some(cleanup) = self.adopt(&mut life) {
+                    drop(life);
+                    cleanup.run(self);
+                }
                 return Ok(());
             }
             self.close_locked(life);
@@ -523,6 +528,7 @@ impl Manager {
         life.standby_timer = None;
         life.granted = None;
         life.unrecorded = None;
+        life.launched = None;
         self.set_state(&mut life, WorldState::Starting);
         let spec = StartSpec {
             world,
@@ -616,6 +622,7 @@ impl Manager {
             }
         };
         if let Some(world) = fresh_world {
+            life.launched = Some(world.clone());
             life.world = Some(world);
         }
         life.instance = Some(Arc::clone(&instance));
@@ -650,39 +657,45 @@ impl Manager {
     /// Fails the running world while retaining its backend cleanup barrier for any later open.
     fn watch(&self, instance: &Arc<dyn Instance>) {
         let _ = instance.exited().recv();
-        let mut life = lock(&self.inner.life);
+        let life = lock(&self.inner.life);
         let current = life
             .instance
             .as_ref()
             .is_some_and(|running| Arc::ptr_eq(running, instance));
         if current && life.state == WorldState::Running {
-            let standby = life.standby;
-            if standby {
-                tracing::warn!("the hidden local world server exited unexpectedly");
-            } else {
-                tracing::error!("the local world server exited unexpectedly");
-            }
-            let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
-            if let Some(world) = &life.world {
-                let retiring = Retiring {
-                    world_id: world.id.clone(),
-                    done,
-                };
-                life.retiring.push(retiring);
-            }
-            life.instance = None;
-            life.live_applied = None;
-            if standby {
-                self.idle(&mut life);
-            } else {
-                life.failure = Some("local world server exited unexpectedly".to_owned());
-                self.set_state(&mut life, WorldState::Failed);
-            }
-            drop(life);
-            // stop joins the backend's shared cleanup even when its process has already exited.
-            self.stop_instance(instance.as_ref());
-            drop(cleaning);
+            self.fail_exited(life, instance);
         }
+    }
+
+    /// Ends the lifecycle of `instance`, the current server, which exited on its own: a hidden one
+    /// idles quietly, a visible one fails. Its backend cleanup stays a barrier for later opens.
+    fn fail_exited(&self, mut life: MutexGuard<'_, Life>, instance: &Arc<dyn Instance>) {
+        let standby = life.standby;
+        if standby {
+            tracing::warn!("the hidden local world server exited unexpectedly");
+        } else {
+            tracing::error!("the local world server exited unexpectedly");
+        }
+        let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
+        if let Some(world) = &life.world {
+            let retiring = Retiring {
+                world_id: world.id.clone(),
+                done,
+            };
+            life.retiring.push(retiring);
+        }
+        life.instance = None;
+        life.live_applied = None;
+        if standby {
+            self.idle(&mut life);
+        } else {
+            life.failure = Some("local world server exited unexpectedly".to_owned());
+            self.set_state(&mut life, WorldState::Failed);
+        }
+        drop(life);
+        // stop joins the backend's shared cleanup even when its process has already exited.
+        self.stop_instance(instance.as_ref());
+        drop(cleaning);
     }
 
     /// Stops the server; true once it exited and completed cleanup in time.
@@ -692,6 +705,17 @@ impl Manager {
             tracing::warn!("stop local world server: {error}");
         }
         stopped.is_ok()
+    }
+
+    /// The live edits the current server generation applied, with its world, taken for
+    /// acknowledgement once that server has saved.
+    fn take_saved(life: &mut Life) -> Option<(String, OptionChanges)> {
+        let generation = life.generation;
+        life.live_applied
+            .take()
+            .filter(|(applied_generation, _)| *applied_generation == generation)
+            .zip(life.world.as_ref())
+            .map(|((_, applied), world)| (world.id.clone(), applied))
     }
 
     /// Stops the server, then drops the pending edits it applied live once its successful exit
@@ -754,12 +778,7 @@ impl Manager {
                 self.set_state(&mut life, WorldState::Stopping);
                 let stopping = Arc::clone(&instance);
                 let generation = life.generation;
-                let saved = life
-                    .live_applied
-                    .take()
-                    .filter(|(applied_generation, _)| *applied_generation == generation)
-                    .zip(life.world.as_ref())
-                    .map(|((_, applied), world)| (world.id.clone(), applied));
+                let saved = Self::take_saved(&mut life);
                 let fallback = (stopping_done.clone(), saved.clone());
                 let spawned = self.background(move |manager| {
                     manager.stop_and_acknowledge(stopping.as_ref(), saved);

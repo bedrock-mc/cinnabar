@@ -113,7 +113,8 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   budget before the exit sweep escalates to SIGTERM and kill.
 - **Standby (translated BDS):** translated servers take minutes to start, so once the menu is up the
   most recently played world starts in the background if it runs on an installed BDS. Leaving a
-  running BDS world keeps its server for five minutes. Until the same world is opened, such a server is
+  running BDS world keeps its server for five minutes when it already holds every saved setting;
+  settings for the next start or a missed live command stop it instead. Until the same world is opened, such a server is
   hidden: status and the core report no open world. Opening it reuses the server after reconciling the
   host's operator grant. Opening another world, editing or deleting this one, a core restart and
   client exit save and stop it first. A start still in progress is killed instead. A hidden server

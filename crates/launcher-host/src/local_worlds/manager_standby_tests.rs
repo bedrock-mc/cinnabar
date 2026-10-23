@@ -271,3 +271,120 @@ fn a_hidden_server_exit_is_not_a_failure() {
     });
     assert_eq!(manager.status().error, None);
 }
+
+/// Opens `world` on its own server and returns that server's live PvP edit, saved but pending.
+fn play_with_live_pvp(manager: &Manager, world: &World) {
+    use launcher::local_worlds::{
+        in_world::{Action, update},
+        options::WorldOption as O,
+    };
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let saved = manager.inner.store.get(&world.id).expect("saved world");
+    let pvp = update(&saved, Action::Option(O::Pvp, 0)).expect("an update");
+    manager.apply(&world.id, &pvp).expect("applied");
+}
+
+/// Settings the server has not taken live make leaving stop it, so the next open starts with them.
+#[test]
+fn leaving_with_settings_for_the_next_start_stops_the_server() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "w");
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    manager
+        .update(
+            &world.id,
+            &WorldUpdate {
+                game_mode: Some(bridge::GameMode::Creative),
+                ..WorldUpdate::default()
+            },
+        )
+        .expect("default game mode");
+    manager.leave();
+    test_time::eventually("the server stops", || runner.last().stopped());
+    manager.open(&world.id, None).expect("reopen");
+    wait_for(manager, WorldState::Running);
+    assert_eq!(runner.entered.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        lock(&runner.started).last().map(|w| w.game_mode),
+        Some(bridge::GameMode::Creative)
+    );
+
+    let failing = Arc::new(FakeRunner {
+        console_fails: true,
+        ..FakeRunner::default()
+    });
+    let fixture = standby_fixture(&failing, Some(Duration::from_secs(600)));
+    let world = bds(&fixture.manager, "w");
+    play_with_live_pvp(&fixture.manager, &world);
+    fixture.manager.leave();
+    test_time::eventually("a missed live edit stops the server", || {
+        failing.last().stopped()
+    });
+}
+
+/// Edits the server took live keep it warm, and its later save records them.
+#[test]
+fn live_edits_keep_the_left_server_and_save_with_it() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "w");
+    play_with_live_pvp(manager, &world);
+    manager.leave();
+    assert!(!runner.last().stopped());
+    manager.open(&world.id, None).expect("reopen");
+    wait_for(manager, WorldState::Running);
+    assert_eq!(runner.entered.load(Ordering::SeqCst), 1);
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+    let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+    assert!(pending.is_empty(), "{pending:?}");
+}
+
+/// A cancelled adoption still records the live edits its server saved on the way down.
+#[test]
+fn cancelling_an_adoption_records_saved_live_edits() {
+    let (runner, _release) = FakeRunner::granting();
+    let runner = Arc::new(runner);
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "w");
+    play_with_live_pvp(manager, &world);
+    manager.leave();
+    manager.set_host(Host::Xuid(HOST.to_owned()));
+    manager.open(&world.id, None).expect("reopen");
+    test_time::eventually("the adoption grants the host", || {
+        lock(&runner.last().grants).len() == 1
+    });
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+    assert!(runner.last().stopped());
+    let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+    assert!(pending.is_empty(), "{pending:?}");
+}
+
+/// A server that exits while its adoption reconciles the host fails instead of reporting running.
+#[test]
+fn an_exit_during_adoption_fails_the_world() {
+    let (runner, release) = FakeRunner::granting();
+    let runner = Arc::new(runner);
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "w");
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    manager.leave();
+    manager.set_host(Host::Xuid(HOST.to_owned()));
+    manager.open(&world.id, None).expect("reopen");
+    test_time::eventually("the adoption grants the host", || {
+        lock(&runner.last().grants).len() == 1
+    });
+    runner.last().exit();
+    drop(release);
+    let status = wait_for(manager, WorldState::Failed);
+    assert!(status.error.is_some());
+}
