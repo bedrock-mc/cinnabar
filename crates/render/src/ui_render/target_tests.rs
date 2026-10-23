@@ -313,8 +313,10 @@ fn pixels(world: &World, entity: Entity) -> Vec<[u8; 4]> {
         .chunks_exact(row_bytes as usize)
         .flat_map(|row| {
             row[..output.width() as usize * 4]
-                .chunks_exact(4)
-                .map(|pixel| pixel.try_into().unwrap())
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .copied()
         })
         .collect()
 }
