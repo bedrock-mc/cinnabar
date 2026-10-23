@@ -357,3 +357,21 @@ fn liquid_speed_admission_keeps_liquid_travel_simulable() {
         }
     }
 }
+
+/// Reporting accepts finite attributes beyond the query budget without admitting them to physics.
+#[test]
+fn sync_reported_speed_retains_large_attributes_and_local_sprint_edges() {
+    let mut authority = started(0.1);
+    assert!(!authority.apply(7, 2, 0, attribute(33.0, 33.0, None)));
+    assert_eq!(authority.current(), Some(f64::from(0.1_f32)));
+    assert_eq!(authority.reported_current(), Some(33.0));
+    authority.set_sprinting(true);
+    assert_eq!(
+        authority.reported_current(),
+        Some(f64::from(33.0_f32 * sim::SPRINT_SPEED_MULTIPLIER as f32))
+    );
+    authority.set_sprinting(false);
+    assert_eq!(authority.reported_current(), Some(33.0));
+    assert!(authority.apply(7, 3, 0, attribute(0.2, 0.2, None)));
+    assert_eq!(authority.reported_current(), authority.current());
+}

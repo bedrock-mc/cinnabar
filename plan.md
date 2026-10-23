@@ -286,8 +286,12 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
-Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
-poses and bounds, history loss, replay authority, send phase and live-server behavior.
+Correction sync retains individual accepted flag writes, cached passenger movement,
+explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
+independently of simulation admission. Retained corrections arm its idle countdown;
+bare snaps do not. Server-driven gameplay pose and item-use starts, riptide flag
+lifetimes, block-climber flags, custom collision definitions, legacy sneak height,
+transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.

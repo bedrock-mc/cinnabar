@@ -338,6 +338,8 @@ impl LocalPhysicsController {
                 state,
                 &mut self.server_flags,
             );
+            self.sync_state
+                .accept_poses(self.modes.pose_flags(), state.spin_attack_ticks.is_some());
         }
     }
 

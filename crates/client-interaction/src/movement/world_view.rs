@@ -31,6 +31,10 @@ impl gameplay::GameplayWorld for GameplayWorldView<'_> {
     fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.0.authority().local_rider_seat_pose()
     }
+    /// Reads the controller identity selected from current passenger links and mount flags.
+    fn local_vehicle_controlled(&self) -> bool {
+        self.0.authority().local_vehicle_controlled()
+    }
     /// Reads the current network palette encoding.
     fn network_id_mode(&self) -> assets::NetworkIdMode {
         self.0.network_id_mode()

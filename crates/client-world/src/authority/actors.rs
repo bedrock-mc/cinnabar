@@ -299,6 +299,11 @@ impl WorldAuthority {
     pub fn local_player_unique_id(&self) -> i64 {
         self.local_player_unique_id
     }
+    /// Whether the local player is selected to control its current vehicle.
+    pub fn local_vehicle_controlled(&self) -> bool {
+        self.actors
+            .rider_controls_vehicle(self.local_player_unique_id)
+    }
     /// Seat feet position and body yaw of the local player on its mount, when placed.
     pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.actors.rider_seat_pose(self.local_player_unique_id)

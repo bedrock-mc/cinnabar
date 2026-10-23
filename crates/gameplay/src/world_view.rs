@@ -17,6 +17,10 @@ pub trait GameplayWorld {
     fn local_player_unique_id(&self) -> i64;
     /// Reads the local player's resolved mount seat.
     fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)>;
+    /// Whether the current vehicle selects the local player as its controller.
+    fn local_vehicle_controlled(&self) -> bool {
+        false
+    }
     /// Reads the network palette's ID encoding mode.
     fn network_id_mode(&self) -> assets::NetworkIdMode;
     /// Resolves one network block ID into the store's palette identity.
