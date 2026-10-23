@@ -192,7 +192,9 @@ fn shulker_inventory_applies_each_face_brightness_once() {
         .unwrap();
     let shown: std::collections::BTreeSet<_> = icon
         .rgba8
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] != 0)
         .map(|pixel| pixel[0])
         .collect();
