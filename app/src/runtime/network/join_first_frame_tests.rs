@@ -129,6 +129,7 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
         simulation_clock::identity::SessionGeneration::new(1),
         true,
         &blocks,
+        None,
         &packs,
         &|| false,
     );
