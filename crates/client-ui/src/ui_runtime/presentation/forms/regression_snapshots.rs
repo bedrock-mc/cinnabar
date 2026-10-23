@@ -23,6 +23,7 @@ fn populated_hotbar_snapshot() {
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     player_runtime.inventory.set_local_selected_slot(0);
     let icon = IconRef {
+        color_mask: None,
         page: presentation.solid_texture_page,
         uv: [0, 0, 1, 1],
         glint: false,

@@ -2,6 +2,7 @@ use {super::*, ui::IconRef};
 
 fn skin(side: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page: 23,
         uv: [17, 29, 17 + side, 29 + side],
         glint: false,
@@ -106,6 +107,7 @@ fn destination_geometry_preserves_original_hd_skin_texel_edges() {
 fn cape_uses_a_separate_rectangular_texture_and_the_shared_depth_interval() {
     let source = super::super::cape::rest_vertices();
     let cape = IconRef {
+        color_mask: None,
         page: 47,
         uv: [11, 17, 139, 81],
         glint: false,
@@ -333,11 +335,13 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
         ..Default::default()
     };
     let armor = IconRef {
+        color_mask: None,
         page: 24,
         uv: [10, 20, 74, 52],
         glint: false,
     };
     let held = IconRef {
+        color_mask: None,
         page: 25,
         uv: [5, 7, 21, 23],
         glint: true,

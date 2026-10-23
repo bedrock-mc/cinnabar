@@ -41,7 +41,7 @@ pub(in crate::compiler) fn compile_rule(
     } else {
         let template = push_model_template(
             heavy_core_quads(materials).to_vec(),
-            0,
+            assets::MODEL_TEMPLATE_FLAG_HEAVY_CORE,
             storage.templates,
             storage.quads,
         )?;

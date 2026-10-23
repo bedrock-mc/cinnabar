@@ -202,6 +202,7 @@ fn artwork_and_icon_edits_publish_featured_cards_without_rewriting_prior_views()
     assert!(original.friends.shares_storage(&artwork.friends));
     assert!(original.local_worlds.shares_storage(&artwork.local_worlds));
     let icon = ui::IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,

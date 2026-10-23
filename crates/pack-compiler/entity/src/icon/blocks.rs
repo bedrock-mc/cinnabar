@@ -99,7 +99,7 @@ impl IconBlocks {
             ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// The state an item draws: a wall item shows a post with east and west arms.
+    /// Selects carried poses for wall arms, closed barrels and upright unpowered rods.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
@@ -111,6 +111,27 @@ impl IconBlocks {
                 .find(|candidate| {
                     candidate.name == record.name
                         && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::Barrel
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    if candidate.name != record.name {
+                        return false;
+                    }
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    state[BlockProperty::FacingDirection.name()]["value"] == 3
+                        && state[BlockProperty::OpenBit.name()]["value"] == 0
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -163,7 +184,7 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        self.tiles(root, visual, true)
+        self.tiles(root, self.icon_state(visual), true)
     }
 
     /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
@@ -187,12 +208,29 @@ impl IconBlocks {
         };
         let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
         for face in BlockFace::ALL {
-            let world = resolve_texture_key(&pack.blocks, record, face).key;
+            let (source_face, flip) = if assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::Barrel
+            {
+                let Some(assets::facts::StateValue::Int(direction)) =
+                    record.property(assets::facts::BlockProperty::FacingDirection)
+                else {
+                    return Ok(None);
+                };
+                let Some(transform) = usize::try_from(*direction).ok().and_then(|direction| {
+                    pack_compile_input::barrel::face_transform(face, direction)
+                }) else {
+                    return Ok(None);
+                };
+                transform
+            } else {
+                (face, 0)
+            };
+            let world = resolve_texture_key(&pack.blocks, record, source_face).key;
             let variant = world
                 .as_ref()
                 .and_then(|key| pack.terrain.get_for_model_record(key, record))
                 .map_or(0, |(_, variant)| variant as usize);
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, source_face)
                 .map(String::into_boxed_str)
                 .or_else(|| {
                     if !world_fallback {
@@ -223,7 +261,7 @@ impl IconBlocks {
             else {
                 return Ok(None);
             };
-            tiles.push(tile);
+            tiles.push(super::carried::flip(tile, flip)?);
         }
         Ok(tiles.try_into().ok())
     }
@@ -335,10 +373,6 @@ impl IconBlocks {
 #[cfg(test)]
 #[path = "blocks/respawn_anchor_tests.rs"]
 mod respawn_anchor_tests;
-
-#[cfg(test)]
-#[path = "blocks/lightning_rod_tests.rs"]
-mod lightning_rod_tests;
 
 #[cfg(test)]
 mod tests {
@@ -634,6 +668,50 @@ mod tests {
     }
 
     #[test]
+    fn barrel_inventory_faces_use_the_closed_south_facing_pose() {
+        let root = tempfile::tempdir().unwrap();
+        write_pack(
+            root.path(),
+            r#"{"barrel":{"textures":{"up":"side","down":"side","north":"top","south":"bottom","west":"side","east":"side"}}}"#,
+            r#"{"texture_data":{"top":{"textures":"textures/blocks/top"},"bottom":{"textures":"textures/blocks/bottom"},"side":{"textures":"textures/blocks/side"}}}"#,
+            "[]",
+        );
+        for (name, pixel) in [
+            ("top", [180, 30, 40, 255]),
+            ("bottom", [30, 180, 40, 255]),
+            ("side", [30, 40, 180, 255]),
+        ] {
+            image::RgbaImage::from_pixel(16, 16, image::Rgba(pixel))
+                .save(root.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
+        }
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let mut seen = 0;
+        for record in blocks
+            .records
+            .iter()
+            .filter(|record| record.name.as_ref() == "minecraft:barrel")
+        {
+            let tiles = blocks
+                .carried_cube_tiles(root.path(), BlockVisualId(record.sequential_id))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                &tiles[BlockFace::South as usize].rgba8[..4],
+                &[180, 30, 40, 255],
+                "{}",
+                record.canonical_state
+            );
+            assert_eq!(
+                &tiles[BlockFace::Up as usize].rgba8[..4],
+                &[30, 40, 180, 255]
+            );
+            seen += 1;
+        }
+        assert!(seen > 1);
+    }
+
+    #[test]
     fn partial_furnace_carried_faces_keep_the_world_fallback() {
         let root = tempfile::tempdir().unwrap();
         write_pack(
@@ -714,3 +792,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "blocks/lightning_rod_tests.rs"]
+mod lightning_rod_tests;
