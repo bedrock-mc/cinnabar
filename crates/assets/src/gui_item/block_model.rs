@@ -14,6 +14,9 @@ use super::CUBE_FACES;
 /// Largest material tile side drawn; session overlays resample to at most 128.
 pub const MAX_GUI_TILE_SIDE: usize = 128;
 
+/// Scale and design-pixel offset of the heavy core inventory preview.
+const HEAVY_CORE_GUI_TRANSFORM: (f32, [f32; 2]) = (1.55, [-4.0, -0.8]);
+
 /// Flags whose material texels can be sampled without unresolved tint or UV transforms.
 /// Lighting flags are retained for the renderer and do not alter the stored pixels.
 pub const GUI_BLOCK_MATERIAL_FLAGS: u32 = MATERIAL_FLAG_ALPHA_BLEND
@@ -88,7 +91,31 @@ pub fn block_gui_quads(
             .flat_map(|(min, max)| inventory_cuboid_quads(min, max, faces))
             .collect());
     }
-    block_item_quads(kind, faces, template, templates, quads)
+    let mut carried = block_item_quads(kind, faces, template, templates, quads)?;
+    if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE != 0 {
+        let (scale, offset) = HEAVY_CORE_GUI_TRANSFORM;
+        transform_inventory_quads(&mut carried, scale, offset);
+    }
+    Ok(carried)
+}
+
+/// Applies a GUI scale and screen offset in model space while retaining authored UVs.
+fn transform_inventory_quads(quads: &mut [GuiBlockQuad], scale: f32, offset: [f32; 2]) {
+    let [sx, cx, sy, cy] = super::CUBE_ROTATION_SIN_COS;
+    let [x, y] = offset.map(|value| value / super::CUBE_SCALE);
+    let rotated = [x, cx * y, -sx * y];
+    let translation = [
+        cy * rotated[0] - sy * rotated[2],
+        rotated[1],
+        sy * rotated[0] + cy * rotated[2],
+    ];
+    for quad in quads {
+        for point in &mut quad.corners {
+            for axis in 0..3 {
+                point[axis] = point[axis] * scale + translation[axis];
+            }
+        }
+    }
 }
 
 /// Outward cuboid faces with position-derived UVs; overhanging spans start at the tile edge.
@@ -442,6 +469,61 @@ pub fn face_brightness(corners: [[f32; 3]; 4]) -> f32 {
 mod tests {
     use super::*;
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
+
+    #[test]
+    fn heavy_core_inventory_preview_is_enlarged_and_repositioned() {
+        let source: Vec<_> = BlockFace::ALL
+            .into_iter()
+            .map(|face| {
+                let (corners, uvs) = cube_face(face);
+                ModelQuad {
+                    positions: corners.map(|[x, y, z]| {
+                        [
+                            (64.0 + x * 128.0) as i16,
+                            (y * 128.0) as i16,
+                            (64.0 + z * 128.0) as i16,
+                        ]
+                    }),
+                    uvs: uvs.map(|p| p.map(|v| (v * 2048.0) as u16)),
+                    material: 1,
+                    flags: face.model_quad_face_id(),
+                }
+            })
+            .collect();
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: source.len() as u32,
+            flags: crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE,
+        }];
+        let held =
+            block_item_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+        let inventory =
+            block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+        assert_eq!(inventory.len(), held.len());
+        let (scale, offset) = HEAVY_CORE_GUI_TRANSFORM;
+        for (held, inventory) in held.iter().zip(&inventory) {
+            assert_eq!(held.uvs, inventory.uvs);
+            for (placed, shown) in held.corners.into_iter().zip(inventory.corners) {
+                let placed = super::super::project_cube(placed);
+                let shown = super::super::project_cube(shown);
+                let expected = [
+                    super::super::CUBE_OFFSET[0]
+                        + (placed[0] - super::super::CUBE_OFFSET[0]) * scale
+                        + offset[0],
+                    super::super::CUBE_OFFSET[1]
+                        + (placed[1] - super::super::CUBE_OFFSET[1]) * scale
+                        + offset[1],
+                    placed[2] * scale,
+                ];
+                for axis in 0..3 {
+                    assert!(
+                        (shown[axis] - expected[axis]).abs() < 0.00001,
+                        "axis {axis}: {shown:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn chorus_inventory_geometry_has_three_outward_protrusions() {
