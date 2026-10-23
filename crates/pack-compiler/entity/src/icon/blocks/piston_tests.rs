@@ -37,8 +37,8 @@ fn piston_inventory_uses_carried_faces_ahead_of_the_placed_fallback() {
     std::fs::create_dir_all(root.path().join("textures/colormap")).unwrap();
     for map in assets::TintMapId::ALL {
         image::RgbImage::from_pixel(
-            assets::TINT_MAP_SIZE as u32,
-            assets::TINT_MAP_SIZE as u32,
+            assets::TINT_MAP_SIZE,
+            assets::TINT_MAP_SIZE,
             image::Rgb([100, 150, 100]),
         )
         .save(
