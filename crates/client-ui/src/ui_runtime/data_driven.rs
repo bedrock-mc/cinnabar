@@ -15,6 +15,7 @@ use protocol::ddui::{
 
 pub use actions::{DataDrivenAction, FocusItems};
 
+use super::scene_stack::SceneHost;
 use super::{UiApplyOutcome, UiRuntime};
 
 /// The script screen showing over the world.
@@ -40,8 +41,8 @@ pub struct DataDrivenUi {
     /// Packets for the server, kept until the network flush takes them: every screen request
     /// waits for its answer, so none may be dropped when the shared queue is full.
     outgoing: VecDeque<Packet>,
-    /// Whether a host menu (pause, settings) shows over the world, as the host last published.
-    menu_visible: bool,
+    /// The host's screens (menus and the loading cover) as it last published them.
+    host: SceneHost,
 }
 
 impl DataDrivenUi {
@@ -79,12 +80,6 @@ impl DataDrivenUi {
         self.outgoing.clear();
     }
 
-    /// Whether a host menu showed over the world when the host last published it.
-    #[must_use]
-    pub fn menu_visible(&self) -> bool {
-        self.menu_visible
-    }
-
     /// The oldest packet waiting for the network flush.
     pub(super) fn take_packet(&mut self) -> Option<Packet> {
         self.outgoing.pop_front()
@@ -92,12 +87,23 @@ impl DataDrivenUi {
 }
 
 impl UiRuntime {
-    /// Records whether a host menu shows over the world; screen requests then answer busy.
-    pub fn set_menu_visible(&mut self, visible: bool) {
-        self.data_driven.menu_visible = visible;
+    /// Records the host's screens as this frame starts, which screen requests answered from UI
+    /// events read along with the runtime's own screens.
+    pub fn observe_host_screens(&mut self, host: SceneHost) {
+        self.data_driven.host = host;
     }
 
-    /// Applies a DDUI event. `busy` is true while another screen holds the player's attention.
+    /// Whether the top screen shows a menu, so a screen request must answer busy: vanilla
+    /// refuses one while a menu screen is showing.
+    pub(super) fn data_driven_busy(&self, player_runtime: &player_state::PlayerState) -> bool {
+        let host = SceneHost {
+            loading: self.loading_screen,
+            ..self.data_driven.host
+        };
+        self.shows_menu(player_runtime, host)
+    }
+
+    /// Applies a DDUI event. `busy` is true while a menu screen shows.
     ///
     /// Only one screen shows at a time: a request while busy or showing is answered `UserBusy`
     /// and the showing screen stays. A server close ends the matching screen (or any screen when

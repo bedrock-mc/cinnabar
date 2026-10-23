@@ -144,12 +144,7 @@ impl UiRuntime {
                 UiApplyOutcome::Applied
             }
             UiEvent::DataDrivenUi(event) => {
-                let busy = self.chat_focused
-                    || self.container_shows_menu(player_runtime)
-                    || self.forms.owns_input()
-                    || self.sign_editor.is_open()
-                    || self.credits.owns_input()
-                    || self.data_driven.menu_visible();
+                let busy = self.data_driven_busy(player_runtime);
                 self.apply_data_driven_ui(event, busy)
             }
         };

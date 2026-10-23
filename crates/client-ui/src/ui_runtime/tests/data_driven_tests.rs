@@ -355,21 +355,6 @@ fn death_and_session_end_dismiss_the_form() {
 }
 
 #[test]
-fn a_visible_host_menu_answers_screen_requests_busy() {
-    let mut session = Session::new();
-    session.runtime.set_menu_visible(true);
-    session.show_form(4);
-    assert!(session.runtime.data_driven_ui().active().is_none());
-    assert_eq!(
-        sent(&mut session.runtime),
-        [closed(4, DataDrivenScreenCloseReason::UserBusy)]
-    );
-    session.runtime.set_menu_visible(false);
-    session.show_form(5);
-    assert!(session.runtime.data_driven_ui().active().is_some());
-}
-
-#[test]
 fn screen_answers_wait_out_a_full_client_queue() {
     let mut session = Session::new();
     let filler = closed(1, DataDrivenScreenCloseReason::UserBusy);
@@ -464,25 +449,6 @@ fn typing_follows_the_focused_field_when_earlier_controls_hide() {
 }
 
 #[test]
-fn an_open_sign_editor_answers_screen_requests_busy() {
-    let mut session = Session::new();
-    session
-        .runtime
-        .sign_editor_mut()
-        .open(crate::ui_runtime::sign_editor::SignEdit::new(
-            [0, 64, 0],
-            true,
-            Default::default(),
-        ));
-    session.show_form(4);
-    assert!(session.runtime.data_driven_ui().active().is_none());
-    assert_eq!(
-        sent(&mut session.runtime),
-        [closed(4, DataDrivenScreenCloseReason::UserBusy)]
-    );
-}
-
-#[test]
 fn a_disabled_close_button_ignores_presses_but_escape_still_dismisses() {
     let mut session = Session::new();
     let mut form = custom_form_property();
@@ -509,18 +475,6 @@ fn a_disabled_close_button_ignores_presses_but_escape_still_dismisses() {
     assert_eq!(
         sent(&mut session.runtime),
         [closed(4, DataDrivenScreenCloseReason::ClientCanceled)]
-    );
-}
-
-#[test]
-fn credits_answer_screen_requests_busy() {
-    let mut session = Session::new();
-    assert!(session.runtime.credits_mut().open(42, 8, 0));
-    session.show_form(4);
-    assert!(session.runtime.data_driven_ui().active().is_none());
-    assert_eq!(
-        sent(&mut session.runtime),
-        [closed(4, DataDrivenScreenCloseReason::UserBusy)]
     );
 }
 
@@ -576,4 +530,50 @@ fn non_finite_slider_values_show_a_disabled_slider() {
         .runtime
         .data_driven_action(DataDrivenAction::Slide(slider, 0.5));
     assert!(sent(&mut session.runtime).is_empty());
+}
+
+#[test]
+fn screen_requests_answer_busy_while_any_menu_screen_shows() {
+    use crate::ui_runtime::scene_stack::SceneHost;
+    use launcher::menu::MenuScreen;
+    type Open = fn(&mut Session);
+    let screens: [(&str, Open); 4] = [
+        ("pause menu", |session| {
+            session.runtime.observe_host_screens(SceneHost {
+                menu: Some(MenuScreen::Pause),
+                over_world: true,
+                loading: None,
+            });
+        }),
+        ("sign editor", |session| {
+            session
+                .runtime
+                .sign_editor_mut()
+                .open(crate::ui_runtime::sign_editor::SignEdit::new(
+                    [0, 64, 0],
+                    true,
+                    Default::default(),
+                ));
+        }),
+        ("credits", |session| {
+            assert!(session.runtime.credits_mut().open(42, 8, 0));
+        }),
+        ("chat", |session| {
+            session.runtime.open_chat(&mut session.player);
+        }),
+    ];
+    for (name, open) in screens {
+        let mut session = Session::new();
+        open(&mut session);
+        session.show_form(4);
+        assert!(
+            session.runtime.data_driven_ui().active().is_none(),
+            "{name}"
+        );
+        assert_eq!(
+            sent(&mut session.runtime),
+            [closed(4, DataDrivenScreenCloseReason::UserBusy)],
+            "{name}"
+        );
+    }
 }

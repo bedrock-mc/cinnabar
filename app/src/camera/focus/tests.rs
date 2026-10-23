@@ -903,7 +903,7 @@ fn data_driven_app() -> (App, Entity) {
         .add_systems(
             Update,
             (
-                crate::ui_runtime::data_driven::publish_menu_visibility,
+                crate::ui_runtime::data_driven::publish_host_screens,
                 drive_data_driven_input,
             )
                 .chain()

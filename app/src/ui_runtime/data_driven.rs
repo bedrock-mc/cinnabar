@@ -16,7 +16,10 @@ use client_shell::{
     menu::MenuRuntime,
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
-use client_ui::ui_runtime::data_driven::DataDrivenAction;
+use client_ui::ui_runtime::{
+    data_driven::DataDrivenAction, presentation::forms::scene_policy::MenuScene,
+    scene_stack::SceneHost,
+};
 use oreui::data_driven_screen::{FormHit, FormItem};
 use protocol::ddui::DataDrivenScreenCloseReason;
 
@@ -24,9 +27,9 @@ use crate::ui_runtime::interaction::input_capture::{
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
 };
 
-/// Publishes whether a host menu shows over the world, so screen requests arriving meanwhile
-/// answer busy, and frees the input a form held through the frame it closed in.
-pub(crate) fn publish_menu_visibility(
+/// Publishes the host's menu screens, which screen requests arriving from UI events check for a
+/// showing menu, and frees the input a form held through the frame it closed in.
+pub(crate) fn publish_host_screens(
     menu: Option<Res<MenuRuntime>>,
     mut runtime: ResMut<UiRuntimeResource>,
 ) {
@@ -34,10 +37,8 @@ pub(crate) fn publish_menu_visibility(
     if runtime.data_driven_ui().owns_input() && runtime.data_driven_ui().active().is_none() {
         runtime.release_closed_data_driven_input();
     }
-    let visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
-    if runtime.data_driven_ui().menu_visible() != visible {
-        runtime.set_menu_visible(visible);
-    }
+    let host = SceneHost::of(menu.as_deref().map(|menu| menu as &dyn MenuScene), &runtime);
+    runtime.observe_host_screens(host);
 }
 
 /// Logical px a wheel line scrolls the form's column.
