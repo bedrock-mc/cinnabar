@@ -44,6 +44,8 @@ pub(super) struct ControllerFrame {
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
+    /// Climber flags captured before this tick consumes local input.
+    pub entry_climber: Option<ClimberFlags>,
     /// Block-climber flags reported by the prediction sync after this tick.
     pub climber: Option<ClimberFlags>,
 }

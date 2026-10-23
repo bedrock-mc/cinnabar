@@ -718,10 +718,13 @@ fn a_snapped_correction_keeps_the_climber_contact() {
         ..Default::default()
     };
     for _ in 0..3 {
-        if physics.prediction_sync_climber().is_some() {
+        if physics
+            .advance(tick, sneaking, &ScaffoldOverAir)
+            .completed_ticks
+            > 0
+        {
             break;
         }
-        physics.advance(tick, sneaking, &ScaffoldOverAir);
     }
     let climber = physics.prediction_sync_climber().unwrap();
     assert!(climber.descending_through_block);
@@ -755,10 +758,9 @@ fn a_snapped_freeze_over_unreadable_terrain_reports_the_kept_contact() {
         ..Default::default()
     };
     for _ in 0..3 {
-        if physics.prediction_sync_climber().is_some() {
+        if physics.advance(tick, frozen, &Unreadable).completed_ticks > 0 {
             break;
         }
-        physics.advance(tick, frozen, &Unreadable);
     }
     let climber = physics.prediction_sync_climber().unwrap();
     assert!(climber.in_scaffolding && climber.over_descending_block);

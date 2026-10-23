@@ -208,6 +208,11 @@ struct DeferredDestinationWorld {
 }
 
 impl CollisionWorld for DeferredDestinationWorld {
+    /// Uses the same registry identity as the delegated terrain queries.
+    fn registry_identity(&self) -> sim::CollisionRegistryIdentity {
+        VersionedFloor(1).registry_identity()
+    }
+
     /// Rejects collision queries at the destination until its terrain arrives.
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         if !self.destination_loaded && query.max.x > 16.0 {
@@ -268,7 +273,7 @@ fn actor_move_replay_fallback_preserves_pending_and_recorded_positions_and_later
                 },
                 &world,
             );
-            assert_eq!(frame.samples.len(), 1);
+            assert_eq!(frame.samples.len(), 1, "{frame:#?}");
             ticker
                 .enqueue_completed_physics(frame.samples[0].clone())
                 .unwrap();

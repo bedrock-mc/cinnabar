@@ -217,3 +217,47 @@ fn climber_server_writes_survive_a_spatial_correction_without_replayed_ticks() {
     );
     assert_eq!(next.samples[0].movement[1], -0.15_f32);
 }
+
+/// An echo compares with the following entry capture, including an intervening live write.
+#[test]
+fn climber_echo_compares_with_following_entry_after_an_unstamped_write() {
+    let mut physics = due_physics();
+    let mut actor = local_actor();
+    let tick = simulation_clock::TICK_DURATION;
+    physics.advance(tick, sim::MovementInput::default(), &OpenWorld);
+    let stamp = physics.state().unwrap().tick;
+    let mut word = [0; 3];
+    set_flag(&mut word, ActorFlag::OverDescendingBlock, true);
+    assert_eq!(accept(&mut physics, &mut actor, 0, word[1]), None);
+    physics.advance(tick, sim::MovementInput::default(), &OpenWorld);
+    assert!(!flag_set(
+        &reported(&physics, &actor),
+        ActorFlag::OverDescendingBlock
+    ));
+    assert_eq!(accept(&mut physics, &mut actor, stamp, word[1]), None);
+    assert!(!flag_set(
+        &reported(&physics, &actor),
+        ActorFlag::OverDescendingBlock
+    ));
+}
+
+#[test]
+fn climber_replay_keeps_the_first_entry_and_refreshes_later_entries() {
+    let mut physics = due_physics();
+    let mut actor = local_actor();
+    let tick = simulation_clock::TICK_DURATION;
+    physics.advance(tick, sim::MovementInput::default(), &OpenWorld);
+    let stamp = physics.state().unwrap().tick;
+    let mut word = [0; 3];
+    set_flag(&mut word, ActorFlag::OverDescendingBlock, true);
+    accept(&mut physics, &mut actor, 0, word[1]);
+    let input = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    physics.advance(tick, input, &OpenWorld);
+    physics.advance(tick, input, &OpenWorld);
+    let plan = physics.replay_retained_from(stamp, &OpenWorld).unwrap();
+    assert_eq!(plan.replayed_samples[0].movement[1], -0.15_f32);
+    assert_ne!(plan.replayed_samples[1].movement[1], -0.15_f32);
+}

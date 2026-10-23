@@ -246,11 +246,19 @@ impl LocalPhysicsController {
                 world,
                 &motion_overlays,
                 |state, input, world, previous| {
+                    let mut preceding_climber = None;
                     if let Some(previous) = previous {
                         let frame = controller_frames
                             .iter_mut()
                             .find(|frame| frame.tick == previous.tick_result.tick)
                             .expect("controller and prediction histories retain the same ticks");
+                        frame.environment = previous.tick_result.environment;
+                        frame.climber = ClimberFlags::after_tick(
+                            &frame.input,
+                            &frame.environment,
+                            frame.entry_climber,
+                        );
+                        preceding_climber = Some(frame.climber);
                         frame.finish_eye(&mut eye, state);
                         sync_state.server_flags(frame.sync_server);
                         sync_state.take_pending();
@@ -260,17 +268,24 @@ impl LocalPhysicsController {
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
                     let next_tick = state.tick + 1;
+                    let frame = controller_frames
+                        .iter_mut()
+                        .find(|frame| frame.tick == next_tick)
+                        .expect("controller and prediction histories retain the same ticks");
+                    if let Some(climber) = preceding_climber {
+                        frame.entry_climber = climber;
+                    }
+                    if let Some(climber) = frame.entry_climber {
+                        climber.apply(state, ClimberFlags::mask());
+                    }
                     for correction in climber_corrections
                         .iter()
                         .filter(|correction| correction.tick == next_tick)
                     {
                         correction.apply(state);
+                        frame.entry_climber = correction.apply_flags(frame.entry_climber);
                     }
                     boosts.apply(state.tick + 1, &mut input.effects);
-                    let frame = controller_frames
-                        .iter_mut()
-                        .find(|frame| frame.tick == state.tick + 1)
-                        .expect("controller and prediction histories retain the same ticks");
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
@@ -307,6 +322,9 @@ impl LocalPhysicsController {
                 .state
                 .as_ref()
                 .expect("successful replay retains state");
+            frame.environment = last.tick_result.environment;
+            frame.climber =
+                ClimberFlags::after_tick(&frame.input, &frame.environment, frame.entry_climber);
             frame.finish_eye(&mut eye, state);
             sync_state.server_flags(frame.sync_server);
             sync_state.take_pending();
@@ -335,17 +353,6 @@ impl LocalPhysicsController {
         );
         for output in replayed_ticks {
             let tick = output.tick_result.tick;
-            if let Some(index) = controller_frames
-                .iter()
-                .position(|frame| frame.tick == tick)
-                && let Some(input) = self.history.input_at(tick)
-            {
-                // The oldest retained frame keeps its own flags as its predecessor's.
-                let previous = controller_frames[index.saturating_sub(1)].climber;
-                let frame = &mut controller_frames[index];
-                frame.environment = output.tick_result.environment;
-                frame.climber = ClimberFlags::after_tick(input, &frame.environment, previous);
-            }
             let result = output.tick_result;
             let Some(retained) = self
                 .sample_history

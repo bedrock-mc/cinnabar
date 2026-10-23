@@ -250,6 +250,7 @@ impl LocalPhysicsController {
                         input,
                         modes: self.modes,
                         environment: result.environment,
+                        entry_climber: previous,
                         climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);

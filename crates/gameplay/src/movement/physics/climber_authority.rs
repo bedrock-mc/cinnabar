@@ -10,6 +10,14 @@ pub(super) struct ClimberCorrection {
 }
 
 impl ClimberCorrection {
+    /// Overlays the supplied bits on the flags captured before local input.
+    pub(super) fn apply_flags(self, flags: Option<ClimberFlags>) -> Option<ClimberFlags> {
+        let word = flags.unwrap_or_default().word();
+        Some(ClimberFlags::from_word(
+            (word & !self.mask) | (self.word & self.mask),
+        ))
+    }
+
     /// Applies changed contact bits without replacing unrelated replayed contact.
     pub(super) fn apply(self, state: &mut PlayerState) {
         ClimberFlags::from_word(self.word).apply(state, self.mask);
@@ -30,12 +38,12 @@ impl LocalPhysicsController {
                 anchor.saturating_add(1)
             }
         });
-        // A following capture holds the preceding completed tick's contact.
+        // The following capture includes live writes accepted between completed ticks.
         let baseline = if stamp != 0 && anchor < state.tick {
             self.controller_history
                 .iter()
-                .find(|frame| frame.tick == anchor)
-                .and_then(|frame| frame.climber)
+                .find(|frame| frame.tick == anchor.saturating_add(1))
+                .and_then(|frame| frame.entry_climber)
                 .map_or(live, ClimberFlags::word)
         } else {
             live
