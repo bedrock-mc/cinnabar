@@ -723,3 +723,7 @@ mod dried_ghast_tests;
 #[cfg(test)]
 #[path = "bake/sensor_tests.rs"]
 mod sensor_tests;
+
+#[cfg(test)]
+#[path = "bake/shrieker_tests.rs"]
+mod shrieker_tests;

@@ -360,8 +360,9 @@ and rendered qualification remain incomplete.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Dried-ghast previews use the small body
   and separately textured feet. Sensor previews retain inactive tendrils and the
-  calibration crystal with independent attachment lighting. Shrieker previews remain
-  incomplete. Shared cube face sheets are bounded coverage.
+  calibration crystal with independent attachment lighting. Shrieker previews retain
+  open inner walls, bone caps and a separate inner floor. Shared cube face sheets
+  are bounded coverage.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.

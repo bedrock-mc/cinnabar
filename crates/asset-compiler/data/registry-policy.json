@@ -6889,6 +6889,7 @@
       "DriedGhast": "minecraft:dried_ghast",
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
+      "SculkShrieker": "minecraft:sculk_shrieker",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {

@@ -10,9 +10,14 @@ use std::{path::Path, sync::Arc};
 
 /// Selects an explicit carried shape before generic cube and placed-model baking.
 pub(super) fn has_model(name: &str) -> bool {
-    [B::DriedGhast, B::SculkSensor, B::CalibratedSculkSensor]
-        .iter()
-        .any(|kind| name == kind.identifier())
+    [
+        B::DriedGhast,
+        B::SculkSensor,
+        B::CalibratedSculkSensor,
+        B::SculkShrieker,
+    ]
+    .iter()
+    .any(|kind| name == kind.identifier())
 }
 
 /// Bakes carried geometry while keeping the body and attachment textures separate.
@@ -25,14 +30,20 @@ pub(super) fn raster(
         return Ok(None);
     };
     let dried = blocks.name(visual) == Some(B::DriedGhast.identifier());
+    let shrieker = blocks.name(visual) == Some(B::SculkShrieker.identifier());
     let calibrated = blocks.name(visual) == Some(B::CalibratedSculkSensor.identifier());
     let Some(path) = blocks.attachment_path(visual, BlockFace::Down) else {
         return Ok(None);
     };
-    let Some(mut attachment) = IconBlocks::model_texture(root, &path)? else {
+    let attachment = if shrieker {
+        blocks.flat_sprite(root, &path)?
+    } else {
+        IconBlocks::model_texture(root, &path)?
+    };
+    let Some(mut attachment) = attachment else {
         return Ok(None);
     };
-    if !dried {
+    if !dried && !shrieker {
         for pixel in Arc::make_mut(&mut attachment.rgba8).chunks_exact_mut(4) {
             for channel in &mut pixel[..3] {
                 *channel = (u16::from(*channel)
@@ -54,6 +65,11 @@ pub(super) fn raster(
     }
     let quads = if dried {
         assets::gui_item::dried_ghast_quads()
+            .into_iter()
+            .map(|quad| (quad, true))
+            .collect()
+    } else if shrieker {
+        assets::gui_item::sculk_shrieker_quads()
             .into_iter()
             .map(|quad| (quad, true))
             .collect()
