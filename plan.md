@@ -202,7 +202,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   settings for comparison. It hides only sections proved invisible. The indirect
   renderer samples rejection counts asynchronously and skips GPU
   occlusion when it rejects too little terrain. Periodic probes warm GPU visibility
-  before sampling and retain the CPU command caches between paths.
+  before sampling and retain the CPU command caches between paths. Compute kernels
+  fit device limits; bounded, recoverable cull storage falls back to CPU drawing
+  when a complete table cannot be prepared.
   Matched-output frame-time and movement qualification remain incomplete.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
