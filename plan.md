@@ -855,7 +855,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
-  passes skip frames without a loaded pack. CPU translation runs in an owned child process
+  passes skip frames without a loaded pack or whose world is covered by the menu panorama or
+  an opaque screen; that backdrop stays native and unshaded, as Iris shades only the level.
+  CPU translation runs in an owned child process
   with a 2 GiB Rust heap limit, a 60-second CPU and elapsed-time limit, and bounded input/output.
   Cancellation kills and reaps that child; parser crashes fail the selected pack. Saved option
   files and generated helper copies have storage limits, and input files must be regular files.

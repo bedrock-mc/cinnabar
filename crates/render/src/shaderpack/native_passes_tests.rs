@@ -126,7 +126,8 @@ fn tint_pipeline(device: &RenderDevice, diagonal: bool) -> wgpu::RenderPipeline 
         })
 }
 
-/// Builds a complete original pack with a native colour layer and optional depth edge.
+/// Builds a complete original pack with a native colour layer and optional depth edge. The
+/// menu panorama is installed but hidden until a test shows it.
 #[allow(clippy::print_stderr, reason = "names the missing native GPU fixture")]
 fn fixture(name: &str, diagonal: bool) -> Option<(App, Entity, Handle<Image>)> {
     let Some(renderer) = raster::renderer() else {
@@ -138,6 +139,7 @@ fn fixture(name: &str, diagonal: bool) -> Option<(App, Entity, Handle<Image>)> {
             super::super::ShaderPackRenderPlugin,
             crate::depth_smaa::DepthSmaaPlugin,
             crate::motion_blur::CameraMotionBlurPlugin,
+            crate::PanoramaRenderPlugin,
         ));
         crate::chunk::transparent::gamma_pass::register_fixture_commands(app);
         app.sub_app_mut(RenderApp)
@@ -335,4 +337,40 @@ fn native_world_layers_receive_camera_motion_blur() {
         before, after,
         "camera exposure must filter native geometry over pack colour"
     );
+}
+
+/// The pack shades only the world: the menu panorama covering it reaches the screen unshaded.
+#[test]
+fn menu_panorama_is_not_replaced_by_the_pack_frame() {
+    let Some((mut app, _, output)) =
+        fixture("menu_panorama_is_not_replaced_by_the_pack_frame", false)
+    else {
+        return;
+    };
+    raster::frame(&mut app);
+    assert!(
+        raster::read_pixels(&app, &output)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[2] > 150),
+        "fixture pack must present its blue frame over the world"
+    );
+    let mut scene = app
+        .world_mut()
+        .resource_mut::<render_scene::PanoramaScene>();
+    scene.set_faces(Some(Arc::new(
+        render_model::PanoramaFaces::new(1, std::array::from_fn(|_| vec![0, 255, 0, 255])).unwrap(),
+    )));
+    scene.show(Some(render_model::panorama::launcher_view(
+        0.0, 1.0, [0.0; 4],
+    )));
+    test_time::eventually("menu panorama over the pack", || {
+        raster::frame(&mut app);
+        raster::read_pixels(&app, &output)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[0] < 16 && pixel[1] > 200 && pixel[2] < 16)
+    });
 }
