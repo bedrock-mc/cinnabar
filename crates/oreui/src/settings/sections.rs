@@ -9,8 +9,8 @@ use launcher::menu::{
     MenuAction, MenuField,
     settings_options::{
         COMMAND_MACRO_COUNT, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET,
-        KEY_BINDINGS, SettingsGroup, SettingsOptions, custom_key_label, key_name,
-        layout::SettingPanel, macro_message, macro_row, macro_row_index, macro_title,
+        KEY_BINDINGS, SettingsGroup, SettingsOptions, key_name, layout::SettingPanel,
+        macro_message, macro_row, macro_row_index, macro_title,
     },
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };

@@ -1,5 +1,6 @@
 //! Built-in settings text shared by rows, sidebar categories and choice pickers.
 
+use launcher::menu::settings_options::custom_key_label;
 use ui_engine::engine::screen::Translate;
 
 /// Resolves settings text with the French additions, active catalog and English fallback.
@@ -7,12 +8,17 @@ pub(super) fn word(key: &str, language: Option<&str>, translate: Translate<'_>) 
     if key.is_empty() {
         return String::new();
     }
-    if language.is_some_and(|language| language.starts_with("fr"))
-        && let Some(text) = french_text(key)
-    {
+    if let Some(text) = locale_text(key, language) {
         return text.to_owned();
     }
     translate(key).map_or_else(|| fallback(key).to_owned(), |text| text.to_string())
+}
+
+/// Returns built-in text only when the selected locale belongs to its language.
+pub(super) fn locale_text(key: &str, language: Option<&str>) -> Option<&'static str> {
+    language
+        .filter(|language| language.starts_with("fr"))
+        .and_then(|_| french_text(key))
 }
 
 /// Returns built-in French settings text for supported localization keys.
