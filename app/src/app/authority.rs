@@ -88,6 +88,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         reconcile_world_stream_before_physics
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(receive_network_events)
             .before(drain_committed_ui_before_authority)
             .before(ClientFrameSet::UiAuthority)
@@ -96,6 +101,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         advance_dimension_transfer
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(reconcile_world_stream_before_physics)
             .after(ClientFrameSet::UiAuthority)
             .before(ClientFrameSet::SemanticFinalize),
@@ -103,6 +113,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         drain_committed_ui_before_authority
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(reconcile_world_stream_before_physics)
             .before(ClientFrameSet::UiAuthority),
     );

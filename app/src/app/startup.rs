@@ -1,5 +1,8 @@
 //! Startup carrier loading and required registry verification.
+mod menu;
 mod timing;
+pub(crate) mod world;
+pub(super) use menu::begin;
 pub(super) use timing::install_first_frame_log;
 use timing::{LoadTimes, join};
 
@@ -90,27 +93,15 @@ pub(super) struct AudioCarriers {
     pub(super) sound_bank: Option<client_audio::audio::SoundBank>,
 }
 
-/// Runs carrier work on a scoped worker while display-bound setup stays on its caller.
-pub(super) fn overlap<T: Send, U>(
-    load: impl FnOnce() -> T + Send,
-    prepare: impl FnOnce() -> U,
-) -> (T, U) {
-    std::thread::scope(|scope| {
-        let loading = scope.spawn(load);
-        let prepared = prepare();
-        (join(loading), prepared)
-    })
-}
-
 /// Startup carriers loaded before `run`, with the paths they were read from.
-struct Preloaded {
+struct Preloaded<T> {
     world: PathBuf,
     physics_registry: PathBuf,
-    carriers: StartupCarriers,
+    carriers: T,
 }
 
 /// The latest preload, until `run` takes or setup discards it.
-static PRELOADED: Mutex<Option<Preloaded>> = Mutex::new(None);
+static PRELOADED: Mutex<Option<Preloaded<menu::MenuBoot>>> = Mutex::new(None);
 
 /// Loads the default startup carriers for the next `run`. A preload of the same files is kept
 /// unless `rewritten` says setup has since rewritten them.
@@ -121,18 +112,18 @@ pub(crate) fn preload(layout: &InstallLayout, rewritten: bool) {
         selection,
         &layout.physics_registry,
         rewritten,
-        load_startup_carriers,
+        menu::load,
     );
 }
 
 /// Fills `slot` with `load`'s carriers unless it already holds a current preload of the same
 /// files. A stale preload is released before loading, so two sets are never held at once.
-fn preload_into(
-    slot: &Mutex<Option<Preloaded>>,
+fn preload_into<T>(
+    slot: &Mutex<Option<Preloaded<T>>>,
     selection: AssetSelection,
     physics_registry: &Path,
     rewritten: bool,
-    load: impl FnOnce(AssetSelection, &Path) -> StartupCarriers,
+    load: impl FnOnce(AssetSelection, &Path) -> T,
 ) {
     {
         let mut held = slot.lock().unwrap_or_else(PoisonError::into_inner);
@@ -162,26 +153,12 @@ pub(crate) fn discard_preloaded() {
         .take();
 }
 
-/// Returns the preloaded carriers when they were read from these paths, otherwise loads them,
-/// then publishes their process-wide catalogs for this run.
-pub(super) fn take_or_load_startup_carriers(
-    selection: AssetSelection,
-    physics_registry: &Path,
-) -> StartupCarriers {
-    let mut carriers = take_preloaded(&PRELOADED, &selection.path, physics_registry)
-        .unwrap_or_else(|| load_startup_carriers(selection, physics_registry));
-    if let Ok(core) = &mut carriers.core {
-        core.publish();
-    }
-    carriers
-}
-
 /// Empties `slot`, returning its carriers only when they were read from these paths.
-fn take_preloaded(
-    slot: &Mutex<Option<Preloaded>>,
+fn take_preloaded<T>(
+    slot: &Mutex<Option<Preloaded<T>>>,
     world: &Path,
     physics_registry: &Path,
-) -> Option<StartupCarriers> {
+) -> Option<T> {
     let preloaded = slot.lock().unwrap_or_else(PoisonError::into_inner).take()?;
     (preloaded.world == world && preloaded.physics_registry == physics_registry)
         .then_some(preloaded.carriers)
@@ -241,8 +218,11 @@ fn load_with(
                 crate::environment::load_optional_weather_textures(world)
             })
         });
-        let collision =
-            scope.spawn(|| times.time("physics", || load_collision_registries(physics_registry)));
+        let collision = scope.spawn(|| {
+            times.time("physics", || {
+                load_collision_registries(physics_registry, world)
+            })
+        });
         let core = load_core(selection, times);
         StartupCarriers {
             core,
@@ -265,6 +245,11 @@ fn load_core(
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
     let assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    finish_core(assets, times)
+}
+
+/// Binds actor and equipment artwork to one admitted entity catalog.
+fn finish_core(assets: LoadedAssets, times: &LoadTimes) -> Result<CoreCarriers, AssetStartupError> {
     let authored_texture_loading =
         crate::render_mode::authored_textures::AuthoredTextureLoading::new(
             Arc::clone(&assets.runtime),
@@ -347,7 +332,10 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
 }
 
 /// The pinned physics registry, bound against the world carrier's block registry.
-fn load_collision_registries(physics_registry: &Path) -> Result<PhysicsCollisionRegistries> {
+fn load_collision_registries(
+    physics_registry: &Path,
+    world: &Path,
+) -> Result<PhysicsCollisionRegistries> {
     // One shared authority drives both startup registry gates: the world-carrier provenance pins
     // and this physics binding derive their protocol from it, so a partially flipped carrier set
     // fails closed instead of aliasing live block identities.
@@ -358,19 +346,14 @@ fn load_collision_registries(physics_registry: &Path) -> Result<PhysicsCollision
         PHYSICS_REGISTRY_SHA256,
         expected_protocol,
     )?;
-    PhysicsCollisionRegistries::from_assets(
+    PhysicsCollisionRegistries::bind_coherent_assets(
         assets::pinned_block_registry_bytes(),
-        assets::pinned_block_registry_records(),
         &preg,
+        physics_registry,
+        world,
         expected_protocol,
     )
-    .with_context(|| {
-        format!(
-            "decode and bind the active-content-protocol collision registries from {}; {}",
-            physics_registry.display(),
-            PHYSICS_REGISTRY_GENERATION_GUIDANCE
-        )
-    })
+    .context("decode and bind the active-content-protocol collision registries")
 }
 
 /// Verifies the installed physics registry against the startup pin.
@@ -489,7 +472,7 @@ mod carrier_tests {
         let directory = Directory::new("preload");
         let physics = directory.0.join("absent-physics.bin");
         let slot = Mutex::new(None);
-        let preload = |slot: &Mutex<Option<Preloaded>>| {
+        let preload = |slot: &Mutex<Option<Preloaded<StartupCarriers>>>| {
             *slot.lock().unwrap() = Some(Preloaded {
                 world: directory.world(),
                 physics_registry: physics.clone(),
@@ -594,31 +577,6 @@ mod carrier_tests {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn graphics_setup_overlaps_carriers_and_stays_on_the_calling_thread() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let loading = AtomicBool::new(false);
-        let preparing = AtomicBool::new(false);
-        let main = std::thread::current().id();
-        let result = super::overlap(
-            || {
-                assert_ne!(std::thread::current().id(), main);
-                loading.store(true, Ordering::Release);
-                test_time::eventually("graphics setup admitted during carrier loading", || {
-                    preparing.load(Ordering::Acquire)
-                });
-                7
-            },
-            || {
-                assert_eq!(std::thread::current().id(), main);
-                test_time::eventually("carrier worker started", || loading.load(Ordering::Acquire));
-                preparing.store(true, Ordering::Release);
-                9
-            },
-        );
-        assert_eq!(result, (7, 9));
-    }
-
     use crate::args::{ClientArgs, ParseOutcome};
 
     #[test]

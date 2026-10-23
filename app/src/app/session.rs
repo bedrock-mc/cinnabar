@@ -21,6 +21,11 @@ pub(crate) fn configure_finish_system(app: &mut App) {
             Update,
             (follow_server_transfer, recover_session_failure)
                 .chain()
+                .run_if(
+                    bevy::prelude::resource_exists::<
+                        client_interaction::movement::PhysicsCollisionRegistries,
+                    >,
+                )
                 .after(receive_network_events)
                 .after(ClientFrameSet::NetworkSend)
                 .after(ClientFrameSet::UiPublication)

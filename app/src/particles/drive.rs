@@ -5,7 +5,7 @@ use assets::{NetworkIdMode, RuntimeIconCatalog};
 use bevy::camera::Projection;
 use bevy::prelude::{
     App, DetectChangesMut, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform,
-    Update, With,
+    Update, With, resource_exists,
 };
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
@@ -120,6 +120,7 @@ pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
         drive_particles
+            .run_if(resource_exists::<PhysicsCollisionRegistries>)
             .after(client_presentation::camera::FlyCameraUpdateSet)
             .after(client_state::ClientFrameSet::ActorPreparation)
             // Cosmetic emitters follow the attachments this frame's actor finalization placed.

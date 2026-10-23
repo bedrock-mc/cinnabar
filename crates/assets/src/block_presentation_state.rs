@@ -118,7 +118,12 @@ impl BlockPresentationStates {
 pub fn pinned_block_presentation_states() -> &'static BlockPresentationStates {
     static STATES: OnceLock<BlockPresentationStates> = OnceLock::new();
     STATES.get_or_init(|| {
-        BlockPresentationStates::from_records(crate::pinned_block_registry_records())
+        let records = crate::read_registry_for_protocol(
+            crate::pinned_block_registry_bytes(),
+            crate::active_content_registry_protocol(),
+        )
+        .expect("the pinned block registry must be valid");
+        BlockPresentationStates::from_records(&records)
     })
 }
 

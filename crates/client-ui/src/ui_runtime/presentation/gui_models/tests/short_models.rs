@@ -142,7 +142,7 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
         let icon = presentation
             .item_icon(assets::END_PORTAL_FRAME_IDENTIFIER, 0)
             .unwrap();
-        let actual = &presentation.gui_models.models[&icon_key(icon)];
+        let actual = &presentation.gui_models.sources.models[&icon_key(icon)];
         let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
         let expected = block_models::mesh(
             &source_world,
@@ -185,6 +185,7 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
         assert!(
             presentation
                 .gui_models
+                .sources
                 .pages
                 .iter()
                 .flat_map(|page| page.pixels().as_chunks::<4>().0)

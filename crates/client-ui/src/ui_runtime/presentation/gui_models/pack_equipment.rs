@@ -129,7 +129,8 @@ impl UiPresentationRuntime {
                     .then_with(|| left.identifier.cmp(&right.identifier))
             });
             let first = self.textures.dynamic_start() + MODEL_PAGE;
-            let available = |models: &GuiModels| MODEL_PAGES.saturating_sub(models.pages.len());
+            let available =
+                |models: &GuiModels| MODEL_PAGES.saturating_sub(models.sources.pages.len());
             let mut placed = place(&textures, available(&self.gui_models), false);
             if placed.regions.len() < textures.len()
                 && self.gui_models.discard_optional_models(first)
@@ -159,7 +160,7 @@ impl UiPresentationRuntime {
                     Some(_) => {}
                 }
             }
-            let start = (first + self.gui_models.pages.len()) as u16;
+            let start = (first + self.gui_models.sources.pages.len()) as u16;
             let pack = &mut self.gui_models.pack_equipment;
             pack.pages = placed.pages;
             pack.regions = placed

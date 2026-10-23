@@ -576,6 +576,11 @@ impl MetricsCollector {
         self.assets.diagnostic_attribution = snapshot;
     }
 
+    /// Publishes asset counts once background world preparation has completed.
+    pub fn set_asset_metrics(&mut self, assets: AssetMetrics) {
+        self.assets = assets;
+    }
+
     #[must_use]
     pub const fn asset_metrics(&self) -> &AssetMetrics {
         &self.assets

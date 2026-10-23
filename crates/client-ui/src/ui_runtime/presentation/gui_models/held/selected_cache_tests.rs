@@ -43,8 +43,8 @@ fn selection_consumers_unavailable_preview_artwork_reuses_prepared_geometry() {
     let page =
         render_model::UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into())
             .unwrap();
-    ui.gui_models.pages = vec![page; super::super::super::MODEL_PAGES];
-    ui.gui_models.required_pages = ui.gui_models.pages.len();
+    ui.gui_models.sources.pages = vec![page; super::super::super::MODEL_PAGES];
+    ui.gui_models.sources.required_pages = ui.gui_models.sources.pages.len();
     ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
     assert!(ui.gui_models.pack_equipment.pages.is_empty());
     let fallback = ui.preview_held_models([true; 2])[0].clone().unwrap();
@@ -58,8 +58,8 @@ fn selection_consumers_unavailable_preview_artwork_reuses_prepared_geometry() {
     let (_, unavailable) = test_alloc::measure(|| {
         ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
     });
-    ui.gui_models.pages.clear();
-    ui.gui_models.required_pages = 0;
+    ui.gui_models.sources.pages.clear();
+    ui.gui_models.sources.required_pages = 0;
     ui.place_pack_armor();
     ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
     assert_model(&ui, &pack, 0, "mapped");

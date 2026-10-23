@@ -44,4 +44,6 @@ need `--cold-reset <program>` to reset their shader cache before each sample; th
 option is required on macOS and Windows. `--cache both` measures both modes separately.
 Arguments after `--` pass directly to the client. Run in a configured display or the
 headless client environment on a hardware runner, separately from unit-test CI.
-See the [release budgets](../../docs/agents/live-testing.md#frame-budgets).
+Native presentation is the default endpoint. Use `--endpoint offscreen` for hidden
+image comparisons; these results cannot satisfy native presentation acceptance, and
+baseline comparisons require the same endpoint.

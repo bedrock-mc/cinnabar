@@ -27,21 +27,7 @@ use launcher::graphics_backend::{Backend, Platform, candidates, default_order};
 use launcher_host::renderer_startup::StartupGuard;
 
 #[derive(Resource)]
-struct RendererGuard(StartupGuard, std::sync::Arc<std::sync::atomic::AtomicBool>);
-
-impl Drop for RendererGuard {
-    /// A returned carrier/setup error must not blacklist the already opened graphics backend.
-    fn drop(&mut self) {
-        if self.1.load(std::sync::atomic::Ordering::Acquire)
-            && !std::thread::panicking()
-            && let Err(error) = self.0.cancel()
-        {
-            log(format_args!(
-                "Renderer could not cancel early startup: {error:#}"
-            ));
-        }
-    }
-}
+struct RendererGuard(StartupGuard);
 
 /// Applies explicit overrides, vendor defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
@@ -223,12 +209,7 @@ fn show_fallback_notice(
 
 /// Tracks presentation and cancels startup on a controlled exit before window teardown.
 fn install_guard(app: &mut App, guard: StartupGuard) {
-    let cancellation = app
-        .world()
-        .get_resource::<super::BootCancellation>()
-        .map(|state| state.0.clone())
-        .unwrap_or_default();
-    app.insert_resource(RendererGuard(guard, cancellation))
+    app.insert_resource(RendererGuard(guard))
         .add_systems(Update, mark_presented)
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
 }

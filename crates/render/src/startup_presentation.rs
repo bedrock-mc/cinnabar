@@ -1,5 +1,7 @@
 //! Confirms startup only after primary-window presentation and GPU completion.
 
+#[path = "startup_presentation/engine.rs"]
+mod engine;
 #[path = "startup_presentation/timing.rs"]
 mod timing;
 
@@ -21,17 +23,30 @@ use render_scene::startup_presentation::StartupPresentation;
 pub struct StartupPresentationPlugin;
 
 impl Plugin for StartupPresentationPlugin {
+    /// Adjusts engine initializers after every default plugin has installed its render systems.
+    fn finish(&self, app: &mut App) {
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            engine::install(render);
+        }
+    }
+
     /// Shares the feedback resource and orders surface observation around render submission.
     fn build(&self, app: &mut App) {
         timing::install(app);
         app.init_resource::<StartupPresentation>();
         let feedback = app.world().resource::<StartupPresentation>().clone();
+        app.init_resource::<render_scene::startup_work::WorldWorkAdmission>();
+        let admission = app
+            .world()
+            .resource::<render_scene::startup_work::WorldWorkAdmission>()
+            .clone();
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         crate::device_poll::install(render_app);
         render_app
             .insert_resource(feedback)
+            .insert_resource(admission)
             .init_resource::<PresentationProbe>()
             .init_resource::<ExtractedSurfaceEpoch>()
             .add_systems(ExtractSchedule, extract_surface_epoch)
@@ -110,6 +125,7 @@ fn observe_presentation(
     queue: Res<RenderQueue>,
     feedback: Res<StartupPresentation>,
     epoch: Res<ExtractedSurfaceEpoch>,
+    admission: Res<render_scene::startup_work::WorldWorkAdmission>,
 ) {
     if !probe.offscreen_submitted
         && let Some(timing) =
@@ -123,8 +139,11 @@ fn observe_presentation(
     {
         probe.offscreen_submitted = true;
         let timing = timing.clone();
+        let admission = admission.clone();
         crate::device_poll::on_frame_complete(&queue, move || {
-            timing.record_offscreen_content(web_time::Instant::now())
+            timing.record_offscreen_content(web_time::Instant::now());
+            timing.seal_samples();
+            admission.admit();
         });
     }
     let presented_window = probe
@@ -143,7 +162,14 @@ fn observe_presentation(
     {
         probe.content_submitted = Some(epoch);
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || feedback.record_content_frame(epoch, web_time::Instant::now()));
+        let admission = admission.clone();
+        crate::device_poll::on_frame_complete(&queue, move || {
+            feedback.record_content_frame(epoch, web_time::Instant::now());
+            if feedback.has_presented_content() {
+                if let Some(timing) = render_scene::startup_timing::current() { timing.seal_samples(); }
+                admission.admit();
+            }
+        });
     }
     if probe.take_presented(consumed) {
         let feedback = feedback.clone();

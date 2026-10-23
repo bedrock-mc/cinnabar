@@ -24,6 +24,9 @@ impl UnitMasks {
     pub fn new(device: &wgpu::Device) -> Self {
         let source =
             include_str!("unit_mask.wgsl").replace("MASK_WORKGROUP", &WORKGROUP.to_string());
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.count(render_scene::startup_timing::WORLD_SHADER_MODULES, 1);
+        }
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ordinary terrain visibility mask"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -48,6 +51,9 @@ impl UnitMasks {
             immediate_size: 0,
         });
         let pipeline = |entry| {
+            if let Some(timing) = render_scene::startup_timing::current() {
+                timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
+            }
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("ordinary terrain visibility mask"),
                 layout: Some(&layout),

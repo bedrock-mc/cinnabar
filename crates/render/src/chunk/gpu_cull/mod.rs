@@ -183,24 +183,29 @@ pub(in crate::chunk) fn install(app: &mut App) {
     let Some(submission) = submission else {
         return;
     };
+    let worker_device = device.clone();
+    crate::deferred_resource::install(render_app, move || GpuCull::new(&worker_device, submission));
     render_app
-        .insert_resource(GpuCull::new(&device, submission))
         .init_resource::<feedback::GpuCullFeedback>()
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, extract_hidden_chunks)
         .add_systems(
             Render,
-            feedback::submit_feedback.in_set(crate::device_poll::FrameSubmissions),
+            feedback::submit_feedback
+                .run_if(bevy::prelude::resource_exists::<GpuCull>)
+                .in_set(crate::device_poll::FrameSubmissions),
         )
         .add_systems(
             Render,
             upload_gpu_cull
+                .run_if(bevy::prelude::resource_exists::<GpuCull>)
                 .after(super::plugin::publication_schedule::ChunkPublicationStage::ModelSort)
                 .before(RenderSystems::Queue),
         )
         .add_systems(
             Render,
             prepare_gpu_cull
+                .run_if(bevy::prelude::resource_exists::<GpuCull>)
                 .in_set(RenderSystems::PrepareResources)
                 .after(prepare_gpu_chunks)
                 .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),

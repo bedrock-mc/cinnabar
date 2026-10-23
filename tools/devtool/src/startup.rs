@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     sync::mpsc,
     time::{Duration, Instant},
 };
@@ -20,33 +20,8 @@ const DRIVER_CACHE_ENVIRONMENT: [(&str, &str); 2] = [
     ("__GL_SHADER_DISK_CACHE_PATH", "gl"),
 ];
 
-#[derive(Debug)]
-struct OwnedClient(std::process::Child);
-
-impl std::ops::Deref for OwnedClient {
-    type Target = std::process::Child;
-    /// Borrows the exact child owned by this acceptance run.
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for OwnedClient {
-    /// Keeps process operations tied to the child handle rather than process-name searches.
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl Drop for OwnedClient {
-    /// Reaps the owned client even when parsing or waiting returns early.
-    fn drop(&mut self) {
-        if !matches!(self.0.try_wait(), Ok(Some(_))) {
-            let _ = self.0.kill();
-        }
-        let _ = self.0.wait();
-    }
-}
+mod process;
+use process::OwnedClient;
 
 #[derive(Debug)]
 struct Options {
@@ -59,10 +34,13 @@ struct Options {
     baseline: Option<PathBuf>,
     cold_reset: Option<PathBuf>,
     args: Vec<String>,
+    offscreen: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Summary {
+    #[serde(default)]
+    offscreen: bool,
     modes: Vec<Mode>,
 }
 
@@ -93,6 +71,7 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
         baseline: None,
         cold_reset: None,
         args: Vec::new(),
+        offscreen: false,
     };
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -116,6 +95,13 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
             }
             "--budget-ms" => options.budget_ms = positive(value)?,
             "--cold-budget-ms" => options.cold_budget_ms = positive(value)?,
+            "--endpoint" => {
+                options.offscreen = match value.as_str() {
+                    "native" => false,
+                    "offscreen" => true,
+                    _ => return Err(error("--endpoint must be native or offscreen")),
+                };
+            }
             "--out" => options.out = Some(value.into()),
             "--baseline" => options.baseline = Some(value.into()),
             "--cold-reset" => options.cold_reset = Some(value.into()),
@@ -170,16 +156,24 @@ fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
         std::fs::create_dir_all(&directory).map_err(error)?;
         command.env(variable, directory);
     }
-    let child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| DevtoolError::Spawn {
-            command: options.client.display().to_string(),
-            source,
-        })?;
-    let mut child = OwnedClient(child);
-    let (send, lines) = mpsc::channel();
+    let child = OwnedClient::spawn(command).map_err(|source| DevtoolError::Spawn {
+        command: options.client.display().to_string(),
+        source,
+    })?;
+    collect(
+        child,
+        options.offscreen,
+        Instant::now() + Duration::from_secs(30),
+    )
+}
+
+/// Drains child output and reaps the client within the same watchdog boundary.
+fn collect(
+    mut child: OwnedClient,
+    offscreen: bool,
+    deadline: Instant,
+) -> Result<Value, DevtoolError> {
+    let (send, lines) = mpsc::sync_channel(256);
     let mut readers = Vec::new();
     for pipe in [
         Box::new(child.stdout.take().unwrap()) as Box<dyn std::io::Read + Send>,
@@ -195,20 +189,19 @@ fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
         }));
     }
     drop(send);
-    let deadline = Instant::now() + Duration::from_secs(30);
     let mut report = None;
     let mut tail = std::collections::VecDeque::new();
+    let mut status = None;
+    let mut drained = false;
     let result = loop {
-        if let Ok(Some(status)) = child.try_wait() {
-            // Readers may still be draining the process's final report.
-            for reader in readers.drain(..) {
-                let _ = reader.join();
-            }
-            for line in lines.try_iter() {
-                observe(&line, &mut report, &mut tail)?;
-            }
+        if status.is_none() {
+            status = child.try_wait().map_err(error)?;
+        }
+        if let Some(status) = status.filter(|_| drained) {
             break if status.success() {
-                report.ok_or_else(|| error("client exited without a presented menu report; build with acceptance enabled"))
+                report.ok_or_else(|| {
+                    error("client exited without a menu report; build with acceptance enabled")
+                })
             } else {
                 Err(error(format!(
                     "client exited {status}: {}",
@@ -218,23 +211,31 @@ fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
         }
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            let _ = child.kill();
-            let _ = child.wait();
             break Err(error(
                 "client did not present a menu and exit within the launch watchdog",
             ));
         }
         match lines.recv_timeout(left.min(Duration::from_millis(50))) {
-            Ok(line) => observe(&line, &mut report, &mut tail)?,
+            Ok(line) => {
+                observe(&line, &mut report, &mut tail)?;
+                if let Some(report) = &report {
+                    validate_endpoint(report, offscreen)?;
+                }
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
+                drained = true;
                 // No output remains; wait on the process without spinning on the closed channel.
                 std::thread::park_timeout(left.min(Duration::from_millis(50)));
             }
         }
     };
+    drop(child);
+    drop(lines);
     for reader in readers {
-        let _ = reader.join();
+        if reader.is_finished() {
+            let _ = reader.join();
+        }
     }
     result
 }
@@ -267,6 +268,16 @@ fn observe(
         tail.pop_front();
     }
     tail.push_back(line.into());
+    Ok(())
+}
+
+/// Keeps CPU-only image comparisons separate from native presentation acceptance.
+fn validate_endpoint(report: &Value, offscreen: bool) -> Result<(), DevtoolError> {
+    if report["offscreen"].as_bool() != Some(offscreen) {
+        return Err(error(
+            "client report endpoint differs from --endpoint; hidden images require --endpoint offscreen",
+        ));
+    }
     Ok(())
 }
 
@@ -373,7 +384,18 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             serde_json::from_slice(&bytes).map_err(error)
         })
         .transpose()?;
-    let mut summary = Summary { modes: Vec::new() };
+    if baseline
+        .as_ref()
+        .is_some_and(|baseline| baseline.offscreen != options.offscreen)
+    {
+        return Err(error(
+            "baseline endpoint differs from the requested endpoint",
+        ));
+    }
+    let mut summary = Summary {
+        offscreen: options.offscreen,
+        modes: Vec::new(),
+    };
     for &cache in &options.modes {
         let warm = caches.path().join(WARM_CACHE);
         if cache == WARM_CACHE {
@@ -413,6 +435,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         std::fs::write(path, serde_json::to_vec_pretty(&summary).map_err(error)?).map_err(error)?;
     }
     let mut failed = false;
+    println!(
+        "endpoint: {}",
+        if options.offscreen {
+            "offscreen CPU comparison (no native presentation acceptance)"
+        } else {
+            "native presentation"
+        }
+    );
     for mode in &summary.modes {
         println!(
             "{} cache: n={} menu median={:.2} ms p99={:.2} ms budget={:.2} ms",
@@ -453,6 +483,16 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offscreen_samples_cannot_satisfy_native_presentation_acceptance() {
+        for offscreen in [false, true] {
+            let report = serde_json::json!({"offscreen": offscreen});
+            assert!(validate_endpoint(&report, offscreen).is_ok());
+            assert!(validate_endpoint(&report, !offscreen).is_err());
+        }
+        assert!(validate_endpoint(&serde_json::json!({}), false).is_err());
+    }
 
     #[test]
     fn quantiles_and_stage_growth_use_samples_rather_than_wall_clock() {
@@ -498,6 +538,28 @@ mod process_tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn inherited_output_pipes_cannot_extend_an_expired_watchdog() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "mkfifo \"$1\"; (read line < \"$1\") & echo ready; exit 0",
+                "fixture",
+            ])
+            .arg(directory.path().join("wait"));
+        let mut child = OwnedClient::spawn(command).unwrap();
+        let mut pipe = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        pipe.read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "ready");
+        child.stdout = Some(pipe.into_inner());
+        child.wait().unwrap();
+        let result = collect(child, false, Instant::now());
+        assert!(result.unwrap_err().to_string().contains("watchdog"));
+    }
+
+    #[test]
     fn launch_requires_a_presented_report_and_successful_process_exit() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("release-client-fixture");
@@ -505,7 +567,7 @@ mod process_tests {
             client: executable.clone(),
             ..parse(&[]).unwrap()
         };
-        let report = serde_json::json!({"debug_assertions": false, "menu_ms": 7, "stages_ms": {"device": 2}});
+        let report = serde_json::json!({"debug_assertions": false, "offscreen": false, "menu_ms": 7, "stages_ms": {"device": 2}});
         for (line, code, succeeds) in [
             (
                 format!("{} {report}", render_api::STARTUP_TIMING_MARKER),

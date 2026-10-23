@@ -36,11 +36,12 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
-   Startup reports the first presented menu frame and its CPU stages; a release launch
-   benchmark enforces the startup budgets. Graphics setup overlaps carrier loading
-   on the main thread, and physics and overlays share one pinned registry decode.
-   World-carrier, GUI geometry and pipeline
-   deferral, persistent shader caches and release hardware qualification remain incomplete.
+   Startup reports the first presented menu frame and its CPU stages. Menu launches
+   defer world carriers, collision binding and static GUI item geometry until the
+   first completed menu frame; joins wait for the prepared bundle. World pipeline
+   warmup also waits for that boundary, and terrain compute owners prepare on workers.
+   Persistent built-in shader caches, background compilation of remaining world
+   pipelines and release hardware qualification remain incomplete.
 3. Verify complete session and input paths across supported platforms.
 4. Simplify existing subsystem ownership without adding unnecessary crates or adapter layers.
 

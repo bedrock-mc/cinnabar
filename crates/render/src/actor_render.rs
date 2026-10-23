@@ -179,6 +179,7 @@ fn install_actor_render(app: &mut App) {
         .add_systems(
             Render,
             prepare_actor_pipelines
+                .run_if(render_scene::startup_work::world_work_allowed)
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );

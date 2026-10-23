@@ -38,8 +38,8 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     let side = render_model::UI_MODEL_ATLAS_SIDE;
     let full =
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.pages = vec![full; MODEL_PAGES];
-    presentation.gui_models.required_pages = MODEL_PAGES;
+    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES];
+    presentation.gui_models.sources.required_pages = MODEL_PAGES;
     presentation.set_preview_equipment_assets(Some(base.assets), Some(pack.assets));
     presentation.set_preview_pack_equipment(pack.equipment);
     let cape_page = 100;
@@ -361,7 +361,8 @@ fn check_preview(pack: assets::SessionEntityPack, expected: [u8; 4], dyed: bool,
         .pack_equipment
         .region(1)
         .unwrap_or_else(|| {
-            presentation.gui_models.textures[&atlas::key([armor.width, armor.height], &armor.rgba)]
+            presentation.gui_models.sources.textures
+                [&atlas::key([armor.width, armor.height], &armor.rgba)]
         });
     let page = &presentation.textures.pages()[usize::from(icon.page)];
     let offset =

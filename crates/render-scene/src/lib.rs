@@ -163,3 +163,5 @@ pub use native_sunlight::AtmosphereViewInputs;
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+pub mod startup_work;

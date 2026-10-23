@@ -26,14 +26,14 @@ pub(crate) fn install_first_frame_log(app: &mut App) {
             (
                 finish_update.run_if(recording),
                 log_first_frame,
-                log_presented_menu.run_if(recording),
+                log_presented_menu.run_if(report_pending),
             )
                 .chain(),
         );
 }
 
 /// Emits a report only for completed menu content; world launches have a different endpoint.
-fn log_presented_menu(
+pub(super) fn log_presented_menu(
     presentation: Res<render_scene::startup_presentation::StartupPresentation>,
     menu: Res<client_shell::menu::MenuRuntime>,
     mut exit: bevy::prelude::MessageWriter<bevy::prelude::AppExit>,
@@ -47,9 +47,20 @@ fn log_presented_menu(
             .or_else(|| timing.offscreen_content_at())
         && let Some(report) = timing.finish(presented)
     {
-        bevy::log::info!("{} {report}", render_scene::startup_timing::MARKER);
+        let benchmark = cfg!(feature = "acceptance")
+            && std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some();
+        if benchmark {
+            use std::io::Write as _;
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "{} {report}",
+                render_scene::startup_timing::MARKER,
+            );
+        } else {
+            bevy::log::info!("{} {report}", render_scene::startup_timing::MARKER);
+        }
         #[cfg(feature = "acceptance")]
-        if std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some() {
+        if benchmark {
             exit.write(bevy::prelude::AppExit::Success);
         }
     }
@@ -78,7 +89,13 @@ impl LoadTimes {
     /// Times one load while preserving its result and panic behavior.
     pub(crate) fn time<T>(&self, carrier: &'static str, load: impl FnOnce() -> T) -> T {
         let start = std::time::Instant::now();
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.count(&format!("carrier_{carrier}"), 1);
+        }
         let value = load();
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.record(&format!("carrier_{carrier}"), start.elapsed());
+        }
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -148,4 +165,9 @@ fn finish_update(started: Res<UpdateStart>) {
 /// Leaves ordinary gameplay and direct world launches free of startup-only sampling.
 fn recording() -> bool {
     render_scene::startup_timing::current().is_some_and(|timing| timing.is_recording())
+}
+
+/// Emits the sealed result even after render completion has stopped startup work sampling.
+fn report_pending() -> bool {
+    render_scene::startup_timing::current().is_some_and(|timing| timing.needs_report())
 }

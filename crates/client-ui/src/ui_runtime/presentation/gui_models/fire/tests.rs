@@ -81,17 +81,17 @@ fn optional_flame_texture_can_be_replaced_removed_or_rejected_without_accumulati
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let mut texture = texture();
     presentation.set_gui_fire_texture(Some(&texture)).unwrap();
-    let pages = presentation.gui_models.pages.len();
+    let pages = presentation.gui_models.sources.pages.len();
     texture.rgba8 = vec![255; texture.rgba8.len()].into();
     presentation.set_gui_fire_texture(Some(&texture)).unwrap();
-    assert_eq!(presentation.gui_models.pages.len(), pages);
+    assert_eq!(presentation.gui_models.sources.pages.len(), pages);
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
     texture.height = 17;
     presentation.set_gui_fire_texture(Some(&texture)).unwrap();
-    assert!(presentation.gui_models.pages.is_empty());
+    assert!(presentation.gui_models.sources.pages.is_empty());
     assert!(presentation.gui_models.fire.frames.is_empty());
     presentation.set_gui_fire_texture(None).unwrap();
-    assert!(presentation.gui_models.pages.is_empty());
+    assert!(presentation.gui_models.sources.pages.is_empty());
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn fire_playback_holds_when_extinguished_and_resets_when_actor_is_replaced() {
 
 #[test]
 fn review_actor_flames_reclaim_pages_from_optional_block_models() {
-    use super::super::{GuiModels, icon_key, item_gui};
+    use super::super::{GuiModels, PreparedGuiModels, icon_key, item_gui};
     use render_model::UiTexturePage;
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
@@ -133,19 +133,22 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
     let optional_mesh = item_gui::cube([optional; 6]).unwrap();
     presentation.gui_models = GuiModels {
         enabled: true,
-        pages: vec![page; MODEL_PAGES],
-        required_pages: 1,
-        models: [
-            (icon_key(required), Arc::clone(&required_mesh)),
-            (icon_key(optional), optional_mesh),
-        ]
-        .into(),
-        optional_models: [icon_key(optional)].into(),
-        textures: [
-            (super::super::atlas::key([1; 2], &[1; 4]), required),
-            (super::super::atlas::key([1; 2], &[2; 4]), optional),
-        ]
-        .into(),
+        sources: PreparedGuiModels {
+            pages: vec![page; MODEL_PAGES],
+            required_pages: 1,
+            models: [
+                (icon_key(required), Arc::clone(&required_mesh)),
+                (icon_key(optional), optional_mesh),
+            ]
+            .into(),
+            optional_models: [icon_key(optional)].into(),
+            textures: [
+                (super::super::atlas::key([1; 2], &[1; 4]), required),
+                (super::super::atlas::key([1; 2], &[2; 4]), optional),
+            ]
+            .into(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let source = texture();
@@ -153,20 +156,22 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         .set_gui_fire_texture(Some(&source))
         .expect("optional block meshes must leave room for actor flames");
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
-    assert_eq!(presentation.gui_models.pages.len(), 2);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 2);
     assert!(Arc::ptr_eq(
-        &presentation.gui_models.models[&icon_key(required)],
+        &presentation.gui_models.sources.models[&icon_key(required)],
         &required_mesh
     ));
     assert!(
         !presentation
             .gui_models
+            .sources
             .models
             .contains_key(&icon_key(optional))
     );
     assert!(
         !presentation
             .gui_models
+            .sources
             .textures
             .values()
             .any(|icon| icon.page == optional.page)
@@ -187,9 +192,9 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
     };
     presentation.set_gui_fire_texture(Some(&large)).unwrap();
     assert_eq!(presentation.gui_models.fire.frames.len(), 4);
-    assert_eq!(presentation.gui_models.pages.len(), 5);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 5);
     presentation.set_gui_fire_texture(None).unwrap();
-    assert_eq!(presentation.gui_models.pages.len(), 1);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 1);
 }
 
 #[test]
@@ -198,8 +203,8 @@ fn exhausted_required_pages_clear_previous_flame_frame_addresses() {
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_gui_fire_texture(Some(&texture())).unwrap();
     assert!(!presentation.gui_models.fire.frames.is_empty());
-    let page = presentation.gui_models.pages[0].clone();
-    presentation.gui_models.pages = vec![page; MODEL_PAGES];
+    let page = presentation.gui_models.sources.pages[0].clone();
+    presentation.gui_models.sources.pages = vec![page; MODEL_PAGES];
     presentation.gui_models.fire.pages_start = None;
     assert!(presentation.install_gui_fire().is_err());
     assert!(presentation.gui_models.fire.frames.is_empty());

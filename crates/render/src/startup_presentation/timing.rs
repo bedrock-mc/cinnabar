@@ -58,6 +58,25 @@ fn compile(mut timing: ResMut<FrameTiming>, mut cache: ResMut<PipelineCache>) {
     timing.frame.pipeline_and_shader_ms = start.elapsed().as_secs_f64() * 1000.0;
     timing.frame.pipelines = cache.pipelines().count();
     timing.frame.pending_pipelines = cache.waiting_pipelines().count();
+    for pipeline in cache.pipelines() {
+        let label = match &pipeline.descriptor {
+            bevy::render::render_resource::PipelineDescriptor::RenderPipelineDescriptor(
+                descriptor,
+            ) => descriptor.label.as_deref(),
+            bevy::render::render_resource::PipelineDescriptor::ComputePipelineDescriptor(
+                descriptor,
+            ) => descriptor.label.as_deref(),
+            bevy::render::render_resource::PipelineDescriptor::MeshPipelineDescriptor(
+                descriptor,
+            ) => descriptor.label.as_deref(),
+        }
+        .unwrap_or("unlabeled");
+        *timing
+            .frame
+            .pipeline_labels
+            .entry(label.into())
+            .or_default() += 1;
+    }
 }
 
 /// Marks command encoding, submission and presentation after pipeline processing.

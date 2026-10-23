@@ -160,17 +160,3 @@ fn every_beacon_base_block_is_admitted_in_both_id_spaces_and_nothing_else_is() {
     }
     assert_eq!(seen.len(), BEACON_BASE_BLOCKS.len());
 }
-
-#[test]
-fn startup_registry_consumers_reuse_the_pinned_decode_without_allocating() {
-    let expected = crate::read_registry_for_protocol(
-        crate::pinned_block_registry_bytes(),
-        crate::active_content_registry_protocol(),
-    )
-    .unwrap();
-    let first = crate::pinned_block_registry_records();
-    assert_eq!(first, expected.as_ref());
-    let (again, allocations) = test_alloc::count(crate::pinned_block_registry_records);
-    assert_eq!(again, first);
-    assert_eq!(allocations, 0);
-}

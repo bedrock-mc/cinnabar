@@ -88,7 +88,11 @@ fn geometry_replacement_preserves_json_control_state_and_flat_sprites() {
     };
     let mesh = item_gui::cube([icon; 6]).unwrap();
     presentation.gui_models.enabled = true;
-    presentation.gui_models.models.insert(icon_key(icon), mesh);
+    presentation
+        .gui_models
+        .sources
+        .models
+        .insert(icon_key(icon), mesh);
     let bounds = UiRect::new(
         UiPoint::new(20.0, 30.0).unwrap(),
         UiPoint::new(36.0, 46.0).unwrap(),
@@ -260,14 +264,17 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
     presentation.gui_models.enabled = true;
     presentation
         .gui_models
+        .sources
         .models
         .insert(icon_key(icon), item_gui::block_model(&quads).unwrap());
     presentation
         .gui_models
+        .sources
         .optional_models
         .insert(icon_key(icon));
     presentation
         .gui_models
+        .sources
         .faded_thumbnails
         .insert(icon_key(icon));
     let bounds = UiRect::new(
@@ -303,4 +310,28 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
             }
         }
     }
+}
+
+#[test]
+fn menu_avatar_is_available_before_item_geometry_and_survives_its_publication() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    presentation.enable_player_preview();
+    let skin = vec![255; 64 * 64 * 4];
+    let identity = presentation
+        .set_gui_skin(&skin)
+        .expect("menu avatar does not need item geometry");
+    assert!(presentation.gui_models.sources.models.is_empty());
+    let page = presentation.gui_models.skin.as_ref().unwrap().clone();
+    presentation
+        .install_gui_model_sources(PreparedGuiModels::default())
+        .unwrap();
+    assert_eq!(
+        presentation.gui_models.skin.as_ref().unwrap().identity(),
+        identity
+    );
+    assert_eq!(
+        page.pixels(),
+        presentation.gui_models.skin.as_ref().unwrap().pixels()
+    );
 }

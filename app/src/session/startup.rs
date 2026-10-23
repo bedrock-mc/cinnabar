@@ -45,7 +45,7 @@ mod tests {
                 .expect("startup must enter the join fence");
             assert_eq!(attempt.address, address.unwrap_or_default());
             assert!(matches!(
-                attempt.poll(controller.generation, true, || panic!("endpoint is ready")),
+                attempt.poll(controller.generation, true, true, || panic!("endpoint is ready")),
                 client_session::connection::JoinPoll::Ready { socket_dir, directory: None }
                     if socket_dir == endpoint
             ));

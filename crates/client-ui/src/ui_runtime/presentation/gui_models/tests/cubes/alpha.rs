@@ -61,7 +61,13 @@ fn carried_cubes_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
         let icon = presentation
             .item_icon(ITEM, 0)
             .expect("thumbnail remains available");
-        assert!(!presentation.gui_models.models.contains_key(&icon_key(icon)));
+        assert!(
+            !presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon))
+        );
         let mut nodes = [control(icon, 255, false)];
         let original = nodes.clone();
         presentation.apply_gui_models(&mut nodes);
@@ -85,7 +91,7 @@ fn fractional_non_blended_texels_are_thresholded_before_mesh_sampling() {
             for texel in expected.as_chunks_mut::<4>().0 {
                 texel[3] = if texel[3] >= threshold { 255 } else { 0 };
             }
-            let source = presentation.gui_models.textures
+            let source = presentation.gui_models.sources.textures
                 [&super::super::super::atlas::key([sheet.width, sheet.height], &expected)];
             let page = &presentation.textures.pages()[usize::from(source.page)];
             for y in 0..usize::from(sheet.height) {
@@ -103,7 +109,7 @@ fn fractional_non_blended_texels_are_thresholded_before_mesh_sampling() {
                 let icon = presentation
                     .item_icon(&entry.identifier, entry.metadata)
                     .unwrap();
-                let mesh = &presentation.gui_models.models[&icon_key(icon)];
+                let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
                 assert_eq!(mesh.indices().len(), assets::gui_item::CUBE_FACES.len() * 6);
                 assert!(mesh.vertices().iter().all(|vertex| vertex.alpha_test));
             }
@@ -130,7 +136,7 @@ fn fractional_blended_cube_faces_keep_the_composited_thumbnail_under_pressure() 
             presentation
                 .set_gui_models(&world(blended_faces), &entities)
                 .unwrap();
-            assert_eq!(presentation.gui_models.pages.len(), pages);
+            assert_eq!(presentation.gui_models.sources.pages.len(), pages);
             for entry in presentation.icon_catalog.as_deref().unwrap().entries() {
                 let icon = presentation
                     .item_icon(&entry.identifier, entry.metadata)

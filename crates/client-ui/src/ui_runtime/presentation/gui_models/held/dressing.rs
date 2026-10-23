@@ -46,7 +46,7 @@ impl UiPresentationRuntime {
                     base.as_ref()
                         .filter(|base| base.texture(&binding.texture.identifier).is_some())
                 })?;
-            let hand_pivots = self.gui_models.hand_pivots?;
+            let hand_pivots = self.gui_models.sources.hand_pivots?;
             let model = if let Some(previous) = self.gui_models.selected_held[index]
                 .as_ref()
                 .filter(|previous| previous.matches(binding, &entities, artwork, hand_pivots))
@@ -83,7 +83,7 @@ impl UiPresentationRuntime {
             self.gui_models.selected_held[index] = (|| {
                 let (binding, entities, artwork, mut model) = selected?;
                 let hand = &hands[index].as_ref()?.0;
-                let hand_pivots = self.gui_models.hand_pivots?;
+                let hand_pivots = self.gui_models.sources.hand_pivots?;
                 let texture = artwork.texture(&binding.texture.identifier)?;
                 let reusable = previous
                     .as_ref()
@@ -106,6 +106,7 @@ impl UiPresentationRuntime {
                             .map(|model| model.source)
                     } else {
                         self.gui_models
+                            .sources
                             .textures
                             .get(&atlas::key([texture.width, texture.height], &texture.rgba8))
                             .copied()

@@ -99,10 +99,14 @@ pub fn load_overlay_textures(mut commands: Commands, scene: Option<ResMut<Screen
 }
 
 fn pinned_fire_state() -> Option<u32> {
-    assets::pinned_block_registry_records()
-        .iter()
-        .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
-        .map(|state| state.sequential_id)
+    assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .ok()?
+    .iter()
+    .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
+    .map(|state| state.sequential_id)
 }
 
 pub fn publish_screen_overlays(
@@ -116,7 +120,7 @@ pub fn publish_screen_overlays(
     let Some(mut scene) = scene else {
         return;
     };
-    if let Some(textures) = textures {
+    if let Some(textures) = textures.filter(|textures| !textures.assets().is_diagnostic()) {
         let identity = textures.identity();
         if fire_source
             .as_ref()
@@ -154,16 +158,7 @@ mod tests {
 
     #[test]
     fn camera_fire_binding_uses_the_active_pinned_registry_protocol() {
-        let previous = assets::read_registry_for_protocol(
-            assets::pinned_block_registry_bytes(),
-            assets::active_content_registry_protocol(),
-        )
-        .unwrap()
-        .iter()
-        .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
-        .map(|state| state.sequential_id);
-        assert!(previous.is_some());
-        assert_eq!(pinned_fire_state(), previous);
+        assert!(pinned_fire_state().is_some());
     }
 
     #[test]

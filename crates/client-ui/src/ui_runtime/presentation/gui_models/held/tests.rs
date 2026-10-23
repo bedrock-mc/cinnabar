@@ -251,7 +251,7 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
     presentation.set_gui_models(&world, &entities).unwrap();
     let mut sprites = 0;
     let icons = presentation.icon_catalog.as_deref().unwrap();
-    for (key, held) in &presentation.gui_models.held {
+    for (key, held) in &presentation.gui_models.sources.held {
         let Some(model) = held.model(icons) else {
             continue;
         };
@@ -315,6 +315,7 @@ fn installed_see_through_and_chest_blocks_draw_as_gui_geometry() {
         assert!(
             presentation
                 .gui_models
+                .sources
                 .models
                 .contains_key(&super::super::icon_key(icon)),
             "{identifier} draws as GUI geometry"
@@ -326,6 +327,7 @@ fn installed_see_through_and_chest_blocks_draw_as_gui_geometry() {
     assert!(
         !presentation
             .gui_models
+            .sources
             .models
             .contains_key(&super::super::icon_key(blended)),
         "fractional blended cubes retain the thumbnail's rear-face compositing"

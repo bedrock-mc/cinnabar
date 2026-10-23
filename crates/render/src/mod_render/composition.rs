@@ -11,7 +11,7 @@ use bevy::{
         Shader, SubApp, SystemSet, World, default,
     },
     render::{
-        Render, RenderStartup, RenderSystems,
+        Render, RenderSystems,
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         view::{ExtractedView, ViewTarget},
@@ -129,7 +129,15 @@ struct Installed;
 
 /// Installs one shared halo producer; custom post effects keep their current schedule.
 pub(super) fn install(app: &mut SubApp) {
-    app.add_systems(RenderStartup, init).add_systems(
+    app.add_systems(
+        Render,
+        init.before(RenderSystems::PrepareViews)
+            .run_if(bevy::ecs::schedule::common_conditions::not(
+                bevy::prelude::resource_exists::<CompositionGpu>,
+            ))
+            .run_if(render_scene::startup_work::world_work_allowed),
+    )
+    .add_systems(
         Render,
         prepare
             .in_set(RenderSystems::PrepareBindGroups)

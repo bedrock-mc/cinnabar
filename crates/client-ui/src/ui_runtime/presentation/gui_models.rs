@@ -124,25 +124,31 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 #[derive(Default)]
 pub(super) struct GuiModels {
     pub(super) enabled: bool,
-    pub(super) pages: Vec<UiTexturePage>,
+    pub(super) sources: PreparedGuiModels,
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
-    cape: Option<render_model::cape::CapeRig>,
     pub(super) wearing_elytra: bool,
-    models: BTreeMap<IconKey, Arc<UiMesh>>,
-    optional_models: BTreeSet<IconKey>,
-    faded_thumbnails: BTreeSet<IconKey>,
-    required_pages: usize,
-    textures: BTreeMap<atlas::TextureKey, IconRef>,
-    held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
-    hand_pivots: Option<[[f32; 3]; 2]>,
     selected_held: [Option<held::SelectedModel>; 2],
     fire: fire::FireAtlas,
     /// Tinted copies of `models`, kept while frames draw them.
     modulated: std::sync::Mutex<ModulatedMeshes>,
+}
+
+/// Static item meshes and atlas pages prepared off the menu frame.
+#[derive(Default)]
+pub struct PreparedGuiModels {
+    pub(super) pages: Vec<UiTexturePage>,
+    pub(super) cape: Option<render_model::cape::CapeRig>,
+    pub(super) models: BTreeMap<IconKey, Arc<UiMesh>>,
+    pub(super) optional_models: BTreeSet<IconKey>,
+    pub(super) faded_thumbnails: BTreeSet<IconKey>,
+    pub(super) required_pages: usize,
+    pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
+    held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
+    pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
 }
 
 impl GuiModels {
@@ -154,17 +160,17 @@ impl GuiModels {
     /// Drops optional block meshes and restores required pages. Returns whether anything was dropped;
     /// callers reinstall fire frames after a discard.
     fn discard_optional_models(&mut self, first: usize) -> bool {
-        if self.optional_models.is_empty() {
+        if self.sources.optional_models.is_empty() {
             return false;
         }
-        self.pages.truncate(self.required_pages);
-        for key in std::mem::take(&mut self.optional_models) {
-            self.models.remove(&key);
-            self.faded_thumbnails.remove(&key);
+        self.sources.pages.truncate(self.sources.required_pages);
+        for key in std::mem::take(&mut self.sources.optional_models) {
+            self.sources.models.remove(&key);
+            self.sources.faded_thumbnails.remove(&key);
         }
-        self.textures.retain(|_, icon| {
+        self.sources.textures.retain(|_, icon| {
             let page = usize::from(icon.page);
-            page < first + self.required_pages || page >= first + MODEL_PAGES
+            page < first + self.sources.required_pages || page >= first + MODEL_PAGES
         });
         self.fire.frames.clear();
         self.fire.pages_start = None;
@@ -188,16 +194,24 @@ fn cube_shape_admitted(
     })
 }
 
-impl UiPresentationRuntime {
-    /// Retains the original face and equipment texels; the GPU projects them at each control's
-    /// physical size. Unsupported GUI tessellators retain their explicitly provisional thumbnail.
-    pub fn set_gui_models(
-        &mut self,
+/// Immutable UI addresses used to prepare item geometry on a worker.
+pub struct GuiModelPreparation {
+    icons: Option<Arc<assets::RuntimeIconCatalog>>,
+    icon_refs: Option<Box<[IconRef]>>,
+    first: u16,
+    shield: Option<IconRef>,
+}
+
+impl GuiModelPreparation {
+    /// Builds static item sources against the menu's existing atlas addresses.
+    pub fn prepare(
+        self,
         world: &RuntimeAssets,
         entities: &RuntimeEntityAssets,
-    ) -> Result<(), UiPresentationError> {
-        let Some(icons) = self.icon_catalog.as_deref() else {
-            return Ok(());
+        equipment: Option<&assets::RuntimeEquipmentCatalog>,
+    ) -> Result<PreparedGuiModels, UiPresentationError> {
+        let Some(icons) = self.icons.as_deref() else {
+            return Ok(PreparedGuiModels::default());
         };
         if icons.source_manifest_sha256() != entities.source_manifest_sha256()
             || (!world.is_diagnostic()
@@ -205,7 +219,7 @@ impl UiPresentationRuntime {
         {
             return Err(UiPresentationError::InvalidFontTexture);
         }
-        let first = (self.textures.dynamic_start() + MODEL_PAGE) as u16;
+        let first = self.first;
         let mut atlas = atlas::Atlas::new(first, MODEL_PAGES);
         let mut sources = BTreeMap::new();
         let ordinary = render_model::equipment::blocks::collect(world, entities);
@@ -232,7 +246,7 @@ impl UiPresentationRuntime {
             }
         }
         let mut models = BTreeMap::new();
-        if let Some(equipment) = self.equipment_catalog.as_deref() {
+        if let Some(equipment) = equipment {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
             }
@@ -246,7 +260,7 @@ impl UiPresentationRuntime {
                     .iter()
                     .find(|geometry| geometry.identifier == binding.geometry.identifier)
                 && let Some(texture) = equipment.texture(&binding.texture.identifier)
-                && let Some(icon) = self.item_icon(assets::gui_item::SHIELD_IDENTIFIER, 0)
+                && let Some(icon) = self.shield
             {
                 let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
                 if let Some(mesh) = item_gui::shield(geometry, texture, source) {
@@ -261,7 +275,7 @@ impl UiPresentationRuntime {
             self.icon_refs
                 .as_deref()
                 .ok_or(UiPresentationError::InvalidFontTexture)?,
-            self.equipment_catalog.as_deref(),
+            equipment,
             &held_sources,
         )?;
         let required_pages = atlas.page_count();
@@ -364,21 +378,62 @@ impl UiPresentationRuntime {
             source_pages = pages.len(),
             "native GUI item geometry prepared"
         );
-        self.gui_models.pages = pages;
-        self.gui_models.models = models;
-        self.gui_models.optional_models = optional_models;
-        self.gui_models.faded_thumbnails = faded_thumbnails;
-        self.gui_models.required_pages = required_pages;
-        self.gui_models.textures = textures;
-        self.gui_models.held = held;
-        self.gui_models.clear_selected_hands();
-        self.gui_models.hand_pivots = held::player_hands(entities);
-        self.gui_models.cape = render_model::cape::CapeRig::resolve(entities);
-        self.gui_models.fire.pages_start = None;
-        self.install_gui_fire()?;
         for hat in cosmetics::Item::all() {
             render_model::hats::rig(hat);
         }
+        Ok(PreparedGuiModels {
+            pages,
+            models,
+            optional_models,
+            faded_thumbnails,
+            required_pages,
+            textures,
+            held,
+            hand_pivots: held::player_hands(entities),
+            cape: render_model::cape::CapeRig::resolve(entities),
+        })
+    }
+}
+
+impl UiPresentationRuntime {
+    /// Captures stable atlas addresses without preparing any item geometry.
+    pub fn gui_model_preparation(&self) -> GuiModelPreparation {
+        GuiModelPreparation {
+            icons: self.icon_catalog.clone(),
+            icon_refs: self.icon_refs.clone(),
+            first: (self.textures.dynamic_start() + MODEL_PAGE) as u16,
+            shield: self.item_icon(assets::gui_item::SHIELD_IDENTIFIER, 0),
+        }
+    }
+
+    /// Prepares item sources immediately for callers outside deferred startup.
+    pub fn set_gui_models(
+        &mut self,
+        world: &RuntimeAssets,
+        entities: &RuntimeEntityAssets,
+    ) -> Result<(), UiPresentationError> {
+        let prepared = self.gui_model_preparation().prepare(
+            world,
+            entities,
+            self.equipment_catalog.as_deref(),
+        )?;
+        self.install_gui_model_sources(prepared)
+    }
+
+    /// Enables the menu's live avatar without preparing inventory item geometry.
+    pub fn enable_player_preview(&mut self) {
+        self.gui_models.enabled = true;
+    }
+
+    /// Installs item sources prepared on a worker without replacing the live menu avatar.
+    pub fn install_gui_model_sources(
+        &mut self,
+        sources: PreparedGuiModels,
+    ) -> Result<(), UiPresentationError> {
+        self.gui_models.sources = sources;
+        self.gui_models.clear_selected_hands();
+        self.gui_models.fire.pages_start = None;
+        self.install_gui_fire()?;
         self.gui_models.enabled = true;
         self.place_pack_armor();
         Ok(())
@@ -450,10 +505,11 @@ impl UiPresentationRuntime {
         replace_model_icons(
             nodes,
             None,
-            &self.gui_models.faded_thumbnails,
+            &self.gui_models.sources.faded_thumbnails,
             || None,
             |key| {
                 self.gui_models
+                    .sources
                     .models
                     .get(key)
                     .or_else(|| self.session_icons.models.get(key))
@@ -550,7 +606,7 @@ impl UiPresentationRuntime {
                             replace_model_icons(
                                 &mut baseline,
                                 Some(targets),
-                                &self.gui_models.faded_thumbnails,
+                                &self.gui_models.sources.faded_thumbnails,
                                 || Some(probe),
                                 |_| None,
                                 modulated,
@@ -589,7 +645,7 @@ impl UiPresentationRuntime {
         replace_model_icons(
             nodes,
             Some(targets),
-            &self.gui_models.faded_thumbnails,
+            &self.gui_models.sources.faded_thumbnails,
             || player,
             |_| None,
             modulated,
@@ -652,7 +708,7 @@ impl UiPresentationRuntime {
                 None,
             );
             let held = |metadata| {
-                self.gui_models.held.get(&assets::ItemVisualKey {
+                self.gui_models.sources.held.get(&assets::ItemVisualKey {
                     identifier: identifier.into(),
                     metadata,
                 })
@@ -667,7 +723,7 @@ impl UiPresentationRuntime {
                 player_preview::PreviewHeldModel {
                     source,
                     vertices,
-                    hand_pivots: self.gui_models.hand_pivots?,
+                    hand_pivots: self.gui_models.sources.hand_pivots?,
                     placements: [player_preview::PreviewHeldPlacement::Block; 2],
                 }
             } else if base.is_none_or(held::HeldModel::is_sprite)
@@ -679,7 +735,7 @@ impl UiPresentationRuntime {
                     None => player_preview::PreviewHeldModel {
                         source,
                         vertices,
-                        hand_pivots: self.gui_models.hand_pivots?,
+                        hand_pivots: self.gui_models.sources.hand_pivots?,
                         placements: [player_preview::PreviewHeldPlacement::Sprite {
                             hand_equipped: false,
                         }; 2],
@@ -721,7 +777,7 @@ impl UiPresentationRuntime {
                 .region(slot)
                 .or_else(|| {
                     let key = atlas::key([texture.width, texture.height], &texture.rgba);
-                    self.gui_models.textures.get(&key).copied()
+                    self.gui_models.sources.textures.get(&key).copied()
                 })
                 .map(|icon| icon.with_glint(self.player_preview_gear.armor_glint[slot]))
         });

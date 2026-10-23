@@ -14,6 +14,10 @@ use web_time::Instant;
 
 /// Machine-readable marker emitted once the first main-menu frame completes.
 pub const MARKER: &str = render_api::STARTUP_TIMING_MARKER;
+/// Counts native world shader modules created while menu sampling is open.
+pub const WORLD_SHADER_MODULES: &str = "world_shader_modules";
+/// Counts native world compute pipelines created while menu sampling is open.
+pub const WORLD_COMPUTE_PIPELINES: &str = "world_compute_pipelines";
 const MAX_FRAMES: usize = 8;
 static LAUNCH: OnceLock<StartupTiming> = OnceLock::new();
 
@@ -24,6 +28,7 @@ pub struct StartupTiming(Arc<Shared>);
 struct Shared {
     launched: Instant,
     finished: AtomicBool,
+    samples_sealed: AtomicBool,
     offscreen: AtomicBool,
     offscreen_completed: Mutex<Option<Instant>>,
     report: Mutex<Report>,
@@ -39,6 +44,8 @@ pub struct Report {
     pub counters: BTreeMap<String, u64>,
     pub render_frames: Vec<RenderFrame>,
     pub main_updates_ms: Vec<f64>,
+    pub pipeline_count: usize,
+    pub pipeline_labels: BTreeMap<String, usize>,
 }
 
 /// CPU work from one of the first submitted render frames.
@@ -50,6 +57,7 @@ pub struct RenderFrame {
     pub submit_ms: f64,
     pub pipelines: usize,
     pub pending_pipelines: usize,
+    pub pipeline_labels: BTreeMap<String, usize>,
 }
 
 impl StartupTiming {
@@ -63,6 +71,7 @@ impl StartupTiming {
         Self(Arc::new(Shared {
             launched,
             finished: AtomicBool::new(false),
+            samples_sealed: AtomicBool::new(false),
             offscreen: AtomicBool::new(false),
             offscreen_completed: Mutex::default(),
             report: Mutex::new(Report {
@@ -81,9 +90,9 @@ impl StartupTiming {
         self.0.report.lock().expect("startup timing lock").offscreen = offscreen;
     }
 
-    /// Hidden acceptance runs measure a completed capture image, separately from native presents.
+    /// Hidden developer runs measure a completed capture image, separately from native presents.
     pub fn is_offscreen(&self) -> bool {
-        self.is_recording() && self.0.offscreen.load(Ordering::Acquire)
+        self.needs_report() && self.0.offscreen.load(Ordering::Acquire)
     }
 
     /// Retains the first completed menu image without changing native-surface readiness.
@@ -112,12 +121,22 @@ impl StartupTiming {
 
     /// Whether launch work still belongs to the unsealed presentation report.
     pub fn is_recording(&self) -> bool {
-        !self.0.finished.load(Ordering::Relaxed)
+        self.needs_report() && !self.0.samples_sealed.load(Ordering::Acquire)
+    }
+
+    /// Keeps report emission active after GPU completion has stopped work sampling.
+    pub fn needs_report(&self) -> bool {
+        !self.0.finished.load(Ordering::Acquire)
+    }
+
+    /// Stops sampling at the completed menu frame, before any admitted world work can start.
+    pub fn seal_samples(&self) {
+        self.0.samples_sealed.store(true, Ordering::Release);
     }
 
     /// Records a completed stage, summing repeated work under its stable name.
     pub fn record(&self, name: &str, duration: Duration) {
-        if !self.0.finished.load(Ordering::Relaxed) {
+        if self.is_recording() {
             *self
                 .0
                 .report
@@ -131,7 +150,7 @@ impl StartupTiming {
 
     /// Counts actual startup work, independently of its execution time.
     pub fn count(&self, name: &str, amount: u64) {
-        if !self.0.finished.load(Ordering::Relaxed) {
+        if self.is_recording() {
             *self
                 .0
                 .report
@@ -154,9 +173,11 @@ impl StartupTiming {
     }
 
     /// Retains only the initial render frames, keeping diagnostics bounded on failed startup.
-    pub fn frame(&self, frame: RenderFrame) {
-        if !self.0.finished.load(Ordering::Relaxed) {
+    pub fn frame(&self, mut frame: RenderFrame) {
+        if self.is_recording() {
             let mut report = self.0.report.lock().expect("startup timing lock");
+            report.pipeline_count = frame.pipelines;
+            report.pipeline_labels = std::mem::take(&mut frame.pipeline_labels);
             if report.render_frames.len() < MAX_FRAMES {
                 report.render_frames.push(frame);
             }
@@ -213,6 +234,32 @@ mod tests {
         let direct = StartupTiming::new(now);
         direct.configure_menu(false, false);
         assert!(!direct.is_recording());
+    }
+
+    #[test]
+    fn completed_menu_stops_world_counters_but_keeps_its_report_and_latest_pipeline_set() {
+        let now = Instant::now();
+        let timing = StartupTiming::new(now);
+        timing.configure_menu(true, true);
+        for pipelines in 0..MAX_FRAMES + 2 {
+            timing.frame(RenderFrame {
+                pipelines,
+                ..Default::default()
+            });
+        }
+        timing.record_offscreen_content(now);
+        timing.seal_samples();
+        timing.count(WORLD_COMPUTE_PIPELINES, 1);
+        timing.frame(RenderFrame {
+            pipelines: 999,
+            ..Default::default()
+        });
+        assert!(!timing.is_recording());
+        assert!(timing.needs_report());
+        assert_eq!(timing.offscreen_content_at(), Some(now));
+        let report: serde_json::Value = serde_json::from_str(&timing.finish(now).unwrap()).unwrap();
+        assert_eq!(report["pipeline_count"], MAX_FRAMES + 1);
+        assert!(report["counters"].get(WORLD_COMPUTE_PIPELINES).is_none());
     }
 
     #[test]

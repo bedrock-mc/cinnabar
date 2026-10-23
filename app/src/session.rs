@@ -259,7 +259,7 @@ pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
     state: crate::game_session::SessionWorld<'w>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
-    collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
+    collisions: Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<ResMut<'w, render_scene::ActorArtworkResource>>,
     #[cfg(test)]
@@ -463,9 +463,12 @@ fn poll_join(
     let attempt = controller.join.take().expect("pending join");
     let server_address = attempt.address.clone();
     use client_session::connection::JoinPoll;
-    match attempt.poll(controller.generation, controller.connecting, || {
-        controller.core.exit_status()
-    }) {
+    match attempt.poll(
+        controller.generation,
+        controller.connecting,
+        session.collisions.is_some(),
+        || controller.core.exit_status(),
+    ) {
         JoinPoll::Retired => {}
         JoinPoll::Pending(attempt) => controller.join = Some(attempt),
         JoinPoll::StartCore(mut attempt) => {
@@ -509,7 +512,10 @@ fn poll_join(
                     .and_then(|mods| mods.session_relay()),
                 crate::runtime::network::session_registries::RegistryBase::new(
                     &session.state.client_world.runtime_assets,
-                    &session.collisions,
+                    session
+                        .collisions
+                        .as_deref()
+                        .expect("join admission requires world collision resources"),
                 ),
             ) {
                 if owned_core {

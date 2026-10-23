@@ -207,11 +207,12 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         } else if offset >= super::gui_models::MODEL_PAGE {
             runtime
                 .gui_models
+                .sources
                 .pages
                 .get(offset - super::gui_models::MODEL_PAGE)
                 .or_else(|| {
                     let index = (offset - super::gui_models::MODEL_PAGE)
-                        .checked_sub(runtime.gui_models.pages.len())?;
+                        .checked_sub(runtime.gui_models.sources.pages.len())?;
                     runtime.gui_models.pack_equipment.pages.get(index)
                 })
         } else {
@@ -354,7 +355,8 @@ mod tests {
         let old_refs = runtime.menu_artwork.refs.clone();
         runtime.preview_dirty = true;
         runtime.menu_artwork_dirty = true;
-        runtime.gui_models.pages = vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap()];
+        runtime.gui_models.sources.pages =
+            vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap()];
         rebuild(&mut runtime);
         assert!(Arc::ptr_eq(&runtime.textures, &previous));
         assert!(runtime.preview_dirty, "rejected pixels must be retried");
@@ -364,7 +366,7 @@ mod tests {
             runtime.menu_artwork_loader.poll(),
             "rejected artwork stays pending"
         );
-        runtime.gui_models.pages.clear();
+        runtime.gui_models.sources.pages.clear();
         rebuild(&mut runtime);
         assert!(!runtime.preview_dirty);
         assert!(!runtime.menu_artwork_dirty);

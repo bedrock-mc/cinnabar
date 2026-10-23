@@ -72,28 +72,6 @@ Other refresh rates scale the 120 Hz row by 120/H. The stages overlap in the pip
 fit its own budget, and they are never summed. CPU time excludes intentional pacing waits. Lower
 hardware gets lower resolution or view distance, never permission to stutter.
 
-- **Startup.** Launch to the first GPU-completed, presented main-menu frame, with warm
-  caches, must take at most 1 s p99 on the reference M3 Pro and 2 s p99 on the low-end tier.
-  Record the median and every named stage alongside that ceiling; the median target remains
-  pending release hardware measurements. Keep cold shader-cache results separate, with p99
-  ceilings of 4 s and 8 s respectively. These are hardware acceptance gates, never unit-test
-  timing assertions. Run a release client built with the `acceptance` feature:
-
-  ```sh
-  cargo run --locked -p devtool -- startup --client target/release/cinnabar --runs 100 --cache warm --out startup.json
-  ```
-
-  The command primes an isolated driver-cache namespace, then reports menu and stage medians
-  and nearest-rank p99s. `--baseline startup-before.json` reports stage growth on a budget
-  failure. Use `--budget-ms 2000 --cold-budget-ms 8000` for the low-end tier. `--cache cold`
-  gives each launch a fresh Mesa/GL cache directory; other platforms require
-  `--cold-reset <program>`, which must clear that test machine's driver shader cache. Only
-  Mesa drivers honor those directory overrides on Linux; other Linux drivers also need the
-  reset program. Keep the GPU, driver, resolution and cache reset method with the result.
-  The startup report separates render preparation, combined shader/pipeline processing and
-  submission. Hidden developer runs report `offscreen: true` and measure the first
-  GPU-completed menu image; they do not qualify native presentation budgets. Durations
-  overlap across threads and must not be summed.
 - **Hitches.** With T = 1000/H, a displayed interval over 1.5T is a hitch and one of 2T or more is
   a hard hitch. Qualification captures allow zero hitches caused by our code; p99 grants no 1%
   allowance. First-use shader or pipeline compilation during play is a defect: compile while

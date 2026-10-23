@@ -122,8 +122,8 @@ fn cutout_world_model_slots_preserve_original_texels_and_rotated_uvs() {
     let mut presentation = presentation(&entities, base.icon_catalog.as_deref().unwrap());
     presentation.set_gui_models(&world, &entities).unwrap();
     let icon = presentation.item_icon(ITEM, 0).unwrap();
-    let actual = &presentation.gui_models.models[&icon_key(icon)];
-    let source = presentation.gui_models.textures[&atlas::key([side as u16; 2], tile)];
+    let actual = &presentation.gui_models.sources.models[&icon_key(icon)];
+    let source = presentation.gui_models.sources.textures[&atlas::key([side as u16; 2], tile)];
     assert_eq!(
         [source.uv[2] - source.uv[0], source.uv[3] - source.uv[1]],
         [side as u16; 2]
@@ -172,7 +172,11 @@ fn world_models_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
             .item_icon(ITEM, 0)
             .expect("thumbnail remains available");
         assert_eq!(
-            presentation.gui_models.models.contains_key(&icon_key(icon)),
+            presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon)),
             flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING == 0,
             "a shaded mesh must not replace an unshaded thumbnail"
         );

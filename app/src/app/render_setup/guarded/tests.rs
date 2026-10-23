@@ -137,18 +137,3 @@ fn fallback_notice_waits_for_an_open_dialog_to_close() {
     assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
     assert_eq!(view.message.as_deref(), Some("DX12 could not start"));
 }
-
-#[test]
-fn returned_setup_errors_before_the_event_loop_do_not_poison_recovery() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut guard = StartupGuard::open(dir.path()).unwrap();
-    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
-    let mut app = App::new();
-    let setup = super::super::BootExit::watch(&mut app);
-    install_guard(&mut app, guard);
-    drop(setup);
-    drop(app);
-    let next = StartupGuard::open(dir.path()).unwrap();
-    assert!(next.interrupted.is_none());
-    assert!(next.recovery.failed_backends().is_empty());
-}

@@ -22,6 +22,7 @@ pub mod dynamic_textures;
 pub mod forms;
 mod frame;
 pub mod gui_models;
+pub use gui_models::{GuiModelPreparation, PreparedGuiModels};
 pub mod gui_scale_settings;
 pub mod hud_layout;
 pub mod inventory_pointer;

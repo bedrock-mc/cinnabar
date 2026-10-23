@@ -142,10 +142,11 @@ fn actor_flame_reclamation_keeps_session_armor_texels_addressable() {
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     presentation.gui_models.enabled = true;
-    presentation.gui_models.pages = vec![page; MODEL_PAGES - 1];
-    presentation.gui_models.required_pages = 1;
+    presentation.gui_models.sources.pages = vec![page; MODEL_PAGES - 1];
+    presentation.gui_models.sources.required_pages = 1;
     presentation
         .gui_models
+        .sources
         .optional_models
         .insert((first + 1, [0, 0, 16, 16]));
     let color = [77, 88, 99, 255];
@@ -190,14 +191,16 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
         glint: false,
     };
     presentation.gui_models.enabled = true;
-    presentation.gui_models.pages = vec![page; MODEL_PAGES - 1];
-    presentation.gui_models.required_pages = 1;
+    presentation.gui_models.sources.pages = vec![page; MODEL_PAGES - 1];
+    presentation.gui_models.sources.required_pages = 1;
     presentation
         .gui_models
+        .sources
         .optional_models
         .insert(icon_key(optional));
     presentation
         .gui_models
+        .sources
         .models
         .insert(icon_key(optional), item_gui::cube([optional; 6]).unwrap());
     let flame_side = assets::TILE_SIZE;
@@ -210,7 +213,7 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
             .into(),
     };
     presentation.set_gui_fire_texture(Some(&fire)).unwrap();
-    assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     let color = [77, 88, 99, 255];
     presentation.set_preview_pack_equipment(Some(catalog(color)));
     wear_chestplate(&mut presentation);
@@ -221,10 +224,11 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
     assert!(
         !presentation
             .gui_models
+            .sources
             .models
             .contains_key(&icon_key(optional))
     );
-    assert_eq!(presentation.gui_models.pages.len(), 2);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 2);
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
     for (icon, expected) in [
         (presentation.gui_models.fire.frames[0], [11, 22, 33, 255]),
