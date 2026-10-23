@@ -4,6 +4,7 @@
 //! variants), `final` into the screen, the copy-back (or exchange of textures) of buffers
 //! that end flipped, and the screen's presentation into the view.
 
+use super::center_depth::CenterDepth;
 use super::draws::DrawKind;
 use super::effects::Effect;
 use super::frame_geometry::{
@@ -80,6 +81,8 @@ pub(crate) struct ViewState {
     pub atlas_generation: Option<(Option<u64>, Option<u64>)>,
     /// This frame's effect geometry.
     pub effects: super::effects::EffectBuffers,
+    /// The smoothed `centerDepthSmooth`, when some program reads it.
+    pub center_depth: Option<CenterDepth>,
     /// Whether a frame has seen the player's biome: see [`Self::enter_world`].
     in_world: bool,
 }
@@ -104,6 +107,13 @@ impl ViewState {
         let bindings =
             bindings.ok_or_else(|| "shader pack view bindings ran out of GPU memory".to_owned())?;
         let custom = pack.custom_uniforms.clone();
+        let center_depth = pack.host.center_depth.as_ref().map(|pipeline| {
+            CenterDepth::new(
+                device,
+                pipeline,
+                targets.geometry_depth.as_ref().map(|depth| &depth.view),
+            )
+        });
         Ok(Self {
             depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack view depth parameters"),
@@ -126,6 +136,7 @@ impl ViewState {
             skipped: BTreeSet::new(),
             atlas_generation: None,
             effects: Default::default(),
+            center_depth,
             in_world: false,
         })
     }
@@ -187,11 +198,11 @@ impl ViewState {
     }
 
     /// Restarts every smoothed uniform (`smooth()` custom uniforms, `wetness`,
-    /// `eyeBrightnessSmooth`, `centerDepthSmooth`) on the first frame that knows the player's
-    /// biome. Iris builds a pack's uniforms once the world renders, so they start from world
-    /// values; frames before that (joining, terrain arriving) read placeholder biome values,
-    /// and smoothing from them would hold Photon's 1000 s `biome_temperature` near the
-    /// placeholder for the whole session.
+    /// `eyeBrightnessSmooth` and `centerDepthSmooth`) on the first frame that knows the
+    /// player's biome. Iris builds a pack's uniforms once the world renders, so they start
+    /// from world values; frames before that (joining, terrain arriving) read placeholder
+    /// biome values, and smoothing from them would hold Photon's 1000 s `biome_temperature`
+    /// near the placeholder for the whole session.
     pub(crate) fn enter_world(&mut self, biome_known: bool) {
         if biome_known && !self.in_world {
             self.in_world = true;
@@ -241,6 +252,9 @@ impl ViewState {
             Vec::new()
         };
         let custom = self.custom.evaluate(&builtin, frame_time);
+        if let Some(center_depth) = &self.center_depth {
+            center_depth.write_share(queue, frame.center_depth_share());
+        }
         let lookup = |name: &str| {
             custom
                 .iter()
@@ -420,6 +434,10 @@ pub(crate) fn record_frame(
         io.destination_format,
     );
     write_depth_parameters(queue, &state.depth_parameters, io);
+    // Passes before this frame's sample read the previous value.
+    if let Some(center_depth) = &state.center_depth {
+        center_depth.publish(encoder, &pack.center_depth.before, &state.bindings.uniforms);
+    }
     state.targets.clear_images(encoder, &pack.custom_images);
     for plan in &pack.buffers {
         let (Some(clear), Some(buffer)) = (
@@ -474,13 +492,25 @@ pub(crate) fn record_frame(
                 Some(geometry) => {
                     record_opaque(device, queue, encoder, state, geometry, timestamps);
                 }
-                None => copy_scene(
-                    encoder,
-                    &pack,
-                    &state.targets,
-                    state.scene_bindings.current(),
-                    io,
-                ),
+                None => {
+                    copy_scene(
+                        encoder,
+                        &pack,
+                        &state.targets,
+                        state.scene_bindings.current(),
+                        io,
+                    );
+                    if let Some(center_depth) = &mut state.center_depth {
+                        center_depth.sample_scene(
+                            device,
+                            encoder,
+                            &pack.center_depth.after,
+                            &state.bindings.uniforms,
+                            io.scene_depth,
+                            &state.depth_parameters,
+                        );
+                    }
+                }
             }
         },
     );

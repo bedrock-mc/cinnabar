@@ -66,9 +66,8 @@ fn scene_colour(in: Fullscreen) -> SceneColourOut {
     return out;
 }
 
-// OpenGL window depth of the scene sample under this bottom-up pixel; the sky stays at 1.
-fn gl_depth(in: Fullscreen) -> f32 {
-    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
+// OpenGL window depth of the scene sample at top-down `texel`; the sky stays at 1.
+fn gl_depth_at(texel: vec2<i32>) -> f32 {
     let reverse = textureLoad(source_depth, texel, 0);
     if (reverse <= 0.0) {
         return 1.0;
@@ -78,6 +77,11 @@ fn gl_depth(in: Fullscreen) -> f32 {
     let f = depth_parameters.gl_far;
     let ndc = (f + n) / (f - n) - 2.0 * f * n / ((f - n) * distance);
     return clamp(ndc * 0.5 + 0.5, 0.0, 1.0);
+}
+
+// OpenGL window depth of the scene sample under this bottom-up pixel.
+fn gl_depth(in: Fullscreen) -> f32 {
+    return gl_depth_at(vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw)));
 }
 
 struct SceneDepthOut {
@@ -157,4 +161,28 @@ fn overlay_depth(in: Fullscreen) -> @builtin(frag_depth) f32 {
         return 0.0;
     }
     return clamp(depth_parameters.scene_near / gl_distance(depth), 0.0, 1.0);
+}
+
+// `centerDepthSmooth`: the smoothed centre depth, and the share of the gap to this frame's
+// sample it closes (Iris's `1 - exp(-decay * lastFrameTime)`).
+@group(0) @binding(5) var<storage, read_write> center_depth: f32;
+@group(0) @binding(6) var<uniform> center_depth_share: vec4<f32>;
+
+fn smooth_center_depth(depth: f32) {
+    center_depth = mix(center_depth, depth, center_depth_share.x);
+}
+
+// The geometry depth's centre texel, which Iris reads at `vec2(0.5)` with nearest filtering.
+@compute @workgroup_size(1)
+fn center_depth_geometry() {
+    let size = textureDimensions(pack_depth);
+    smooth_center_depth(textureLoad(pack_depth, vec2<i32>(size / 2u), 0));
+}
+
+// The same bottom-up centre texel of the top-down native scene inside the view's viewport.
+@compute @workgroup_size(1)
+fn center_depth_scene() {
+    let size = vec2<i32>(depth_parameters.viewport.zw);
+    let centre = vec2<i32>(size.x / 2, size.y - 1 - size.y / 2);
+    smooth_center_depth(gl_depth_at(vec2<i32>(depth_parameters.viewport.xy) + centre));
 }

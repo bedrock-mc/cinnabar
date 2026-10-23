@@ -898,8 +898,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
   of celestial layers, effects without depth writes and private-depth first-person scenes,
   which keep the native scene copy; actor colour masks, multitexture materials, dissolve
-  pairs, beacon beams and additive rays, which keep native composition; autofocus on cutout
-  pixels, liquids and entities; complete Iris type checking and target-dependent return
+  pairs, beacon beams and additive rays, which keep native composition; packs without
+  geometry programs, whose `depthtex*` and `centerDepthSmooth` read the Vanilla scene depth
+  with its translucent layers; complete Iris type checking and target-dependent return
   overloads; constant folding for half-float packing and bit casts. Java sky and fog time
   curves and sunrise colours remain provisional. Shared loose uniforms still need
   stage-local type and constant resolution, equivalent array declaration matching and
@@ -911,10 +912,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   effects without depth writes and private-depth first-person scenes, which keep the native
   scene copy; actor colour masks, multitexture materials, dissolve pairs, beacon beams and
   additive rays, which keep native composition; native layers behind pack-rendered glass or
-  water, whose final depth can hide those layers; autofocus on cutout pixels, liquids and
-  entities; complete Iris type checking and target-dependent return overloads; constant
-  folding for half-float packing and bit casts. Java sky and fog time curves and sunrise
-  colours remain provisional.
+  water, whose final depth can hide those layers; complete Iris type checking and
+  target-dependent return overloads; constant folding for half-float packing and bit casts.
+  Java sky and fog time curves and sunrise colours remain provisional.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.

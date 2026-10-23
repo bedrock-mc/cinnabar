@@ -340,7 +340,6 @@ fn smoothed_uniforms_follow_iris_half_lives_in_tenths_of_a_second() {
     };
     let indoors = ShaderPackFrameInputs {
         eye_brightness: [0, 0],
-        center_distance: Some(2.0),
         ..ShaderPackFrameInputs::default()
     };
     let first = step(&indoors, &mut history, 0.0);
@@ -348,12 +347,13 @@ fn smoothed_uniforms_follow_iris_half_lives_in_tenths_of_a_second() {
         first.value("eyeBrightnessSmooth"),
         Some(HostValue::IVec([0, 0, 0, 0], 2))
     );
-    let Some(HostValue::Float(near)) = first.value("centerDepthSmooth") else {
-        panic!("centerDepthSmooth is a float");
-    };
+    assert_eq!(
+        first.center_depth_share(),
+        1.0,
+        "centerDepthSmooth starts from its first sample"
+    );
     let outdoors = ShaderPackFrameInputs {
         eye_brightness: [0, 240],
-        center_distance: None,
         ..indoors
     };
     // eyeBrightnessHalflife 10 is one second: after one second half the way, truncated.
@@ -362,12 +362,27 @@ fn smoothed_uniforms_follow_iris_half_lives_in_tenths_of_a_second() {
         panic!("eyeBrightnessSmooth is an ivec2");
     };
     assert!((119..=120).contains(&sky), "half of 240, truncated: {sky}");
-    // centerDepthHalflife 1 is a tenth of a second: a second later it has all but arrived.
-    let Some(HostValue::Float(far)) = later.value("centerDepthSmooth") else {
-        panic!("centerDepthSmooth is a float");
-    };
-    assert!(near > 0.9 && near < 1.0, "a block 2 away: {near}");
-    assert!(far > 0.999 && far <= 1.0, "the sky reads depth 1: {far}");
+    // centerDepthHalflife 1 is a tenth of a second: a tenth of a second closes half the gap.
+    let tenth = step(&outdoors, &mut history, 0.1);
+    assert!(
+        (tenth.center_depth_share() - 0.5).abs() < 1e-6,
+        "{}",
+        tenth.center_depth_share()
+    );
+    assert_eq!(
+        later.value("centerDepthSmooth"),
+        Some(HostValue::Float(0.0)),
+        "the GPU writes it over the placeholder; geometry programs read 0 as in Iris"
+    );
+    history.started = false;
+    let restarted = step(&outdoors, &mut history, 0.1);
+    assert_eq!(
+        restarted.center_depth_share(),
+        1.0,
+        "a restart takes the sample"
+    );
+    history.frame_time_counter = 0.0;
+    let later = step(&outdoors, &mut history, 1.0);
     assert_eq!(later.value("frameTimeCounter"), Some(HostValue::Float(1.0)));
     history.frame_time_counter = 3599.5;
     let wrapped = step(&outdoors, &mut history, 1.0);

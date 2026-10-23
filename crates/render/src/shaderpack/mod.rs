@@ -33,6 +33,8 @@ mod alpha_test;
 #[cfg(feature = "shaderpacks")]
 pub(crate) mod atlas;
 #[cfg(feature = "shaderpacks")]
+mod center_depth;
+#[cfg(feature = "shaderpacks")]
 mod dispatch;
 #[cfg(feature = "shaderpacks")]
 mod draws;

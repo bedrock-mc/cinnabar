@@ -29,6 +29,42 @@ fn native_depth_does_not_replace_pack_depth_before_translucent() {
     assert_pixels(&bytes, |_| [255; 3]);
 }
 
+/// A full-screen-only pack reads the Vanilla scene's depth: an entity 0.2 blocks in front
+/// of the camera across the screen (reverse-Z 0.5 at the scene's 0.1 near plane) reaches
+/// `final`'s `centerDepthSmooth` as its OpenGL depth under the pack's projection.
+#[test]
+fn scene_depth_at_the_centre_reaches_center_depth_smooth() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("final.vsh", PASS_VERTEX),
+            (
+                "final.fsh",
+                "#version 120\nuniform float centerDepthSmooth; void main() { gl_FragColor = vec4(vec3(centerDepthSmooth), 1.0); }",
+            ),
+        ],
+        1,
+        [0, 0, 4, 4],
+        false,
+        true,
+    );
+    let (near, far, distance) = (0.05_f32, 1024.0_f32, 0.2_f32);
+    let ndc = (far + near) / (far - near) - 2.0 * far * near / ((far - near) * distance);
+    let expected = ((ndc * 0.5 + 0.5) * 255.0).round() as i32;
+    for (index, pixel) in bytes.as_chunks::<4>().0.iter().take(4).enumerate() {
+        for channel in &pixel[..3] {
+            assert!(
+                (i32::from(*channel) - expected).abs() <= 1,
+                "pixel {index}: {channel} for depth {expected}"
+            );
+        }
+    }
+}
+
 #[test]
 fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
     use crate::shaderpack::frame_geometry::open_kind;

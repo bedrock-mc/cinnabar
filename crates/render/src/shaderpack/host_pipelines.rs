@@ -1,5 +1,5 @@
-//! The host's own full-screen passes around a pack (`blit.wgsl`): scene copies, depth copies,
-//! native overlay depth, presenting and mip downsampling.
+//! The host's own passes around a pack (`blit.wgsl`): scene copies, depth copies, native
+//! overlay depth, presenting, mip downsampling and the `centerDepthSmooth` sampler.
 
 use super::plan::MAX_COLOR_BUFFERS;
 use wgpu::TextureFormat;
@@ -33,6 +33,8 @@ pub(crate) struct HostPipelines {
     pub preserve: Vec<(TextureFormat, wgpu::RenderPipeline)>,
     /// `downsample` per mipmapped buffer format.
     pub downsample: Vec<(TextureFormat, wgpu::RenderPipeline)>,
+    /// Samples and smooths the centre depth when some program reads `centerDepthSmooth`.
+    pub center_depth: Option<wgpu::ComputePipeline>,
     pub linear: wgpu::Sampler,
     /// The geometry adapter's zero-stride constant stream, for host-built sky vertices.
     pub constant_stream: wgpu::Buffer,
@@ -53,7 +55,8 @@ impl HostPipelines {
 /// Builds the host passes for a pack's buffer and depth formats; `depth_targets` when the
 /// pack has a geometry depth or comparison `depthtex*` for the scene depth to fill, and
 /// `float_depths` the float `depthtex*` copies it allocates (`targets::float_depths`).
-/// `shadow_depth_formats` comes from the allocated float shadow textures.
+/// `shadow_depth_formats` comes from the allocated float shadow textures; `center_depth`
+/// is the depth `centerDepthSmooth` samples, when some program reads it.
 pub(super) fn host_pipelines(
     device: &wgpu::Device,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
@@ -62,6 +65,7 @@ pub(super) fn host_pipelines(
     float_depths: [bool; 3],
     mipmap_formats: &[TextureFormat],
     shadow_depth_formats: &[TextureFormat],
+    center_depth: Option<super::center_depth::DepthSource>,
 ) -> HostPipelines {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shader pack host passes"),
@@ -148,6 +152,16 @@ pub(super) fn host_pipelines(
                 (f, pipeline(entry, &[target(f)], false))
             })
             .collect(),
+        center_depth: center_depth.map(|source| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(source.entry()),
+                layout: None,
+                module: &module,
+                entry_point: Some(source.entry()),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        }),
         linear: device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shader pack host linear"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -220,7 +234,9 @@ mod tests {
             [false; 3],
             &[],
             &[],
+            None,
         );
         assert!(host.scene_depth.is_none());
+        assert!(host.center_depth.is_none());
     }
 }

@@ -5683,7 +5683,6 @@ name = "meshing"
 version = "0.1.28"
 dependencies = [
  "assets",
- "block-transform",
  "bytemuck",
  "criterion",
  "image",

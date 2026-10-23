@@ -13,6 +13,7 @@ use planning::{pack_settings, planned, storage_sizes};
 mod diagnostics;
 use diagnostics::{failure_line, log_program};
 
+use super::center_depth::{CenterDepthReaders, DepthSource};
 use super::draws::{GeometryDraw, GeometryStage, geometry_draws, select_draws};
 use super::effects::EffectSettings;
 use super::host_pipelines::{HostPipelines, host_pipelines};
@@ -81,6 +82,15 @@ pub(crate) struct GpuProgram {
 }
 
 impl GpuProgram {
+    /// The loose uniform block of a full-screen (or compute) program, which owns a uniform
+    /// buffer per view; geometry programs have one per draw instead.
+    pub fn fullscreen_uniforms(&self) -> Option<&shaderpack::UniformBlock> {
+        self.reflection
+            .uniforms
+            .as_ref()
+            .filter(|_| !matches!(self.pipeline, ProgramPipeline::Geometry))
+    }
+
     /// Bit per colour buffer the program both samples (`colortexN`) and writes as a storage
     /// image (`colorimgN`). Both bind the same side, which OpenGL allows and wgpu forbids
     /// within one pass, so the host samples a copy taken just before the pass.
@@ -173,6 +183,8 @@ pub(crate) struct PackGpu {
     pub lightmap: Option<usize>,
     /// The pack's effect directives (clouds, sun, moon, stars, weather, particle ordering).
     pub effects: EffectSettings,
+    /// Full-screen programs reading `centerDepthSmooth`.
+    pub center_depth: CenterDepthReaders,
 }
 
 impl PackGpu {
@@ -785,6 +797,11 @@ fn build_translation(
             .map(|slot| constants.constant(*slot).texture.format())
             .collect();
         check_cancelled(progress)?;
+        let center_depth = CenterDepthReaders::plan(
+            programs
+                .iter()
+                .map(|program| (program.group, program.fullscreen_uniforms())),
+        );
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,
@@ -793,6 +810,11 @@ fn build_translation(
             super::targets::float_depths(draws.is_empty(), depth_sampled),
             &mipmap_formats,
             &shadow_depth_formats,
+            (!center_depth.is_empty()).then_some(if draws.is_empty() {
+                DepthSource::Scene
+            } else {
+                DepthSource::Geometry
+            }),
         );
         let shader_storage = storage_sizes(&reflections, &translation.properties)?;
         let max_uniform = reflections
@@ -866,6 +888,7 @@ fn build_translation(
             atlas_placeholder,
             lightmap,
             effects,
+            center_depth,
         };
         Ok((loaded, pipeline_cache))
     });
