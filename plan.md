@@ -289,8 +289,8 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Retained corrections arm its idle countdown;
-bare snaps do not. Server-driven gameplay pose and item-use starts, riptide flag
-lifetimes, block-climber flags, custom collision definitions, legacy sneak height,
+bare snaps do not. Server-driven item-use gameplay starts, block-climber flags,
+custom collision definitions, legacy sneak height,
 transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
@@ -306,8 +306,8 @@ word back to the live state, keeping the live spin and glide counters, swim blen
 camera eye blend. Glide, swim and crawl retain independent bits beside flight;
 their own trigger transitions produce actions, and their combined state feeds
 the compact body, swim blend and eye offset.
-Still incomplete: server `UsingItem` writes, which vanilla keeps in the same word and
-reconciles with local item use on movement ticks; the Riptide spin's entity-hit end, which
+Still incomplete: reconciling server `UsingItem` writes with local-use gameplay;
+the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.
