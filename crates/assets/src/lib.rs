@@ -96,7 +96,6 @@ pub use audio_pcm::{
     MAX_AUDIO_PCM_CARRIER_BYTES, MAX_AUDIO_PCM_SOURCE_BYTES, RuntimeAudioPcm, encode_audio_pcm,
     reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
 };
-pub use beacon_tints::BeaconTintCatalog;
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SEASONAL_FOLIAGE,
     BIOME_TINT_FLAG_SWAMP_GRASS, BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets,
@@ -184,7 +183,6 @@ pub use equipment::{
     encode_equipment_catalog_full, encode_equipment_catalog_with_attack_timings,
     encode_equipment_catalog_with_textures, encode_equipment_catalog_with_use_profiles,
 };
-pub use error::AssetError;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
     FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FONT_RASTER_EM_PIXELS,
@@ -266,7 +264,6 @@ pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
     vanilla_source, vanilla_source_manifest_sha256,
 };
-pub use publication::rename_no_replace;
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
@@ -297,5 +294,6 @@ pub use ui::{
     UiNineSlice, UiSidecar, UiSidecarEntry, UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
+pub use {beacon_tints::BeaconTintCatalog, error::AssetError, publication::rename_no_replace};
 pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};
 pub use {server_lang::ServerLangOverlay, session_entities::SessionEntityPack};
