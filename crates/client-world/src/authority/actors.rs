@@ -232,7 +232,7 @@ impl WorldAuthority {
         self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
     }
     /// Ordered sources of server swings for the local player since the last call.
-    pub fn take_local_server_swings(&mut self) -> Vec<protocol::SwingSource> {
+    pub fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         self.actors.take_local_server_swings()
     }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.

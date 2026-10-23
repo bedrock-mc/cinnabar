@@ -150,7 +150,7 @@ impl ActorStore {
     }
 
     /// Arm swings the server sent for the local player since the last call.
-    pub(crate) fn take_local_server_swings(&mut self) -> Vec<protocol::SwingSource> {
+    pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
     }
 
@@ -889,10 +889,7 @@ impl ActorStore {
                     if self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && matches!(action.kind, protocol::ActorActionKind::SwingArm)
                     {
-                        self.local_server_swings
-                            .push(protocol::SwingSource::from_wire_name(
-                                action.swing_source.as_deref(),
-                            ));
+                        self.local_server_swings.push(action.swing_source.clone());
                     }
                     if (self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && !matches!(action.kind, protocol::ActorActionKind::Custom { .. }))

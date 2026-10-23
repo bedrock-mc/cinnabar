@@ -32,7 +32,12 @@ pub(crate) fn echo(
         &effects,
         item_duration,
     );
-    pending.extend(stream.take_local_server_swings());
+    pending.extend(
+        stream
+            .take_local_server_swings()
+            .into_iter()
+            .map(|source| protocol::SwingSource::from_wire_name(source.as_deref())),
+    );
     let result = pending.flush(
         ServerSwingContext {
             tick: movement.completed_tick().saturating_add(1),

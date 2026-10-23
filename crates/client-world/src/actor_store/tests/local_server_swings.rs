@@ -15,13 +15,10 @@ fn server_swings_for_the_local_player_reach_its_swing_tracker() {
             swing_source: None,
         }),
     );
+    assert_eq!(store.take_local_server_swings(), vec![None]);
     assert_eq!(
         store.take_local_server_swings(),
-        vec![protocol::SwingSource::None]
-    );
-    assert_eq!(
-        store.take_local_server_swings(),
-        Vec::<protocol::SwingSource>::new(),
+        Vec::<Option<Arc<str>>>::new(),
         "each swing is taken once"
     );
 }
@@ -41,13 +38,10 @@ fn dimension_reset_discards_only_the_previous_dimensions_server_swings() {
     assert_eq!(store.reset_dimension(1, 3, 1), ActorApplyResult::Reset);
     assert_eq!(
         store.take_local_server_swings(),
-        Vec::<protocol::SwingSource>::new()
+        Vec::<Option<Arc<str>>>::new()
     );
     store.apply_item_actor(1, 4, action);
-    assert_eq!(
-        store.take_local_server_swings(),
-        vec![protocol::SwingSource::None]
-    );
+    assert_eq!(store.take_local_server_swings(), vec![None]);
 }
 
 #[test]
@@ -68,14 +62,10 @@ fn local_server_callbacks_preserve_sources_and_do_not_saturate_at_a_byte() {
     }
     let sources = store.take_local_server_swings();
     assert_eq!(sources.len(), 300);
-    for (index, source) in sources.into_iter().enumerate() {
+    for (index, source) in sources.iter().enumerate() {
         assert_eq!(
-            source,
-            if index % 2 == 0 {
-                protocol::SwingSource::Event
-            } else {
-                protocol::SwingSource::Attack
-            }
+            source.as_deref(),
+            Some(if index % 2 == 0 { "event" } else { "attack" })
         );
     }
 }
