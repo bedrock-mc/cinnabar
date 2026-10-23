@@ -438,19 +438,6 @@ impl ScoreboardStore {
         criteria_name: Arc<str>,
         raw_sort_order: i32,
     ) -> RetainedUiApply {
-        if ![
-            &display_slot,
-            &objective_name,
-            &display_name,
-            &criteria_name,
-        ]
-        .into_iter()
-        .all(|text| text_is_bounded(text))
-        {
-            self.diagnostics.text_field_rejections =
-                self.diagnostics.text_field_rejections.saturating_add(1);
-            return RetainedUiApply::Ignored;
-        }
         let Some(slot) = DisplaySlot::parse(&display_slot) else {
             self.diagnostics.unsupported_display_slots =
                 self.diagnostics.unsupported_display_slots.saturating_add(1);
@@ -458,6 +445,14 @@ impl ScoreboardStore {
         };
         if objective_name.is_empty() {
             return self.clear_display_slot(slot);
+        }
+        if ![&objective_name, &display_name, &criteria_name]
+            .into_iter()
+            .all(|text| text_is_bounded(text))
+        {
+            self.diagnostics.text_field_rejections =
+                self.diagnostics.text_field_rejections.saturating_add(1);
+            return RetainedUiApply::Ignored;
         }
         let sort_order = ScoreSortOrder::from(raw_sort_order);
         let render_type = ScoreRenderType::from_criteria_name(&criteria_name);

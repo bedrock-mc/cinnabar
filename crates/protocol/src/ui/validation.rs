@@ -115,11 +115,6 @@ const UI_FIELD_BUDGETS: &[(wire::FieldId, UiBudget)] = &[
         UiBudget::Text,
     ),
     (fields::SET_DISPLAY_OBJECTIVE_OBJECTIVE_NAME, UiBudget::Text),
-    (
-        fields::SET_DISPLAY_OBJECTIVE_OBJECTIVE_DISPLAY_NAME,
-        UiBudget::Text,
-    ),
-    (fields::SET_DISPLAY_OBJECTIVE_CRITERIA_NAME, UiBudget::Text),
     (fields::MODAL_FORM_REQUEST_FORM_UI_JSON, UiBudget::FormJson),
 ];
 

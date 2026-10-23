@@ -119,3 +119,28 @@ fn empty_display_for_an_unbound_slot_does_not_create_an_objective() {
     assert_eq!(store.retained_text_bytes(), retained_bytes);
     assert_eq!(store.revision(), revision);
 }
+
+#[test]
+fn empty_display_ignores_unused_display_name_and_criteria() {
+    let mut store = populated();
+    assert_eq!(
+        store
+            .apply(
+                3,
+                ScoreboardEvent::DisplayObjective {
+                    display_slot: "sidebar".into(),
+                    objective_name: "".into(),
+                    display_name: "x".repeat(MAX_RETAINED_UI_TEXT_FIELD_BYTES + 1).into(),
+                    criteria_name: "y".repeat(MAX_RETAINED_UI_TEXT_FIELD_BYTES + 1).into(),
+                    sort_order: i32::MAX,
+                },
+            )
+            .unwrap(),
+        RetainedUiApply::Applied
+    );
+    assert!(store.sidebar().is_none());
+    assert_eq!(store.objective_count(), 0);
+    assert_eq!(store.score_count(), 0);
+    assert_eq!(store.retained_text_bytes(), 0);
+    assert_eq!(store.diagnostics().text_field_rejections, 0);
+}
