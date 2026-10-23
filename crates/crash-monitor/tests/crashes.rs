@@ -532,13 +532,8 @@ fn an_unreadable_stack_keeps_its_dump() {
 /// Lightweight Linux guards must preserve the readable stack above the faulting SP.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "names the unavailable kernel fixture when skipping"
-)]
 fn a_stack_pointer_in_a_lightweight_guard_keeps_its_dump() {
     if !guarded_stack::lightweight_supported() {
-        eprintln!("SKIP: kernel fixture MADV_GUARD_INSTALL is unavailable");
         return;
     }
     guarded_stack::assert_dump(crash("lightweight_stack_guard"), true);

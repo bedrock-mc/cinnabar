@@ -5,10 +5,19 @@ use minidump::{Minidump, MinidumpException, MinidumpSystemInfo, MinidumpThreadLi
 /// Linux's lightweight guard advice, which libc does not expose yet.
 const MADV_GUARD_INSTALL: libc::c_int = 102;
 
-/// Reports whether the kernel supports lightweight guard pages.
+/// Reports support for lightweight guards and names the missing fixture when unavailable.
+#[expect(
+    clippy::print_stderr,
+    reason = "names the unavailable kernel fixture when skipping"
+)]
 pub(super) fn lightweight_supported() -> bool {
     // SAFETY: A zero-length, null-address query only checks whether the advice is supported.
-    unsafe { libc::madvise(std::ptr::null_mut(), 0, MADV_GUARD_INSTALL) == 0 }
+    if unsafe { libc::madvise(std::ptr::null_mut(), 0, MADV_GUARD_INSTALL) } == 0 {
+        true
+    } else {
+        eprintln!("SKIP: kernel fixture MADV_GUARD_INSTALL is unavailable");
+        false
+    }
 }
 
 /// Faults inside a lightweight guard whose mapping still has read and write permissions.
