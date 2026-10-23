@@ -67,7 +67,7 @@ pub fn generate(files: &[(String, PathBuf)]) -> Result<String> {
     for (path, file) in files {
         writeln!(
             out,
-            "/// Package asset `{path}`.\npub const {}: experience_sdk::message::Asset = experience_sdk::message::Asset {{ path: {path:?}, bytes: include_bytes!({:?}) }};",
+            "/// Package asset `{path}`.\npub const {}: ::experience_sdk::message::Asset = ::experience_sdk::message::Asset {{ path: {path:?}, bytes: ::core::include_bytes!({:?}) }};",
             constant(path),
             file.to_str().context("asset path is not UTF-8")?
         )?;

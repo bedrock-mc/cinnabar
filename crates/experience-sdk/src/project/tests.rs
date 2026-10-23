@@ -73,6 +73,94 @@ fn digit_leading_go_names_fail_generation() {
 }
 
 #[test]
+fn generated_projects_compile_with_standard_and_go_names() {
+    let names = [
+        "Result",
+        "Option",
+        "String",
+        "Vec",
+        "Box",
+        "Ok",
+        "Err",
+        "Some",
+        "None",
+        "std",
+        "core",
+        "experience_sdk",
+        "fmt",
+        "strings",
+        "utf8",
+        "uuid",
+        "cinnabarext",
+        "bool",
+        "int64",
+        "make",
+        "len",
+        "error",
+        "nil",
+    ];
+    let mut source = String::from("#![project(id = \"names\", permissions(messaging))]\n");
+    for name in names {
+        source.push_str(&format!(
+            "#[message(id = \"names.{}\", schema = 1, to_client)]\n#[derive(Debug, PartialEq)]\npub struct {name} {{\n#[field(max_bytes = 12)] pub text: String,\n#[field(max_items = 3)] pub values: Vec<u8>,\npub flag: bool,\n}}\n",
+            name.to_ascii_lowercase()
+        ));
+    }
+    source
+        .push_str("#[message(id = \"names.empty\", schema = 1, to_server)]\npub struct Empty {}\n");
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("src")).unwrap();
+    fs::create_dir(root.path().join("assets")).unwrap();
+    fs::write(root.path().join("src/shared.rs"), source).unwrap();
+    fs::write(root.path().join("assets/star.txt"), b"star").unwrap();
+    generate_at(root.path(), &root.path().join("out")).unwrap();
+    fs::write(
+        root.path().join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"generated-names\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[dependencies]\nexperience-sdk = {{ path = {:?}, default-features = false, features = [\"messages\"] }}\n[workspace]\n",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+    )
+    .unwrap();
+    let mut rust = String::from(
+        "#[allow(non_camel_case_types)]\nmod shared { include!(\"../out/mod_shared.rs\"); }\nfn main() {\nuse ::experience_sdk::message::Message;\n",
+    );
+    for name in names {
+        rust.push_str(&format!(
+            "let value = shared::{name} {{ text: \"star\".into(), values: vec![1, 2], flag: true }};\nassert_eq!(shared::{name}::decode(value.encode().unwrap()).unwrap(), value);\nassert!(shared::{name}::decode(vec![]).is_err());\n"
+        ));
+    }
+    rust.push_str("assert!(shared::Empty::decode(shared::Empty {}.encode().unwrap()).is_ok());\nassert_eq!(shared::assets::ASSET_STAR_TXT.bytes, b\"star\");\n}\n");
+    fs::write(root.path().join("src/main.rs"), rust).unwrap();
+    let output = Command::new("cargo")
+        .args(["run", "--offline", "--quiet"])
+        .env("CARGO_TARGET_DIR", root.path().join("target"))
+        .env("CARGO_BUILD_BUILD_DIR", root.path().join("build"))
+        .current_dir(root.path())
+        .output()
+        .expect("Cargo is required for generated Rust codec conformance");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::write(root.path().join("out/go.mod"), super::go_module("names")).unwrap();
+    let output = Command::new("go")
+        .args(["test", "-mod=mod", "./..."])
+        .env("GOWORK", "off")
+        .current_dir(root.path().join("out"))
+        .output()
+        .expect("Go is required for generated Go codec conformance");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn asset_renames_remove_constants_and_collisions_fail() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir(root.path().join("src")).unwrap();
