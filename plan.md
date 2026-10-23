@@ -795,7 +795,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.
-  Session teardown and resource-budget regression coverage is included. Headless planet /
+  Session teardown, fair frame callbacks, expanded triangle limits and combined geometry /
+  actor-mask GPU reservations have regression coverage. Headless planet /
   star-cube rendering and F9 teardown are captured; hardware performance qualification
   remains incomplete.
 - Native click caps and local weather overrides have transactional host APIs and

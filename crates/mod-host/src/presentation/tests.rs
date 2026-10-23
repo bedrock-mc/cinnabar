@@ -54,6 +54,44 @@ fn context() -> Context {
 }
 
 #[test]
+fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
+    let mut input = planet();
+    for owner in [10, 20] {
+        input.masks.push(mod_render::masks::Mask {
+            handle: DrawingHandle {
+                owner,
+                generation: owner,
+                slot: 1,
+            },
+            session: Default::default(),
+            depth: mod_api::drawing::MaskDepth::Test,
+            entities: Vec::new(),
+            style: None,
+            position: None,
+        });
+    }
+    let mut receiver = Receiver::default();
+    receiver
+        .apply(input, DrawingPermissions::ALL, &context(), 8192)
+        .unwrap();
+    let output = receiver.output().0;
+    let [reservation] = output.gpu_reservations.as_slice() else {
+        panic!("one bundle must keep one GPU reservation");
+    };
+    assert_eq!(reservation.limit_bytes, 8192);
+    assert_eq!(
+        reservation.geometry_bytes,
+        Snapshot::gpu_bytes(&output.retained[0])
+    );
+    assert!(
+        output
+            .masks
+            .iter()
+            .all(|mask| reservation.owners.contains(&mask.handle.owner))
+    );
+}
+
+#[test]
 fn bundle_planet_and_environment_require_drawing_authority() {
     let mut receiver = Receiver::default();
     assert!(
@@ -253,4 +291,84 @@ fn partial_transfers_deny_overflow_and_release_their_memory_on_teardown() {
     );
     assert!(receiver.output().0.retained.is_empty());
     drop(receiver);
+}
+
+/// Places the same admitted topology repeatedly without duplicating GPU geometry.
+fn placements(mut output: Output, count: usize) -> Output {
+    let (handle, instance) = output.drawing.instances[0].clone();
+    output.drawing.instances = (0..count)
+        .map(|index| {
+            (
+                DrawingHandle {
+                    slot: handle.slot + index as u64,
+                    ..handle
+                },
+                instance.clone(),
+            )
+        })
+        .collect();
+    output
+}
+
+#[test]
+fn bundle_triangle_budget_counts_expanded_lines_per_placement() {
+    let mut input = planet();
+    input.drawing.geometry[0].1 = GeometrySpec::Polyline {
+        vertices: (0..100)
+            .map(|index| Vertex {
+                position: [index as f32 / 100., 0., 0.],
+                color: [1.; 4],
+                uv: [0.; 2],
+                data: [0.; 4],
+            })
+            .collect(),
+        closed: false,
+    };
+    let mut receiver = Receiver::default();
+    receiver
+        .apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap();
+    let revision = receiver.output().1;
+    let error = receiver
+        .apply(
+            placements(input, 101),
+            DrawingPermissions::ALL,
+            &context(),
+            u64::MAX,
+        )
+        .unwrap_err();
+    assert_eq!(error.to_string(), "bundle triangle budget exceeded");
+    assert_eq!(receiver.output().1, revision);
+}
+
+#[test]
+fn bundle_triangle_budget_combines_retained_and_immediate_geometry() {
+    let mut input = planet();
+    let GeometrySpec::Triangles { indices, .. } = &mut input.drawing.geometry[0].1 else {
+        unreachable!()
+    };
+    *indices = [0, 1, 2]
+        .into_iter()
+        .cycle()
+        .take(server_experience::policy::MAX_TRIANGLES as usize / 2 * 3)
+        .collect();
+    let input = placements(input, 2);
+    let mut receiver = Receiver::default();
+    receiver
+        .apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap();
+    let revision = receiver.output().1;
+    let mut input = input;
+    input.primitives.beams.push(mod_render::Beam {
+        start: [0.; 3],
+        end: [1.; 3],
+        width: 1.,
+        color: [1.; 4],
+        intensity: 1.,
+    });
+    let error = receiver
+        .apply(input, DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap_err();
+    assert_eq!(error.to_string(), "bundle triangle budget exceeded");
+    assert_eq!(receiver.output().1, revision);
 }

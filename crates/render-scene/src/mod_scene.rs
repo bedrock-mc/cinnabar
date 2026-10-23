@@ -42,6 +42,7 @@ pub struct ModRenderScene {
     merge: mod_render::RenderMerge,
     pub passes: Vec<mod_render::Pass>,
     pub retained: Vec<Arc<mod_render::retained::Resources>>,
+    pub gpu_reservations: Vec<mod_render::GpuReservation>,
     pub masks: Arc<[mod_render::masks::Mask]>,
     pub vertices: Arc<[ModVertex]>,
     primitives: Arc<mod_render::Primitives>,
@@ -89,6 +90,7 @@ impl ModRenderScene {
         self.generation = self.generation.wrapping_add(1);
         self.passes.clone_from(&output.passes);
         self.retained.clone_from(&output.retained);
+        self.gpu_reservations.clone_from(&output.gpu_reservations);
         self.masks = Arc::clone(&output.masks);
         if !Arc::ptr_eq(&self.primitives, &output.primitives) {
             self.primitives = Arc::clone(&output.primitives);

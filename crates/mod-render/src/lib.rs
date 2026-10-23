@@ -1,6 +1,10 @@
 //! Validated render output of a personal mod: sandboxed post passes and world primitives.
 
+pub mod block_highlights;
+mod budget;
 pub mod geometry;
+pub mod position_box;
+pub use budget::GpuReservation;
 mod identity;
 pub use identity::next_owner;
 pub mod masks;
@@ -186,6 +190,7 @@ pub struct RenderOutput {
     pub primitives: Arc<Primitives>,
     pub masks: Arc<[masks::Mask]>,
     pub retained: Vec<Arc<retained::Resources>>,
+    pub gpu_reservations: Vec<GpuReservation>,
 }
 
 /// Combines several mods' output in load order within the single-mod budgets: earlier mods
@@ -231,11 +236,16 @@ impl RenderMerge {
             .iter()
             .flat_map(|output| output.retained.iter().cloned())
             .collect();
+        let gpu_reservations = outputs
+            .iter()
+            .flat_map(|output| output.gpu_reservations.iter().cloned())
+            .collect();
         RenderOutput {
             passes,
             primitives,
             masks,
             retained,
+            gpu_reservations,
         }
     }
 
@@ -287,7 +297,3 @@ pub fn pass_name_valid(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
-
-pub mod position_box;
-
-pub mod block_highlights;

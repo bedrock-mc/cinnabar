@@ -537,6 +537,12 @@ publish. Guest fuel, one linear-memory allowance, stack, instance/table counts,
 output size and host-call counts are bounded. Aggregate session reservations and
 callback fuel prevent multiplying allowances by adding bundles. Startup callbacks
 also consume the aggregate budget and wait across slices when it is exhausted.
+Drawing frame callbacks rotate between ready bundles. Committed drawing snapshots
+continue across callbacks until every piece arrives. Expanded retained triangles
+count per placement and share the triangle allowance with immediate primitives.
+Each bundle's GPU reservation covers geometry and actor-mask coverage, depth,
+resolve and halo attachments across every view. Resizing or changing multisampling
+rechecks that combined allowance before allocating; coverage resumes when it fits.
 Readiness waits for every initializer; their bounded sends follow the ready record.
 These are not OS resident-memory or compiler limits.
 

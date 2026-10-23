@@ -156,6 +156,8 @@ pub(super) struct Live<H = Helper> {
     drawing_generation: u64,
     drawing_sources: Vec<u64>,
     drawing_merge: mod_render::RenderMerge,
+    /// The last bundle given a frame callback, so later bundles get the next slice first.
+    frame_cursor: Option<String>,
     /// The session's items, for guests granted `items`.
     session: Option<Arc<SessionData>>,
 }
@@ -267,6 +269,7 @@ impl<H: Worker> Live<H> {
             drawing_generation: mod_render::next_owner(),
             drawing_sources: Vec::new(),
             drawing_merge: Default::default(),
+            frame_cursor: None,
             session: None,
         };
         live.initialize()?;
@@ -469,8 +472,20 @@ impl<H: Worker> Live<H> {
                 instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
             }
         }
-        for instance in self.instances.values_mut() {
+        self.dispatch_frames(epoch)?;
+        Ok(packets)
+    }
+
+    /// Rotates after the last dispatched bundle while preserving the aggregate fuel allowance.
+    fn dispatch_frames(&mut self, epoch: u64) -> Result<()> {
+        let mut ids: Vec<_> = self.instances.keys().cloned().collect();
+        let start =
+            ids.partition_point(|id| self.frame_cursor.as_ref().is_some_and(|last| id <= last));
+        ids.rotate_left(start);
+        for id in ids {
+            let instance = self.instances.get_mut(&id).expect("current bundle");
             if instance.stopped.is_none()
+                && instance.helper.is_some()
                 && !instance.busy
                 && instance
                     .capabilities
@@ -494,9 +509,10 @@ impl<H: Worker> Live<H> {
                     epoch,
                     modal::size_for(&self.gui, &instance.owner.bundle),
                 )?;
+                self.frame_cursor = Some(id);
             }
         }
-        Ok(packets)
+        Ok(())
     }
 
     /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,

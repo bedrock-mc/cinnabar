@@ -228,12 +228,13 @@ fn queue_pipeline(
 }
 
 /// Computes all quarter-area levels with checked accounting, including one-pixel tails.
-fn level_sizes(mut size: Extent3d) -> Vec<Extent3d> {
-    (0..MASK_BLUR_LEVELS)
-        .map(|_| {
-            size.width = size.width.div_ceil(2).max(1);
-            size.height = size.height.div_ceil(2).max(1);
-            size
+fn level_sizes(size: Extent3d) -> Vec<Extent3d> {
+    mod_render::masks::halo_sizes(size.width, size.height)
+        .into_iter()
+        .map(|[width, height]| Extent3d {
+            width,
+            height,
+            ..size
         })
         .collect()
 }

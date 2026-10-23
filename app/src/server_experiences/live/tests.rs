@@ -1,5 +1,6 @@
 use super::*;
 
+mod drawing;
 mod shift;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
@@ -16,6 +17,8 @@ const SCREEN: &str = "ui/screen.json";
 
 struct FakeWorker {
     response: Option<Transaction>,
+    /// Ordered snapshot pieces delivered alongside successful callbacks.
+    presentation: VecDeque<mod_host::presentation::Chunk>,
     /// A failure reply that the next poll delivers before any response.
     failure: Option<CallFailure>,
     /// Makes each dispatch fail its callback instead of completing it.
@@ -40,6 +43,7 @@ impl Worker for FakeWorker {
     ) -> Result<Self> {
         Ok(Self {
             response: None,
+            presentation: VecDeque::new(),
             failure: None,
             fail: false,
             dispatched: Vec::new(),
@@ -57,7 +61,7 @@ impl Worker for FakeWorker {
             Ok(Reply::Committed {
                 transaction,
                 fuel: 1,
-                presentation: None,
+                presentation: self.presentation.pop_front().map(Box::new),
             })
         })
     }
@@ -214,6 +218,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         drawing_generation: mod_render::next_owner(),
         drawing_sources: Vec::new(),
         drawing_merge: Default::default(),
+        frame_cursor: None,
         session: None,
     };
     live.initialize().unwrap();

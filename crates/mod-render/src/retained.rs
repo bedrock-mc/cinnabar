@@ -59,9 +59,9 @@ impl Geometry {
         (self.expanded_vertices * std::mem::size_of::<mesh::GpuVertex>()) as u64
     }
 
-    /// Reports admitted triangles without trusting a guest-supplied cost.
+    /// Bounds expanded triangles, including immutable line joins and caps.
     pub fn triangles(&self) -> usize {
-        self.indices.len() / 3
+        self.expanded_vertices / 3
     }
 
     /// Reports whether line expansion and width handling apply to this geometry.

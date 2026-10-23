@@ -186,7 +186,8 @@ pub fn build(primitives: &Primitives) -> Vec<ModVertex> {
     out
 }
 
-fn vertex_count(primitives: &Primitives) -> usize {
+/// Counts the emitted triangle-list vertices without building or allocating their storage.
+pub fn vertex_count(primitives: &Primitives) -> usize {
     (primitives.decals.len()
         + primitives
             .ribbons

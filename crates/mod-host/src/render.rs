@@ -5,18 +5,7 @@ use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
 use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
-
-/// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
-static REVISION: AtomicU64 = AtomicU64::new(1);
-
-/// Allocates a process-unique identity across reloads and owners.
-fn next_revision() -> u64 {
-    REVISION.fetch_add(1, Ordering::Relaxed)
-}
+use std::sync::Arc;
 
 /// Preserves the admission category while legacy callers continue receiving plain detail.
 fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
@@ -47,7 +36,7 @@ impl RenderState {
             masks: mod_render::masks::MaskStore::default(),
             committed: RenderOutput::default(),
             retained: Default::default(),
-            generation: next_revision(),
+            generation: mod_render::next_owner(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
             calls: 0,
@@ -97,7 +86,7 @@ impl RenderState {
             self.committed.passes = passes;
         }
         if changed {
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
     }
@@ -113,7 +102,7 @@ impl RenderState {
             changed = true;
         }
         if changed {
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
     }
@@ -126,7 +115,7 @@ impl RenderState {
     ) -> Result<(), mod_render::retained::DrawError> {
         self.retained.reconcile_entities(candidates, despawned)?;
         if self.publish_retained() {
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
         Ok(())
@@ -161,7 +150,7 @@ impl RenderState {
         self.staged_primitives = Primitives::default();
         if native || self.committed != RenderOutput::default() {
             self.committed = RenderOutput::default();
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
     }
@@ -173,7 +162,7 @@ impl RenderState {
         }
         if ribbons != self.native_ribbons {
             self.native_ribbons = ribbons;
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
         }
         self.refresh_native_lines();
     }
@@ -316,7 +305,7 @@ impl State {
             masks,
             source: spec.source.into(),
             shader: shader.into(),
-            revision: next_revision(),
+            revision: mod_render::next_owner(),
             enabled: true,
             params: [0.0; MAX_PASS_PARAMS],
         };

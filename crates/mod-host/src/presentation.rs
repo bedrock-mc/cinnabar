@@ -162,6 +162,11 @@ impl Receiver {
             resources.instances.len() <= server_experience::policy::MAX_DRAWS as usize,
             "bundle draw budget exceeded"
         );
+        let mut primitives = mod_render::Primitives::default();
+        primitives
+            .append_checked(input.primitives)
+            .map_err(anyhow::Error::msg)?;
+        let vertices = mod_render::geometry::vertex_count(&primitives);
         ensure!(
             resources
                 .instances
@@ -169,23 +174,16 @@ impl Receiver {
                 .filter_map(|instance| resources.geometry.get(&instance.geometry))
                 .map(|geometry| geometry.triangles())
                 .sum::<usize>()
+                + vertices / 3
                 <= server_experience::policy::MAX_TRIANGLES as usize,
             "bundle triangle budget exceeded"
         );
-        let mut primitives = mod_render::Primitives::default();
-        primitives
-            .append_checked(input.primitives)
-            .map_err(anyhow::Error::msg)?;
-        let vertices = mod_render::geometry::build(&primitives).len();
-        ensure!(
-            Snapshot::gpu_bytes(&resources)
-                .saturating_add(retiring_bytes)
-                .saturating_add(
-                    (vertices * std::mem::size_of::<mod_render::geometry::ModVertex>()) as u64
-                )
-                <= gpu_bytes,
-            "drawing GPU budget exceeded"
-        );
+        let geometry_bytes = Snapshot::gpu_bytes(&resources)
+            .saturating_add(retiring_bytes)
+            .saturating_add(
+                (vertices * std::mem::size_of::<mod_render::geometry::ModVertex>()) as u64,
+            );
+        ensure!(geometry_bytes <= gpu_bytes, "drawing GPU budget exceeded");
         let draws = resources.instances.len()
             + primitives.decals.len()
             + primitives.ribbons.len()
@@ -338,6 +336,11 @@ impl Receiver {
                     .chain(resources.entities.keys())
                     .any(|id| id.owner == *local)
             }) || output.masks.iter().any(|mask| mask.handle.owner == *local)
+        });
+        output.gpu_reservations.push(mod_render::GpuReservation {
+            owners: owners.values().copied().collect(),
+            geometry_bytes,
+            limit_bytes: gpu_bytes,
         });
         self.retired = retired;
         self.owners = owners;
