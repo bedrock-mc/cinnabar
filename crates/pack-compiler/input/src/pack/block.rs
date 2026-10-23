@@ -7,10 +7,10 @@ use serde_json::{Map, Value};
 
 use super::parse::{BoundedMapIssue, BoundedUniqueMap, MAX_TEXTURE_KEYS, read_json};
 
+#[path = "block/facing.rs"]
+mod facing;
 #[path = "block/facing_cube.rs"]
 mod facing_cube;
-#[path = "block/furnace.rs"]
-mod furnace;
 #[path = "block/leaf_metadata.rs"]
 mod leaf_metadata;
 
@@ -294,8 +294,8 @@ pub fn resolve_texture_key(
                         TextureKey::resolved(key, false)
                     });
             }
-            if furnace::is_record(record) {
-                return furnace::source_face(record, face)
+            if facing::is_record(record) {
+                return facing::source_face(record, face)
                     .and_then(|source_face| faces.resolve(source_face))
                     .map_or_else(TextureKey::diagnostic, |key| {
                         TextureKey::resolved(key, false)

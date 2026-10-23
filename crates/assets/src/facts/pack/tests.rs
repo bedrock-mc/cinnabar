@@ -525,3 +525,28 @@ fn existing_item_and_entity_facts_preserve_pack_special_cases() {
         );
     }
 }
+
+/// Each face-slot member is registered with the facing state its native class reads.
+#[test]
+fn face_slot_members_carry_the_state_their_class_reads() {
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut members = BTreeSet::new();
+    for record in records.iter() {
+        let Some(slots) = face_slots(&record.name) else {
+            continue;
+        };
+        assert!(
+            record
+                .property(crate::facts::BlockProperty::MinecraftCardinalDirection)
+                .is_some(),
+            "{} ({slots:?})",
+            record.name
+        );
+        members.insert(record.name.to_string());
+    }
+    assert_eq!(members.len(), 9);
+}

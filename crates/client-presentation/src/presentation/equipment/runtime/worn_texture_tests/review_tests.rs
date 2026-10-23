@@ -347,9 +347,13 @@ fn owner_context_worn_enchantments_select_geometry_and_preserve_intrinsic_glint(
             enchanted,
             intrinsic,
         );
-        let worn =
-            crate::presentation::equipment::input::worn_item(&stack, None, Default::default())
-                .unwrap();
+        let worn = crate::presentation::equipment::input::worn_item(
+            &stack,
+            None,
+            Default::default(),
+            false,
+        )
+        .unwrap();
         let input = ActorEquipmentInput {
             armor: [Some(worn), None, None, None],
             ..Default::default()
