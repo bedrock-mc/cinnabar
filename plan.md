@@ -270,14 +270,11 @@ completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
-constants and vehicle-correction replay; rendered BDS acceptance covers straight and
-turning rows. A seat that locks rotation turns the rider's view with its vehicle and
-holds it within the seat's range. Horse prediction and boat-to-boat collision remain
-open.
-constants; rendered BDS acceptance covers straight and turning rows. Incomplete: vanilla
-rewinds a vehicle correction and replays the recorded inputs, while Cinnabar restarts
-prediction from the corrected state and snaps the rider like a teleport. Horse
-prediction, boat-to-boat collision and the rider's view following the boat remain open.
+constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
+rotation turns the rider's view with its vehicle and holds it within the seat's range.
+Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs, while
+Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
+Horse prediction and boat-to-boat collision remain open.
 
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
