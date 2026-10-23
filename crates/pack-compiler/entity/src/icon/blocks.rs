@@ -5,7 +5,7 @@
 //! its shape, and then shows the carried texture, down face, at the
 //! block's variant.
 
-use std::{path::Path, sync::Arc};
+use std::{borrow::Cow, path::Path, sync::Arc};
 
 use assets::registry::BlockTraits;
 use assets::{
@@ -42,6 +42,13 @@ pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
     /// `None` when the pack lacks the block and terrain catalogs.
     pack: Option<PackSources>,
+}
+
+/// A resolved terrain destination retains its identity alongside the shared image source.
+struct CarriedMaterial<'a> {
+    key: Cow<'a, str>,
+    path: &'a str,
+    overlay: Option<&'a str>,
 }
 
 impl IconBlocks {
@@ -224,7 +231,7 @@ impl IconBlocks {
                     pack_compile_input::respawn_anchor::is_record(record),
                 )?
             } else {
-                super::carried::model_tile(self, root, path, overlay)?
+                super::carried::model_tile(self, root, &key, path, overlay)?
             };
             let Some(tile) = tile else {
                 return Ok(None);
@@ -244,8 +251,8 @@ impl IconBlocks {
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let (path, overlay) = self.carried_material(visual)?;
-        overlay.is_none().then(|| path.into())
+        let material = self.carried_material(visual)?;
+        material.overlay.is_none().then(|| material.path.into())
     }
 
     /// Loads carried model artwork with its declared animation frame and overlay tint.
@@ -254,14 +261,14 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<IconSprite>, AssetError> {
-        let Some((path, overlay)) = self.carried_material(visual) else {
+        let Some(material) = self.carried_material(visual) else {
             return Ok(None);
         };
-        super::carried::model_tile(self, root, path, overlay)
+        super::carried::model_tile(self, root, &material.key, material.path, material.overlay)
     }
 
     /// Selects the carried down-face material at the block's world variant.
-    fn carried_material(&self, visual: BlockVisualId) -> Option<(&str, Option<&str>)> {
+    fn carried_material(&self, visual: BlockVisualId) -> Option<CarriedMaterial<'_>> {
         let pack = self.pack.as_ref()?;
         let record = self.records.get(visual.0 as usize)?;
         let key = resolve_carried_down_key(&pack.blocks, record)?;
@@ -270,7 +277,8 @@ impl IconBlocks {
             .key
             .and_then(|world| pack.terrain.get_for_model_record(&world, record))
             .map_or(0, |(_, variant)| variant as usize);
-        pack.terrain.get_clamped_carried(&key, variant)
+        let (path, overlay) = pack.terrain.get_clamped_carried(&key, variant)?;
+        Some(CarriedMaterial { key, path, overlay })
     }
 
     /// A flat block icon; a declared flipbook shows its first frame.
@@ -280,7 +288,7 @@ impl IconBlocks {
         path: &str,
     ) -> Result<Option<IconSprite>, AssetError> {
         Ok(self
-            .texture_frame(root, path)?
+            .texture_frame(root, path, None)?
             .and_then(|decoded| super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite)))
     }
 
@@ -288,9 +296,10 @@ impl IconBlocks {
     pub(super) fn model_frame_sprite(
         &self,
         root: &Path,
+        destination: &str,
         path: &str,
     ) -> Result<Option<IconSprite>, AssetError> {
-        let Some(decoded) = self.texture_frame(root, path)? else {
+        let Some(decoded) = self.texture_frame(root, path, Some(destination))? else {
             return Ok(None);
         };
         if decoded.width.max(decoded.height) > crate::block_entity::MAX_TEXTURE_SIDE {
@@ -308,6 +317,7 @@ impl IconBlocks {
         &self,
         root: &Path,
         path: &str,
+        destination: Option<&str>,
     ) -> Result<Option<pack_compile_input::image::DecodedTexture>, AssetError> {
         let file = static_texture_path(root, path, path)?;
         if !file.is_file() {
@@ -320,18 +330,45 @@ impl IconBlocks {
                 .unwrap_or(texture)
                 .to_owned()
         };
-        let flipbook = self.pack.as_ref().and_then(|pack| {
-            pack.flipbooks
-                .iter()
-                .find(|flipbook| stem(&flipbook.texture_path) == stem(path))
-        });
+        let flipbook = if let Some(pack) = self.pack.as_ref() {
+            let selected = if let Some(destination) = destination {
+                pack_compile_input::pack::select_flipbook_index(
+                    pack.flipbooks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, source)| {
+                            source.atlas_tile.as_ref() == destination
+                                && stem(&source.texture_path) == stem(path)
+                        })
+                        .map(|(index, source)| {
+                            (index, source.atlas_index, source.atlas_tile_variant)
+                        }),
+                    None,
+                    path,
+                )?
+            } else {
+                None
+            };
+            selected.map(|index| &pack.flipbooks[index]).or_else(|| {
+                pack.flipbooks
+                    .iter()
+                    .filter(|source| stem(&source.texture_path) == stem(path))
+                    .min_by_key(|source| source.replicate)
+            })
+        } else {
+            None
+        };
         let decoded = if let Some(flipbook) = flipbook {
             let mut decoded = pack_compile_input::image::decode_first_texture_frame(&file, path)?;
             if decoded.width == decoded.height {
                 let (rgba8, side) = pack_compile_input::image::replicated_tile(
                     decoded.rgba8.into_vec(),
                     decoded.width,
-                    flipbook.replicate,
+                    if destination.is_some() {
+                        flipbook.replicate
+                    } else {
+                        1
+                    },
                 );
                 decoded.rgba8 = rgba8;
                 decoded.width = side;

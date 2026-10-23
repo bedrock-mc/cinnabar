@@ -215,3 +215,66 @@ fn dried_ghast_inventory_retains_flipbook_replication() {
     );
     assert!(actual.rgba8.as_chunks::<4>().0.iter().all(|p| p[1] == 0));
 }
+
+#[test]
+fn dried_ghast_shared_strip_retains_each_materials_replication() {
+    for reverse in [false, true] {
+        let root = material_fixture();
+        let catalog = root.path().join("textures/terrain_texture.json");
+        let mut textures: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&catalog).unwrap()).unwrap();
+        for key in ["body", "feet"] {
+            textures["texture_data"][key]["textures"] = "textures/blocks/shared".into();
+        }
+        std::fs::write(catalog, textures.to_string()).unwrap();
+        let mut declarations = vec![
+            serde_json::json!({"flipbook_texture":"textures/blocks/shared","atlas_tile":"body","replicate":1}),
+            serde_json::json!({"flipbook_texture":"textures/blocks/shared","atlas_tile":"feet","replicate":2}),
+            serde_json::json!({"flipbook_texture":"textures/blocks/shared","atlas_tile":"feet","atlas_index":1,"atlas_tile_variant":1,"replicate":4}),
+        ];
+        if reverse {
+            declarations.reverse();
+        }
+        std::fs::write(
+            root.path().join("textures/flipbook_textures.json"),
+            serde_json::to_vec(&declarations).unwrap(),
+        )
+        .unwrap();
+        image::RgbaImage::from_fn(32, 64, |x, y| {
+            image::Rgba(if x < 16 && y < 16 {
+                [0, 0, 255, 255]
+            } else {
+                [0, 255, 0, 255]
+            })
+        })
+        .save(root.path().join("textures/blocks/shared.png"))
+        .unwrap();
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let visual = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:dried_ghast")
+        .unwrap()
+        .sequential_id;
+        let body = blocks
+            .terrain_tiles(root.path(), assets::BlockVisualId(visual))
+            .unwrap()
+            .unwrap();
+        let feet = blocks
+            .carried_model_tile(root.path(), assets::BlockVisualId(visual))
+            .unwrap()
+            .unwrap();
+        assert_eq!(body[assets::BlockFace::Up as usize].width, 32);
+        assert_eq!(feet.width, 16);
+        assert!(
+            feet.rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [0, 0, 255, 255])
+        );
+    }
+}
