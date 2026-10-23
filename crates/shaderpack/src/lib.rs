@@ -100,5 +100,5 @@ pub use reflection::{
     VertexInput,
 };
 pub use remove::remove_pack;
-pub use source::{PackError, PackOrigin, PackSource};
+pub use source::{MAX_ARCHIVE_BYTES, PackError, PackOrigin, PackSource};
 pub use translate::{ProgramTranslation, StageTranslation};

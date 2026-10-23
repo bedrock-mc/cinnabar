@@ -151,7 +151,6 @@ pub use actor_render::publication_test_support::{
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{BlockEntityRenderPlugin, DRAGON_DEATH_BLEND};
 
-pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
     ChunkRenderPlugin, ChunkTextureUploadStats, DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
     MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef,
@@ -165,6 +164,7 @@ pub use chunk::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
     publication_render_terminal_snapshot, publication_terrain_draws, settle_publication_noop_frame,
 };
+pub use chunk::{minimum_vertex_storage_buffers, required_vertex_storage_buffers};
 
 pub use dropped_item_render::DroppedItemRenderPlugin;
 

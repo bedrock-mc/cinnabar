@@ -736,6 +736,18 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
   tombstone shows a driver shader compiler abort. The driver faults are not isolated,
   so these vendor workarounds and target-device visual acceptance stay incomplete.
+  rendering acceptance remains incomplete. Terrain has a four-storage-buffer layout for constrained
+  devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  startup error through the desktop dialog or Android activity. Shader packs report a load error and
+  keep native rendering when their helper kernels exceed the device's per-stage storage budget.
+  The compact table still needs paging when its combined sources exceed one storage binding.
+  Physical-device rendering and fallback
+  performance acceptance remain incomplete.
+  Android Mali culls terrain on the CPU because the
+  compute cull lost the device on a tested Mali phone; the driver fault is not isolated, so this
+  vendor workaround stays incomplete. Mali-G52 and similar GPUs still reject the 1,600-layer
+  vanilla page against their 1,024-layer array limit; smaller pages first need session block
+  overlays to accept multi-page base carriers.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
@@ -859,8 +871,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
   one list ending in an import target that opens the file picker for `.zip` packs and, on
-  desktop, takes dropped zips and folders; the selected pack's card shows its load state and
-  holds settings, reload and confirmed removal of imported copies and their saved settings.
+  desktop, takes dropped zips and folders. Android shows an Import shader pack button and
+  passes the loader's archive size bound to the document picker. The selected pack's card shows
+  its load state and holds settings, reload and confirmed removal of imported copies and their saved settings.
   Incomplete: Android can add only `.zip` packs, because its document picker selects files
   and folder packs need a folder picker.
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
