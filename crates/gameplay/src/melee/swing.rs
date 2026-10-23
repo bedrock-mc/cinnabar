@@ -175,6 +175,24 @@ impl SwingTracker {
         )
     }
 
+    /// Server callbacks can each restart the counter while it is still -1 before a tick.
+    pub fn try_server_swing_before_tick_for_item(
+        &mut self,
+        tick: u64,
+        effects: crate::movement::MiningEffects,
+        item_duration: Option<u32>,
+    ) -> bool {
+        self.try_swing_guarded(
+            tick,
+            item_duration.map_or_else(
+                || swing_duration(effects),
+                |ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1),
+            ),
+            Some(java_swing_duration(effects)),
+            true,
+        )
+    }
+
     /// Applies publication and animation guards, with fresh presses allowed before tick advancement.
     fn try_swing_guarded(
         &mut self,

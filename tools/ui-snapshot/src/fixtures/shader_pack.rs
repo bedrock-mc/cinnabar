@@ -1,7 +1,7 @@
 //! Shader-pack picker and load feedback fixtures using the client's screen state.
 
 use launcher::menu::{
-    MenuAction, RendererChoice,
+    MenuAction, MenuView, RendererChoice,
     settings_options::SettingId,
     settings_sections::SettingSection,
     shader_pack_status::{
@@ -91,7 +91,7 @@ pub(super) fn settings_shaders(failed: bool) -> Fixture {
 pub(super) fn pack_picker() -> Fixture {
     let mut view = super::settings(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
+    desktop(&mut view);
     view.focused_action = Some(MenuAction::SettingsSection(
         SettingSection::Shaders.definition().index,
     ));
@@ -101,8 +101,23 @@ pub(super) fn pack_picker() -> Fixture {
 /// Shows first-use import guidance without installed packs or a saved selection.
 pub(super) fn empty_library() -> Fixture {
     let mut view = super::settings(SettingSection::Shaders.definition().name);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
+    desktop(&mut view);
     Fixture::Menu(Box::new(view))
+}
+
+/// The empty library on a host like Android, whose window takes no dropped files and has no
+/// file manager, so the import target opens the file picker.
+pub(super) fn empty_library_without_drops() -> Fixture {
+    Fixture::Menu(Box::new(super::settings(
+        SettingSection::Shaders.definition().name,
+    )))
+}
+
+/// A desktop host's folder shortcut and window file drops.
+fn desktop(view: &mut MenuView) {
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.opens_folders = true;
+    storage.accepts_file_drops = true;
 }
 
 /// Exercises wrapping and scrolling in a narrow viewport, with a selected card and a zip and
@@ -127,7 +142,7 @@ pub(super) fn narrow_extra_large() -> Fixture {
     let Fixture::Menu(mut view) = settings_shaders(true) else {
         unreachable!()
     };
-    Arc::make_mut(&mut view.storage).opens_folders = true;
+    desktop(&mut view);
     let enlarged = Arc::make_mut(&mut view.settings_options)
         .set(SettingId::GuiAccessibilityScaling.index(), 1);
     debug_assert!(enlarged);

@@ -106,7 +106,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "shaderpack"
 path = "crates/shaderpack"
-allowed_dependencies = ["zip-footer", "assets"]
+allowed_dependencies = ["zip-footer", "assets", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -134,7 +134,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids"]
+allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids", "shaderpack"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]

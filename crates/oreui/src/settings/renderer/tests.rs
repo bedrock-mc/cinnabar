@@ -228,6 +228,22 @@ fn shaders_offer_reload_and_folder_import_when_the_host_opens_folders() {
 }
 
 #[test]
+fn the_import_target_opens_the_picker_with_or_without_file_drops() {
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    for accepts_file_drops in [false, true] {
+        Arc::make_mut(&mut view.storage).accepts_file_drops = accepts_file_drops;
+        for importing in [false, true] {
+            view.shader_pack_importing = importing;
+            assert_eq!(
+                controls(&view).0.contains(&MenuAction::ImportShaderPacks),
+                !importing && render_model::SHADER_PACKS_ENABLED,
+                "drops {accepts_file_drops}, importing {importing}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_requested_pack_without_a_picker_entry_offers_its_options() {
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.render_mode = ui::RenderMode::ShaderPack;

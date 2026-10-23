@@ -128,6 +128,7 @@ impl TranslationPin {
     }
 
     /// The cached guest library's folder and file name beneath a runtime folder.
+    #[cfg(unix)]
     pub(super) fn guest_path(&self, runtime_dir: &Path) -> PathBuf {
         runtime_dir.join(&self.revision).join(&self.guest_library)
     }

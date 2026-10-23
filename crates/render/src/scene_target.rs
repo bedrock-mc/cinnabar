@@ -241,7 +241,9 @@ pub(crate) fn install_formats(render_app: &mut SubApp) {
 fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     use bevy::render::view::prepare_view_targets;
     (
-        apply_multisample_fallback.in_set(RenderSystems::CreateViews),
+        apply_multisample_fallback
+            .in_set(RenderSystems::CreateViews)
+            .after(crate::render_scale::RenderScaleSystems),
         withhold_view_samples
             .in_set(RenderSystems::PrepareViews)
             .before(prepare_view_targets),

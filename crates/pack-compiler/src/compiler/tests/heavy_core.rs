@@ -74,6 +74,11 @@ fn current_heavy_core_uses_the_fixed_vanilla_model() {
     let visual = runtime.resolve(NetworkIdMode::Sequential, heavy_core.sequential_id);
     assert_eq!(visual.kind(), VisualKind::Model);
     assert_eq!(visual.support(), VisualSupport::Exact);
+    for face in assets::BlockFace::ALL {
+        let material = runtime.material(visual.face(face).material_id());
+        assert_ne!(material.texture, assets::TextureRef::DIAGNOSTIC);
+        assert_ne!(material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT, 0);
+    }
     let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
     assert_eq!(template.quad_count, 6);
     let quads = &runtime.model_quads()[template.quad_start as usize..][..6];

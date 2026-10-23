@@ -19,6 +19,7 @@ pub(crate) mod aim_highlight;
 mod facts;
 mod focus;
 mod presentation;
+mod render_scale;
 
 /// Spawns and drives one [`Camera3d`] fly camera.
 pub struct FlyCameraPlugin {
@@ -52,6 +53,7 @@ impl Plugin for FlyCameraPlugin {
         #[cfg(not(target_arch = "wasm32"))]
         focus::install(app);
         app.add_plugins(client_interaction::camera::CameraInputPlugin);
+        render_scale::install(app);
         app.add_plugins(CameraPresentationPlugin {
             auto_fly: self.auto_fly,
             capture_on_start: self.capture_on_start,

@@ -81,7 +81,11 @@ fn engine() -> FormEngine {
 
 #[test]
 fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
-    for caption in [crate::test_support::hover_chat::CAPTION, "Plain caption"] {
+    for caption in [
+        crate::test_support::hover_chat::CAPTION,
+        "Plain caption",
+        "Hello @Alex",
+    ] {
         for color in [0, 1] {
             check_message_tooltip(caption, color);
         }
@@ -108,6 +112,7 @@ fn check_message_tooltip(expected_caption: &str, color: i32) {
         let mut screen = ChatScreen::default();
         let mut options = launcher::menu::settings_options::SettingsOptions::default();
         options.set(SettingId::ChatColor.index(), color);
+        options.set(SettingId::MentionsColor.index(), 0);
         screen.settings.set_snapshot((Arc::new(options), None));
         let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
         let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
@@ -170,6 +175,18 @@ fn check_message_tooltip(expected_caption: &str, color: i32) {
                 ui::BedrockColor::Green
             };
             assert_eq!(painted.style.color, expected_color);
+            if expected_caption.contains('@') {
+                let mention = nodes
+                    .iter()
+                    .find_map(|node| match node.visual() {
+                        UiVisual::Text { layout, .. } => {
+                            layout.glyphs().iter().find(|glyph| glyph.codepoint == '@')
+                        }
+                        _ => None,
+                    })
+                    .expect("decoded mention paints");
+                assert_eq!(mention.style.color, ui::BedrockColor::White);
+            }
             let tooltip = screen.nodes().iter().find_map(|node| match &node.draw {
                 Draw::Custom { renderer, data } if renderer == "hover_text_renderer" => Some(data),
                 _ => None,

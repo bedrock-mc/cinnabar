@@ -219,6 +219,9 @@ jobs:
             cargo clippy -p cinnabar --features shaderpacks --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
           fi
+          if affected asset-compiler; then
+            cargo clippy -p asset-compiler --features shaderpacks --all-targets --locked -- -D warnings
+          fi
       - name: Test developer control adapters
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
         run: cargo test -p cinnabar --features developer-control --lib --locked -- developer_control
@@ -264,7 +267,7 @@ jobs:
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ${{ matrix.os }}
     # Cold Windows builds need time to finish the tests, documentation and lint checks.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 90 }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 150 || 90 }}
     env:
       TESTS: ${{ needs.changes.outputs.full == 'true' && 'all()' || needs.preflight.outputs.tests }}
     strategy:
@@ -297,9 +300,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       # Builds the whole workspace, which the cache keeps fresh, and runs only affected tests.
-      - name: Test affected Rust packages
+      - name: Build Rust tests
         shell: bash
-        run: cargo nextest run --workspace -E "$TESTS" --locked --no-fail-fast --no-tests=warn ${{ runner.os == 'Linux' && '--timings' || '' }}
+        run: cargo nextest run --workspace --locked --no-run ${{ runner.os == 'Linux' && '--timings' || '' }}
+      # Linux lints in `verify`.
+      - name: Lint Rust workspace
+        if: ${{ !cancelled() && runner.os != 'Linux' }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Windows archives to workflow artifacts, which keep the test binaries, so it saves before
+      # the tests and a slow or timed-out test run still leaves dev a warm cache.
+      - name: Save Windows Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os == 'Windows' }}
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
+      - name: Test affected Rust packages
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: cargo nextest run --workspace -E "$TESTS" --locked --no-fail-fast --no-tests=warn
       - name: Upload Linux test build timings
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: actions/upload-artifact@v7
@@ -310,13 +331,9 @@ jobs:
       - name: Test Rust doc examples
         if: ${{ !cancelled() }}
         run: cargo test --doc --workspace --locked
-      # Linux lints in `verify`.
-      - name: Lint Rust workspace
-        if: ${{ !cancelled() && runner.os != 'Linux' }}
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Save Rust build cache
-        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
+      # The shared cache store drops linked test binaries, so macOS saves after the tests.
+      - name: Save macOS Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os == 'macOS' }}
         uses: ./.github/actions/build-cache
         with:
           phase: save

@@ -1,6 +1,5 @@
 {
   "cache": {
-    "build-v1-rust-Windows-X64-ci-": 2200000000,
     "build-v1-rust-macOS-ARM64-ci-": 1900000000,
     "build-v1-rust-Linux-X64-jsonui-editor-ci-": 500000000
   },
@@ -14,6 +13,7 @@
     "build-v1-go-macOS-ARM64-darwin-arm64-release-": 600000000,
     "build-v1-go-macOS-ARM64-darwin-amd64-release-": 600000000,
     "build-v1-rust-Linux-X64-ci-": 4000000000,
+    "build-v1-rust-Windows-X64-ci-": 3500000000,
     "build-v1-go-Linux-X64-ci-": 2000000000,
     "build-v1-go-Windows-X64-ci-": 2000000000,
     "build-v1-go-macOS-ARM64-ci-": 2000000000

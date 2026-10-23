@@ -57,6 +57,7 @@ mod source;
 mod token;
 mod transform;
 mod translate;
+pub mod worker;
 
 pub use biomes::{BiomeCategory, BiomeUniforms};
 pub use buffers::{
@@ -65,7 +66,7 @@ pub use buffers::{
 pub use compile::CompiledStage;
 pub use custom_uniforms::{CustomUniformError, CustomUniforms, UniformValue};
 pub use diagnostics::{Diagnostic, Phase, SourceLocation};
-pub use discover::{DiscoveredPack, discover_packs};
+pub use discover::{DiscoveredPack, PACK_ARCHIVE_EXTENSIONS, discover_packs};
 pub use environment::{Environment, GpuVendor, HostOs};
 pub use expr::{BinaryOp, Expr, ExprError, UnaryOp};
 pub use ids::{BlockIdMap, IdMaps, NamedIdMap, RenderLayer, UNMAPPED_BLOCK_ID};

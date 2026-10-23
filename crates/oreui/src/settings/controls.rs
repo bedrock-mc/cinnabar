@@ -75,6 +75,16 @@ pub(crate) fn toggle_control(
     toggle_at(canvas, at, knob, state, enabled)
 }
 
+/// A switch that takes no input, such as a setting fixed once the world exists.
+pub(super) fn fixed_toggle(
+    canvas: &mut Canvas<'_>,
+    at: [f32; 2],
+    on: bool,
+) -> Result<(), PaintError> {
+    let knob = super::super::transitions::switch_target(on);
+    toggle_at(canvas, at, knob, Interaction::default(), false)
+}
+
 fn toggle_at(
     canvas: &mut Canvas<'_>,
     at: [f32; 2],

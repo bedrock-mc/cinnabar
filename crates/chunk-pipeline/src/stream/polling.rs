@@ -198,8 +198,12 @@ impl WorldStream {
         {
             dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);
         }
-        let removal_budget = max_mesh_jobs
-            .min(live_publication_items)
+        let removal_budget = self
+            .publication_allowance
+            .as_ref()
+            .map_or(max_mesh_jobs, |allowance| {
+                allowance.zero_byte_admission_capacity_with_priority(true)
+            })
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()))
             .max(dispatch_budget);
         report.mesh_jobs_dispatched =
@@ -250,7 +254,15 @@ impl WorldStream {
                 )
                 .min(URGENT_DISPATCH_BUDGET)
                 .min(MAX_PENDING_MESH_CHANGES.saturating_sub(stream.mesh_changes.len()));
-            stream.dispatch_mesh_jobs_reserving(camera, budget, budget, URGENT_JOB_RESERVE);
+            let removal_budget = stream
+                .publication_allowance
+                .as_ref()
+                .map_or(URGENT_DISPATCH_BUDGET, |allowance| {
+                    allowance.zero_byte_admission_capacity_with_priority(true)
+                })
+                .min(URGENT_DISPATCH_BUDGET)
+                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(stream.mesh_changes.len()));
+            stream.dispatch_mesh_jobs_reserving(camera, budget, removal_budget, URGENT_JOB_RESERVE);
         });
     }
 
