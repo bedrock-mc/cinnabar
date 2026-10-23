@@ -4,6 +4,7 @@ use mod_api::{MAX_MATERIAL_SHADER_BYTES, MAX_MATERIAL_SHADER_EXPRESSIONS};
 /// Immutable admitted fragment module, shared until renderer references retire.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Material {
+    pub source: std::sync::Arc<str>,
     pub shader: std::sync::Arc<str>,
 }
 

@@ -26,7 +26,7 @@ fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
     }
 }
 
-pub(super) struct RenderState {
+pub(crate) struct RenderState {
     pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
     pub(super) retained: mod_render::retained::Store,

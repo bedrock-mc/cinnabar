@@ -13,6 +13,7 @@ pub(super) trait Worker: Sized {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        assets: std::collections::BTreeMap<String, Vec<u8>>,
     ) -> Result<Self>;
     /// Returns a completed or failed callback without waiting on the render thread; an `Err`
     /// means the helper is gone.
@@ -33,8 +34,9 @@ impl Worker for Helper {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        assets: std::collections::BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
-        Self::spawn_developer(executable, bytes, owner, capabilities, epoch)
+        Self::spawn_developer_with_assets(executable, bytes, owner, capabilities, epoch, assets)
     }
 
     /// Polls the supervised process without blocking the frame.

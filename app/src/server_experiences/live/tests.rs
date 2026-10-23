@@ -30,7 +30,14 @@ struct FakeWorker {
 
 impl Worker for FakeWorker {
     /// Leaves initialization pending until the test supplies its completion.
-    fn spawn(_: &Path, _: Vec<u8>, owner: Principal, _: Capabilities, _: u64) -> Result<Self> {
+    fn spawn(
+        _: &Path,
+        _: Vec<u8>,
+        owner: Principal,
+        _: Capabilities,
+        _: u64,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self> {
         Ok(Self {
             response: None,
             failure: None,
@@ -50,6 +57,7 @@ impl Worker for FakeWorker {
             Ok(Reply::Committed {
                 transaction,
                 fuel: 1,
+                presentation: None,
             })
         })
     }
@@ -152,6 +160,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                 owner.bundle.clone(),
                 Instance {
                     helper: None,
+                    assets: Default::default(),
+                    presentation: Default::default(),
                     component: Some(vec![0]),
                     capabilities: Capabilities {
                         scope: scope.clone(),
@@ -173,6 +183,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     callback: "init",
                     items_sent: None,
                     shift: Some(false),
+                    drawing_context: Default::default(),
+                    pending_drawing_context: Default::default(),
                 },
             )
         })
@@ -196,6 +208,12 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         epoch: 1,
         modal_order: 0,
         gui: None,
+        drawing_connection: 1,
+        drawing_dimension: 0,
+        drawing: Default::default(),
+        drawing_generation: mod_render::next_owner(),
+        drawing_sources: Vec::new(),
+        drawing_merge: Default::default(),
         session: None,
     };
     live.initialize().unwrap();

@@ -5,6 +5,10 @@ pub use crate::bindings::cinnabar::world_draw::drawing as api;
 
 pub mod shapes;
 
+/// Native retained-instance storage, checked against the renderer's typed record.
+pub const INSTANCE_GPU_BYTES: usize =
+    (16 + 4 + 4 + crate::materials::PARAMS) * std::mem::size_of::<f32>();
+
 /// Fixed host tessellation for a round join or semicircular end cap.
 pub const ROUND_SEGMENTS: usize = 8;
 
@@ -46,7 +50,7 @@ pub fn instance(geometry: api::Handle, anchor: api::Anchor) -> api::Instance {
 macro_rules! permissions {
     ($($field:ident),+ $(,)?) => {
         /// Independently consented drawing authority. Absence always denies a capability.
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         pub struct DrawingPermissions { $(pub $field: bool,)+ }
         impl DrawingPermissions {
             /// Canonical capability names, generated from their owning fields.
@@ -67,7 +71,9 @@ macro_rules! permissions {
 permissions! { world_draw, entity_observe, entity_highlight, render_through_walls, render_material, render_post }
 
 /// A token belongs to one owner incarnation; slots never authorize another incarnation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct DrawingHandle {
     pub owner: u64,
     pub generation: u64,
@@ -75,7 +81,7 @@ pub struct DrawingHandle {
 }
 
 /// Trusted connection and dimension fence, independent of a server address.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DrawingSession {
     pub connection: u64,
     pub dimension: i32,
@@ -130,7 +136,9 @@ impl MaskStyle {
 }
 
 /// An actor incarnation, shared with trusted frame publication; never disclosed to shaders.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct MaskEntity {
     pub connection: u64,
     pub dimension: i32,
@@ -139,7 +147,9 @@ pub struct MaskEntity {
 }
 
 /// Draw-time depth authority cannot be changed after mask creation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum MaskDepth {
     Test,
     Always,

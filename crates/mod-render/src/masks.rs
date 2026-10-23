@@ -16,7 +16,7 @@ pub enum MaskError {
 }
 
 /// One admitted selection. Coverage is the union of the body's admitted equipment layers.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mask {
     pub position: Option<[f32; 3]>,
     pub handle: DrawingHandle,

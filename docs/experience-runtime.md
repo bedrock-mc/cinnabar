@@ -528,7 +528,7 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 | Server WIT | 0.6; 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
 | IPC protocol | 6 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
-| Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
+| Client WIT | `cinnabar:server-experience@1.4.0`; earlier 1.x components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/mod-api/wit/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
 | Bedrock target | | `assets/bedrock-target.json` |
 

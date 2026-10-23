@@ -3978,6 +3978,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-space-client"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "experience-terminal-client"
 version = "0.1.28"
 dependencies = [
@@ -5951,6 +5960,7 @@ dependencies = [
  "bytemuck",
  "mod-api",
  "naga",
+ "serde",
  "test-alloc",
 ]
 

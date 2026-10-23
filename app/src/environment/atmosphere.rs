@@ -37,6 +37,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     weather: Option<Res<'w, super::VisualWeatherOverride>>,
+    server: Option<Res<'w, crate::server_experiences::drawing::Environment>>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }
@@ -78,7 +79,16 @@ pub(crate) fn update_atmosphere_frame(
         time.elapsed_secs_f64(),
     );
     let (fixed_time, time_override) = time_overrides;
-    let clock = super::rendered_clock(*clock, fixed_time.as_deref(), time_override.as_deref());
+    let server_time =
+        super::VisualTimeOverride(preferences.server.as_deref().and_then(|server| server.time));
+    let clock = super::rendered_clock(
+        *clock,
+        fixed_time.as_deref(),
+        time_override
+            .as_deref()
+            .filter(|value| value.0.is_some())
+            .or(Some(&server_time)),
+    );
     #[cfg(not(target_arch = "wasm32"))]
     let options = preferences
         .menu
@@ -86,7 +96,16 @@ pub(crate) fn update_atmosphere_frame(
         .map(|menu| menu.settings_snapshot().0);
     #[cfg(target_arch = "wasm32")]
     let options = Some(std::sync::Arc::clone(&preferences.options.0));
-    let weather_override = preferences.weather.as_deref().and_then(|weather| weather.0);
+    let weather_override = preferences
+        .weather
+        .as_deref()
+        .and_then(|weather| weather.0)
+        .or_else(|| {
+            preferences
+                .server
+                .as_deref()
+                .and_then(|server| server.weather)
+        });
     let clouds = preferences.clouds;
     let skybox = preferences.skybox;
     if let Some(mut clouds) = clouds {

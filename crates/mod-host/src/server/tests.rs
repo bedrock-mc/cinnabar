@@ -5,6 +5,11 @@ use std::collections::BTreeSet;
 /// Creates the host import state with worst-case serialized identity and epoch fields.
 fn state() -> State {
     let mut state = State {
+        presentation: crate::runtime::State::new(
+            Default::default(),
+            String::new(),
+            Default::default(),
+        ),
         session: Arc::default(),
         limits: StoreLimitsBuilder::new().build(),
         owner: Principal {
@@ -195,6 +200,7 @@ fn component_built_against_1_0_still_links_and_skips_newer_events() {
         owner(),
         screen_capabilities(&[Permission::Ui, Permission::Input]),
         1,
+        Default::default(),
     )
     .unwrap();
     let init = host.take_transaction();
@@ -224,6 +230,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         owner(),
         screen_capabilities(&[Permission::ModalUi, Permission::Input]),
         1,
+        Default::default(),
     )
     .unwrap();
     assert!(matches!(
@@ -283,6 +290,7 @@ fn modal_screens_need_their_grants_and_an_indexed_template() {
         owner(),
         screen_capabilities(&[Permission::ModalUi, Permission::Input]),
         1,
+        Default::default(),
     )
     .unwrap();
     assert!(unindexed.take_transaction().commands.is_empty());
@@ -291,6 +299,7 @@ fn modal_screens_need_their_grants_and_an_indexed_template() {
         owner(),
         screen_capabilities(&[Permission::Ui]),
         1,
+        Default::default(),
     )
     .unwrap();
     assert!(denied.take_transaction().commands.is_empty());
@@ -356,7 +365,14 @@ fn terminal_sized_list_record_dispatches_within_callback_fuel() {
     );
     let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
     capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
-    let mut host = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    let mut host = BundleHost::launch(
+        &terminal_component(),
+        owner(),
+        capabilities,
+        1,
+        Default::default(),
+    )
+    .unwrap();
     host.take_transaction();
     let message = Event::Message {
         channel: "benergistics.items".into(),
@@ -376,7 +392,14 @@ fn terminal_sized_list_record_dispatches_within_callback_fuel() {
 fn terminal() -> BundleHost {
     let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
     capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
-    let mut host = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    let mut host = BundleHost::launch(
+        &terminal_component(),
+        owner(),
+        capabilities,
+        1,
+        Default::default(),
+    )
+    .unwrap();
     host.take_transaction();
     host
 }
@@ -475,7 +498,14 @@ fn searching_terminal() -> BundleHost {
     let mut capabilities = screen_capabilities(&[Permission::ModalUi, Permission::Input]);
     capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
     capabilities.actions.insert("terminal.search".to_owned());
-    let mut host = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    let mut host = BundleHost::launch(
+        &terminal_component(),
+        owner(),
+        capabilities,
+        1,
+        Default::default(),
+    )
+    .unwrap();
     host.take_transaction();
     host
 }
@@ -605,7 +635,14 @@ fn shift_changed_reaches_the_guest() {
     }
     let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
     capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
-    let mut blind = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    let mut blind = BundleHost::launch(
+        &terminal_component(),
+        owner(),
+        capabilities,
+        1,
+        Default::default(),
+    )
+    .unwrap();
     blind.take_transaction();
     assert!(blind.dispatch(&Event::Shift { held: true }, 1).is_err());
 }
@@ -661,6 +698,7 @@ fn scroll_changed_reaches_the_guest() {
             capabilities
         },
         1,
+        Default::default(),
     )
     .unwrap();
     old.take_transaction();
@@ -677,4 +715,220 @@ fn worktree_dir(name: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
     format!("{name}-{:016x}", hasher.finish())
+}
+
+/// The bundle imports call the same host that personal mods use, with bundle-scoped grants.
+#[test]
+fn client_part_drawing_and_sky_commit_together_and_revoke() {
+    use crate::runtime::cinnabar::{extension::environment, world_draw::drawing as draw};
+    use draw::Host as _;
+    use environment::Host as _;
+    let mut state = state();
+    assert!(
+        state
+            .presentation
+            .create_geometry(draw::GeometrySpec::Triangles(draw::Mesh {
+                vertices: Vec::new(),
+                indices: Vec::new()
+            }))
+            .unwrap()
+            .is_err()
+    );
+    state
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::WorldDraw);
+    state.presentation.grants = drawing_grants(&state.capabilities);
+    let mesh = draw::Mesh {
+        vertices: [(0., 0., 0.), (1., 0., 0.), (0., 1., 0.)]
+            .map(|position| draw::Vertex {
+                position,
+                color: (1., 1., 1., 1.),
+                uv: (0., 0.),
+                data: (0., 0., 0., 0.),
+            })
+            .to_vec(),
+        indices: vec![0, 1, 2],
+    };
+    state
+        .presentation
+        .create_geometry(draw::GeometrySpec::Triangles(mesh))
+        .unwrap()
+        .unwrap();
+    state
+        .presentation
+        .set_time_override(Some(18_000))
+        .unwrap()
+        .unwrap();
+    assert!(
+        state
+            .presentation
+            .presentation_output()
+            .drawing
+            .geometry
+            .is_empty()
+    );
+    state.presentation.commit_presentation();
+    assert_eq!(
+        state
+            .presentation
+            .presentation_output()
+            .drawing
+            .geometry
+            .len(),
+        1
+    );
+    assert_eq!(state.presentation.presentation_output().time, Some(18_000));
+    state.presentation.reset_presentation();
+    assert!(
+        state
+            .presentation
+            .presentation_output()
+            .drawing
+            .geometry
+            .is_empty()
+    );
+    assert_eq!(state.presentation.presentation_output().time, None);
+}
+
+#[test]
+fn signed_asset_reads_deny_foreign_files_and_charge_the_callback() {
+    use crate::runtime::cinnabar::world_draw::assets::Host as _;
+    let mut state = state();
+    state.presentation.asset_files.insert(
+        "models/planet.json".into(),
+        vec![1; mod_api::MAX_DRAW_MUTATION_BYTES],
+    );
+    assert!(
+        state
+            .presentation
+            .read("models/planet.json".into())
+            .unwrap()
+            .is_err()
+    );
+    state.presentation.grants.world_draw = true;
+    assert!(
+        state
+            .presentation
+            .read("models/other.json".into())
+            .unwrap()
+            .is_err()
+    );
+    assert_eq!(
+        state
+            .presentation
+            .read("models/planet.json".into())
+            .unwrap()
+            .unwrap()
+            .len(),
+        mod_api::MAX_DRAW_MUTATION_BYTES
+    );
+    assert!(
+        state
+            .presentation
+            .read("models/planet.json".into())
+            .unwrap()
+            .is_err()
+    );
+    state.presentation.begin_presentation();
+    assert!(
+        state
+            .presentation
+            .read("models/planet.json".into())
+            .unwrap()
+            .is_ok()
+    );
+    state.presentation.begin_presentation();
+    state.presentation.asset_files.insert(
+        "models/stream.bin".into(),
+        vec![7; mod_api::MAX_DRAW_MUTATION_BYTES + 8],
+    );
+    assert_eq!(
+        state
+            .presentation
+            .length("models/stream.bin".into())
+            .unwrap()
+            .unwrap(),
+        (mod_api::MAX_DRAW_MUTATION_BYTES + 8) as u64
+    );
+    assert_eq!(
+        state
+            .presentation
+            .read_range(
+                "models/stream.bin".into(),
+                mod_api::MAX_DRAW_MUTATION_BYTES as u64,
+                8
+            )
+            .unwrap()
+            .unwrap(),
+        vec![7; 8]
+    );
+    assert!(
+        state
+            .presentation
+            .read_range("models/stream.bin".into(), u64::MAX, 8)
+            .unwrap()
+            .is_err()
+    );
+}
+
+/// Rebuilt SDKs may add imports without making older compiled client parts unusable.
+#[test]
+fn a_client_part_built_against_1_3_keeps_its_existing_callbacks() {
+    let guest = guest_1_1("ui/terminal.json").replace("@1.1.0", "@1.3.0");
+    let mut host = BundleHost::launch(
+        guest.as_bytes(),
+        owner(),
+        screen_capabilities(&[Permission::ModalUi, Permission::Input]),
+        1,
+        Default::default(),
+    )
+    .unwrap();
+    let initial = host.take_transaction();
+    assert!(!initial.commands.is_empty());
+    assert!(host.dispatch(&Event::Frame, 1).unwrap().commands.is_empty());
+    host.dispatch(&Event::Epoch, 2).unwrap();
+}
+
+/// Exercises the real canonical import and the optional frame callback through Wasmtime.
+#[test]
+fn canonical_drawing_import_reports_only_bundle_grants() {
+    for (permissions, expected) in [
+        (vec![], 0),
+        (vec![Permission::WorldDraw, Permission::RenderMaterial], 17),
+    ] {
+        let guest = format!(
+            r#"(component
+            (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+                (type $flags (flags "world-draw" "entity-observe" "entity-highlight" "render-through-walls" "render-material" "render-post"))
+                (export "permissions" (type $permissions (eq $flags)))
+                (export "capabilities" (func (result $permissions)))))
+            (alias export $drawing "capabilities" (func $capabilities))
+            (core func $capabilities-low (canon lower (func $capabilities)))
+            (core module $memory (memory (export "memory") 1) (func (export "realloc") (param i32 i32 i32 i32) (result i32) i32.const 4096))
+            (core instance $mem (instantiate $memory))
+            (alias core export $mem "memory" (core memory $memory-ref))
+            (alias core export $mem "realloc" (core func $realloc))
+            (core module $code
+                (import "host" "capabilities" (func $capabilities (result i32)))
+                (func (export "init") call $capabilities i32.const {expected} i32.ne if unreachable end)
+                (func (export "frame") call $capabilities i32.const {expected} i32.ne if unreachable end)
+                (func (export "dispatch") (param i32 i32 i32 i32)))
+            (core instance $host (export "capabilities" (func $capabilities-low)))
+            (core instance $run (instantiate $code (with "host" (instance $host))))
+            (func (export "init") (canon lift (core func $run "init")))
+            (func (export "frame") (canon lift (core func $run "frame")))
+            (func (export "dispatch") (param "channel" string) (param "record-json" (list u8)) (canon lift (core func $run "dispatch") (memory $memory-ref) (realloc $realloc))))"#
+        );
+        let mut host = BundleHost::launch(
+            guest.as_bytes(),
+            owner(),
+            screen_capabilities(&permissions),
+            1,
+            Default::default(),
+        )
+        .unwrap();
+        host.dispatch(&Event::Frame, 1).unwrap();
+    }
 }

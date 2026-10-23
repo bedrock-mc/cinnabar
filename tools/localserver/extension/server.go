@@ -33,8 +33,8 @@ const Fallback = "Without the client part the server plays exactly as it does fo
 // accepts, so a client clock up to an hour behind the server's still takes it.
 const offerLifetimeSecs = MaxOfferLifetimeSecs - 60*60
 
-// MediaGPUBytes is the GPU memory an offer requests when a bundle may draw scene or media
-// surfaces: one 1280x720 RGBA texture with headroom.
+// MediaGPUBytes is the shared GPU reservation for scene, media and world drawing.
+// It covers a 1280x720 RGBA surface with headroom for retained geometry.
 const MediaGPUBytes = 16 << 20
 
 // nonceBytes is the size of the Accept's server challenge and session, as the client checks them.
@@ -181,7 +181,7 @@ func (s *Server) newOffer(cfg Config) (Offer, error) {
 			URL:          DeliveryOrigin + "/" + b.Digest + bundleSuffix,
 		})
 	}
-	if offer.Scope.Permissions.Has(PermissionScene) || offer.Scope.Permissions.Has(PermissionMedia) {
+	if offer.Scope.Permissions.Has(PermissionScene) || offer.Scope.Permissions.Has(PermissionMedia) || offer.Scope.Permissions.Has(PermissionWorldDraw) || offer.Scope.Permissions.Has(PermissionRenderPost) || offer.Scope.Permissions.Has(PermissionEntityHighlight) {
 		offer.Scope.GPUBytes = MediaGPUBytes
 	}
 	if total > MaxExpandedBytes {

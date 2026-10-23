@@ -68,6 +68,16 @@ fn write(path: &Path, source: fn(&str) -> Result<String, String>) {
     println!("cargo::rerun-if-changed={}", path.display());
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()));
+    let parsed: Experience = toml::from_str(&text).unwrap_or_default();
+    for asset in parsed.client.assets {
+        let asset_path = path.parent().unwrap_or(Path::new(".")).join(&asset);
+        assert!(
+            asset_path.is_file(),
+            "drawing asset {} is missing",
+            asset_path.display()
+        );
+        println!("cargo::rerun-if-changed={}", asset_path.display());
+    }
     let source = source(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let out = Path::new(&std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR")).join(FILE);
     std::fs::write(&out, source)
@@ -75,7 +85,7 @@ fn write(path: &Path, source: fn(&str) -> Result<String, String>) {
 }
 
 /// The parts of `experience.toml` that have constants.
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Experience {
     id: String,
     #[serde(default)]
@@ -90,6 +100,8 @@ struct Client {
     actions: Vec<String>,
     #[serde(default)]
     templates: Vec<String>,
+    #[serde(default)]
+    assets: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -176,6 +188,23 @@ fn source(text: &str) -> Result<String, String> {
         &client.actions,
     )?;
     templates(&mut out, "`[client]` templates", &client.templates)?;
+    let mut names = Names::default();
+    let _ = writeln!(
+        out,
+        "\n/// Signed drawing assets.\n{ALLOW}\npub mod assets {{"
+    );
+    for path in &client.assets {
+        let name = Path::new(path)
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("invalid drawing asset {path}"))?;
+        let name = names.take(name, path)?;
+        let _ = writeln!(
+            out,
+            "    pub const {name}: {SDK}::Asset = {SDK}::Asset::new({path:?});"
+        );
+    }
+    out.push_str("}\n");
     Ok(out)
 }
 

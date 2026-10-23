@@ -2217,3 +2217,9 @@ test_support_features = ["test-support"]
 path = "app/src/runtime/network/item_icons/tints.rs"
 literal = "grass_carried"
 reason = "Terrain-atlas carried-grass colour source; this selects authored inventory tint metadata, not a block identity."
+
+[[crates]]
+name = "experience-space-client"
+path = "examples/experiences/space-client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]

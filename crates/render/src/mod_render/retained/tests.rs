@@ -443,3 +443,53 @@ fn out_of_memory_draws_what_fits_and_uploads_geometry_later() {
     assert_eq!(view.uploaded.len(), 2);
     assert_eq!(view.batches[0].instances, 0..2);
 }
+
+/// Both explicit revocation and disconnect remove session-owned GPU allocations.
+#[test]
+fn client_part_revoke_and_disconnect_release_uploaded_meshes() {
+    for disconnect in [false, true] {
+        let (mut app, _) = crate::queue_review_support::app();
+        app.init_resource::<gpu::Gpu>()
+            .init_resource::<materials::Materials>()
+            .init_resource::<clock::AnimationClock>()
+            .init_resource::<pipeline::Pipeline>()
+            .insert_resource(DrawingFrame {
+                connection: 1,
+                ..default()
+            })
+            .init_resource::<render_scene::ModRenderScene>()
+            .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
+        let (store, _, _) = drawing();
+        app.world_mut().resource_mut::<DrawingFrame>().live_owners = store
+            .snapshot()
+            .geometry
+            .keys()
+            .map(|id| (id.owner, id.generation))
+            .collect();
+        let output = mod_render::RenderOutput {
+            retained: vec![store.snapshot().clone()],
+            ..default()
+        };
+        app.world_mut()
+            .resource_mut::<render_scene::ModRenderScene>()
+            .apply_server(&output, 1);
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert_eq!(app.world().resource::<gpu::Gpu>().meshes.len(), 1);
+        if disconnect {
+            app.world_mut().resource_mut::<DrawingFrame>().connection = 0;
+        } else {
+            app.world_mut()
+                .resource_mut::<render_scene::ModRenderScene>()
+                .apply_server(&default(), 0);
+        }
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert!(app.world().resource::<gpu::Gpu>().meshes.is_empty());
+        assert!(
+            app.world()
+                .resource::<gpu::Gpu>()
+                .views
+                .values()
+                .all(|view| view.uploaded.is_empty())
+        );
+    }
+}

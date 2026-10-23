@@ -58,6 +58,8 @@ pub struct GpuInstance {
     pub params: [f32; mod_api::materials::PARAMS],
 }
 
+const _: () = assert!(std::mem::size_of::<GpuInstance>() == mod_api::drawing::INSTANCE_GPU_BYTES);
+
 /// Resolves admitted world, block and camera anchors from one trusted frame and view.
 pub fn resolve(
     instance: &Instance,

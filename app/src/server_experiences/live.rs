@@ -25,6 +25,8 @@ mod modal;
 
 struct Instance<H> {
     helper: Option<H>,
+    assets: BTreeMap<String, Vec<u8>>,
+    presentation: mod_host::presentation::Receiver,
     component: Option<Vec<u8>>,
     capabilities: Capabilities,
     owner: Principal,
@@ -48,6 +50,8 @@ struct Instance<H> {
     items_sent: Option<u64>,
     /// The delivered or queued Shift state; None means the guest needs synchronization.
     shift: Option<bool>,
+    drawing_context: mod_host::presentation::Context,
+    pending_drawing_context: mod_host::presentation::Context,
 }
 
 impl<H: Worker> Instance<H> {
@@ -74,7 +78,9 @@ impl<H: Worker> Instance<H> {
             .map(SessionItems::from);
         let revision = items.as_ref().map(|items| items.revision);
         self.callback = event.callback();
+        self.pending_drawing_context = self.drawing_context.clone();
         helper.dispatch(Dispatch {
+            drawing: Some(self.drawing_context.clone()),
             event,
             epoch,
             gui,
@@ -110,6 +116,8 @@ impl<H> Instance<H> {
         self.busy = false;
         self.events.clear();
         self.contributions = Contributions::default();
+        self.presentation = Default::default();
+        self.assets.clear();
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
     }
@@ -142,6 +150,12 @@ pub(super) struct Live<H = Helper> {
     modal_order: u64,
     /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
     gui: Option<(GuiSize, String)>,
+    drawing_connection: u64,
+    drawing_dimension: i32,
+    drawing: mod_render::RenderOutput,
+    drawing_generation: u64,
+    drawing_sources: Vec<u64>,
+    drawing_merge: mod_render::RenderMerge,
     /// The session's items, for guests granted `items`.
     session: Option<Arc<SessionData>>,
 }
@@ -181,6 +195,24 @@ impl<H: Worker> Live<H> {
                 capabilities.scope.memory_bytes,
                 capabilities.scope.gpu_bytes,
             )?;
+            let assets = if capabilities
+                .scope
+                .permissions
+                .contains(&Permission::WorldDraw)
+            {
+                bundle
+                    .paths()
+                    .filter(|path| Some(*path) != bundle.manifest.component.as_deref())
+                    .filter_map(|path| Some((path.to_owned(), bundle.file(path)?.to_vec())))
+                    .collect()
+            } else {
+                BTreeMap::new()
+            };
+            ensure!(
+                assets.values().map(Vec::len).sum::<usize>() as u64
+                    <= capabilities.scope.memory_bytes,
+                "drawing asset memory budget exceeded"
+            );
             let files = bundle.take_screen_files();
             let component = bundle.take_component();
             media.register(bundle);
@@ -189,6 +221,8 @@ impl<H: Worker> Live<H> {
                 owner.bundle.clone(),
                 Instance {
                     helper: None,
+                    assets,
+                    presentation: Default::default(),
                     component,
                     capabilities,
                     owner,
@@ -203,6 +237,8 @@ impl<H: Worker> Live<H> {
                     callback: "init",
                     items_sent: None,
                     shift: Some(false),
+                    drawing_context: Default::default(),
+                    pending_drawing_context: Default::default(),
                 },
             );
         }
@@ -225,6 +261,12 @@ impl<H: Worker> Live<H> {
             epoch,
             modal_order: 0,
             gui: None,
+            drawing_connection: 0,
+            drawing_dimension: 0,
+            drawing: Default::default(),
+            drawing_generation: mod_render::next_owner(),
+            drawing_sources: Vec::new(),
+            drawing_merge: Default::default(),
             session: None,
         };
         live.initialize()?;
@@ -256,7 +298,32 @@ impl<H: Worker> Live<H> {
             };
             instance.busy = false;
             let transaction = match result {
-                Ok(Reply::Committed { transaction, fuel }) => {
+                Ok(Reply::Committed {
+                    transaction,
+                    fuel,
+                    presentation,
+                }) => {
+                    if transaction.epoch == self.epoch
+                        && (instance.callback == "init"
+                            || (instance.pending_drawing_context.connection
+                                == self.drawing_connection
+                                && instance.pending_drawing_context.dimension
+                                    == self.drawing_dimension))
+                        && let Some(presentation) = presentation
+                    {
+                        instance.presentation.receive(
+                            *presentation,
+                            mod_host::server::drawing_grants(&instance.capabilities)
+                                .drawing_permissions(),
+                            if instance.callback == "init" {
+                                &instance.drawing_context
+                            } else {
+                                &instance.pending_drawing_context
+                            },
+                            instance.capabilities.scope.memory_bytes,
+                            instance.capabilities.scope.gpu_bytes,
+                        )?;
+                    }
                     bevy::log::debug!(
                         bundle = %instance.owner.bundle,
                         callback = instance.callback,
@@ -402,6 +469,33 @@ impl<H: Worker> Live<H> {
                 instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
             }
         }
+        for instance in self.instances.values_mut() {
+            if instance.stopped.is_none()
+                && !instance.busy
+                && instance
+                    .capabilities
+                    .scope
+                    .permissions
+                    .iter()
+                    .any(|permission| {
+                        matches!(
+                            permission,
+                            Permission::WorldDraw
+                                | Permission::RenderPost
+                                | Permission::EntityHighlight
+                        )
+                    })
+                && self.budget.can_dispatch(&instance.owner)
+            {
+                self.budget.dispatch(&instance.owner)?;
+                instance.dispatch(
+                    self.session.as_deref(),
+                    Event::Frame,
+                    epoch,
+                    modal::size_for(&self.gui, &instance.owner.bundle),
+                )?;
+            }
+        }
         Ok(packets)
     }
 
@@ -423,6 +517,7 @@ impl<H: Worker> Live<H> {
             packets.push(control);
         }
         for instance in self.instances.values_mut() {
+            instance.presentation = Default::default();
             let guest = instance.helper.is_some() || instance.component.is_some();
             if guest
                 && !instance
@@ -450,6 +545,7 @@ impl<H: Worker> Live<H> {
                 instance.owner.clone(),
                 instance.capabilities.clone(),
                 self.epoch,
+                std::mem::take(&mut instance.assets),
             )?);
             instance.epoch = self.epoch;
             instance.callback = "init";
@@ -484,6 +580,91 @@ impl<H: Worker> Live<H> {
 
     pub(super) fn media_mut(&mut self) -> &mut super::media::Media {
         &mut self.media
+    }
+
+    /// Binds presentation to the native actor connection and dimension type, not server IDs.
+    pub(super) fn bind_drawing(&mut self, connection: u64, dimension: i32) {
+        if self.drawing_connection == connection && self.drawing_dimension == dimension {
+            return;
+        }
+        self.drawing_connection = connection;
+        self.drawing_dimension = dimension;
+        for instance in self.instances.values_mut() {
+            instance.drawing_context.connection = connection;
+            instance.drawing_context.dimension = dimension;
+        }
+        for instance in self.instances.values_mut() {
+            instance.presentation = Default::default();
+        }
+        self.drawing_sources.clear();
+    }
+
+    /// Supplies the same native actor publication used by personal mods.
+    pub(super) fn set_drawing_context(
+        &mut self,
+        candidates: Vec<mod_render::retained::EntityKey>,
+        targets: Vec<(mod_api::drawing::MaskEntity, u64)>,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
+    ) {
+        for instance in self.instances.values_mut() {
+            let mut live = candidates.clone();
+            for key in instance
+                .presentation
+                .output()
+                .0
+                .retained
+                .iter()
+                .flat_map(|resources| resources.entities.values())
+                .copied()
+                .filter(|key| valid(*key))
+            {
+                if !live.contains(&key) {
+                    live.push(key);
+                }
+            }
+
+            instance.drawing_context = mod_host::presentation::Context {
+                connection: self.drawing_connection,
+                dimension: self.drawing_dimension,
+                candidates: candidates.clone(),
+                live,
+                targets: targets.clone(),
+            };
+        }
+    }
+
+    /// Merges only changed client-part output; stopped parts release their renderer resources.
+    pub(super) fn drawing(&mut self) -> (&mod_render::RenderOutput, u64) {
+        if !self.drawing_sources.iter().copied().eq(self
+            .instances
+            .values()
+            .map(|instance| instance.presentation.output().1))
+        {
+            self.drawing = self.drawing_merge.merge(
+                self.instances
+                    .values()
+                    .map(|instance| instance.presentation.output().0),
+            );
+            self.drawing_sources = self
+                .instances
+                .values()
+                .map(|instance| instance.presentation.output().1)
+                .collect();
+            self.drawing_generation = mod_render::next_owner();
+        }
+        (&self.drawing, self.drawing_generation)
+    }
+
+    /// The first active bundle's local environment contribution in manifest order.
+    pub(super) fn environment(&self) -> (Option<u32>, Option<[f32; 2]>) {
+        (
+            self.instances
+                .values()
+                .find_map(|instance| instance.presentation.time),
+            self.instances
+                .values()
+                .find_map(|instance| instance.presentation.weather),
+        )
     }
 
     /// Media screens (each bundle's own scene quads whose texture names a playing descriptor),

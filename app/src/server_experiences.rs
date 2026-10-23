@@ -1,5 +1,6 @@
 //! Trusted session controller; remote data never supplies consent controls.
 
+pub(crate) mod drawing;
 mod driver;
 mod live;
 mod media;

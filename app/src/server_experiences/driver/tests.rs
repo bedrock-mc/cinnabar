@@ -565,3 +565,36 @@ fn a_modal_hotbar_key_over_an_inventory_slot_sends_its_swap() {
     assert_eq!(ledger.displayed_stack(2).unwrap().count, 32);
     assert!(ledger.pending_batch().unwrap().is_some());
 }
+
+#[test]
+fn changing_a_signed_bundle_set_drops_the_previous_runtime() {
+    let mut app = join_app(State::Disabled);
+    let mut grant = Grant {
+        offer: offer(),
+        session: "session".into(),
+        connection: "connection".into(),
+        subclient: 0,
+        wire: server_experience::negotiation::Wire::v1(),
+        expires_unix: u64::MAX,
+    };
+    let mut service = app.world_mut().resource_mut::<ExperienceService>();
+    assert!(!service.select_deployment(&grant));
+    service.attempted = true;
+    service.live = Some(
+        super::super::live::Live::start(
+            grant.clone(),
+            Vec::new(),
+            1,
+            0,
+            PathBuf::new().as_path(),
+            PathBuf::new().as_path(),
+        )
+        .unwrap(),
+    );
+    assert!(!service.select_deployment(&grant));
+    assert!(service.live.is_some());
+    grant.offer.digest = "another-signed-bundle-set".into();
+    assert!(service.select_deployment(&grant));
+    assert!(service.live.is_none());
+    assert!(!service.attempted);
+}

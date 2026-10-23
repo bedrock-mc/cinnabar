@@ -58,7 +58,7 @@ pub(super) fn publish_frame(
 }
 
 /// Adds one retained snapshot's live owner and authoritative block anchors to the frame.
-pub(super) fn publish_retained(
+pub(crate) fn publish_retained(
     resources: &mod_render::retained::Resources,
     terrain: &world::ChunkStore,
     frame: &mut render_scene::mod_scene::retained::DrawingFrame,

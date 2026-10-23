@@ -500,6 +500,7 @@ fn source() -> Source {
     };
     let template = format!(r#"{{"namespace":"{PACKAGE}","terminal":{{"type":"panel"}}}}"#);
     Source {
+        assets: Default::default(),
         id: PACKAGE.to_owned(),
         package_version: "0.1.0".to_owned(),
         permissions: implemented_permissions(),
