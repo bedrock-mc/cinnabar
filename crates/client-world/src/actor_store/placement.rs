@@ -56,6 +56,8 @@ impl super::movement_interpolation::MotionState {
 /// seat's facing, and how far either side of that facing the view may turn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SeatViewLock {
+    /// The vehicle the seat belongs to; a different vehicle's yaw is no turn of this one.
+    pub vehicle_runtime_id: u64,
     pub vehicle_yaw: f32,
     /// The seat's facing relative to the vehicle.
     pub offset: f32,
@@ -200,14 +202,20 @@ impl ActorStore {
         }
         let offset = degrees(ActorDataKey::SeatRotationOffsetDegrees).unwrap_or(0.0);
         let mount = self.snapshot_by_unique(*self.rider_to_ridden.get(&rider_unique_id)?)?;
-        // Before the live actors advance this frame, the mount turns as picks predict it.
-        let (previous, current) = self
-            .pick_ahead(mount.runtime_id)
-            .map_or((mount.previous_pose.yaw, mount.yaw), |pick| {
-                (pick.previous_yaw, pick.state.pose.yaw)
-            });
+        // A predicted boat turns as its latest feed renders it. Before the live actors
+        // advance this frame, any other mount turns as picks predict it.
+        let (previous, current) = if let Some(yaw) = self.local_vehicle_render_yaw(mount.runtime_id)
+        {
+            (yaw, yaw)
+        } else {
+            self.pick_ahead(mount.runtime_id)
+                .map_or((mount.previous_pose.yaw, mount.yaw), |pick| {
+                    (pick.previous_yaw, pick.state.pose.yaw)
+                })
+        };
         let vehicle_yaw = previous + wrap_degrees(current - previous) * alpha.clamp(0.0, 1.0);
         vehicle_yaw.is_finite().then(|| SeatViewLock {
+            vehicle_runtime_id: mount.runtime_id,
             vehicle_yaw,
             offset,
             limit,

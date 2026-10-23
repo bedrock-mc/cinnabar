@@ -317,6 +317,8 @@ pub fn advance_actor_frame(
                 charged: timing.hand_charged,
             };
         }
+        // The predicted boat lands first, so a locked seat faces along its current heading.
+        stream.sync_local_vehicle_pose(input.local_vehicle);
         // A seat that locks rotation faces the rider's body along the vehicle.
         if let Some(feed) = &mut local_feed
             && let Some(lock) = stream.authority().local_seat_view_lock(step.partial_tick)
@@ -326,7 +328,6 @@ pub fn advance_actor_frame(
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);
         }
-        stream.sync_local_vehicle_pose(input.local_vehicle);
         // Attacks, mining and use swing the local arm at once; the server echoes no swing.
         if let Some(progress) = input.swing_progress {
             stream.sync_local_swing(progress);

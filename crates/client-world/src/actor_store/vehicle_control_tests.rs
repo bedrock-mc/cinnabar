@@ -594,3 +594,48 @@ fn a_predicted_boat_shows_its_render_pose_on_the_rider_s_clock() {
     assert_eq!(boat.yaw, 25.0);
     assert_eq!(boat.last_received_pose().position, [12.0, 5.0, 10.0]);
 }
+
+/// Before the live actors advance, a locked seat on the predicted boat follows the boat's
+/// latest feed rather than the picks predicted before it.
+#[test]
+fn a_predicted_boat_turns_the_seat_as_its_latest_feed_renders_it() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    let lock = |key: ActorDataKey, value| ActorMetadata {
+        key: key.wire_value(),
+        value,
+    };
+    sequence += 1;
+    store.apply(
+        1,
+        sequence,
+        spawn(
+            PLAYER,
+            player("Rider"),
+            vec![
+                lock(
+                    ActorDataKey::SeatLockPassengerRotation,
+                    ActorMetadataValue::Byte(1),
+                ),
+                lock(
+                    ActorDataKey::SeatLockPassengerRotationDegrees,
+                    ActorMetadataValue::Float(90.0),
+                ),
+            ],
+        ),
+    );
+    store.exclude_remote_state_for(PLAYER as u64);
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    store.predict_remote_motion(1);
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        revision: 0,
+        position: [10.0, 5.0, 10.0],
+        yaw: 40.0,
+        velocity: [0.0; 3],
+        render_position: [10.0, 5.0, 10.0],
+        render_yaw: 30.0,
+    }));
+    let lock = store.rider_view_lock(PLAYER, 0.5).unwrap();
+    assert_eq!(lock.vehicle_runtime_id, BOAT as u64);
+    assert_eq!(lock.vehicle_yaw, 30.0);
+}

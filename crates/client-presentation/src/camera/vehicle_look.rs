@@ -9,22 +9,24 @@ use crate::presentation::actors::wrap_degrees;
 /// Follows the vehicle yaw from frame to frame.
 #[derive(Debug, Default, Resource)]
 pub struct VehicleLookFollow {
-    last_vehicle_yaw: Option<f32>,
+    /// The followed vehicle and its yaw last frame.
+    last_vehicle: Option<(u64, f32)>,
 }
 
 impl VehicleLookFollow {
     /// Degrees to add to the look's Minecraft yaw this frame: the vehicle's turn since the
     /// previous frame, held within the seat's range around its facing. Without a lock the
-    /// view is free and the next lock starts without a turn.
+    /// view is free; the next lock, or a lock on another vehicle, starts without a turn.
     pub fn turn(&mut self, look_yaw: f32, lock: Option<SeatViewLock>) -> f32 {
         let Some(lock) = lock else {
-            self.last_vehicle_yaw = None;
+            self.last_vehicle = None;
             return 0.0;
         };
         let vehicle_turn = self
-            .last_vehicle_yaw
-            .map_or(0.0, |last| wrap_degrees(lock.vehicle_yaw - last));
-        self.last_vehicle_yaw = Some(lock.vehicle_yaw);
+            .last_vehicle
+            .filter(|(vehicle, _)| *vehicle == lock.vehicle_runtime_id)
+            .map_or(0.0, |(_, last)| wrap_degrees(lock.vehicle_yaw - last));
+        self.last_vehicle = Some((lock.vehicle_runtime_id, lock.vehicle_yaw));
         let relative = wrap_degrees(look_yaw - lock.facing());
         (relative + vehicle_turn).clamp(-lock.limit, lock.limit) - relative
     }
@@ -49,6 +51,7 @@ mod tests {
 
     const fn boat(vehicle_yaw: f32) -> SeatViewLock {
         SeatViewLock {
+            vehicle_runtime_id: 7,
             vehicle_yaw,
             offset: -90.0,
             limit: 90.0,
@@ -64,6 +67,19 @@ mod tests {
         let mut follow = VehicleLookFollow::default();
         follow.turn(85.0, Some(boat(175.0)));
         assert!((follow.turn(85.0, Some(boat(-175.0))) - 10.0).abs() < 1.0e-4);
+    }
+
+    /// Moving straight to another locked vehicle does not turn the view by the difference
+    /// between the two vehicles' headings.
+    #[test]
+    fn a_new_vehicle_starts_without_a_turn() {
+        let mut follow = VehicleLookFollow::default();
+        follow.turn(-90.0, Some(boat(0.0)));
+        let other = SeatViewLock {
+            vehicle_runtime_id: 8,
+            ..boat(90.0)
+        };
+        assert_eq!(follow.turn(0.0, Some(other)), 0.0);
     }
 
     #[test]

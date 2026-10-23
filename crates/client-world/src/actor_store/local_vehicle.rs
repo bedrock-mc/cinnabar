@@ -98,6 +98,14 @@ impl ActorStore {
         self.show_local_vehicle_render();
     }
 
+    /// The yaw the predicted boat `runtime_id` renders at this frame, from its latest feed.
+    pub(super) fn local_vehicle_render_yaw(&self, runtime_id: u64) -> Option<f32> {
+        self.local_vehicle
+            .render
+            .filter(|(predicted, _)| *predicted == runtime_id)
+            .map(|(_, pose)| pose.yaw)
+    }
+
     /// Holds the predicted boat at its fed render pose, whatever the actor clock's point
     /// between ticks.
     pub(super) fn show_local_vehicle_render(&mut self) {
