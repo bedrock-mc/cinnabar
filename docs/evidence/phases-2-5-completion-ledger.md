@@ -463,13 +463,14 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 Custom block mining retains component defaults, disabled values, ordered item
 overrides and resolved state permutations in both runtime identity spaces.
-Discarded mining data stays unresolved through state merging. Item-tag filters
+Every admitted state resolves a mining value: malformed item entries never match,
+and conditions the client reads as zero keep the base value. Item-tag filters
 compile during session preparation and reuse those programs without allocating.
-Mining uncertainty does not prevent prediction with known physical bounds.
-Mining state storage and admission are independent of the physical state budget.
+Mining state storage is independent of the physical state budget.
 Regression tests cover component decoding, progress rates and completion packets.
-Complex item-tag scripts and live custom-block acceptance remain incomplete;
-this does not advance the interaction completion gate.
+Complex Molang conditions and item-tag scripts read as zero, and live acceptance
+against a vanilla server remains incomplete; this does not advance the
+interaction completion gate.
 
 Ordered desktop interactions now attempt each edge only in its input frame.
 Refused presses retain no proposal or movement reservation. Gameplay owners retain
@@ -686,6 +687,8 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+Chalkboards retain supplied model geometry and world artwork; text and native visual
+acceptance remain incomplete, and no completion status advances.
 
 Retained mod drawing has authority and lifetime contracts. Geometry admission validates
 vertices once and caches extent and quota facts for every shared instance and callback

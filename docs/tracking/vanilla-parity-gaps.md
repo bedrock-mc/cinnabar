@@ -71,7 +71,7 @@ pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label:
 text, tooltip and durability placement/colours, the preview's size and vertical placement in its box, layer
 relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point). Menus (landed, uncompiled): start, play (worlds/friends/servers tabs), add/edit server,
 settings (sections, GUI scale, sound sliders bound to `AudioSettings` at 5% snaps whose
-granularity needs measurement; text-to-speech disabled), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
+granularity needs measurement; no text-to-speech controls), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
 (student view) and server settings (a form over the settings menu, not yet a settings
 section) draw from their vanilla screens, as do launcher dialogs (vanilla two-button popup);
 profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it completes before the
@@ -374,3 +374,10 @@ player's bones by name; the cape's rest turn, layer resampling and `cape_flap_am
 native parity verification. The entity compiler retains vanilla's `geometry.cape` from
 `models/mobs.json` in the geometry carrier and reference sidecar. Server-assigned local appearances
 survive unchanged client pose feeds and roster removal while the player actor remains alive.
+
+Boats and rafts: vanilla draws `minecraft:boat` and `minecraft:chest_boat` with a native model, so
+their client entities name no render controller. The entity compiler gives such entities the
+native hull, raft and chest models (authored `geometry.boat`-style geometry replaces them) and a
+controller that picks the wood texture and raft model from the actor variant. Streamed row times
+pose the paddles, and a struck boat rocks about its render origin. Missing: the bubble-column rock,
+the water cutout inside the hull, and client-predicted driving (see Riding).

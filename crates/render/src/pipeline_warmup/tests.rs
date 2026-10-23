@@ -72,12 +72,14 @@ impl PrewarmPipelines for TwoModes {
     fn prewarm(
         &mut self,
         cache: &PipelineCache,
-        _view: WarmView,
+        view: WarmView,
         ids: &mut WarmupIds,
     ) -> Result<(), BevyError> {
         self.calls += 1;
         for mask in [ColorWrites::RED, ColorWrites::GREEN] {
-            ids.push(cache.queue_render_pipeline(descriptor(self.shader.clone(), mask)));
+            let mut descriptor = descriptor(self.shader.clone(), mask);
+            descriptor.multisample.count = view.msaa.samples();
+            ids.push(cache.queue_render_pipeline(descriptor));
         }
         Ok(())
     }
@@ -87,6 +89,7 @@ const VIEW: WarmView = WarmView {
     msaa: Msaa::Off,
     hdr: false,
     enhanced: false,
+    shader_pack: false,
     output: None,
 };
 
@@ -137,6 +140,26 @@ fn a_new_view_configuration_warms_again_and_closes_the_gate() {
     world.run_system(warm).unwrap();
     assert_eq!(world.resource::<TwoModes>().calls, 2);
     assert!(!ready(&mut world));
+}
+
+#[test]
+fn loading_prepares_single_sample_coverage_before_msaa_is_disabled() {
+    let mut world = world(Handle::default());
+    world.resource_mut::<WarmupRegistry>().views[0].msaa = Msaa::Sample4;
+    let warm = world.register_system(prewarm_owner::<TwoModes>);
+    world.run_system(warm).unwrap();
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
+    assert!(!ready(&mut world));
+    world.resource_mut::<PipelineCache>().process_queue();
+    assert!(ready(&mut world));
+
+    world.resource_mut::<WarmupRegistry>().views[0].msaa = Msaa::Off;
+    world.run_system(warm).unwrap();
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
+    assert!(
+        ready(&mut world),
+        "Performance coverage was already compiled"
+    );
 }
 
 #[test]

@@ -18,7 +18,7 @@ pub(crate) fn shaderpack_block_entities(world: &World) -> Option<BlockEntitySour
             })
     }
     Some(BlockEntitySource {
-        atlas: gpu.texture.as_ref()?,
+        atlas: gpu.atlas_texture()?,
         solid: list(&gpu.solid),
         overlay: list(&gpu.overlay),
     })
@@ -28,6 +28,6 @@ impl BlockEntityGpu {
     /// The uploaded block-entity atlas, destroy stages included, which shader-pack crack
     /// draws read through a gamma-byte view rather than a copy of their own.
     pub(crate) fn atlas_texture(&self) -> Option<&Texture> {
-        self.texture.as_ref()
+        self.texture.as_ref().filter(|_| self.texture_raw_views.0)
     }
 }

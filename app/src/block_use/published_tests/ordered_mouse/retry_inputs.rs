@@ -293,7 +293,7 @@ fn ordered_mouse_missing_pick_does_not_postpone_the_use_edge() {
         let authority = app
             .world()
             .resource::<MovementTicker>()
-            .interaction_authority_identity();
+            .position_authority_identity();
         app.world_mut()
             .resource_mut::<BlockUseRuntime>()
             .retain_pick(&InteractionOriginSnapshot::default(), authority);

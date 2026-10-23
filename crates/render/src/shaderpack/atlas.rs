@@ -55,7 +55,7 @@ use bevy::{
     math::UVec2,
     prelude::{App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
     render::{
-        Render, RenderApp, RenderStartup, RenderSystems,
+        Render, RenderApp, RenderSystems,
         render_resource::{Buffer, PipelineCache, Sampler, TextureView},
         renderer::{PendingCommandBuffers, RenderDevice, RenderQueue},
     },
@@ -63,7 +63,10 @@ use bevy::{
 };
 use plan::{AtlasInputs, AtlasPlan, LayerLayout};
 use render_scene::{ChunkAnimationClock, ChunkTextureAssets, shaderpack::ShaderPackRendering};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use upload::UploadedAtlas;
 
 /// Slot 0 of the remap table is the header `[atlas_width, atlas_height]`.
@@ -125,10 +128,13 @@ impl Plugin for ShaderpackAtlasPlugin {
         );
         app.sub_app_mut(RenderApp)
             .init_resource::<AtlasBuild>()
-            .add_systems(RenderStartup, blend::init_blend_pipelines)
             .add_systems(
                 Render,
-                (prepare_shaderpack_atlas, update_shaderpack_animations)
+                (
+                    blend::init_blend_pipelines,
+                    prepare_shaderpack_atlas,
+                    update_shaderpack_animations,
+                )
                     .chain()
                     .run_if(atlas_requested)
                     .in_set(RenderSystems::PrepareResources),
@@ -152,12 +158,28 @@ fn atlas_requested(
         || (pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty())
 }
 
-/// Releases atlas textures, animation state and pending work when no camera uses a pack.
-fn release_shaderpack_atlas(mut commands: Commands, mut build: ResMut<AtlasBuild>) {
-    build.requested = None;
-    build.task = None;
-    commands.remove_resource::<ShaderpackAtlas>();
-    commands.remove_resource::<AtlasAnimations>();
+/// Releases atlas textures, animation state and pending work when no camera uses a pack,
+/// cancelling a running build. Idle frames queue no commands and leave `build` unchanged.
+fn release_shaderpack_atlas(
+    mut commands: Commands,
+    mut build: ResMut<AtlasBuild>,
+    atlas: Option<Res<ShaderpackAtlas>>,
+    animations: Option<Res<AtlasAnimations>>,
+) {
+    if build.requested.is_some() || build.task.is_some() {
+        build.requested = None;
+        build.pending = false;
+        build.retire();
+    }
+    if build.retiring.is_some() {
+        build.settle_retiring();
+    }
+    if atlas.is_some() {
+        commands.remove_resource::<ShaderpackAtlas>();
+    }
+    if animations.is_some() {
+        commands.remove_resource::<AtlasAnimations>();
+    }
 }
 
 /// A finished background build.
@@ -168,12 +190,61 @@ struct BuiltAtlas {
     source: ChunkTextureAssets,
 }
 
+/// Where a build checks for cancellation before starting the stage's work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    Sources,
+    Plan,
+    Pixels,
+    Upload,
+}
+
+/// Cancellation shared between [`AtlasBuild`] and the one build it started.
+#[derive(Clone, Default)]
+struct BuildToken {
+    cancelled: Arc<AtomicBool>,
+    /// Observes or holds a build at each stage.
+    #[cfg(test)]
+    hook: Option<Arc<dyn Fn(Stage) + Send + Sync>>,
+}
+
+impl BuildToken {
+    /// Requests that the worker return at its next cancellation checkpoint.
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether the atlas owner has withdrawn this build's request.
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+
+    /// `None` once cancelled, so a build returns before starting `stage`.
+    fn proceed(&self, stage: Stage) -> Option<()> {
+        #[cfg(test)]
+        if let Some(hook) = &self.hook {
+            hook(stage);
+        }
+        #[cfg(not(test))]
+        let _ = stage;
+        (!self.is_cancelled()).then_some(())
+    }
+}
+
 /// The requested carrier and its in-flight replacement; the published atlas stays until then.
+/// At most one build runs: a superseded or released build is cancelled and kept until its
+/// worker returns, and the latest request starts after it.
 #[derive(Resource, Default)]
 struct AtlasBuild {
     requested: Option<ChunkTextureAssets>,
-    task: Option<Task<Option<BuiltAtlas>>>,
+    /// `requested` has not started building.
+    pending: bool,
+    task: Option<(Task<Option<BuiltAtlas>>, BuildToken)>,
+    /// A cancelled build whose worker may still be running.
+    retiring: Option<Task<Option<BuiltAtlas>>>,
     generation: u64,
+    #[cfg(test)]
+    hook: Option<Arc<dyn Fn(Stage) + Send + Sync>>,
 }
 
 impl AtlasBuild {
@@ -187,7 +258,34 @@ impl AtlasBuild {
             return false;
         }
         self.requested = Some(assets.clone());
+        self.pending = true;
         true
+    }
+
+    /// Cancels the running build, keeping it until its worker returns.
+    fn retire(&mut self) {
+        if let Some((task, token)) = self.task.take() {
+            token.cancel();
+            debug_assert!(self.retiring.is_none(), "builds start only once idle");
+            self.retiring = Some(task);
+        }
+    }
+
+    /// Drops the retired build once its worker has returned; whether none remains.
+    fn settle_retiring(&mut self) -> bool {
+        if self.retiring.as_ref().is_some_and(Task::is_finished) {
+            self.retiring = None;
+        }
+        self.retiring.is_none()
+    }
+
+    /// A token for the next build.
+    fn token(&self) -> BuildToken {
+        BuildToken {
+            #[cfg(test)]
+            hook: self.hook.clone(),
+            ..BuildToken::default()
+        }
     }
 }
 
@@ -202,16 +300,28 @@ fn prepare_shaderpack_atlas(
     if let Some(assets) = assets
         && build.request(&assets)
     {
-        let (assets, device, queue) = (assets.clone(), device.clone(), queue.clone());
-        build.task = Some(
-            AsyncComputeTaskPool::get()
-                .spawn(async move { build_atlas(assets, device.wgpu_device(), &queue) }),
-        );
+        build.retire();
     }
-    if !build.task.as_ref().is_some_and(Task::is_finished) {
+    let idle = build.settle_retiring();
+    if build.pending
+        && idle
+        && let Some(assets) = build.requested.clone()
+    {
+        build.pending = false;
+        let (device, queue, token) = (device.clone(), queue.clone(), build.token());
+        let worker = token.clone();
+        let task = AsyncComputeTaskPool::get()
+            .spawn(async move { build_atlas(assets, device.wgpu_device(), &queue, &worker) });
+        build.task = Some((task, token));
+    }
+    if !build
+        .task
+        .as_ref()
+        .is_some_and(|(task, _)| task.is_finished())
+    {
         return;
     }
-    let Some(built) = build.task.take().and_then(block_on) else {
+    let Some(built) = build.task.take().and_then(|(task, _)| block_on(task)) else {
         return;
     };
     build.generation += 1;
@@ -220,16 +330,21 @@ fn prepare_shaderpack_atlas(
     commands.insert_resource(animations);
 }
 
-/// Plans, assembles and uploads one generation; `None` logs why the previous atlas stays.
+/// Plans, assembles and uploads one generation; `None` logs why the previous atlas stays, or
+/// follows `token`'s cancellation without publishing.
 fn build_atlas(
     assets: ChunkTextureAssets,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
+    token: &BuildToken,
 ) -> Option<BuiltAtlas> {
     let _zone = bevy::log::info_span!("shaderpack.atlas_build").entered();
+    token.proceed(Stage::Sources)?;
     let runtime = Arc::clone(assets.assets());
     let pages = (0..runtime.texture_pages().len())
-        .map(|page| runtime.terrain_texture_page(page))
+        .map(|page| (!token.is_cancelled()).then(|| runtime.terrain_texture_page(page)))
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
         .collect::<Result<Vec<_>, _>>()
         .inspect_err(|error| bevy::log::error!(?error, "invalid shader-pack atlas source page"))
         .ok()?;
@@ -261,6 +376,7 @@ fn build_atlas(
         authored,
     };
     let limits = device.limits();
+    token.proceed(Stage::Plan)?;
     let Some(plan) = plan::plan_atlas(&inputs, limits.max_texture_dimension_2d) else {
         bevy::log::error!(
             max_dimension = limits.max_texture_dimension_2d,
@@ -284,8 +400,10 @@ fn build_atlas(
         );
         return None;
     }
-    let images = pixels::build_images(&inputs, &plan);
-    let uploaded = upload::upload_atlas(device, queue, &plan, &images);
+    token.proceed(Stage::Pixels)?;
+    let images = pixels::build_images(&inputs, &plan, &|| token.is_cancelled())?;
+    token.proceed(Stage::Upload)?;
+    let uploaded = upload::upload_atlas(device, queue, &plan, &images, &|| token.is_cancelled())?;
     let sampler = device.create_sampler(&upload::atlas_sampler_descriptor(plan.mip_levels));
     Some(BuiltAtlas {
         plan,

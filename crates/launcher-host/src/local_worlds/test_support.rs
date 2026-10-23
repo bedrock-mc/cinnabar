@@ -20,8 +20,9 @@ use url::Url;
 
 use super::{
     Cancel, lock,
-    process::{Instance, Runner, StartSpec},
+    process::{HostGrant, Instance, Runner, StartSpec},
     provision::{Platform, Provisioner},
+    unpack::INSTALL_MANIFEST,
     world::WorldError,
 };
 
@@ -38,6 +39,7 @@ pub(crate) fn scratch() -> tempfile::TempDir {
 
 pub(crate) fn world() -> World {
     World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "n".to_owned(),
         game_mode: GameMode::Survival,
@@ -47,6 +49,7 @@ pub(crate) fn world() -> World {
         seed: -7,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }
 }
@@ -56,6 +59,8 @@ pub(crate) fn spec(dir: &Path) -> StartSpec {
         world: world(),
         dir: dir.to_path_buf(),
         view_distance: None,
+        options_unapplied: false,
+        host_xuid: None,
     }
 }
 
@@ -265,7 +270,7 @@ pub(crate) fn installed_provisioner(root: &Path, platform: Platform, binary: &[u
     provisioner.platform = platform;
     let dir = provisioner.root.join(VERSION);
     std::fs::create_dir_all(&dir).expect("install folder");
-    std::fs::write(dir.join("manifest.json"), b"{}").expect("manifest");
+    std::fs::write(dir.join(INSTALL_MANIFEST), b"{}").expect("manifest");
     write_script(&dir.join("bedrock_server"), binary);
     provisioner.accept_eula().expect("accept EULA");
     provisioner
@@ -280,19 +285,26 @@ pub(crate) fn write_script(path: &Path, body: &[u8]) {
         .expect("make script executable");
 }
 
-/// A server that announces BDS readiness and stops on a `stop` line or stdin EOF.
+/// A server that announces BDS readiness and stops on a `stop` line or stdin EOF. Its first stop
+/// creates level data holding a `Created` tag, as BDS saves a new world.
 #[cfg(unix)]
-pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\r\\n[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*) exit 0 ;; esac\ndone\n";
+pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\r\\n[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*)\n    world=\"worlds/$(sed -n 's/^level-name=//p' server.properties)\"\n    [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\"\n    exit 0 ;;\n  esac\ndone\n";
 
 /// A Docker CLI that logs each invocation to `$FAKE_DOCKER_LOG` and answers the subcommands
 /// the container runner uses; `$FAKE_DOCKER_DOWN` makes `info` fail and `$FAKE_DOCKER_HANG` makes
-/// `image` hang.
+/// `image` hang. A run's stop creates the mounted world's level data like [`FAKE_BDS`].
 #[cfg(unix)]
-pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done ;;\nesac\n";
+pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) for arg; do case \"$arg\" in *:/data/worlds/*) world=\"${arg%%:/data/worlds/*}\" ;; esac; done\n    echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done; rm -f \"$log.stop\"\n    [ -z \"$world\" ] || [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\" ;;\nesac\n";
 
-/// Records every pause request; exits once stopped.
+/// Records every pause request and host grant; exits once stopped.
 pub(crate) struct FakeInstance {
     pub paused: Mutex<Vec<bool>>,
+    /// Each [`Instance::grant_host`] call, recorded as it begins.
+    pub grants: Mutex<Vec<Option<String>>>,
+    /// Holds each grant, once recorded, until disconnected.
+    grant_gate: Option<Receiver<()>>,
+    /// Fails each grant.
+    grant_error: Option<fn() -> WorldError>,
     exit: Mutex<Option<Sender<()>>>,
     exited: Receiver<()>,
     pub can_pause: bool,
@@ -309,6 +321,9 @@ impl FakeInstance {
         let (exit, exited) = crossbeam_channel::bounded(0);
         Self {
             paused: Mutex::default(),
+            grants: Mutex::default(),
+            grant_gate: None,
+            grant_error: None,
             exit: Mutex::new(Some(exit)),
             exited,
             can_pause,
@@ -375,6 +390,17 @@ impl Instance for FakeInstance {
     fn lan_address(&self) -> Option<&str> {
         self.lan.as_deref()
     }
+
+    fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError> {
+        lock(&self.grants).push(xuid.map(str::to_owned));
+        if let Some(gate) = &self.grant_gate {
+            crossbeam_channel::select! {
+                recv(gate) -> _ => {},
+                recv(cancel.receiver()) -> _ => return Err(WorldError::Cancelled),
+            }
+        }
+        self.grant_error.map_or(Ok(()), |error| Err(error()))
+    }
 }
 
 /// Starts [`FakeInstance`]s, optionally held until `release` or failing with `error`.
@@ -384,6 +410,18 @@ pub(crate) struct FakeRunner {
     pub error: Option<fn() -> WorldError>,
     pub can_pause: Option<bool>,
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
+    /// Starts begun, counted before any gate.
+    pub entered: AtomicUsize,
+    /// The effective world passed to each started server.
+    pub started: Mutex<Vec<World>>,
+    /// The host XUID passed to each started server.
+    pub hosts: Mutex<Vec<Option<String>>>,
+    /// When starts apply the host grant; `None` grants once ready, as native BDS does.
+    pub host_grant: Option<HostGrant>,
+    /// Passed to each instance as its grant gate.
+    pub grant_gate: Option<Receiver<()>>,
+    /// Passed to each instance as its grant failure.
+    pub grant_error: Option<fn() -> WorldError>,
     /// Passed to each instance as its save.
     pub save: Option<Receiver<()>>,
     /// Passed to each instance as its cleanup.
@@ -431,13 +469,26 @@ impl FakeRunner {
         )
     }
 
+    /// A runner whose instances' grants wait until the returned sender is dropped.
+    pub(crate) fn granting() -> (Self, Sender<()>) {
+        let (release, grant_gate) = crossbeam_channel::bounded(0);
+        (
+            Self {
+                grant_gate: Some(grant_gate),
+                ..Self::default()
+            },
+            release,
+        )
+    }
+
     pub(crate) fn last(&self) -> Arc<FakeInstance> {
         Arc::clone(lock(&self.made).last().expect("a started instance"))
     }
 }
 
 impl Runner for FakeRunner {
-    fn start(&self, _spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
+    fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
+        self.entered.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.gate {
             crossbeam_channel::select! {
                 recv(gate) -> _ => {}
@@ -447,6 +498,8 @@ impl Runner for FakeRunner {
         if let Some(error) = self.error {
             return Err(error());
         }
+        lock(&self.started).push(spec.world.clone());
+        lock(&self.hosts).push(spec.host_xuid.clone());
         let mut made = lock(&self.made);
         if made.iter().any(|instance| !instance.finished()) {
             self.overlapped
@@ -455,12 +508,18 @@ impl Runner for FakeRunner {
         let instance = Arc::new(FakeInstance {
             save: self.save.clone(),
             cleanup: self.cleanup.clone(),
+            grant_gate: self.grant_gate.clone(),
+            grant_error: self.grant_error,
             ..FakeInstance::new(self.can_pause.unwrap_or(true))
         });
         made.push(Arc::clone(&instance));
         drop(made);
         let instance: Arc<dyn Instance> = instance;
         Ok(instance)
+    }
+
+    fn host_grant(&self) -> HostGrant {
+        self.host_grant.unwrap_or(HostGrant::WhenReady)
     }
 
     fn prepare(&self) {
@@ -472,4 +531,52 @@ impl Runner for FakeRunner {
         self.discarded
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
+}
+
+/// Valid level data grown by an `extra`-byte array tag, for read-bound fixtures. The padding
+/// is pseudo-random so archives of it stay within import compression limits.
+pub(crate) fn padded_level_dat(level: &[u8], extra: usize) -> Vec<u8> {
+    let mut body = level[8..level.len() - 1].to_vec();
+    body.push(7);
+    body.extend(7u16.to_le_bytes());
+    body.extend(b"padding");
+    body.extend((extra as i32).to_le_bytes());
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    body.extend((0..extra).map(|_| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    }));
+    body.push(0);
+    let mut bytes = level[..4].to_vec();
+    bytes.extend((body.len() as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes
+}
+
+/// Level data shaped like a world BDS just created, for tests that patch it.
+pub(crate) fn created_level_dat() -> Vec<u8> {
+    let mut body = vec![10, 0, 0];
+    for (name, kind, payload) in [
+        ("StorageVersion", 3u8, &10i32.to_le_bytes()[..]),
+        ("WorldVersion", 3, &1i32.to_le_bytes()[..]),
+        ("SpawnY", 3, &32767i32.to_le_bytes()[..]),
+        ("LANBroadcast", 1, &[1][..]),
+    ] {
+        body.push(kind);
+        body.extend((name.len() as u16).to_le_bytes());
+        body.extend(name.as_bytes());
+        body.extend(payload);
+    }
+    body.push(0);
+    let mut bytes = 10u32.to_le_bytes().to_vec();
+    bytes.extend((body.len() as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes
+}
+
+/// Writes [`created_level_dat`] into a world's level folder.
+pub(crate) fn write_created_level_dat(level: &Path) {
+    std::fs::write(level.join("level.dat"), created_level_dat()).unwrap();
 }

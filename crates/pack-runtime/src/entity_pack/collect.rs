@@ -218,6 +218,10 @@ pub fn collect_files(
             wanted.extend(vanilla.geometry_parent.get(&identifier).cloned());
         }
     }
+    // Layer walks record nothing on a packless stack, so an added pack must change these listings.
+    for prefix in ["entity/", "textures/"] {
+        view.track_directory(prefix);
+    }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
     files.extend(entities);

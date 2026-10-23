@@ -124,7 +124,7 @@ impl UiPresentationRuntime {
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
                 .filter(|_| !sidebar_key.2);
-            let changes = self.hud_cache.refresh(
+            let mut changes = self.hud_cache.refresh(
                 player_runtime,
                 runtime,
                 frame,
@@ -134,6 +134,11 @@ impl UiPresentationRuntime {
                 self.screens.mod_ui.mod_effect_icons_hidden(),
                 renderer.catalog(),
             );
+            let touch_inventory = self.screens.touch.enabled();
+            if self.hud_cache.model.touch_inventory != touch_inventory {
+                self.hud_cache.model.touch_inventory = touch_inventory;
+                changes.status = true;
+            }
             Some((
                 &self.hud_cache.model,
                 changes,

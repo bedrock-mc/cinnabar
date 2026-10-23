@@ -57,6 +57,10 @@ impl ChunkRenderPlugin {
 impl Plugin for ChunkRenderPlugin {
     fn build(&self, app: &mut App) {
         install_atmosphere(app);
+        app.init_resource::<render_scene::ChunkOcclusionCulling>()
+            .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
+                render_scene::ChunkOcclusionCulling,
+            >::default());
         app.init_resource::<render_scene::chunk::capacity::ChunkArenaCapacityHint>()
             .init_resource::<ChunkRenderQueue>()
             .init_resource::<crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>()

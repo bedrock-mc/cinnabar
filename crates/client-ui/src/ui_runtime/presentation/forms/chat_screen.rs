@@ -59,6 +59,25 @@ impl UiPresentationRuntime {
         Ok(true)
     }
 
+    /// Identifies the painted chat-settings slider under an initial touch.
+    pub fn chat_slider_at(&self, point: UiPoint) -> Option<u16> {
+        self.screens.chat.slider_at(point)
+    }
+
+    /// Follows a captured chat-settings slider, clamping outside its horizontal track.
+    pub fn chat_slider_action(
+        &self,
+        index: u16,
+        point: UiPoint,
+    ) -> Option<launcher::menu::MenuAction> {
+        self.screens.chat.slider_action(index, point)
+    }
+
+    /// Whether the visible chat history owns a finger's initial contact.
+    pub fn chat_history_contains(&self, point: UiPoint) -> bool {
+        self.screens.chat.history_contains(point)
+    }
+
     /// Returns a displayed web target from the last chat frame.
     pub fn chat_link(&self, index: usize) -> Option<&str> {
         self.screens.chat.link(index)
@@ -120,6 +139,9 @@ impl UiPresentationRuntime {
 
     /// Keeps gameplay chat bound to current settings without opening the launcher menu.
     pub fn set_chat_settings_snapshot(&mut self, snapshot: (Arc<SettingsOptions>, Option<u16>)) {
+        if &self.screens.touch.saved != snapshot.0.touch_layout() {
+            self.screens.touch.saved = snapshot.0.touch_layout().clone();
+        }
         self.screens.chat.settings.set_snapshot(snapshot);
     }
 

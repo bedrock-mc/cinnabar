@@ -17,6 +17,8 @@ pub struct HudModel {
     pub survival_ui: bool,
     pub armor_visible: bool,
     pub hotbar_visible: bool,
+    /// Shows inventory access beside the classic hotbar on touch-capable hosts.
+    pub touch_inventory: bool,
     /// The classic experience bar shows (else the hotbar stands alone).
     pub xp_bar: bool,
     pub exp_progress: f64,
@@ -47,6 +49,7 @@ pub struct HudModel {
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,
     pub chat_background_opacity: f64,
+    pub chat_text: ChatText,
     pub sidebar: Option<Sidebar>,
     pub boss_bars: Vec<BossBar>,
     /// The `Position: x, y, z` line, when the world shows coordinates.
@@ -57,11 +60,32 @@ pub struct HudModel {
     pub text_background_alpha: f64,
 }
 
+/// Chat label sizing the chat settings choose, shared by closed and open chat.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChatText {
+    /// The `$chat_font_scale_factor` multiplier on the chat font.
+    pub font_scale: f64,
+    /// The `$chat_line_spacing` padding between wrapped chat lines.
+    pub line_spacing: f64,
+}
+
+impl Default for ChatText {
+    /// The pack's unscaled, unpadded chat text.
+    fn default() -> Self {
+        Self {
+            font_scale: 1.0,
+            line_spacing: 0.0,
+        }
+    }
+}
+
 /// One hotbar cell: an index into the caller's icon table, the count, and the
 /// durability fraction of a damageable item.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudSlot {
     pub icon: Option<usize>,
+    /// The stack's vanilla `#item_id_aux` key; `None` for an empty cell.
+    pub id_aux: Option<i32>,
     pub count: u32,
     pub selected: bool,
     pub durability: Option<f64>,
@@ -290,6 +314,15 @@ fn status_data(data: &mut DataSource, model: &HudModel) {
             model.armor_visible && model.survival_ui,
         ),
         ("#hotbar_visible", model.hotbar_visible),
+        (
+            "#inventory_touch_button",
+            model.touch_inventory && model.hotbar_visible,
+        ),
+        (
+            "#hotbar_elipses_right_visible",
+            model.touch_inventory && model.hotbar_visible,
+        ),
+        ("#hotbar_elipses_left_visible", false),
         ("#hotbar_with_xp_bar", model.xp_bar),
         ("#hotbar_no_xp_bar", !model.xp_bar),
         ("#level_number_visible", model.xp_bar && model.level > 0),
@@ -394,8 +427,14 @@ fn chat_data(data: &mut DataSource, model: &HudModel) {
                         Value::from(model.chat_background_opacity),
                     )
                     .var("chat_font_type", Value::from("default"))
-                    .var("chat_font_scale_factor", Value::from(1.0))
-                    .var("chat_line_spacing", Value::from(0.0))
+                    .var(
+                        "chat_font_scale_factor",
+                        Value::from(model.chat_text.font_scale),
+                    )
+                    .var(
+                        "chat_line_spacing",
+                        Value::from(model.chat_text.line_spacing),
+                    )
             })
             .collect();
         data.set_factory("chat_item_factory", chat);
@@ -449,6 +488,11 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_renderer_data",
             slot.icon
                 .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
+        // Packs key per-item overlays on this; vanilla answers -1 for an empty cell.
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(slot.id_aux.unwrap_or(-1))),
         )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(

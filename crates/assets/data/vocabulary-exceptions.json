@@ -3,24 +3,6 @@
   "entries": [
     {
       "reference": {
-        "file": "block-destroy-v2193.tsv",
-        "pointer": "/183/0",
-        "domain": "block",
-        "identifier": "minecraft:chalkboard"
-      },
-      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its destroy facts remain provisional."
-    },
-    {
-      "reference": {
-        "file": "facts-expansion-v2193.tsv",
-        "pointer": "/183/0",
-        "domain": "block",
-        "identifier": "minecraft:chalkboard"
-      },
-      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its expanded facts remain provisional."
-    },
-    {
-      "reference": {
         "file": "block-item-routes-v1001.json",
         "pointer": "/routes/11/identifier",
         "domain": "item",
@@ -85,7 +67,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/199/0",
+        "pointer": "/207/0",
         "domain": "retail_item",
         "identifier": "minecraft:ice_bomb"
       },
@@ -94,7 +76,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/199/2",
+        "pointer": "/207/2",
         "domain": "item_texture",
         "identifier": "ice_bomb"
       },
@@ -103,7 +85,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/286/0",
+        "pointer": "/297/0",
         "domain": "retail_item",
         "identifier": "minecraft:lodestone_compass"
       },
@@ -112,7 +94,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/296/2",
+        "pointer": "/308/2",
         "domain": "item_texture",
         "identifier": "mangrove_propagule"
       },
@@ -121,7 +103,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/298/0",
+        "pointer": "/310/0",
         "domain": "retail_item",
         "identifier": "minecraft:medicine"
       },
@@ -130,7 +112,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/298/2",
+        "pointer": "/310/2",
         "domain": "item_texture",
         "identifier": "medicine"
       },
@@ -139,7 +121,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/33/0",
+        "pointer": "/34/0",
         "domain": "retail_item",
         "identifier": "minecraft:bleach"
       },
@@ -148,7 +130,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/33/2",
+        "pointer": "/34/2",
         "domain": "item_texture",
         "identifier": "bleach"
       },
@@ -157,7 +139,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/363/0",
+        "pointer": "/376/0",
         "domain": "retail_item",
         "identifier": "minecraft:photo_item"
       },
@@ -166,7 +148,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/363/2",
+        "pointer": "/376/2",
         "domain": "item_texture",
         "identifier": "photo"
       },
@@ -175,7 +157,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/370/0",
+        "pointer": "/388/0",
         "domain": "retail_item",
         "identifier": "minecraft:portfolio"
       },
@@ -184,7 +166,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/38/0",
+        "pointer": "/40/0",
         "domain": "retail_item",
         "identifier": "minecraft:board"
       },
@@ -193,7 +175,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/430/0",
+        "pointer": "/449/0",
         "domain": "retail_item",
         "identifier": "minecraft:rapid_fertilizer"
       },
@@ -202,7 +184,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/430/2",
+        "pointer": "/449/2",
         "domain": "item_texture",
         "identifier": "rapid_fertilizer"
       },
@@ -211,7 +193,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/434/2",
+        "pointer": "/453/2",
         "domain": "item_texture",
         "identifier": "recovery_compass_item"
       },
@@ -220,7 +202,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/458/0",
+        "pointer": "/478/0",
         "domain": "retail_item",
         "identifier": "minecraft:sparkler"
       },
@@ -229,7 +211,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/458/2",
+        "pointer": "/478/2",
         "domain": "item_texture",
         "identifier": "sparkler"
       },
@@ -238,7 +220,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/559/0",
+        "pointer": "/581/0",
         "domain": "retail_item",
         "identifier": "minecraft:written_book"
       },
@@ -247,7 +229,7 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/82/0",
+        "pointer": "/86/0",
         "domain": "retail_item",
         "identifier": "minecraft:compound"
       },
@@ -256,11 +238,29 @@
     {
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
-        "pointer": "/82/2",
+        "pointer": "/86/2",
         "domain": "item_texture",
         "identifier": "compound"
       },
       "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/83/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:command_block_minecart"
+      },
+      "reason": "Registry item outside the creative inventory; the client still assigns it a legacy icon."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/151/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:filled_map"
+      },
+      "reason": "Registry item outside the creative inventory; the client still assigns it a legacy icon."
     },
     {
       "reference": {

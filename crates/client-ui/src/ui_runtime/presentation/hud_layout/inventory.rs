@@ -110,13 +110,13 @@ impl HudLayout<'_> {
         }
         let offhand_slot = [origin[0] + 77.0, origin[1] + 62.0];
         self.inventory_slot(offhand_slot)?;
-        if runtime.gameplay_hud().offhand_stack().is_none() {
+        if runtime.local_offhand_stack(player_runtime).is_none() {
             self.ghost_icon(
                 frame.window_icons.ghost_shield,
                 [offhand_slot[0] + 1.0, offhand_slot[1] + 1.0],
             )?;
         }
-        if let Some(stack) = runtime.gameplay_hud().offhand_stack() {
+        if let Some(stack) = runtime.local_offhand_stack(player_runtime) {
             self.inventory_item(
                 frame.offhand_icon,
                 offhand_slot,
@@ -155,6 +155,7 @@ impl HudLayout<'_> {
         output: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         let first_slot: u8 = if width == 3 { 32 } else { 28 };
+        let ledger = runtime.inventory_ledger(player_runtime);
         for index in 0..width * width {
             let slot = [
                 origin[0] + grid[0] + (index % width) as f32 * SLOT_SIZE,
@@ -163,16 +164,15 @@ impl HudLayout<'_> {
             self.inventory_slot(slot)?;
             let target =
                 inventory::inventory_ledger::InventoryTarget::Craft(first_slot + index as u8);
-            if let Some(stack) = runtime
-                .inventory_ledger(player_runtime)
-                .target_stack(target)
-            {
+            if let Some(stack) = ledger.target_stack(target) {
                 self.inventory_item(
                     frame.crafting.icons[index],
                     slot,
                     Some(stack),
                     frame.durability.ui[usize::from(first_slot) + index],
                 )?;
+            } else if let Some(stack) = ledger.crafting_ghost_stack(first_slot + index as u8) {
+                self.inventory_ghost_item(frame.crafting.icons[index], slot, stack)?;
             }
         }
         // Crafting arrow and result slot use original pixel geometry rather
@@ -188,9 +188,28 @@ impl HudLayout<'_> {
         // The result cell draws in the enlarged 26x26 frame around its item.
         self.slot_frame([output[0] - 4.0, output[1] - 4.0], 26.0)?;
         if let Some((icon, stack)) = &frame.crafting.output {
-            self.inventory_item(*icon, output, Some(stack), None)?;
+            if frame.crafting.output_is_ghost {
+                self.inventory_ghost_item(*icon, output, stack)?;
+            } else {
+                self.inventory_item(*icon, output, Some(stack), None)?;
+            }
         }
         Ok(())
+    }
+
+    /// Draws a missing recipe item on red cell art while retaining its count decoration.
+    fn inventory_ghost_item(
+        &mut self,
+        icon: Option<IconRef>,
+        slot: [f32; 2],
+        stack: &protocol::NetworkItemStack,
+    ) -> Result<(), UiPresentationError> {
+        self.solid_gui(
+            [slot[0] + 1.0, slot[1] + 1.0],
+            [16.0, 16.0],
+            [180, 70, 70, 255],
+        )?;
+        self.inventory_item(icon, slot, Some(stack), None)
     }
 
     fn player_cells(

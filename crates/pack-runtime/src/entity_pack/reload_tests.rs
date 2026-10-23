@@ -131,3 +131,97 @@ fn artwork_only_layers_do_not_create_attachable_rigs() {
         &[21, 43, 65, 255]
     );
 }
+
+/// Creates independently allocated actor and equipment rasters with identical bytes.
+fn overlapping_artwork_pack() -> Arc<SessionEntityPack> {
+    use sha2::{Digest, Sha256};
+    let catalog = base_catalog();
+    let stack = texture_stack([21, 43, 65, 255]);
+    let original = resolve(&EntityCache::default(), &stack, &catalog)
+        .0
+        .unwrap();
+    let equipment = &original.equipment.as_ref().unwrap().textures()[0];
+    Arc::new(SessionEntityPack {
+        textures: vec![assets::ActorTexture {
+            source: 0,
+            width: equipment.width,
+            height: equipment.height,
+            pixel_sha256: Sha256::digest(&equipment.rgba8).into(),
+            rgba8: Arc::from(equipment.rgba8.as_ref()),
+        }]
+        .into(),
+        ..original.as_ref().clone()
+    })
+}
+
+#[test]
+fn a_fresh_compile_shares_equal_actor_and_equipment_pixels_without_changing_encoding() {
+    let original = overlapping_artwork_pack();
+    let blob = original.assets.encode().unwrap();
+    let encoded = original.encode(&blob).unwrap();
+    let cache = EntityCache::default();
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
+    let next = cache
+        .get_or_compile(
+            EntityInputs {
+                stack: Vec::new(),
+                vanilla: None,
+                equipment: None,
+                vanilla_pack_dir: None,
+            },
+            &view,
+            None,
+            &|| false,
+            |_, _, _, _, _, _| Some((Some(Arc::clone(&original)), None)),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        &next.textures[0].rgba8,
+        &next.equipment.as_ref().unwrap().textures()[0].rgba8
+    ));
+    assert!(!Arc::ptr_eq(
+        &original.textures[0].rgba8,
+        &original.equipment.as_ref().unwrap().textures()[0].rgba8
+    ));
+    assert_eq!(next.encode(&blob).unwrap(), encoded);
+    let decoded = SessionEntityPack::decode(&encoded).unwrap();
+    assert!(Arc::ptr_eq(
+        &decoded.textures[0].rgba8,
+        &decoded.equipment.as_ref().unwrap().textures()[0].rgba8
+    ));
+    assert_eq!(decoded.encode(&blob).unwrap(), encoded);
+}
+
+#[test]
+fn equal_digests_cannot_share_different_pixel_bytes() {
+    let original = overlapping_artwork_pack();
+    let mut forged = original.textures[0].clone();
+    let mut pixels = forged.rgba8.to_vec();
+    pixels[0] ^= 1;
+    forged.rgba8 = pixels.into();
+    let original = Arc::new(SessionEntityPack {
+        textures: vec![forged].into(),
+        ..original.as_ref().clone()
+    });
+    let shared = Arc::clone(&original).with_shared_equipment_pixels();
+    assert!(Arc::ptr_eq(&original, &shared));
+    assert_ne!(
+        shared.textures[0].rgba8,
+        shared.equipment.as_ref().unwrap().textures()[0].rgba8
+    );
+}
+
+/// A join without packs records no layer listings, yet a later entity pack must recompile.
+#[test]
+fn an_entity_pack_added_to_a_packless_session_recompiles_entities() {
+    let (catalog, cache) = (base_catalog(), EntityCache::default());
+    let packless = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let (_, reads) = resolve(&cache, &packless, &catalog);
+    let added = crate::test_support::stack(&[(
+        "entity/fixture.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor"}}}"#,
+    )]);
+    let previous = resource_pack::PackAdmission::Validated(packless);
+    assert!(crate::reload_diff::Changes::between(&added, Some((&previous, &reads))).entities);
+}

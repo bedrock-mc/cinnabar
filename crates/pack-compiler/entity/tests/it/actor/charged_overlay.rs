@@ -104,8 +104,8 @@ fn unpowered_creeper_body_draws_the_base_art_and_only_powered_adds_the_armor_lay
 
 #[test]
 fn rejected_base_art_falls_back_instead_of_borrowing_the_overlay() {
-    // A fractional texel the head's front face samples still fails the binary alpha contract.
-    let pack = creeper_pack((10, 10));
+    let pack = creeper_pack((32, 11));
+    fs::write(pack.path().join(format!("{BASE}.png")), b"undecodable").unwrap();
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(compiled.report.bindings, 0);
     assert!(

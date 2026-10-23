@@ -34,7 +34,7 @@ pub(crate) const UI_COMPOSITE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f5b1f3c2-7a0e-4d0c-9c5e-3a8a4b1e6d21");
 /// The UI layer's format: raw bytes, so blending happens on sRGB-encoded values.
 pub(crate) const UI_LAYER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
-const UI_LAYER_BYTES_PER_TEXEL: u64 = {
+pub(super) const UI_LAYER_BYTES_PER_TEXEL: u64 = {
     assert!(matches!(UI_LAYER_FORMAT, TextureFormat::Rgba8Unorm));
     4
 };
@@ -64,6 +64,12 @@ pub(crate) struct UiLayerTexture {
     bindings: Arc<Mutex<CompositeBindings>>,
     /// Set when the frame's final layer is left for [`ui_present`] to composite.
     present: AtomicBool,
+    /// Complete nonempty encoding is independent of retained-raster eligibility.
+    content_drawn: AtomicBool,
+    /// Whether a deferred layer reached the scene before ordinary output.
+    composited: AtomicBool,
+    /// Whether this frame composited a complete nonempty interface.
+    content_presented: AtomicBool,
     /// Whether this frame already wrote the final camera output.
     presented: AtomicBool,
     /// The sole writer of its output with no blend, so the composite can replace the blit.
@@ -93,22 +99,35 @@ impl UiLayerTexture {
             .map(|held| held.encoded)
     }
 
+    /// Preserves proven content when damage analysis permits reuse across publications.
+    pub(super) fn retained_nonempty(&self) -> bool {
+        self.held
+            .lock()
+            .expect("UI layer content lock")
+            .as_ref()
+            .is_some_and(|held| held.nonempty)
+    }
+
     /// Records test content without a publication available for partial replay.
     #[cfg(test)]
     pub(crate) fn hold(&self, content: Option<(UiLayerContent, bool)>) {
-        self.hold_publication(content, None);
+        self.hold_publication(
+            content.map(|(content, encoded)| (content, encoded, encoded)),
+            None,
+        );
     }
 
     /// Retains exactly the accepted publication that produced the completed layer.
     pub(super) fn hold_publication(
         &self,
-        content: Option<(UiLayerContent, bool)>,
+        content: Option<(UiLayerContent, bool, bool)>,
         publication: Option<Arc<UiRenderInput>>,
     ) {
         *self.held.lock().expect("UI layer content lock") =
-            content.map(|(content, encoded)| HeldLayer {
+            content.map(|(content, encoded, nonempty)| HeldLayer {
                 content,
                 encoded,
+                nonempty,
                 publication,
             });
     }
@@ -129,6 +148,22 @@ impl UiLayerTexture {
         })
     }
 
+    /// Whether this frame composited complete content from every retained segment.
+    pub(crate) fn presented_complete_content(&self) -> bool {
+        self.content_presented.load(Ordering::Relaxed)
+    }
+
+    /// Records actual encoding, including scratch rasters and trailing inversion passes.
+    pub(crate) fn record_content_draw(&self, complete: bool, encoded: bool) {
+        self.content_drawn
+            .store(complete && encoded, Ordering::Relaxed);
+    }
+
+    /// Incomplete or empty encoding never qualifies a destination screen for handoff.
+    fn complete_content(&self) -> bool {
+        self.content_drawn.load(Ordering::Relaxed)
+    }
+
     /// Leaves the final layer for the output pass to composite.
     pub(crate) fn defer_present(&self) {
         self.present.store(true, Ordering::Relaxed);
@@ -142,6 +177,9 @@ impl UiLayerTexture {
             held: Arc::default(),
             bindings: Arc::default(),
             present: AtomicBool::new(false),
+            content_drawn: AtomicBool::new(false),
+            composited: AtomicBool::new(false),
+            content_presented: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             direct_output: false,
             segments: Vec::new(),
@@ -153,6 +191,7 @@ impl UiLayerTexture {
 struct HeldLayer {
     content: UiLayerContent,
     encoded: bool,
+    nonempty: bool,
     publication: Option<Arc<UiRenderInput>>,
 }
 
@@ -236,6 +275,8 @@ impl CompositeBindings {
 pub(crate) struct UiLayerStore {
     device: Option<wgpu::Device>,
     views: HashMap<Entity, Vec<RetainedLayer>>,
+    /// Extent and segment count whose rasters ran out of memory.
+    failed: crate::gpu_allocation::FailedRequests<(Extent3d, usize)>,
 }
 
 impl UiLayerStore {
@@ -243,6 +284,7 @@ impl UiLayerStore {
     fn synchronize_device(&mut self, device: &RenderDevice) {
         if self.device.as_ref() != Some(device.wgpu_device()) {
             self.views.clear();
+            self.failed = Default::default();
             self.device = Some(device.wgpu_device().clone());
         }
     }
@@ -250,6 +292,7 @@ impl UiLayerStore {
     /// Releases rasters and their accepted publications when the owning view disappears.
     fn retain_live_views(&mut self, live: impl Fn(Entity) -> bool) {
         self.views.retain(|view, _| live(*view));
+        self.failed.retain(live);
     }
 }
 
@@ -265,6 +308,7 @@ pub(crate) fn prepare_ui_layers(
     views: Query<(Entity, &ViewTarget, Option<&ExtractedCamera>)>,
     gpu: Option<Res<UiGpu>>,
 ) {
+    let store = &mut *store;
     store.synchronize_device(&device);
     store.retain_live_views(|view| views.contains(view));
     let requested = gpu
@@ -297,7 +341,12 @@ pub(crate) fn prepare_ui_layers(
         };
         let count = retained_segment_count(requested.max(1), size);
         let layers = store.views.entry(entity).or_default();
-        synchronize_layers(layers, &device, size, count);
+        synchronize_view_layers(layers, &mut store.failed, entity, &device, size, count);
+        if layers.is_empty() {
+            // Out of memory: the UI skips until its raster can be retried.
+            commands.entity(entity).remove::<UiLayerTexture>();
+            continue;
+        }
         if requested == 0 {
             for layer in layers.iter() {
                 *layer.held.lock().expect("UI layer content lock") = None;
@@ -345,7 +394,23 @@ fn retained_segment_count(requested: usize, size: Extent3d) -> usize {
     }
 }
 
+/// Allocates the view's rasters with shared backoff, keeping single-layer replay when possible.
+fn synchronize_view_layers(
+    layers: &mut Vec<RetainedLayer>,
+    failed: &mut crate::gpu_allocation::FailedRequests<(Extent3d, usize)>,
+    view: Entity,
+    device: &RenderDevice,
+    size: Extent3d,
+    count: usize,
+) {
+    failed.attempt(view, (size, count), || {
+        synchronize_layers(layers, device, size, count);
+        (layers.len() == count).then_some(())
+    });
+}
+
 /// Drops removed rasters and every old extent before allocating the required bounded set.
+/// Out of memory falls back to the single-layer replay, or to no layer at all.
 fn synchronize_layers(
     layers: &mut Vec<RetainedLayer>,
     device: &RenderDevice,
@@ -360,7 +425,11 @@ fn synchronize_layers(
     }
     layers.truncate(count);
     while layers.len() < count {
-        layers.push(retained_layer(device, size));
+        let Some(layer) = retained_layer(device, size) else {
+            layers.truncate(1);
+            return;
+        };
+        layers.push(layer);
     }
 }
 
@@ -372,31 +441,39 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
         held: Arc::clone(&layer.held),
         bindings: Arc::clone(&layer.bindings),
         present: AtomicBool::new(false),
+        content_drawn: AtomicBool::new(false),
+        composited: AtomicBool::new(false),
+        content_presented: AtomicBool::new(false),
         presented: AtomicBool::new(false),
         direct_output,
         segments: Vec::new(),
     }
 }
 
-/// Allocates one gamma-space raster on the current view/device lifetime.
-fn retained_layer(device: &RenderDevice, size: Extent3d) -> RetainedLayer {
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("retained gamma-space UI layer"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: UI_LAYER_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
+/// Allocates one gamma-space raster on the current view/device lifetime; `None` when out of
+/// memory.
+fn retained_layer(device: &RenderDevice, size: Extent3d) -> Option<RetainedLayer> {
+    let bytes = u64::from(size.width) * u64::from(size.height) * UI_LAYER_BYTES_PER_TEXEL;
+    let texture =
+        crate::gpu_allocation::checked(device, "retained gamma-space UI layer", bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some("retained gamma-space UI layer"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: UI_LAYER_FORMAT,
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        })?;
     let view = texture.create_view(&TextureViewDescriptor::default());
-    RetainedLayer {
+    Some(RetainedLayer {
         texture,
         view,
         held: Arc::default(),
         bindings: Arc::default(),
-    }
+    })
 }
 
 #[derive(Resource)]
@@ -682,6 +759,8 @@ pub(crate) fn ui_present(
         return;
     };
     layer.presented.store(false, Ordering::Relaxed);
+    layer.content_presented.store(false, Ordering::Relaxed);
+    layer.composited.store(false, Ordering::Relaxed);
     if !layer.present.load(Ordering::Relaxed) {
         return;
     }
@@ -730,11 +809,74 @@ pub(crate) fn ui_present(
             &layout,
         );
         layer.presented.store(true, Ordering::Relaxed);
+
         return;
     }
     if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
         composite(&mut context, world, target, layer, pipeline, &layout);
+        layer.composited.store(true, Ordering::Relaxed);
     }
+}
+
+type UiOutputQuery = (
+    &'static ViewTarget,
+    &'static bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
+    Option<&'static ExtractedCamera>,
+    Option<&'static UiLayerTexture>,
+    Option<&'static bevy::render::view::ResolvedCompositingSpace>,
+);
+
+/// Qualifies content only after direct output or a successfully encoded ordinary output blit.
+fn observe_ui_output(
+    view: bevy::render::renderer::ViewQuery<UiOutputQuery>,
+    cache: Res<PipelineCache>,
+    blit: Res<bevy::core_pipeline::blit::BlitPipeline>,
+    mut pipelines: ResMut<
+        bevy::render::render_resource::SpecializedRenderPipelines<
+            bevy::core_pipeline::blit::BlitPipeline,
+        >,
+    >,
+) {
+    let (target, _, camera, layer, space) = view.into_inner();
+    let Some(layer) = layer else {
+        return;
+    };
+    if !layer.complete_content() {
+        return;
+    }
+    if layer.presented.load(Ordering::Relaxed) {
+        layer.content_presented.store(true, Ordering::Relaxed);
+        return;
+    }
+    if layer.present.load(Ordering::Relaxed) && !layer.composited.load(Ordering::Relaxed) {
+        return;
+    }
+    let blend_state = match camera.map(|camera| &camera.output_mode) {
+        Some(CameraOutputMode::Skip) => return,
+        Some(CameraOutputMode::Write { blend_state, .. }) => blend_state.or_else(|| {
+            camera
+                .filter(|camera| camera.sorted_camera_index_for_target > 0)
+                .map(|_| BlendState::ALPHA_BLENDING)
+        }),
+        None => None,
+    };
+    let Some(target_format) = target.out_texture_view_format() else {
+        return;
+    };
+    let pipeline = pipelines.specialize(
+        &cache,
+        &blit,
+        bevy::core_pipeline::blit::BlitPipelineKey {
+            target_format,
+            blend_state,
+            samples: 1,
+            source_space: bevy::render::view::ResolvedCompositingSpace::space(space),
+        },
+    );
+    layer.content_presented.store(
+        cache.get_render_pipeline(pipeline).is_some(),
+        Ordering::Relaxed,
+    );
 }
 
 /// Runs Bevy's output blit unless the HUD composite already wrote the final image.
@@ -776,6 +918,7 @@ pub(crate) fn install_present_node(world: &mut World) {
                 .after(ui_present)
                 .after(Core3dSystems::PostProcess)
                 .run_if(needs_output_blit),
+                observe_ui_output.after(ui_present).after(upscaling),
             ));
         })
         .is_ok();

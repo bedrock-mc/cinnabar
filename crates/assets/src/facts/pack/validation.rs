@@ -5,11 +5,7 @@ use super::*;
 impl PackRules {
     /// Rejects incomplete slots, stale vocabulary names and ambiguous selector products.
     pub fn validate(&self) -> Result<(), String> {
-        let mut vocabulary = BTreeMap::<&str, BTreeSet<&str>>::new();
-        for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
-            let (domain, name) = row.split_once('\t').ok_or("invalid pack vocabulary row")?;
-            vocabulary.entry(domain).or_default().insert(name);
-        }
+        let vocabulary = vocabulary();
         let mut blocks = BTreeSet::new();
         for bytes in [
             crate::pinned_block_registry_bytes(),
@@ -113,6 +109,11 @@ impl PackRules {
             return Err("missing mushroom pack selectors".into());
         }
         for (name, kind) in &self.materials {
+            if *kind == MaterialKind::Provisional {
+                return Err(format!(
+                    "provisional material {name} is derived, not listed"
+                ));
+            }
             if *kind == MaterialKind::UnmaskedArmor {
                 let facts = super::super::ItemFacts::builtin().map_err(|e| e.to_string())?;
                 let identity = format!("minecraft:{name}");
@@ -124,6 +125,11 @@ impl PackRules {
                 }
             } else if !vocabulary["material"].contains(name.as_str()) {
                 require("material", &format!("{name}.skinning"))?;
+            }
+        }
+        for (name, template) in &self.omitted_render_controllers {
+            if name == template || !template.starts_with("controller.render.") {
+                return Err(format!("invalid omitted render controller rule {name}"));
             }
         }
         for (actor, egg) in &self.egg_aliases {

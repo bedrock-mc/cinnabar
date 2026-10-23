@@ -229,13 +229,14 @@ pub(crate) fn pbr_texels(
     ]
 }
 
-/// Renders every sprite of `packed` at each of `levels` mips.
+/// Renders every sprite of `packed` at each of `levels` mips; `None` once `cancelled`.
 fn layer_images(
     inputs: &AtlasInputs<'_>,
     packed: &PackedAtlas,
     contents: &[SpriteContent],
     levels: u32,
-) -> LayerImages {
+    cancelled: &dyn Fn() -> bool,
+) -> Option<LayerImages> {
     let (width, height) = (packed.width, packed.height);
     let mut color = MipImages::filled(width, height, levels, [0; 4]);
     let mut pbr = inputs.authored.as_ref().map(|_| {
@@ -245,6 +246,9 @@ fn layer_images(
         ]
     });
     for (&rect, &content) in packed.rects.iter().zip(contents) {
+        if cancelled() {
+            return None;
+        }
         for level in 0..levels {
             let side = rect.side >> level;
             color.blit(level, rect, &color_texels(inputs, content, side));
@@ -255,16 +259,32 @@ fn layer_images(
             }
         }
     }
-    LayerImages { color, pbr }
+    Some(LayerImages { color, pbr })
 }
 
-/// Builds the atlas levels (animated slots show their first frame) and the frame store.
-pub(crate) fn build_images(inputs: &AtlasInputs<'_>, plan: &AtlasPlan) -> AtlasImages {
-    AtlasImages {
-        atlas: layer_images(inputs, &plan.atlas, &plan.contents, plan.mip_levels),
-        frames: plan
-            .frames
-            .as_ref()
-            .map(|frames| layer_images(inputs, frames, &plan.frame_contents, plan.mip_levels)),
-    }
+/// Builds the atlas levels (animated slots show their first frame) and the frame store;
+/// `None` once `cancelled`, checked between sprites.
+pub(crate) fn build_images(
+    inputs: &AtlasInputs<'_>,
+    plan: &AtlasPlan,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<AtlasImages> {
+    let atlas = layer_images(
+        inputs,
+        &plan.atlas,
+        &plan.contents,
+        plan.mip_levels,
+        cancelled,
+    )?;
+    let frames = match &plan.frames {
+        Some(frames) => Some(layer_images(
+            inputs,
+            frames,
+            &plan.frame_contents,
+            plan.mip_levels,
+            cancelled,
+        )?),
+        None => None,
+    };
+    Some(AtlasImages { atlas, frames })
 }

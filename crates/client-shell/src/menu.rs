@@ -61,7 +61,7 @@ use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 use core_process::{auth_cache_path, core_executable};
 pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, drive_menu_ime, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_input, drive_window_ime};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
@@ -100,12 +100,15 @@ pub struct MenuRuntime {
     pressed: Option<MenuAction>,
     pointer_down: bool,
     touch_available: bool,
+    touch_editor_open: bool,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
     /// Bumped by every field edit and caret move, restarting the caret blink.
     caret_revision: u64,
+    /// Explicit editor activations request the keyboard again after platform dismissal.
+    field_activation: u64,
     /// Screens opened on the way here; back returns to the one below.
     history: json_ui::ScreenNav<MenuScreen>,
     navigation_focus: navigation::NavigationFocus,
@@ -118,6 +121,7 @@ pub struct MenuRuntime {
     port: ui::ChatEditor,
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
+    settings_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -142,6 +146,8 @@ pub struct MenuRuntime {
     shader_pack_status: shader_pack_status::ShaderPackStatusUi,
     /// Set by [`MenuRuntime::request_shader_pack_reload`] until the app takes it.
     shader_pack_reload: bool,
+    shader_pack_removing: Option<std::sync::Arc<str>>,
+    shader_pack_remove_request: Option<String>,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -690,6 +696,12 @@ impl MenuRuntime {
             MenuAction::AddBack => self.go_back(),
             MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
             MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::RemoveShaderPackDialog(index, revision) => {
+                self.remove_shader_pack_dialog(index, revision)
+            }
+            MenuAction::ConfirmRemoveShaderPack(index, revision) => {
+                self.confirm_remove_shader_pack(index, revision)
+            }
             MenuAction::SettingsShaders => self.activate_shaders_tab(),
             MenuAction::ToggleRenderMode => {
                 if render_model::ENHANCED_RENDERING_ENABLED {
@@ -725,7 +737,13 @@ impl MenuRuntime {
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
             MenuAction::SettingsSection(section) => self.activate_settings_section(section),
+            MenuAction::SettingsSearchSection(section) => {
+                self.focus_pointer(MenuAction::SettingsSection(section));
+                self.activate_settings_section(section);
+            }
             action @ (MenuAction::SettingsScale(_)
+            | MenuAction::SearchSettings
+            | MenuAction::ClearSettingsSearch
             | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
@@ -740,7 +758,8 @@ impl MenuRuntime {
             | MenuAction::SettingsResetKey(_)
             | MenuAction::SettingsMacroCommand(_)
             | MenuAction::SettingsResetChat
-            | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
+            | MenuAction::SettingsAdvancedGraphics
+            | MenuAction::EditTouchControls) => self.activate_settings(action),
             MenuAction::Respawn => {
                 if self.death_controls_ready() {
                     self.request_respawn();

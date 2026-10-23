@@ -11,6 +11,7 @@ const PACKS: Filter = Filter {
     name: "Resource packs",
     extensions: &PACK_IMPORT_EXTENSIONS,
     unavailable_hint: "Drop a pack onto the window to import it.",
+    max_bytes: Some(resource_pack::MAX_ARCHIVE_BYTES as u64),
 };
 
 pub(super) enum Command {

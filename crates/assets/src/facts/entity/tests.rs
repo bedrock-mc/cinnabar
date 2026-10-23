@@ -121,3 +121,12 @@ fn compiled_fish_animation_preserves_the_constructor_membership() {
         );
     }
 }
+
+/// Bamboo is the one boat variant drawn as a raft.
+#[test]
+fn the_raft_variant_is_bamboo() {
+    assert_eq!(
+        super::BOAT_WOOD_TEXTURES[super::BOAT_RAFT_VARIANT],
+        "bamboo"
+    );
+}
