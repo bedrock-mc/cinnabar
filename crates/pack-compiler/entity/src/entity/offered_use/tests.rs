@@ -10,6 +10,184 @@ fn outcome(entity: Value, held: &str) -> OfferedUse {
     .for_throwable(Some(held), 0)
 }
 
+/// Wraps one interaction filter in a component with no other possible offerings.
+fn interaction(filter: Value) -> Value {
+    serde_json::json!({"components": {"minecraft:interact": {"interactions": [
+        {"on_interact": {"filters": filter}}
+    ]}}})
+}
+
+/// Checks a callback in both base components and a possibly active component group.
+fn assert_unresolved_callback(component: &str) {
+    for entity in [
+        serde_json::json!({"components": {component: {}}}),
+        serde_json::json!({"components": {}, "component_groups": {
+            "fixture:conditional": {component: {}}
+        }}),
+    ] {
+        assert_eq!(
+            outcome(entity, "minecraft:snowball"),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
+#[test]
+fn leash_retrieval_cannot_be_excluded_by_the_held_item() {
+    assert_unresolved_callback("minecraft:leashable");
+}
+
+#[test]
+fn leash_attachment_and_retrieval_cannot_be_excluded_by_the_held_item() {
+    assert_unresolved_callback("minecraft:leashable_to");
+}
+
+#[test]
+fn balloon_retrieval_cannot_be_excluded_by_the_held_item() {
+    assert_unresolved_callback("minecraft:balloonable");
+}
+
+#[test]
+fn unsupported_filter_operators_cannot_default_to_equality() {
+    for operator in [
+        serde_json::json!(1),
+        serde_json::json!(false),
+        Value::Null,
+        serde_json::json!([]),
+        serde_json::json!({}),
+    ] {
+        let entity = interaction(serde_json::json!({
+            "test": "is_family", "subject": "other", "value": "cow", "operator": operator
+        }));
+        assert_eq!(
+            outcome(entity, "minecraft:snowball"),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
+#[test]
+fn equipment_item_names_are_case_insensitive() {
+    for value in ["MINECRAFT:SNOWBALL", "SNOWBALL", "SNOWBALL:0"] {
+        let entity = interaction(serde_json::json!({
+            "test": "has_equipment", "subject": "other", "domain": "main_hand", "value": value
+        }));
+        assert_eq!(
+            outcome(entity, "minecraft:snowball"),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
+#[test]
+fn invalid_equipment_auxiliary_values_cannot_exclude_a_matching_item() {
+    for value in [
+        "minecraft:snowball:256",
+        "snowball:32767",
+        "minecraft:snowball:4294967295",
+    ] {
+        let entity = interaction(serde_json::json!({
+            "test": "has_equipment", "subject": "other", "domain": "main_hand", "value": value
+        }));
+        assert_eq!(
+            outcome(entity, "minecraft:snowball"),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
+#[test]
+fn mount_rejection_items_remain_possible_interactions() {
+    let entity = serde_json::json!({"components": {"minecraft:tamemount": {
+        "feed_items": [{"item": "minecraft:wheat"}],
+        "auto_reject_items": ["minecraft:snowball"]
+    }}});
+    assert_eq!(
+        outcome(entity, "minecraft:snowball"),
+        OfferedUse::Unresolved
+    );
+}
+
+#[test]
+fn giveable_event_filters_do_not_exclude_the_offered_item() {
+    let entity = serde_json::json!({"components": {"minecraft:giveable": {"triggers": [{
+        "items": ["minecraft:snowball"], "on_give": {"filters": {
+            "test": "is_family", "subject": "other", "value": "cow"
+        }}
+    }]}}});
+    assert_eq!(
+        outcome(entity.clone(), "minecraft:snowball"),
+        OfferedUse::Unresolved
+    );
+    assert_eq!(outcome(entity, "minecraft:egg"), OfferedUse::Absent);
+}
+
+#[test]
+fn supported_item_and_family_exclusions_remain_available() {
+    for components in [
+        serde_json::json!({"minecraft:breedable": {"breed_items": ["wheat"]}}),
+        serde_json::json!({"minecraft:tamemount": {
+            "feed_items": [{"item": "wheat"}], "auto_reject_items": ["apple"]
+        }}),
+        serde_json::json!({"minecraft:equippable": {"slots": [{"accepted_items": ["wheat"]}]}}),
+        serde_json::json!({"minecraft:nameable": {}, "minecraft:dyeable": {},
+            "minecraft:spawn_egg_interaction": {}, "minecraft:boostable": {}}),
+    ] {
+        assert_eq!(
+            outcome(
+                serde_json::json!({"components": components}),
+                "minecraft:snowball"
+            ),
+            OfferedUse::Absent
+        );
+    }
+    for operator in [None, Some("equals"), Some("==")] {
+        let mut filter =
+            serde_json::json!({"test": "is_family", "subject": "other", "value": "cow"});
+        if let Some(operator) = operator {
+            filter["operator"] = operator.into();
+        }
+        assert_eq!(
+            outcome(interaction(filter), "minecraft:snowball"),
+            OfferedUse::Absent
+        );
+    }
+    for operator in ["not", "!=", "not_equals"] {
+        let filter = serde_json::json!({"test": "is_family", "subject": "other",
+            "value": "player", "operator": operator});
+        assert_eq!(
+            outcome(interaction(filter), "minecraft:snowball"),
+            OfferedUse::Absent
+        );
+    }
+    let condition = item(&serde_json::json!("minecraft:snowball:255"));
+    assert_eq!(
+        condition.permits(Some("minecraft:snowball"), 255),
+        Some(true)
+    );
+    assert_eq!(
+        condition.permits(Some("minecraft:snowball"), 0),
+        Some(false)
+    );
+    assert_eq!(condition.permits(None, 0), None);
+}
+
+#[test]
+fn unsupported_item_descriptors_remain_unknown_under_negation() {
+    for value in [
+        "minecraft:snowball:256",
+        "minecraft:snowball:invalid",
+        "minecraft:tile.snowball",
+    ] {
+        let filter = serde_json::json!({"test": "has_equipment", "subject": "other",
+            "domain": "main_hand", "value": value, "operator": "not"});
+        assert_eq!(
+            outcome(interaction(filter), "minecraft:snowball"),
+            OfferedUse::Unresolved
+        );
+    }
+}
+
 #[test]
 fn a_player_cannot_use_a_nonplayer_rider_family_even_in_an_unknown_group() {
     let entity = serde_json::json!({"components": {}, "component_groups": {

@@ -71,8 +71,20 @@ impl UseCondition {
             Self::HeldItem {
                 identifier: expected,
                 metadata: aux,
-            } => identifier.map(|identifier| {
-                identifier == expected.as_ref() && aux.is_none_or(|aux| aux == metadata)
+            } => identifier.and_then(|identifier| {
+                if identifier != expected.as_ref() {
+                    return Some(false);
+                }
+                let Some(aux) = aux else {
+                    return Some(true);
+                };
+                let aux = u16::try_from(*aux).ok()?;
+                let metadata = u16::try_from(metadata).ok()?;
+                Some(
+                    aux == metadata
+                        || aux == protocol_ids::ITEM_AUXILIARY_WILDCARD
+                        || metadata == protocol_ids::ITEM_AUXILIARY_WILDCARD,
+                )
             }),
             Self::Not(condition) => condition.permits(identifier, metadata).map(|value| !value),
             Self::All(conditions) => {

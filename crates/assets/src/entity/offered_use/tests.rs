@@ -65,6 +65,40 @@ fn unknown_filters_preserve_possible_offerings_but_cannot_override_a_false_conju
 }
 
 #[test]
+fn either_item_auxiliary_can_be_a_wildcard_without_changing_the_item_identity() {
+    let wildcard = u32::from(protocol_ids::ITEM_AUXILIARY_WILDCARD);
+    for (expected, held) in [(Some(2), wildcard), (Some(wildcard), 2)] {
+        let definition = descriptor(
+            UseCondition::HeldItem {
+                identifier: "minecraft:snowball".into(),
+                metadata: expected,
+            },
+            UseSelector::Base,
+        );
+        assert_eq!(
+            definition.for_throwable(Some("minecraft:snowball"), held),
+            OfferedUse::Unresolved
+        );
+        assert_eq!(
+            definition.for_throwable(Some("minecraft:egg"), held),
+            OfferedUse::Absent
+        );
+    }
+    let condition = UseCondition::HeldItem {
+        identifier: "minecraft:snowball".into(),
+        metadata: Some(2),
+    };
+    assert_eq!(
+        condition.permits(Some("minecraft:snowball"), u32::MAX),
+        None
+    );
+    assert_eq!(
+        condition.permits(Some("minecraft:egg"), u32::MAX),
+        Some(false)
+    );
+}
+
+#[test]
 fn offered_use_carrier_retains_conditions_and_rejects_a_resource_source() {
     let mut compiled =
         crate::carriers::startup::test_carriers::synthetic_interaction_assets("minecraft:zombie");

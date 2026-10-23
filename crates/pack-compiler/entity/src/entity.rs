@@ -502,7 +502,7 @@ fn assemble(
         &mut molang_compiler,
         !include_items,
     )?;
-    validate_reference_coverage(&symbols, &animation)?;
+    animation.validate_reference_coverage(&symbols)?;
     let seat_layouts = seats::compile(&symbols, &sources, source_payloads, &mut molang_compiler)?;
     let mut molang = molang_compiler.finish()?;
     let controller_resources =
@@ -571,58 +571,6 @@ fn assemble(
         reference_outcomes,
         equipment_bindings,
     })
-}
-
-fn validate_reference_coverage(
-    symbols: &[EntityAssetSymbol],
-    animation: &animation::AnimationPayload,
-) -> Result<(), AssetError> {
-    let attributed = animation
-        .outcomes
-        .iter()
-        .filter_map(|outcome| match outcome {
-            CompileReferenceOutcome::Resolved(_) => None,
-            CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
-            | CompileReferenceOutcome::RequiredRigRejected { symbol, .. } => Some(*symbol),
-        })
-        .collect::<BTreeSet<_>>();
-    let compiled_clips = animation
-        .clips
-        .iter()
-        .map(|clip| clip.symbol)
-        .collect::<BTreeSet<_>>();
-    let compiled_controllers = animation
-        .controllers
-        .iter()
-        .map(|controller| controller.symbol)
-        .collect::<BTreeSet<_>>();
-    let compiled_entities = animation
-        .rig_bindings
-        .iter()
-        .map(|rig| rig.entity_symbol)
-        .collect::<BTreeSet<_>>();
-    for (index, symbol) in symbols.iter().enumerate() {
-        let index = index as u32;
-        let covered = match symbol.kind {
-            EntityAssetKind::Animation => {
-                compiled_clips.contains(&index) || attributed.contains(&index)
-            }
-            EntityAssetKind::AnimationController => {
-                compiled_controllers.contains(&index) || attributed.contains(&index)
-            }
-            EntityAssetKind::Entity | EntityAssetKind::Attachable => {
-                compiled_entities.contains(&index) || attributed.contains(&index)
-            }
-            _ => true,
-        };
-        if !covered {
-            return Err(invalid(format!(
-                "unexplained entity asset loss for {:?} `{}`",
-                symbol.kind, symbol.identifier
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn parse_source(

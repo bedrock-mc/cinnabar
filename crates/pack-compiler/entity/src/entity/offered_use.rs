@@ -152,7 +152,12 @@ fn components(
             ),
             "minecraft:healable" => items(component.get("items")),
             "minecraft:tameable" => items(component.get("tame_items")),
-            "minecraft:tamemount" => items(component.get("feed_items")),
+            "minecraft:tamemount" => C::Any(
+                ["feed_items", "auto_reject_items"]
+                    .into_iter()
+                    .map(|field| items(component.get(field)))
+                    .collect(),
+            ),
             "minecraft:bribeable" => items(component.get("bribe_items")),
             "minecraft:giveable" => component.get("triggers").and_then(Value::as_array).map_or(
                 C::Unresolved,
@@ -160,18 +165,8 @@ fn components(
                     C::Any(
                         triggers
                             .iter()
-                            .map(|trigger| {
-                                C::All(
-                                    vec![
-                                        items(trigger.get("items")),
-                                        filter(
-                                            trigger.pointer("/on_give/filters"),
-                                            player_families,
-                                        ),
-                                    ]
-                                    .into(),
-                                )
-                            })
+                            // Event filters run after the offering has been selected.
+                            .map(|trigger| items(trigger.get("items")))
                             .collect(),
                     )
                 },
@@ -193,14 +188,15 @@ fn components(
             | "minecraft:economy_trade_table"
             | "minecraft:trade_table"
             | "minecraft:trusting"
+            | "minecraft:leashable"
+            | "minecraft:leashable_to"
+            | "minecraft:balloonable"
             | assets::facts::entity::NPC_COMPONENT_IDENTIFIER
             | "minecraft:sittable"
             | "minecraft:interact_with" => C::Unresolved,
             // These callbacks require a non-throwable item role. The runtime admits this proof
             // only for a known retail throwable without a server component override.
             "minecraft:nameable"
-            | "minecraft:leashable"
-            | "minecraft:leashable_to"
             | "minecraft:dyeable"
             | "minecraft:spawn_egg_interaction"
             | "minecraft:boostable" => C::Never,
@@ -235,7 +231,7 @@ fn rideable(component: &Value, player_families: Option<&[&str]>) -> C {
     }
 }
 
-/// Retains exact item identity and optional legacy auxiliary value; unsupported descriptors stay unknown.
+/// Normalizes item names and byte auxiliary values; unsupported descriptor syntax stays unknown.
 fn item(value: &Value) -> C {
     let Some(value) = value
         .as_str()
@@ -243,18 +239,34 @@ fn item(value: &Value) -> C {
     else {
         return C::Unresolved;
     };
+    if !value.is_ascii() {
+        return C::Unresolved;
+    }
+    let value = value.to_ascii_lowercase();
     let mut parts: Vec<_> = value.split(':').collect();
-    let metadata =
-        if parts.len() > 1 && parts.last().is_some_and(|part| part.parse::<u32>().is_ok()) {
-            parts.pop().and_then(|part| part.parse().ok())
-        } else {
-            None
+    let metadata = if parts.len() > 1
+        && parts
+            .last()
+            .is_some_and(|part| part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        let Some(aux) = parts.pop().and_then(|part| part.parse::<u8>().ok()) else {
+            // Invalid suffixes retain a caller-specific default, which is not modeled here.
+            return C::Unresolved;
         };
+        Some(u32::from(aux))
+    } else {
+        None
+    };
     let identifier = match parts.as_slice() {
-        [name] => format!("minecraft:{name}"),
-        [namespace, name] => format!("{namespace}:{name}"),
+        [name] if !name.is_empty() => format!("minecraft:{name}"),
+        [namespace, name] if !namespace.is_empty() && !name.is_empty() => {
+            format!("{namespace}:{name}")
+        }
         _ => return C::Unresolved,
     };
+    if parts.last().is_some_and(|name| name.starts_with("tile.")) {
+        return C::Unresolved;
+    }
     C::HeldItem {
         identifier: identifier.into(),
         metadata,
@@ -333,9 +345,13 @@ fn filter(value: Option<&Value>, player_families: Option<&[&str]>) -> C {
         }
         _ => C::Unresolved,
     };
-    match value["operator"].as_str() {
-        None | Some("equals" | "==") => condition,
-        Some("not" | "!=" | "not_equals") => C::Not(Box::new(condition)),
+    match value.get("operator") {
+        None => condition,
+        Some(Value::String(operator)) => match operator.as_str() {
+            "equals" | "==" => condition,
+            "not" | "!=" | "not_equals" => C::Not(Box::new(condition)),
+            _ => C::Unresolved,
+        },
         _ => C::Unresolved,
     }
 }

@@ -37,7 +37,7 @@ fn fixture(identifier: &str, definition: EntityUseAdmission) -> ActorStore {
     );
     let mut store = ActorStore::new_with_entity_assets(1, 0, runtime);
     assert!(store.items.apply_registry(protocol::ItemRegistryEvent {
-        entries: protocol::vanilla_item_registry().into()
+        entries: protocol::vanilla_item_registry()
     }));
     store.apply(
         1,

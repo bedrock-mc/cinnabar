@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use assets::{
     AssetError, EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
@@ -50,6 +53,61 @@ pub(super) struct AnimationPayload {
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
     pub render: EntityRenderData,
     pub outcomes: Box<[CompileReferenceOutcome<u32>]>,
+}
+
+impl AnimationPayload {
+    /// Rejects a symbol that has neither compiled output nor an explicit fallback or rejection.
+    pub(super) fn validate_reference_coverage(
+        &self,
+        symbols: &[EntityAssetSymbol],
+    ) -> Result<(), AssetError> {
+        let attributed = self
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                CompileReferenceOutcome::Resolved(_) => None,
+                CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
+                | CompileReferenceOutcome::RequiredRigRejected { symbol, .. } => Some(*symbol),
+            })
+            .collect::<BTreeSet<_>>();
+        let compiled_clips = self
+            .clips
+            .iter()
+            .map(|clip| clip.symbol)
+            .collect::<BTreeSet<_>>();
+        let compiled_controllers = self
+            .controllers
+            .iter()
+            .map(|controller| controller.symbol)
+            .collect::<BTreeSet<_>>();
+        let compiled_entities = self
+            .rig_bindings
+            .iter()
+            .map(|rig| rig.entity_symbol)
+            .collect::<BTreeSet<_>>();
+        for (index, symbol) in symbols.iter().enumerate() {
+            let index = index as u32;
+            let covered = match symbol.kind {
+                EntityAssetKind::Animation => {
+                    compiled_clips.contains(&index) || attributed.contains(&index)
+                }
+                EntityAssetKind::AnimationController => {
+                    compiled_controllers.contains(&index) || attributed.contains(&index)
+                }
+                EntityAssetKind::Entity | EntityAssetKind::Attachable => {
+                    compiled_entities.contains(&index) || attributed.contains(&index)
+                }
+                _ => true,
+            };
+            if !covered {
+                return Err(invalid(format!(
+                    "unexplained entity asset loss for {:?} `{}`",
+                    symbol.kind, symbol.identifier
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 type ClipIndices = BTreeMap<(Box<str>, u32), u32>;

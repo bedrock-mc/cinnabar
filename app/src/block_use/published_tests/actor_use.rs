@@ -260,10 +260,11 @@ fn throw_at_entity_in_session(
                 },
             );
         }
-        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
-        player.inventory.ledger_mut().apply_registry(&startup);
-        player.inventory.ledger_mut().apply_registry(&live);
-        drop(player);
+        {
+            let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+            player.inventory.ledger_mut().apply_registry(&startup);
+            player.inventory.ledger_mut().apply_registry(&live);
+        }
         super::item_use_tests::hold_air_stack(&mut world, network_id, 16, [].into());
     } else {
         super::item_use_tests::hold_snowball(&mut world);
