@@ -351,6 +351,14 @@ pub(in crate::compiler) fn compile_rule(
         materials,
         min,
         max,
+        if record
+            .traits
+            .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+        {
+            assets::MODEL_TEMPLATE_FLAG_CHORUS
+        } else {
+            0
+        },
         template_by_key,
         storage.templates,
         storage.quads,
@@ -363,6 +371,88 @@ pub(in crate::compiler) fn compile_rule(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chorus_inventory_selection_preserves_the_placed_envelope() {
+        let protocol = assets::active_content_registry_protocol();
+        let records =
+            assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+                .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("textures")).unwrap();
+        for (path, content) in [
+            ("blocks.json", "{}"),
+            ("textures/terrain_texture.json", r#"{"texture_data":{}}"#),
+            ("textures/flipbook_textures.json", "[]"),
+        ] {
+            std::fs::write(directory.path().join(path), content).unwrap();
+        }
+        let pack = read_pack(directory.path()).unwrap();
+        let descriptors = BTreeMap::new();
+        let inputs = RuleInputs {
+            pack: &pack,
+            material_by_descriptor: &descriptors,
+            vanilla_fallback_material: 1,
+            fallback: inventory(protocol).unwrap(),
+        };
+        let mut templates = Vec::new();
+        let mut quads = Vec::new();
+        let mut interned = BTreeMap::new();
+        let mut seen = 0;
+        for record in records.iter().filter(|record| {
+            record
+                .traits
+                .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+        }) {
+            let (min, max, _) = inputs.fallback.entry(record).unwrap();
+            let CompileRuleResult::Compiled(visual) = compile_rule(
+                record,
+                &inputs,
+                &mut interned,
+                &mut ModelStorage {
+                    templates: &mut templates,
+                    quads: &mut quads,
+                },
+            )
+            .unwrap() else {
+                panic!("missing chorus visual")
+            };
+            let template = &templates[visual.model_template as usize];
+            assert_eq!(template.flags, assets::MODEL_TEMPLATE_FLAG_CHORUS);
+            let placed = &quads[template.quad_start as usize..][..template.quad_count as usize];
+            let mut bounds = [[i16::MAX; 3], [i16::MIN; 3]];
+            for point in placed.iter().flat_map(|quad| quad.positions) {
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+            }
+            assert_eq!(bounds, [min, max]);
+            let mut ordinary = record.clone();
+            ordinary
+                .traits
+                .remove(assets::registry::BlockTraits::CHORUS_CONNECT);
+            let CompileRuleResult::Compiled(ordinary) = compile_rule(
+                &ordinary,
+                &inputs,
+                &mut interned,
+                &mut ModelStorage {
+                    templates: &mut templates,
+                    quads: &mut quads,
+                },
+            )
+            .unwrap() else {
+                panic!("missing ordinary envelope")
+            };
+            assert_ne!(
+                ordinary.model_template, visual.model_template,
+                "GUI shape participates in interning"
+            );
+            assert_eq!(templates[ordinary.model_template as usize].flags, 0);
+            seen += 1;
+        }
+        assert!(seen >= 2, "both chorus block types are registered");
+    }
 
     #[test]
     fn embedded_inventories_are_sorted_unique_and_bounded() {

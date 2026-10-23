@@ -372,8 +372,10 @@ and rendered qualification remain incomplete.
   Furnace-family previews use their authored carried front faces.
   Shared cube face sheets are bounded coverage.
   Firework-star previews preserve their mask artwork and per-stack colors.
+  Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.
+  Chorus plant previews show their carried protrusions without changing placed or held shapes.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.
