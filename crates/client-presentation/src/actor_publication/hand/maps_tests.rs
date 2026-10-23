@@ -8,6 +8,7 @@ fn update(stream: &mut WorldStream, id: i64, x: u32, pixels: &[u32]) {
             stream.committed_sequence() + 1,
             client_world::ingestion::WorldEvent::MapData(protocol::MapDataEvent {
                 map_id: id,
+                initialized_ids: Default::default(),
                 start_x: x,
                 start_y: 0,
                 width: pixels.len() as u32,
@@ -354,4 +355,40 @@ fn empty_map_pixels_draw_a_checkerboard_without_replacing_transparent_colors() {
     let patched = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(&patched.rgba8[..8], &[0x11, 0x22, 0x33, 0xff, 0, 0, 0, 24]);
     assert_eq!(stream.map_image(266).unwrap().pixels[1], 0);
+}
+
+#[test]
+fn map_initialization_saves_parent_maps_without_pixels_for_either_hand() {
+    for java in [false, true] {
+        let (mut stream, mut equipment, artwork, mut input) =
+            fixture(Some(assets::facts::FILLED_MAP_IDENTIFIER));
+        input.main.as_mut().unwrap().map_id = Some(266);
+        input.off = input.main.clone();
+        input.off.as_mut().unwrap().map_id = Some(267);
+        stream
+            .submit(
+                stream.committed_sequence() + 1,
+                protocol::test_support::packets::map_creation(&[266, 267], 3),
+            )
+            .unwrap();
+        let mut cache = java::HandCache::default();
+        let source = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            1.0,
+            java,
+        );
+        assert!(
+            source.maps.paper.iter().all(Option::is_some),
+            "initialization saves the primary and parent maps before either receives pixels"
+        );
+        assert!(source.items.iter().all(Option::is_some));
+        assert!(
+            stream.map_is_known(267),
+            "a saved parent needs no new request"
+        );
+    }
 }

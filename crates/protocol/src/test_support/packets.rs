@@ -365,6 +365,17 @@ pub fn map_pixel_row(map_id: i64, rgba: &[[u8; 4]]) -> WorldEvent {
     into_world_event(Packet::new(packet), 0).unwrap().unwrap()
 }
 
+/// Decodes a nonempty chain of primary and parent map identities without pixels.
+pub fn map_creation(map_ids: &[i64], scale: i8) -> WorldEvent {
+    let packet = round_trip(packets::ClientboundMapItemData {
+        map_id: ActorUniqueID(map_ids[0]),
+        creation_map_ids: Some(map_ids.iter().copied().map(ActorUniqueID).collect()),
+        scale: Some(wire::I8(scale)),
+        ..Default::default()
+    });
+    into_world_event(Packet::new(packet), 0).unwrap().unwrap()
+}
+
 /// Reads the actor runtime ID and swing source of an arm-swing animation.
 pub fn swing(packet: &Packet) -> Option<(u64, Option<String>)> {
     let packets::Packet::Animate(animate) = &*packet.data else {

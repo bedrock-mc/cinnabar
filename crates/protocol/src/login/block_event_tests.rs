@@ -69,6 +69,7 @@ fn map_pixel_updates_normalize_and_out_of_range_rectangles_are_skipped() {
         decode_map(map_packet(2, 4, vec![1, 2, 3, 4])),
         Some(WorldEvent::MapData(MapDataEvent {
             map_id: 77,
+            initialized_ids: Default::default(),
             start_x: 4,
             start_y: 3,
             width: 2,
@@ -138,6 +139,7 @@ fn creation_without_pixels_announces_an_unpainted_saved_map() {
         }),
         Some(WorldEvent::MapData(MapDataEvent {
             map_id: 77,
+            initialized_ids: vec![77].into(),
             start_x: 0,
             start_y: 0,
             width: 0,

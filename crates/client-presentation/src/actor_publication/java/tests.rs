@@ -483,6 +483,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
                 stream.committed_sequence() + 1,
                 protocol::WorldEvent::MapData(protocol::MapDataEvent {
                     map_id: 266,
+                    initialized_ids: Default::default(),
                     start_x: 0,
                     start_y: 0,
                     width: 1,

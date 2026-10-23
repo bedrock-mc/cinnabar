@@ -353,6 +353,7 @@ fn samples() -> Vec<WorldEvent> {
         }),
         WorldEvent::MapData(MapDataEvent {
             map_id: 1,
+            initialized_ids: Default::default(),
             start_x: 0,
             start_y: 0,
             width: 1,

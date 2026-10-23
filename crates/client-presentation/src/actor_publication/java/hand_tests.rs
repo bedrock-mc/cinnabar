@@ -260,6 +260,7 @@ fn source_with_equipment_and_map(
                 stream.committed_sequence() + 1,
                 protocol::WorldEvent::MapData(protocol::MapDataEvent {
                     map_id,
+                    initialized_ids: Default::default(),
                     start_x: 0,
                     start_y: 0,
                     width: pixels.len() as u32,

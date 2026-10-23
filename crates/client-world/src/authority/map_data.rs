@@ -26,6 +26,17 @@ impl MapImages {
         self.maps.get(&map_id)?.as_ref()
     }
 
+    /// Allocates an unpainted saved map once, preserving pixels already received.
+    fn saved(&mut self, map_id: i64) -> &mut MapImage {
+        self.maps
+            .entry(map_id)
+            .or_default()
+            .get_or_insert_with(|| MapImage {
+                pixels: vec![0; MAP_IMAGE_SIDE as usize * MAP_IMAGE_SIDE as usize],
+                revision: 0,
+            })
+    }
+
     /// Applies a validated rectangle without discarding any earlier map image.
     fn apply(&mut self, event: &MapDataEvent) {
         if event
@@ -47,14 +58,10 @@ impl MapImages {
             return;
         }
         let side = MAP_IMAGE_SIDE as usize;
-        let image = self
-            .maps
-            .entry(event.map_id)
-            .or_default()
-            .get_or_insert_with(|| MapImage {
-                pixels: vec![0; side * side],
-                revision: 0,
-            });
+        for &id in event.initialized_ids.iter() {
+            self.saved(id);
+        }
+        let image = self.saved(event.map_id);
         let width = event.width as usize;
         for row in 0..event.height as usize {
             let target = (event.start_y as usize + row) * side + event.start_x as usize;
@@ -105,6 +112,7 @@ mod tests {
     fn event(map_id: i64, start_x: u32, width: u32, value: u32) -> MapDataEvent {
         MapDataEvent {
             map_id,
+            initialized_ids: Default::default(),
             start_x,
             start_y: 1,
             width,
@@ -120,6 +128,7 @@ mod tests {
         assert!(images.get(3).is_none(), "a request alone has no saved data");
         let empty = MapDataEvent {
             map_id: 3,
+            initialized_ids: Default::default(),
             start_x: 0,
             start_y: 0,
             width: 0,

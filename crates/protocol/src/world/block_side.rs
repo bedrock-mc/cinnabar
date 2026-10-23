@@ -1,5 +1,7 @@
 //! Normalizers for block-side packets: map pixel updates, sign editor requests and block events.
 
+use std::sync::Arc;
+
 use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
 
 use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent};
@@ -7,6 +9,12 @@ use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent
 /// Preserves a pixel update or an empty rectangle that announces a newly saved map.
 /// Unrelated partial packets and invalid pixel rectangles are semantic skips.
 pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapDataEvent> {
+    let initialized_ids: Arc<[i64]> = match packet.creation_map_ids.as_deref() {
+        Some(ids) if ids.is_empty() || ids.len() > 5 => return None,
+        Some(ids) => ids.iter().map(|id| id.0).collect(),
+        None => Default::default(),
+    };
+    let map_id = initialized_ids.first().copied().unwrap_or(packet.map_id.0);
     let (Some(width), Some(height), Some(start_x), Some(start_y), Some(pixels)) = (
         packet.width.map(|value| value.0),
         packet.height.map(|value| value.0),
@@ -14,9 +22,9 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapD
         packet.start_y.map(|value| value.0),
         packet.pixels.as_deref(),
     ) else {
-        let ids = packet.creation_map_ids.as_deref()?;
-        return (!ids.is_empty() && ids.len() <= 5).then(|| MapDataEvent {
-            map_id: packet.map_id.0,
+        return (!initialized_ids.is_empty()).then(|| MapDataEvent {
+            map_id,
+            initialized_ids,
             start_x: 0,
             start_y: 0,
             width: 0,
@@ -38,7 +46,8 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapD
         && height.saturating_add(start_y) <= MAP_IMAGE_SIDE
         && pixels.len() as u64 == u64::from(width) * u64::from(height);
     fits.then(|| MapDataEvent {
-        map_id: packet.map_id.0,
+        map_id,
+        initialized_ids,
         start_x,
         start_y,
         width,

@@ -175,6 +175,8 @@ pub const MAP_IMAGE_SIDE: u32 = 128;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapDataEvent {
     pub map_id: i64,
+    /// Primary and enclosing maps whose saved data this packet initializes.
+    pub initialized_ids: Arc<[i64]>,
     pub start_x: u32,
     pub start_y: u32,
     pub width: u32,
