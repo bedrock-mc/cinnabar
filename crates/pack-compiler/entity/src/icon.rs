@@ -127,9 +127,13 @@ fn compile(
     for visual in compiled.item_visuals.iter() {
         // Source filenames remain available even when the item draws an authored model.
         let source_sprite = match visual.route {
-            ItemVisualDefinitionRoute::Sprite { texture } => {
-                sprite_baker.bake(root, &compiled, texture.source, &mut sprites)?
-            }
+            ItemVisualDefinitionRoute::Sprite { texture } => sprite_baker.bake(
+                root,
+                &compiled,
+                texture.source,
+                &mut sprites,
+                assets::facts::pack::rules().default_item_tint(&visual.key.identifier),
+            )?,
             _ => None,
         };
         let sprite = if visual.key.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER {

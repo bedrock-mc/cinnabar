@@ -197,6 +197,7 @@ mod tests {
     #[test]
     fn modulated_meshes_share_copies_until_source_tint_or_glint_changes() {
         let icon = ui::IconRef {
+            color_mask: None,
             page: 3,
             uv: [0, 0, 16, 16],
             glint: false,

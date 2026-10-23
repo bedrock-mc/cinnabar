@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{Cursor, Read},
+    io::{BufRead, BufReader, Cursor, Read, Seek},
     path::Path,
 };
 
@@ -22,21 +22,38 @@ pub struct DecodedTexture {
 /// Retains the first square frame of a valid horizontal or vertical strip.
 /// Unsupported dimensions remain unchanged for the caller's validation.
 pub fn retain_first_strip_frame(image: &mut DecodedTexture) {
+    retain_strip_frame(image, 0);
+}
+
+/// Retains a physical square frame while leaving unsupported strip dimensions unchanged.
+fn retain_strip_frame(image: &mut DecodedTexture, frame: u32) {
     let side = image.width.min(image.height);
     let long_side = image.width.max(image.height);
     if side < TILE_SIZE
         || !side.is_power_of_two()
         || !long_side.is_multiple_of(side)
         || long_side / side > assets::texture::flipbook::MAX_FLIPBOOK_FRAMES as u32
+        || frame >= long_side / side
         || image.width == image.height
     {
         return;
     }
+    let x = if image.width > image.height {
+        side * frame
+    } else {
+        0
+    } as usize;
+    let y = if image.height > image.width {
+        side * frame
+    } else {
+        0
+    } as usize;
     image.rgba8 = image
         .rgba8
         .chunks_exact(image.width as usize * 4)
+        .skip(y)
         .take(side as usize)
-        .flat_map(|row| row[..side as usize * 4].iter().copied())
+        .flat_map(|row| row[x * 4..(x + side as usize) * 4].iter().copied())
         .collect();
     image.width = side;
     image.height = side;
@@ -71,23 +88,38 @@ pub fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>, AssetE
 }
 
 pub fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
-    decode_texture_file(path, key, false)
+    decode_texture_file(path, key)
 }
 
-/// Decodes a declared animation strip with a dimension-derived allocation budget, retaining
-/// its first square frame before returning it to a static model consumer.
-pub fn decode_first_texture_frame(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
-    let mut decoded = decode_texture_file(path, key, true)?;
-    retain_first_strip_frame(&mut decoded);
+/// Streams model artwork with a dimension-derived decode budget and optionally retains the
+/// selected animation frame. Model size validation remains with the owning consumer.
+pub fn decode_model_texture(
+    path: &Path,
+    key: &str,
+    frame: Option<(usize, u32)>,
+) -> Result<DecodedTexture, AssetError> {
+    let file = File::open(path).map_err(|source| AssetError::TextureIo {
+        key: key.into(),
+        path: path.into(),
+        source,
+    })?;
+    let mut decoded = decode_texture_reader(path, key, BufReader::new(file), true)?;
+    if let Some((animation, frame)) = frame {
+        let physical_frames = decoded.width.max(decoded.height) / decoded.width.min(decoded.height);
+        if frame >= physical_frames {
+            return Err(AssetError::FlipbookFrameOutOfRange {
+                animation,
+                frame,
+                physical_frames,
+            });
+        }
+        retain_strip_frame(&mut decoded, frame);
+    }
     Ok(decoded)
 }
 
 /// Reads a bounded texture source with the allocation policy of its consumer.
-fn decode_texture_file(
-    path: &Path,
-    key: &str,
-    first_frame: bool,
-) -> Result<DecodedTexture, AssetError> {
+fn decode_texture_file(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
     static_texture_format(path, key)?;
     let file = File::open(path).map_err(|source| AssetError::TextureIo {
         key: key.into(),
@@ -102,7 +134,7 @@ fn decode_texture_file(
             path: path.to_path_buf(),
             source,
         })?;
-    decode_texture_bytes_with_frame(path, key, &bytes, first_frame)
+    decode_texture_bytes(path, key, &bytes)
 }
 
 /// Decodes an already verified texture source within the image decoder's bounds.
@@ -111,17 +143,6 @@ pub fn decode_texture_bytes(
     key: &str,
     bytes: &[u8],
 ) -> Result<DecodedTexture, AssetError> {
-    decode_texture_bytes_with_frame(path, key, bytes, false)
-}
-
-/// Validates dimensions before allowing a strip's decoder and output allocation.
-fn decode_texture_bytes_with_frame(
-    path: &Path,
-    key: &str,
-    bytes: &[u8],
-    first_frame: bool,
-) -> Result<DecodedTexture, AssetError> {
-    let format = static_texture_format(path, key)?;
     if bytes.len() > MAX_TEXTURE_BYTES {
         return Err(AssetError::TextureTooLarge {
             key: key.into(),
@@ -131,7 +152,18 @@ fn decode_texture_bytes_with_frame(
         });
     }
 
-    let dimensions = ImageReader::with_format(Cursor::new(bytes), format)
+    decode_texture_reader(path, key, Cursor::new(bytes), false)
+}
+
+/// Validates dimensions before decoding either bounded flat art or streamed model art.
+fn decode_texture_reader<R: BufRead + Seek>(
+    path: &Path,
+    key: &str,
+    mut input: R,
+    model_budget: bool,
+) -> Result<DecodedTexture, AssetError> {
+    let format = static_texture_format(path, key)?;
+    let dimensions = ImageReader::with_format(&mut input, format)
         .into_dimensions()
         .map_err(|source| AssetError::TextureDecode {
             key: key.into(),
@@ -151,11 +183,16 @@ fn decode_texture_bytes_with_frame(
         });
     }
 
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    input.rewind().map_err(|source| AssetError::TextureIo {
+        key: key.into(),
+        path: path.into(),
+        source,
+    })?;
+    let mut reader = ImageReader::with_format(input, format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_TEXTURE_DIMENSION);
     limits.max_image_height = Some(MAX_TEXTURE_DIMENSION);
-    limits.max_alloc = Some(if first_frame {
+    limits.max_alloc = Some(if model_budget {
         // Reserve decoder working storage as well as the expanded RGBA output.
         MAX_DECODE_ALLOC + u64::from(dimensions.0) * u64::from(dimensions.1) * 8
     } else {

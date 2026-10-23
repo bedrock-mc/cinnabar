@@ -47,6 +47,7 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     presentation.menu_artwork.refs.insert(
         "fixture-cape".into(),
         ui::IconRef {
+            color_mask: None,
             page: cape_page,
             uv: [0, 0, 64, 32],
             glint: false,
@@ -148,6 +149,7 @@ fn preview_cape_suppression_follows_the_admitted_chest_definition() {
     presentation.menu_artwork.refs.insert(
         "fixture-cape".into(),
         ui::IconRef {
+            color_mask: None,
             page: cape_page,
             uv: [0, 0, 64, 32],
             glint: false,

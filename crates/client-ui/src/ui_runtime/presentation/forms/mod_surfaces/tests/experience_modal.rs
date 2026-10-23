@@ -722,6 +722,7 @@ fn modal_item_renderers_draw_the_players_inventory() {
             storage_item: None,
         }));
     let icon = ui::IconRef {
+        color_mask: None,
         page: 3,
         uv: [16, 32, 48, 64],
         glint: false,

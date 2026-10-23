@@ -155,6 +155,7 @@ mod tests {
     fn wide_card_character_stays_beside_the_name_when_the_banner_widens() {
         let view = MenuView::new(true, "BugTest".into());
         let character = IconRef {
+            color_mask: None,
             page: 7,
             uv: [0, 0, 148, 196],
             glint: false,
