@@ -169,6 +169,7 @@ fn maximal_effect_amplifiers_saturate() {
 pub(super) fn press(input_mode: PlayerInputMode) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
+        refused_destroy: None,
         tick: 101,
         player_position: [0.5, 2.620_01, 0.5],
         input_mode,

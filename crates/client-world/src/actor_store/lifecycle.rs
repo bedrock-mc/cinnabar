@@ -112,7 +112,7 @@ impl ActorStore {
             remote_state_excluded_runtime_id: None,
             local_vehicle: Default::default(),
             pending_local_health: None,
-            local_server_swings: 0,
+            local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
             pending_local_death: Vec::new(),
@@ -154,7 +154,7 @@ impl ActorStore {
     }
 
     /// Arm swings the server sent for the local player since the last call.
-    pub(crate) fn take_local_server_swings(&mut self) -> u8 {
+    pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
     }
 
@@ -389,7 +389,7 @@ impl ActorStore {
         self.ready_appearances = Default::default();
         self.items.clear();
         self.actions.clear();
-        self.local_server_swings = 0;
+        self.local_server_swings.clear();
         self.status_notices.clear();
         self.pickup_visuals.clear();
         self.particle_effects.clear();
@@ -406,7 +406,7 @@ impl ActorStore {
             return guard;
         }
         self.dimension = dimension;
-        self.local_server_swings = 0;
+        self.local_server_swings.clear();
         self.local_flying = false;
         self.retain_local_death();
         self.pending_local_health = self
@@ -868,7 +868,7 @@ impl ActorStore {
                     if self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && matches!(action.kind, protocol::ActorActionKind::SwingArm)
                     {
-                        self.local_server_swings = self.local_server_swings.saturating_add(1);
+                        self.local_server_swings.push(action.swing_source.clone());
                     }
                     if (self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && !matches!(action.kind, protocol::ActorActionKind::Custom { .. }))

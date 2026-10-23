@@ -771,7 +771,7 @@ pub(crate) struct ActorStore {
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
-    local_server_swings: u8,
+    local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,
     local_health_skips: u64,
     /// The local player's last-death data held while its actor is absent (a dimension change),

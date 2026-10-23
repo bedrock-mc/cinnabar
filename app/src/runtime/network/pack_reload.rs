@@ -27,6 +27,9 @@ mod publication_tests;
 #[cfg(test)]
 mod post_join_tests;
 
+#[cfg(test)]
+mod saved_globals_tests;
+
 struct Prepared {
     revision: u64,
     generation: u64,

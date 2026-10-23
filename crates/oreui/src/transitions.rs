@@ -40,6 +40,7 @@ impl Control {
                 Some(Self::ShowAllPermissions(id))
             }
             MenuAction::LocalWorld(launcher::menu::LocalWorldAction::Option(id, _))
+            | MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(id, _))
                 if id.definition().control == launcher::local_worlds::options::Control::Toggle =>
             {
                 Some(Self::WorldOption(id))

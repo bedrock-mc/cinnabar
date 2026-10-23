@@ -268,7 +268,8 @@ else:
         before = self.refs()
         self.prepare(EVENT_NAME="push")
         self.assertEqual(self.outputs(), {"channel": "nightly", "track": "rolling", "tag": "nightly", "version": SOURCE_VERSION,
-                                         "ref": self.initial, "commit": self.initial})
+                                         "ref": self.initial, "commit": self.initial,
+                                         "cargo_features": ",".join(UPDATE_CHANNELS["nightly"].get("cargo_features", []))})
         self.assertEqual(self.refs(), before)
         self.assertFalse(self.log.exists())
 
@@ -276,14 +277,16 @@ else:
         before = self.refs()
         self.prepare(EVENT_NAME="schedule")
         self.assertEqual(self.outputs(), {"channel": "nightly", "track": "rolling", "tag": "nightly", "version": SOURCE_VERSION,
-                                         "ref": self.initial, "commit": self.initial})
+                                         "ref": self.initial, "commit": self.initial,
+                                         "cargo_features": ",".join(UPDATE_CHANNELS["nightly"].get("cargo_features", []))})
         self.assertEqual(self.refs(), before)
 
     def test_manual_nightly_is_read_only_and_limited_to_the_default_branch(self):
         before = self.refs()
         self.prepare(BUMP="nightly")
         self.assertEqual(self.outputs(), {"channel": "nightly", "track": "rolling", "tag": "nightly", "version": SOURCE_VERSION,
-                                         "ref": self.initial, "commit": self.initial})
+                                         "ref": self.initial, "commit": self.initial,
+                                         "cargo_features": ",".join(UPDATE_CHANNELS["nightly"].get("cargo_features", []))})
         self.assertEqual(self.refs(), before)
         self.assertFalse(self.log.exists())
         self.git("checkout", "-b", "feature")
@@ -327,6 +330,34 @@ else:
         values = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
         self.assertEqual(values["channel"], "candidate")
         self.assertEqual(values["track"], "tagged")
+
+    def test_cargo_features_follow_channel_metadata_before_refs_change(self):
+        """Build features come from the selected track, including renamed channels."""
+        metadata = self.root / "packaging/release-assets.json"
+        config = json.loads(metadata.read_text())
+        config["update_channels"]["nightly"]["cargo_features"] = ["fixture-feature", "another"]
+        config["update_channels"]["beta"]["cargo_features"] = []
+        metadata.write_text(json.dumps(config))
+        self.git("add", str(metadata))
+        self.git("commit", "-m", "Select fixture features")
+        self.prepare(BUMP="nightly")
+        self.assertEqual(self.outputs()["cargo_features"], "fixture-feature,another")
+        self.prepare()
+        self.assertEqual(self.outputs()["cargo_features"], "")
+
+    def test_invalid_feature_metadata_fails_before_refs_change(self):
+        """Malformed workflow output must not create or publish release refs."""
+        metadata = self.root / "packaging/release-assets.json"
+        config = json.loads(metadata.read_text())
+        config["update_channels"]["nightly"]["cargo_features"] = ["bad\nfeature"]
+        metadata.write_text(json.dumps(config))
+        self.git("add", str(metadata))
+        self.git("commit", "-m", "Model invalid feature metadata")
+        before = self.refs()
+        result = self.prepare(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_no_outputs()
+        self.assertEqual(self.refs(), before)
 
     def test_patch_commits_and_atomically_pushes_version_and_tag(self):
         self.prepare(BUMP="patch")

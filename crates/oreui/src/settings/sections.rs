@@ -32,6 +32,7 @@ pub(super) fn draw(
         SettingSection::ControllerAndSwitch => controller(content),
         SettingSection::General => general(content),
         SettingSection::Updates => super::updates::draw(content),
+        SettingSection::Game => super::world::draw(content),
         SettingSection::Creator => creator(content),
         SettingSection::Chat => chat(content),
         SettingSection::Discord => discord(content),
@@ -586,7 +587,7 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.renderClouds" => "Render Clouds",
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
-            "In game, the default is Unlimited when plugged in and display refresh on battery. Choose Unlimited explicitly to keep it on battery. Menus stay within display refresh; VSync and Variable Refresh Rate may lower the rate."
+            "Menus stay within display refresh. VSync and Variable Refresh Rate may lower the rate."
         }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
@@ -669,6 +670,15 @@ pub(super) fn fallback(key: &str) -> &str {
         "color.light_purple" => "Light Purple",
         "color.yellow" => "Yellow",
         "color.gold" => "Gold",
+        "color.gray" => "Gray",
+        "color.dark_gray" => "Dark Gray",
+        "color.blue" => "Blue",
+        "color.dark_green" => "Dark Green",
+        "color.dark_aqua" => "Dark Aqua",
+        "color.dark_purple" => "Dark Purple",
+        "color.dark_red" => "Dark Red",
+        "color.dark_blue" => "Dark Blue",
+        "color.black" => "Black",
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
         "hbui.Settings.category.general" => "General",

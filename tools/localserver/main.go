@@ -146,6 +146,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	if cfg.holograms {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = hologramListener(listen)
+		}
+	}
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

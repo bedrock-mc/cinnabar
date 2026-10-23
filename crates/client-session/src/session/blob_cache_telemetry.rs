@@ -85,6 +85,7 @@ pub(super) fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         abandoned_cached_transactions = stats.abandoned_cached_transactions,
         recovery_requests = stats.recovery_requests,
         ordinary_backpressure = stats.ordinary_backpressure,
+        ordinary_lane_stalls = stats.ordinary_lane_stalls,
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
         "client blob cache counters"

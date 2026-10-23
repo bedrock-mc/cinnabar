@@ -15,6 +15,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 use crate::{CustomUniform, CustomUniformKind};
 
@@ -23,7 +24,7 @@ use eval::{Frame, RANDOM_SEED, SmoothState};
 use value::Value;
 
 /// A typed custom or built-in uniform value.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum UniformValue {
     /// `bool`.
     Bool(bool),
@@ -40,7 +41,7 @@ pub enum UniformValue {
 }
 
 /// A custom uniform or variable definition that failed to compile and was dropped.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct CustomUniformError {
     /// 1-based line of the definition in `shaders.properties`.
     pub line: u32,
@@ -60,12 +61,12 @@ impl std::error::Error for CustomUniformError {}
 
 /// Compiled custom uniforms and variables with the state that persists between frames
 /// (`smooth()` accumulators and the `random()` generator).
-#[derive(Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct CustomUniforms {
     /// Definitions that compiled, in dependency order.
-    definitions: Vec<Definition>,
+    definitions: Arc<[Definition]>,
     /// Built-in names read by the definitions, in first-use order.
-    inputs: Vec<String>,
+    inputs: Arc<[String]>,
     /// This frame's value of each input; `None` for a name the host does not know.
     input_values: Vec<Option<Value>>,
     /// Latest value of each definition, converted to its declared type.
@@ -79,7 +80,7 @@ pub struct CustomUniforms {
 }
 
 /// One compiled definition.
-#[derive(Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 struct Definition {
     ty: DeclaredType,
     node: Node,
@@ -178,9 +179,9 @@ impl CustomUniforms {
         errors.sort_by_key(|error| error.line);
         let uniforms = CustomUniforms {
             values: compiled.iter().map(|d| Value::from(d.ty.zero())).collect(),
-            definitions: compiled,
+            definitions: compiled.into(),
             input_values: vec![None; inputs.len()],
-            inputs,
+            inputs: inputs.into(),
             smooth: vec![SmoothState::default(); smooth_count],
             rng: RANDOM_SEED,
             results,
@@ -219,7 +220,7 @@ impl CustomUniforms {
         builtin: &dyn Fn(&str) -> Option<UniformValue>,
         frame_time: f32,
     ) -> &[(String, UniformValue)] {
-        for (slot, name) in self.input_values.iter_mut().zip(&self.inputs) {
+        for (slot, name) in self.input_values.iter_mut().zip(self.inputs.iter()) {
             *slot = builtin(name).map(Value::from);
         }
         let elapsed = if frame_time.is_finite() && frame_time > 0.0 {
@@ -328,7 +329,7 @@ fn compile_definition(
 }
 
 /// The declared type of a definition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 enum DeclaredType {
     Bool,
     Int,

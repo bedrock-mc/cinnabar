@@ -209,7 +209,7 @@ impl ServerHandler for Handler {
                 Some(binary.path)
             }
             Err(error) => {
-                tracing::error!("minidump failed: {error}");
+                tracing::error!("minidump failed: {error:?}");
                 if let Some(pending) = pending {
                     let _ = std::fs::remove_file(pending);
                 }

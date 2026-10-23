@@ -236,10 +236,8 @@ impl WorldAuthority {
         let uuid = *uuid;
         self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
     }
-    /// Arm swings the server sent for the local player since the last call. Vanilla servers
-    /// do not echo the owner's swing, but some (Dragonfly) send one when they accept a
-    /// placement the client did not predict, and the native client plays it.
-    pub fn take_local_server_swings(&mut self) -> u8 {
+    /// Ordered sources of server swings for the local player since the last call.
+    pub fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         self.actors.take_local_server_swings()
     }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.

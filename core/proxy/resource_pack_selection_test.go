@@ -179,3 +179,57 @@ func negotiatedPackSelection(t *testing.T, offer minecraft.ResourcePackOfferSnap
 	}
 	return conn
 }
+
+func TestChooseSessionPacksDoesNotSubstituteAnotherVersion(t *testing.T) {
+	pack := testAdmissionPack(t)
+	offers := []sessionOffer{testSessionOffer(pack, "", "")}
+	entries := []sessionStackEntry{{uuid: pack.UUID().String(), version: "9.0.0"}}
+	for _, required := range []bool{false, true} {
+		t.Run(fmt.Sprintf("required=%t", required), func(t *testing.T) {
+			selected, packs, err := chooseSessionPacks(offers, entries, required, nil)
+			var admission *PackAdmissionError
+			if errors.As(err, &admission) != required {
+				t.Fatalf("selection error = %v, required=%t", err, required)
+			}
+			if len(selected) != 0 || len(packs) != 0 {
+				t.Fatalf("unacquired version substituted: selected=%+v packs=%d", selected, len(packs))
+			}
+		})
+	}
+}
+
+func TestSelectedStackRequiresEverySelectedVersionOfOneUUID(t *testing.T) {
+	first := testAdmissionPack(t)
+	second := admissionPackWithVersion(t, first.UUID().String(), [3]uint32{2, 0, 0})
+	for _, required := range []bool{false, true} {
+		t.Run(fmt.Sprintf("required=%t", required), func(t *testing.T) {
+			cache := minecraft.DirResourcePackCache{Dir: t.TempDir()}
+			for _, pack := range []*resource.Pack{first, second} {
+				key := minecraft.ResourcePackCacheKey{UUID: pack.UUID(), Version: pack.Version(), Size: uint64(pack.Size())}
+				if err := cache.Store(context.Background(), key, pack); err != nil {
+					t.Fatal(err)
+				}
+			}
+			conn := negotiatedAdmissionPacksWithCache(t, []*resource.Pack{first, second}, required, cache)
+			for _, excluded := range []*resource.Pack{first, second} {
+				captured, err := captureSelectedResourcePackStack(conn, func(pack *resource.Pack) bool {
+					return packIdentity(pack) == packIdentity(excluded)
+				})
+				var admission *PackAdmissionError
+				if required {
+					if !errors.As(err, &admission) || captured != nil {
+						t.Fatalf("required version %s was dropped: stack=%+v err=%v", excluded.Version(), captured, err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				selected, packs, err := selectSessionPacks(captured, nil)
+				if err != nil || len(selected) != 1 || len(packs) != 1 || selected[0].Version == excluded.Version() {
+					t.Fatalf("optional version projection: selected=%+v packs=%d err=%v", selected, len(packs), err)
+				}
+			}
+		})
+	}
+}

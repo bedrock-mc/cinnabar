@@ -14,7 +14,7 @@ const PI_NAME: &str = "pi";
 
 /// Static shape of an expression. Built-ins read whole are [`Shape::Dynamic`]: their type
 /// is only known when the host answers, so their checks happen at run time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Shape {
     /// A float, int or bool.
     Scalar,
@@ -35,7 +35,7 @@ impl fmt::Display for Shape {
 }
 
 /// What an earlier definition's name resolves to.
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub(super) enum Binding {
     /// A compiled definition: its index among compiled definitions and declared shape.
     Defined { index: usize, shape: Shape },
@@ -44,7 +44,7 @@ pub(super) enum Binding {
 }
 
 /// How a built-in input is read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Access {
     /// The whole value.
     Whole,
@@ -55,7 +55,7 @@ pub(super) enum Access {
 }
 
 /// Single-argument functions, applied per component to vectors.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Func1 {
     Sin,
     Cos,
@@ -112,7 +112,7 @@ impl Func1 {
 }
 
 /// Two-argument functions, applied per component with scalar broadcast.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Func2 {
     /// `pow(x, y)`.
     Pow,
@@ -127,7 +127,7 @@ pub(super) enum Func2 {
 }
 
 /// Three-argument functions, applied per component with scalar broadcast.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Func3 {
     /// `clamp(x, min, max)`.
     Clamp,
@@ -136,14 +136,14 @@ pub(super) enum Func3 {
 }
 
 /// Variadic `min`/`max`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Fold {
     Min,
     Max,
 }
 
 /// A compiled expression.
-#[derive(Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub(super) enum Node {
     Const(Value),
     /// A built-in, by index into the input list.
@@ -185,7 +185,7 @@ pub(super) enum Node {
 }
 
 /// `smooth([id,] value[, fadeUpTime[, fadeDownTime]])`.
-#[derive(Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub(super) struct SmoothNode {
     /// Index of this call's accumulator.
     pub(super) slot: usize,

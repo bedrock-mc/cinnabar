@@ -43,6 +43,15 @@ const CONTAINER_PLATFORM: &str = "linux/amd64";
 /// Bounds Docker housekeeping calls (inspect, remove).
 const DOCKER_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Writes `$1` to the dedicated server's stdin inside the container. The image's own
+/// `send-command` cannot find the server when it runs under Rosetta, so match its command line.
+const CONSOLE_SCRIPT: &str = r#"for p in /proc/[0-9]*; do
+  case "$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" in
+    ./bedrock_server*|box64\ ./bedrock_server*) printf '%s\n' "$1" > "$p/fd/0"; exit;;
+  esac
+done
+exit 1"#;
+
 /// The container that hosts `world_id`.
 pub(crate) fn container_name(world_id: &str) -> String {
     format!("cinnabar-bds-{world_id}")
@@ -497,8 +506,31 @@ impl Instance for ContainerInstance {
         self.lan_address.as_deref()
     }
 
-    /// `docker run` does not attach the server's console, so no reload can reach it; the manager
-    /// resolves the host before launching a container instead.
+    fn exited_cleanly(&self) -> bool {
+        self.process.exited_cleanly()
+    }
+
+    fn console(&self, command: &str) -> std::io::Result<()> {
+        if command.contains(['\n', '\r']) {
+            return Err(std::io::ErrorKind::InvalidInput.into());
+        }
+        let exec = self.command(&[
+            "exec",
+            self.name.as_str(),
+            "sh",
+            "-c",
+            CONSOLE_SCRIPT,
+            "sh",
+            command,
+        ]);
+        if succeeds(exec, PROBE_TIMEOUT) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("send-command failed"))
+        }
+    }
+
+    /// The manager resolves this runner's host grant before launch; later grants are unsupported.
     fn grant_host(&self, _xuid: Option<&str>, _cancel: &Cancel) -> Result<(), WorldError> {
         Err(failed(
             "a container server's operator list is fixed when it launches",

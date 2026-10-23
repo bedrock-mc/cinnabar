@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -450,6 +451,37 @@ func TestSessionPrepareExposesThePlayerRuntimeID(t *testing.T) {
 // A real join: the core logs in upstream, hands off packs and StartGame, relays both ways and ends
 // the session with a Transfer message it also records for the next Connect.
 func TestSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("saved=%t", saved), func(t *testing.T) {
+			if saved {
+				root := t.TempDir()
+				t.Setenv("CINNABAR_USER_ROOT", "")
+				t.Setenv("LOCALAPPDATA", "")
+				t.Setenv("XDG_DATA_HOME", root)
+				global := filepath.Join(root, "cinnabar", "resource-packs", "global")
+				if err := os.MkdirAll(global, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				id := "11223344-5566-7788-99aa-bbccddeeff00"
+				if err := os.WriteFile(filepath.Join(global, id+"-1.0.0-1.mcpack"), admissionPackArchiveWithID(t, id), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				catalog := fmt.Sprintf(`{"active":[{"id":%q,"revision":1}]}`, id)
+				if err := os.WriteFile(filepath.Join(global, "global_packs.json"), []byte(catalog), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				// Exercise the production executable identity with the isolated user data.
+				original := os.Args
+				os.Args = []string{"cinnabar-core"}
+				t.Cleanup(func() { os.Args = original })
+			}
+			testSessionServerHandsOffAndRelaysARealJoin(t)
+		})
+	}
+}
+
+// testSessionServerHandsOffAndRelaysARealJoin verifies that only server packs cross the handoff.
+func testSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
 	pack := testAdmissionPack(t)
 	upstreamListener, upstreamNetwork := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
 		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
