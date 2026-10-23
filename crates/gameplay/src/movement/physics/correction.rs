@@ -35,6 +35,7 @@ impl LocalPhysicsController {
             });
         if matches!(mode, PhysicsCorrectionMode::Snap) {
             let previous_state = self.state.clone();
+            let previous_climber = self.live_climber;
             let jump_delay = self.state.as_ref().map_or(0, |state| state.jump_delay);
             let swim_amount = self.state.as_ref().map_or(0.0, |state| state.swim_amount);
             let swim_pose_active = self
@@ -52,8 +53,10 @@ impl LocalPhysicsController {
             self.jump_edge_pending = jump_edge_pending;
             self.input_edges = input_edges;
             self.modes = modes;
+            self.live_climber = previous_climber;
             if let (Some(state), Some(previous)) = (self.state.as_mut(), previous_state.as_ref()) {
                 state.keep_climber_contact(previous);
+                state.keep_fall_distance(previous);
             }
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
@@ -196,7 +199,9 @@ impl LocalPhysicsController {
         // Vanilla marks the actor corrected whenever it rewinds retained frames,
         // whatever caused the rewind; snaps never schedule a sync.
         self.prediction_sync.arm();
-        let prior_position = self.state.as_ref().map(|state| state.position);
+        let prior_state = self.state.clone();
+        let prior_climber = self.live_climber;
+        let prior_position = prior_state.as_ref().map(|state| state.position);
         let prior_previous_position = self.previous_position;
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
@@ -228,6 +233,7 @@ impl LocalPhysicsController {
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
+        let climber_corrections = self.climber_corrections.clone();
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -248,6 +254,13 @@ impl LocalPhysicsController {
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
+                    let next_tick = state.tick + 1;
+                    for correction in climber_corrections
+                        .iter()
+                        .filter(|correction| correction.tick == next_tick)
+                    {
+                        correction.apply(state);
+                    }
                     boosts.apply(state.tick + 1, &mut input.effects);
                     let frame = controller_frames
                         .iter_mut()
@@ -267,6 +280,13 @@ impl LocalPhysicsController {
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
+
+        if let (Some(state), Some(previous)) = (self.state.as_mut(), prior_state.as_ref()) {
+            state.keep_fall_distance(previous);
+            if replay.replayed_ticks == 0 {
+                state.keep_climber_contact(previous);
+            }
+        }
 
         self.deferred_corrections.mark_replayed();
 
@@ -401,6 +421,11 @@ impl LocalPhysicsController {
         self.last_environment = controller_frames
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
+        self.live_climber = if replay.replayed_ticks == 0 {
+            prior_climber
+        } else {
+            controller_frames.back().and_then(|frame| frame.climber)
+        };
         self.controller_history = controller_frames;
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self

@@ -141,6 +141,9 @@ impl ControllerFrame {
         modes.restore_mode(input.mode);
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
+        if self.flight_request.is_some() {
+            state.clear_fall_distance();
+        }
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,

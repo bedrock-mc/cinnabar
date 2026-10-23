@@ -13,13 +13,15 @@ pub const MAX_BLOCK_SAMPLES_PER_TICK: usize = 64;
 
 pub(super) struct SampledEnvironment {
     pub movement: MovementEnvironment,
+    /// New water contact seen by the resolved move's fall check.
+    pub entered_water: bool,
     pub friction: f64,
     pub identity: WorldCollisionIdentity,
     pub block_samples: usize,
     /// This tick's descent through a climbable block, which removes scaffolding support.
     pub descend_through: bool,
-    /// Primary facts of every cell already read this tick, sorted by cell.
-    pub primaries: Vec<([i32; 3], crate::BlockPhysicsFacts)>,
+    /// Primary physics and liquid materials already read this tick, sorted by cell.
+    cells: Vec<([i32; 3], CachedPhysics)>,
     /// Move multiplier of the berry-bush and powder-snow cells the body is inside.
     pub stuck: Option<[f32; 3]>,
     /// Response of the block under the friction probe, which selects soul sand acceleration.
@@ -34,36 +36,87 @@ impl SampledEnvironment {
     pub(super) fn unsampled(identity: WorldCollisionIdentity) -> Self {
         Self {
             movement: MovementEnvironment::default(),
+            entered_water: false,
             friction: DEFAULT_SURFACE_FRICTION,
             identity,
             block_samples: 0,
             descend_through: false,
-            primaries: Vec::new(),
+            cells: Vec::new(),
             stuck: None,
             friction_surface: SurfaceResponse::None,
             honey_jump: false,
         }
     }
 
-    /// Reads a primary block, reusing this tick's earlier reads before spending the
-    /// shared budget. Returns the identity of a fresh read for the caller to merge.
+    /// Reads primary physics without spending the shared budget twice on a cached cell.
     pub(super) fn primary(
         &mut self,
         world: &(impl CollisionWorld + ?Sized),
         block: [i32; 3],
     ) -> Result<(crate::BlockPhysicsFacts, Option<WorldCollisionIdentity>), WorldQueryError> {
-        match self
-            .primaries
-            .binary_search_by(|(cell, _)| cell.cmp(&block))
-        {
-            Ok(index) => Ok((self.primaries[index].1, None)),
+        self.read_cell(world, block)
+            .map(|(facts, identity)| (facts.primary, identity))
+    }
+
+    /// Reads liquid materials from every layer, retaining the fresh read's identity.
+    pub(super) fn liquids(
+        &mut self,
+        world: &(impl CollisionWorld + ?Sized),
+        block: [i32; 3],
+    ) -> Result<(BlockPhysicsFlags, Option<WorldCollisionIdentity>), WorldQueryError> {
+        self.read_cell(world, block)
+            .map(|(facts, identity)| (facts.liquids, identity))
+    }
+
+    /// Reuses a cell or records one complete material read within the tick's budget.
+    fn read_cell(
+        &mut self,
+        world: &(impl CollisionWorld + ?Sized),
+        block: [i32; 3],
+    ) -> Result<(CachedPhysics, Option<WorldCollisionIdentity>), WorldQueryError> {
+        match self.cells.binary_search_by(|(cell, _)| cell.cmp(&block)) {
+            Ok(index) => Ok((self.cells[index].1, None)),
             Err(index) => {
-                let sample = sample_primary(world, block, &mut self.block_samples)?;
-                self.primaries.insert(index, (block, sample.value));
-                Ok((sample.value, Some(sample.identity)))
+                let sample = sample_block(world, block, &mut self.block_samples)?;
+                let facts = CachedPhysics::from_sample(&sample);
+                self.cells.insert(index, (block, facts));
+                Ok((facts, Some(sample.identity)))
             }
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct CachedPhysics {
+    primary: crate::BlockPhysicsFacts,
+    liquids: BlockPhysicsFlags,
+}
+
+impl CachedPhysics {
+    /// Keeps primary behavior separate from liquid materials in secondary layers.
+    fn from_sample(sample: &crate::BlockPhysicsSample) -> Self {
+        Self {
+            primary: *sample.primary(),
+            liquids: BlockPhysicsFlags::from_bits(sample.layers.iter().fold(0, |bits, facts| {
+                (bits | facts.flags.bits()) & BlockPhysicsFlags::KNOWN_BITS
+            }))
+            .expect("known physics flag mask stays valid"),
+        }
+    }
+}
+
+/// Reads all layers of one cell without exceeding the tick's shared physics budget.
+fn sample_block(
+    world: &(impl CollisionWorld + ?Sized),
+    block: [i32; 3],
+    block_samples: &mut usize,
+) -> Result<crate::BlockPhysicsSample, WorldQueryError> {
+    if *block_samples == MAX_BLOCK_SAMPLES_PER_TICK {
+        return Err(WorldQueryError::QueryExtentExceeded);
+    }
+    let sample = world.block_physics(block)?;
+    *block_samples += 1;
+    Ok(sample)
 }
 
 /// Reads one primary block without exceeding the tick's shared physics budget.
@@ -72,11 +125,7 @@ pub(super) fn sample_primary(
     block: [i32; 3],
     block_samples: &mut usize,
 ) -> Result<crate::CollisionQuery<crate::BlockPhysicsFacts>, WorldQueryError> {
-    if *block_samples == MAX_BLOCK_SAMPLES_PER_TICK {
-        return Err(WorldQueryError::QueryExtentExceeded);
-    }
-    let sample = world.block_physics(block)?;
-    *block_samples += 1;
+    let sample = sample_block(world, block, block_samples)?;
     Ok(crate::CollisionQuery {
         value: *sample.primary(),
         identity: sample.identity,
@@ -122,7 +171,7 @@ pub(super) fn sample(
     }
 
     let block_samples = blocks.len();
-    let mut primaries = Vec::with_capacity(block_samples);
+    let mut cells = Vec::with_capacity(block_samples);
     let mut identity: Option<WorldCollisionIdentity> = None;
     let mut movement = MovementEnvironment::default();
     let mut friction = DEFAULT_SURFACE_FRICTION;
@@ -131,7 +180,7 @@ pub(super) fn sample(
     let (mut feet_honey, mut support_honey) = (false, false);
     for block in blocks {
         let sample = world.block_physics(block)?;
-        primaries.push((block, *sample.primary()));
+        cells.push((block, CachedPhysics::from_sample(&sample)));
         identity = Some(match identity {
             None => sample.identity.clone(),
             Some(previous) => previous.merge(&sample.identity)?,
@@ -213,11 +262,12 @@ pub(super) fn sample(
     let identity = identity.expect("the support block guarantees one bounded sample");
     Ok(SampledEnvironment {
         movement,
+        entered_water: false,
         friction,
         identity,
         block_samples,
         descend_through: false,
-        primaries,
+        cells,
         stuck,
         friction_surface,
         // Integer-aligned feet also read the block below the feet cell.

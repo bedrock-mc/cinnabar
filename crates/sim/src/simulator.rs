@@ -183,10 +183,15 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
+            if state
+                .climber
+                .is_some_and(|contact| contact.descends(&input))
+            {
+                state.clear_fall_distance();
+            }
             // The descent action and block climber still run in place; see
-            // `scaffolding::finish_tick`. Without a move, the fall check clears.
+            // `scaffolding::finish_tick`. Without a move request, there is no fall check.
             let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
-            state.fall_distance = 0.0;
             riptide::launch(state, input, false);
             return Ok(output);
         }
@@ -468,7 +473,14 @@ impl Simulator {
         } else {
             grounded_at_start && pre_collision_velocity.y == 0.0
         };
-        fall::after_move(&mut next.fall_distance, next.on_ground, motion.resolved.y);
+        fall::check(
+            world,
+            &mut next,
+            input,
+            &mut sampled,
+            &mut identity,
+            motion.resolved.y,
+        )?;
 
         let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
             let surface = if let Some(block) = motion.support {
@@ -641,6 +653,7 @@ impl Simulator {
             world,
             motion.aabb,
             &mut next.velocity,
+            &mut next.fall_distance,
             &input,
             &mut sampled,
             &mut identity,

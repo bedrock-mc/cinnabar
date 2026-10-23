@@ -12,8 +12,8 @@ pub(in crate::movement) struct SyncPose {
     pub moving: bool,
     /// Terrain collision, absent until a controller frame exists.
     pub has_collision: Option<bool>,
-    /// Block-climber flags of the latest completed tick, absent when the
-    /// server's flags stand (see [`ClimberFlags::after_tick`]).
+    /// Completed block-climber flags with newer accepted server edits; absent
+    /// when the server's flags stand (see [`ClimberFlags::after_tick`]).
     pub climber: Option<ClimberFlags>,
 }
 
@@ -28,6 +28,65 @@ pub(in crate::movement) struct ClimberFlags {
 }
 
 impl ClimberFlags {
+    /// Associates each owned flag with its wire identity in one place.
+    fn fields_mut(&mut self) -> [(protocol_ids::ActorFlag, &mut bool); 5] {
+        use protocol_ids::ActorFlag;
+        [
+            (ActorFlag::InScaffolding, &mut self.in_scaffolding),
+            (ActorFlag::OverScaffolding, &mut self.over_scaffolding),
+            (
+                ActorFlag::DescendThroughBlock,
+                &mut self.descending_through_block,
+            ),
+            (ActorFlag::InAscendingBlock, &mut self.in_ascending_block),
+            (
+                ActorFlag::OverDescendingBlock,
+                &mut self.over_descending_block,
+            ),
+        ]
+    }
+
+    /// Encodes only the five climber flags in the second actor flag word.
+    pub(in crate::movement) fn word(mut self) -> u64 {
+        self.fields_mut()
+            .into_iter()
+            .fold(0, |word, (flag, value)| {
+                word | (u64::from(*value) << (flag.wire_value() % u64::BITS))
+            })
+    }
+
+    /// Returns the second-word mask owned by the climber and descent action.
+    pub(in crate::movement) fn mask() -> u64 {
+        Self::default()
+            .fields_mut()
+            .into_iter()
+            .fold(0, |mask, (flag, _)| {
+                assert_eq!(flag.wire_value() / u64::BITS, 1);
+                mask | (1_u64 << (flag.wire_value() % u64::BITS))
+            })
+    }
+
+    /// Decodes the climber flags without adopting unrelated actor flags.
+    pub(super) fn from_word(word: u64) -> Self {
+        let mut flags = Self::default();
+        for (flag, value) in flags.fields_mut() {
+            *value = word & (1_u64 << (flag.wire_value() % u64::BITS)) != 0;
+        }
+        flags
+    }
+
+    /// Makes accepted contact available to the next descent and climb-jump actions.
+    pub(super) fn apply(self, state: &mut PlayerState, mask: u64) {
+        let mask = Self::from_word(mask);
+        state.update_climber_contact(
+            mask.in_scaffolding.then_some(self.in_scaffolding),
+            mask.over_scaffolding.then_some(self.over_scaffolding),
+            mask.in_ascending_block.then_some(self.in_ascending_block),
+            mask.over_descending_block
+                .then_some(self.over_descending_block),
+        );
+    }
+
     /// Climber flags after one completed tick. Spectator flags stay the
     /// server's. A tick that published contact (measured, or retained by the
     /// simulator) reports it; one with no contact known keeps the contact of
@@ -95,10 +154,7 @@ impl LocalPhysicsController {
                 .controller_history
                 .back()
                 .map(|frame| !frame.input.no_clip),
-            climber: self
-                .controller_history
-                .back()
-                .and_then(|frame| frame.climber),
+            climber: self.live_climber,
         })
     }
 

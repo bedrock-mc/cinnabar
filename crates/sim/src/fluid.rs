@@ -14,6 +14,21 @@ pub fn sample_actor_liquids(
     world: &impl CollisionWorld,
     body: Aabb,
 ) -> Result<(bool, bool), WorldQueryError> {
+    sample_liquid_contacts(body, |block| {
+        let mut bits = 0;
+        world.visit_block_materials(block, &mut |layer| bits |= layer.flags.bits())?;
+        Ok(
+            BlockPhysicsFlags::from_bits(bits & BlockPhysicsFlags::KNOWN_BITS)
+                .expect("known physics flag mask stays valid"),
+        )
+    })
+}
+
+/// Samples both native contact probes using the caller's material cache or world reads.
+pub(crate) fn sample_liquid_contacts(
+    body: Aabb,
+    mut materials: impl FnMut([i32; 3]) -> Result<BlockPhysicsFlags, WorldQueryError>,
+) -> Result<(bool, bool), WorldQueryError> {
     crate::world::validate_collision_query(body)?;
     let min = [body.min.x, body.min.y, body.min.z].map(|value| value.floor() as i32);
     let max = [body.max.x, body.max.y, body.max.z].map(|value| value.floor() as i32);
@@ -32,10 +47,9 @@ pub fn sample_actor_liquids(
                     return Err(WorldQueryError::QueryExtentExceeded);
                 }
                 samples += 1;
-                world.visit_block_materials(block, &mut |layer| {
-                    water |= water_contact && layer.flags.contains(BlockPhysicsFlags::WATER);
-                    lava |= lava_contact && layer.flags.contains(BlockPhysicsFlags::LAVA);
-                })?;
+                let flags = materials(block)?;
+                water |= water_contact && flags.contains(BlockPhysicsFlags::WATER);
+                lava |= lava_contact && flags.contains(BlockPhysicsFlags::LAVA);
             }
         }
     }

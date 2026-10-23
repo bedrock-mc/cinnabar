@@ -617,6 +617,8 @@ pub struct MovementFlagUpdate {
     pub crawling: Option<bool>,
     pub has_gravity: Option<bool>,
     pub uniform_air_drag: Option<bool>,
+    /// The accepted second flag word, including locally produced climber flags.
+    pub extended_flags: Option<u64>,
 }
 
 impl MovementFlagUpdate {
@@ -652,6 +654,7 @@ impl MovementFlagUpdate {
             crawling: bit(ActorFlag::Crawling.wire_value()),
             has_gravity: bit(ActorFlag::HasGravity.wire_value()),
             uniform_air_drag: bit(ActorFlag::UsesUniformAirDrag.wire_value()),
+            extended_flags: words[1],
         })
     }
 }

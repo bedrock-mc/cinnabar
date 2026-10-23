@@ -50,12 +50,12 @@ pub(super) fn tick_without_travel(
     };
     next.movement = Vec3::ZERO;
     next.requested_movement = Vec3::ZERO;
-    super::fall::after_move(&mut next.fall_distance, next.on_ground, 0.0);
     let mut identity = sampled.identity.clone();
     super::inside::after_move(
         world,
         next.collision_box(next.hitbox_height(input)),
         &mut next.velocity,
+        &mut next.fall_distance,
         &input,
         &mut sampled,
         &mut identity,
@@ -202,7 +202,14 @@ pub(super) fn tick_mode(
     } else {
         grounded_at_start && pre_collision_velocity.y == 0.0
     };
-    super::fall::after_move(&mut next.fall_distance, next.on_ground, motion.resolved.y);
+    super::fall::check(
+        world,
+        &mut next,
+        input,
+        &mut sampled,
+        &mut identity,
+        motion.resolved.y,
+    )?;
     next.movement = motion.resolved;
     next.velocity = motion.resolved;
     if motion.stepped || motion.collisions.y {
@@ -276,6 +283,7 @@ pub(super) fn tick_mode(
         world,
         motion.aabb,
         &mut next.velocity,
+        &mut next.fall_distance,
         &input,
         &mut sampled,
         &mut identity,

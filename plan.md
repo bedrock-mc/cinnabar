@@ -288,18 +288,17 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
-The block climber's scaffolding and climbable-block flags are rewritten locally after
-each move and reported in the sync. Cells without usable facts count as empty, ticks
-whose movement origin is unavailable keep the previous contact, spectators keep the
-server's flags, and contact before the first measured tick is measured at that tick's
-start; these recovery policies are untraced and incomplete. Powder snow collides through
-the mover's contextual query (full block for snow-standing wearers, the fall-into shape
-after falls over 2.5 blocks), and the simulator keeps vanilla's fall distance for it.
-Confirmed gaps: the touch layout has no descend-scaffolding control, so touch descent is
-never requested; fall distance halves in lava after, not before, adding the previous drop;
-the elytra's one-block fall distance uses the pre-glide velocity, an untraced ordering;
-and fall-distance resets traced only on 26.30 (flight toggle, riptide, bubble columns,
-honey) are not modelled.
+The block climber rewrites its contact flags after each movement tick; the descent
+action reads the retained contact before movement. Prediction sync reports those values
+with newer accepted server flag edits, which retained corrections also apply before input
+on replay. Powder snow uses the mover's contextual query, including step and sneak-edge
+checks: snow-standing wearers get the full block, and falls over 2.5 blocks get the 0.9
+fall-into shape. Replay refreshes historical fall distance while preserving the live value
+through spatial copy-back and snaps. No-move ticks preserve it unless an action or contact
+clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
+movement phases; lava halves the retained distance before the current drop, and slow glide
+uses its entry velocity. The missing touch descend control, first-tick terrain seeding,
+coordinate/query recovery and broader custom geometry remain inherited incomplete work.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.

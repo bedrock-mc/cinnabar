@@ -6,8 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    MovementEnvironment, MovementInput, MovementMode, PlayerState, TickResult,
-    environment::SampledEnvironment,
+    MovementEnvironment, MovementInput, PlayerState, TickResult, environment::SampledEnvironment,
 };
 
 /// How far below a scaffolding top the feet may sit and still stand on it.
@@ -57,13 +56,11 @@ impl ClimberContact {
 }
 
 /// Vanilla's descent action: the input mode's descent request over a
-/// climbable block (`OverDescendingBlock`) sinks through it, except while
+/// climbable block (`OverDescendingBlock`) sinks through it, including while
 /// riding. Inputs without a captured request use the sneak state.
 #[must_use]
 pub fn descends_through_block(input: &MovementInput, over_descending_block: bool) -> bool {
-    input.mode != MovementMode::Riding
-        && input.descent_request.unwrap_or(input.sneaking)
-        && over_descending_block
+    input.descent_request.unwrap_or(input.sneaking) && over_descending_block
 }
 
 /// Runs the block climber after the tick's move, as vanilla does, and retains
@@ -71,7 +68,7 @@ pub fn descends_through_block(input: &MovementInput, over_descending_block: bool
 /// `start` is the contact the tick began with; an immobile tick's descent
 /// action reads it. Cells without usable facts count as neither scaffolding
 /// nor support. As an untraced recovery policy, unavailable origins and failed
-/// scans publish the retained contact; a spectator, or such a tick without
+/// scans other than missing block data publish the retained contact; a spectator, or such a tick without
 /// retained contact, is unsampled. Identity conflicts still reject the tick,
 /// including conflicts discovered after movement.
 pub(super) fn finish_tick(
@@ -123,9 +120,13 @@ fn measure(
     identity: &mut crate::WorldCollisionIdentity,
 ) -> Result<Option<ClimberContact>, WorldQueryError> {
     let mut sampled = SampledEnvironment::unsampled(identity.clone());
-    let measured = world
-        .ensure_movement_origin(feet)
-        .and_then(|()| sample_climber(world, player, input.can_stand_on_snow, &mut sampled));
+    let measured = match world.ensure_movement_origin(feet) {
+        Ok(())
+        | Err(WorldQueryError::UnloadedChunk(_) | WorldQueryError::UnknownRuntimeId { .. }) => {
+            sample_climber(world, player, input.can_stand_on_snow, &mut sampled)
+        }
+        Err(error) => Err(error),
+    };
     match measured {
         Ok(contact) => {
             *identity = sampled.identity;

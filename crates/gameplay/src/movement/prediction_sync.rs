@@ -82,9 +82,9 @@ pub fn send_movement_prediction_sync(
 /// gliding poses, and adopts the server's changes to them. Cinnabar's local
 /// state adopts server sneak, sprint and pose ends but not a server-started
 /// pose, item use or riptide spin. Its block climber and descent action
-/// rewrite the scaffolding and climbable-block flags locally, so the local
-/// values replace the server's. Cells without usable facts count as empty; a
-/// tick whose movement origin or scan is unavailable keeps the previous
+/// rewrite the scaffolding and climbable-block flags locally. Accepted server
+/// edits take precedence until their next local producer runs. Cells without usable facts count as empty; a
+/// tick whose origin or scan fails for another reason keeps the previous
 /// contact, and spectator ticks, whose climber eligibility is untraced, keep
 /// the server's. The riptide spin and every other flag remain the server's.
 fn predicted_flag_words(
@@ -114,21 +114,8 @@ fn predicted_flag_words(
         set_flag(&mut words, flag, enabled);
     }
     if let Some(climber) = pose.climber {
-        for (flag, enabled) in [
-            (ActorFlag::InScaffolding, climber.in_scaffolding),
-            (ActorFlag::OverScaffolding, climber.over_scaffolding),
-            (
-                ActorFlag::DescendThroughBlock,
-                climber.descending_through_block,
-            ),
-            (ActorFlag::InAscendingBlock, climber.in_ascending_block),
-            (
-                ActorFlag::OverDescendingBlock,
-                climber.over_descending_block,
-            ),
-        ] {
-            set_flag(&mut words, flag, enabled);
-        }
+        let mask = super::physics::ClimberFlags::mask();
+        words[1] = (words[1] & !mask) | climber.word();
     }
     if let Some(has_collision) = pose.has_collision {
         set_flag(&mut words, ActorFlag::HasCollision, has_collision);

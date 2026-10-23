@@ -3,6 +3,8 @@
 use super::*;
 use crate::movement::physics::ClimberFlags;
 
+mod climber_writes;
+
 #[test]
 fn flags_read_all_three_words_and_missing_ones_are_zero() {
     let mut metadata = HashMap::new();
