@@ -19,6 +19,8 @@ pub struct TickInput {
     /// Locomotion mode this tick started with, after server flag writes, which
     /// vanilla makes without a start or stop action.
     pub server_mode: Option<sim::MovementMode>,
+    /// Independent pose flags this tick starts with, including server writes.
+    pub server_pose_flags: Option<super::PoseFlags>,
     /// Riptide spin this tick started with, after server flag writes.
     pub server_spinning: Option<bool>,
 }

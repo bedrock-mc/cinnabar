@@ -280,6 +280,7 @@ impl LocomotionState {
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
                         server_mode: None,
+                        server_pose_flags: None,
                         server_spinning: None,
                     },
                 },

@@ -654,6 +654,8 @@ impl LocalPhysicsController {
                 }
                 Err(error) => mode_error = Some(error),
             }
+            input.horizontal_pose = self.modes.pose_flags().horizontal();
+            input.swim_pose_active = Some(self.modes.pose_flags().swim_pose());
             if input.mode == sim::MovementMode::Riding {
                 input.sneaking = false;
             }
@@ -787,6 +789,7 @@ impl LocalPhysicsController {
                         input.sprinting,
                     );
                     processed.mode = input.mode;
+                    processed.pose_flags = Some(self.modes.pose_flags());
                     processed.spinning = state.spin_attack_ticks.is_some();
                     processed.spin_started = input.riptide.is_some()
                         && input.mode != sim::MovementMode::Riding

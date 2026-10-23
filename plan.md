@@ -299,11 +299,11 @@ stamped write becomes a correction of the following frame where it differs from 
 capture without scheduling a replay itself (a future stamp joins the current frame), and
 replay keeps the starting frame's capture, refreshes later ones and copies the replayed
 word back to the live state, keeping the live spin and glide counters, swim blend and
-camera eye blend.
+camera eye blend. Glide, swim and crawl retain independent bits beside flight;
+their own trigger transitions produce actions, and their combined state feeds
+the compact body, swim blend and eye offset.
 Still incomplete: server `UsingItem` writes, which vanilla keeps in the same word and
-reconciles with local item use on movement ticks; pose flags as independent bits (vanilla's
-glide, swim and crawl triggers each keep their own bit and report actions only from their own
-requests, while the locomotion mode keeps one pose); the Riptide spin's entity-hit end, which
+reconciles with local item use on movement ticks; the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.

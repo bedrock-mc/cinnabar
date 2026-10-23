@@ -14,6 +14,12 @@ pub struct MovementInput {
     /// Bypasses terrain clipping while preserving the selected travel physics.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_clip: bool,
+    /// Independent pose flags request a compact body even when flight owns travel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub horizontal_pose: bool,
+    /// The swim-or-crawl flag after this tick's pose producers have run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swim_pose_active: Option<bool>,
     pub strafe: f64,
     pub forward: f64,
     pub yaw_degrees: f64,

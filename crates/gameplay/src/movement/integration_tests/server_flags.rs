@@ -4,6 +4,8 @@
 
 use super::*;
 
+mod combinations;
+
 /// An airborne controller and outbox, high enough for a full spin or glide.
 fn airborne() -> (LocalPhysicsController, MovementTicker) {
     let origin = [0.0, 65.620_01, 0.0];

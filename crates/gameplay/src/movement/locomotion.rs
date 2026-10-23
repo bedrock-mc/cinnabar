@@ -134,6 +134,8 @@ pub(super) struct ModeChoice {
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
+    /// Accepted pose flags can coexist with each other and with flight.
+    poses: super::PoseFlags,
     last_flight: FlightAuthority,
     last_ability_sequence: Option<u64>,
     /// `Jumping` sent on the previous tick; a flight press needs it clear.
@@ -157,6 +159,28 @@ impl ModeTracker {
         self.mode
     }
 
+    /// Returns the independent flags used by pose triggers and frame captures.
+    pub(super) const fn pose_flags(&self) -> super::PoseFlags {
+        self.poses
+    }
+
+    /// Applies raw pose flags while preserving mount travel and flight.
+    pub(super) fn adopt_pose_flags(&mut self, poses: super::PoseFlags) {
+        self.poses = poses;
+        if matches!(self.mode, MovementMode::Flying | MovementMode::Riding) {
+            return;
+        }
+        self.mode = if poses.gliding {
+            MovementMode::Gliding
+        } else if poses.swimming {
+            MovementMode::Swimming
+        } else if poses.crawling {
+            MovementMode::Crawling
+        } else {
+            MovementMode::Walking
+        };
+    }
+
     pub(super) const fn fall_fly_ticks(&self) -> u32 {
         self.fall_fly_ticks
     }
@@ -167,7 +191,11 @@ impl ModeTracker {
     }
 
     pub(super) fn contact_height(&self) -> f64 {
-        self.mode.hitbox_height(self.sneaking)
+        if self.poses.horizontal() {
+            sim::PLAYER_WIDTH
+        } else {
+            self.mode.hitbox_height(self.sneaking)
+        }
     }
 
     /// The compact spin body's height while spinning, as the simulator's
@@ -207,20 +235,15 @@ impl ModeTracker {
             self.fall_fly_ticks = 0;
         }
         self.mode = mode;
+        self.poses.set(mode, true);
     }
 
     /// Ends `mode` when it is current, as a server flag clear does. The glide
     /// counter resets when a tick processes the clear, as vanilla's does.
     pub(super) fn end(&mut self, mode: MovementMode) {
-        if self.mode == mode {
-            self.mode = MovementMode::Walking;
-        }
-    }
-
-    /// Enters `mode` as a server flag set does. The next selection applies the
-    /// mode's own continuation rules, as vanilla's stop intents read the flag.
-    pub(super) fn start(&mut self, mode: MovementMode) {
-        self.mode = mode;
+        let mut poses = self.poses;
+        poses.set(mode, false);
+        self.adopt_pose_flags(poses);
     }
 
     /// Picks this tick's mode.
@@ -235,6 +258,7 @@ impl ModeTracker {
                 self.sprint_trigger
                     .select(self.sprinting, self.previous_feet, intent, observed);
             self.mode = MovementMode::Flying;
+            self.poses = Default::default();
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.fly_countdown = 0;
@@ -262,6 +286,7 @@ impl ModeTracker {
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.mode = MovementMode::Riding;
+            self.poses = Default::default();
             self.sprinting = false;
             self.sneaking = false;
             self.previous_feet = Some(observed.feet);
@@ -282,7 +307,11 @@ impl ModeTracker {
         };
         let sampled = sim::Simulator::default().movement_environment_with_liquid_contact(
             observed.feet,
-            self.mode,
+            if self.poses.horizontal() {
+                MovementMode::Crawling
+            } else {
+                self.mode
+            },
             self.sneaking,
             observed.liquid_contact_height,
             world,
@@ -297,8 +326,7 @@ impl ModeTracker {
             self.sprint_trigger
                 .select(self.sprinting, self.previous_feet, intent, observed);
         let sprinting =
-            (self.mode == MovementMode::Swimming && observed.in_water && self.sprinting)
-                || sprint_candidate;
+            (self.poses.swimming && observed.in_water && self.sprinting) || sprint_candidate;
         self.previous_feet = Some(observed.feet);
         let observed = ModeObservation {
             sprinting,
@@ -311,26 +339,28 @@ impl ModeTracker {
             && intent.elytra_ready
             && !observed.on_ground
             && !observed.in_water
-            && match self.mode {
-                MovementMode::Gliding => {
-                    !observed.jump_edge || self.fall_fly_ticks < GLIDE_CANCEL_TICKS
-                }
-                _ => observed.jump_edge,
+            && if self.poses.gliding {
+                !observed.jump_edge || self.fall_fly_ticks < GLIDE_CANCEL_TICKS
+            } else {
+                observed.jump_edge
             }
             && !feet_end_glide(world, observed.feet, intent.can_stand_on_snow)?;
-        let swimming =
-            !flying && !gliding && swimming_trigger::select(self.mode, intent, observed, world)?;
+        let mut swimming = !flying
+            && swimming_trigger::select(
+                if self.poses.swimming {
+                    MovementMode::Swimming
+                } else {
+                    self.mode
+                },
+                intent,
+                observed,
+                world,
+            )?;
 
-        let (mode, forced_sneak) = if intent.ride.is_some() {
-            (MovementMode::Riding, false)
-        } else if flying {
-            (MovementMode::Flying, false)
-        } else if gliding {
-            (MovementMode::Gliding, false)
-        } else if swimming {
-            (MovementMode::Swimming, false)
-        } else if observed.spinning
+        let (fit_mode, forced_sneak) = if gliding
+            || observed.spinning
             || intent.no_clip
+            || (flying && !self.poses.crawling)
             || pose_fits(world, observed.feet, MovementMode::Walking, false)?
         {
             // Vanilla's sneak trigger stops crawling during a spin and forces no sneak.
@@ -345,20 +375,37 @@ impl ModeTracker {
                 MovementMode::Crawling
             };
             (low_mode, false)
-        } else if self.mode == MovementMode::Crawling {
+        } else if self.poses.crawling {
             // With no pose fitting, vanilla's sneak trigger leaves the crawl flag as it is.
             (MovementMode::Crawling, false)
         } else {
             (MovementMode::Walking, false)
         };
+        swimming |= fit_mode == MovementMode::Swimming;
+        let poses = super::PoseFlags {
+            gliding,
+            swimming,
+            crawling: fit_mode == MovementMode::Crawling,
+        };
+        let mode = if flying {
+            MovementMode::Flying
+        } else if gliding {
+            MovementMode::Gliding
+        } else if swimming {
+            MovementMode::Swimming
+        } else {
+            fit_mode
+        };
+        let forced_sneak = forced_sneak && mode == MovementMode::Walking;
         self.last_flight = intent.flight;
         self.last_ability_sequence = intent.ability_sequence;
         // Every glide entry counts from its own first tick.
-        self.fall_fly_ticks = match (self.mode, mode) {
-            (MovementMode::Gliding, MovementMode::Gliding) => self.fall_fly_ticks.saturating_add(1),
-            (_, MovementMode::Gliding) => 1,
+        self.fall_fly_ticks = match (self.poses.gliding, poses.gliding) {
+            (true, true) => self.fall_fly_ticks.saturating_add(1),
+            (false, true) => 1,
             _ => 0,
         };
+        self.poses = poses;
         self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
         self.sprinting =

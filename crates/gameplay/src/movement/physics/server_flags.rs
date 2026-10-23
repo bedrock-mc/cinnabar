@@ -17,14 +17,14 @@
 
 use super::*;
 
-/// Pose modes in the order a start prefers when one word sets several.
+/// Packed positions of the independent pose flags.
 const POSES: [sim::MovementMode; 3] = [
     sim::MovementMode::Gliding,
     sim::MovementMode::Swimming,
     sim::MovementMode::Crawling,
 ];
 /// Flag word bits after the three pose bits, which follow [`POSES`].
-const SPINNING: u8 = 1 << 3;
+const SPINNING: u8 = 1 << POSES.len();
 
 /// The client-owned bits of the actor flag word this module adopts: glide,
 /// swim and crawl poses and the Riptide spin (`DamageNearbyMobs`).
@@ -33,11 +33,10 @@ pub(super) struct FlagWord(u8);
 
 impl FlagWord {
     /// The word the local state forms.
-    pub(super) fn capture(mode: sim::MovementMode, spinning: bool) -> Self {
-        let pose = POSES
-            .iter()
-            .position(|pose| *pose == mode)
-            .map_or(0, |index| 1 << index);
+    pub(super) fn capture(poses: super::super::PoseFlags, spinning: bool) -> Self {
+        let pose = POSES.iter().enumerate().fold(0, |bits, (index, mode)| {
+            bits | if poses.has(*mode) { 1 << index } else { 0 }
+        });
         Self(pose | if spinning { SPINNING } else { 0 })
     }
 
@@ -112,46 +111,21 @@ impl FlagCorrection {
     }
 }
 
-/// Ends or starts `modes`' pose so it follows the pose bits of `word` that
-/// `mask` covers: a cleared pose ends, and a set pose starts unless a pose the
-/// word keeps continues. Cinnabar keeps one pose, so a word setting several
-/// starts the first, and flight, which vanilla keeps beside pose flags, stays.
-/// A changed pose also becomes the swimming-or-crawling flag the next tick's
-/// swim blend reads in `state`.
+/// Applies selected pose bits independently and updates the next swim-blend input.
 fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker, state: &mut PlayerState) {
-    let current = modes.mode();
     write_pose(word, mask, modes);
-    if modes.mode() != current {
-        state.swim_pose_active = matches!(
-            modes.mode(),
-            sim::MovementMode::Swimming | sim::MovementMode::Crawling
-        );
-    }
+    state.swim_pose_active = modes.pose_flags().swim_pose();
 }
 
 /// The pose half of [`apply_pose`].
 fn write_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker) {
-    let current = modes.mode();
-    if current == sim::MovementMode::Flying {
-        return;
+    let mut poses = modes.pose_flags();
+    for (index, pose) in POSES.iter().enumerate() {
+        if mask & (1 << index) != 0 {
+            poses.set(*pose, word.has(1 << index));
+        }
     }
-    let bit = |index: usize| (mask & (1 << index) != 0).then(|| word.has(1 << index));
-    let ended = POSES
-        .iter()
-        .enumerate()
-        .any(|(index, pose)| *pose == current && bit(index) == Some(false));
-    if ended {
-        modes.end(current);
-    }
-    if POSES.contains(&modes.mode()) {
-        return;
-    }
-    if let Some(pose) = (0..POSES.len())
-        .find(|index| bit(*index) == Some(true))
-        .map(|index| POSES[index])
-    {
-        modes.start(pose);
-    }
+    modes.adopt_pose_flags(poses);
 }
 
 /// The word's spin on replayed state; a new spin counts its lifetime from
@@ -170,7 +144,7 @@ pub(super) fn impose(
     state: &mut PlayerState,
     dormant: u8,
 ) {
-    apply_pose(word, 0b111, modes, state);
+    apply_pose(word, SPINNING - 1, modes, state);
     set_spin(state, word.has(SPINNING), dormant);
 }
 
@@ -327,7 +301,7 @@ pub(super) fn capture_tick(
     state: &PlayerState,
     input: &mut super::super::TickInput,
 ) -> (FlagWord, FlagCorrection, EntryCounters) {
-    let entry = FlagWord::capture(modes.mode(), state.spin_attack_ticks.is_some());
+    let entry = FlagWord::capture(modes.pose_flags(), state.spin_attack_ticks.is_some());
     let dormant = authority.cleared_spin_on(state.tick).unwrap_or(0);
     let counters = EntryCounters::capture(modes, state, dormant);
     let next = state.tick.checked_add(1);
@@ -337,6 +311,7 @@ pub(super) fn capture_tick(
         .filter(|(tick, _)| Some(*tick) == next)
         .map_or_else(FlagCorrection::default, |(_, correction)| correction);
     input.server_mode = Some(modes.mode());
+    input.server_pose_flags = Some(modes.pose_flags());
     input.server_spinning = Some(state.spin_attack_ticks.is_some());
     (entry, correction, counters)
 }
@@ -345,7 +320,7 @@ impl LocalPhysicsController {
     /// The live flag word.
     fn live_flag_word(&self) -> FlagWord {
         FlagWord::capture(
-            self.modes.mode(),
+            self.modes.pose_flags(),
             self.state
                 .as_ref()
                 .is_some_and(|state| state.spin_attack_ticks.is_some()),

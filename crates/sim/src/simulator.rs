@@ -185,8 +185,9 @@ impl Simulator {
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();
         next.swim_amount = water::advance_swim_amount(next.swim_amount, next.swim_pose_active);
-        next.swim_pose_active =
-            matches!(input.mode, MovementMode::Swimming | MovementMode::Crawling);
+        next.swim_pose_active = input.swim_pose_active.unwrap_or_else(|| {
+            matches!(input.mode, MovementMode::Swimming | MovementMode::Crawling)
+        });
         next.tick = next
             .tick
             .checked_add(1)

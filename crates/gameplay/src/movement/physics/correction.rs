@@ -303,7 +303,7 @@ impl LocalPhysicsController {
                         frame.entry_counters.restore(&mut modes, state)
                     } else {
                         frame.entry_flags = server_flags::FlagWord::capture(
-                            modes.mode(),
+                            modes.pose_flags(),
                             state.spin_attack_ticks.is_some(),
                         );
                         let dormant = server_flags::dormant_spin(spun, state);
@@ -313,7 +313,12 @@ impl LocalPhysicsController {
                     };
                     let word = frame.flag_correction.apply(frame.entry_flags);
                     server_flags::impose(word, &mut modes, state, dormant);
-                    baselines.push((frame.tick, modes.mode(), state.spin_attack_ticks.is_some()));
+                    baselines.push((
+                        frame.tick,
+                        modes.mode(),
+                        modes.pose_flags(),
+                        state.spin_attack_ticks.is_some(),
+                    ));
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
@@ -383,10 +388,11 @@ impl LocalPhysicsController {
             else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
-            if let Some((_, mode, spinning)) =
+            if let Some((_, mode, poses, spinning)) =
                 baselines.iter().find(|(tick, ..)| *tick == result.tick)
             {
                 retained.input.server_mode = Some(*mode);
+                retained.input.server_pose_flags = Some(*poses);
                 retained.input.server_spinning = Some(*spinning);
             }
             if self.history.world_at(result.tick).is_none()
@@ -433,6 +439,10 @@ impl LocalPhysicsController {
             retained.processed.sneaking = frame_input.sneaking;
             retained.processed.sprinting = frame_input.sprinting;
             retained.processed.mode = frame_input.mode;
+            retained.processed.pose_flags = controller_frames
+                .iter()
+                .find(|frame| frame.tick == result.tick)
+                .map(|frame| frame.modes.pose_flags());
             retained.processed.spin_started = frame_input.riptide.is_some()
                 && frame_input.mode != sim::MovementMode::Riding
                 && !frame_input.spectator;

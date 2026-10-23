@@ -59,7 +59,7 @@ impl ControllerFrame {
         eye.tick(
             self.input.mode,
             self.input.sneaking,
-            state.spin_attack_ticks.is_some(),
+            state.spin_attack_ticks.is_some() || self.input.horizontal_pose,
         );
         self.eye_offset = *eye;
     }
@@ -149,6 +149,8 @@ impl ControllerFrame {
         input.mode = self.mode_override.unwrap_or(choice.mode);
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
+        input.horizontal_pose = modes.pose_flags().horizontal();
+        input.swim_pose_active = Some(modes.pose_flags().swim_pose());
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;

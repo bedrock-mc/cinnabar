@@ -17,6 +17,11 @@ pub(in crate::movement) struct SyncPose {
 }
 
 impl LocalPhysicsController {
+    /// Returns accepted pose flags independently of flight and mount travel.
+    pub(in crate::movement) fn pose_flags(&self) -> super::super::PoseFlags {
+        self.modes.pose_flags()
+    }
+
     /// Overlays server posture accepted after the latest completed movement sample.
     pub(in crate::movement) fn prediction_sync_posture(&self) -> Option<(bool, bool)> {
         let (sneaking, sprinting) = self.latest_sneak_sprint()?;

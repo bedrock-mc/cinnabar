@@ -58,7 +58,7 @@ impl PlayerState {
             .is_some_and(super::RiptideLaunch::is_supported)
             && input.mode != super::MovementMode::Riding
             && !input.spectator;
-        if self.spin_attack_ticks.is_some() || launching {
+        if self.spin_attack_ticks.is_some() || launching || input.horizontal_pose {
             crate::PLAYER_WIDTH
         } else {
             input.mode.hitbox_height(input.sneaking)
