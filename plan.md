@@ -519,6 +519,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   lists and touch/console behavior remain incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
+  Data-driven UI (DDUI) data stores follow the server's replacements, path updates,
+  removals and update counters. Screen requests are answered `UserBusy` while another
+  screen is busy and otherwise closed at once: drawing DDUI screens, their client writes,
+  server closes, reloads and pack-defined DDUI screens remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
   Recipe-book projections validate each occupied ingredient source once across the catalog.

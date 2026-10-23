@@ -141,6 +141,12 @@ impl UiRuntime {
                 }
                 UiApplyOutcome::Applied
             }
+            UiEvent::DataDrivenUi(event) => {
+                let busy = self.chat_focused
+                    || self.container_shows_menu(player_runtime)
+                    || self.forms.owns_input();
+                self.apply_data_driven_ui(event, busy)
+            }
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
