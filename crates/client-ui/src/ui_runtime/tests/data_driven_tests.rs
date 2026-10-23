@@ -95,7 +95,7 @@ fn one_screen_shows_and_later_requests_are_answered_busy() {
     assert!(sent(&mut session.runtime).is_empty());
     let form = session.runtime.data_driven_form().unwrap();
     assert_eq!(form.title, "Data-Driven Test");
-    assert!(form.close);
+    assert_eq!(form.close, Some(true));
 
     session.show_form(5);
     assert_eq!(
@@ -233,7 +233,7 @@ fn player_input_writes_the_control_paths_the_server_listens_on() {
             update(
                 &property,
                 "layout[6].text",
-                DataPrimitive::String("world".into()),
+                DataPrimitive::String("hello world".into()),
                 1
             ),
         ]
