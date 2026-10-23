@@ -125,6 +125,8 @@ pub(super) struct ModeChoice {
     pub mode: MovementMode,
     pub forced_sneak: bool,
     pub sprinting: bool,
+    /// A local start runs before any stop on this tick.
+    pub start_sprinting: bool,
     /// The double-tap requested starting (true) or stopping (false) flight this tick.
     pub flight_request: Option<bool>,
 }
@@ -134,7 +136,8 @@ pub(super) struct ModeTracker {
     mode: MovementMode,
     last_flight: FlightAuthority,
     last_ability_sequence: Option<u64>,
-    /// `Jumping` sent on the previous tick; a flight press needs it clear.
+    /// `Jumping` sent on the previous tick; a flight press needs it clear, and
+    /// a wet non-swimmer's sprint stops on it.
     previous_jumping: bool,
     sprinting: bool,
     sneaking: bool,
@@ -144,6 +147,9 @@ pub(super) struct ModeTracker {
     fly_countdown: i32,
     /// Consecutive gliding ticks, including the one that started the glide.
     fall_fly_ticks: u32,
+    /// A liquid stop released the latched sprint request. Until sprint restarts,
+    /// only a held, toggled or automatic sprint control requests it.
+    sprint_request_released: bool,
 }
 
 impl ModeTracker {
@@ -183,13 +189,30 @@ impl ModeTracker {
     pub(super) fn restore_controls(&mut self, sprinting: bool, sneaking: bool) {
         self.sprinting = sprinting;
         self.sneaking = sneaking;
+        self.sprint_request_released &= !sprinting;
     }
 
-    /// Captures the final primary controls for the next fixed tick's double-tap detector.
+    /// Retains controls after frozen travel clears the jumping state.
     pub(super) fn record_controls(&mut self, input: sim::MovementInput, sneak_down: bool) {
-        self.previous_jumping = input.jumping;
+        self.previous_jumping = input.jumping && !input.immobile;
         self.sprint_trigger
             .record_controls(input.processed_controls().move_vector[1] as f32, sneak_down);
+    }
+
+    /// Sprint request for a replayed tick. A retained authoritative sprint keeps an
+    /// active sprint going like native continuation, which needs no request, but
+    /// never starts one: native applies the server flag once, so after any stop
+    /// only the player's own request restarts it. An authoritative stop holds.
+    pub(super) const fn replay_sprint_request(
+        &self,
+        sprint_override: Option<bool>,
+        requested: bool,
+    ) -> bool {
+        match sprint_override {
+            Some(true) => requested || self.sprinting,
+            Some(false) => false,
+            None => requested,
+        }
     }
 
     /// Restores a retained authoritative mode override during correction replay.
@@ -215,6 +238,7 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
+        let was_sprinting = self.sprinting;
         if intent.spectator {
             self.sprinting =
                 self.sprint_trigger
@@ -230,6 +254,7 @@ impl ModeTracker {
                 mode: self.mode,
                 forced_sneak: false,
                 sprinting: self.sprinting,
+                start_sprinting: self.sprinting && !was_sprinting,
                 flight_request: None,
             });
         }
@@ -255,6 +280,7 @@ impl ModeTracker {
                 mode: MovementMode::Riding,
                 forced_sneak: false,
                 sprinting: false,
+                start_sprinting: false,
                 flight_request,
             });
         }
@@ -272,19 +298,29 @@ impl ModeTracker {
             observed.liquid_contact_height,
             world,
         )?;
+        // After a liquid stop, a stale latched request cannot restart the sprint.
+        // Native samples the sprint button state each tick; presses between ticks
+        // do not accumulate.
+        let fresh_request = observed.sprint_down;
         let observed = ModeObservation {
             in_water: sampled.value.in_water,
+            sprinting: observed.sprinting && (fresh_request || !self.sprint_request_released),
             ..observed
         };
         // The sprint trigger runs before the swim trigger and keeps the previous actor
-        // sprint flag while its previous swimming pose still contacts water.
+        // sprint flag while its previous swimming pose still contacts water; once that
+        // pose leaves the water, the same intent stops the sprint.
         let sprint_candidate =
             self.sprint_trigger
                 .select(self.sprinting, self.previous_feet, intent, observed);
-        let sprinting =
-            (self.mode == MovementMode::Swimming && observed.in_water && self.sprinting)
-                || sprint_candidate;
+        let swim_retains = self.mode == MovementMode::Swimming && observed.in_water;
+        let sprinting = (swim_retains && self.sprinting) || sprint_candidate;
+        let liquid_stop = self.liquid_sprint_stop(observed.in_water);
+        if liquid_stop {
+            self.sprint_trigger.clear_latch();
+        }
         self.previous_feet = Some(observed.feet);
+        // The swim trigger reads the sprint intent before the stop request applies.
         let observed = ModeObservation {
             sprinting,
             ..observed
@@ -339,14 +375,31 @@ impl ModeTracker {
         };
         self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
-        self.sprinting =
-            sprinting && !matches!(mode, MovementMode::Crawling | MovementMode::Riding);
+        self.sprinting = sprinting
+            && !liquid_stop
+            && !matches!(mode, MovementMode::Crawling | MovementMode::Riding);
+        self.sprint_request_released =
+            (self.sprint_request_released || liquid_stop) && !self.sprinting;
         Ok(ModeChoice {
             mode,
             forced_sneak,
             sprinting: self.sprinting,
+            start_sprinting: sprinting && !was_sprinting,
             flight_request,
         })
+    }
+
+    /// Native sprint intent's liquid stop request, applied after any start on the
+    /// same tick. It reads the preceding swimming flag and jump state with this
+    /// tick's body-water contact: a swimmer whose body left the water stops, and so
+    /// does a wet non-swimmer whose jump was held on the previous tick. Flight
+    /// clears the jumping state, so a flyer never takes the second stop.
+    fn liquid_sprint_stop(&self, in_water: bool) -> bool {
+        if self.mode == MovementMode::Swimming {
+            !in_water
+        } else {
+            in_water && self.previous_jumping && self.mode != MovementMode::Flying
+        }
     }
 
     /// Vanilla's flight double-tap: every tick shortens the window, a press opens it,

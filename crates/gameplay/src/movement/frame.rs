@@ -130,6 +130,9 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        if let Some(speed) = physics.take_replayed_movement_speed() {
+            movement_speed.adopt_replayed_speed(speed);
+        }
         movement_ticker.settle_riptide_input(physics);
         movement_effects.begin_frame();
         self.observe_dismount(&frame, movement_ticker.session_generation);
@@ -161,15 +164,23 @@ impl LocomotionState {
         let head_yaw = wire_head_yaw(yaw);
         let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
+        let movement_speed_attribute = if physics.latest_movement_speed().is_none()
+            && movement_speed.pending_updates().is_empty()
+        {
+            movement_speed.attribute()
+        } else {
+            None
+        };
         let requested_speed;
         let frame = if let Some(hold) = frame.hold {
             self.reset();
-            movement_speed.set_sprinting(false);
+            movement_speed.stop_for_loading();
             requested_speed = movement_speed.prediction_speed();
             physics.advance_dimension_wait(
                 delta,
                 yaw,
                 PhysicsSampleContext {
+                    movement_speed_attribute,
                     pitch: frame.pitch,
                     head_yaw,
                     camera_orientation: frame.camera_orientation,
@@ -229,16 +240,17 @@ impl LocomotionState {
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
-            movement_speed.set_sprinting(input.sprinting);
+            movement_speed.preview_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
             let liquid = movement_speed.liquid();
             input.underwater_movement_speed = liquid.underwater;
             input.lava_movement_speed = liquid.lava;
             requested_speed = input.movement_speed;
-            physics.advance_with_context_and_effects(
+            physics.advance_with_speed_updates(
                 delta,
                 input,
                 PhysicsSampleContext {
+                    movement_speed_attribute,
                     pitch: frame.pitch,
                     head_yaw,
                     camera_orientation: frame.camera_orientation,
@@ -277,10 +289,11 @@ impl LocomotionState {
                         sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: input.sneaking,
-                        server_sprinting: server.and_then(|flags| flags.sprinting),
+                        server_sprinting: physics.unrecorded_live_sprinting(),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
                     },
                 },
+                movement_speed.pending_updates(),
                 world,
                 movement_effects,
             )
@@ -288,7 +301,11 @@ impl LocomotionState {
         if let Some(sample) = frame.samples.last() {
             self.controls
                 .adopt_tick_sprinting(sample.processed.sprinting);
-            movement_speed.set_sprinting(sample.processed.sprinting);
+            if let Some(speed) = physics.latest_movement_speed() {
+                movement_speed.adopt_recorded_speed(speed);
+            } else {
+                movement_speed.set_sprinting(sample.processed.sprinting);
+            }
         }
         super::control_trace::trace_physics_frame(
             movement_ticker.session_generation,

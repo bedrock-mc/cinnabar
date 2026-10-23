@@ -376,8 +376,11 @@ fn swim_trigger_samples_current_position_instead_of_stale_wet_contact() {
             .mode,
         MovementMode::Walking
     );
+    // The dry tick's liquid stop released the latched sprint, so re-entry needs a
+    // held sprint control.
     let fresh_wet = ModeObservation {
         in_water: false,
+        sprint_down: true,
         ..observed()
     };
     assert_eq!(

@@ -12,9 +12,14 @@ impl PhysicsSampleContext {
 }
 
 /// Input edges and controller state retained alongside one completed simulation tick.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Modifier state and actor flag after this tick, including ticks before an attribute arrives.
+    pub speed: crate::movement::speed_authority::EffectiveMovementSpeed,
+    pub start_sprinting: bool,
+    /// Accepted replacements and effect operations before this tick's local sprint edges.
+    pub speed_updates: Vec<crate::movement::speed_authority::MovementSpeedUpdate>,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -26,6 +31,7 @@ pub(super) struct ControllerFrame {
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
+    /// Server sprint flag applied before this tick, live or from a delayed write.
     pub server_sprinting: Option<bool>,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
@@ -91,9 +97,9 @@ impl ControllerFrame {
         input.liquid_contact_height =
             Some(modes.liquid_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
-        input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
-        if let Some(sprinting) = self.sprint_override {
-            modes.restore_controls(sprinting, modes.sneaking());
+        input.sprinting = modes.replay_sprint_request(self.sprint_override, self.requested_sprint);
+        if self.sprint_override == Some(false) {
+            modes.restore_controls(false, modes.sneaking());
         }
         let previous_modes = *modes;
         let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
@@ -129,13 +135,18 @@ impl ControllerFrame {
                     mode: modes.mode(),
                     forced_sneak: self.forced_sneak,
                     sprinting: input.sprinting,
+                    start_sprinting: false,
                     flight_request: None,
                 }
             }
             Err(error) => return Err(error.into()),
         };
+        self.start_sprinting = choice.start_sprinting && self.sprint_override != Some(false);
         input.mode = self.mode_override.unwrap_or(choice.mode);
-        input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
+        input.sprinting = self
+            .sprint_override
+            .filter(|sprinting| !sprinting)
+            .unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
@@ -150,7 +161,9 @@ impl ControllerFrame {
             input.sneaking = false;
         }
         modes.restore_controls(input.sprinting, input.sneaking);
-        if self.sprint_override.is_some() || self.mode_override.is_some() {
+        if self.speed.attribute().is_none()
+            && (self.sprint_override.is_some() || self.mode_override.is_some())
+        {
             crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
         }
         self.ride_delta = None;

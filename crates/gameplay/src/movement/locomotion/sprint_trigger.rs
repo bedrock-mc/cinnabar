@@ -23,6 +23,12 @@ impl SprintTrigger {
         self.previous_sneak = sneak_down;
     }
 
+    /// Forgets how the current sprint started, as every native stop request does.
+    pub(super) fn clear_latch(&mut self) {
+        self.started_by_button = false;
+        self.automatic_sprint = false;
+    }
+
     /// Updates the seven-tick forward latch and applies start/continuation conditions.
     pub(super) fn select(
         &mut self,

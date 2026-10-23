@@ -724,3 +724,156 @@ fn a_swim_starts_only_with_the_head_in_water() {
         .unwrap();
     assert_eq!(choice.mode, MovementMode::Swimming);
 }
+
+/// Live strict-server case: a sprinting swimmer rises with jump held until its
+/// swimming body's liquid probe clears the surface. That tick ends the swim and
+/// the sprint together, so travel uses the unsprinted air acceleration.
+#[test]
+fn a_swimmer_leaving_the_water_stops_sprinting_with_the_swim() {
+    let pool = Pool(10.0);
+    let swimmer = ModeTracker {
+        mode: MovementMode::Swimming,
+        sprinting: true,
+        previous_jumping: true,
+        ..ModeTracker::default()
+    };
+    let rising = |depth: f64| ModeObservation {
+        feet: Vec3::new(0.5, 10.0 - depth, 0.5),
+        in_water: true,
+        sprinting: true,
+        sprint_down: true,
+        move_forward: 1.0,
+        pitch: 3.31,
+        liquid_attach_height: sim::PLAYER_WIDTH as f32 * 0.9,
+        liquid_contact_height: Some(sim::PLAYER_WIDTH),
+        jump_down: true,
+        ..airborne()
+    };
+
+    // The probe collapses to the swimming body's centre; still below the surface.
+    let mut wet = swimmer;
+    let choice = wet
+        .select(ModeIntent::default(), rising(0.4), &pool)
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Swimming);
+    assert!(choice.sprinting);
+
+    // Feet 0.258 below the surface put that centre above it.
+    let mut surfacing = swimmer;
+    let choice = surfacing
+        .select(ModeIntent::default(), rising(0.258), &pool)
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Walking);
+    assert!(!choice.sprinting);
+
+    // The held sprint control starts again on the next dry tick.
+    let airborne_again = ModeObservation {
+        feet: Vec3::new(0.5, 10.2, 0.5),
+        liquid_contact_height: Some(sim::PLAYER_HEIGHT),
+        ..rising(0.0)
+    };
+    let choice = surfacing
+        .select(ModeIntent::default(), airborne_again, &pool)
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Walking);
+    assert!(choice.sprinting);
+}
+
+/// A wet non-swimmer stops sprinting when the previous tick held jump. The swim
+/// trigger still reads the sprint intent from before that stop.
+#[test]
+fn a_wet_non_swimmer_stops_sprinting_after_a_held_jump() {
+    let sprint = ModeObservation {
+        in_water: true,
+        sprinting: true,
+        sprint_down: true,
+        move_forward: 1.0,
+        ..airborne()
+    };
+    let shallow = Pool(10.9);
+    for (previous, jumping, expected) in [
+        (MovementMode::Walking, false, true),
+        (MovementMode::Walking, true, false),
+        // Flight clears the native jumping state.
+        (MovementMode::Flying, true, true),
+    ] {
+        let mut tracker = ModeTracker {
+            mode: previous,
+            sprinting: true,
+            previous_jumping: jumping,
+            ..ModeTracker::default()
+        };
+        let choice = tracker
+            .select(ModeIntent::default(), sprint, &shallow)
+            .unwrap();
+        assert_eq!(choice.mode, MovementMode::Walking, "{previous:?} {jumping}");
+        assert_eq!(choice.sprinting, expected, "{previous:?} {jumping}");
+    }
+    // Out of the water a held jump keeps the sprint.
+    let mut dry = ModeTracker {
+        sprinting: true,
+        previous_jumping: true,
+        ..ModeTracker::default()
+    };
+    let choice = dry
+        .select(ModeIntent::default(), sprint, &Ceiling(None))
+        .unwrap();
+    assert!(choice.sprinting);
+
+    let mut diver = ModeTracker {
+        sprinting: true,
+        previous_jumping: true,
+        ..ModeTracker::default()
+    };
+    let choice = diver
+        .select(ModeIntent::default(), sprint, &Pool(20.0))
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Swimming);
+    assert!(!choice.sprinting);
+    // Swimming in water skips the stop, so the held control restarts the sprint.
+    let choice = diver
+        .select(ModeIntent::default(), sprint, &Pool(20.0))
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Swimming);
+    assert!(choice.sprinting);
+}
+
+/// After a liquid stop, a held sprint control whose start is refused does not
+/// re-arm the stale latched request; only an actual restart does.
+#[test]
+fn a_refused_restart_keeps_the_stale_sprint_request_released() {
+    let mut tracker = ModeTracker {
+        mode: MovementMode::Swimming,
+        sprinting: true,
+        ..ModeTracker::default()
+    };
+    let dry = ModeObservation {
+        sprinting: true,
+        move_forward: 1.0,
+        liquid_contact_height: Some(sim::PLAYER_WIDTH),
+        ..airborne()
+    };
+    assert!(
+        !tracker
+            .select(ModeIntent::default(), dry, &Ceiling(None))
+            .unwrap()
+            .sprinting
+    );
+    let refused = ModeObservation {
+        sprint_down: true,
+        move_forward: 0.5,
+        ..dry
+    };
+    assert!(
+        !tracker
+            .select(ModeIntent::default(), refused, &Ceiling(None))
+            .unwrap()
+            .sprinting
+    );
+    assert!(
+        !tracker
+            .select(ModeIntent::default(), dry, &Ceiling(None))
+            .unwrap()
+            .sprinting
+    );
+}

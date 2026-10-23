@@ -23,9 +23,12 @@ mod transport_tests;
 
 #[path = "integration_tests/crouch_camera.rs"]
 mod crouch_camera;
+mod frame_sprint_speed;
 mod input_lock_sources;
+mod replay_live_speed;
 mod riptide;
 mod sneak_sync;
+mod swim_sprint_replay;
 
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {

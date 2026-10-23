@@ -57,8 +57,49 @@ starts remain possible. Because sprint intent precedes the swimming trigger,
 even the first stop-swimming tick retains sprint while the old box is wet.
 Cinnabar retains the actual flag with its controller frames, applies the same
 selection during correction replay, and shares that flag across water drag,
-wire flags and the runtime sprint attribute edge. A dry old box resumes the
-ordinary sprint-stop conditions.
+wire flags and the runtime sprint attribute edge.
+
+When the preceding swimming flag is set but the old box is dry, the same intent
+always requests a sprint stop. This is the usual stop-swimming tick at the
+surface: swimming and sprint end together, so that tick's air travel uses the
+unsprinted `0.02` acceleration rather than `0.026`. Without the swimming flag,
+a wet body also requests a stop while the jumping state is set. That state is
+written later in the input stage from held jump, and cleared by flight, so the
+intent reads the previous tick's value. The stop applies after any sprint start
+on the same tick and does not clear the swim trigger's sprint intent, so a held
+jump can start a swim on a tick that ends the sprint; the next wet swimming tick
+skips the stop and the held control starts the sprint again.
+
+After a liquid stop, a latched sprint request no longer restarts the sprint.
+Only a held, toggled or automatic sprint control does, until sprint starts again;
+native samples the sprint button each tick, so presses between ticks do not
+count. This holds for catch-up ticks within one render frame and for correction
+replay, whose later frames still carry the request recorded before the stop.
+
+A server sprint flag is applied once, on the frame after its stamp, and later
+intents may stop it; several writes for one frame apply in arrival order. A
+delayed sprint write is therefore retained as that frame's server flag, and the
+latest write replaces an earlier one. The rest of a rewritten sprint run only
+continues an active sprint, as native continuation needs no request, and never
+starts one. Stop intents, including the liquid stop, apply normally, and the
+stopped tick sends its sprint stop. A delayed write hands its sprint to the live
+controls only when no newer write already owns it, and drops that hand-off when
+its replay ends unsprinted; live writes apply in arrival order, and a pending live
+write is applied again on top of any replayed history until a successful tick
+records it. Equal attribute refreshes also remain replacements in history; their
+value alone cannot identify whether a server write occurred.
+Speed effects remain ordered modifier edits, so replay applies them to the sprint
+modifier state reached at their tick, including effects received before the first
+movement attribute. Adopting a delayed replay result into the control latches does
+not record a second server sprint write on the next tick. Failed rewinds keep their
+earliest unapplied edit pending, so later corrections cannot skip that write.
+Loading's sprint stop becomes the new prediction baseline even when the hold
+completes no fixed tick.
+A held sprint control whose start is refused keeps the stale request released
+until sprint actually starts. Immobile movement clears jumping after the input
+stage, so the following tick's sprint intent sees that cleared state even when
+jump was held during the freeze. Cinnabar retains the same processed state for
+live ticks and correction replay.
 
 ## Head sensing and standing fit
 

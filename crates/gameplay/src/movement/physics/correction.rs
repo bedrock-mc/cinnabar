@@ -3,6 +3,21 @@
 use super::*;
 
 impl LocalPhysicsController {
+    /// Keeps failed timeline edits inside every later rewind until their frames are rebuilt.
+    pub(in crate::movement) fn require_timeline_rewind(&mut self, tick: u64) {
+        self.rewind_pending = Some(
+            self.rewind_pending
+                .map_or(tick, |pending| pending.min(tick)),
+        );
+    }
+
+    /// Returns an unresolved earlier edit, clamped to the history still available to replay.
+    pub(in crate::movement) fn rewind_before(&self, tick: u64) -> Option<u64> {
+        let pending = self.rewind_pending?;
+        let pending = pending.max(self.history.oldest_tick().unwrap_or(pending));
+        (pending < tick).then_some(pending)
+    }
+
     /// Defers travel suppression until a successful tick can retain it for replay.
     pub(in crate::movement) fn skip_next_travel_tick(&mut self) {
         self.skip_travel_pending = true;
@@ -169,6 +184,7 @@ impl LocalPhysicsController {
         tick: u64,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let tick = self.rewind_before(tick).unwrap_or(tick);
         let current_tick = self
             .state
             .as_ref()
@@ -191,6 +207,7 @@ impl LocalPhysicsController {
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
         let prior_position = self.state.as_ref().map(|state| state.position);
+        let prior_sprinting = self.latest_sneak_sprint().map(|(_, sprinting)| sprinting);
         let prior_previous_position = self.previous_position;
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
@@ -215,9 +232,10 @@ impl LocalPhysicsController {
         let anchor_controller = controller_frames
             .iter()
             .find(|frame| frame.tick == tick)
-            .copied()
+            .cloned()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
+        let mut movement_speed = anchor_controller.speed;
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
@@ -250,6 +268,7 @@ impl LocalPhysicsController {
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
+                    frame.prepare_speed(&mut movement_speed, modes.sprinting());
                     frame.prepare(
                         &mut modes,
                         &mut anchor_state,
@@ -257,7 +276,9 @@ impl LocalPhysicsController {
                         state,
                         input,
                         world,
-                    )
+                    )?;
+                    frame.finish_speed(&mut movement_speed, input);
+                    Ok(())
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
@@ -374,6 +395,7 @@ impl LocalPhysicsController {
                 retained.processed.forced_sneak = frame.forced_sneak;
                 retained.processed.flight_request = frame.flight_request;
                 retained.processed.ride = frame.intent.ride;
+                retained.input.server_sprinting = frame.server_sprinting;
                 if let Some(delta) = frame.ride_delta {
                     retained.movement = delta;
                 }
@@ -384,12 +406,14 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         self.modes = modes;
+        self.settle_rewound_sprint(prior_sprinting);
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;
         self.last_environment = controller_frames
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
         self.controller_history = controller_frames;
+        self.replayed_speed = Some(movement_speed);
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history
@@ -448,6 +472,7 @@ impl LocalPhysicsController {
         // positionally instead of streaming an embedded pose indefinitely.
         self.anchor_state.rearm();
 
+        self.rewind_pending = None;
         Ok(PhysicsCorrectionPlan {
             outcome: PhysicsCorrectionOutcome::Replayed {
                 corrected_tick: replay.corrected_tick,

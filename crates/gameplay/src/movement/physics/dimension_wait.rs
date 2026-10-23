@@ -21,6 +21,8 @@ impl LocalPhysicsController {
             self.history = PredictionHistory::new(self.history_capacity)
                 .expect("local physics history capacity is non-zero");
             self.sample_history.clear();
+            self.replayed_speed = None;
+            self.rewind_pending = None;
             self.live_posture = Default::default();
             self.controller_history.clear();
             self.motion_ticks.clear();
