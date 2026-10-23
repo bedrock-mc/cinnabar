@@ -149,7 +149,19 @@ impl IconBlocks {
     /// Full cube item geometry is independent of terrain occlusion, material and animation.
     pub(super) fn is_carried_cube(&self, world: &RuntimeAssets, visual: BlockVisualId) -> bool {
         let block = world.resolve(NetworkIdMode::Sequential, visual.0);
-        if !block.is_known() || block.support() != VisualSupport::Exact {
+        if !block.is_known() {
+            return false;
+        }
+        if block.support() == VisualSupport::VanillaFallback
+            && self.records.get(visual.0 as usize).is_some_and(|record| {
+                record
+                    .traits
+                    .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
+            })
+        {
+            return true;
+        }
+        if block.support() != VisualSupport::Exact {
             return false;
         }
         match block.kind() {
@@ -354,6 +366,10 @@ impl IconBlocks {
 #[cfg(test)]
 #[path = "blocks/respawn_anchor_tests.rs"]
 mod respawn_anchor_tests;
+
+#[cfg(test)]
+#[path = "blocks/piston_tests.rs"]
+mod piston_tests;
 
 #[cfg(test)]
 mod tests {
@@ -588,7 +604,7 @@ mod tests {
     }
 
     /// Writes the block and texture catalogs needed to load icon test fixtures.
-    fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
+    pub(super) fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
         std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
         std::fs::write(root.join("blocks.json"), blocks).unwrap();
         std::fs::write(root.join("textures/terrain_texture.json"), terrain).unwrap();
