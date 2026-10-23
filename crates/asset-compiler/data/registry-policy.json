@@ -581,7 +581,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "682999ca2b24eebf71bfaaf72fae7036c8dd64dbab13d385ffce07bf8c46de5d",
+    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -661,6 +661,7 @@
       "minecraft:yellow_shulker_box"
     ],
     "unresolved": [
+      "minecraft:chalkboard",
       "minecraft:soul_soil",
       "minecraft:straw_bed"
     ]
@@ -3259,6 +3260,14 @@
       ]
     },
     {
+      "id": "render-stonecutter",
+      "fact": "render:Stonecutter",
+      "status": "provisional",
+      "members": [
+        "minecraft:stonecutter_block"
+      ]
+    },
+    {
       "id": "render-lever",
       "fact": "render:Lever",
       "status": "provisional",
@@ -3323,6 +3332,34 @@
       "status": "provisional",
       "members": [
         "minecraft:barrel"
+      ]
+    },
+    {
+      "id": "render-furnace",
+      "fact": "render:Furnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:furnace",
+        "minecraft:blast_furnace",
+        "minecraft:smoker"
+      ]
+    },
+    {
+      "id": "render-lit-furnace",
+      "fact": "render:LitFurnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:lit_furnace",
+        "minecraft:lit_blast_furnace",
+        "minecraft:lit_smoker"
+      ]
+    },
+    {
+      "id": "render-facing-cube",
+      "fact": "render:FacingCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:loom"
       ]
     },
     {
@@ -3850,6 +3887,14 @@
       "suffix": "hanging_sign"
     },
     {
+      "id": "render-leaf-litter",
+      "fact": "render:LeafLitter",
+      "status": "verified",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",
@@ -3874,7 +3919,6 @@
       "members": [
         "minecraft:ladder",
         "minecraft:waterlily",
-        "minecraft:end_rod",
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
@@ -4162,6 +4206,14 @@
       "members": [
         "minecraft:bamboo",
         "minecraft:bamboo_sapling"
+      ]
+    },
+    {
+      "id": "chalkboard-render",
+      "fact": "render:EntityDrawn",
+      "status": "provisional",
+      "members": [
+        "minecraft:chalkboard"
       ]
     }
   ],
@@ -5065,6 +5117,26 @@
   ],
   "entity_rules": [
     {
+      "id": "pick-radius-shulker",
+      "status": "verified",
+      "members": [
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "pick_radius": 0.0
+      }
+    },
+    {
+      "id": "pick-radius-fireball",
+      "status": "verified",
+      "members": [
+        "minecraft:fireball"
+      ],
+      "facts": {
+        "pick_radius": 1.0
+      }
+    },
+    {
       "id": "entity-interactions-0",
       "status": "provisional",
       "members": [
@@ -5790,7 +5862,8 @@
       "id": "offset-boat",
       "status": "provisional",
       "members": [
-        "minecraft:boat"
+        "minecraft:boat",
+        "minecraft:chest_boat"
       ],
       "facts": {
         "network_y_offset": 0.375
@@ -6354,6 +6427,19 @@
         "minecraft:vault"
       ],
       "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "ChalkboardBlock",
+        "route": "model",
+        "renderer": "chalkboard",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:chalkboard"
+      ],
+      "status": "provisional"
     }
   ],
   "visual_events": {
@@ -6681,6 +6767,8 @@
       "NetheriteBlock": "minecraft:netherite_block"
     },
     "VanillaEntity": {
+      "Boat": "minecraft:boat",
+      "ChestBoat": "minecraft:chest_boat",
       "Player": "minecraft:player"
     }
   },
@@ -6797,6 +6885,7 @@
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
+      "HeavyCore": "minecraft:heavy_core",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {
@@ -6958,6 +7047,9 @@
       "flattened_tnt_side": "textures/blocks/tnt_side",
       "flattened_tnt_top": "textures/blocks/tnt_top"
     },
-    "empty_hand": "Air"
+    "empty_hand": "Air",
+    "omitted_render_controllers": {
+      "controller.render.iron_golem": "controller.render.default"
+    }
   }
 }

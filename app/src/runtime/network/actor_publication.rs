@@ -333,10 +333,6 @@ pub(crate) fn prepare_actor_render_frame(
         .as_deref()
         .and_then(|player| crate::melee::selected_attack_timing(player, &world))
         .and_then(|timing| timing.swing_duration_ticks);
-    let server_swings = world
-        .stream
-        .as_mut()
-        .map_or(0, |stream| stream.take_local_server_swings());
     let stream = world.stream.as_ref();
     let swing_progress = stream.and_then(|_| {
         let movement = movement.as_deref()?;
@@ -349,18 +345,14 @@ pub(crate) fn prepare_actor_render_frame(
                 item_swing_ticks,
             );
         }
-        // Admission for the next tick uses each animation's own effect-aware restart guard.
-        if server_swings > 0 {
-            swings.try_swing_before_tick_for_item(
-                movement.completed_tick().saturating_add(1),
-                effects
-                    .as_deref()
-                    .map_or_default(|effects| effects.mining_effects()),
-                item_swing_ticks,
-            );
-        }
         let mut progress = swings.published_progress(movement.completed_tick());
         progress.frame_alpha = Some(physics.tick_alpha());
+        bevy::log::trace!(
+            tick = movement.completed_tick(),
+            alpha = physics.tick_alpha(),
+            progress = progress.bedrock_progress(physics.tick_alpha()),
+            "local swing sampled"
+        );
         Some(progress)
     });
     if let (Some(stream), Some(movement), Some(swings)) = (

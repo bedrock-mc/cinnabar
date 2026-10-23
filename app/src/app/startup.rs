@@ -8,7 +8,7 @@ use crate::args;
 use anyhow::{Context, Result, bail};
 use assets::carriers::startup::{
     self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
-    LoadedIconAssets, LoadedLangAssets,
+    LoadedIconAssets, LoadedLangAssets, select_asset_path_from_environment,
 };
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
@@ -17,10 +17,16 @@ use assets::{
 use client_interaction::movement::PhysicsCollisionRegistries;
 use client_ui::ui_runtime::json_ui_assets::LoadedUiAssets;
 use client_ui::ui_runtime::presentation::PreparedJsonUi;
+use launcher::install_layout::InstallLayout;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::Digest;
 use sha2::Sha256;
-use std::{fs, path::Path, sync::Arc, time::Instant};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, PoisonError},
+    time::Instant,
+};
 
 /// Every carrier startup reads, each read and decoded exactly once. Results are checked by the
 /// caller in the serial order startup always used, so the first failure reported never changes.
@@ -67,17 +73,110 @@ pub(super) struct CoreCarriers {
         crate::render_mode::authored_textures::AuthoredTextureLoading,
 }
 
+impl CoreCarriers {
+    /// Installs the world sidecars and base equipment catalog process-wide. Only the run that
+    /// uses these carriers does this, so an unused preload is released in full when dropped.
+    fn publish(&mut self) {
+        crate::asset_bindings::install_world_sidecars(&mut self.assets);
+        if let Some(catalog) = &self.equipment {
+            pack_runtime::entity_pack::set_base_equipment_catalog(Arc::clone(catalog));
+        }
+    }
+}
+
 pub(super) struct AudioCarriers {
     pub(super) catalog: Option<Arc<RuntimeAudioCatalog>>,
     pub(super) pcm: Option<Arc<RuntimeAudioPcm>>,
     pub(super) sound_bank: Option<client_audio::audio::SoundBank>,
 }
 
-/// Loads every startup carrier in parallel and logs each one's load time.
-pub(super) fn load_startup_carriers(
+/// Startup carriers loaded before `run`, with the paths they were read from.
+struct Preloaded {
+    world: PathBuf,
+    physics_registry: PathBuf,
+    carriers: StartupCarriers,
+}
+
+/// The latest preload, until `run` takes or setup discards it.
+static PRELOADED: Mutex<Option<Preloaded>> = Mutex::new(None);
+
+/// Loads the default startup carriers for the next `run`. A preload of the same files is kept
+/// unless `rewritten` says setup has since rewritten them.
+pub(crate) fn preload(layout: &InstallLayout, rewritten: bool) {
+    let selection = select_asset_path_from_environment(None, &layout.world_assets());
+    preload_into(
+        &PRELOADED,
+        selection,
+        &layout.physics_registry,
+        rewritten,
+        load_startup_carriers,
+    );
+}
+
+/// Fills `slot` with `load`'s carriers unless it already holds a current preload of the same
+/// files. A stale preload is released before loading, so two sets are never held at once.
+fn preload_into(
+    slot: &Mutex<Option<Preloaded>>,
+    selection: AssetSelection,
+    physics_registry: &Path,
+    rewritten: bool,
+    load: impl FnOnce(AssetSelection, &Path) -> StartupCarriers,
+) {
+    {
+        let mut held = slot.lock().unwrap_or_else(PoisonError::into_inner);
+        if !rewritten
+            && held.as_ref().is_some_and(|preloaded| {
+                preloaded.world == selection.path && preloaded.physics_registry == physics_registry
+            })
+        {
+            return;
+        }
+        held.take();
+    }
+    let world = selection.path.clone();
+    let carriers = load(selection, physics_registry);
+    *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(Preloaded {
+        world,
+        physics_registry: physics_registry.to_path_buf(),
+        carriers,
+    });
+}
+
+/// Drops a preload whose carrier files have since been rewritten.
+pub(crate) fn discard_preloaded() {
+    PRELOADED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+}
+
+/// Returns the preloaded carriers when they were read from these paths, otherwise loads them,
+/// then publishes their process-wide catalogs for this run.
+pub(super) fn take_or_load_startup_carriers(
     selection: AssetSelection,
     physics_registry: &Path,
 ) -> StartupCarriers {
+    let mut carriers = take_preloaded(&PRELOADED, &selection.path, physics_registry)
+        .unwrap_or_else(|| load_startup_carriers(selection, physics_registry));
+    if let Ok(core) = &mut carriers.core {
+        core.publish();
+    }
+    carriers
+}
+
+/// Empties `slot`, returning its carriers only when they were read from these paths.
+fn take_preloaded(
+    slot: &Mutex<Option<Preloaded>>,
+    world: &Path,
+    physics_registry: &Path,
+) -> Option<StartupCarriers> {
+    let preloaded = slot.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+    (preloaded.world == world && preloaded.physics_registry == physics_registry)
+        .then_some(preloaded.carriers)
+}
+
+/// Loads every startup carrier in parallel and logs each one's load time.
+fn load_startup_carriers(selection: AssetSelection, physics_registry: &Path) -> StartupCarriers {
     let start = Instant::now();
     let times = LoadTimes::default();
     let carriers = load_with(selection, physics_registry, &times);
@@ -154,13 +253,12 @@ fn load_core(
     selection: AssetSelection,
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
-    let mut assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    let assets = asset_startup::load_runtime_assets_observed(selection, times)?;
     let authored_texture_loading =
         crate::render_mode::authored_textures::AuthoredTextureLoading::new(
             Arc::clone(&assets.runtime),
             assets.material_keys.clone(),
         );
-    crate::asset_bindings::install_world_sidecars(&mut assets);
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
         let equipment = scope.spawn(|| {
@@ -173,9 +271,6 @@ fn load_core(
         });
         (actor, join(equipment))
     });
-    if let Some(catalog) = &equipment {
-        pack_runtime::entity_pack::set_base_equipment_catalog(Arc::clone(catalog));
-    }
     Ok(CoreCarriers {
         assets,
         actor,
@@ -374,6 +469,66 @@ mod carrier_tests {
                 "world",
             ]
         );
+    }
+
+    #[test]
+    fn a_preload_is_reused_only_for_the_paths_it_was_read_from() {
+        let directory = Directory::new("preload");
+        let physics = directory.0.join("absent-physics.bin");
+        let slot = Mutex::new(None);
+        let preload = |slot: &Mutex<Option<Preloaded>>| {
+            *slot.lock().unwrap() = Some(Preloaded {
+                world: directory.world(),
+                physics_registry: physics.clone(),
+                carriers: directory.load(&LoadTimes::default()),
+            });
+        };
+
+        preload(&slot);
+        assert!(take_preloaded(&slot, &directory.world(), &physics).is_some());
+        assert!(slot.lock().unwrap().is_none(), "a preload is consumed once");
+        assert!(take_preloaded(&slot, &directory.world(), &physics).is_none());
+
+        preload(&slot);
+        let other_world = directory.0.join("other.mcbea");
+        assert!(take_preloaded(&slot, &other_world, &physics).is_none());
+        assert!(
+            slot.lock().unwrap().is_none(),
+            "a mismatched preload is released"
+        );
+
+        preload(&slot);
+        assert!(
+            take_preloaded(&slot, &directory.world(), &directory.0.join("other.bin")).is_none()
+        );
+    }
+
+    #[test]
+    fn a_current_preload_is_kept_instead_of_loading_a_second_set() {
+        let directory = Directory::new("preload-reuse");
+        let physics = directory.0.join("absent-physics.bin");
+        let selection = |path: PathBuf| AssetSelection {
+            path,
+            source: AssetPathSource::CommandLine,
+        };
+        let slot = Mutex::new(None);
+        let loads = std::cell::Cell::new(0);
+        let load = |selection: AssetSelection, physics: &Path| {
+            loads.set(loads.get() + 1);
+            load_with(selection, physics, &LoadTimes::default())
+        };
+
+        preload_into(&slot, selection(directory.world()), &physics, false, load);
+        preload_into(&slot, selection(directory.world()), &physics, false, load);
+        assert_eq!(loads.get(), 1, "a retried setup reuses the current preload");
+
+        preload_into(&slot, selection(directory.world()), &physics, true, load);
+        assert_eq!(loads.get(), 2, "rewritten carriers are loaded again");
+
+        let other = directory.0.join("other.mcbea");
+        preload_into(&slot, selection(other.clone()), &physics, false, load);
+        assert_eq!(loads.get(), 3, "other carrier files are loaded");
+        assert!(take_preloaded(&slot, &other, &physics).is_some());
     }
 
     #[test]

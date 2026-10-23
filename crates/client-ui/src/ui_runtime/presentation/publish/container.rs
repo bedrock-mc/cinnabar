@@ -52,7 +52,7 @@ fn capture_titles(
     window_text: &mut WindowText,
 ) {
     let ledger = runtime.inventory_ledger(player_runtime);
-    // Actor-backed server menus carry their raw title on the owning actor.
+    // Actor-backed server menus carry their title on the owning actor, preferring its filtered name.
     // Keep formatting markers intact: resource-pack layouts use them.
     let stated_title = ledger
         .trading()
@@ -64,8 +64,7 @@ fn capture_titles(
         .or_else(|| {
             ledger
                 .window_actor()
-                .and_then(|actor| stream?.authority().actor_name_tag(actor))
-                .filter(|name| !name.is_empty())
+                .and_then(|actor| stream?.authority().actor_container_name(actor))
                 .map(|name| name.to_string())
                 .or_else(|| {
                     ledger
@@ -74,10 +73,10 @@ fn capture_titles(
                 })
         });
     window_text.custom_title.clone_from(&stated_title);
-    window_text.block_entity = ledger
-        .window_position()
-        .and_then(|position| stream?.block_entity_compound(position))
-        .and_then(|nbt| nbt.string("id").map(str::to_owned));
+    window_text.block_entity = runtime
+        .storage_block
+        .as_ref()
+        .map(|(_, block_entity)| block_entity.to_string());
     window_text.inventory_label = runtime
         .translation("container.inventory")
         .map(|text| text.to_string());

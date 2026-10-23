@@ -31,7 +31,7 @@ pub(crate) const ITEM_FILE: &str = "item.properties";
 pub(crate) const ENTITY_FILE: &str = "entity.properties";
 
 /// Parsed block.properties / item.properties / entity.properties of a pack.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct IdMaps {
     /// Block-state ids and render-layer overrides from block.properties; without the file,
     /// Iris's legacy numeric ids (`LegacyIdMap`).
@@ -77,7 +77,7 @@ impl IdMaps {
 }
 
 /// Item or entity ids: `<prefix><int>=<name> <name> ...` with names `[namespace:]path`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct NamedIdMap {
     /// Full `namespace:path` name → id.
     ids: HashMap<String, i32>,

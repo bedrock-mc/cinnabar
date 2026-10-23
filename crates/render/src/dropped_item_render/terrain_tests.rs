@@ -6,6 +6,7 @@ use bevy::{
     image::ImagePlugin,
     mesh::MeshPlugin,
     prelude::{Camera, Camera3d, Image, MinimalPlugins, Transform, Vec3},
+    render::render_resource::TextureFormat,
     window::WindowPlugin,
 };
 use meshing::{ChunkBiomeTintIdentity, ChunkMesh, PackedBiomeRecord};

@@ -178,4 +178,53 @@ mod tests {
             .is_err()
         );
     }
+
+    /// Every pinned behavior-pack icon component has its binding, so a pack bump cannot drop one.
+    #[test]
+    fn bindings_cover_every_pinned_behavior_pack_icon() {
+        let items = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join(assets::vanilla_source().cache_dir.as_ref())
+            .join("behavior_pack/items");
+        let Ok(entries) = std::fs::read_dir(&items) else {
+            eprintln!(
+                "skipping missing fixture: pinned behavior pack items at {}",
+                items.display()
+            );
+            return;
+        };
+        let bindings = reviewed()
+            .unwrap()
+            .iter()
+            .map(|binding| {
+                (
+                    binding.identifier.to_string(),
+                    binding.default_alias.to_string(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut icons = 0;
+        for entry in entries {
+            let path = entry.unwrap().path();
+            let item = pack_compile_input::json::parse_semantic_json(
+                &path,
+                &std::fs::read(&path).unwrap(),
+            )
+            .unwrap();
+            let item = &item["minecraft:item"];
+            let Some(default) =
+                item["components"]["minecraft:icon"]["textures"]["default"].as_str()
+            else {
+                continue;
+            };
+            let identifier = item["description"]["identifier"].as_str().unwrap();
+            icons += 1;
+            assert_eq!(
+                bindings.get(identifier).map(String::as_str),
+                Some(default),
+                "{identifier}"
+            );
+        }
+        assert!(icons > 0, "no icon components under {}", items.display());
+    }
 }

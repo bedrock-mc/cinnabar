@@ -306,7 +306,7 @@ fn legacy_repeated_authority_does_not_erase_open_storage_or_predictions() {
 }
 
 #[test]
-fn legacy_hotbar_swaps_and_fixed_surfaces_keep_wire_item_ids() {
+fn legacy_hotbar_swaps_and_fixed_surfaces_keep_item_identity() {
     let mut ledger = ready();
     open(&mut ledger);
     let mut original = stack(8, 1);
@@ -328,8 +328,10 @@ fn legacy_hotbar_swaps_and_fixed_surfaces_keep_wire_item_ids() {
         Some(protocol::ARMOR_WINDOW_ID as i8)
     );
     assert_eq!(actions[0].slot, 2);
-    assert_eq!(actions[0].from_item.stack_network_id, Some(91));
-    assert_eq!(actions[1].to_item.stack_network_id, Some(91));
+    assert_eq!(actions[0].from_item.network_id, original.network_id);
+    assert_eq!(actions[0].from_item.stack_network_id, None);
+    assert_eq!(actions[1].to_item.network_id, original.network_id);
+    assert_eq!(actions[1].to_item.stack_network_id, None);
     ledger.begin_click(1).unwrap();
     normal(flush(&mut ledger).remove(0));
     ledger
@@ -341,7 +343,7 @@ fn legacy_hotbar_swaps_and_fixed_surfaces_keep_wire_item_ids() {
         Some(protocol::OFFHAND_WINDOW_ID as i8)
     );
     assert_eq!(actions[1].slot, 0);
-    assert_eq!(actions[1].to_item.stack_network_id, Some(91));
+    assert_eq!(actions[1].to_item.stack_network_id, None);
     assert_eq!(
         ledger.target_stack(InventoryTarget::Offhand),
         Some(&original)

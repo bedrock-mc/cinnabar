@@ -10,6 +10,7 @@ use launcher::menu::settings_storage::*;
 pub fn read_storage(layout: &InstallLayout) -> StorageView {
     let mut view = StorageView {
         opens_folders: crate::desktop::opens_folders(),
+        accepts_file_drops: crate::desktop::accepts_file_drops(),
         ..StorageView::default()
     };
     match entries(&layout.local_worlds_dir()) {

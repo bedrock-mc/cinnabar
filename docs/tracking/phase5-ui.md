@@ -26,9 +26,9 @@ section remain open, so no phase checkbox is closed by this delta.
   SetEntityData metadata (air supply, max air, freezing strength) splits into
   committed UI events beside attributes; item user-data NBT exposes the
   vanilla `Damage` tag through a bounded fixed-LE walk.
-- App state: a gameplay-HUD store retains hotbar/offhand mirrors (with a
-  per-frame drain that also fixes the previously consumer-less inventory
-  queue), authoritative armor stacks, bounded effects with soonest-expiry
+- App state: a gameplay-HUD store with a per-frame inventory drain (which
+  also fixes the previously consumer-less inventory queue; the local offhand
+  is read from the inventory ledger), authoritative armor stacks, bounded effects with soonest-expiry
   eviction, air/freezing, the local mount, damage-blink and selected-item
   identity clocks; armor points derive from resolved equipment identities via
   a pinned vanilla table; runtime game-mode changes apply mid-session.

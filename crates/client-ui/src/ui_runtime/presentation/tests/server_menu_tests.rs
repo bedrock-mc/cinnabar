@@ -13,11 +13,20 @@ use crate::ui_runtime::presentation::publish::capture_hud_frame;
 
 mod empty_ack;
 
-#[test]
-fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
+const NAME: u32 = protocol_ids::ActorDataKey::Name.wire_value();
+const FILTERED_NAME: u32 = protocol_ids::ActorDataKey::FilteredName.wire_value();
+
+/// The local player, UI runtime, presentation and world stream, with a server chest menu
+/// opened on a chest minecart whose unique and runtime IDs differ.
+fn open_actor_menu() -> (
+    player_state::PlayerState,
+    UiRuntime,
+    UiPresentationRuntime,
+    chunk_pipeline::WorldStream,
+) {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         local_player_runtime_id: 1,
@@ -78,36 +87,82 @@ fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
         runtime.inventory_ledger(&player).storage_slot_count(),
         Some(45)
     );
-    for (sequence, title) in [(2, "§r§aServer menu\n§lPick a game"), (3, "")] {
-        stream
-            .submit(
-                sequence,
-                WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
-                    dimension: 0,
-                    runtime_id: 7,
-                    metadata: Arc::from([ActorMetadata {
-                        key: 4,
-                        value: ActorMetadataValue::String(title.into()),
-                    }]),
-                    properties: Arc::from([]),
-                    tick: sequence,
-                })),
-            )
-            .unwrap();
-        capture_hud_frame(
-            &player,
-            &mut runtime,
-            &mut presentation,
-            Some(&stream),
-            semantic_input::PerspectiveMode::FirstPerson,
+    (player, runtime, presentation, stream)
+}
+
+/// Syncs `names` as `(actor data key, value)` onto the menu's actor, then returns the
+/// captured screen's custom and final titles.
+fn titles_after(
+    menu: &mut (
+        player_state::PlayerState,
+        UiRuntime,
+        UiPresentationRuntime,
+        chunk_pipeline::WorldStream,
+    ),
+    sequence: u64,
+    names: &[(u32, &str)],
+) -> (Option<String>, Option<String>) {
+    let (player, runtime, presentation, stream) = menu;
+    stream
+        .submit(
             sequence,
-            Default::default(),
+            WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: names
+                    .iter()
+                    .map(|&(key, name)| ActorMetadata {
+                        key,
+                        value: ActorMetadataValue::String(name.into()),
+                    })
+                    .collect(),
+                properties: Arc::from([]),
+                tick: sequence,
+            })),
+        )
+        .unwrap();
+    capture_hud_frame(
+        player,
+        runtime,
+        presentation,
+        Some(stream),
+        semantic_input::PerspectiveMode::FirstPerson,
+        sequence,
+        Default::default(),
+    );
+    let text = &presentation.hud_frame().window_text;
+    (text.custom_title.clone(), text.title.clone())
+}
+
+#[test]
+fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
+    let mut menu = open_actor_menu();
+    for (sequence, title) in [(2, "§r§aServer menu\n§lPick a game"), (3, "")] {
+        let expected = (!title.is_empty()).then(|| title.to_owned());
+        assert_eq!(
+            titles_after(&mut menu, sequence, &[(NAME, title)]),
+            (expected.clone(), expected)
         );
-        let expected = (!title.is_empty()).then_some(title);
-        let text = &presentation.hud_frame().window_text;
-        assert_eq!(text.custom_title.as_deref(), expected);
-        assert_eq!(text.title.as_deref(), expected);
     }
+}
+
+#[test]
+fn server_menu_title_prefers_a_non_empty_filtered_actor_name() {
+    let mut menu = open_actor_menu();
+    let shown = |text: &str| (Some(text.to_owned()), Some(text.to_owned()));
+    assert_eq!(
+        titles_after(
+            &mut menu,
+            2,
+            &[(NAME, "Raw title"), (FILTERED_NAME, "F****d title")]
+        ),
+        shown("F****d title")
+    );
+    // An empty filtered name falls back to the name tag.
+    assert_eq!(
+        titles_after(&mut menu, 3, &[(FILTERED_NAME, "")]),
+        shown("Raw title")
+    );
 }
 
 #[test]

@@ -3,12 +3,16 @@
 
 use actor_animation::AttachableAnimationInput;
 use assets::ItemVisualRoute;
+use assets::facts::FISHING_ROD_IDENTIFIER;
 use chunk_pipeline::WorldStream;
 use client_world::{ActorArmorSnapshot, CanonicalItemStack};
 use protocol::ActorHandedness;
 
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use client_ui::ui_runtime::UiRuntime;
+
+/// The vanilla `item_texture.json` cast texture is the second fishing-rod variant.
+const FISHING_ROD_CAST_METADATA: u32 = 1;
 
 impl ActorEquipmentInput {
     /// Carries owner identity and complete equipment into attachable queries while retaining timing.
@@ -30,6 +34,7 @@ pub(super) fn worn_item(
     item: &CanonicalItemStack,
     dye_rgb: Option<u32>,
     use_facts: client_world::EffectiveItemUse,
+    fishing_rod_cast: bool,
 ) -> Option<WornItem> {
     if item.identity.is_empty() {
         return None;
@@ -43,7 +48,12 @@ pub(super) fn worn_item(
         use_facts,
         grip: item.grip,
         identifier: item.identifier.clone()?,
-        metadata: item.identity.metadata,
+        metadata: if fishing_rod_cast && item.identifier.as_deref() == Some(FISHING_ROD_IDENTIFIER)
+        {
+            FISHING_ROD_CAST_METADATA
+        } else {
+            item.identity.metadata
+        },
         damage: item.damage,
         kind: match item.visual {
             ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
@@ -67,11 +77,20 @@ fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
         &armor.leggings,
         &armor.boots,
     ]
-    .map(|piece| worn_item(&piece.item, piece.dye_rgb, Default::default()))
+    .map(|piece| worn_item(&piece.item, piece.dye_rgb, Default::default(), false))
+}
+
+/// Selects cast artwork while the actor owns a tracked hook.
+fn fishing_rod_cast(stream: &WorldStream, runtime_id: u64) -> bool {
+    stream
+        .authority()
+        .actor(runtime_id)
+        .is_some_and(|actor| stream.authority().has_fishing_hook(actor.unique_id))
 }
 
 /// A remote actor's equipment from its replicated equipment and armor events.
 pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInput {
+    let fishing_rod_cast = fishing_rod_cast(stream, runtime_id);
     let held = |hand| {
         stream
             .authority()
@@ -83,6 +102,7 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
                     stream
                         .authority()
                         .item_use_profile(equipment.item.identity.network_id),
+                    fishing_rod_cast,
                 )
             })
     };
@@ -92,6 +112,17 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
         armor: armor_slots(stream.authority().actor_armor(runtime_id)),
+        body: stream
+            .authority()
+            .actor_armor(runtime_id)
+            .and_then(|armor| {
+                worn_item(
+                    &armor.body.item,
+                    armor.body.dye_rgb,
+                    Default::default(),
+                    false,
+                )
+            }),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -107,6 +138,7 @@ pub fn local_input(
     runtime_id: u64,
 ) -> ActorEquipmentInput {
     use inventory::inventory_ledger::InventoryTarget;
+    let fishing_rod_cast = fishing_rod_cast(stream, runtime_id);
     let actor = stream.authority().actor(runtime_id);
     let resolve = |stack: &protocol::NetworkItemStack, dye_rgb: Option<u32>| {
         stream
@@ -119,6 +151,7 @@ pub fn local_input(
                     stream
                         .authority()
                         .item_use_profile(item.identity.network_id),
+                    fishing_rod_cast,
                 )
             })
     };
@@ -143,6 +176,7 @@ pub fn local_input(
             &armor.boots,
         ]
         .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
+        body: None,
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -252,6 +286,32 @@ mod tests {
         assert_eq!(input.frame_alpha, 0.75);
         assert_eq!(input.use_elapsed_ticks, Some(2));
     }
+
+    #[test]
+    fn fishing_rod_uses_cast_icon_metadata_only_with_a_live_hook() {
+        let rod = canonical_fixture(FISHING_ROD_IDENTIFIER, false, false);
+        assert_eq!(
+            worn_item(&rod, None, Default::default(), false)
+                .unwrap()
+                .metadata,
+            0
+        );
+        assert_eq!(
+            worn_item(&rod, None, Default::default(), true)
+                .unwrap()
+                .metadata,
+            FISHING_ROD_CAST_METADATA
+        );
+
+        let other = canonical_fixture("minecraft:stick", false, false);
+        assert_eq!(
+            worn_item(&other, None, Default::default(), true)
+                .unwrap()
+                .metadata,
+            0
+        );
+    }
+
     #[test]
     fn worn_glint_combines_intrinsic_dispositions_and_enchantment_facts() {
         let mut item = CanonicalItemStack {
@@ -276,27 +336,115 @@ mod tests {
             enchanted: false,
         };
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Unresolved;
         assert!(
-            !worn_item(&item, None, Default::default())
+            !worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.enchanted = true;
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Session { enabled: false };
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+    use protocol::{
+        ActorEvent, ActorKind, ActorSpawnEvent, ArmorEquipmentEvent, NetworkItemStack, WorldEvent,
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn replicated_body_slot_survives_input_and_removal_without_populating_other_slots() {
+        let mut stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:red_harness")
+            .unwrap()
+            .clone();
+        assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry.clone()])
+        }));
+        stream
+            .submit(
+                1,
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                    runtime_id: 2,
+                    kind: ActorKind::Entity {
+                        identifier: "minecraft:happy_ghast".into(),
+                    },
+                    position: [0.0; 3],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    held_item: Default::default(),
+                    metadata: Arc::from([]),
+                    attributes: Arc::from([]),
+                    properties: Arc::from([]),
+                    links: Arc::from([]),
+                })),
+            )
+            .unwrap();
+        assert!(remote_input(&stream, 2).body.is_none());
+        for (sequence, equipped) in [(2, true), (3, false)] {
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::ArmorEquipment(Box::new(ArmorEquipmentEvent {
+                        actor_runtime_id: 2,
+                        helmet: Default::default(),
+                        chestplate: Default::default(),
+                        leggings: Default::default(),
+                        boots: Default::default(),
+                        body: if equipped {
+                            NetworkItemStack {
+                                network_id: entry.network_id,
+                                count: 1,
+                                ..Default::default()
+                            }
+                        } else {
+                            Default::default()
+                        },
+                    })),
+                )
+                .unwrap();
+            let input = remote_input(&stream, 2);
+            assert_eq!(
+                input.body.as_ref().map(|item| item.identifier.as_ref()),
+                equipped.then_some(entry.identifier.as_ref())
+            );
+            assert!(
+                input.main.is_none()
+                    && input.off.is_none()
+                    && input.armor.iter().all(Option::is_none)
+            );
+        }
     }
 }

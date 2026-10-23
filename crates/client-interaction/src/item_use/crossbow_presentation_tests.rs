@@ -369,7 +369,10 @@ fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offha
         loading_projectile(&player_runtime, &stream, &ui, false),
         Some(assets::item_use::ItemProjectileRole::Firework)
     );
-    assert_eq!(ui.gameplay_hud().offhand_stack(), Some(&stack(FIREWORK)));
+    assert_eq!(
+        ui.local_offhand_stack(&player_runtime),
+        Some(&stack(FIREWORK))
+    );
     ui.enqueue_inventory_event(
         &mut player_runtime,
         1,

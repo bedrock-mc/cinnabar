@@ -37,7 +37,7 @@ mod dispatch;
 #[cfg(feature = "shaderpacks")]
 mod draws;
 #[cfg(feature = "shaderpacks")]
-mod effects;
+pub(crate) mod effects;
 #[cfg(feature = "shaderpacks")]
 mod frame_geometry;
 #[cfg(feature = "shaderpacks")]
@@ -47,7 +47,11 @@ mod host_pipelines;
 #[cfg(feature = "shaderpacks")]
 mod ids;
 #[cfg(feature = "shaderpacks")]
+mod kernels;
+#[cfg(feature = "shaderpacks")]
 mod lightmap;
+#[cfg(feature = "shaderpacks")]
+mod load_failures;
 #[cfg(feature = "shaderpacks")]
 mod loader;
 #[cfg(feature = "shaderpacks")]

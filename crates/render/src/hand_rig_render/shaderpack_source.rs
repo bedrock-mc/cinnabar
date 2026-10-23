@@ -55,12 +55,22 @@ impl RigSource for ShaderpackHand<'_> {
             };
             let held = item.then_some(hand);
             let texture = if flags & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0 {
-                self.gpu.atlases[2].as_ref().map(|atlas| &atlas._texture)
+                raw(self.gpu.atlases[2]
+                    .as_ref()
+                    .map(|atlas| (&atlas._texture, atlas.raw_views)))
             } else {
                 match held {
-                    Some(Hand::Main) => self.gpu.atlases[0].as_ref().map(|atlas| &atlas._texture),
-                    Some(Hand::Off) => self.gpu.atlases[1].as_ref().map(|atlas| &atlas._texture),
-                    None => self.gpu.skin.as_ref().map(|skin| &skin._texture),
+                    Some(Hand::Main) => raw(self.gpu.atlases[0]
+                        .as_ref()
+                        .map(|a| (&a._texture, a.raw_views))),
+                    Some(Hand::Off) => raw(self.gpu.atlases[1]
+                        .as_ref()
+                        .map(|a| (&a._texture, a.raw_views))),
+                    None => raw(self
+                        .gpu
+                        .skin
+                        .as_ref()
+                        .map(|skin| (&skin._texture, skin.raw_views))),
                 }
             };
             let Some(texture) = texture else {
@@ -86,6 +96,11 @@ impl RigSource for ShaderpackHand<'_> {
     fn glint(&self, item: bool) -> Option<&Texture> {
         item.then_some(())
             .and(self.gpu.glint.as_ref())
-            .map(|glint| &glint._texture)
+            .and_then(|glint| raw(Some((&glint._texture, glint.raw_views))))
     }
+}
+
+/// A texture the pack can read through a raw gamma-byte view.
+fn raw(texture: Option<(&Texture, crate::actor::gpu::ArtworkRawViews)>) -> Option<&Texture> {
+    texture.and_then(|(texture, raw_views)| raw_views.0.then_some(texture))
 }

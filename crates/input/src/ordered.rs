@@ -1,9 +1,6 @@
-//! Bounded desktop transitions and their resolved action order.
+//! Desktop transitions and their resolved action order.
 
 use crate::{Action, ModifierChord, PhysicalControl};
-
-/// Client memory and work budget for one pending burst, independent of device rate.
-pub const MAX_PENDING_ACTION_EVENTS: usize = 256;
 
 /// One desktop event in the window backend's arrival order.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,7 +15,7 @@ pub enum DesktopEvent {
     },
 }
 
-/// Overflow invalidates a batch rather than inventing a partial gesture.
+/// A backend gap invalidates a batch rather than inventing a partial gesture.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DesktopEvents {
     events: Vec<DesktopEvent>,
@@ -36,13 +33,9 @@ impl DesktopEvents {
     pub(crate) const fn initial_modifiers(&self) -> ModifierChord {
         self.initial_modifiers
     }
-    /// Retains one event or records a gap when the client budget is exhausted.
+    /// Retains each transition in the complete backend batch.
     pub fn push(&mut self, event: DesktopEvent) {
-        if self.events.len() == MAX_PENDING_ACTION_EVENTS {
-            self.invalidate();
-        } else {
-            self.events.push(event);
-        }
+        self.events.push(event);
     }
 
     /// Marks a backend gap whose missing order cannot be reconstructed.
@@ -50,7 +43,7 @@ impl DesktopEvents {
         self.overflowed = true;
     }
 
-    /// Borrows the bounded records in source order.
+    /// Borrows the records in source order.
     pub fn events(&self) -> &[DesktopEvent] {
         &self.events
     }
@@ -95,8 +88,8 @@ pub struct ActionEvent {
 /// Events finalized under the frame's bindings, context and authority.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OrderedActions {
-    initial_buttons: ActionButtons,
-    events: Vec<ActionEvent>,
+    pub(crate) initial_buttons: ActionButtons,
+    pub(crate) events: Vec<ActionEvent>,
     overflowed: bool,
     neutral: bool,
 }
@@ -129,13 +122,9 @@ impl OrderedActions {
         self.overflowed = true;
     }
 
-    /// Appends an action without allowing binding fan-out to exceed the budget.
+    /// Retains each action, including repeated transitions and binding fan-out.
     pub(crate) fn push(&mut self, event: ActionEvent) {
-        if self.events.len() == MAX_PENDING_ACTION_EVENTS {
-            self.overflowed = true;
-        } else {
-            self.events.push(event);
-        }
+        self.events.push(event);
     }
 
     /// Borrows actions in source order and stable action order within a binding.

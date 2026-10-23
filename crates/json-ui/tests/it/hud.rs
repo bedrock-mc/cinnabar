@@ -95,6 +95,7 @@ fn model() -> HudModel {
                 count: if index == 0 { 12 } else { 0 },
                 selected: index == 2,
                 durability: None,
+                ..Default::default()
             })
             .collect(),
         chat_visible: true,

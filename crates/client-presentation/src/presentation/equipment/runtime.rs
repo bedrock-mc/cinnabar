@@ -1,5 +1,6 @@
 //! Builds equipment rig layers (held sprite meshes and worn armor) for a body submission.
 
+use crate::presentation::equipment::LAYER_MAIN_HAND;
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{
@@ -21,6 +22,7 @@ use render_model::{
 mod alpha;
 mod attack;
 mod block_items;
+mod body;
 mod camera;
 mod combat;
 mod diagnostics;
@@ -57,7 +59,7 @@ use {
         atlas::{Placement, SpriteAtlas},
         display::{
             FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
-            LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, head_block_display, view_bone,
+            LAYER_LEGGINGS, LAYER_OFF_HAND, head_block_display, view_bone,
         },
     },
     render_model::equipment::{self as attachable, blocks::BlockSheets},
@@ -148,11 +150,20 @@ pub struct EquipmentRuntime {
     java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
     /// Render-controller models queued beyond the scene's binding geometries.
     selected_geometries: std::collections::BTreeSet<EntityRigId>,
+    /// Startup equipment meshes returned to the scene for registration.
+    startup_geometries: std::collections::BTreeSet<EntityRigId>,
     /// The strip frame each held dial (compass or clock) shows this frame.
     dial_frames: inventory::DialFrames,
+    /// Whether server-pack held models may replace their ordinary item sprites.
+    show_custom_item_models: bool,
 }
 
 impl EquipmentRuntime {
+    /// Applies the current video preference to the frame's held-item model selection.
+    pub fn set_show_custom_item_models(&mut self, enabled: bool) {
+        self.show_custom_item_models = enabled;
+    }
+
     /// Releases memoized poses of layers no recent frame drew.
     pub fn begin_frame(&mut self) {
         self.poses.begin_frame();
@@ -290,7 +301,9 @@ impl EquipmentRuntime {
             native_meshes: BTreeMap::new(),
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
+            startup_geometries: geometries.iter().copied().map(equipment_rig_id).collect(),
             dial_frames: Default::default(),
+            show_custom_item_models: ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
             external_armor: external_armor::ExternalArmor::new(catalog.as_deref()),
             assets,
             icons,
@@ -534,6 +547,11 @@ impl EquipmentRuntime {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }
             }
+        }
+        if let Some(animation) = animation
+            && let Some(item) = &input.body
+        {
+            self.push_body(body, item, input, animation, layers);
         }
         wearing_elytra
     }

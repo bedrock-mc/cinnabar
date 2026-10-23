@@ -193,7 +193,7 @@ impl SetupApp {
         };
         let size = window.inner_size();
         let mut canvas = Canvas::new(size.width.max(1), size.height.max(1));
-        let log = self.layout.log_dir().join("first-run.log");
+        let log = crate::prepare::log_path(&self.layout);
         let log_hint = log.display().to_string();
         self.hits = view::draw(
             &mut canvas,

@@ -102,7 +102,8 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             .iter()
             .filter(|binding| !binding.identifier.starts_with("minecraft:"))
             .filter_map(|binding| match binding.category {
-                assets::EquipmentCategory::Armor { slot } => {
+                assets::EquipmentCategory::Armor { slot }
+                | assets::EquipmentCategory::ArmorAndHeld { slot } => {
                     Some((binding.identifier.clone(), slot))
                 }
                 _ => None,

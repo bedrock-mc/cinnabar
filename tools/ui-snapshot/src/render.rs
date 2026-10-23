@@ -12,12 +12,18 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod hud_editor;
+#[cfg(feature = "test-support")]
+mod menu_keyboard;
 mod panorama;
 mod saturation_overlap;
 #[cfg(feature = "test-support")]
 mod settings_draft;
 mod sprite_outline;
 mod tiled_image;
+#[cfg(feature = "test-support")]
+mod touch_editor;
+#[cfg(feature = "test-support")]
+mod touch_utilities;
 
 use std::{
     collections::HashMap,
@@ -144,6 +150,18 @@ fn png_fixture(
     if matches!(&fixture, Fixture::SettingsDraft) {
         return settings_draft::png(state, dir);
     }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::MenuKeyboard) {
+        return menu_keyboard::png(state, dir);
+    }
+    #[cfg(feature = "test-support")]
+    if let Fixture::TouchEditor { phase } = &fixture {
+        return touch_editor::png(state, dir, *phase, seconds);
+    }
+    #[cfg(feature = "test-support")]
+    if let Fixture::TouchUtilities(view) = &fixture {
+        return touch_utilities::png(state, dir, *view);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -160,10 +178,13 @@ fn png_fixture(
         | Fixture::ModPanel(..)
         | Fixture::HudEditor { .. } => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. }
+        Fixture::TouchEditor { .. }
+        | Fixture::TouchUtilities(..)
+        | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
         | Fixture::SettingsDraft
+        | Fixture::MenuKeyboard
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
@@ -214,6 +235,7 @@ fn png_fixture(
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
         | Fixture::SettingsDraft
+        | Fixture::MenuKeyboard
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
@@ -257,6 +279,10 @@ fn png_fixture(
             )
             .map_err(|error| error.to_string())?;
             add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        #[cfg(feature = "test-support")]
+        Fixture::TouchEditor { .. } | Fixture::TouchUtilities(..) => {
+            unreachable!("touch editor uses the complete presentation path")
         }
         Fixture::HudEditor { hud, edited } => {
             let mut engine = json_engine(&carriers)?;
@@ -425,7 +451,7 @@ fn png_fixture(
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
-                list.paint(&engine, &rows, &mut frame)
+                list.paint(&engine, &rows, &mut frame, 0. ..state.size[1] as f32)
                     .map_err(|error| error.to_string())?;
             }
             add_server_pages(&mut engine, &mut carriers.pages);

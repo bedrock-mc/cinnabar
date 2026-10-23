@@ -416,6 +416,44 @@ fn render_completion_and_the_pacing_switch_never_shorten_the_cadence() {
     }
 }
 
+/// A completed render must release input exactly at the cap, even when stale presentation
+/// history predicts completion beyond it. The clock never sleeps or reads elapsed wall time.
+#[test]
+fn a_completed_render_does_not_hide_the_cap_deadline() {
+    for fps in [50, 60] {
+        let clock = FakeClock::new();
+        let pacer = InputPacer::new(clock.clone(), true);
+        let mut main = World::new();
+        main.insert_resource(hz(fps));
+        for frame in 0..120 {
+            pacer.update_started();
+            {
+                let mut state = pacer.state();
+                for _ in 0..MIN_SAMPLES {
+                    state.model.main.record(ms(1.0));
+                    state.model.render.record(ms(20.0));
+                }
+            }
+            clock.advance(ms(1.0));
+            let render_clock = clock.clone();
+            let render_pacer = pacer.clone();
+            pacer.handoff(&mut main, &mut World::new(), &mut |_, _| {
+                render_pacer.render_started();
+                let finished = render_pacer.clone();
+                render_clock.schedule(render_clock.now() + ms(1.0), move || {
+                    finished.render_finished()
+                });
+            });
+            let cadence = Cadence::new(FrameRate::from_hz(fps).unwrap(), 0);
+            assert_eq!(
+                clock.now() - clock.base,
+                Duration::from_nanos(cadence.slot_nanos(frame + 1)),
+                "{fps} FPS, frame {frame}"
+            );
+        }
+    }
+}
+
 #[test]
 fn cpu_render_completion_does_not_admit_input_behind_a_gpu_backlog() {
     for enabled in [true, false] {

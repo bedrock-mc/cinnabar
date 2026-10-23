@@ -756,3 +756,120 @@ fn native_field_input_deferred_submits_preserve_retained_values() {
         vec![FieldEvent::Submit(text("a")), FieldEvent::Change(text(""))]
     );
 }
+
+/// Click and weather policy are granted, transactional, retained and revoked on failure.
+#[test]
+fn local_click_and_weather_policies_commit_and_revoke_together() {
+    use cinnabar::extension::environment::{Host as _, Weather};
+    let mut config = wasmtime::Config::new();
+    config.consume_fuel(true);
+    let engine = Engine::new(&config).unwrap();
+    let component = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let mut instance = Instance::new(
+        &engine,
+        component,
+        ModGrants {
+            controls: true,
+            environment: true,
+            ..Default::default()
+        },
+        "{}".into(),
+        Default::default(),
+        None,
+    )
+    .unwrap();
+    instance
+        .run(FRAME_FUEL, commit_event, |_, store| {
+            let state = store.data_mut();
+            state.set_click_limits(Some(12), None)?.unwrap();
+            state.set_weather_override(Some(Weather::Rain))?.unwrap();
+            assert_eq!(state.click_limits, [None; 2]);
+            assert!(state.weather_override.is_none());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(instance.click_limits(), [Some(12), None]);
+    assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
+    instance.begin_frame();
+    instance
+        .run(FRAME_FUEL, commit_event, |_, _| Ok(()))
+        .unwrap();
+    assert_eq!(instance.click_limits(), [Some(12), None]);
+    assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
+    instance
+        .run(FRAME_FUEL, commit_event, |_, store| {
+            store.data_mut().set_click_limits(None, None)?.unwrap();
+            store.data_mut().set_weather_override(None)?.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(instance.click_limits(), [None; 2]);
+    assert!(instance.weather_override().is_none());
+    instance
+        .run(FRAME_FUEL, commit_event, |_, store| {
+            store
+                .data_mut()
+                .set_click_limits(Some(5), Some(10))?
+                .unwrap();
+            store
+                .data_mut()
+                .set_weather_override(Some(Weather::Thunder))?
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        instance
+            .run(FRAME_FUEL, commit_event, |_, store| {
+                store
+                    .data_mut()
+                    .set_weather_override(Some(Weather::Clear))?
+                    .unwrap();
+                anyhow::bail!("synthetic callback failure")
+            })
+            .is_err()
+    );
+    assert_eq!(instance.click_limits(), [None; 2]);
+    assert!(instance.weather_override().is_none());
+}
+
+/// Invalid rates and missing grants cannot replace a previously staged policy.
+#[test]
+fn click_and_weather_policy_admission_rejects_denied_or_invalid_writes() {
+    use cinnabar::extension::environment::{Host as _, Weather};
+    let mut denied = state(ModGrants::default());
+    assert!(denied.set_click_limits(Some(10), None).unwrap().is_err());
+    assert!(
+        denied
+            .set_weather_override(Some(Weather::Clear))
+            .unwrap()
+            .is_err()
+    );
+    assert!(denied.pending_click_limits.is_none());
+    assert!(denied.pending_weather.is_none());
+    let mut allowed = state(ModGrants {
+        controls: true,
+        environment: true,
+        ..Default::default()
+    });
+    allowed
+        .set_click_limits(Some(10), Some(20))
+        .unwrap()
+        .unwrap();
+    for bad in [0, mod_api::MAX_CLICK_RATE + 1, u32::MAX] {
+        assert!(allowed.set_click_limits(Some(bad), None).unwrap().is_err());
+        assert_eq!(allowed.pending_click_limits, Some([Some(10), Some(20)]));
+    }
+    allowed.exclusive.environment = true;
+    assert!(
+        allowed
+            .set_weather_override(Some(Weather::Rain))
+            .unwrap()
+            .is_err()
+    );
+    assert!(allowed.pending_weather.is_none());
+}

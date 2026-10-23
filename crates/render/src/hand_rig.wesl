@@ -35,7 +35,18 @@ struct HandMaterial {
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(3) var<storage, read> geometry_spans: array<GeometrySpan>;
 @group(0) @binding(4) var<storage, read> previous_bones: array<BoneMatrix>;
+@if(!COMPACT_BONES)
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
+
+// The compact pose stores equal-sized previous and current endpoint arrays together.
+fn current_bone(index: u32) -> BoneMatrix {
+    @if(!COMPACT_BONES) return current_bones[index];
+    @if(COMPACT_BONES) {
+        let count = arrayLength(&previous_bones) / 2u;
+        if (index >= count) { var empty: BoneMatrix; return empty; }
+        return previous_bones[count + index];
+    }
+}
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
 @group(0) @binding(8) var<uniform> hand_material: HandMaterial;
@@ -148,13 +159,13 @@ fn hand_vertex(
         bitcast<f32>(vertex_words[vertex_base + 9u]),
     );
     let bone_index = vertex_words[vertex_base + 10u];
-    let posed = posed_point(previous_bones[previous_bone_base + bone_index], current_bones[current_bone_base + bone_index], local, partial_tick);
+    let posed = posed_point(previous_bones[previous_bone_base + bone_index], current_bone(current_bone_base + bone_index), local, partial_tick);
     let placement = BoneMatrix(instance_row(instance_base, 0u), instance_row(instance_base, 1u), instance_row(instance_base, 2u));
     let world = vec4(placed_point(placement, posed), 1.0);
     out.position = view.clip_from_hand * world;
     if (hand_light.java_lights[0].w != 0.0) {
         let previous_matrix = previous_bones[previous_bone_base + bone_index];
-        let current_matrix = current_bones[current_bone_base + bone_index];
+        let current_matrix = current_bone(current_bone_base + bone_index);
         let bone = transpose(mat3x3(
             mix(previous_matrix.row_0.xyz, current_matrix.row_0.xyz, partial_tick),
             mix(previous_matrix.row_1.xyz, current_matrix.row_1.xyz, partial_tick),

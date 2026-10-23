@@ -14,6 +14,7 @@ mod mining;
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
@@ -54,6 +55,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
@@ -212,6 +214,7 @@ fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
         mining: definition.mining,
+        sound: definition.sound,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
@@ -349,6 +352,26 @@ fn hashed_states_follow_palette_order() {
             block.state_values(index)
         );
     }
+}
+
+#[test]
+fn sound_component_material_is_retained_from_the_base_definition() {
+    let root = compound(vec![(
+        "components",
+        compound(vec![(
+            "minecraft:sound",
+            compound(vec![("sound", text("wood"))]),
+        )]),
+    )]);
+    let definition = super::parse_definition(&root).expect("definition");
+    assert_eq!(definition.sound.as_deref(), Some("wood"));
+
+    let scalar = compound(vec![(
+        "components",
+        compound(vec![("minecraft:sound", text("metal"))]),
+    )]);
+    let definition = super::parse_definition(&scalar).expect("scalar definition");
+    assert_eq!(definition.sound.as_deref(), Some("metal"));
 }
 
 // A nameless property is the client's empty-named state.
@@ -954,7 +977,7 @@ fn connection_axes_follow_placement_traits_and_precede_properties() {
     );
 }
 
-/// Only a `minecraft:custom_components` that sets `hasPlayerInteract` declares the handler.
+/// Crafting tables and explicit interact components declare the handler alongside legacy flags.
 #[test]
 fn custom_components_declare_a_player_interact_handler() {
     let root = |components: Vec<(&str, Nbt)>| compound(vec![("components", compound(components))]);
@@ -972,6 +995,15 @@ fn custom_components_declare_a_player_interact_handler() {
         "minecraft:custom_components",
         compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
     )])));
+    assert!(parsed(root(vec![(
+        "minecraft:on_interact",
+        compound(vec![
+            ("condition", text("")),
+            ("event", text("")),
+            ("target", text("self")),
+        ]),
+    )])));
+    assert!(!parsed(root(vec![("minecraft:on_interact", Nbt::Byte(1))])));
 }
 
 // Packs alias faces to shared instances; dropping the alias would draw the `*` texture there.

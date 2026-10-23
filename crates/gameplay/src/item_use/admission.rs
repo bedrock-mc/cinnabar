@@ -38,7 +38,7 @@ pub fn step_and_send(
         candidate.pending.latched_press = true;
         candidate.pending.deferred_selection = runtime.pending.deferred_selection.clone();
     }
-    if outcome.swung
+    if outcome.swung.is_some()
         && swings.tick_is_published(frame.tick)
         && runtime.pending.rejected_swing_tick != Some((frame.tick, swings.authority_identity()))
     {
@@ -46,11 +46,10 @@ pub fn step_and_send(
     }
     candidate.pending.rejected_swing_tick = None;
     let mut packets = outcome.packets;
-    if outcome.swung && candidate_swings.try_swing(frame.tick, swing_duration) {
-        packets.insert(
-            0,
-            protocol::swing_arm_packet(local_runtime_id, protocol::SwingSource::ThrowItem),
-        );
+    if let Some(source) = outcome.swung
+        && candidate_swings.try_swing(frame.tick, swing_duration)
+    {
+        packets.insert(0, protocol::swing_arm_packet(local_runtime_id, source));
     }
     let admission = if packets.is_empty() {
         Ok(())
@@ -65,7 +64,7 @@ pub fn step_and_send(
         }
         Err(BatchSendError::Full) => {
             swings.defer_unadmitted_attempt(&candidate_swings);
-            if outcome.swung {
+            if outcome.swung.is_some() {
                 runtime.pending.rejected_swing_tick =
                     Some((frame.tick, swings.authority_identity()));
             }
