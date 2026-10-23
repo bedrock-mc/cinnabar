@@ -243,6 +243,7 @@ impl GpuArtwork {
         }
         let mut prepared = 0;
         let mut bytes = 0;
+        let mut released = false;
         let mut attempted = std::collections::HashSet::new();
         let first_background = self.prewarm_cursor;
         let requests = demanded.map(|id| (id, false)).chain(
@@ -285,22 +286,25 @@ impl GpuArtwork {
             let has_fallback = previous
                 .as_ref()
                 .is_some_and(|gpu| gpu.source.contains_layers(page.layers));
+            released |= previous.is_some() && !has_fallback;
             let gpu = match previous {
                 Some(mut gpu) if gpu.source == source && gpu.raw_views == raw_views => {
                     gpu.source = source;
                     Some(gpu)
                 }
                 previous => allocate_page(device, queue, page, source, !has_fallback, raw_views)
+                    .inspect(|_| released |= previous.is_some())
                     .or_else(|| previous.filter(|gpu| gpu.source.contains_layers(page.layers))),
             };
             let Some(gpu) = gpu else {
                 if background {
                     continue;
                 }
-                // Releasing every page gives the retry the most memory.
-                let released = self.pages.iter().any(Option::is_some);
-                self.pages.clear();
-                self.allocation.record(false, released.then_some(queue));
+                // Keep completed pages; retirement can shorten only the first failed wait.
+                self.allocation.record(
+                    false,
+                    (released && !self.allocation.failed()).then_some(queue),
+                );
                 return false;
             };
             self.pages[index] = Some(gpu);

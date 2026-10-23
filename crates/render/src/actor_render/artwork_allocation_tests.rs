@@ -242,7 +242,7 @@ fn exhausting_all_page_sizes_skips_generic_artwork_without_repeating_allocations
     });
     let pages = publication(1, 2);
     assert!(!gpu.prepare(&pages, &device, &queue));
-    assert!(gpu.pages.is_empty());
+    assert!(gpu.pages.iter().all(Option::is_none));
     assert!(gpu.glint.texture.is_some());
     assert_eq!(attempts.get(), 5);
     assert!(!gpu.prepare(&pages, &device, &queue));
