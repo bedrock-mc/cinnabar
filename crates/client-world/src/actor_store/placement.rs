@@ -200,8 +200,13 @@ impl ActorStore {
         }
         let offset = degrees(ActorDataKey::SeatRotationOffsetDegrees).unwrap_or(0.0);
         let mount = self.snapshot_by_unique(*self.rider_to_ridden.get(&rider_unique_id)?)?;
-        let previous = mount.previous_pose.yaw;
-        let vehicle_yaw = previous + wrap_degrees(mount.yaw - previous) * alpha.clamp(0.0, 1.0);
+        // Before the live actors advance this frame, the mount turns as picks predict it.
+        let (previous, current) = self
+            .pick_ahead(mount.runtime_id)
+            .map_or((mount.previous_pose.yaw, mount.yaw), |pick| {
+                (pick.previous_yaw, pick.state.pose.yaw)
+            });
+        let vehicle_yaw = previous + wrap_degrees(current - previous) * alpha.clamp(0.0, 1.0);
         vehicle_yaw.is_finite().then(|| SeatViewLock {
             vehicle_yaw,
             offset,
@@ -271,9 +276,9 @@ impl ActorStore {
         for placement in placements {
             if let Ok(index) = self
                 .pick_states
-                .binary_search_by_key(&placement.runtime_id, |(runtime_id, _)| *runtime_id)
+                .binary_search_by_key(&placement.runtime_id, |pick| pick.runtime_id)
             {
-                self.pick_states[index].1.seat(&placement);
+                self.pick_states[index].state.seat(&placement);
             }
         }
     }

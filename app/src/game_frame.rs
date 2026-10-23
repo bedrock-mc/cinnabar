@@ -61,12 +61,13 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
                 .chain()
                 .in_set(ClientFrameSet::ActorPreparation),
         )
-        // Picks in Interaction and NetworkSend read this frame's remote actor positions.
+        // The camera's vehicle look and picks in Interaction and NetworkSend read this
+        // frame's remote actor positions.
         .add_systems(
             Update,
             crate::runtime::network::advance_actor_motion
-                .after(ClientFrameSet::Camera)
-                .before(ClientFrameSet::Interaction),
+                .after(ClientFrameSet::Physics)
+                .before(ClientFrameSet::Camera),
         )
         .add_systems(
             Update,
@@ -102,12 +103,14 @@ pub(crate) fn configure_world(app: &mut App) {
             .after(advance_local_physics)
             .in_set(ClientFrameSet::NetworkSend),
     )
-    // Look following reads this frame's predicted vehicle heading before the camera resolves.
+    // Look following reads this frame's predicted and streamed vehicle headings before the
+    // camera resolves.
     .init_resource::<client_presentation::camera::VehicleLookFollow>()
     .add_systems(
         Update,
         crate::runtime::world::vehicle_look::follow_vehicle_look
             .after(advance_local_physics)
+            .after(crate::runtime::network::advance_actor_motion)
             .before(resolve_local_player_presentation),
     )
     .add_systems(

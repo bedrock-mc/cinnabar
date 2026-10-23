@@ -234,6 +234,18 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
             "actor picks must read this frame's remote actor positions",
         );
     }
+    assert!(
+        schedule_precedes(
+            graph,
+            motion,
+            system_node(
+                graph,
+                crate::runtime::world::vehicle_look::follow_vehicle_look,
+                "follow_vehicle_look",
+            ),
+        ),
+        "the vehicle look must follow this frame's streamed vehicle heading",
+    );
     for preparation in [
         system_node(graph, drive_world_stream, "drive_world_stream"),
         system_node(graph, advance_actor_frame, "advance_actor_frame"),

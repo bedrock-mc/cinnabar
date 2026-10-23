@@ -58,14 +58,19 @@ impl ActorStore {
             self.actors
                 .iter()
                 .filter(|(runtime_id, _)| local != Some(**runtime_id))
-                .map(|(runtime_id, actor)| (*runtime_id, actor.motion_state())),
+                .map(|(runtime_id, actor)| movement_interpolation::PickState {
+                    runtime_id: *runtime_id,
+                    previous_yaw: actor.yaw,
+                    state: actor.motion_state(),
+                }),
         );
         self.pick_states
-            .sort_unstable_by_key(|(runtime_id, _)| *runtime_id);
+            .sort_unstable_by_key(|pick| pick.runtime_id);
         // The live loop's per-tick order: every actor's motion, then seating.
         for _ in 0..ticks {
-            for (_, state) in &mut self.pick_states {
-                state.tick();
+            for pick in &mut self.pick_states {
+                pick.previous_yaw = pick.state.pose.yaw;
+                pick.state.tick();
             }
             self.seat_pick_riders();
         }
@@ -83,10 +88,23 @@ impl ActorStore {
         &self,
         runtime_id: u64,
     ) -> Option<&movement_interpolation::MotionState> {
+        self.pick(runtime_id).map(|pick| &pick.state)
+    }
+
+    /// This frame's predicted motion of a remote actor, while picks are ahead of the live
+    /// actors.
+    pub(in crate::actor_store) fn pick_ahead(
+        &self,
+        runtime_id: u64,
+    ) -> Option<&movement_interpolation::PickState> {
+        self.picks_ahead.then(|| self.pick(runtime_id)).flatten()
+    }
+
+    fn pick(&self, runtime_id: u64) -> Option<&movement_interpolation::PickState> {
         self.pick_states
-            .binary_search_by_key(&runtime_id, |(id, _)| *id)
+            .binary_search_by_key(&runtime_id, |pick| pick.runtime_id)
             .ok()
-            .map(|index| &self.pick_states[index].1)
+            .map(|index| &self.pick_states[index])
     }
 
     /// One tick of interpolated motion for every actor.

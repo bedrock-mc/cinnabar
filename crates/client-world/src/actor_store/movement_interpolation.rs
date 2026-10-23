@@ -172,6 +172,16 @@ pub(super) struct MotionState {
     ground_offset: Option<f32>,
 }
 
+/// One remote actor's motion after this frame's due ticks, for reads made before the live
+/// actors advance.
+#[derive(Debug, Clone)]
+pub(super) struct PickState {
+    pub(super) runtime_id: u64,
+    /// The yaw one tick before `state`, which this frame eases from.
+    pub(super) previous_yaw: f32,
+    pub(super) state: MotionState,
+}
+
 impl MotionState {
     /// One interpolation tick: each step closes 1/n of the remaining gap and the final step
     /// lands exactly on the target; rotation follows its own counters.

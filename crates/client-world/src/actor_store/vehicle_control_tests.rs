@@ -287,6 +287,50 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
     assert_eq!(store.rider_view_lock(PIG, 0.5), None);
 }
 
+/// Before the live actors advance, a passenger's view follows the turn this frame will show.
+#[test]
+fn a_streamed_vehicle_turns_the_view_as_this_frame_will_show_it() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    store.apply(1, 2, spawn(OTHER_PLAYER, player("Other"), Vec::new()));
+    store.apply(
+        1,
+        3,
+        spawn(
+            PLAYER,
+            player("Rider"),
+            vec![
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotation.wire_value(),
+                    value: ActorMetadataValue::Byte(1),
+                },
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotationDegrees.wire_value(),
+                    value: ActorMetadataValue::Float(90.0),
+                },
+            ],
+        ),
+    );
+    store.exclude_remote_state_for(PLAYER as u64);
+    let mut sequence = 3;
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (OTHER_PLAYER, ActorLinkType::Rider),
+            (PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    sequence += 1;
+    store.apply(1, sequence, boat_move(10.0, false));
+    store.predict_remote_motion(1);
+    let predicted = store.rider_view_lock(PLAYER, 0.5).unwrap().vehicle_yaw;
+    store.advance_interpolation_ticks(1);
+    let shown = store.rider_view_lock(PLAYER, 0.5).unwrap().vehicle_yaw;
+    assert_ne!(shown, 0.0);
+    assert_eq!(predicted, shown);
+}
+
 #[test]
 fn a_player_linked_before_it_spawns_still_takes_the_front_seat() {
     let mut store = ActorStore::new(1, 0);

@@ -798,7 +798,7 @@ pub(crate) struct ActorStore {
     local_view_dirty: bool,
     /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
     /// the frame advances the live actors; reused across frames.
-    pick_states: Vec<(u64, movement_interpolation::MotionState)>,
+    pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
     local_view_bobbing: bool,
     local_flying: bool,

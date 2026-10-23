@@ -67,6 +67,12 @@ impl ActorFrameState {
         self.step
     }
 
+    /// This frame's actor clock step once remote motion is predicted, before actor
+    /// preparation consumes it.
+    pub fn motion_step(&self) -> Option<crate::actor_clock::ActorFrameStep> {
+        self.motion_step
+    }
+
     /// Returns the resolved camera rotation and position captured for actor evaluation.
     pub fn sampling_camera(&self) -> Option<([f32; 2], [f32; 3])> {
         self.captured_sampling_camera
