@@ -254,6 +254,21 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event,
                 local_millis,
             ),
+            CommittedUiEvent::LocalSpawn {
+                sequence,
+                health,
+                ridden_unique_id,
+            } => ui_runtime.apply_local_spawn(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick: 0,
+                    attributes: health,
+                },
+                ridden_unique_id,
+            ),
             CommittedUiEvent::LocalMount {
                 sequence,
                 ridden_unique_id,

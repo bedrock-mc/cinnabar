@@ -13,6 +13,7 @@ use {
 mod source;
 #[path = "artwork_upload.rs"]
 mod upload;
+use crate::actor::gpu::ArtworkRawViews;
 use crate::gpu_allocation;
 use source::TextureKey;
 use upload::{PendingPage, Progress, UPLOAD_BYTES_PER_FRAME};
@@ -26,13 +27,15 @@ pub(super) struct GpuArtworkPage {
     pub bind_group: Option<BindGroup>,
     pub color_mask: bool,
     pub multitexture: bool,
+    raw_views: ArtworkRawViews,
 }
 
 #[cfg(feature = "shaderpacks")]
 impl GpuArtworkPage {
-    /// The page's array texture, for single-layer views.
-    pub fn texture(&self) -> &Texture {
-        &self._texture
+    /// The page's array texture, for single-layer raw views; `None` until it is recreated to
+    /// allow them.
+    pub fn raw_texture(&self) -> Option<&Texture> {
+        self.raw_views.0.then_some(&self._texture)
     }
 }
 
@@ -42,6 +45,7 @@ pub(super) struct GpuGlint {
     pub texture: Option<(Texture, TextureView)>,
     source: Option<TextureKey>,
     bytes: usize,
+    raw_views: ArtworkRawViews,
 }
 
 impl GpuGlint {
@@ -53,6 +57,7 @@ impl GpuGlint {
         device: &RenderDevice,
         queue: &RenderQueue,
         label: &'static str,
+        raw_views: ArtworkRawViews,
     ) -> bool {
         let fallback = render_model::EquipmentRaster {
             width: 1,
@@ -74,12 +79,18 @@ impl GpuGlint {
             .filter(|key| key.shares_pixels_with(&page))
             .cloned()
             .unwrap_or_else(|| TextureKey::new(&page, hasher));
-        let changed = self.source.as_ref() != Some(&key);
+        let changed = self.source.as_ref() != Some(&key) || self.raw_views != raw_views;
         if !changed {
             return false;
         }
-        let Some(texture) = upload_or_reduce(device, queue, &page, label, self.texture.is_none())
-        else {
+        let Some(texture) = upload_or_reduce(
+            device,
+            queue,
+            &page,
+            label,
+            self.texture.is_none(),
+            raw_views,
+        ) else {
             return false;
         };
         let Some(view) = gpu_allocation::checked(device, "actor glint view", 0, || {
@@ -90,7 +101,17 @@ impl GpuGlint {
         self.bytes = (texture.width() as usize) * (texture.height() as usize) * 4;
         self.texture = Some((texture, view));
         self.source = Some(key);
+        self.raw_views = raw_views;
         changed
+    }
+
+    /// The glint texture for raw views; `None` until it is recreated to allow them.
+    #[cfg(feature = "shaderpacks")]
+    pub fn raw_texture(&self) -> Option<&Texture> {
+        self.texture
+            .as_ref()
+            .filter(|_| self.raw_views.0)
+            .map(|(texture, _)| texture)
     }
 }
 
@@ -109,9 +130,20 @@ pub(super) struct GpuArtwork {
     rejected: bool,
     /// A demanded page that could not allocate retries after a bounded backoff.
     allocation: gpu_allocation::UploadRetry,
+    /// The raw-view setting pages and glints are created with.
+    raw_views: ArtworkRawViews,
 }
 
 impl GpuArtwork {
+    /// Recreates pages and glints under the new view format while retaining complete old pages.
+    pub fn set_raw_views(&mut self, raw_views: ArtworkRawViews) {
+        if self.raw_views != raw_views {
+            self.raw_views = raw_views;
+            self.identity = None;
+            self.pending.iter_mut().for_each(|page| *page = None);
+        }
+    }
+
     /// Uploads current demand first, then prewarms unused pages, writing at most one frame's
     /// upload budget; a page binds once all of its rows are written.
     pub fn prepare_demanded(
@@ -156,6 +188,7 @@ impl GpuArtwork {
         queue: &RenderQueue,
         budget: usize,
     ) -> bool {
+        let raw_views = self.raw_views;
         let identity = (pages.identity, pages.entity_identity);
         let changed = self.identity != Some(identity);
         if changed {
@@ -168,6 +201,7 @@ impl GpuArtwork {
                 device,
                 queue,
                 "immutable actor glint",
+                raw_views,
             );
             let item_changed = self.item_glint.prepare(
                 pages.item_glint.as_ref(),
@@ -175,6 +209,7 @@ impl GpuArtwork {
                 device,
                 queue,
                 "immutable item glint",
+                raw_views,
             );
             if actor_changed || item_changed {
                 self.invalidate_bindings();
@@ -263,9 +298,9 @@ impl GpuArtwork {
             .chain((first_background..pages.pages.len()).map(|index| (index, true)));
         for (index, background) in requests {
             let page = &pages.pages[index];
-            let current = self.pages[index]
-                .as_ref()
-                .is_some_and(|gpu| gpu.source.shares_pixels_with(page));
+            let current = self.pages[index].as_ref().is_some_and(|gpu| {
+                gpu.source.shares_pixels_with(page) && gpu.raw_views == raw_views
+            });
             if current || attempted.contains(&index) {
                 if background {
                     self.prewarm_cursor = index + 1;
@@ -311,12 +346,18 @@ impl GpuArtwork {
             let source = TextureKey::new(page, &self.source_hasher);
             if let Some(gpu) = &mut self.pages[index]
                 && gpu.source == source
+                && gpu.raw_views == self.raw_views
             {
                 gpu.source = source;
                 return true;
             }
-            self.pending[index] =
-                upload::start_page(device, page, source, self.pages[index].is_none());
+            self.pending[index] = upload::start_page(
+                device,
+                page,
+                source,
+                self.pages[index].is_none(),
+                self.raw_views,
+            );
         }
         let Some(pending) = self.pending[index].take() else {
             return self.pages[index].is_some();
@@ -370,12 +411,13 @@ fn upload_or_reduce(
     page: &render_model::ActorTexturePage,
     label: &'static str,
     reduce: bool,
+    raw_views: ArtworkRawViews,
 ) -> Option<Texture> {
     let mut fitted = page
         .fit_within(device.limits().max_texture_dimension_2d)
         .into_owned();
     loop {
-        if let Some(texture) = upload_page(device, queue, &fitted, label) {
+        if let Some(texture) = upload_page(device, queue, &fitted, label, raw_views) {
             return Some(texture);
         }
         let side = u32::from(fitted.width.max(fitted.height));
@@ -392,6 +434,7 @@ fn upload_page(
     queue: &RenderQueue,
     page: &render_model::ActorTexturePage,
     label: &'static str,
+    raw_views: ArtworkRawViews,
 ) -> Option<Texture> {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
@@ -417,7 +460,7 @@ fn upload_page(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+            view_formats: raw_views.view_formats(),
         })
     })?;
     #[cfg(test)]

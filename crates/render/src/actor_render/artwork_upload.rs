@@ -16,6 +16,7 @@ pub(super) struct PendingPage {
     pub(super) color_mask: bool,
     pub(super) multitexture: bool,
     reduce: bool,
+    raw_views: ArtworkRawViews,
 }
 
 /// Creates a page's texture without writing it, halving fresh pages that cannot allocate.
@@ -24,6 +25,7 @@ pub(super) fn start_page(
     page: &render_model::ActorTexturePage,
     source: TextureKey,
     reduce: bool,
+    raw_views: ArtworkRawViews,
 ) -> Option<PendingPage> {
     let mut fitted = page
         .fit_within(device.limits().max_texture_dimension_2d)
@@ -44,7 +46,7 @@ pub(super) fn start_page(
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba8UnormSrgb,
                 usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+                view_formats: raw_views.view_formats(),
             },
         );
         if let Some(texture) = texture {
@@ -57,6 +59,7 @@ pub(super) fn start_page(
                 color_mask: page.color_mask,
                 multitexture: page.multitexture,
                 reduce,
+                raw_views,
             });
         }
         let side = u32::from(fitted.width.max(fitted.height));
@@ -145,6 +148,7 @@ pub(super) fn continue_page(
         bind_group: None,
         color_mask: pending.color_mask,
         multitexture: pending.multitexture,
+        raw_views: pending.raw_views,
     })
 }
 
@@ -164,5 +168,6 @@ fn retry_smaller(device: &RenderDevice, pending: PendingPage) -> Progress {
     };
     drop(pending.texture);
     let page = page.fit_within(side / 2);
-    start_page(device, &page, pending.source, true).map_or(Progress::Failed, Progress::Pending)
+    start_page(device, &page, pending.source, true, pending.raw_views)
+        .map_or(Progress::Failed, Progress::Pending)
 }

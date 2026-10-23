@@ -1,6 +1,7 @@
 //! Presentation resources shared by actor preparation and publication.
 use crate::actor_publication::{
-    ActorFramePartialTick, ActorFrameState, CosmeticEmitterPlacements, PreparedActorPublication,
+    ActorFramePartialTick, ActorFrameState, CosmeticEmitterPlacements, GroundEffectWearers,
+    PreparedActorPublication,
 };
 use bevy::prelude::{App, Plugin};
 
@@ -13,6 +14,7 @@ impl Plugin for ClientPresentationPlugin {
         app.init_resource::<ActorFrameState>()
             .init_resource::<ActorFramePartialTick>()
             .init_resource::<PreparedActorPublication>()
-            .init_resource::<CosmeticEmitterPlacements>();
+            .init_resource::<CosmeticEmitterPlacements>()
+            .init_resource::<GroundEffectWearers>();
     }
 }

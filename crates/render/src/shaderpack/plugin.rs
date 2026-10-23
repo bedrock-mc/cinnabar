@@ -364,18 +364,23 @@ pub(super) fn configure_replacement(
     mut replaced: ResMut<ShaderPackEffects>,
     textures: Option<Res<ShaderpackEffectTextures>>,
 ) {
-    let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
-    let ready = pack
+    let Some(pack) = pack
         .as_ref()
         .and_then(|pack| pack.0.as_ref())
-        .filter(|pack| {
-            !cameras.is_empty()
-                && cameras.iter().all(|entity| {
-                    states.get(&entity).is_some_and(|state| {
-                        Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
-                    })
-                })
-        });
+        .filter(|_| !cameras.is_empty())
+    else {
+        drawn.set_if_neq(ShaderPackDrawnCategories::default());
+        replaced.set_if_neq(ShaderPackEffects::default());
+        return;
+    };
+    let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
+    let ready = Some(pack).filter(|pack| {
+        cameras.iter().all(|entity| {
+            states.get(&entity).is_some_and(|state| {
+                Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
+            })
+        })
+    });
     let replaces = ready
         .is_some_and(|pack| replacement_ready(pack, cameras.iter(), geometry.as_deref(), &states));
     drawn.set_if_neq(ShaderPackDrawnCategories {
@@ -785,13 +790,18 @@ fn install_graph(world: &mut World) {
                     .before(tonemapping)
                     .in_set(Core3dSystems::PostProcess),
             );
-            schedule.add_systems(shaderpack_post.in_set(ShaderpackPass));
+            schedule.add_systems(shaderpack_post.in_set(ShaderpackPass).run_if(pack_loaded));
             super::native_passes::install(schedule);
         })
         .is_ok();
     if installed {
         world.insert_resource(GraphInstalled);
     }
+}
+
+/// Whether the render world holds a loaded pack; pack passes have nothing to draw otherwise.
+pub(super) fn pack_loaded(pack: Option<Res<LoadedShaderPack>>) -> bool {
+    pack.is_some_and(|pack| pack.0.is_some())
 }
 
 /// Publishes the loaded pack's entity and item ids for the app's actor and held-item ids.
@@ -869,6 +879,11 @@ pub(super) fn finish(app: &mut App) {
         .init_resource::<ShaderPackEffects>()
         .init_resource::<ShaderpackEffectTextures>()
         .init_resource::<ShaderPackDrawnCategories>()
+        .init_resource::<crate::actor::gpu::ArtworkRawViews>()
+        .add_systems(
+            bevy::render::ExtractSchedule,
+            crate::actor::gpu::extract_artwork_raw_views,
+        )
         .add_systems(
             Render,
             (

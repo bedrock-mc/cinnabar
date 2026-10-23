@@ -146,7 +146,7 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         multitexture: false,
     };
     let before_texture =
-        upload_or_reduce(&device, &queue, &page, "original fixture", true).unwrap();
+        upload_or_reduce(&device, &queue, &page, "original fixture", true, default()).unwrap();
     let before_view = before_texture.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
@@ -159,7 +159,8 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         failed = true;
         true
     });
-    let after_texture = upload_or_reduce(&device, &queue, &page, "reduced fixture", true).unwrap();
+    let after_texture =
+        upload_or_reduce(&device, &queue, &page, "reduced fixture", true, default()).unwrap();
     let after_view = after_texture.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()

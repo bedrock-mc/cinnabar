@@ -147,6 +147,60 @@ fn superseded_pending_pixels_are_released_without_being_published() {
 }
 
 #[test]
+fn changing_view_formats_restarts_pending_uploads_and_keeps_complete_pages() {
+    let (device, queue) = device();
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(&publication(1, 1), &device, &queue));
+    for (marker, raw) in [(2, true), (3, false)] {
+        let previous = gpu.page(0).unwrap()._texture.id();
+        let pages = publication(marker, 1);
+        let budget = pages.pages[0].rgba8.len() / 3;
+        assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+        gpu.set_raw_views(ArtworkRawViews(raw));
+        for frame in 1..=3 {
+            assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+            assert_eq!(gpu.page(0).unwrap()._texture.id() == previous, frame < 3);
+        }
+        let ready = gpu.page(0).unwrap();
+        assert!(ready.source.shares_pixels_with(&pages.pages[0]));
+        assert_eq!(ready.raw_views, ArtworkRawViews(raw));
+        #[cfg(feature = "shaderpacks")]
+        assert_eq!(
+            crate::actor::gpu::permits_raw_view(device.wgpu_device(), &ready._texture),
+            raw
+        );
+    }
+}
+
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn reduced_pending_pages_keep_the_requested_view_format() {
+    let (device, queue) = device();
+    let pages = publication(1, 1);
+    for boundary in ["actor page upload", "actor page view"] {
+        let mut gpu = GpuArtwork::default();
+        gpu.set_raw_views(ArtworkRawViews(true));
+        let mut failed = false;
+        let _failure = gpu_allocation::inject(move |label, _| {
+            if label != boundary || failed {
+                return false;
+            }
+            failed = true;
+            true
+        });
+        assert!(gpu.prepare_demanded(&pages, &[1], &device, &queue));
+        assert!(gpu.page(0).is_none());
+        assert!(gpu.prepare_demanded(&pages, &[1], &device, &queue));
+        let ready = gpu.page(0).unwrap();
+        assert!(ready._texture.width() < u32::from(pages.pages[0].width));
+        assert!(crate::actor::gpu::permits_raw_view(
+            device.wgpu_device(),
+            ready.raw_texture().unwrap()
+        ));
+    }
+}
+
+#[test]
 fn failed_row_writes_spend_the_budget_and_keep_a_compatible_previous_page() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();
@@ -237,7 +291,7 @@ fn row_bands_preserve_pixels_across_layer_boundaries() {
         })
         .collect();
     pages.pages = Arc::from([page.clone()]);
-    let reference = upload_page(&device, &queue, &page, "complete fixture").unwrap();
+    let reference = upload_page(&device, &queue, &page, "complete fixture", default()).unwrap();
     let view = reference.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
