@@ -16,6 +16,7 @@ pub(super) const MAX_CACHED_WINDOWS: usize = (PREFETCH_RADIUS as usize * 2 + 1).
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct WindowKey {
     centre: [i64; 2],
+    span: u16,
     above: bool,
 }
 
@@ -24,6 +25,7 @@ impl WindowKey {
     fn new(viewport: CloudViewport, above: bool) -> Self {
         Self {
             centre: viewport.centre().map(|value| value as i64),
+            span: viewport.span(),
             above,
         }
     }
@@ -108,8 +110,6 @@ impl CloudMeshCache {
         #[cfg(target_arch = "wasm32")]
         let _ = (runtime, diagnostics);
         #[cfg(not(target_arch = "wasm32"))]
-        let config = CloudRenderConfig::legacy_fancy();
-        #[cfg(not(target_arch = "wasm32"))]
         for z in -PREFETCH_RADIUS..=PREFETCH_RADIUS {
             for x in -PREFETCH_RADIUS..=PREFETCH_RADIUS {
                 for above in [false, true] {
@@ -119,8 +119,8 @@ impl CloudMeshCache {
                     ];
                     if let Some(next) = CloudViewport::try_new(
                         sample,
-                        config.mesh_size(),
-                        config.grid_size(),
+                        viewport.span(),
+                        1,
                         above,
                         false,
                     ) {

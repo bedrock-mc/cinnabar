@@ -614,9 +614,368 @@ fn discord(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     reset(content, SettingsGroup::Discord, "discord.settings.reset")
 }
 
+pub(super) fn french_text(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "options.on" | "On" | "gui.yes" | "True" | "true" => "Oui",
+        "options.off" | "Off" | "gui.no" | "False" | "false" => "Non",
+        "Automatic" => "Automatique",
+        "Low" => "Faible",
+        "Medium" => "Moyen",
+        "High" => "Élevé",
+        "Reset" => "Réinitialiser",
+        "Open" => "Ouvrir",
+        "View" => "Afficher",
+        "Clear data" => "Effacer les données",
+        "Sign In" => "Se connecter",
+        "Sign Out" => "Se déconnecter",
+        "Unassigned" => "Non attribué",
+
+        "options.cinnabar.advanced" => "Avancé",
+        "options.renderClouds" => "Afficher les nuages",
+        "options.renderClouds.description" => "Affiche les nuages dans le ciel.",
+        "options.cloudDistance" | "options.cloudDistance.name" => "Distance des nuages",
+        "options.cloudDistance.description" => {
+            "Ajustez la distance d'affichage des nuages jusqu'à 128 tronçons avec fondu dans le brouillard."
+        }
+        "options.showExactServerPing" => "Afficher le ping exact du serveur",
+        "options.showExactServerPing.description" => {
+            "Affiche la latence du serveur en millisecondes au lieu de Faible, Moyen ou Élevé."
+        }
+        "options.oreuiDarkMode" => "Mode sombre",
+        "options.oreuiDarkMode.description" => {
+            "Utiliser des surfaces sombres pour les menus, paramètres et boîtes de dialogue."
+        }
+        "options.framerateLimit.description" => {
+            "Choisissez une limite d'IPS ou Illimité. La VSync ou le taux de rafraîchissement variable peuvent toujours limiter la fréquence."
+        }
+        "options.framerateLimit.max" => "Illimité",
+        "options.fullscreen" => "Plein écran",
+        "options.fullscreen.description" => "Activer ou désactiver l'affichage plein écran",
+        "options.guiScale.optionName.name" => "Taille de l'interface",
+        "options.guiScale.optionName.description" => {
+            "Ajustez la taille du HUD et des éléments de l'interface pour faciliter leur utilisation."
+        }
+        "options.guiScale.disabled" => {
+            "La mise à l'échelle de l'interface n'est pas prise en charge sur cet écran."
+        }
+        "options.guiAccessibilityScaling.name" => "Nouvelle interface très grande",
+        "options.guiAccessibilityScaling.description" => {
+            "Augmenter la taille de l'interface pour plus de clarté et une lecture facile"
+        }
+
+        "options.cinnabar.worldsFolder" => "Dossier des mondes",
+        "options.cinnabar.worldsFolder.description" => "Emplacement où vos mondes sont enregistrés",
+        "options.cinnabar.resourcePacksFolder" => "Dossier des packs de ressources",
+        "options.cinnabar.resourcePacksFolder.description" => {
+            "Emplacement où vos packs de ressources importés sont stockés"
+        }
+        "options.cinnabar.shaderPacksFolder" => "Dossier des shaders",
+        "options.cinnabar.shaderPacksFolder.description" => {
+            "Ajoutez des shaders Java ici ou glissez-déposez-les sur cette fenêtre"
+        }
+        "options.cinnabar.openFolder.buttonLabel" => "Ouvrir le dossier",
+        "options.cinnabar.shaderOptions" => "Paramètres du shader",
+        "options.cinnabar.shaderOptions.description" => {
+            "Options propres au pack sélectionné. Les appliquer recharge le pack."
+        }
+        "options.cinnabar.shaderOptions.buttonLabel" => "Options du shader…",
+
+        "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Visuel F5 immersif",
+        "options.f5SelfVisuals.description" => {
+            "Affiche le joueur complet en vue F5 (armure, cosmétiques, cape et pseudo tels que les autres joueurs vous voient)."
+        }
+        "options.estheticTab" | "options.estheticTab.name" => "Tab esthétique (Style Lunar)",
+        "options.estheticTab.description" => {
+            "Affiche le menu Tab avec l'en-tête du serveur, fond moderne translucide et indicateurs de ping esthétiques."
+        }
+
+        "options.chat.title" | "chat.settings.title" => "Chat",
+        "options.chat.title.description" => "Apparence du chat, opacité, taille et couleurs",
+        "chat.settings.reset" => "Réinitialiser les paramètres du chat",
+        "chat.settings.reset.description" => {
+            "Restaurer toutes les options du chat aux valeurs par défaut"
+        }
+        "chat.settings.reset.buttonLabel" => "Réinitialiser",
+        "chat.settings.muteAll" => "Masquer le chat",
+        "chat.settings.muteAll.description" => "Masquer tous les messages de chat entrants",
+        "chat.settings.muteEmotes" => "Masquer les émotes",
+        "chat.settings.muteEmotes.description" => "Filtrer les messages d'émotes dans le chat",
+        "chat.settings.tts" => "Synthèse vocale pour le chat",
+        "chat.settings.tts.description" => "Lire à voix haute les messages du chat",
+        "chat.settings.fontSize" => "Taille de la police",
+        "chat.settings.fontSize.description" => "Ajuster l'échelle et la taille du texte du chat",
+        "chat.settings.lineSpacing" => "Espacement des lignes",
+        "chat.settings.lineSpacing.description" => "Définir l'espacement entre les lignes du chat",
+        "chat.settings.chatColor" => "Couleur du chat",
+        "chat.settings.chatColor.description" => "Couleur par défaut pour le texte du chat",
+        "chat.settings.mentionsColor" => "Couleur des mentions",
+        "chat.settings.mentionsColor.description" => {
+            "Couleur de surbrillance pour les mentions (@pseudo) dans le chat"
+        }
+        "chat.settings.mentionsTarget" => "Cible des mentions colorées",
+        "chat.settings.mentionsTarget.description" => {
+            "Choisissez si la couleur des mentions s'applique à tout le monde ou uniquement à votre pseudo"
+        }
+        "chat.settings.mentionsTarget.everyone" => "Tout le monde",
+        "chat.settings.mentionsTarget.self" => "Moi uniquement",
+        "options.chatBackgroundOpacity" => "Opacité de l'arrière-plan du chat",
+        "options.chatBackgroundOpacity.description" => {
+            "Ajuster la transparence du fond de la boîte de chat"
+        }
+        "options.notificationDuration.Chat" => "Durée des notifications du chat",
+        "options.notificationDuration.Chat.description" => {
+            "Durée pendant laquelle les messages restent visibles sur le HUD"
+        }
+        "Chat Position" => "Position du chat",
+        "Chat Position.description" => "Positionner le chat en bas ou en haut de l'écran",
+        "Bottom" => "Bas",
+        "Top" => "Haut",
+
+        "hbui.Settings.category.controls" | "options.controls" | "options.group.input" => {
+            "Commandes"
+        }
+        "hbui.Settings.category.social" | "options.social" => "Social",
+        "hbui.Settings.category.general" => "Général",
+        "Updates" => "Mises à jour",
+        "Shaders" => "Shaders",
+        "Mods" => "Mods",
+        "Server" => "Serveur",
+        "Discord" | "discord.settings.title" => "Discord",
+        "discord.settings.description" => {
+            "Contrôler ce que Cinnabar partage avec l'application Discord"
+        }
+        "discord.settings.enabled" => "Présence riche Discord",
+        "discord.settings.enabled.description" => {
+            "Publier votre activité Cinnabar actuelle sur Discord"
+        }
+        "discord.settings.details.title" => "Détails de l'activité",
+        "discord.settings.details.description" => {
+            "Choisir les informations facultatives affichées sur votre profil Discord"
+        }
+        "discord.settings.serverDetails" => "Afficher les détails du serveur et du monde",
+        "discord.settings.serverDetails.description" => {
+            "Afficher l'adresse du serveur ou le nom du monde local"
+        }
+        "discord.settings.partySize" => "Afficher la taille du groupe",
+        "discord.settings.partySize.description" => {
+            "Afficher le nombre de joueurs actuels et maximum lorsque disponible"
+        }
+        "discord.settings.allowJoins" => "Autoriser à rejoindre via Discord",
+        "discord.settings.allowJoins.description" => {
+            "Permettre à vos amis Discord de vous rejoindre via la carte d'activité"
+        }
+        "discord.settings.timestamp" => "Afficher le temps écoulé",
+        "discord.settings.timestamp.description" => {
+            "Afficher depuis combien de temps vous êtes dans l'activité actuelle"
+        }
+        "discord.settings.reset" => "Réinitialiser les paramètres Discord",
+        "discord.settings.reset.description" => {
+            "Restaurer toutes les options Discord aux valeurs par défaut"
+        }
+        "discord.settings.reset.buttonLabel" => "Réinitialiser",
+
+        "color.white" => "Blanc",
+        "color.green" => "Vert",
+        "color.aqua" => "Cyan",
+        "color.red" => "Rouge",
+        "color.light_purple" => "Violet clair",
+        "color.yellow" => "Jaune",
+        "color.gold" => "Or",
+        "color.gray" => "Gris",
+        "color.dark_gray" => "Gris foncé",
+        "color.blue" => "Bleu",
+        "color.dark_green" => "Vert foncé",
+        "color.dark_aqua" => "Cyan foncé",
+        "color.dark_purple" => "Violet foncé",
+        "color.dark_red" => "Rouge foncé",
+        "color.dark_blue" => "Bleu foncé",
+        "color.black" => "Noir",
+
+        "menu.settings" | "hbui.Settings.title" => "Paramètres",
+        "menu.video.tab.title" | "options.video" => "Vidéo",
+        "menu.video.tab.description" => "Ajuster les graphismes et la qualité visuelle",
+        "menu.video.group.general" => "Général",
+        "menu.video.group.general.description" => "Paramètres vidéo courants",
+        "menu.video.group.performance" => "Graphismes, performances et disposition",
+        "menu.video.group.performance.description" => {
+            "Contrôlez l'apparence et la fluidité de Minecraft"
+        }
+        "menu.video.group.customization" => "Personnalisation de l'affichage",
+        "menu.video.group.customization.description" => {
+            "Construisez, streamez ou prenez des captures sans distractions"
+        }
+        "menu.video.group.accessibility" => "Accessibilité : Vidéo",
+        "menu.video.group.accessibility.description" => {
+            "Commandes pour rendre Minecraft plus agréable à jouer"
+        }
+        "menu.video.mode" => "Mode graphique",
+        "options.graphicsModeOptions.fancy" => "Graphismes détaillés",
+        "options.graphicsModeOptions.simple" => "Graphismes simples",
+
+        "menu.accessibility.tab.title" | "options.accessibility" => "Accessibilité",
+        "menu.accessibility.tab.description" => "Minecraft est pour tout le monde, y compris vous",
+        "menu.accessibility.tab.tts.title" => "Synthèse vocale",
+        "menu.accessibility.tab.tts.description" => {
+            "Ajustez la lecture vocale des textes à l'écran"
+        }
+        "menu.accessibility.tab.gameplay.title" => "Jouabilité",
+        "menu.accessibility.tab.gameplay.description" => {
+            "Modifier les options d'accessibilité pour les mouvements de caméra et le visuel"
+        }
+        "menu.accessibility.tab.ui.title" => "Interface utilisateur",
+        "menu.accessibility.tab.ui.description" => "Adapter l'interface du jeu à votre style de jeu",
+
+        "menu.keyboardAndMouse.tab.title" | "options.keyboardAndMouse" => "Clavier et souris",
+        "menu.keyboardAndMouse.tab.description" => {
+            "Ajuster les options d'entrée et l'attribution des touches"
+        }
+        "menu.keyboardAndMouse.tab.mappings.title" => "Attribution des touches",
+        "menu.keyboardAndMouse.tab.mappings.description" => {
+            "Réattribuez toutes les touches clavier & souris pour jouer à votre façon"
+        }
+        "menu.keyboardAndMouse.tab.macros.title" => "Macros",
+        "menu.keyboardAndMouse.tab.macros.description" => {
+            "Exécutez une commande avec la touche assignée et le modificateur de macro sélectionné."
+        }
+        "options.commandMacro.placeholder" => "Commande à exécuter",
+
+        "menu.controller.tab.title" | "options.controller" => "Manette",
+        "menu.controller.tab.description" => {
+            "Options d'entrée, sensibilité et configuration des boutons de la manette"
+        }
+        "menu.controller.tab.mappings.title" => "Configuration des touches",
+        "menu.controller.tab.mappings.description" => {
+            "Réattribuez les touches de la manette pour jouer à votre façon"
+        }
+
+        "menu.general.tab.title" | "options.general" => "Général",
+        "menu.general.tab.description" => "Divers paramètres, du réseau aux crédits du jeu",
+        "menu.general.tab.pause.title" => "Pause",
+        "menu.general.tab.pause.description" => "Faire une pause lors d'une partie en solo",
+        "menu.general.tab.network.title" => "Paramètres réseau",
+        "menu.general.tab.network.description" => {
+            "Ajuster l'expérience en ligne au niveau technique et social"
+        }
+        "menu.general.tab.miscellaneous.title" => "Divers",
+        "menu.general.tab.miscellaneous.description" => "Réglages supplémentaires",
+        "menu.general.tab.tutorial.title" => "Tutoriel",
+        "menu.general.tab.tutorial.description" => "Aide pour apprendre à jouer",
+
+        "menu.audio.tab.title" | "options.audio" => "Audio",
+        "menu.audio.tab.description" => "Régler le volume pour la musique et les effets sonores",
+
+        "menu.account.tab.title" | "options.account" => "Compte",
+        "menu.account.tab.description" => "Accéder aux informations de votre compte",
+        "menu.account.gamertag.title" => "Gamertag",
+        "menu.account.changeGamertag.title" => "Changer de Gamertag",
+        "menu.account.manageAccount.title" => "Gérer le compte",
+        "menu.account.privacyAndSafety.title" => "Confidentialité et sécurité en ligne",
+        "menu.account.realmMembershipInvites.title" => "Gérer les invitations Realms",
+        "menu.account.signOutOfMicrosoft.title" => "Se déconnecter de votre compte Microsoft",
+        "menu.account.signIn.title" => "Se connecter gratuitement",
+        "menu.account.changeGamertag.buttonLabel"
+        | "menu.account.manageAccount.buttonLabel"
+        | "menu.account.privacyAndSafety.buttonLabel" => "Ouvrir",
+        "menu.account.realmMembershipInvites.buttonLabel" => "Gérer",
+        "menu.account.signOutOfMicrosoft.buttonLabel" => "Déconnexion",
+        "menu.account.signIn.buttonLabel" => "Connexion",
+        "menu.account.clearSignInData.buttonLabel" => "Effacer",
+
+        "menu.language.tab.title" | "options.language" => "Langue",
+        "menu.language.tab.description" => "Sélectionnez votre langue préférée pour Minecraft",
+
+        "menu.storage.tab.title" | "options.storage" => "Stockage",
+        "menu.storage.tab.description" => {
+            "Gérer les mondes, packs de ressources, packs de comportement et données en cache"
+        }
+        "hbui.Settings.storage.worlds.title" => "Mondes",
+        "hbui.Settings.storage.worldTemplates.title" => "Modèles de monde",
+        "hbui.Settings.storage.resourcePacks.title" => "Packs de ressources",
+        "hbui.Settings.storage.behaviorPacks.title" => "Packs de comportement",
+        "storageManager.contentType.skinPacks" => "Packs de skins",
+        "hbui.Settings.storage.cachedData.title" => "Données en cache",
+        "hbui.Settings.storage.emptyList.title" => "Aucun %1$s trouvé",
+        "hbui.Settings.storage.listHeader.delete" => "Supprimer",
+
+        "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => {
+            "Ressources globales"
+        }
+        "resourcePack.selected.title.packs" => "Actifs",
+        "resourcePack.available.title.packs" => "Mes packs",
+        "resourcePack.message.noneFound.packs" => "Aucun pack disponible sur cet appareil.",
+        "resourcePack.selected.remove" => "Désactiver",
+        "resourcePack.available.add" => "Activer",
+
+        "options.helpCenter" => "Centre d'aide",
+        "options.helpCenter.description" => {
+            "Obtenez des réponses à toutes vos questions d'assistance"
+        }
+        "options.attribution" => "Attribution",
+        "options.attribution.description" => "Partenaires technologiques et systèmes",
+        "options.licensed_content" => "Contenu sous licence",
+        "options.licensed_content.description" => {
+            "Tout le contenu sous licence disponible dans Minecraft"
+        }
+        "options.font_license" => "Licence de police",
+        "options.font_license.description" => "Licence pour les polices tierces",
+        "options.helpCenter.buttonLabel"
+        | "options.attribution.buttonLabel"
+        | "options.licensed_content.buttonLabel" => "Ouvrir",
+        "options.font_license.buttonLabel" => "Afficher",
+
+        "options.keyboardAndMouse.resetMappings" => "Réinitialiser les touches par défaut",
+        "options.keyboardAndMouse.resetMappings.description" => {
+            "Restaurer toutes les touches clavier & souris à leurs valeurs d'origine"
+        }
+        "options.controller.resetMappings" => "Réinitialiser les touches de la manette",
+        "options.controller.resetMappings.description" => {
+            "Restaurer toutes les touches de la manette à leurs valeurs d'origine"
+        }
+        "options.accessibility.resetSettings"
+        | "options.video.resetSettings"
+        | "options.sound.resetSettings" => "Rétablir par défaut",
+        "options.accessibility.resetSettings.description" => {
+            "Rétablir tous les paramètres d'accessibilité à leurs valeurs d'origine"
+        }
+        "options.video.resetSettings.description" => {
+            "Rétablir tous les paramètres vidéo à leurs valeurs d'origine"
+        }
+        "options.sound.resetSettings.description" => {
+            "Rétablir toutes les options sonores à leurs valeurs d'origine"
+        }
+        "options.keyboardAndMouse.resetMappings.buttonLabel"
+        | "options.controller.resetMappings.buttonLabel"
+        | "options.accessibility.resetSettings.buttonLabel"
+        | "options.video.resetSettings.buttonLabel"
+        | "options.sound.resetSettings.buttonLabel"
+        | "options.key.reset.buttonLabel" => "Réinitialiser",
+
+        "options.dev_clearAllCache" => "Effacer tout le cache",
+        "options.dev_clearDownloadeCache.name" => "Effacer le cache de téléchargement",
+        "options.dev_deleteLocalScreenshots" => "Supprimer les captures d'écran locales",
+
+        "menu.touch.tab.title" | "options.touch" => "Tactile",
+        "menu.touch.tab.description" => {
+            "Options d'entrée, sensibilité et configuration des boutons tactiles"
+        }
+        "menu.party.tab.title" | "options.party" => "Groupe",
+        "options.partyInviteReceivedFilter" => "Recevoir des invitations de",
+        "options.partyPrivacy" => "Confidentialité par défaut",
+        "options.partyInviteSendPrivileges" => "Qui peut inviter dans votre groupe",
+
+        _ => return None,
+    })
+}
+
+
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
+        "options.renderClouds.description" => "Show clouds in the sky.",
+        "options.cloudDistance" | "options.cloudDistance.name" => "Cloud Distance",
+        "options.cloudDistance.description" => {
+            "Adjust how far clouds render in chunks (up to 128 chunks) with smooth distance fog fade."
+        }
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
             "Choose an FPS limit or Unlimited. VSync and Variable Refresh Rate may still limit the frame rate."
@@ -624,10 +983,17 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
         "options.oreuiDarkMode.description" => "Use dark surfaces for menus, settings and dialogs.",
+        "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Third-Person Self Visuals",
+        "options.f5SelfVisuals.description" => {
+            "Display nametag, score, badges, and status overhead on your own player in third-person view."
+        },
+        "options.estheticTab" | "options.estheticTab.name" => "Esthetic Tab",
+        "options.estheticTab.description" => {
+            "Display an aesthetic Lunar-style player list overlay with server MOTD and latency indicators."
+        },
         "options.showExactServerPing.description" => {
             "Show server latency in milliseconds instead of Low, Medium or High ping."
         }
-        "options.renderClouds.description" => "Show clouds in the sky.",
         "hbui.Settings.title" => "Settings",
         "hbui.Settings.category.controls" | "options.controls" | "options.group.input" => {
             "Controls"
@@ -654,8 +1020,14 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.chatColor.description" => "Default color for chat text",
         "chat.settings.mentionsColor" => "Mentions Color",
         "chat.settings.mentionsColor.description" => {
-            "Saved preference; mention highlighting is not available yet"
+            "Highlight color for @mentions in chat"
         }
+        "chat.settings.mentionsTarget" => "Mentions Target",
+        "chat.settings.mentionsTarget.description" => {
+            "Choose whether colored @mentions highlight everyone or only your username"
+        }
+        "chat.settings.mentionsTarget.everyone" => "Everyone",
+        "chat.settings.mentionsTarget.self" => "Only Me",
         "options.chatBackgroundOpacity" => "Chat Background Opacity",
         "options.chatBackgroundOpacity.description" => {
             "Adjust the opacity of the chat background box"
@@ -702,6 +1074,15 @@ pub(super) fn fallback(key: &str) -> &str {
         "color.light_purple" => "Light Purple",
         "color.yellow" => "Yellow",
         "color.gold" => "Gold",
+        "color.gray" => "Gray",
+        "color.dark_gray" => "Dark Gray",
+        "color.blue" => "Blue",
+        "color.dark_green" => "Dark Green",
+        "color.dark_aqua" => "Dark Aqua",
+        "color.dark_purple" => "Dark Purple",
+        "color.dark_red" => "Dark Red",
+        "color.dark_blue" => "Dark Blue",
+        "color.black" => "Black",
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
         "hbui.Settings.category.general" => "General",

@@ -10,3 +10,14 @@ impl Default for CloudVisibility {
         Self(true)
     }
 }
+
+/// The user's configured cloud render distance in chunks (8..=128), copied into the render world.
+#[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
+pub struct CloudDistanceChunks(pub u16);
+
+impl Default for CloudDistanceChunks {
+    fn default() -> Self {
+        Self(64)
+    }
+}

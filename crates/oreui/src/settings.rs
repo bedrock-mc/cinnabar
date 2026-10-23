@@ -251,10 +251,20 @@ fn header(
         [0.0, height, width, height + canvas.r(0.4)],
         theme::HEADER_STRIP,
     )?;
-    let title = translate("hbui.Settings.title")
-        .or_else(|| translate("menu.settings.caps"))
-        .or_else(|| translate("menu.settings"))
-        .map_or_else(|| "Settings".to_owned(), |text| text.to_string());
+    let is_fr = view
+        .settings_options
+        .language()
+        .is_some_and(|l| l.starts_with("fr"));
+    let title = if is_fr {
+        sections::french_text("hbui.Settings.title")
+            .unwrap_or("Paramètres")
+            .to_owned()
+    } else {
+        translate("hbui.Settings.title")
+            .or_else(|| translate("menu.settings.caps"))
+            .or_else(|| translate("menu.settings"))
+            .map_or_else(|| "Settings".to_owned(), |text| text.to_string())
+    };
     canvas.text_centred(
         &title.to_uppercase(),
         [canvas.r(4.4), 0.0, width - canvas.r(4.4), height],
@@ -305,6 +315,12 @@ impl Content<'_, '_> {
     pub(super) fn word(&self, key: &str) -> String {
         if key.is_empty() {
             return String::new();
+        }
+        let is_fr = self.view.settings_options.language().is_some_and(|l| l.starts_with("fr"));
+        if is_fr {
+            if let Some(fr) = sections::french_text(key) {
+                return fr.to_owned();
+            }
         }
         (self.translate)(key).map_or_else(
             || sections::fallback(key).to_owned(),
@@ -520,7 +536,7 @@ impl Content<'_, '_> {
                 let [left, right] = self.inset();
                 let shown = match id {
                     SettingId::FieldOfView => format!("{value}°"),
-                    SettingId::RenderDistance => self
+                    SettingId::RenderDistance | SettingId::CloudDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
                     SettingId::MaxFramerate => {

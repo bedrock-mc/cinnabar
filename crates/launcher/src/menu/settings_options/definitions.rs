@@ -430,11 +430,13 @@ settings! {
     CameraShake => "camera_shake", toggle("options.screenShake", true),
         [(SettingPanel::AccessibilityGameplay, 1), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
-        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, None;
-    BubbleParticles => "bubble_particles", toggle("options.bubbleparticles", true),
         [(SettingPanel::VideoClouds, 2)], [SettingsGroup::Video], None, None;
+    BubbleParticles => "bubble_particles", toggle("options.bubbleparticles", true),
+        [(SettingPanel::VideoClouds, 3)], [SettingsGroup::Video], None, None;
     RenderClouds => "render_clouds", toggle("options.renderclouds", true),
         [(SettingPanel::VideoClouds, 0)], [SettingsGroup::Video], None, Some("options.renderClouds");
+    CloudDistance => "cloud_distance", slider("options.cloudDistance", 8, 128, 64),
+        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, Some("options.cloudDistance.name");
     FancySkies => "fancy_skies", toggle("options.fancyskies", true),
         [(SettingPanel::VideoGraphics, 8)], [SettingsGroup::Video], None, None;
     SmoothLighting => "smooth_lighting", toggle("options.smooth_lighting", true),
