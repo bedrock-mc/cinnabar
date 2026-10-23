@@ -491,21 +491,6 @@ impl ActorSnapshot {
         self.entity_fact.native_class == NativeEntityClass::FallingBlock
     }
 
-    /// Rebases retained poses and queued targets without moving collision-feet inputs.
-    fn shift_poses_y(&mut self, network_delta: f32, spawn_delta: f32) {
-        let network_offset = self.network_position_offset();
-        let mut current = self.current_pose();
-        for pose in [
-            &mut current,
-            &mut self.previous_pose,
-            &mut self.received_pose,
-        ] {
-            pose.shift_y(network_delta, spawn_delta, network_offset);
-        }
-        self.set_current_pose(current);
-        self.shift_interpolation_targets_y(network_delta, spawn_delta);
-    }
-
     /// Spawn packets need vertical normalization only for falling-block and boat constructors.
     fn spawn_network_offset(&self) -> f32 {
         if self.is_falling_block() || self.entity_fact.native_class == NativeEntityClass::Boat {
@@ -520,9 +505,7 @@ impl ActorSnapshot {
         metadata: &[protocol::ActorMetadata],
         hitbox_budget: &mut hitbox::Budget,
     ) -> bool {
-        let falling_block_offset = self
-            .is_falling_block()
-            .then(|| self.falling_block_network_offset());
+        let previous_offset = self.network_position_offset();
         let mut rejected = false;
         for metadata in metadata {
             // The sentinel preserves the last effective always-show value.
@@ -548,12 +531,14 @@ impl ActorSnapshot {
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
-        // Stored feet stay under the unchanged network position when Scale or box height moves
-        // the offset.
-        if let Some(previous) = falling_block_offset {
-            let offset = self.falling_block_network_offset();
-            if offset != previous {
-                self.shift_poses_y(previous - offset, previous - offset);
+        // Falling-block size changes keep the network origin fixed. Other actors retain
+        // their existing feet anchors.
+        let offset = self.network_position_offset();
+        if offset != previous_offset {
+            if self.is_falling_block() {
+                self.shift_poses_y(previous_offset - offset, previous_offset - offset);
+            } else {
+                self.clear_native_heights();
             }
         }
         let burning = self.is_on_fire();

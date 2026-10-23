@@ -30,6 +30,15 @@ pub(super) fn duration(interpolation: ActorInterpolation) -> Option<u32> {
 }
 
 impl ActorSnapshot {
+    /// Applies a native height displacement and keeps its collision-feet projection coherent.
+    pub(super) fn translate_native_height(&mut self, delta: f32) {
+        let mut pose = self.current_pose();
+        let native_y = self.current_native_position()[1] + delta;
+        pose.y_origin.native_y = Some(native_y);
+        pose.position[1] = native_y - self.network_position_offset();
+        self.set_current_pose(pose);
+    }
+
     /// Returns the decoded target without a lossy feet-to-network round trip.
     pub(crate) fn last_received_native_position(&self) -> [f32; 3] {
         self.last_received_pose()
@@ -87,17 +96,36 @@ impl ActorSnapshot {
         }
     }
 
-    /// Rebases buffered movement targets through their retained coordinate origins.
-    pub(super) fn shift_interpolation_targets_y(&mut self, network_delta: f32, spawn_delta: f32) {
+    /// Rebases retained poses and queued targets without moving collision-feet inputs.
+    pub(super) fn shift_poses_y(&mut self, network_delta: f32, spawn_delta: f32) {
         let network_offset = self.network_position_offset();
+        self.update_poses(|pose| pose.shift_y(network_delta, spawn_delta, network_offset));
+    }
+
+    /// Keeps existing feet anchors when metadata changes a non-falling actor's offset.
+    pub(super) fn clear_native_heights(&mut self) {
+        self.update_poses(|pose| pose.y_origin.native_y = None);
+    }
+
+    /// Visits every retained pose so coordinate changes also reach buffered targets.
+    fn update_poses(&mut self, mut update: impl FnMut(&mut ActorPose)) {
+        let mut current = self.current_pose();
+        for pose in [
+            &mut current,
+            &mut self.previous_pose,
+            &mut self.received_pose,
+        ] {
+            update(pose);
+        }
         let state = &mut self.status.movement_interpolation;
         for pose in state
             .last_received
             .iter_mut()
             .chain(state.queued.iter_mut().map(|queued| &mut queued.pose))
         {
-            pose.shift_y(network_delta, spawn_delta, network_offset);
+            update(pose);
         }
+        self.set_current_pose(current);
     }
 
     /// The pose state an interpolation tick reads and writes.
