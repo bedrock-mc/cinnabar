@@ -278,3 +278,53 @@ fn dried_ghast_shared_strip_retains_each_materials_replication() {
         );
     }
 }
+
+#[test]
+fn dried_ghast_static_model_art_retains_larger_source_pixels() {
+    let root = material_fixture();
+    image::RgbaImage::from_pixel(512, 512, image::Rgba([0, 0, 255, 255]))
+        .save(root.path().join("textures/blocks/feet.png"))
+        .unwrap();
+    assert!(
+        fixture_icon(root.path())
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[2] > 0 && pixel[3] != 0)
+    );
+}
+
+#[test]
+fn dried_ghast_model_art_starts_at_the_declared_timeline_frame() {
+    let root = material_fixture();
+    std::fs::write(
+        root.path().join("textures/flipbook_textures.json"),
+        r#"[{"flipbook_texture":"textures/blocks/body","atlas_tile":"body","frames":[1,0]}]"#,
+    )
+    .unwrap();
+    image::RgbaImage::from_fn(32, 64, |_, y| {
+        image::Rgba(if y < 32 {
+            [255, 0, 0, 255]
+        } else {
+            [0, 255, 0, 255]
+        })
+    })
+    .save(root.path().join("textures/blocks/body.png"))
+    .unwrap();
+    let icon = fixture_icon(root.path());
+    assert!(
+        icon.rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[1] > 0 && pixel[3] != 0)
+    );
+    assert!(
+        icon.rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[0] == 0)
+    );
+}
