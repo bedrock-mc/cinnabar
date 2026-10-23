@@ -304,9 +304,10 @@ jobs:
       - name: Lint Rust workspace
         if: ${{ !cancelled() && runner.os != 'Linux' }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # Saved before the tests so a slow or timed-out test run still leaves dev a warm cache.
-      - name: Save Rust build cache
-        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
+      # Windows archives to workflow artifacts, which keep the test binaries, so it saves before
+      # the tests and a slow or timed-out test run still leaves dev a warm cache.
+      - name: Save Windows Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os == 'Windows' }}
         uses: ./.github/actions/build-cache
         with:
           phase: save
@@ -327,6 +328,15 @@ jobs:
       - name: Test Rust doc examples
         if: ${{ !cancelled() }}
         run: cargo test --doc --workspace --locked
+      # The shared cache store drops linked test binaries, so macOS saves after the tests.
+      - name: Save macOS Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os == 'macOS' }}
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
 
   go:
     permissions:
