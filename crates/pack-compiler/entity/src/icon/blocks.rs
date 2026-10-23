@@ -99,11 +99,21 @@ impl IconBlocks {
             ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// Selects the carried pose for walls and directional inventory cubes.
+    /// Selects canonical inventory poses for walls and directional blocks.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if pack_compile_input::lightning_rod::is_record(record) {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
         if crafter
             || assets::facts::block_render_fact(&record.name).kind
@@ -821,3 +831,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "blocks/lightning_rod_tests.rs"]
+mod lightning_rod_tests;
