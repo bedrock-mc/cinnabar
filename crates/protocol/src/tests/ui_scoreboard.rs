@@ -56,3 +56,19 @@ fn nonempty_display_objective_still_bounds_presentation_text() {
         .is_err()
     );
 }
+
+#[test]
+fn clear_display_objective_ignores_unused_invalid_utf8() {
+    let event = objective_event(SetDisplayObjective {
+        display_slot_name: "sidebar".into(),
+        objective_display_name: bytes::Bytes::from_static(b"\xff").into(),
+        criteria_name: bytes::Bytes::from_static(b"\xfe").into(),
+        ..Default::default()
+    })
+    .expect("a clear packet does not consume presentation text");
+    assert!(matches!(
+        event,
+        ObjectiveEvent::Display { objective_name, display_name, criteria_name, .. }
+            if objective_name.is_empty() && display_name.is_empty() && criteria_name.is_empty()
+    ));
+}

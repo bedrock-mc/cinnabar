@@ -249,6 +249,9 @@ pub(crate) fn validate_ui_packet(packet: &packets::Packet) -> Result<(), UiPacke
         packets::Packet::SetDisplayObjective(packet) => {
             utf8(&packet.display_slot_name, "objective.display_slot")?;
             utf8(&packet.objective_name, "objective.name")?;
+            if packet.objective_name.is_empty() {
+                return Ok(());
+            }
             utf8(&packet.objective_display_name, "objective.display_name")?;
             utf8(&packet.criteria_name, "objective.criteria_name")
         }
