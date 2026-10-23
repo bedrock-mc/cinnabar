@@ -242,6 +242,7 @@ fn a_locked_seat_reports_the_vehicle_turn_and_the_seat_range() {
     store.apply_link(1, 3, link(PLAYER, ActorLinkType::Rider));
     store.sync_local_vehicle(Some(LocalVehicleFeed {
         runtime_id: BOAT as u64,
+        server_moves: 0,
         position: [10.0, 5.0, 10.0],
         yaw: 20.0,
         velocity: [0.0; 3],
