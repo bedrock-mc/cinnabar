@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -296,34 +296,60 @@ fn startup_marker(timestamp: u64) -> protocol::Packet {
     })
 }
 
-/// Waits for the external harness in a blocking context on the tests' multithreaded runtime.
+/// Waits for the harness's post-listen ready signal without opening a throwaway session.
 fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), String> {
-    #[cfg(windows)]
-    let endpoint = socket_dir.join("session.addr");
-    #[cfg(unix)]
-    let endpoint = bridge::session_endpoint_path(socket_dir);
-
     tokio::task::block_in_place(|| {
         let mut outcome = None;
-        test_time::wait_until(ENDPOINT_TIMEOUT, || {
+        let waiting_for = format!("Go harness ready signal for {}", socket_dir.display());
+        test_time::eventually_within(ENDPOINT_TIMEOUT, &waiting_for, || {
             outcome = match harness.try_wait() {
                 Err(error) => Some(Err(format!("inspect Go harness: {error}"))),
                 Ok(Some(status)) => Some(Err(format!(
-                    "Go harness exited with {status} before publishing {}",
-                    endpoint.display()
+                    "Go harness exited with {status} before readiness\n{}",
+                    harness.output()
                 ))),
-                Ok(None) if endpoint.exists() => Some(Ok(())),
+                Ok(None) if harness_ready(socket_dir, &harness.output()) => Some(Ok(())),
                 Ok(None) => None,
             };
             outcome.is_some()
         });
-        outcome.unwrap_or_else(|| {
-            Err(format!(
-                "timed out waiting for Go harness endpoint {}",
-                endpoint.display()
-            ))
-        })
+        outcome.expect("the wait ended with readiness or a harness error")
     })
+}
+
+/// Reports whether the harness has finished starting its session listener.
+fn harness_ready(socket_dir: &Path, output: &str) -> bool {
+    let ready = format!("CINNABAR_EXTERNAL_READY={}\n", socket_dir.display());
+    output
+        .split_inclusive('\n')
+        .any(|line| line == ready || line.strip_suffix("\r\n") == ready.strip_suffix('\n'))
+}
+
+/// A published endpoint can precede listen; only the harness's complete ready signal releases login.
+#[test]
+fn harness_readiness_requires_its_ready_signal() {
+    let socket_dir = TestSocketDir::new().expect("socket directory");
+    let endpoint =
+        tempfile::TempPath::try_from_path(bridge::session_endpoint_path(socket_dir.path()))
+            .expect("endpoint cleanup guard");
+    std::fs::write(&endpoint, []).expect("publish endpoint before readiness");
+
+    assert!(!harness_ready(
+        socket_dir.path(),
+        "=== RUN   TestProxyRustStartupHarness\n"
+    ));
+    let ready = format!("CINNABAR_EXTERNAL_READY={}", socket_dir.path().display());
+    assert!(!harness_ready(socket_dir.path(), &ready));
+    assert!(!harness_ready(
+        socket_dir.path(),
+        &format!("{ready}-other\n")
+    ));
+    assert!(!harness_ready(
+        socket_dir.path(),
+        &format!("diagnostic: {ready}\n")
+    ));
+    assert!(harness_ready(socket_dir.path(), &format!("{ready}\n")));
+    assert!(harness_ready(socket_dir.path(), &format!("{ready}\r\n")));
 }
 
 struct GoHarness {
@@ -641,19 +667,22 @@ fn wait_for_child(child: &mut Child, timeout: Duration) -> io::Result<Option<Exi
     }
 }
 
-fn drain_output<R>(mut reader: R, output: Arc<Mutex<Vec<u8>>>) -> JoinHandle<()>
+/// Collects complete output lines so stdout and stderr cannot interleave a ready signal.
+fn drain_output<R>(reader: R, output: Arc<Mutex<Vec<u8>>>) -> JoinHandle<()>
 where
     R: Read + Send + 'static,
 {
     thread::spawn(move || {
-        let mut chunk = [0u8; 4096];
+        let mut reader = io::BufReader::new(reader);
+        let mut line = Vec::new();
         loop {
-            match reader.read(&mut chunk) {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
                 Ok(0) | Err(_) => return,
-                Ok(read) => output
+                Ok(_) => output
                     .lock()
                     .expect("Go harness output lock poisoned")
-                    .extend_from_slice(&chunk[..read]),
+                    .extend_from_slice(&line),
             }
         }
     })

@@ -122,6 +122,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         || input.runtime.chat_focused()
         || input.runtime.inventory_open()
         || input.runtime.server_forms().owns_input()
+        || input.runtime.data_driven_ui().owns_input()
         || input.runtime.sign_editor().active().is_some()
         || input.runtime.local_sleeping()
         || actor_unavailable;

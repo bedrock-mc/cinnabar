@@ -369,3 +369,52 @@ fn ghasts_lower_their_shadow_by_a_relative_height() {
     assert!((feet(2) - (70.0 - 0.5 * 4.0)).abs() < 1.0e-5);
     assert_eq!(feet(3), 70.0);
 }
+
+/// Keeping an invisible model does not give its actor a shadow.
+#[test]
+fn render_when_invisible_keeps_an_invisible_actor_shadowless() {
+    let mut store = ActorStore::new(1, 0);
+    spawn(&mut store, 1, "pig", 0.9);
+    assert!(close(radius(&store, 1), 0.9));
+    flag(&mut store, 1, ActorFlag::Invisible.wire_value());
+    set(
+        &mut store,
+        1,
+        ActorDataKey::FlagsTwo.wire_value(),
+        ActorMetadataValue::FlagsExtended(1 << (ActorFlag::RenderWhenInvisible.wire_value() - 64)),
+    );
+
+    assert!(!store.get(1).unwrap().is_invisible());
+    assert_eq!(radius(&store, 1), None);
+}
+
+/// An invisible vehicle leaves its rider's shadow even when its own model draws.
+#[test]
+fn render_when_invisible_preserves_the_rider_shadow() {
+    let mut store = ActorStore::new(1, 0);
+    spawn(&mut store, 1, "player", 0.6);
+    spawn(&mut store, 2, "horse", 1.4);
+    store.apply_link(
+        1,
+        10,
+        ActorLinkEvent {
+            dimension: 0,
+            ridden_unique_id: 2,
+            rider_unique_id: 1,
+            link_type: ActorLinkType::Rider,
+            immediate: false,
+            rider_initiated: false,
+        },
+    );
+    assert_eq!(radius(&store, 1), None);
+    flag(&mut store, 2, ActorFlag::Invisible.wire_value());
+    set(
+        &mut store,
+        2,
+        ActorDataKey::FlagsTwo.wire_value(),
+        ActorMetadataValue::FlagsExtended(1 << (ActorFlag::RenderWhenInvisible.wire_value() - 64)),
+    );
+
+    assert!(close(radius(&store, 1), 0.6));
+    assert_eq!(radius(&store, 2), None);
+}

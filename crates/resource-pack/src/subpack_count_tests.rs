@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
-use crate::{AdmissionError, GlobalPackLibrary, LayeredPackView, manifest::read_manifest};
+use crate::{
+    AdmissionError, GlobalPackLibrary, LayeredPackView,
+    manifest::{Version, read_manifest},
+};
 
 const PACK_ID: Uuid = Uuid::from_u128(1);
 const VERSION: &str = "1.2.3";
@@ -74,7 +77,7 @@ fn tiered_archive(manifest: &Value) -> Vec<u8> {
 fn manifest_preserves_all_declared_subpacks_and_checks_identity() {
     for count in [64, 65] {
         let bytes = serde_json::to_vec(&manifest(PACK_ID, count)).unwrap();
-        let parsed = read_manifest(&bytes, PACK_ID, VERSION).unwrap();
+        let parsed = read_manifest(&bytes, PACK_ID, Version::parse(VERSION).unwrap()).unwrap();
         assert_eq!(parsed.subpacks.len(), count);
         for (index, subpack) in parsed.subpacks.iter().enumerate() {
             assert_eq!(subpack.folder, format!("p{index}"));
@@ -82,7 +85,7 @@ fn manifest_preserves_all_declared_subpacks_and_checks_identity() {
             assert_eq!(subpack.memory_tier, 1);
         }
         assert_eq!(
-            read_manifest(&bytes, Uuid::from_u128(2), VERSION).err(),
+            read_manifest(&bytes, Uuid::from_u128(2), Version::parse(VERSION).unwrap()).err(),
             Some(AdmissionError::ManifestIdentityMismatch)
         );
     }
@@ -104,7 +107,12 @@ fn malformed_folder_rows_do_not_hide_valid_subpacks() {
             .unwrap()
             .push(json!({"folder_name": folder, "name": "Invalid", "memory_tier": 11}));
     }
-    let parsed = read_manifest(&serde_json::to_vec(&manifest).unwrap(), PACK_ID, VERSION).unwrap();
+    let parsed = read_manifest(
+        &serde_json::to_vec(&manifest).unwrap(),
+        PACK_ID,
+        Version::parse(VERSION).unwrap(),
+    )
+    .unwrap();
     assert_eq!(parsed.subpacks.len(), 65);
     assert_eq!(parsed.subpacks.last().unwrap().folder, "p64");
     assert!(

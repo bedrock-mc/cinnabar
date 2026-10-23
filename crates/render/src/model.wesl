@@ -3,7 +3,7 @@ import render::chunk_bindings::{
     block_textures_page_3, block_textures_page_4, block_sampler, terrain_gamma_page_0,
     terrain_gamma_page_1, terrain_gamma_page_2, terrain_gamma_page_3, terrain_gamma_page_4,
     model_sampler, animations, animation_frames,
-    clock, model_templates, geometry_streams, atmosphere,
+    clock, model_templates, model_templates_length, geometry_streams, atmosphere,
 };
 import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
 @if(ENHANCED_SHADOW)
@@ -89,16 +89,16 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = animations(material.animation);
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current = animation_frames[animation.frame_start + current_index];
+    let current = animation_frames(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return FrameSample(current, current, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
     let partial = (f32(clock.tick % animation.ticks_per_frame) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
         f32(animation.ticks_per_frame);
-    return FrameSample(current, animation_frames[animation.frame_start + next_index], partial);
+    return FrameSample(current, animation_frames(animation.frame_start + next_index), partial);
 }
 
 fn signed_i16(word: u32, high: bool) -> i32 {
@@ -107,12 +107,12 @@ fn signed_i16(word: u32, high: bool) -> i32 {
 }
 
 fn packed_i16(words: u32, component: u32) -> i32 {
-    let word = model_templates[words + component / 2u];
+    let word = model_templates(words + component / 2u);
     return signed_i16(word, (component & 1u) != 0u);
 }
 
 fn packed_u16(words: u32, component: u32) -> u32 {
-    let word = model_templates[words + component / 2u];
+    let word = model_templates(words + component / 2u);
     return select(word & 0xffffu, word >> 16u, (component & 1u) != 0u);
 }
 
@@ -239,17 +239,17 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
     let template_id = geometry_streams[ref_word + 1u];
     let lighting_base_index = geometry_streams[ref_word + 2u];
     let visible_quad_mask = geometry_streams[ref_word + 3u];
-    let template_word_count = arrayLength(&model_templates);
+    let template_word_count = model_templates_length();
     if (template_word_count < 4u) {
         return invalid_model_quad();
     }
-    let template_count = model_templates[0];
+    let template_count = model_templates(0);
     if (template_count > (template_word_count - 1u) / 3u || template_id >= template_count) {
         return invalid_model_quad();
     }
     let descriptor = 1u + template_id * 3u;
-    let quad_start = model_templates[descriptor];
-    let quad_count = model_templates[descriptor + 1u];
+    let quad_start = model_templates(descriptor);
+    let quad_count = model_templates(descriptor + 1u);
     if (quad_count == 0u || quad_index >= quad_count) {
         return invalid_model_quad();
     }
@@ -272,9 +272,9 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         f32((packed_transform >> 4u) & 15u),
         f32((packed_transform >> 8u) & 15u),
     );
-    quad.chunk_origin = chunk_origins[metadata_index].value;
-    quad.is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
-    quad.is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
+    quad.chunk_origin = chunk_origins(metadata_index).value;
+    quad.is_lily_pad = (model_templates(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u;
+    quad.is_bamboo = (model_templates(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u;
     let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
     quad.rotation = packed_transform >> 12u;
     if (quad.is_bamboo) {
@@ -295,8 +295,8 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         quad.placement_offset = vec3<f32>(bitcast<f32>(geometry_streams[offset_word]),
             bitcast<f32>(geometry_streams[offset_word + 1u]), bitcast<f32>(geometry_streams[offset_word + 2u]));
     }
-    quad.material_id = model_templates[quad.template_quad_base + 10u];
-    quad.quad_flags = model_templates[quad.template_quad_base + 11u];
+    quad.material_id = model_templates(quad.template_quad_base + 10u);
+    quad.quad_flags = model_templates(quad.template_quad_base + 11u);
     quad.selected_material_id = positional_material_id(quad.material_id, quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     if (lighting_base_index >= geometry_word_count / 2u || quad_index >= geometry_word_count / 2u - lighting_base_index) {
         return invalid_model_quad();
@@ -365,7 +365,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let rotation = quad.rotation;
     let is_lily_pad = quad.is_lily_pad;
     let is_bamboo = quad.is_bamboo;
-    let material = materials[quad.selected_material_id];
+    let material = materials(quad.selected_material_id);
     let frame = animation_sample(material);
     let light_sample = model_light_sample(quad, corner);
     var out: VertexOutput;
