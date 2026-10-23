@@ -1,5 +1,10 @@
 use super::super::*;
 
+#[cfg(test)]
+thread_local! {
+    pub(in crate::stream) static LIGHT_COLUMN_CEILING_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Light indexes, job scheduling and solver plumbing for resident sub-chunks.
 pub(in crate::stream) struct Lighting {
     pub(in crate::stream) tx: Sender<LightCompletion>,
@@ -446,7 +451,21 @@ impl WorldStream {
             slots,
         })
     }
+    /// Captures an isolated section without sharing a column ceiling with other jobs.
+    #[cfg(any(test, feature = "benchmark-support"))]
     pub(in crate::stream) fn light_block_snapshot(&self, key: SubChunkKey) -> LightBlockSnapshot {
+        let top_sub_chunk_y = (key.dimension == 0)
+            .then(|| self.light_column_top_sub_chunk_y(key))
+            .flatten();
+        self.light_block_snapshot_with_top(key, top_sub_chunk_y)
+    }
+
+    /// Captures section-local blocks using the ceiling of this immutable column batch.
+    pub(in crate::stream) fn light_block_snapshot_with_top(
+        &self,
+        key: SubChunkKey,
+        top_sub_chunk_y: Option<i32>,
+    ) -> LightBlockSnapshot {
         let mut blocks = SectionSnapshot::default();
         for sample_key in key.mesh_dependents() {
             if !self.light_source_is_known(sample_key) {
@@ -465,10 +484,7 @@ impl WorldStream {
             1 => DimensionLightProfile::Nether,
             _ => DimensionLightProfile::End,
         };
-        let overworld_top_y = (key.dimension == 0)
-            .then(|| self.light_column_top_sub_chunk_y(key))
-            .flatten()
-            .and_then(|y| y.checked_mul(16)?.checked_add(15));
+        let overworld_top_y = top_sub_chunk_y.and_then(|y| y.checked_mul(16)?.checked_add(15));
         LightBlockSnapshot {
             dimension: key.dimension,
             blocks,
@@ -527,17 +543,19 @@ impl WorldStream {
         }
         true
     }
+    /// Registers stale boundary dependencies using the batch's shared column ceiling.
     pub(in crate::stream) fn register_untrusted_light_waiters(
         &mut self,
         target: SubChunkKey,
         retained_batch: &HashSet<SubChunkKey>,
+        top_sub_chunk_y: Option<i32>,
     ) {
         for neighbour in target.mesh_dependents().filter(|key| *key != target) {
             if !retained_batch.contains(&neighbour)
                 && self.light_source_is_known(neighbour)
                 && !self.light_is_current(neighbour)
                 && self.lighting.store.light(neighbour).is_some()
-                && self.prior_light_may_seed(target, neighbour)
+                && self.prior_light_may_seed(target, neighbour, top_sub_chunk_y)
             {
                 self.lighting
                     .waiters
@@ -584,14 +602,20 @@ impl WorldStream {
             });
         declared_top
             .into_iter()
-            .chain(self.light_column_sources(key).map(|source| source.y))
+            .chain(self.light_column_sources(key).map(|source| {
+                #[cfg(test)]
+                LIGHT_COLUMN_CEILING_VISITS.with(|visits| visits.set(visits.get() + 1));
+                source.y
+            }))
             .max()
     }
 
-    pub(in crate::stream) fn prior_light_may_seed(
+    /// Checks retained boundary light without walking the column again for skylight.
+    fn prior_light_may_seed(
         &self,
         target: SubChunkKey,
         neighbour: SubChunkKey,
+        top_sub_chunk_y: Option<i32>,
     ) -> bool {
         let Some(light) = self.lighting.store.light(neighbour) else {
             return false;
@@ -601,7 +625,8 @@ impl WorldStream {
         if block_may_seed {
             return true;
         }
-        if target.dimension != 0 || self.known_air_has_vertical_direct_sky(target) {
+        if target.dimension != 0 || self.known_air_has_vertical_direct_sky(target, top_sub_chunk_y)
+        {
             return false;
         }
         !light.channel(LightChannel::Sky).is_uniform()

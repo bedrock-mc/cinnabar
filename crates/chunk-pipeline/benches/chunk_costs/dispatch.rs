@@ -35,3 +35,27 @@ pub fn benches(c: &mut Criterion) {
     }
     group.finish();
 }
+
+/// Compares identical column snapshot inputs with and without shared ceiling preparation.
+pub fn light_column_benches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline/light_column_inputs");
+    for count in [4_usize, 16, 24, 32] {
+        let fixture = DispatchFixture::column(count);
+        group.throughput(Throughput::Elements(count as u64));
+        for (name, capture) in [
+            (
+                "uncached",
+                DispatchFixture::capture_light_column_uncached as fn(&DispatchFixture),
+            ),
+            (
+                "shared",
+                DispatchFixture::capture_light_column_shared as fn(&DispatchFixture),
+            ),
+        ] {
+            group.bench_with_input(BenchmarkId::new(name, count), &fixture, |b, fixture| {
+                b.iter(|| capture(black_box(fixture)));
+            });
+        }
+    }
+    group.finish();
+}

@@ -231,7 +231,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   blobs in the same response. Sustained high-speed hardware qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
-  verified; complete server-form and gameplay acceptance remains open.
+  verified; complete server-form and gameplay acceptance remains open. Column light
+  batches reuse one resident sky-ceiling scan for section snapshots and boundary
+  waiters. Matched-output hardware preparation and streaming qualification remain open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.

@@ -521,6 +521,7 @@ criterion_group!(
     resend_benches,
     cohort_benches,
     dispatch::benches,
+    dispatch::light_column_benches,
     subchunk_updates::benches
 );
 criterion_main!(benches);
