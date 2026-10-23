@@ -85,12 +85,11 @@ pub(super) fn prepare_kernels(
     geometry: Option<Res<ShaderpackGeometrySettings>>,
     kernels: Option<ResMut<Kernels>>,
 ) {
-    let requested = device.limits().max_storage_buffers_per_shader_stage
-        >= *REQUIRED_STORAGE_BUFFERS
-        && pack.map_or_else(
-            || geometry.is_some_and(|settings| settings.enabled),
-            |pack| pack.0.is_some() && !cameras.is_empty(),
-        );
+    let requested = pack.map_or_else(
+        || geometry.is_some_and(|settings| settings.enabled),
+        |pack| pack.0.is_some() && !cameras.is_empty(),
+    ) && device.limits().max_storage_buffers_per_shader_stage
+        >= *REQUIRED_STORAGE_BUFFERS;
     match (requested, kernels) {
         (true, Some(mut kernels)) => kernels.cache.process_queue(),
         (true, None) => {
