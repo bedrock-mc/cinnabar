@@ -218,7 +218,7 @@ pub(crate) fn validate_archive_parts_cached(
         .ok_or(AdmissionError::MissingManifest)?;
     let mut pack = ValidatedPack {
         pack_id,
-        version: identity.version_text(),
+        version: identity.version_text().into(),
         sub_pack_name: sub_pack_name.into(),
         archive_bytes,
         declared_bytes: declared,
