@@ -162,14 +162,11 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    let movement = update
-                        .attributes
-                        .iter()
-                        .rev()
-                        .filter(|attribute| {
-                            attribute.name.as_ref() == Attribute::Movement.wire_name()
-                        })
-                        .find_map(MovementSpeedAttribute::from_attribute);
+                    let movement_received = update.attributes.iter().rev().find(|attribute| {
+                        attribute.name.as_ref() == Attribute::Movement.wire_name()
+                    });
+                    let movement =
+                        movement_received.and_then(MovementSpeedAttribute::from_attribute);
                     let liquid = |name: &str| {
                         update
                             .attributes
@@ -192,7 +189,7 @@ impl WorldAuthority {
                     if let Some(attribute) = movement {
                         self.local_movement_speed = Some(attribute.current);
                     }
-                    if movement.is_some()
+                    if movement_received.is_some()
                         || underwater.is_some()
                         || lava.is_some()
                         || air_drag_modifier.is_some()
@@ -201,6 +198,7 @@ impl WorldAuthority {
                             sequence,
                             dimension: update.dimension,
                             movement,
+                            movement_received: movement_received.is_some(),
                             underwater,
                             lava,
                             air_drag_modifier,

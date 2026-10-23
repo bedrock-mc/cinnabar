@@ -288,8 +288,10 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
-independently of simulation admission. Retained corrections arm its idle countdown;
-bare snaps do not. Server-driven gameplay pose and item-use starts, riptide flag
+independently of simulation admission. Unsupported attribute models leave reporting
+with the actor's current value. A completed local pose tick replaces earlier accepted
+pose writes. Retained corrections arm its idle countdown; bare snaps do not.
+Server-driven gameplay pose and item-use starts, riptide flag
 lifetimes, block-climber flags, custom collision definitions, legacy sneak height,
 transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
