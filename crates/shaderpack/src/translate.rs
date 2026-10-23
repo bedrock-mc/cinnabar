@@ -170,6 +170,7 @@ pub(crate) fn translate_program(
     let mut drafts: Vec<(usize, StageDraft, crate::preprocess::LineMap)> = vec![];
     let mut fragment_targets = None;
     let mut vertex_targets = None;
+    let mut preprocessed = Vec::new();
     for (i, (stage, path)) in program.stages.iter().enumerate() {
         out.stages.push(StageTranslation {
             stage: *stage,
@@ -198,11 +199,35 @@ pub(crate) fn translate_program(
             _ => {}
         }
         out.consts.extend(pp.consts.iter().cloned());
+        preprocessed.push((i, pp));
+    }
+    if program
+        .stages
+        .iter()
+        .all(|(stage, _)| matches!(stage, StageKind::Vertex | StageKind::Fragment))
+        && let Some(vertex) = preprocessed
+            .iter()
+            .position(|(i, _)| out.stages[*i].stage == StageKind::Vertex)
+        && let Some(fragment) = preprocessed
+            .iter()
+            .position(|(i, _)| out.stages[*i].stage == StageKind::Fragment)
+    {
+        let [(_, vertex), (_, fragment)] =
+            preprocessed.get_disjoint_mut([vertex, fragment]).unwrap();
+        if let Err(error) = crate::transform::vertex_outputs(vertex, fragment) {
+            out.diagnostics.push(
+                Diagnostic::new(Phase::Transform, error.message).at(vertex.map.locate(error.line)),
+            );
+            return out;
+        }
+    }
+    for (i, pp) in preprocessed {
+        let stage = out.stages[i].stage;
         let names = ResourceNames {
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
         };
-        match transform(&pp, *stage, &mut iface, &names) {
+        match transform(&pp, stage, &mut iface, &names) {
             Ok(draft) => drafts.push((i, draft, pp.map)),
             Err(e) => {
                 let d = Diagnostic::new(Phase::Transform, e.message).at(pp.map.locate(e.line));

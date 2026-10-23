@@ -78,3 +78,76 @@ fn compatibility_negative_constant_sqrt_remains_a_runtime_operation() {
             )
     );
 }
+
+#[test]
+fn compatibility_missing_vertex_declarations_preserve_assigned_values() {
+    let translated = success(
+        "#version 330\nvoid main() { carry=vec2(0.25,0.75); gl_Position=vec4(0.0); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
+    let module = &program(&translated, "composite").stages[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let carry = module
+        .global_variables
+        .iter()
+        .find(|(_, g)| g.name.as_deref() == Some("carry"))
+        .unwrap()
+        .0;
+    let main = module
+        .functions
+        .iter()
+        .find(|(_, f)| f.name.as_deref() == Some("iris_user_main"))
+        .unwrap()
+        .1;
+    let values: Vec<_> = main.body.iter().filter_map(|s| match s {
+        naga::Statement::Store { pointer, value }
+            if matches!(main.expressions[*pointer], naga::Expression::GlobalVariable(g) if g == carry) =>
+        {
+            Some(*value)
+        }
+        _ => None,
+    }).collect();
+    let value = *values.last().expect("the vertex keeps its assignment");
+    let naga::Expression::Compose { components, .. } = &main.expressions[value] else {
+        panic!("assigned vector survives");
+    };
+    let values: Vec<_> = components
+        .iter()
+        .map(|v| match main.expressions[*v] {
+            naga::Expression::Literal(naga::Literal::F32(value)) => value,
+            ref other => panic!("unexpected assigned component: {other:?}"),
+        })
+        .collect();
+    assert_eq!(values, [0.25, 0.75]);
+}
+
+#[test]
+fn compatibility_missing_vertex_declarations_copy_locations_and_qualifiers() {
+    let translated = success(
+        "#version 450\nvoid main() { carry=3; gl_Position=vec4(0.0); }",
+        "#version 450\nlayout(location=6) flat in int carry; out vec4 color; void main() { color=vec4(float(carry)); }",
+    );
+    let module = &program(&translated, "composite").stages[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    assert_eq!(interface_locations(module, true), [("carry", 6)]);
+}
+
+#[test]
+fn compatibility_unused_fragment_inputs_do_not_declare_unknown_vertex_names() {
+    for fragment in [
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(1.0); }",
+        "#version 330\nin vec2 carry; struct Data { vec2 carry; }; out vec4 color; void main() { Data d=Data(vec2(1.0)); color=vec4(d.carry,0.0,1.0); }",
+    ] {
+        let translated = translate(
+            "#version 330\nvoid main() { carry=vec2(0.25); gl_Position=vec4(0.0); }",
+            fragment,
+        );
+        assert!(!program(&translated, "composite").is_ok());
+    }
+}
