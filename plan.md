@@ -358,7 +358,9 @@ and rendered qualification remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
-  and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+  and matched inventory/held-item presentation. Firework-star previews retain the
+  alpha-weighted artwork, default tint and per-stack RGB color. Shared cube face
+  sheets are bounded coverage.
 - [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
   registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
   cushions) follow the atlas order but are not confirmed against that client.

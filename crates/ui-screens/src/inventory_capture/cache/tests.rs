@@ -54,6 +54,7 @@ fn icon(
         .unwrap_or(0);
     ProjectedIcon {
         icon: Some(IconRef {
+            color_mask: None,
             page: source,
             uv: [stack.network_id as u16, frame as u16, stack.count, 16],
             glint: false,

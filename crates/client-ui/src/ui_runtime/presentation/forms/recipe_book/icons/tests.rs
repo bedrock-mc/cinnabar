@@ -19,6 +19,7 @@ fn unchanged_entries_reuse_icons_until_a_stack_or_source_changes() {
     let icon = |stack: &protocol::NetworkItemStack| {
         calls.set(calls.get() + 1);
         Some(IconRef {
+            color_mask: None,
             page: 0,
             uv: [u16::try_from(stack.network_id).unwrap(), 0, 16, 16],
             glint: false,

@@ -126,6 +126,46 @@ fn emit_untransformed(
                 batches,
             )
         }
+        UiVisual::ColorMaskSprite {
+            texture_page,
+            uv,
+            color,
+            tint,
+            glint,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let start = vertices.len();
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                *color,
+                if *glint { super::UI_STYLE_GLINT } else { 0 },
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[start..] {
+                vertex.style_flags |= render_api::UI_STYLE_SPRITE_COLOR_MASK;
+                vertex.overlay_color = [
+                    f32::from(tint[0]) / 255.0,
+                    f32::from(tint[1]) / 255.0,
+                    f32::from(tint[2]) / 255.0,
+                    0.0,
+                ];
+                vertex.alpha_cutoff = 1.0 / 255.0;
+            }
+            Ok(())
+        }
         UiVisual::Sprite {
             texture_page,
             uv,

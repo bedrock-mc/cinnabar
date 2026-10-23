@@ -408,7 +408,16 @@ fn shaded_sample(
         let luma = sample[0] * 0.299 + sample[1] * 0.587 + sample[2] * 0.114;
         sample = [luma, luma, luma, sample[3]];
     }
-    sample.map(|channel| (channel * 255.0).round() as u8)
+    let texel = sample.map(|channel| (channel * 255.0).round() as u8);
+    if flags & render_api::UI_STYLE_SPRITE_COLOR_MASK != 0 {
+        let dye = bounds.unwrap_or_default();
+        assets::color_mask_texel(
+            texel,
+            [dye[0], dye[1], dye[2]].map(|channel| (channel * 255.0).round() as u8),
+        )
+    } else {
+        texel
+    }
 }
 
 /// Wraps tile coordinates and keeps filtering inside the source region or page halo.

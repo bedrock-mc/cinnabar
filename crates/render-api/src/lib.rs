@@ -59,3 +59,6 @@ pub const BLOCK_OVERLAY_FACE_OFFSET: f32 = 0.002;
 
 /// Vertex style bit selecting linear filtering for UI sprites.
 pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
+
+/// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
+pub const UI_STYLE_SPRITE_COLOR_MASK: u16 = 1 << 11;

@@ -107,6 +107,7 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     let required = IconRef {
+        color_mask: None,
         page: first,
         uv: [1, 1, 17, 17],
         glint: false,

@@ -38,6 +38,7 @@ impl super::UiPresentationRuntime {
 
 pub(super) const fn icon_at(page: u16, origin: [u32; 2]) -> IconRef {
     IconRef {
+        color_mask: None,
         page,
         uv: [
             origin[0] as u16,

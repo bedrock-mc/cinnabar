@@ -33,6 +33,7 @@ fn dark_mode_preserves_full_color_art_and_readable_labels_on_light_tags() {
         canvas
             .icon_ref(
                 ui::IconRef {
+                    color_mask: None,
                     page: 17,
                     uv: [0, 0, 32, 32],
                     glint: false,

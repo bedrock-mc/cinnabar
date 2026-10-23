@@ -93,6 +93,7 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 #[derive(Default)]
 pub(super) struct GuiModels {
     pub(super) enabled: bool,
+    pub(super) color_masks: super::color_icons::MaskRefs,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
@@ -332,6 +333,11 @@ impl UiPresentationRuntime {
             models = models.len(),
             source_pages = pages.len(),
             "native GUI item geometry prepared"
+        );
+        self.gui_models.color_masks = super::color_icons::prepare(
+            entities,
+            icons,
+            self.icon_refs.as_deref().unwrap_or_default(),
         );
         self.gui_models.pages = pages;
         self.gui_models.models = models;
@@ -659,6 +665,7 @@ impl UiPresentationRuntime {
         let skin = self.gui_models.skin.as_ref()?;
         let [width, height] = skin.dimensions();
         let skin = IconRef {
+            color_mask: None,
             page: (self.textures.dynamic_start() + SKIN_PAGE) as u16,
             uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
             glint: false,

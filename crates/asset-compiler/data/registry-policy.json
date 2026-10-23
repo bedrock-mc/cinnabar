@@ -6983,6 +6983,9 @@
         "path": "textures/blocks/sulfur"
       }
     ],
+    "default_item_tints": {
+      "minecraft:firework_star": [0, 0, 0]
+    },
     "item_visuals": {
       "minecraft:banner": "BlockModel",
       "minecraft:bed": "Sprite",
