@@ -381,9 +381,10 @@ fn mounted_sneak_and_jump_replay_without_crouching_or_moving_the_seat() {
     }
 }
 
-/// Rendering eases the rider from its previous seat to the new one rather than jumping.
+/// A streamed mount's rider renders at the seat the mount puts it in, as the mount itself
+/// renders, without trailing it by an extra tick.
 #[test]
-fn a_moving_seat_renders_from_the_previous_seat() {
+fn a_streamed_seat_renders_where_the_mount_puts_it() {
     let (mut physics, mut ticker) = walked_physics(0);
     let mut locals = super::LocomotionState::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
@@ -402,7 +403,6 @@ fn a_moving_seat_renders_from_the_previous_seat() {
             &VersionedFloor(1),
         ));
     }
-    // The frame sits at the start of the tick that moved the seat.
     assert_eq!(physics.tick_alpha(), 0.0);
-    assert_eq!(physics.render_feet_position(), Some([2.0, 3.0, 4.0]));
+    assert_eq!(physics.render_feet_position(), Some([2.5, 3.0, 4.0]));
 }

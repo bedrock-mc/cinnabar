@@ -40,12 +40,16 @@ pub(super) fn seat_rider(
     })
 }
 
-/// Where the rider was before this tick seated it, so rendering eases from the previous seat
-/// to the new one instead of jumping between them.
-pub(super) fn before_seat(position: Vec3, ride_delta: Option<[f32; 3]>) -> Vec3 {
-    ride_delta.map_or(position, |[x, y, z]| {
-        position - Vec3::new(f64::from(x), f64::from(y), f64::from(z))
-    })
+/// Where the rider renders from this tick. On a boat the client predicts, that is where it
+/// was before this tick seated it, so it eases along with the boat and a failed tick returns
+/// it there. On a streamed mount it is the seat itself, which the mount's own rendering
+/// already reached.
+pub(super) fn before_seat(position: Vec3, ride_delta: Option<[f32; 3]>, predicted: bool) -> Vec3 {
+    ride_delta
+        .filter(|_| predicted)
+        .map_or(position, |[x, y, z]| {
+            position - Vec3::new(f64::from(x), f64::from(y), f64::from(z))
+        })
 }
 
 impl super::LocalPhysicsController {

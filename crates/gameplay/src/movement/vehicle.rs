@@ -176,6 +176,11 @@ impl VehiclePrediction {
         }
     }
 
+    /// Whether this tick stepped a predicted boat.
+    pub(super) const fn stepped(&self) -> bool {
+        self.pending.is_some()
+    }
+
     /// Discards a stepped boat whose player tick failed.
     pub(super) fn discard_pending(&mut self) {
         self.pending = None;
