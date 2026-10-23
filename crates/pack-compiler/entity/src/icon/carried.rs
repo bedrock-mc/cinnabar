@@ -43,12 +43,14 @@ pub(super) fn tile(
 
 /// Loads square model artwork without the fixed carried-sheet tile dimensions.
 pub(super) fn model_tile(
+    blocks: &IconBlocks,
     root: &Path,
     path: &str,
     overlay: Option<&str>,
 ) -> Result<Option<IconSprite>, AssetError> {
-    let Some(mut sprite) =
-        IconBlocks::model_texture(root, path)?.filter(|sprite| sprite.width == sprite.height)
+    let Some(mut sprite) = blocks
+        .model_frame_sprite(root, path)?
+        .filter(|sprite| sprite.width == sprite.height)
     else {
         return Ok(None);
     };

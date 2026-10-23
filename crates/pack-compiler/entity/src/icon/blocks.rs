@@ -223,7 +223,7 @@ impl IconBlocks {
                     pack_compile_input::respawn_anchor::is_record(record),
                 )?
             } else {
-                super::carried::model_tile(root, path, overlay)?
+                super::carried::model_tile(self, root, path, overlay)?
             };
             let Some(tile) = tile else {
                 return Ok(None);
@@ -248,12 +248,42 @@ impl IconBlocks {
             .map(Into::into)
     }
 
-    /// A flat block icon; a flipbook texture shows its first frame, as the terrain atlas holds it.
+    /// A flat block icon; a declared flipbook shows its first frame.
     pub(super) fn flat_sprite(
         &self,
         root: &Path,
         path: &str,
     ) -> Result<Option<IconSprite>, AssetError> {
+        Ok(self
+            .texture_frame(root, path)?
+            .and_then(|decoded| super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite)))
+    }
+
+    /// Model artwork retains source resolution after selecting its declared animation frame.
+    pub(super) fn model_frame_sprite(
+        &self,
+        root: &Path,
+        path: &str,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let Some(decoded) = self.texture_frame(root, path)? else {
+            return Ok(None);
+        };
+        if decoded.width.max(decoded.height) > crate::block_entity::MAX_TEXTURE_SIDE {
+            return Ok(None);
+        }
+        Ok(Some(IconSprite {
+            width: decoded.width as u16,
+            height: decoded.height as u16,
+            rgba8: decoded.rgba8.into(),
+        }))
+    }
+
+    /// Loads a declared texture frame before applying consumer-specific dimensions.
+    fn texture_frame(
+        &self,
+        root: &Path,
+        path: &str,
+    ) -> Result<Option<pack_compile_input::image::DecodedTexture>, AssetError> {
         let file = static_texture_path(root, path, path)?;
         if !file.is_file() {
             return Ok(None);
@@ -273,7 +303,7 @@ impl IconBlocks {
         }) {
             pack_compile_input::image::retain_first_strip_frame(&mut decoded);
         }
-        Ok(super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite))
+        Ok(Some(decoded))
     }
 
     /// Loads a bounded sprite or an unresized square frame for carried-face baking.
