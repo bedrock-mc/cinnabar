@@ -375,7 +375,7 @@
     "type": "button",
     "size": [
       "100%",
-      26
+      28
     ],
     "layer": 22,
     "button_mappings": [
@@ -388,75 +388,13 @@
     ],
     "controls": [
       {
-        "background@cinnabar_touch.utility_frame": {
-          "$face": "textures/ui/recipe_book_light_button"
-        }
+        "background@cinnabar_touch.utility_idle": {}
       },
       {
-        "hover@cinnabar_touch.utility_frame": {
-          "$face": "textures/ui/recipe_book_light_button_pressed",
-          "layer": 1
-        }
+        "hover@cinnabar_touch.utility_idle": {}
       },
       {
-        "pressed@cinnabar_touch.utility_frame": {
-          "$face": "textures/ui/recipe_book_light_button_pressed",
-          "layer": 1
-        }
-      },
-      {
-        "label": {
-          "type": "label",
-          "text": "$text",
-          "localize": false,
-          "color": [
-            0,
-            0,
-            0
-          ],
-          "shadow": false,
-          "text_alignment": "left",
-          "anchor_from": "left_middle",
-          "anchor_to": "left_middle",
-          "offset": [
-            8,
-            0
-          ],
-          "size": [
-            "100% - 24px",
-            16
-          ],
-          "layer": 2
-        }
-      },
-      {
-        "active": {
-          "type": "image",
-          "texture": "textures/ui/checkmark_white",
-          "color": [
-            0,
-            0,
-            0
-          ],
-          "size": [
-            10,
-            10
-          ],
-          "anchor_from": "right_middle",
-          "anchor_to": "right_middle",
-          "offset": [
-            -6,
-            0
-          ],
-          "layer": 2,
-          "bindings": [
-            {
-              "binding_name": "$active",
-              "binding_name_override": "#visible"
-            }
-          ],
-          "keep_ratio": true
-        }
+        "pressed@cinnabar_touch.utility_pressed": {}
       }
     ],
     "default_control": "background",
@@ -469,34 +407,143 @@
       64
     ]
   },
-  "utility_frame": {
-    "type": "panel",
+  "utility_idle": {
+    "type": "image",
+    "texture": "textures/ui/joystick_knob",
+    "nineslice_size": [
+      4,
+      4,
+      4,
+      6
+    ],
+    "keep_ratio": false,
     "size": [
       "100%",
-      "100%"
+      "100% - 2px"
     ],
     "controls": [
       {
-        "outline": {
+        "content@cinnabar_touch.utility_content": {
+          "offset": [
+            4,
+            4
+          ],
+          "$content_color": [
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    ]
+  },
+  "utility_pressed": {
+    "type": "image",
+    "texture": "textures/ui/jump_pressed",
+    "nineslice_size": [
+      7,
+      6,
+      7,
+      6
+    ],
+    "keep_ratio": false,
+    "size": [
+      "100%",
+      "100% - 2px"
+    ],
+    "controls": [
+      {
+        "glyph_cover": {
           "type": "image",
-          "texture": "textures/ui/control",
+          "texture": "textures/ui/jump_pressed",
+          "uv": [
+            4,
+            5
+          ],
+          "uv_size": [
+            1,
+            1
+          ],
           "keep_ratio": false,
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [
+            7,
+            6
+          ],
           "size": [
-            "100%",
-            "100%"
+            "100% - 14px",
+            "100% - 12px"
+          ],
+          "layer": 1
+        }
+      },
+      {
+        "content@cinnabar_touch.utility_content": {
+          "offset": [
+            4,
+            5
+          ],
+          "$content_color": [
+            0.9019607843137255,
+            0.9019607843137255,
+            0.9019607843137255
+          ]
+        }
+      }
+    ]
+  },
+  "utility_content": {
+    "type": "panel",
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "size": [
+      "100% - 8px",
+      "100% - 10px"
+    ],
+    "layer": 2,
+    "controls": [
+      {
+        "label": {
+          "type": "label",
+          "text": "$text",
+          "localize": false,
+          "color": "$content_color",
+          "shadow": false,
+          "text_alignment": "left",
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "offset": [
+            4,
+            0
+          ],
+          "size": [
+            "100% - 18px",
+            "default"
           ]
         }
       },
       {
-        "face": {
+        "active": {
           "type": "image",
-          "texture": "$face",
-          "keep_ratio": false,
+          "texture": "textures/ui/checkmark_white",
+          "color": "$content_color",
           "size": [
-            "100% - 2px",
-            "100% - 2px"
+            8,
+            6
           ],
-          "layer": 1
+          "anchor_from": "right_middle",
+          "anchor_to": "right_middle",
+          "offset": [
+            -3,
+            0
+          ],
+          "bindings": [
+            {
+              "binding_name": "$active",
+              "binding_name_override": "#visible"
+            }
+          ]
         }
       }
     ]

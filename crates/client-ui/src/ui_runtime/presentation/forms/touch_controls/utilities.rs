@@ -12,6 +12,40 @@ impl UiPresentationRuntime {
         self.screens.touch.utilities_open = false;
     }
 
+    /// Measures the authored utility row before a roster's first paint or viewport change.
+    pub(in super::super) fn touch_utility_row_bottom(
+        &mut self,
+        runtime: &UiRuntime,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        content: [f32; 2],
+    ) -> Result<f32, UiPresentationError> {
+        if !self.screens.touch.enabled {
+            return Ok(0.);
+        }
+        let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        if self.screens.touch.base_viewport != Some((content, px, self.safe_area)) {
+            let rollback = (nodes.len(), *next);
+            self.append_touch_controls(runtime, nodes, next, metrics, content)?;
+            nodes.truncate(rollback.0);
+            *next = rollback.1;
+        }
+        Ok(self.screens.touch.base.as_ref().map_or(0., |frame| {
+            frame
+                .hits
+                .iter()
+                .filter(|hit| {
+                    matches!(
+                        control_id(hit.pressed.as_deref()),
+                        Some(touch::UTILITIES | touch::CHAT | touch::MENU)
+                    )
+                })
+                .map(|hit| (hit.rect.y + hit.rect.h) as f32 * frame.scale)
+                .fold(0., f32::max)
+        }))
+    }
+
     /// Requests the same debug visibility toggle as the desktop binding.
     pub fn request_touch_debug_toggle(&mut self) {
         self.screens.touch.debug_toggle_pending ^= true;

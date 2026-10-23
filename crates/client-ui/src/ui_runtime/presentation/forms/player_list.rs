@@ -45,6 +45,7 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
+        let top_inset = self.touch_utility_row_bottom(runtime, nodes, next, metrics, content)?;
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
@@ -66,7 +67,12 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        list.paint(renderer, runtime.player_roster.rows(), &mut paint_frame)?;
+        list.paint(
+            renderer,
+            runtime.player_roster.rows(),
+            &mut paint_frame,
+            top_inset,
+        )?;
         Ok(())
     }
 }
