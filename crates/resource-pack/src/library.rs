@@ -111,6 +111,8 @@ struct Catalog {
     available: Vec<InstalledPack>,
     #[serde(default)]
     active: Vec<ActivePack>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending: Option<Vec<ActivePack>>,
     #[serde(default)]
     retained: Vec<InstalledPack>,
     #[serde(default)]
@@ -142,10 +144,15 @@ impl GlobalPackLibrary {
         } else {
             Catalog::default()
         };
-        if catalog.active.len() > MAX_PACKS {
+        if catalog.active.len() > MAX_PACKS
+            || catalog
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.len() > MAX_PACKS)
+        {
             return Err(AdmissionError::TooManyPacks.into());
         }
-        let active = catalog.active.clone();
+        let active = catalog.pending.as_ref().unwrap_or(&catalog.active).clone();
         Ok(Self {
             root,
             engine_version,
@@ -182,6 +189,19 @@ impl GlobalPackLibrary {
     /// Lists the staged selection, highest priority first.
     pub fn active(&self) -> &[ActivePack] {
         &self.active
+    }
+
+    /// Saves staged edits for the next start without acknowledging a runtime reload.
+    pub fn save_pending_selection(&mut self) -> Result<(), LibraryError> {
+        if self.catalog.pending.as_ref() == Some(&self.active) {
+            return Ok(());
+        }
+        let previous = self.catalog.pending.replace(self.active.clone());
+        if let Err(error) = self.persist() {
+            self.catalog.pending = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Imports independently valid resource halves; behavior halves are skipped.
@@ -445,8 +465,16 @@ impl GlobalPackLibrary {
             }
         }
         let previous = std::mem::replace(&mut self.catalog.active, selection.to_vec());
+        let pending = if self.catalog.pending.as_ref() == Some(&selection) {
+            self.catalog.pending.take()
+        } else {
+            None
+        };
         if let Err(error) = self.persist() {
             self.catalog.active = previous;
+            if pending.is_some() {
+                self.catalog.pending = pending;
+            }
             return Err(error);
         }
         if selection == self.active {

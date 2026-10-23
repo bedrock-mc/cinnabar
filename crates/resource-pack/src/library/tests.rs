@@ -9,6 +9,49 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
+fn pending_selection_survives_restart_and_an_older_acknowledgement() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let source = fixture.write(
+        "pending.mcpack",
+        &zip(&[("manifest.json", manifest(123, "resources", "").as_bytes())]),
+    );
+    let pack = library.import(&source).unwrap().imported.remove(0);
+    library.activate(pack.id).unwrap();
+    library.save_pending_selection().unwrap();
+    let pending = library.active().to_vec();
+    assert_eq!(fixture.library().active(), pending);
+    library.commit_selection(&[]).unwrap();
+    assert_eq!(fixture.library().active(), pending);
+    library.commit_selection(&pending).unwrap();
+    assert!(library.catalog.pending.is_none());
+    library.deactivate(pack.id);
+    library.save_pending_selection().unwrap();
+    assert!(fixture.library().active().is_empty());
+}
+
+#[test]
+fn acknowledging_another_stack_preserves_pending_archive_revisions() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let source = fixture.write(
+        "pending-revision.mcpack",
+        &zip(&[("manifest.json", manifest(123, "resources", "").as_bytes())]),
+    );
+    let pack = library.import(&source).unwrap().imported.remove(0);
+    library.activate(pack.id).unwrap();
+    library.save_pending_selection().unwrap();
+    let pending = library.active().to_vec();
+    library.import(&source).unwrap();
+    library
+        .commit_selection(library.active().to_vec().as_slice())
+        .unwrap();
+    let mut restarted = fixture.library();
+    assert_eq!(restarted.active(), pending);
+    assert!(restarted.preview().is_ok());
+}
+
+#[test]
 fn restore_revisions_survive_updates_and_restart_until_the_backup_is_replaced() {
     let fixture = Fixture::new();
     let mut library = fixture.library();

@@ -498,6 +498,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.
+  Global Resources batches selection edits until Apply or leaving the section. Staged
+  selections survive shutdown without waiting for a runtime reload; live acceptance remains open.
   Social → Chat exposes the existing chat preferences, shared opacity, duration and
   position controls, and one reset for all displayed Chat settings. Chat uses the bundled
   Cinnangles Sans font without a typeface selector; font sizing applies directly and

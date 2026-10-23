@@ -19,6 +19,8 @@ pub(super) enum Command {
     Action { action: Action, revision: u64 },
     Import(PathBuf),
     Commit(Vec<resource_pack::ActivePack>),
+    ApplyFailed(Vec<resource_pack::ActivePack>),
+    Leave,
 }
 pub(super) enum Event {
     MinecraftImportStatus(String),
@@ -90,6 +92,7 @@ fn run(
     let mut minecraft_import = launcher_host::minecraft_import::Service::new(config_root);
     let mut import_commit_pending = None;
     let mut snapshot = Snapshot::default();
+    let mut requested = None;
     let icon_root = root.join("icons");
     let mut library = match GlobalPackLibrary::open(root, engine_version()) {
         Ok(library) => library,
@@ -103,6 +106,7 @@ fn run(
     super::icons::refresh(&library, &mut snapshot, &icon_root);
     match library.preview() {
         Ok(stack) => {
+            requested = Some(library.active().to_vec());
             let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
         }
         Err(error) => snapshot.message = error.to_string(),
@@ -111,6 +115,14 @@ fn run(
     let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     let initial = files.into_iter().map(Command::Import);
     for command in initial.chain(incoming) {
+        if matches!(command, Command::Leave)
+            && requested
+                .as_deref()
+                .or(snapshot.applied_selection.as_deref())
+                .is_none_or(|selection| selection == library.active())
+        {
+            continue;
+        }
         if let Command::Action { action, revision } = &command
             && indexed(*action)
             && *revision != snapshot.revision
@@ -135,12 +147,16 @@ fn run(
         );
         if let Command::Commit(selection) = &command {
             snapshot.applied_selection = Some(selection.clone());
+            if requested.as_ref() == Some(selection) {
+                requested = None;
+            }
         }
         let performs_work = matches!(
             &command,
             Command::MinecraftImport(_)
                 | Command::Import(_)
                 | Command::Commit(_)
+                | Command::Leave
                 | Command::Action {
                     action: Action::Import | Action::Apply,
                     ..
@@ -165,6 +181,7 @@ fn run(
                 );
                 changes_lists = changed;
                 if let Some(stack) = outcome.stack {
+                    requested = Some(library.active().to_vec());
                     import_commit_pending = Some(library.active().to_vec());
                     let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
                 }
@@ -183,6 +200,23 @@ fn run(
                     &outgoing,
                 );
                 snapshot.message.clear();
+                result
+            }
+            Command::ApplyFailed(selection) => {
+                if requested.as_ref() == Some(&selection) {
+                    requested = None;
+                }
+                Ok(())
+            }
+            Command::Leave
+            | Command::Action {
+                action: Action::Apply,
+                ..
+            } => {
+                let result = act(&mut library, &mut snapshot, Action::Apply, &outgoing);
+                if result.is_ok() {
+                    requested = Some(library.active().to_vec());
+                }
                 result
             }
             Command::Import(path) => {
@@ -206,6 +240,11 @@ fn run(
         snapshot.busy = false;
         if changes_lists {
             snapshot.revision += 1;
+            if library.active() != snapshot.selection
+                && let Err(error) = library.save_pending_selection()
+            {
+                snapshot.message = error.to_string();
+            }
         }
         refresh(&library, &mut snapshot);
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));

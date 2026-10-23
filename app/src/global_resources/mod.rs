@@ -18,7 +18,30 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, file
         .add_systems(
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),
-        );
+        )
+        .add_systems(Last, apply_on_leave);
+}
+
+/// Submits the staged selection when its settings section closes or the app exits.
+fn apply_on_leave(
+    mut worker: ResMut<worker::Worker>,
+    mut menu: ResMut<MenuRuntime>,
+    mut exits: MessageReader<AppExit>,
+    mut was_open: Local<bool>,
+) {
+    let open = menu.scene() == Some(launcher::menu::MenuScreen::Settings)
+        && menu.settings_section()
+            == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack);
+    let quitting = exits.read().next().is_some();
+    if (*was_open && !open) || quitting {
+        // Input may have queued an edit after the Update driver ran.
+        for action in std::mem::take(&mut menu.global_resource_actions) {
+            let revision = worker.snapshot.revision;
+            worker.send(worker::Command::Action { action, revision });
+        }
+        worker.send(worker::Command::Leave);
+    }
+    *was_open = open && !quitting;
 }
 
 /// Pack-reload status folded into the published snapshot, borrowed for comparison.
@@ -163,6 +186,10 @@ fn drive(
     }) {
         let (_, selection) = worker.awaiting.take().expect("completed selection");
         worker.send(worker::Command::Commit(selection));
+    } else if reload.error().is_some()
+        && let Some((_, selection)) = worker.awaiting.take()
+    {
+        worker.send(worker::Command::ApplyFailed(selection));
     }
     if worker.minecraft_import_pending {
         if let Some(error) = reload.error() {

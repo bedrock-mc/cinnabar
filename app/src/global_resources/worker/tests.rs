@@ -3,6 +3,8 @@ use {
     launcher::global_resources::{Action, Snapshot},
 };
 
+mod autoapply;
+
 /// Runs queued commands with isolated worker storage and collects their events.
 fn events_for(name: &str, queued: Vec<Command>) -> Vec<Event> {
     let root = std::env::temp_dir().join(format!(
@@ -746,7 +748,8 @@ fn an_acknowledgement_preserves_newer_staging_and_queued_list_indices() {
         GlobalPackLibrary::open(root, engine_version())
             .unwrap()
             .active(),
-        acknowledged
+        completed.selection,
+        "restart preserves newer staged edits after an older runtime acknowledgement"
     );
 }
 
