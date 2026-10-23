@@ -27,6 +27,8 @@ mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
 mod outlines;
+mod page;
+use page::Page;
 mod oversized;
 pub use oversized::OversizedTextures;
 mod client_rasters;
@@ -235,42 +237,6 @@ struct Source {
     bytes: std::sync::Arc<[u8]>,
     size: [u32; 2],
     packed: [u32; 2],
-}
-
-/// One reserved page: its pixels, shelf cursor, residents, and last use.
-struct Page {
-    pixels: Vec<u8>,
-    cursor: [u32; 3],
-    keys: Vec<String>,
-    used: u64,
-    image: UiTexturePage,
-}
-
-impl Page {
-    fn blank() -> Option<Self> {
-        let pixels = vec![0; (PAGE_SIDE * PAGE_SIDE * 4) as usize];
-        let image = UiTexturePage::owned([PAGE_SIDE; 2], pixels.clone().into()).ok()?;
-        Some(Self {
-            pixels,
-            cursor: [0; 3],
-            keys: Vec::new(),
-            used: 0,
-            image,
-        })
-    }
-
-    /// A shelf slot for `size`, advancing the cursor, or `None` when full.
-    fn allocate(&mut self, size: [u32; 2]) -> Option<[u32; 2]> {
-        let [mut x, mut y, mut shelf] = self.cursor;
-        if x + size[0] > PAGE_SIDE {
-            (x, y, shelf) = (0, y + shelf + GUTTER, 0);
-        }
-        if y + size[1] > PAGE_SIDE {
-            return None;
-        }
-        self.cursor = [x + size[0] + GUTTER, y, shelf.max(size[1])];
-        Some([x, y])
-    }
 }
 
 /// The server pack's UI textures, packed on demand into a fixed number of
@@ -880,6 +846,7 @@ impl ServerAtlas {
         }
         page.pixels.fill(0);
         page.cursor = [0; 3];
+        page.free.clear();
         Some((index, page.allocate(size)?))
     }
 }

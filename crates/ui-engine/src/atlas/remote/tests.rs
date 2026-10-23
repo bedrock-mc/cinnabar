@@ -51,6 +51,48 @@ fn texel(atlas: &ServerAtlas, slot: crate::atlas::ServerTexture) -> [u8; 4] {
 }
 
 #[test]
+fn a_replaced_url_reuses_space_on_a_full_page_with_a_live_hud() {
+    let hud = "textures/hud";
+    let url = "https://images.test/form.png";
+    let size = [super::super::PAGE_SIDE, (super::super::PAGE_SIDE - 1) / 2];
+    let remote = Arc::new(Images::default());
+    remote.publish(url, 1, size, 80);
+    let files = vec![(
+        format!("{hud}.png"),
+        super::super::tests::png(size[0], size[1]),
+    )];
+    let mut atlas = ServerAtlas::new(&files, None, 1)
+        .with_fallbacks(None, Some(remote.clone()))
+        .with_image_work(ImageWork::inline());
+    atlas.require([hud, url]);
+    let hud_geometry = atlas.placement(hud).unwrap();
+    let form_geometry = atlas.placement(url).unwrap();
+    let hud_pixel = texel(&atlas, hud_geometry);
+
+    for (generation, replacement) in [(2, size), (3, [size[0] - 2, size[1] - 2]), (4, size)] {
+        remote.publish(url, generation, replacement, 120);
+        atlas.begin_frame();
+        atlas.require_current([hud]);
+        atlas.require_current([url]);
+        let placed = atlas.placement(url).expect("replacement on the next frame");
+        assert_eq!(placed.page, form_geometry.page);
+        assert_eq!(placed.rect[..2], form_geometry.rect[..2]);
+        assert_eq!(placed.rect[2..], replacement.map(|side| side as u16));
+        assert_eq!(texel(&atlas, placed), [120; 4]);
+        if replacement[0] < size[0] {
+            let gutter = super::super::ServerTexture {
+                rect: [placed.rect[0] + placed.rect[2], placed.rect[1], 1, 1],
+                ..placed
+            };
+            assert_eq!(texel(&atlas, gutter), [0; 4]);
+        }
+        assert_eq!(atlas.placement(hud).unwrap().rect, hud_geometry.rect);
+        assert_eq!(texel(&atlas, hud_geometry), hud_pixel);
+        assert_eq!(atlas.images().len(), 1);
+    }
+}
+
+#[test]
 fn a_form_generation_change_preserves_already_painted_hud_geometry() {
     let hud = "textures/hud";
     let url = "https://images.test/form.png";

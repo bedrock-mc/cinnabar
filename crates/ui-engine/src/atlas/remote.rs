@@ -159,10 +159,11 @@ impl ServerAtlas {
             || self.oversized.iter().any(|entry| entry.0 == key)
     }
 
-    /// Drops only a replaced URL's derived state, leaving page reclamation to normal eviction.
+    /// Releases a replaced URL's atlas space and retires only its derived state.
     fn remove_remote_artwork(&mut self, key: &str) {
-        self.resident.remove(key);
-        for page in &mut self.pages {
+        if let Some(texture) = self.resident.remove(key) {
+            let page = &mut self.pages[usize::from(texture.page)];
+            page.release(texture.rect);
             page.keys.retain(|resident| resident != key);
         }
         self.decodes.remove(key);
