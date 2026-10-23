@@ -29,10 +29,7 @@ pub use device::{
     MAX_MOUSE_BUTTONS, MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchAxis, TouchContact,
     TouchControl, TouchControlKind, TouchControlLayout, TouchLayoutError,
 };
-pub use ordered::{
-    ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS,
-    OrderedActions,
-};
+pub use ordered::{ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, OrderedActions};
 pub use router::{MAX_LOOK_DELTA_PER_FRAME, RouterError, SemanticInputRouter};
 
 /// Stable default hit identifiers supplied by the app-owned touch layout.

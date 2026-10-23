@@ -163,7 +163,34 @@ struct VisualCompiler {
 }
 
 impl VisualCompiler {
+    /// Dedicated rules win over the provisional envelope; the plain cube is the last resort.
     fn compile_record(
+        &mut self,
+        record: &RegistryRecord,
+        inputs: &RuleInputs<'_>,
+        admissions: ExactAdmissions,
+        canonical_air: CanonicalAirIdentity,
+    ) -> Result<CompileRuleResult, AssetError> {
+        match self.compile_dedicated(record, inputs, admissions, canonical_air)? {
+            CompileRuleResult::NoMatch => {}
+            outcome => return Ok(outcome),
+        }
+        match super::fallback::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        )? {
+            CompileRuleResult::NoMatch => Ok(super::cube::compile_rule(record, inputs)),
+            outcome => Ok(outcome),
+        }
+    }
+
+    /// Returns the first dedicated rule result, leaving unmatched records for fallback handling.
+    fn compile_dedicated(
         &mut self,
         record: &RegistryRecord,
         inputs: &RuleInputs<'_>,
@@ -469,15 +496,6 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
-        ordered_rule!(super::fallback::compile_rule(
-            record,
-            inputs,
-            &mut self.cuboid_templates,
-            &mut ModelStorage {
-                templates: &mut self.model_templates,
-                quads: &mut self.model_quads,
-            },
-        ));
         match super::literal::compile_rule(record, inputs) {
             CompileRuleResult::NoMatch => {}
             outcome => return Ok(outcome),
@@ -724,7 +742,7 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
-        Ok(super::cube::compile_rule(record, inputs))
+        Ok(CompileRuleResult::NoMatch)
     }
 }
 
@@ -793,6 +811,10 @@ pub(in crate::compiler) fn compile_visuals(
         compiler.model_quads.into_boxed_slice(),
     ))
 }
+
+#[cfg(test)]
+#[path = "dispatcher/precedence_tests.rs"]
+mod precedence_tests;
 
 #[cfg(test)]
 mod tests {

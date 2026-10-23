@@ -217,9 +217,10 @@ impl Destroying {
 ///
 /// Server authority: start, then silence while cracking, a continue on a new
 /// block, and continue plus predict on completion; aborts carry progress.
-/// Client authority: start, a crack every tick, and a stop plus item-use
-/// destroy transaction on completion. Instant creative destroys also carry the
-/// standalone creative player action on both authority paths.
+/// Client authority: start, a crack on every held tick (including the delay and
+/// the completion, after its stop and item-use destroy transaction). Instant
+/// creative destroys also carry the standalone creative player action on both
+/// authority paths.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DestroyMachine {
     destroying: Option<Destroying>,
@@ -251,7 +252,6 @@ impl DestroyMachine {
         motion: TickMotion,
         authority: BlockBreakingAuthority,
     ) -> SurvivalTickPayload {
-        let on_ground = motion.on_ground;
         let mut payload = SurvivalTickPayload::default();
         if let Some((position, percent)) = self.pending_abort.take() {
             payload.push(BlockActionKind::AbortDestroy, position, percent);
@@ -283,9 +283,27 @@ impl DestroyMachine {
                 return payload;
             }
         };
+        self.advance(&mut payload, target, motion, authority, delayed);
+        if authority == BlockBreakingAuthority::Client && self.destroying.is_some() {
+            // Every held tick that keeps a client-authoritative destroy reports its target once,
+            // after any start, stop or retarget, including delay and completion ticks.
+            payload.push(BlockActionKind::CrackBlock, target.position, target.face);
+        }
+        payload
+    }
+
+    /// Advances a held destroy on `target`, after any pending abort.
+    fn advance(
+        &mut self,
+        payload: &mut SurvivalTickPayload,
+        target: &DestroyTarget,
+        motion: TickMotion,
+        authority: BlockBreakingAuthority,
+        delayed: bool,
+    ) {
         let creative_continue = target.instant && self.destroying.is_some();
         if delayed && !creative_continue {
-            return payload;
+            return;
         }
         match self.destroying {
             None => {
@@ -298,11 +316,9 @@ impl DestroyMachine {
                 });
                 // Only zero hardness breaks on the start tick, then delays.
                 if target.instant || target.block.is_some_and(|block| block.hardness == 0.0) {
-                    self.complete(&mut payload, target, authority, false);
+                    self.complete(payload, target, authority, false);
                     self.delay = DESTROY_DELAY_TICKS;
                     self.travel = 0.0;
-                } else if authority == BlockBreakingAuthority::Client {
-                    payload.push(BlockActionKind::CrackBlock, target.position, target.face);
                 }
             }
             Some(_) if target.instant => {
@@ -316,16 +332,16 @@ impl DestroyMachine {
                 } else if self.travel > CREATIVE_TRAVEL_PER_DESTROY {
                     self.travel -= self.travel.trunc();
                 } else {
-                    return payload;
+                    return;
                 }
-                self.complete(&mut payload, target, authority, true);
+                self.complete(payload, target, authority, true);
                 self.delay = DESTROY_DELAY_TICKS;
             }
             Some(destroying) if destroying.position == target.position => {
-                let rate = target.rate(on_ground);
+                let rate = target.rate(motion.on_ground);
                 let progress = destroying.progress + rate;
                 if progress >= COMPLETION_THRESHOLD {
-                    self.complete(&mut payload, target, authority, true);
+                    self.complete(payload, target, authority, true);
                     self.delay = if rate < 1.0 { DESTROY_DELAY_TICKS } else { 0 };
                 } else {
                     self.destroying = Some(Destroying {
@@ -333,9 +349,6 @@ impl DestroyMachine {
                         completed: false,
                         ..destroying
                     });
-                    if authority == BlockBreakingAuthority::Client {
-                        payload.push(BlockActionKind::CrackBlock, target.position, target.face);
-                    }
                 }
             }
             Some(destroying) => {
@@ -352,7 +365,6 @@ impl DestroyMachine {
                             destroying.abort_percent(),
                         );
                         payload.push(BlockActionKind::StartDestroy, target.position, target.face);
-                        payload.push(BlockActionKind::CrackBlock, target.position, target.face);
                     }
                 }
                 self.destroying = Some(Destroying {
@@ -363,11 +375,11 @@ impl DestroyMachine {
                 });
             }
         }
-        payload
     }
 
     /// The destroy stays active on the broken block, so the next target continues it.
-    /// A server-authoritative destroy of a block with hardness wears the tool.
+    /// A server-authoritative destroy of a block with hardness requests the tool's new
+    /// durability, only when the destroy actually damages it.
     fn complete(
         &mut self,
         payload: &mut SurvivalTickPayload,
@@ -378,13 +390,16 @@ impl DestroyMachine {
         match authority {
             BlockBreakingAuthority::Server => {
                 let worn = target.block.is_some_and(|block| block.hardness > 0.0);
-                payload.wear = target.wear.filter(|_| worn).map(|wear| {
-                    (
-                        target.selection.slot,
-                        wear.current_damage.saturating_add(wear.break_damage),
-                        target.selection.item.stack_network_id(),
-                    )
-                });
+                payload.wear = target
+                    .wear
+                    .filter(|wear| worn && wear.break_damage > 0)
+                    .map(|wear| {
+                        (
+                            target.selection.slot,
+                            wear.current_damage.saturating_add(wear.break_damage),
+                            target.selection.item.stack_network_id(),
+                        )
+                    });
                 if continued {
                     payload.push(
                         BlockActionKind::ContinueDestroy,

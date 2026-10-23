@@ -197,6 +197,7 @@ fn compile_with_behavior(
         }
     }
     collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
+    collect::collect_atlas_block_rasters(root, &mut selected)?;
     collect_optional_file(root, "manifest.json", &mut selected)?;
     if let Some(behavior) = behavior {
         let mut definitions = Vec::new();
@@ -343,6 +344,10 @@ fn compile_with_behavior(
             use_hash,
         ),
         raw(legacy_icons::SOURCE_PATH, legacy_icons::SOURCE_BYTES),
+        raw(
+            assets::item::names::SOURCE_PATH,
+            assets::item::names::SOURCE_BYTES,
+        ),
     ] {
         total_source_bytes = total_source_bytes
             .checked_add(source_bytes)
@@ -629,7 +634,9 @@ fn parse_source(
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());
     }
-    if relative_path.starts_with("textures/items/") {
+    // Item sprites, including block art the item atlas names, are rasters, not entity textures.
+    if relative_path.starts_with("textures/items/") || relative_path.starts_with("textures/blocks/")
+    {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
             return Ok(());
         }

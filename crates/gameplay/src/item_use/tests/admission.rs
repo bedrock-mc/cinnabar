@@ -73,12 +73,7 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
     assert!(protocol::is_legacy_request_id(first_id));
     assert_eq!(
         summary(&transaction(&sent[1])),
-        (
-            first_id,
-            1,
-            vec![16, 15, 16],
-            vec![Some(41), Some(first_id), None]
-        )
+        (first_id, 1, vec![16, 15, 16], vec![None; 3])
     );
     assert!(
         !runtime.has_work(false),
@@ -102,7 +97,7 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
         |packets| {
             let (id, _, sizes, ids) = summary(&transaction(packets.last().unwrap()));
             assert!(id < first_id && protocol::is_legacy_request_id(id));
-            assert_eq!((sizes[0], ids[0]), (15, Some(first_id)));
+            assert_eq!((sizes[0], ids[0]), (15, None));
             ready.send_inventory_packets(packets)
         },
     );
