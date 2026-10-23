@@ -377,8 +377,9 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
     ));
 }
 
+/// An urgent retry publishes before ordinary air even when that ordinary section is closer.
 #[test]
-fn urgent_mesh_completion_retry_stays_at_the_front() {
+fn urgent_mesh_completion_retry_precedes_ordinary_air() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -388,13 +389,21 @@ fn urgent_mesh_completion_retry_stays_at_the_front() {
         air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    let key = SubChunkKey::new(0, 0, 0, 0);
+    let calm = SubChunkKey::new(0, 0, 0, 0);
+    stream.mark_dirty_exact(calm, Instant::now());
+    let key = SubChunkKey::new(0, 64, 0, 0);
     let revision = stream.mark_dirty_exact(key, Instant::now());
     stream.mesh_jobs.pending.remove(&key);
     stream.mesh_jobs.scan.clear();
 
     stream.requeue_current_mesh_completion(key, revision, true);
 
-    assert!(stream.mesh_jobs.pending[&key].urgent);
-    assert_eq!(stream.mesh_jobs.scan.front(), Some(&(key, revision)));
+    stream.dispatch_mesh_jobs_with_limits([0.0; 3], 0, 1);
+    let changes = stream.take_mesh_changes();
+    assert!(matches!(
+        changes.as_slice(),
+        [WorldMeshChange::Remove { key: published, generation, urgent: true, .. }]
+            if *published == key && *generation == revision
+    ));
+    assert!(stream.mesh_jobs.pending.contains_key(&calm));
 }

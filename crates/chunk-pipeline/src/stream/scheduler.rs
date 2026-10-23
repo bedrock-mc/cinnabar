@@ -274,11 +274,6 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         }
     }
 
-    /// Replaces the key's pending record and queues it for ingress.
-    pub(super) fn enqueue(&mut self, key: SubChunkKey, pending: P) {
-        self.enqueue_prioritized(key, pending, false);
-    }
-
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
     pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
         if self
