@@ -26,8 +26,14 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
+   Desktop VSync defaults to Off, preferring Mailbox, then Immediate, then FIFO;
+   Android defaults to On. The diagnostic `--no-vsync` flag prefers Immediate.
+   Menus use a display-refresh ceiling, and untouched in-world limits use that ceiling on battery. Saved limits remain authoritative.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
+   macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native
+   Metal presentation logs expose the layer state and software cap. Fullscreen
+   VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
@@ -92,7 +98,7 @@ and resource qualification; they do not imply these systems need to be written.
   presentation and animation. Identify unsupported states before adding implementation.
   Held end-rod models and narrow rod selection bounds are implemented; matched final-frame
   outlines and third-person held-item qualification remain incomplete.
-  Entity-drawn blocks retain pack face materials for destruction and mining particles;
+  Chests retain pack face materials for destruction and mining particles;
   matched chest-particle presentation and custom destruction overrides remain incomplete.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
   use pack geometry in all four directions; sleeping and picking remain unqualified.
@@ -255,6 +261,9 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Server sprint metadata preserves the local Toggle Sprint request. Held sprint
+restarts after a server clear when admission conditions hold. Native rendered
+acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
@@ -315,11 +324,18 @@ and rendered qualification remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
+  Geometry with matching resolved inheritance chains and identical animation or controller
+  definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
+  controllers) still reject the rig: native file load order is unverified.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Movement retains signed byte rotations and exact network heights through tick and
+  frame interpolation and predicted picking. Specialized projectile and vehicle movement,
+  remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
@@ -330,6 +346,9 @@ and rendered qualification remain incomplete.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+- [ ] Draw inventory icons for copper golem statues and structure voids, the only pinned
+  registry items without one. Variant indices of 1.26.50 legacy icon rows (poplar boats,
+  cushions) follow the atlas order but are not confirmed against that client.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and
@@ -435,6 +454,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   acceptance remain incomplete.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  Server language values decode newline and backslash escapes before text arguments
+  are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
@@ -452,9 +473,19 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap. The survival
+  Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
+  each ingredient draws from one concrete variant. Missing grid ingredients and their
+  result use distinct ghost cells in both renderers and retain hover names.
+  Broader crafting and container acceptance remains incomplete.
+  Hover reports and actor use share the attack's game-mode actor cap.
+  Actor rays use loaded collision defaults, authoritative dimensions and scale, and
+  constructor pick radii. Attack, use and hover preserve the selected world intercept;
+  matched server-box packet acceptance remains incomplete. The survival
   block-versus-miss bands at that cap, the creative cap's shortening by the pick ray and
   actor occlusion of the block outline remain incomplete.
+  Desktop input retains every transition in a complete arrival batch, including
+  repeated attack taps. Refused interaction admission and comparative combat
+  animation/audio latency acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
@@ -534,6 +565,9 @@ Ordered desktop interactions still need live input and overload-timing acceptanc
 global camera-sampling qualification, other input modes and device-specific chords.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
+Selection-only hotbar changes coalesce into the next tick's equipment announcement.
+Same-frame hand actions still announce their selection first; matching their complete
+native packet order remains incomplete.
 
 ### Held block placement
 
@@ -626,6 +660,9 @@ Native audio follows changes to the system default output on its owner thread, r
 active and queued sounds across output replacement and retrying unavailable devices.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+Startup sound prewarming prioritizes routed attack and player-hurt samples, including
+their finite alternatives within the prewarm byte budget. Comparative combat sound
+latency, server-pack prewarming and physical output latency remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
 stone fallback. Per-permutation sound components and matched native fallback
@@ -811,6 +848,10 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
+Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
+their admission metadata and file hashes. Decoded and compiled session outputs are freed
+off the frame and rebuilt on rejoin. Rejoin rebuild latency and menu-memory acceptance
+remain unmeasured.
 Actor artwork prepares current demand immediately and prewarms unused pages within a
 per-frame budget. Artwork arrays allocate exactly their source layer count. Skin slots
 keep geometric capacity. Each artwork slot retains its own unchanged texture and bindings.
@@ -822,6 +863,11 @@ retained memory, allocations, uploads and unnecessary rebuilds. Measure release
 performance on hardware; existing source refactors and unmeasured optimizations
 remain incomplete performance evidence. Preserve packed terrain storage and shared
 render resources while measuring implementation choices under the architecture policy.
+Window-sized client targets share bounded allocation retries after memory exhaustion,
+including hands, labels and the base UI raster. Enhanced water, shadows and shafts
+disable sampling while their required targets are unavailable. Injected failures cover
+recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
+remain incomplete.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

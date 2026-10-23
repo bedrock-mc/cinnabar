@@ -30,7 +30,7 @@ fn with_output_frame(check: impl FnOnce(ContainerFrame<'_>)) {
     let names = HashMap::new();
     let (icons36, durability36, durability9) = ([None; 36], [None; 36], [None; 9]);
     let (icons54, durability54) = ([None; 54], [None; 54]);
-    let (icons9, icons4, durability4) = ([None; 9], [None; 4], [None; 4]);
+    let (icons4, durability4) = ([None; 4], [None; 4]);
     let entries: Arc<[Option<ui::IconRef>]> = Arc::from([]);
     let predicted = StationOutput {
         icon: None,
@@ -50,8 +50,7 @@ fn with_output_frame(check: impl FnOnce(ContainerFrame<'_>)) {
         storage_durability: &durability54,
         ui_icons: &[],
         ui_durability: &[],
-        crafting_icons: &icons9,
-        crafting_output: None,
+        crafting: &crate::inventory_capture::CraftingFrame::default(),
         armor_icons: &icons4,
         armor_durability: &durability4,
         offhand_icon: None,

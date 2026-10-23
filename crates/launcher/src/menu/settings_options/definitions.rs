@@ -9,6 +9,9 @@ pub struct SettingChoice {
     pub label: &'static str,
 }
 
+/// Shared VSync toggle definition for both settings interfaces.
+pub const VSYNC_OPTION: SettingDefinition = SettingId::Vsync.definition();
+
 #[derive(Clone, Copy, Debug)]
 pub enum SettingKind {
     Toggle,
@@ -369,7 +372,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 5)], [SettingsGroup::Video], None, None;
     MotionBlur => "motion_blur", dropdown("Motion Blur", MOTION_BLUR_CHOICES, ui::MotionBlurQuality::Off.index()),
         [(SettingPanel::VideoGraphics, 6)], [SettingsGroup::Video], None, None;
-    Vsync => "vsync", toggle("options.vsync", true),
+    Vsync => "vsync", toggle("options.vsync", render_api::VsyncMode::DEFAULT.enabled()),
         [(SettingPanel::VideoGraphics, 2)], [SettingsGroup::Video], None, None;
     Vrr => "vrr", dropdown("Variable Refresh Rate", VRR_CHOICES, render_api::VrrPreference::Automatic as i32),
         [(SettingPanel::VideoGraphics, 3)], [SettingsGroup::Video], None, None;
