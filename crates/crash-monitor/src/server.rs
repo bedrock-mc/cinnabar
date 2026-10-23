@@ -504,8 +504,6 @@ mod tests {
                     .send_message(message, signed(&TOKEN, &payload))
                     .unwrap();
             }
-            drop(client);
-
             let (handler, observed, _received) = handler();
             let liveness = Arc::clone(&handler.liveness);
             let shutdown = Arc::new(AtomicBool::new(false));
@@ -521,8 +519,11 @@ mod tests {
                     finished.send(()).unwrap();
                 })
             };
+            // Windows waits for the server to close its socket when dropping the client.
+            let closing = std::thread::spawn(move || drop(client));
             liveness.drain(&server_finished, &shutdown);
             serving.join().unwrap();
+            closing.join().unwrap();
             let observed = observed.lock().unwrap();
             assert!(observed.hello.is_some());
             assert_eq!(observed.exit, Some(1));
