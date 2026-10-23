@@ -40,11 +40,14 @@ impl Specializer<RenderPipeline> for UpscaleSpecializer {
     ) -> Result<Canonical<Self::Key>, BevyError> {
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = key.format;
-        fragment.shader_defs = if key.sharpen {
-            vec!["SHARPEN".into()]
-        } else {
-            vec![]
-        };
+        fragment.entry_point = Some(
+            if key.sharpen {
+                "sharpen_fragment"
+            } else {
+                "bilinear_fragment"
+            }
+            .into(),
+        );
         Ok(key)
     }
 }
@@ -90,7 +93,7 @@ impl FromWorld for UpscalePipeline {
             },
             fragment: Some(FragmentState {
                 shader: SHADER,
-                entry_point: Some("fragment".into()),
+                entry_point: Some("bilinear_fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,

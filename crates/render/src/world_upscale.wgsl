@@ -16,10 +16,16 @@ fn vertex(@builtin(vertex_index) index: u32) -> Vertex {
     return out;
 }
 
+// The basic filter performs one bilinear sample per native output pixel.
 @fragment
-fn fragment(in: Vertex) -> @location(0) vec4<f32> {
+fn bilinear_fragment(in: Vertex) -> @location(0) vec4<f32> {
+    return textureSampleLevel(world_image, linear_sampler, in.uv, 0.0);
+}
+
+// Sharpening uses four neighbours and retains the local colour range and alpha.
+@fragment
+fn sharpen_fragment(in: Vertex) -> @location(0) vec4<f32> {
     let centre = textureSampleLevel(world_image, linear_sampler, in.uv, 0.0);
-#ifdef SHARPEN
     let step = 1.0 / vec2<f32>(textureDimensions(world_image));
     let left = textureSampleLevel(world_image, linear_sampler, in.uv - vec2<f32>(step.x, 0.0), 0.0).rgb;
     let right = textureSampleLevel(world_image, linear_sampler, in.uv + vec2<f32>(step.x, 0.0), 0.0).rgb;
@@ -29,7 +35,4 @@ fn fragment(in: Vertex) -> @location(0) vec4<f32> {
     let high = max(centre.rgb, max(max(left, right), max(up, down)));
     let sharpened = centre.rgb + 0.2 * (centre.rgb - (left + right + up + down) * 0.25);
     return vec4<f32>(clamp(sharpened, low, high), centre.a);
-#else
-    return centre;
-#endif
 }
