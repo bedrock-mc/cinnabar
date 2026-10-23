@@ -336,6 +336,7 @@ class BudgetTests(unittest.TestCase):
         """The largest observed Rust and Go archives must survive retention."""
         self.assertLessEqual(2_791_327_868, cache.budget("artifact", "build-v1-rust-Linux-X64-ci-"))
         self.assertLessEqual(2_555_389_355, cache.budget("artifact", "build-v1-rust-Windows-X64-ci-"))
+        self.assertLessEqual(2_173_649_337, cache.budget("cache", "build-v1-rust-macOS-ARM64-ci-"))
         self.assertLessEqual(857_488_115, cache.budget("artifact", "build-v1-go-Linux-X64-ci-"))
 
     def test_release_caches_stay_out_of_the_shared_cache(self):
