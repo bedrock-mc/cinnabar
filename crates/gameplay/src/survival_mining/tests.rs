@@ -16,6 +16,7 @@ mod attack_admission;
 mod creative_destroy;
 mod custom_mining;
 mod painting_attacks;
+mod refused_starts;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
     DestroyTarget {
@@ -79,6 +80,7 @@ impl MiningAdmission {
             )
         })?;
         Some(crate::melee::PressContext {
+            refused_destroy: None,
             tick: sample.tick,
             player_position: sample.position,
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -158,14 +160,20 @@ impl MiningAdmission {
         );
     }
 
-    /// Publishes every retained input through the production movement encoder.
+    /// Publishes retained inputs and their preceding actions through the production guards.
     fn flush(&mut self) {
-        flush_player_auth_inputs(
+        crate::movement::flush_player_auth_inputs_guarded(
             &mut self.ticker,
             crate::movement::OUTBOX_CAPACITY,
             Some(evidence()),
-            |_, packet| {
-                self.packets.push(packet);
+            |_, packet, guard, _| {
+                if let Some(guard) = guard {
+                    let (preceding, packet) = guard.sanitize(packet);
+                    self.packets.extend(preceding);
+                    self.packets.push(packet);
+                } else {
+                    self.packets.push(packet);
+                }
                 Ok::<_, ()>(())
             },
         )
@@ -709,6 +717,15 @@ fn creative_no_break_tags_include_mace() {
         );
     }
     assert!(destroys_in_creative(&assets::facts::ItemFact::default()));
+}
+
+#[test]
+fn creative_sword_trait_also_blocks_destroy_prediction() {
+    let fact = assets::facts::ItemFact {
+        traits: assets::facts::ItemTraits::SWORD,
+        ..Default::default()
+    };
+    assert!(!destroys_in_creative(&fact));
 }
 
 #[test]

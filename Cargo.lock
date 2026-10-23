@@ -480,6 +480,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shaderpack",
  "tempfile",
  "tokio",
  "world",
@@ -2718,7 +2719,6 @@ dependencies = [
  "json-ui",
  "launcher",
  "launcher-host",
- "ndk-context",
  "objc2-metal 0.3.2",
  "pack-runtime",
  "player-state",
@@ -4573,6 +4573,7 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
+ "serde",
  "zerocopy",
 ]
 
@@ -6005,7 +6006,7 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -6023,6 +6024,7 @@ dependencies = [
  "once_cell",
  "pp-rs",
  "rustc-hash 1.1.0",
+ "serde",
  "spirv",
  "thiserror 2.0.18",
  "unicode-ident",
@@ -6031,7 +6033,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -8322,11 +8324,16 @@ name = "shaderpack"
 version = "0.1.28"
 dependencies = [
  "assets",
+ "ciborium",
+ "libc",
  "naga",
  "pp-rs",
  "rayon",
+ "serde",
  "serde_json",
  "tempfile",
+ "test-time",
+ "windows-sys 0.61.2",
  "zip",
  "zip-footer",
 ]
@@ -10234,7 +10241,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -10262,7 +10269,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -10295,7 +10302,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10303,7 +10310,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10311,7 +10318,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10319,7 +10326,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -10374,7 +10381,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -10383,7 +10390,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=7aebea311d51d3ec0faf5ec161e48cc00096e99e#7aebea311d51d3ec0faf5ec161e48cc00096e99e"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",

@@ -51,6 +51,7 @@ impl bevy::prelude::Plugin for RendererSetup {
         )
         .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
         app.add_plugins(renderer);
+        render::install_error_policy(app);
     }
 }
 

@@ -9,80 +9,97 @@
     ],
     "controls": [
       {
-        "list": {
+        "inset": {
           "type": "panel",
-          "size": [
-            "$panel_width",
-            "$panel_height"
-          ],
-          "anchor_from": "top_middle",
-          "anchor_to": "top_middle",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
           "offset": [
             0,
-            10
+            "$top_inset"
+          ],
+          "size": [
+            "100%",
+            "100%"
           ],
           "controls": [
             {
-              "background": {
-                "type": "image",
-                "texture": "textures/ui/Black",
-                "alpha": 0.5,
+              "list": {
+                "type": "panel",
                 "size": [
-                  "100%",
-                  "100%"
-                ]
-              }
-            },
-            {
-              "title": {
-                "type": "label",
-                "size": [
-                  "100% - 4px",
-                  "$row_height"
-                ],
-                "offset": [
-                  0,
-                  2
-                ],
-                "anchor_from": "top_middle",
-                "anchor_to": "top_middle",
-                "text": "#online_title",
-                "text_alignment": "center",
-                "localize": false,
-                "color": [
-                  1,
-                  1,
-                  1
-                ],
-                "shadow": true,
-                "layer": 1,
-                "bindings": [
-                  {
-                    "binding_name": "#online_title"
-                  }
-                ]
-              }
-            },
-            {
-              "players": {
-                "type": "grid",
-                "size": [
-                  "100%c",
-                  "100%c"
+                  "$panel_width",
+                  "$panel_height"
                 ],
                 "anchor_from": "top_middle",
                 "anchor_to": "top_middle",
                 "offset": [
                   0,
-                  "$grid_top"
+                  10
                 ],
-                "grid_dimension_binding": "#players_dimensions",
-                "grid_item_template": "cinnabar_tab.row",
-                "collection_name": "online_players",
-                "layer": 1,
-                "bindings": [
+                "controls": [
                   {
-                    "binding_name": "#players_dimensions"
+                    "background": {
+                      "type": "image",
+                      "texture": "textures/ui/Black",
+                      "alpha": 0.5,
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "title": {
+                      "type": "label",
+                      "size": [
+                        "100% - 4px",
+                        "$row_height"
+                      ],
+                      "offset": [
+                        0,
+                        2
+                      ],
+                      "anchor_from": "top_middle",
+                      "anchor_to": "top_middle",
+                      "text": "#online_title",
+                      "text_alignment": "center",
+                      "localize": false,
+                      "color": [
+                        1,
+                        1,
+                        1
+                      ],
+                      "shadow": true,
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#online_title"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "players": {
+                      "type": "grid",
+                      "size": [
+                        "100%c",
+                        "100%c"
+                      ],
+                      "anchor_from": "top_middle",
+                      "anchor_to": "top_middle",
+                      "offset": [
+                        0,
+                        "$grid_top"
+                      ],
+                      "grid_dimension_binding": "#players_dimensions",
+                      "grid_item_template": "cinnabar_tab.row",
+                      "collection_name": "online_players",
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#players_dimensions"
+                        }
+                      ]
+                    }
                   }
                 ]
               }
@@ -90,7 +107,8 @@
           ]
         }
       }
-    ]
+    ],
+    "$top_inset|default": 0
   },
   "row": {
     "type": "panel",

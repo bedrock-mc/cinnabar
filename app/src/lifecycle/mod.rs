@@ -10,7 +10,7 @@ use launcher::install_layout::InstallLayout;
 use launcher_host::lifecycle::crash::protocol::Stage;
 use std::{
     sync::{
-        OnceLock,
+        Once, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Instant,
@@ -68,37 +68,68 @@ pub fn run_crash_monitor() -> i32 {
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
     record_launch();
-    crate::app::logging::install(crate::app::logging::Process::Client);
-    let layout = InstallLayout::discover().context("resolve install layout")?;
-    crate::app::logging::apply_saved_verbose_setting(&layout);
-    crash::prune_reports(&layout);
-    // The monitor starts first, so it can report even a failure of the rest of startup.
-    let monitor = if cfg!(target_os = "android") {
-        None
-    } else {
-        crash::monitor::MonitorCommand::current_exe().ok()
-    };
-    client_logs::install_crash_capture(&layout, monitor.as_ref());
-    client_logs::capture(&layout);
-    client_logs::capture_core(&layout);
-    crash::logs_ready();
+    let layout = start_session()?;
     if !layout.is_installed() {
         return Ok(true);
     }
     update::check_in_background(&layout);
 
-    // An update helper waiting on this start must not mistake a long asset download for a hang.
-    if !assets_overridden
-        && update::while_preparing(
+    if !assets_overridden {
+        // An update helper waiting on this start must not mistake a long asset download for a
+        // hang.
+        let outcome = update::while_preparing(
             &layout,
             &first_run::progress_file(&layout),
             first_run::awaiting_user,
             || first_run::ensure_prepared(&layout),
-        )? == first_run::Outcome::Quit
-    {
-        return Ok(false);
+        )?;
+        match outcome {
+            first_run::Outcome::Quit => return Ok(false),
+            // Preparation rewrote carriers that a preload may already hold.
+            first_run::Outcome::Prepared => crate::app::startup::discard_preloaded(),
+            first_run::Outcome::NotNeeded => {}
+        }
     }
     Ok(true)
+}
+
+/// Starts the client session and loads the default startup carriers on the calling thread for
+/// the next [`crate::run`]. Android's setup activity calls this before it starts the game
+/// activity, whose UI thread waits on the game thread until the event loop starts; Android
+/// reports the app as not responding when that wait reaches 5 s. Failures are left for
+/// [`before_run`] and [`crate::run`] to report. A retried setup reuses an earlier preload unless
+/// `rewritten` says setup has rewritten the carriers since.
+pub fn preload(rewritten: bool) {
+    record_launch();
+    let Ok(layout) = start_session() else {
+        return;
+    };
+    crate::thread_budget::ThreadBudget::configure_global_rayon();
+    crate::app::startup::preload(&layout, rewritten);
+}
+
+/// Starts client logging, crash capture and this session's log files on the first call in the
+/// process, then resolves the install layout on every call.
+fn start_session() -> Result<InstallLayout> {
+    static LOGGING: Once = Once::new();
+    static SESSION_FILES: Once = Once::new();
+    LOGGING.call_once(|| crate::app::logging::install(crate::app::logging::Process::Client));
+    let layout = InstallLayout::discover().context("resolve install layout")?;
+    SESSION_FILES.call_once(|| {
+        crate::app::logging::apply_saved_verbose_setting(&layout);
+        crash::prune_reports(&layout);
+        // The monitor starts first, so it can report even a failure of the rest of startup.
+        let monitor = if cfg!(target_os = "android") {
+            None
+        } else {
+            crash::monitor::MonitorCommand::current_exe().ok()
+        };
+        client_logs::install_crash_capture(&layout, monitor.as_ref());
+        client_logs::capture(&layout);
+        client_logs::capture_core(&layout);
+        crash::logs_ready();
+    });
+    Ok(layout)
 }
 
 /// Shows why `main` failed when this build has no console for it: the crash monitor shows it

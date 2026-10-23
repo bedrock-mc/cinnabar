@@ -14,6 +14,8 @@ pub(in crate::chunk) mod direct;
 mod direct_tests;
 mod feedback;
 pub(in crate::chunk) mod kernels;
+#[cfg(test)]
+mod limits_tests;
 pub(in crate::chunk) mod model;
 mod node;
 pub(in crate::chunk) mod occlusion;
@@ -21,6 +23,7 @@ mod prepare;
 mod queue;
 pub(in crate::chunk) use queue::GpuCullQueue;
 mod slots;
+pub(in crate::chunk) mod storage;
 #[cfg(test)]
 mod tests;
 pub(in crate::chunk) mod unit_mask;
@@ -40,7 +43,7 @@ use model::STREAM_COUNT;
 pub(crate) use node::GpuCullLateLabel;
 pub(in crate::chunk) use node::{DrawGpuCulledCommands, draw_function_ids, install_commands};
 pub(in crate::chunk) use prepare::ChunkHiddenEntities;
-use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull};
+use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull, upload_gpu_cull};
 
 /// Forces the CPU culling path for A/B measurement.
 const CPU_CULLING_ENV: &str = "CINNABAR_CPU_CULLING";
@@ -63,8 +66,10 @@ pub(in crate::chunk) fn gpu_cull_submission(
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
     forced_cpu: bool,
+    limits: &wgpu::Limits,
 ) -> Option<GpuCullSubmission> {
-    if forced_cpu
+    if model::cull_workgroup(limits).is_none()
+        || forced_cpu
         || draw_mode != ChunkDrawMode::MultiDrawIndirect
         || !features.contains(WgpuFeatures::INDIRECT_FIRST_INSTANCE)
         || !downlevel.contains(DownlevelFlags::COMPUTE_SHADERS)
@@ -84,8 +89,9 @@ pub(in crate::chunk) fn gpu_cull_supported(
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
     forced_cpu: bool,
+    limits: &wgpu::Limits,
 ) -> bool {
-    gpu_cull_submission(draw_mode, features, downlevel, forced_cpu).is_some()
+    gpu_cull_submission(draw_mode, features, downlevel, forced_cpu, limits).is_some()
 }
 
 /// The view queued for GPU culling this frame, with the pipelines its late pass reuses.
@@ -124,12 +130,14 @@ pub(in crate::chunk) fn install(app: &mut App) {
         device.features(),
         adapter.get_downlevel_capabilities().flags,
         forced_cpu,
+        &device.limits(),
     );
     let support = GpuCullSupport(submission.is_some());
     let direct = DirectOcclusionSupport(direct_occlusion_supported(
         draw_mode,
         adapter.get_downlevel_capabilities().flags,
         forced_cpu,
+        &device.limits(),
     ));
     bevy::log::info!(
         ?draw_mode,
@@ -163,6 +171,12 @@ pub(in crate::chunk) fn install(app: &mut App) {
         .add_systems(
             Render,
             feedback::submit_feedback.in_set(crate::device_poll::FrameSubmissions),
+        )
+        .add_systems(
+            Render,
+            upload_gpu_cull
+                .after(super::plugin::publication_schedule::ChunkPublicationStage::ModelSort)
+                .before(RenderSystems::Queue),
         )
         .add_systems(
             Render,

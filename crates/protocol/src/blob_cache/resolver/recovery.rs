@@ -242,6 +242,7 @@ impl BlobCacheResolver {
         self.immediate_ready = BTreeMap::new();
         self.recovery_ready = BTreeMap::new();
         self.fast_transfer_reset_armed = false;
+        self.ordinary_lane_stalled = false;
         self.next_ready_sequence = 0;
         self.stats.pending_transactions = 0;
         self.stats.pending_bytes = 0;

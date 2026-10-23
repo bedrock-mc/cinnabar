@@ -45,7 +45,7 @@ use {
 };
 pub(crate) mod logging;
 pub(crate) mod session;
-mod startup;
+pub(crate) mod startup;
 use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
@@ -69,7 +69,8 @@ use {
         runtime::{
             network::receive_network_events,
             shutdown::{
-                TerminalCause, exit_on_fatal_runtime_error, exit_on_window_close_requested,
+                TerminalCause, exit_on_fatal_runtime_error, exit_on_gpu_failure,
+                exit_on_window_close_requested,
             },
             telemetry::{
                 publish_runtime_stage_profile, record_metrics, update_visibility_diagnostics,
@@ -137,6 +138,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(feature = "acceptance")]
     app.init_resource::<MovementEvidenceEmitter>();
     configure_client_authority_systems(app);
+    crate::melee::server_swings::configure(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
@@ -248,6 +250,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             Update,
             (
                 exit_on_window_close_requested,
+                exit_on_gpu_failure,
                 flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
@@ -406,11 +409,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
     let (carriers, ()) = startup::overlap(
-        || {
-            render_scene::startup_timing::measure("carriers", || {
-                startup::load_startup_carriers(selected_assets, &layout.physics_registry)
-            })
-        },
+        || startup::take_or_load_startup_carriers(selected_assets, &layout.physics_registry),
         || {
             render_scene::startup_timing::measure("renderer_and_plugins", || {
                 logging::add_default_plugins(&mut app, plugins)
@@ -632,6 +631,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
+    #[cfg(feature = "shaderpacks")]
+    let shader_compiler = {
+        let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
+        if layout.is_installed() {
+            bundled
+        } else {
+            layout
+                .core_executable
+                .with_file_name(bundled.file_name().context("asset compiler basename")?)
+        }
+    };
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = MenuRuntime::new_with_import_snapshot(
         !connection_requested,
@@ -651,9 +661,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
     );
+    #[cfg(feature = "shaderpacks")]
+    app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
+        shader_compiler,
+    ));
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
-        .init_resource::<crate::frame_pacing::PowerSource>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]

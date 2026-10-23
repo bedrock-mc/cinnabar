@@ -339,3 +339,70 @@ fn admission_bounds_cover_the_production_quads_for_every_label_extension() {
         }
     }
 }
+
+#[test]
+fn on_screen_ordinary_labels_need_no_text_measurement_for_admission() {
+    let mut cache = BoundsCache::default();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = TextLayoutCache::new(8, 1 << 20);
+    let clip = clip(Vec3::new(0.0, 2.5, 0.0), Quat::IDENTITY);
+    let tag = anchor("A\n§lB\n§kAAAA");
+    for style in [None, Some(extended_style())] {
+        assert!(cache.intersects_view(
+            &tag,
+            clip,
+            Quat::IDENTITY,
+            &font,
+            &mut layouts,
+            style.as_ref(),
+        ));
+    }
+    assert_eq!(layouts.built_layout_count(), 0);
+}
+
+#[test]
+fn static_behind_camera_labels_do_not_reshape_after_warmup() {
+    let mut cache = BoundsCache::default();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts =
+        TextLayoutCache::new(crate::ui_runtime::presentation::TEXT_CACHE_ENTRIES, 8 << 20);
+    let clip = clip(Vec3::new(0.0, 2.5, 0.0), Quat::IDENTITY);
+    let tags: Vec<_> = (0..MAX_PRESENTED_NAMETAGS)
+        .map(|id| {
+            let mut tag = anchor("A");
+            tag.runtime_id = id as u64;
+            tag.position.z = 5.0;
+            tag.lines = (0..10)
+                .map(|line| Arc::from(format!("Tag {id} line {line}")))
+                .collect();
+            tag
+        })
+        .collect();
+    assert!(
+        tags.iter().map(|tag| tag.lines.len()).sum::<usize>()
+            > crate::ui_runtime::presentation::TEXT_CACHE_ENTRIES
+    );
+    cache.begin_frame();
+    for tag in &tags {
+        assert!(!cache.intersects_view(tag, clip, Quat::IDENTITY, &font, &mut layouts, None));
+    }
+    cache.finish_frame();
+    let built = layouts.built_layout_count();
+    for rotation in [
+        Quat::IDENTITY,
+        Quat::from_rotation_y(std::f32::consts::PI),
+        Quat::IDENTITY,
+    ] {
+        let visible = rotation != Quat::IDENTITY;
+        let clip = self::clip(Vec3::new(0.0, 2.5, 0.0), rotation);
+        cache.begin_frame();
+        for tag in &tags {
+            assert_eq!(
+                cache.intersects_view(tag, clip, rotation, &font, &mut layouts, None),
+                visible
+            );
+        }
+        cache.finish_frame();
+        assert_eq!(layouts.built_layout_count(), built);
+    }
+}

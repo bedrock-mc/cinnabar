@@ -29,7 +29,7 @@ const REST: &str = "*";
 const TWO_COLUMN_LIMIT: usize = 18;
 
 /// One cell of an option screen.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum MenuElement {
     /// A blank cell.
     Empty,
@@ -43,7 +43,7 @@ pub enum MenuElement {
 }
 
 /// One screen's elements in reading order, laid out row by row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MenuScreen {
     pub elements: Vec<MenuElement>,
     /// Elements per row: the pack's count (a count below one puts one element on each row,
@@ -52,7 +52,7 @@ pub struct MenuScreen {
 }
 
 /// A pack's option menu: the main screen, its sub-screens and profiles.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct OptionMenu {
     main: MenuScreen,
     screens: BTreeMap<String, MenuScreen>,

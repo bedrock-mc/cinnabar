@@ -10,7 +10,7 @@ use std::{
     fs,
     os::unix::fs::symlink,
     path::{Path, PathBuf},
-    sync::{Mutex, PoisonError},
+    sync::{Mutex, PoisonError, atomic::Ordering},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -123,7 +123,7 @@ fn setup(
     )
     .context("link the asset compiler into the prep kit")?;
     let env = RefCell::new(env);
-    first_run::prepare_headless(
+    let outcome = first_run::prepare_headless(
         &layout.with_prepared_assets(),
         CANCELLATION.flag(),
         |title, body| {
@@ -143,7 +143,13 @@ fn setup(
                 &[line],
             );
         },
-    )
+    )?;
+    // The game activity's UI thread waits for the game thread until its event loop starts, so
+    // the carriers load here, behind the progress dialog, to keep that wait short.
+    if outcome != Outcome::Quit && !CANCELLATION.flag().load(Ordering::Acquire) {
+        cinnabar::lifecycle::preload(outcome == Outcome::Prepared);
+    }
+    Ok(outcome)
 }
 
 /// Refreshes the server's platform trust, refusing setup if stale trust cannot be invalidated.

@@ -19,8 +19,8 @@ client.
 
 | | |
 | --- | --- |
-| <img alt="Sunset over a savanna with a shader pack" src="docs/screenshots/shaders-sunset.jpg" /> | <img alt="Moonlit river with a shader pack" src="docs/screenshots/shaders-night.jpg" /> |
-| <img alt="Light shafts in a cave with a shader pack" src="docs/screenshots/shaders-cave.jpg" /> | <img alt="PvP on iOS" src="docs/screenshots/ios-pvp.jpg" /> |
+| <img alt="Sunset with a shader pack" src="https://github.com/user-attachments/assets/25a2e8fa-23d8-4aeb-8e80-aca9d09dcee3" /> | <img alt="Moonlit river with a shader pack" src="https://github.com/user-attachments/assets/c0a8cdd8-03f2-4188-ae3c-36f516260060" /> |
+| <img alt="Light shafts in a cave with a shader pack" src="https://github.com/user-attachments/assets/1622104f-7ea2-4dde-a433-219a5f09103b" /> | <img alt="PvP on iOS" src="https://github.com/user-attachments/assets/b6135da0-ff6a-4b75-ade0-56439be56ca0" /> |
 
 ## Download
 
