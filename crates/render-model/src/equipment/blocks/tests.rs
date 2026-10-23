@@ -709,9 +709,14 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
         metadata: 0,
         sprite: 0,
     };
-    for has_model in [false, true] {
+    for (has_model, held_sprite, expected_model) in [
+        (false, None, false),
+        (true, None, true),
+        (true, Some(0), false),
+    ] {
         let bindings = has_model
             .then_some(assets::IconBlockModel {
+                held_sprite,
                 sprite: 0,
                 visual: assets::BlockVisualId(visual),
             })
@@ -729,7 +734,7 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
         )
         .unwrap();
         let held = collect_held(&world, &entities, &icons);
-        assert_eq!(held.models.contains_key(&visual), has_model);
+        assert_eq!(held.models.contains_key(&visual), expected_model);
         if let Some(vertices) = held.models.get(&visual) {
             let (min, max) = vertices
                 .iter()
@@ -751,19 +756,6 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
         }
         assert!(!collect(&world, &entities).models.contains_key(&visual));
     }
-}
-
-#[test]
-fn pane_inventory_models_keep_the_held_sprite() {
-    let (compiled, records) =
-        crate::viewmodel::cube::tests::block_with_size(assets::TILE_SIZE, "glass_pane");
-    let visual = records
-        .iter()
-        .find(|record| record.name.as_ref() == "minecraft:glass_pane")
-        .unwrap()
-        .sequential_id;
-    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
-    assert!(template_model(&world, visual).is_none());
 }
 
 #[test]

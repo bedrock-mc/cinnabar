@@ -218,6 +218,14 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
+    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+            return None;
+        }
+        self.texture_path(visual)
+    }
+
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
         let pack = self.pack.as_ref()?;

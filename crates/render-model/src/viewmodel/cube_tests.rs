@@ -9,11 +9,6 @@ pub(crate) fn barrels() -> (CompiledAssets, Vec<RegistryRecord>) {
 
 /// Compiles original sprites at the requested source resolution.
 pub(crate) fn barrels_with_size(side: u32) -> (CompiledAssets, Vec<RegistryRecord>) {
-    block_with_size(side, "barrel")
-}
-
-/// Compiles one block's registered states with original artwork at the requested resolution.
-pub(crate) fn block_with_size(side: u32, block: &str) -> (CompiledAssets, Vec<RegistryRecord>) {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     fs::create_dir_all(root.join("biomes")).unwrap();
@@ -25,11 +20,7 @@ pub(crate) fn block_with_size(side: u32, block: &str) -> (CompiledAssets, Vec<Re
     )
     .unwrap();
     fs::write(root.join("behavior/biomes/plain.biome.json"),r#"{"minecraft:biome":{"description":{"identifier":"plain"},"components":{"minecraft:climate":{"temperature":0.8,"downfall":0.4}}}}"#).unwrap();
-    fs::write(
-        root.join("blocks.json"),
-        serde_json::json!({block: {"textures": "art"}}).to_string(),
-    )
-    .unwrap();
+    fs::write(root.join("blocks.json"), r#"{"barrel":{"textures":"art"}}"#).unwrap();
     fs::write(
         root.join("textures/terrain_texture.json"),
         r#"{"texture_data":{"art":{"textures":"textures/art"}}}"#,
@@ -56,10 +47,7 @@ pub(crate) fn block_with_size(side: u32, block: &str) -> (CompiledAssets, Vec<Re
             .unwrap()
             .into_vec()
             .into_iter()
-            .filter(|r| {
-                r.name.as_ref() == "minecraft:air"
-                    || r.name.strip_prefix("minecraft:") == Some(block)
-            })
+            .filter(|r| matches!(r.name.as_ref(), "minecraft:air" | "minecraft:barrel"))
             .collect::<Vec<_>>();
     let span = records
         .iter()

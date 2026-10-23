@@ -555,7 +555,12 @@ mod review_tests {
             )
             .unwrap()
             .raster();
-            let visible = icon.rgba8.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0);
+            let visible = icon
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0);
             assert_eq!(visible, two_sided, "one-sided rear faces stay transparent");
         }
     }
