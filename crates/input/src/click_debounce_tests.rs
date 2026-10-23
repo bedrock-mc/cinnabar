@@ -142,6 +142,69 @@ fn settled_release_precedes_a_fresh_press_in_the_next_batch() {
     assert!(order.events()[1].buttons.held(Action::Attack));
 }
 
+/// Authorized pulses survive physical debounce while remaining subject to CPS caps.
+#[test]
+fn mod_attack_pulses_follow_debounce_and_keep_caps() {
+    use crate::finalized::FinalizedInput;
+    for desktop in [true, false] {
+        let make_frame = |pressed, released, held| {
+            if desktop {
+                let events = if pressed {
+                    vec![(Action::Attack, true)]
+                } else if released {
+                    vec![(Action::Attack, false)]
+                } else {
+                    vec![]
+                };
+                ordered([!pressed && (released || held), false], &events)
+            } else {
+                frame(
+                    ActionPhase {
+                        pressed,
+                        released,
+                        held,
+                    },
+                    Default::default(),
+                )
+            }
+        };
+        let mut debouncer = ClickDebouncer::default();
+        let mut limiter = crate::ClickLimiter::default();
+        let mut press = FinalizedInput::from_finalized(make_frame(true, false, true));
+        press.debounce_clicks(&mut debouncer, [Some(25), None], 0.);
+        press.limit_clicks(&mut limiter, [Some(10), None], 0.);
+        let mut held = FinalizedInput::from_finalized(make_frame(false, false, true));
+        let physical_held = held.phase(Action::Attack).held;
+        held.debounce_clicks(&mut debouncer, [Some(25), None], 0.1);
+        assert!(physical_held && held.request_mod_attack_press());
+        held.limit_clicks(&mut limiter, [Some(10), None], 0.1);
+        assert!(held.phase(Action::Attack).pressed);
+        if desktop {
+            assert!(
+                held.snapshot()
+                    .unwrap()
+                    .ordered
+                    .as_ref()
+                    .unwrap()
+                    .events()
+                    .iter()
+                    .any(|event| event.action == Action::Attack && event.pressed)
+            );
+        }
+        let mut capped = FinalizedInput::from_finalized(make_frame(false, false, true));
+        capped.debounce_clicks(&mut debouncer, [Some(25), None], 0.001);
+        assert!(capped.request_mod_attack_press());
+        capped.limit_clicks(&mut limiter, [Some(10), None], 0.001);
+        assert!(!capped.phase(Action::Attack).pressed);
+        let mut released = FinalizedInput::from_finalized(make_frame(false, true, false));
+        let physical_held = released.phase(Action::Attack).held;
+        released.debounce_clicks(&mut debouncer, [Some(25), None], 0.001);
+        assert!(released.phase(Action::Attack).held);
+        assert!(!(physical_held && released.request_mod_attack_press()));
+        assert!(!released.phase(Action::Attack).pressed);
+    }
+}
+
 /// Cross-frame chatter cancels the release instead of hiding the following hold.
 #[test]
 fn cross_frame_press_bounce_and_final_release_are_coalesced() {

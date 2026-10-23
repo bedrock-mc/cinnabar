@@ -266,7 +266,31 @@ pub(super) fn drive_mod(
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
-    interaction.attack_pulse = merged.attack_pulse && gameplay.pulse_attack();
+    let scope = world_observation
+        .as_ref()
+        .map(|world| (world.session, world.dimension));
+    if *click_scope != scope || !captured || absorbed {
+        click_limiter.reset();
+        click_debouncer.reset();
+    }
+    *click_scope = scope;
+    let physical_attack_held = gameplay
+        .input
+        .as_ref()
+        .is_some_and(|input| input.phase(semantic_input::Action::Attack).held);
+    if captured
+        && !absorbed
+        && scope.is_some()
+        && let Some(input) = gameplay.input.as_deref_mut()
+    {
+        input.debounce_clicks(
+            &mut click_debouncer,
+            merged.click_debounce,
+            time.delta_secs_f64(),
+        );
+    }
+    interaction.attack_pulse =
+        merged.attack_pulse && physical_attack_held && gameplay.pulse_attack();
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
@@ -326,24 +350,11 @@ pub(super) fn drive_mod(
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = merged.weather_override;
     }
-    let scope = world_observation
-        .as_ref()
-        .map(|world| (world.session, world.dimension));
-    if *click_scope != scope || !captured || absorbed {
-        click_limiter.reset();
-        click_debouncer.reset();
-    }
-    *click_scope = scope;
     if captured
         && !absorbed
         && scope.is_some()
         && let Some(input) = gameplay.input.as_deref_mut()
     {
-        input.debounce_clicks(
-            &mut click_debouncer,
-            merged.click_debounce,
-            time.delta_secs_f64(),
-        );
         input.limit_clicks(
             &mut click_limiter,
             merged.click_limits,

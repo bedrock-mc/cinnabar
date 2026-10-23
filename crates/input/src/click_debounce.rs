@@ -162,7 +162,7 @@ impl ClickDebouncer {
                     });
                 }
             }
-            // At most two releases owned by preceding frames precede this bounded physical batch.
+            // At most two releases owned by preceding frames precede the current physical batch.
             for event in prefix.into_iter().rev().flatten() {
                 ordered.events.insert(0, event);
             }

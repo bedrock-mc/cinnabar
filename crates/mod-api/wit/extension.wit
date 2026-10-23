@@ -224,7 +224,8 @@ interface input {
     /// Retained attack/use switch debounce, each 1–1000 milliseconds; none disables it.
     /// Presses pass immediately. Releases wait for the interval; re-presses within it
     /// continue the same hold. Intervals advance with native input frames.
-    /// Requires controls authority. Independent of click caps.
+    /// Requires controls authority. Authorized attack pulses bypass physical debounce;
+    /// independent click caps still apply.
     set-click-debounce: func(attack-ms: option<u32>, item-use-ms: option<u32>) -> result<_, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
@@ -297,6 +298,7 @@ interface gameplay {
     /// Bounded local actor attack range; none restores ordinary game-mode rules.
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
+    /// Bypasses physical switch debounce, but remains subject to click caps.
     pulse-attack: func() -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
