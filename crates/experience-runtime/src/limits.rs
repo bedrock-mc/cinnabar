@@ -94,7 +94,7 @@ pub const MAX_LOG_BYTES: usize = 512;
 /// Items one Experience may register.
 pub const MAX_ITEMS: usize = 64;
 /// The most one stack of an Experience's item may hold: a Bedrock stack's.
-pub const MAX_STACK_SIZE: u8 = 64;
+pub use experience_sdk::artifact::MAX_STACK_SIZE;
 /// Bytes of an Experience's own data on one item stack.
 pub const MAX_ITEM_DATA_BYTES: usize = 8192;
 /// Items the adapter may list as the server's when it loads an Experience.

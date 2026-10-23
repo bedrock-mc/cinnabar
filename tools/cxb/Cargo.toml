@@ -8,9 +8,10 @@ publish = false
 [package.metadata.cinnabar]
 reads = [
     "crates/experience-sdk",
-    "examples/experiences/terminal-client/assets",
+    "crates/experience-runtime",
+    "examples/experiences/terminal-client",
     "crates/server-experience/schema",
-    "tools/localserver/extension",
+    "tools/localserver",
 ]
 
 [dependencies]

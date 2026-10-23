@@ -18,6 +18,10 @@ forbidden_artifacts = [
 
 # Original art, never Mojang content.
 [[owned_artifacts]]
+path = "examples/experiences/terminal-client/assets/terminal.png"
+ownership_record = "docs/mod-projects.md"
+
+[[owned_artifacts]]
 path = "assets/panorama/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 

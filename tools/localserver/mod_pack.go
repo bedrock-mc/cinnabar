@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/df-mc/dragonfly/server"
+	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
+
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
 )
 

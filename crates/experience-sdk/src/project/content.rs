@@ -60,8 +60,12 @@ impl Content {
             hardness.is_none_or(|h| h.is_finite() && h >= 0.0),
             "hardness must be finite and nonnegative"
         );
-        let max_stack = stack.unwrap_or(64);
-        ensure!((1..=64).contains(&max_stack), "max_stack must be 1..64");
+        let max_stack = stack.unwrap_or(crate::artifact::MAX_STACK_SIZE);
+        ensure!(
+            (1..=crate::artifact::MAX_STACK_SIZE).contains(&max_stack),
+            "max_stack must be 1..{}",
+            crate::artifact::MAX_STACK_SIZE
+        );
         Ok(Self {
             display_name,
             asset,

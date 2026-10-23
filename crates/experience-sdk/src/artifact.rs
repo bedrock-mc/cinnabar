@@ -8,3 +8,5 @@ pub const SERVER_WASM: &str = "server.wasm";
 pub const ASSETS_DIR: &str = "assets";
 /// The server block-data schema supported by current artifacts.
 pub const DATA_SCHEMA: u32 = 1;
+/// The largest stack accepted by the server Experience API.
+pub const MAX_STACK_SIZE: u8 = 64;

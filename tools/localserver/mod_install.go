@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // loadMods adds installed package artifacts to the existing Experience and client-part hosts.
@@ -19,7 +20,7 @@ func (s *settings) loadMods() error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		root := filepath.Join(s.dir, "mods", entry.Name())

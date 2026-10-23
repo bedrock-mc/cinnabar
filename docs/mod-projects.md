@@ -87,6 +87,8 @@ They do not register content or create live instances. A world definition remain
 distinct from a world instance and the protocol's network dimension ID.
 `examples/experiences/terminal-client` is the paired reference project; it retains
 its client-host test terminal and adds declared server content.
+Its `examples/experiences/terminal-client/assets/terminal.png` is original sample
+art covered by this repository's license.
 
 ## Shared definitions
 

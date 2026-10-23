@@ -54,13 +54,9 @@ fn sdk_path() -> PathBuf {
 /// Builds both isolated components and publishes one installation archive.
 pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
     let root = root.canonicalize()?;
-    let cargo: toml::Value = toml::from_str(&fs::read_to_string(root.join("Cargo.toml"))?)?;
-    let version = cargo
-        .get("package")
-        .and_then(|p| p.get("version"))
-        .and_then(toml::Value::as_str)
-        .context("mod package needs an explicit package.version")?;
+    let version = package_version(&root)?;
     let project = Project::parse(&fs::read_to_string(root.join("src/shared.rs"))?)?;
+    let assets = bundle::read_assets(&root.join("assets"))?;
     let (client, generated) = compile(&root, release, "client")?;
     let (server, server_generated) = compile(&root, release, "server")?;
     for directory in [&generated, &server_generated] {
@@ -75,14 +71,17 @@ pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
     if !seed.exists() {
         keys::generate(&seed)?;
     }
-    let assets = bundle::read_assets(&root.join("assets"))?;
+    ensure!(
+        assets == bundle::read_assets(&root.join("assets"))?,
+        "mod assets changed during compilation; rebuild"
+    );
     let client_assets = assets
         .iter()
         .filter(|(path, _)| !path.starts_with("server/"))
         .cloned()
         .collect::<Vec<_>>();
     let built = bundle::build(
-        source(&project, version)?,
+        source(&project, &version)?,
         &client,
         &client_assets,
         &keys::read(&seed)?,
@@ -90,12 +89,40 @@ pub fn build(root: &Path, release: bool) -> Result<PathBuf> {
     package::assemble(
         &root,
         &project,
-        version,
+        &version,
         &server,
         &assets,
         &built.bytes,
         &generated,
     )
+}
+
+/// Resolves inherited workspace versions through Cargo's own manifest reader.
+fn package_version(root: &Path) -> Result<String> {
+    let manifest = root.join("Cargo.toml");
+    let output = Command::new("cargo")
+        .current_dir(root)
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version=1",
+            "--manifest-path",
+        ])
+        .arg(&manifest)
+        .output()?;
+    std::io::stderr().write_all(&output.stderr)?;
+    ensure!(output.status.success(), "reading mod Cargo metadata failed");
+    let metadata: Value = serde_json::from_slice(&output.stdout)?;
+    metadata["packages"]
+        .as_array()
+        .context("Cargo metadata packages missing")?
+        .iter()
+        .find(|package| {
+            package["manifest_path"].as_str().map(Path::new) == Some(manifest.as_path())
+        })
+        .and_then(|package| package["version"].as_str())
+        .map(str::to_owned)
+        .context("Cargo metadata did not identify the mod package")
 }
 
 /// Compiles exactly one half with defaults disabled and returns its own build-script output.
@@ -193,4 +220,19 @@ pub fn source(project: &Project, version: &str) -> Result<bundle::Source> {
         permissions,
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resolves_the_reference_projects_inherited_version() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/experiences/terminal-client")
+            .canonicalize()
+            .unwrap();
+        assert_eq!(
+            super::package_version(&root).unwrap(),
+            env!("CARGO_PKG_VERSION")
+        );
+    }
 }

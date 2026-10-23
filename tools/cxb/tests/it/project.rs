@@ -92,6 +92,12 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
         .args(["test", "-run", "^TestInstalledModPackage$", "."])
         .env("GOWORK", "off")
         .env("CINNABAR_TEST_CMOD_WORLD", &world)
+        .env(
+            "CINNABAR_TEST_REGISTRY_FINGERPRINT",
+            experience_sdk::project::Project::parse(&fs::read_to_string(&shared).unwrap())
+                .unwrap()
+                .fingerprint(),
+        )
         .env("CINNABAR_CXB_BIN", env!("CARGO_BIN_EXE_cinnabar-cxb"))
         .env("CINNABAR_EXPERIENCE_RUNTIME_BIN", runtime_tool())
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../localserver"))
