@@ -43,7 +43,8 @@ fn prepare_with<R: Borrow<FormRender>>(
     ];
     let render = {
         let cache = RefCell::new(&mut *frame.layouts);
-        let atlas = textures.set.lock();
+        let mut atlas = textures.set.lock();
+        atlas.begin_frame_for(textures.frame);
         let view = Textures {
             assets: textures.assets,
             set: textures.set,

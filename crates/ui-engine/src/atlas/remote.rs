@@ -56,6 +56,15 @@ pub(super) struct RemoteSources {
 }
 
 impl ServerAtlas {
+    /// Starts a snapshot once for an engine frame, even when several screens share this atlas.
+    pub(crate) fn begin_frame_for(&mut self, frame: u64) -> bool {
+        if self.presented_frame == Some(frame) {
+            return false;
+        }
+        self.presented_frame = Some(frame);
+        self.begin_frame()
+    }
+
     /// Includes standalone callers' known dependencies in the snapshot before starting a frame.
     pub(super) fn begin_required_frame<'a>(&mut self, keys: impl Iterator<Item = &'a str>) {
         for key in keys {

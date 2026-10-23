@@ -303,6 +303,8 @@ pub struct ServerAtlas {
     images: Vec<UiTexturePage>,
     max_pages: usize,
     clock: u64,
+    /// Last presented engine frame whose snapshot and page lifetime have begun.
+    presented_frame: Option<u64>,
     dirty: bool,
     metadata_revision: u64,
     metadata_dirty: bool,

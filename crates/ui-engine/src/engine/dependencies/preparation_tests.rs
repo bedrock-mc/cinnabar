@@ -159,3 +159,97 @@ fn cache_hits_still_require_evicted_images_and_resolve_overrides_and_replaced_so
     prepare(&engine, &render, None);
     assert_eq!(engine.dependencies.lock().unwrap().discoveries, 1);
 }
+
+/// Paints a retained package screen through the same entry point as bundled mod screens.
+fn draw_confined(
+    engine: &FormEngine,
+    textures: &crate::textures::TextureSet,
+    render: &FormRender,
+) -> Vec<ui::UiNode> {
+    let font = fixture_font();
+    let mut layouts = TextLayoutCache::new(16, 16 * 1024);
+    let mut painted = Vec::new();
+    let mut next = 1;
+    engine
+        .draw_with(
+            textures,
+            ScreenArt::default(),
+            &mut PaintFrame {
+                layouts: &mut layouts,
+                font: &font,
+                metrics: TextMetrics::for_viewport([640, 480], DpiScale::new(1.0).unwrap(), None),
+                solid_page: 0,
+                safe_area: SafeArea::ZERO,
+                content: [640.0, 480.0],
+                translate: &|_| None,
+                language: [0; 3],
+                now: 0.0,
+                nodes: &mut painted,
+                next: &mut next,
+                renderers: &mut [],
+            },
+            |_, _| Some(render),
+        )
+        .unwrap()
+        .expect("package screen paints");
+    painted
+}
+
+#[test]
+fn confined_atlas_reclaims_old_pages_only_on_a_later_presented_frame() {
+    let mut engine = engine();
+    let pages = crate::pages::MODAL_UI_PAGES;
+    let files: Vec<_> = (0..=pages)
+        .map(|index| (format!("textures/{index}.png"), png(200, index as u8 + 1)))
+        .collect();
+    let textures = engine.textures.confined(&files, 7, pages);
+    let full = render(
+        (0..pages)
+            .map(|index| sprite(&format!("/image{index}"), &format!("textures/{index}")))
+            .collect(),
+    );
+    let replacement_key = format!("textures/{pages}");
+    let replacement = render(vec![sprite("/replacement", &replacement_key)]);
+
+    engine.poll_native_images();
+    draw_confined(&engine, &textures, &full);
+    {
+        let atlas = textures.lock();
+        assert_eq!(atlas.images().len(), pages);
+        for index in 0..pages {
+            assert!(atlas.placement(&format!("textures/{index}")).is_some());
+        }
+    }
+    draw_confined(&engine, &textures, &replacement);
+    assert!(
+        textures.lock().placement(&replacement_key).is_none(),
+        "another draw in this frame must preserve every page already painted"
+    );
+
+    engine.poll_native_images();
+    // Keep all but the oldest page visible before asking for its replacement.
+    let retained = render(full.nodes[1..].to_vec());
+    draw_confined(&engine, &textures, &retained);
+    let painted = draw_confined(&engine, &textures, &replacement);
+    let atlas = textures.lock();
+    let placed = atlas
+        .placement(&replacement_key)
+        .expect("a later frame must reclaim an unused confined page");
+    assert_eq!(atlas.images().len(), pages);
+    assert!(atlas.placement("textures/0").is_none());
+    for index in 1..pages {
+        assert!(atlas.placement(&format!("textures/{index}")).is_some());
+    }
+    let image = &atlas.images()[usize::from(placed.page)];
+    let [x, y, _, _] = placed.rect;
+    let offset = ((u32::from(y) * image.dimensions()[0] + u32::from(x)) * 4) as usize;
+    assert_eq!(
+        &image.pixels()[offset..offset + 4],
+        &[pages as u8 + 1, 0, 0, 255]
+    );
+    assert!(painted.iter().any(|node| matches!(
+        node.visual(),
+        ui::UiVisual::Sprite { texture_page, .. }
+            if *texture_page == textures.server_page + placed.page
+    )));
+}
