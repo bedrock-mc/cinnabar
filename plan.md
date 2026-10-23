@@ -28,6 +28,9 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    missing GPU samples leave the cadence policy running.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
+   macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native
+   Metal presentation logs expose the layer state and software cap. Fullscreen
+   VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.

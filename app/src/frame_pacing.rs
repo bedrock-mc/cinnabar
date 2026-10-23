@@ -3,6 +3,8 @@
 mod display;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_display_link;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_presentation;
 
 use std::time::{Duration, Instant};
 
