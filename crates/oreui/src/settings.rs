@@ -18,6 +18,7 @@ mod services;
 mod shader_options;
 mod sidebar;
 mod updates;
+mod world;
 
 #[cfg(test)]
 mod localization_tests;
@@ -109,8 +110,9 @@ pub(super) fn draw(
     let panel = [body[0], top, body[1] - canvas.r(1.6), bottom];
     canvas.fill(panel, NEUTRAL.fill)?;
     canvas.frame(panel, EDGE, theme::BORDER)?;
-    let section =
-        SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
+    let section = SettingSection::from_index(view.settings.section)
+        .filter(|section| view.settings_section_shown(*section))
+        .unwrap_or(SettingSection::Accessibility);
     // The Shader Pack Settings screen keeps a footer below the option grid.
     let options = view
         .shader_options
@@ -394,6 +396,12 @@ impl Content<'_, '_> {
             MenuAction::SettingsOption(index, _) => SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .is_some_and(|option| matches!(option.kind, SettingKind::Toggle)),
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(id, _)) => {
+                matches!(
+                    id.definition().control,
+                    launcher::local_worlds::options::Control::Toggle
+                )
+            }
             _ => false,
         });
         let interaction = if is_switch {

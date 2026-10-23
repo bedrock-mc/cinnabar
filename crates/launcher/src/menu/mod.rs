@@ -215,6 +215,8 @@ pub enum MenuAction {
     PlayLocalWorld(usize),
     /// A press on a local-world screen (create, edit, templates) or its modals.
     LocalWorld(LocalWorldAction),
+    /// A press in Settings' Game section for the world being played.
+    WorldSettings(crate::local_worlds::in_world::Action),
     SignOut,
     /// Show a featured server in the Servers tab's info panel.
     SelectFeatured(usize),

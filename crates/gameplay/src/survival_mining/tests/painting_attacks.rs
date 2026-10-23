@@ -13,6 +13,7 @@ fn attack_painting(ticker: &MovementTicker, support: &DestroyTarget) -> MeleeRun
             point: [0.0, 1.5, -2.0],
         }),
         &PressContext {
+            refused_destroy: None,
             tick: sample.tick,
             player_position: sample.position,
             input_mode: protocol::PlayerInputMode::Mouse,

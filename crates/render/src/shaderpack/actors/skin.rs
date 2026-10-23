@@ -3,8 +3,8 @@
 
 use std::num::NonZeroU64;
 
-use bevy::asset::{load_internal_asset, uuid_handle};
-use bevy::prelude::{App, FromWorld, Handle, Resource, Shader, World, default};
+use bevy::asset::uuid_handle;
+use bevy::prelude::{FromWorld, Handle, Resource, Shader, World, default};
 use bevy::render::render_resource::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
     BufferBindingType, CachedComputePipelineId, ComputePipeline, ComputePipelineDescriptor,
@@ -117,9 +117,12 @@ fn shader(source: &str, path: impl Into<String>) -> Shader {
 }
 
 /// Registers the kernel and the rig module it imports with Bevy's shader composer.
-pub(crate) fn load_shaders(app: &mut App) {
-    crate::actor_render::load_rig_shader(app);
-    load_internal_asset!(app, SKIN_SHADER, "skin.wesl", shader);
+pub(crate) fn load_shaders(cache: &mut PipelineCache) {
+    let (id, module) = crate::actor_render::rig_shader_asset();
+    cache.set_shader(id, module);
+    let (id, shader) =
+        crate::shader_asset::internal_shader_asset!(SKIN_SHADER, "skin.wesl", shader);
+    cache.set_shader(id, shader);
 }
 
 fn storage(binding: u32, read_only: bool) -> BindGroupLayoutEntry {
@@ -183,7 +186,7 @@ pub(crate) struct ActorSkinPipelines {
 
 impl FromWorld for ActorSkinPipelines {
     fn from_world(world: &mut World) -> Self {
-        let cache = world.resource::<PipelineCache>();
+        let cache = &world.resource::<super::super::kernels::Kernels>().cache;
         let pipeline = |label: &'static str, source, entry: &'static str| {
             cache.queue_compute_pipeline(ComputePipelineDescriptor {
                 label: Some(label.into()),

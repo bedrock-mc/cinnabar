@@ -32,6 +32,7 @@ pub(super) fn draw(
         SettingSection::ControllerAndSwitch => controller(content),
         SettingSection::General => general(content),
         SettingSection::Updates => super::updates::draw(content),
+        SettingSection::Game => super::world::draw(content),
         SettingSection::Creator => creator(content),
         SettingSection::Chat => chat(content),
         SettingSection::Discord => discord(content),

@@ -2,8 +2,8 @@
 
 use std::num::NonZeroU64;
 
-use bevy::asset::{load_internal_asset, uuid_handle};
-use bevy::prelude::{App, FromWorld, Handle, Resource, Shader, World, default};
+use bevy::asset::uuid_handle;
+use bevy::prelude::{FromWorld, Handle, Resource, Shader, World, default};
 use bevy::render::render_resource::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     CachedComputePipelineId, ComputePipelineDescriptor, PipelineCache, ShaderStages,
@@ -67,11 +67,16 @@ fn shader(source: &str, path: impl Into<String>) -> Shader {
 }
 
 /// Registers the expansion modules with Bevy's shader composer.
-pub(crate) fn load_shaders(app: &mut App) {
-    load_internal_asset!(app, EXPAND_COMMON_SHADER, "expand_common.wesl", shader);
-    load_internal_asset!(app, EXPAND_CUBES_SHADER, "expand_cubes.wesl", shader);
-    load_internal_asset!(app, EXPAND_MODELS_SHADER, "expand_models.wesl", shader);
-    load_internal_asset!(app, EXPAND_LIQUIDS_SHADER, "expand_liquids.wesl", shader);
+pub(crate) fn load_shaders(cache: &mut PipelineCache) {
+    use crate::shader_asset::internal_shader_asset;
+    for (id, shader) in [
+        internal_shader_asset!(EXPAND_COMMON_SHADER, "expand_common.wesl", shader),
+        internal_shader_asset!(EXPAND_CUBES_SHADER, "expand_cubes.wesl", shader),
+        internal_shader_asset!(EXPAND_MODELS_SHADER, "expand_models.wesl", shader),
+        internal_shader_asset!(EXPAND_LIQUIDS_SHADER, "expand_liquids.wesl", shader),
+    ] {
+        cache.set_shader(id, shader);
+    }
 }
 
 /// Packed-chunk bindings (group 0) each kernel reads, at the chunk layout's numbers.
@@ -173,7 +178,7 @@ pub(crate) struct ExpansionPipelines {
 
 impl FromWorld for ExpansionPipelines {
     fn from_world(world: &mut World) -> Self {
-        let cache = world.resource::<PipelineCache>();
+        let cache = &world.resource::<super::super::kernels::Kernels>().cache;
         let pipeline = |kind: JobKind| {
             let (label, shader, entry) = match kind {
                 JobKind::Cube => (
@@ -202,6 +207,62 @@ impl FromWorld for ExpansionPipelines {
         };
         Self {
             pipelines: super::jobs::JOB_KINDS.map(pipeline),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shaderpack::kernels::Kernels;
+    use bevy::{
+        app::SubApp,
+        prelude::*,
+        render::{ExtractSchedule, MainWorld, Render, RenderApp},
+    };
+
+    #[test]
+    fn production_expansion_kernels_resolve_native_imports_after_each_activation() {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let mut app = App::new();
+        app.init_resource::<Assets<Shader>>()
+            .init_resource::<Messages<AssetEvent<Shader>>>();
+        let mut render = SubApp::new();
+        render.add_schedule(Render::base_schedule());
+        render.add_schedule(Schedule::new(ExtractSchedule));
+        app.insert_sub_app(RenderApp, render);
+        crate::chunk::plugin::load_shaders(&mut app);
+        app.add_plugins(super::super::ShaderpackGeometryPlugin);
+        let mut render = app.remove_sub_app(RenderApp).unwrap();
+        let mut main = MainWorld::default();
+        *main = std::mem::take(app.world_mut());
+        render.world_mut().insert_resource(main);
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+                ..default()
+            },
+            ..default()
+        });
+        let device = bevy::render::renderer::RenderDevice::from(device);
+        for _ in 0..2 {
+            render
+                .world_mut()
+                .insert_resource(Kernels::new(device.clone(), true));
+            render.world_mut().init_resource::<ExpansionPipelines>();
+            render.world_mut().run_schedule(ExtractSchedule);
+            let ids = render.world().resource::<ExpansionPipelines>().pipelines;
+            let mut kernels = render.world_mut().resource_mut::<Kernels>();
+            kernels.cache.process_queue();
+            for id in ids {
+                assert!(
+                    kernels.cache.get_compute_pipeline(id).is_some(),
+                    "{:?}",
+                    kernels.cache.get_compute_pipeline_state(id)
+                );
+            }
+            render.world_mut().remove_resource::<ExpansionPipelines>();
+            render.world_mut().remove_resource::<Kernels>();
         }
     }
 }

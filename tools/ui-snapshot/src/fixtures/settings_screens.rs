@@ -5,6 +5,16 @@ use super::*;
 /// Search results, an empty result and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
     State {
+        name: "settings-framerate",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::Video.definition().name);
+            view.settings_query = "framerate".to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
         name: "settings-search",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -23,6 +33,78 @@ pub(super) const SEARCH_STATES: &[State] = &[
         fixture: || settings_search("vsync"),
     },
 ];
+
+/// Settings' Game section while the host plays their own local world, with cheats off and on.
+pub(super) const WORLD_STATES: &[State] = &[
+    State {
+        name: "settings-world-game",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_world_game(false),
+    },
+    State {
+        name: "settings-world-game-cheats",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_world_game(true),
+    },
+    State {
+        name: "settings-world-game-live-failed",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: settings_world_game_live_failed,
+    },
+    State {
+        name: "settings-world-game-save-failed",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: settings_world_game_save_failed,
+    },
+];
+
+/// An unsaved change with its confirmed value restored and a retry message.
+fn settings_world_game_save_failed() -> Fixture {
+    let Fixture::Menu(mut view) = settings_world_game(false) else {
+        unreachable!("world settings are a menu fixture");
+    };
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).error =
+        Some("The local world request failed".into());
+    Fixture::Menu(view)
+}
+
+/// A saved setting that could not be sent to the running world.
+fn settings_world_game_live_failed() -> Fixture {
+    let Fixture::Menu(mut view) = settings_world_game(false) else {
+        unreachable!("world settings are a menu fixture");
+    };
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).missed = true;
+    Fixture::Menu(view)
+}
+
+/// The Game section of an anonymous dedicated-server world.
+fn settings_world_game(cheats: bool) -> Fixture {
+    use launcher::local_worlds::{in_world, options::WorldOptions, world::World};
+    let mut view = settings(SettingSection::Game.definition().name);
+    view.over_world = true;
+    let mut options = WorldOptions::default();
+    options.restore_cheats(cheats);
+    let world = World {
+        id: "0123456789abcdef".to_owned(),
+        name: "My World".to_owned(),
+        game_mode: Default::default(),
+        generator: Default::default(),
+        difficulty: Default::default(),
+        backend: bridge::Backend::Bds,
+        seed: 1_234_567,
+        options,
+        options_unavailable: false,
+        created_unix: 0,
+        last_played_unix: 0,
+        size_bytes: 0,
+    };
+    view.world_settings = in_world::View::of(&world).map(Arc::new);
+    Fixture::Menu(Box::new(view))
+}
 
 /// Whole settings pages, tall enough to show every row at once.
 pub(super) const PAGE_STATES: &[State] = &[

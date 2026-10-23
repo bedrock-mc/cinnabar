@@ -70,7 +70,8 @@ pub(crate) fn press(
         runtime.cancel_press();
         return;
     };
-    let press = PressContext {
+    let mut press = PressContext {
+        refused_destroy: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: protocol_input_mode(input.context.mode),
@@ -99,7 +100,8 @@ pub(crate) fn press(
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let mining_active = gameplay::survival_mining::mining_active(caps, focused, true);
-    let destroy = (picked.crosshair == Crosshair::Block && mining_active)
+    // A block press is refused at its start even where the game mode cannot mine.
+    let observation = (picked.crosshair == Crosshair::Block && focused)
         .then(|| {
             crate::survival_mining::observe_destroy_target(
                 &player,
@@ -112,6 +114,16 @@ pub(crate) fn press(
             )
         })
         .flatten();
+    let destroy = match observation {
+        Some(crate::survival_mining::DestroyObservation::Refused(refused)) => {
+            press.refused_destroy = Some(refused);
+            None
+        }
+        Some(crate::survival_mining::DestroyObservation::Target(target)) if mining_active => {
+            Some(target)
+        }
+        _ => None,
+    };
     let authority = player
         .facts
         .server_authoritative_block_breaking()

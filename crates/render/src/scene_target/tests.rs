@@ -622,3 +622,54 @@ fn failed_scene_colour_backs_off_then_recovers() {
     assert!(world.get::<SceneTarget>(view).is_some());
     assert!(world.get::<SceneTargetUnavailable>(view).is_none());
 }
+
+/// Applies a reduced size after extraction has republished native camera dimensions.
+fn reduce_fallback_test_camera(mut views: Query<&mut ExtractedCamera>) {
+    for mut camera in &mut views {
+        camera.physical_target_size = camera.physical_target_size.map(|size| size / 2);
+        camera.physical_viewport_size = camera.physical_target_size;
+    }
+}
+
+#[test]
+fn scaled_allocation_failure_keeps_msaa_disabled_until_the_scaled_size_changes() {
+    let (mut owned, view, mut schedule) = msaa_view_fixture();
+    let world = &mut owned;
+    let native = UVec2::new(80, 60);
+    let scaled = native / 2;
+    world
+        .resource_mut::<MultisampleFallback>()
+        .0
+        .insert(view, scaled);
+    schedule.add_systems(
+        reduce_fallback_test_camera
+            .in_set(RenderSystems::CreateViews)
+            .in_set(crate::render_scale::RenderScaleSystems),
+    );
+    for _ in 0..3 {
+        world
+            .get_mut::<ExtractedCamera>(view)
+            .unwrap()
+            .physical_target_size = Some(native);
+        *world.get_mut::<Msaa>(view).unwrap() = Msaa::Sample4;
+        schedule.run(world);
+        assert_eq!(world.get::<Msaa>(view), Some(&Msaa::Off));
+        assert_eq!(
+            world.resource::<MultisampleFallback>().0.get(&view),
+            Some(&scaled)
+        );
+    }
+    world
+        .get_mut::<ExtractedCamera>(view)
+        .unwrap()
+        .physical_target_size = Some(native * 2);
+    *world.get_mut::<Msaa>(view).unwrap() = Msaa::Sample4;
+    schedule.run(world);
+    assert_eq!(world.get::<Msaa>(view), Some(&Msaa::Sample4));
+    assert!(
+        !world
+            .resource::<MultisampleFallback>()
+            .0
+            .contains_key(&view)
+    );
+}

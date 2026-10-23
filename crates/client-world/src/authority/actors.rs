@@ -39,6 +39,11 @@ impl WorldAuthority {
     pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_name_tag(unique_id)
     }
+    /// The title an actor-backed container screen shows: its filtered name when set,
+    /// otherwise its name tag.
+    pub fn actor_container_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_container_name(unique_id)
+    }
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
@@ -231,10 +236,8 @@ impl WorldAuthority {
         let uuid = *uuid;
         self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
     }
-    /// Arm swings the server sent for the local player since the last call. Vanilla servers
-    /// do not echo the owner's swing, but some (Dragonfly) send one when they accept a
-    /// placement the client did not predict, and the native client plays it.
-    pub fn take_local_server_swings(&mut self) -> u8 {
+    /// Ordered sources of server swings for the local player since the last call.
+    pub fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         self.actors.take_local_server_swings()
     }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.

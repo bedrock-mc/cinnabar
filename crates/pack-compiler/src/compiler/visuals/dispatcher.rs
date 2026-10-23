@@ -149,6 +149,7 @@ struct VisualCompiler {
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
+    stonecutter_templates: BTreeMap<([u32; 6], bool), u32>,
     sea_pickle_templates: BTreeMap<(u32, u8, bool), u32>,
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
@@ -378,6 +379,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.grindstone_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::stonecutter::compile_rule(
+            record,
+            inputs,
+            &mut self.stonecutter_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
