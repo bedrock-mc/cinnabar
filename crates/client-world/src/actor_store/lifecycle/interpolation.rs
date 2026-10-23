@@ -211,6 +211,12 @@ impl ActorStore {
             let local_bedrock_swing_ticks = self.local_bedrock_swing_ticks;
             let local_java_swing_ticks = self.local_java_swing_ticks;
             let view = self.animation_view.as_ref();
+            // A locked seat turns its rider's body along the seat's facing.
+            let seat_facings: FastHashMap<i64, f32> = self
+                .rider_to_ridden
+                .keys()
+                .filter_map(|rider| Some((*rider, self.rider_view_lock(*rider, 1.0)?.facing())))
+                .collect();
             let context = |actor: &ActorSnapshot| {
                 let lifetime = ActorLifetimeId {
                     session_id,
@@ -306,6 +312,7 @@ impl ActorStore {
                         ticks - 1
                     }),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    seat_facing: seat_facings.get(&actor.unique_id).copied(),
                     hand_charged,
                     main_hand,
                     held_item_facts: [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]

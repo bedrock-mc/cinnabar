@@ -649,3 +649,47 @@ fn a_predicted_boat_turns_the_seat_as_its_latest_feed_renders_it() {
     assert_eq!(lock.vehicle_runtime_id, BOAT as u64);
     assert_eq!(lock.vehicle_yaw, 30.0);
 }
+
+/// A locked seat turns its rider's rendered body along the seat, even when the boat pivots in
+/// place without moving the rider.
+#[test]
+fn a_locked_seat_turns_the_rider_s_body_along_the_seat() {
+    let mut store = ActorStore::new_with_entity_assets(
+        1,
+        0,
+        actor_animation::test_support::counting_random_assets_for("minecraft:player"),
+    );
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    let float = |key: ActorDataKey, value| ActorMetadata {
+        key: key.wire_value(),
+        value: ActorMetadataValue::Float(value),
+    };
+    let mut sequence = 2;
+    store.apply(
+        1,
+        sequence,
+        spawn(
+            OTHER_PLAYER,
+            player("Other"),
+            vec![
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotation.wire_value(),
+                    value: ActorMetadataValue::Byte(1),
+                },
+                float(ActorDataKey::SeatLockPassengerRotationDegrees, 90.0),
+                float(ActorDataKey::SeatRotationOffsetDegrees, -90.0),
+            ],
+        ),
+    );
+    board(
+        &mut store,
+        &mut sequence,
+        &[(OTHER_PLAYER, ActorLinkType::Rider)],
+    );
+    sequence += 1;
+    store.apply(1, sequence, boat_move(10.0, true));
+    store.advance_interpolation_ticks(3);
+    let body_yaw = store.actor_rig(OTHER_PLAYER as u64).unwrap().body_yaw;
+    // The boat faces 45 degrees; the seat faces 90 degrees to its side.
+    assert!((body_yaw - -45.0).abs() < 1.0e-3, "{body_yaw}");
+}

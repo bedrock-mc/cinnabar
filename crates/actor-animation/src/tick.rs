@@ -42,6 +42,8 @@ pub struct ActorTickContext {
     /// A known first appearance is still awaiting its immutable model preparation.
     pub appearance_pending: bool,
     pub is_riding: bool,
+    /// A locked seat's facing in degrees; the rider's body faces along it.
+    pub seat_facing: Option<f32>,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub main_hand: Option<Arc<str>>,
     pub off_hand: Option<Arc<str>>,
@@ -182,6 +184,9 @@ pub(super) fn advance_motion(
     // Boats are not mobs: they face their own rotation without body-turn lag.
     if super::boat::is_boat(actor) {
         motion.body_yaw = actor.yaw();
+    }
+    if let Some(facing) = context.seat_facing {
+        motion.body_yaw = facing;
     }
     let baby_scale = if query::actor_flag(actor, ActorFlag::Baby.wire_value()) {
         BABY_MOVE_SPEED_SCALE
