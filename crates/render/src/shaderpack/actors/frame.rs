@@ -60,8 +60,7 @@ pub(crate) fn prepare(
     if let Some(source) = &sources.block_entities {
         actors.plan_block_entities(source, &drawn, &mut output);
     }
-    let frame = actors.frame;
-    actors.views.retain(|_, (_, used)| *used == frame);
+    actors.retire_unused();
     if output == 0 {
         actors.draws.clear();
         return;

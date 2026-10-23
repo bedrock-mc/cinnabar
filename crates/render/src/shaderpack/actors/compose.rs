@@ -148,8 +148,9 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
     )
 }
 
-/// Records the composition of `texture`'s `layer` into a new single-layer texture of the
-/// same size and returns its view, or `None` when an allocation fails.
+/// Records the composition of `texture`'s `layer` into a single-layer texture of the same
+/// size, `reuse` when given (same size, from an earlier composition) or a new one, and
+/// returns it with its view; `None` when an allocation fails.
 pub(super) fn record(
     device: &Device,
     encoder: &mut CommandEncoder,
@@ -157,30 +158,37 @@ pub(super) fn record(
     texture: &wgpu::Texture,
     layer: u32,
     compose: LayerCompose,
-) -> Option<TextureView> {
-    let render_device = bevy::render::renderer::RenderDevice::from(device.clone());
-    let size = wgpu::Extent3d {
-        depth_or_array_layers: 1,
-        ..texture.size()
+    reuse: Option<wgpu::Texture>,
+) -> Option<(wgpu::Texture, TextureView)> {
+    let composed = match reuse {
+        Some(composed) => composed,
+        None => {
+            let render_device = bevy::render::renderer::RenderDevice::from(device.clone());
+            let size = wgpu::Extent3d {
+                depth_or_array_layers: 1,
+                ..texture.size()
+            };
+            let bytes = u64::from(size.width) * u64::from(size.height) * 4;
+            let label = "shader-pack composed actor layer";
+            crate::gpu_allocation::checked(&render_device, label, bytes, || {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: COMPOSED_FORMAT,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                })
+            })?
+        }
     };
-    let bytes = u64::from(size.width) * u64::from(size.height) * 4;
-    let label = "shader-pack composed actor layer";
-    let composed = crate::gpu_allocation::checked(&render_device, label, bytes, || {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: COMPOSED_FORMAT,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        })
-    })?;
     let view = composed.create_view(&Default::default());
     let kernel = (&**kernels.compose, &**kernels.compose_layout);
     dispatch(device, encoder, kernel, texture, layer, compose, &view)?;
-    Some(view)
+    Some((composed, view))
 }
 
 /// Records one dispatch composing `texture`'s `layer` into `composed`, a [`COMPOSED_FORMAT`]

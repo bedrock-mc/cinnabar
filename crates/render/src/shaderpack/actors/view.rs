@@ -132,6 +132,10 @@ pub(crate) struct ViewActors {
     pub(super) views: HashMap<TextureKey, (TextureView, u64)>,
     /// Composed layers first used this frame, recorded by [`Self::compose_layers`].
     pub(super) compositions: HashMap<TextureKey, Texture>,
+    /// The texture behind each composed key in `views`.
+    pub(super) composed: HashMap<TextureKey, wgpu::Texture>,
+    /// Composed textures whose keys went unused last frame, reused by size before allocating.
+    spare: Vec<wgpu::Texture>,
     pub(super) pages: Vec<PageBuffers>,
     pub(super) neutral: Option<NeutralTextures>,
     pub(super) frame: u64,
@@ -206,6 +210,7 @@ impl ViewActors {
     pub(crate) fn release_texture(&mut self, texture: TextureId) {
         self.views.retain(|(id, ..), _| *id != texture);
         self.compositions.retain(|(id, ..), _| *id != texture);
+        self.composed.retain(|(id, ..), _| *id != texture);
         for slot in self.slots.values_mut().flatten() {
             if slot.texture.is_some_and(|(id, ..)| id == texture) {
                 slot.texture = None;
@@ -245,6 +250,22 @@ impl ViewActors {
         key
     }
 
+    /// Drops views no draw used this frame. Their composed textures become spares for this
+    /// frame's compositions; spares left from the previous frame are released.
+    pub(super) fn retire_unused(&mut self) {
+        let frame = self.frame;
+        self.spare.clear();
+        self.views.retain(|_, (_, used)| *used == frame);
+        let (views, spare) = (&self.views, &mut self.spare);
+        self.composed.retain(|key, texture| {
+            let kept = views.contains_key(key);
+            if !kept {
+                spare.push(texture.clone());
+            }
+            kept
+        });
+    }
+
     /// Records this frame's queued layer compositions and publishes their views; `None` when
     /// an allocation fails.
     pub(super) fn compose_layers(
@@ -255,7 +276,16 @@ impl ViewActors {
     ) -> Option<()> {
         for (key, texture) in std::mem::take(&mut self.compositions) {
             let (_, layer, compose) = key;
-            let view = super::compose::record(device, encoder, kernels, &texture, layer, compose)?;
+            let reuse = self
+                .spare
+                .iter()
+                .position(|spare| {
+                    spare.width() == texture.width() && spare.height() == texture.height()
+                })
+                .map(|index| self.spare.swap_remove(index));
+            let (composed, view) =
+                super::compose::record(device, encoder, kernels, &texture, layer, compose, reuse)?;
+            self.composed.insert(key, composed);
             self.views.insert(key, (view, self.frame));
         }
         Some(())
