@@ -1372,11 +1372,6 @@ baselines = [
 
 [[identifier_literal_exceptions]]
 path = "tools/devtool/src/startup.rs"
-literal = "cold"
-reason = "Startup benchmark cache-mode label, independent of game identifiers."
-
-[[identifier_literal_exceptions]]
-path = "tools/devtool/src/startup.rs"
 literal = "mesa"
 reason = "Directory for the Mesa driver's isolated shader cache, independent of biome identifiers."
 
