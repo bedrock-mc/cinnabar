@@ -344,7 +344,9 @@ impl LocomotionState {
 
     /// Retains riding input even when transport admission pauses physics, preserving server links.
     pub fn observe_dismount(&mut self, frame: &PhysicsFrameInput, session: u64) {
-        let trigger = if frame.facts.ride == Some(super::RideKind::Boat) {
+        // A boat maps both jump and sneak to dismount; other mounts keep jump for themselves.
+        let boat = frame.facts.ride == Some(super::RideKind::Boat);
+        let trigger = if boat && frame.jump.pressed {
             ClientInputLock::Jump
         } else {
             ClientInputLock::Sneak
@@ -356,14 +358,14 @@ impl LocomotionState {
             .filter(|mount| *mount != 0)
             .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
             .map(|mount| (session, mount, trigger));
-        if self.pending_dismount != mount {
+        // A retained press survives later frames on the same mount, whichever button made it.
+        let identity = |request: Option<(u64, u64, ClientInputLock)>| {
+            request.map(|(session, mount, _)| (session, mount))
+        };
+        if identity(self.pending_dismount) != identity(mount) {
             self.pending_dismount = None;
         }
-        let pressed = if frame.facts.ride == Some(super::RideKind::Boat) {
-            frame.jump.pressed
-        } else {
-            frame.sneak.pressed
-        };
+        let pressed = frame.sneak.pressed || (boat && frame.jump.pressed);
         if pressed
             && !frame.facts.input_locks.blocks(ClientInputLock::Dismount)
             && !frame.facts.input_locks.blocks(trigger)
