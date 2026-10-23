@@ -1,7 +1,12 @@
 use crate::chunk::*;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
+pub(in crate::chunk) mod buffers;
 mod priority;
+
+use buffers::{
+    create_identity_vertex_offsets, identity_vertex_offset_words, indirect_buffer_descriptor,
+};
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkGpuUploadStats {
@@ -97,7 +102,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) biome_buffer: Buffer,
     pub(in crate::chunk) index_buffer: Buffer,
     pub(in crate::chunk) model_index_buffer: Buffer,
-    /// Vertex buffer 0 of CPU-planned terrain draws; see [`identity_vertex_offsets`].
+    /// Vertex buffer 0 of CPU-planned terrain draws; see [`buffers::identity_vertex_offsets`].
     pub(in crate::chunk) vertex_offset_buffer: Buffer,
     pub(in crate::chunk) indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_indirect_buffer: Buffer,
@@ -131,6 +136,10 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
     pub(in crate::chunk) migration: Option<ArenaMigration>,
+    /// A failed speculative allocation waits until arena storage has been released.
+    pub(in crate::chunk) growth_blocked: bool,
+    /// Advances only when owned ranges become reusable.
+    pub(in crate::chunk) release_revision: u64,
 }
 
 pub(in crate::chunk) fn init_chunk_gpu_arena(
@@ -178,9 +187,13 @@ impl ChunkGpuArena {
                 contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
                 usage: BufferUsages::INDEX,
             }),
-            vertex_offset_buffer: identity_vertex_offsets(render_device, 1),
-            indirect_buffer: create_indirect_buffer(render_device, 1),
-            transparent_indirect_buffer: create_indirect_buffer(render_device, 1),
+            vertex_offset_buffer: create_identity_vertex_offsets(
+                render_device,
+                &identity_vertex_offset_words(1),
+            ),
+            indirect_buffer: render_device.create_buffer(&indirect_buffer_descriptor(1)),
+            transparent_indirect_buffer: render_device
+                .create_buffer(&indirect_buffer_descriptor(1)),
             transparent_ref_buffer: transparent_ref_buffer(
                 render_device,
                 INITIAL_TRANSPARENT_SLOT_REFS,
@@ -214,66 +227,12 @@ impl ChunkGpuArena {
                 MAX_TRANSPARENT_RETIRED_BYTES,
             ),
             migration: None,
+            growth_blocked: false,
+            release_revision: 0,
         };
         super::telemetry::log_initial_arena_capacity(&arena, render_device);
         arena
     }
-}
-
-/// Vertex buffer 0 for CPU-planned terrain draws over `origin_capacity` origin slots: entry `i`
-/// is `(i, 0)`, so fetching at a draw's base vertex yields its vertex index while the builtin
-/// instance index keeps its first instance. GPU-culled draws bind the cull's draw offsets instead.
-pub(in crate::chunk) fn identity_vertex_offsets(
-    render_device: &RenderDevice,
-    origin_capacity: usize,
-) -> Buffer {
-    let corners = crate::chunk::gpu_cull::model::OFFSET_CORNERS;
-    let entries = (0..origin_capacity as u32 * corners)
-        .flat_map(|vertex| [vertex, 0])
-        .collect::<Vec<u32>>();
-    render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("terrain identity vertex offsets"),
-        contents: bytemuck::cast_slice(&entries),
-        usage: BufferUsages::VERTEX,
-    })
-}
-
-fn storage_buffer_descriptor(label: &'static str, size: u64) -> BufferDescriptor<'static> {
-    BufferDescriptor {
-        label: Some(label),
-        size,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    }
-}
-
-pub(in crate::chunk) fn create_storage_buffer(
-    render_device: &RenderDevice,
-    label: &'static str,
-    size: u64,
-) -> Buffer {
-    render_device.create_buffer(&storage_buffer_descriptor(label, size))
-}
-
-/// [`create_storage_buffer`], or `None` when the device is out of memory.
-pub(in crate::chunk) fn try_create_storage_buffer(
-    render_device: &RenderDevice,
-    label: &'static str,
-    size: u64,
-) -> Option<Buffer> {
-    crate::gpu_allocation::buffer(render_device, &storage_buffer_descriptor(label, size))
-}
-
-pub(in crate::chunk) fn create_indirect_buffer(
-    render_device: &RenderDevice,
-    command_capacity: usize,
-) -> Buffer {
-    render_device.create_buffer(&BufferDescriptor {
-        label: Some("packed chunk indirect commands"),
-        size: command_capacity as u64 * INDEXED_INDIRECT_BYTES,
-        usage: BufferUsages::INDIRECT | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -896,6 +855,8 @@ pub(in crate::chunk) fn allocate_origin(arena: &mut ChunkGpuArena) -> Option<u32
 }
 
 pub(in crate::chunk) fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
+    arena.release_revision = arena.release_revision.wrapping_add(1);
+    arena.growth_blocked = false;
     arena.free_origins.push(index);
     while arena.origin_len > 0 {
         let tail = (arena.origin_len - 1) as u32;
@@ -950,6 +911,8 @@ pub(in crate::chunk) fn release_completed_transparent_retirements(
             continue;
         }
         let bytes = retirement.owned_bytes();
+        arena.release_revision = arena.release_revision.wrapping_add(1);
+        arena.growth_blocked = false;
         if let Some((range, capacity)) = retirement.quad {
             release_quad_range(
                 &mut arena.quad_len,

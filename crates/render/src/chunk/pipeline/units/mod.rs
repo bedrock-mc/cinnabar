@@ -97,6 +97,21 @@ pub(in crate::chunk) struct TerrainUnitBatches {
 }
 
 impl TerrainUnitBatches {
+    /// Rewrites retained pages from CPU descriptors after a failed terrain publication.
+    pub(in crate::chunk) fn invalidate_publication(&mut self) {
+        for view in self.views.values_mut() {
+            view.stale = true;
+            for page in view
+                .streams
+                .iter_mut()
+                .chain(std::iter::once(&mut view.occluders))
+                .flat_map(|stream| &mut stream.pages)
+            {
+                page.invalidate();
+            }
+        }
+    }
+
     /// Rewrites selected flags from this frame's bits, or clears all retained flags on fallback.
     pub(in crate::chunk) fn encode_masks(
         &self,

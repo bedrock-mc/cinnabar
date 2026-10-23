@@ -84,3 +84,10 @@ fn install_graph(world: &mut World) {
 
 #[derive(Resource)]
 struct FarTerrainPassInstalled;
+
+/// Clears per-view far draws when the shared terrain publication failed.
+pub(crate) fn suppress_publication(world: &mut World) {
+    for mut view in world.query::<&mut gpu::FarTerrainView>().iter_mut(world) {
+        view.release();
+    }
+}

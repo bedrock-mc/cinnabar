@@ -1,6 +1,39 @@
 use super::*;
 
 impl FarTerrainGpu {
+    /// Replaces the near-column mask, preserving its storage when required growth fails.
+    pub(super) fn apply_mask(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        mask: &NearMask,
+    ) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
+        let [x, z] = mask.origin();
+        let mut words = vec![x as u32, z as u32, mask.side(), 0];
+        words.extend_from_slice(mask.words());
+        if words.len() as u64 > self.mask_words {
+            let mask_words = (words.len() as u64).next_power_of_two();
+            let Some(buffer) = checked_storage_buffer(
+                device,
+                "far terrain near columns",
+                mask_words * 4,
+                Requirement::Required,
+            ) else {
+                return Err(crate::gpu_allocation::TerrainWriteError);
+            };
+            self.mask_words = mask_words;
+            self.mask = buffer;
+        }
+        crate::gpu_allocation::terrain_write(
+            device,
+            "far terrain mask upload",
+            words.len() as u64 * 4,
+            || {
+                queue.profiled_write_buffer(&self.mask, 0, bytemuck::cast_slice(&words));
+            },
+        )
+    }
+
     /// Invalidates retained coverage when CPU-ready empty selections change.
     pub(super) fn set_empty_coverage(&mut self, empty: Option<&HashSet<ColumnPos>>) {
         let unchanged = empty.map_or(self.empty_far.is_empty(), |empty| self.empty_far == *empty);
@@ -63,28 +96,37 @@ impl FarTerrainGpu {
 
     /// Whether decoded evidence has a visible far drawer or an acknowledged empty selection.
     pub(crate) fn covers_column(&self, column: ColumnPos) -> bool {
-        self.empty_far.contains(&column)
-            || (0..LEVEL_COUNT).any(|level| {
-                let key = TileKey::containing(
-                    level,
-                    column.x * far_terrain::COLUMN_SIDE as i32,
-                    column.z * far_terrain::COLUMN_SIDE as i32,
-                );
-                self.resident
-                    .get(&key)
-                    .is_some_and(|resident| resident.visible && resident.mesh.covers(column))
-            })
+        self.empty_far.contains(&column) || self.draws_far(column)
     }
 
-    /// Publishes the mask chosen with near draw admission in the current render frame.
+    /// Whether a visible far tile draws `column`.
+    fn draws_far(&self, column: ColumnPos) -> bool {
+        (0..LEVEL_COUNT).any(|level| {
+            let key = TileKey::containing(
+                level,
+                column.x * far_terrain::COLUMN_SIDE as i32,
+                column.z * far_terrain::COLUMN_SIDE as i32,
+            );
+            self.resident
+                .get(&key)
+                .is_some_and(|resident| resident.visible && resident.mesh.covers(column))
+        })
+    }
+
+    /// Publishes the mask chosen with near draw admission in the current render frame. False,
+    /// keeping the previous mask, when the device is out of memory for its storage.
+    #[must_use]
     pub(crate) fn publish_mask(
         &mut self,
         device: &RenderDevice,
         queue: &RenderQueue,
         mask: Arc<NearMask>,
-    ) {
-        self.apply_mask(device, queue, &mask);
-        self.applied_mask = Some(mask);
+    ) -> bool {
+        let published = self.apply_mask(device, queue, &mask).is_ok();
+        if published {
+            self.applied_mask = Some(mask);
+        }
+        published
     }
 
     /// Changes whenever bounded far preparation can change drawable coverage.

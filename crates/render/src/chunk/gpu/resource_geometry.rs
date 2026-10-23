@@ -13,7 +13,20 @@ pub(in crate::chunk) struct PreparedResourceGeometry {
 
 impl PreparedResourceGeometry {
     /// Uses the ordinary validated uploader against an invisible, independently owned arena.
-    pub(super) fn build(
+    pub(in crate::chunk) fn build(
+        instances: &[ChunkRenderInstance],
+        assets: ChunkTextureAssets,
+        device: RenderDevice,
+        queue: RenderQueue,
+        view: Option<super::resource_sorts::ResourceView>,
+    ) -> Option<Self> {
+        crate::gpu_allocation::isolated_terrain(|| {
+            Self::build_generation(instances, assets, device, queue, view)
+        })
+    }
+
+    /// Rejects the whole candidate when any allocation, geometry upload or sort upload fails.
+    fn build_generation(
         instances: &[ChunkRenderInstance],
         assets: ChunkTextureAssets,
         device: RenderDevice,

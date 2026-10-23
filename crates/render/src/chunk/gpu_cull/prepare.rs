@@ -99,6 +99,39 @@ impl GpuCull {
         }
     }
 
+    /// Replaces storage and rewrites every record into it.
+    fn install_storage(&mut self, storage: CullStorage) {
+        self.args = Some(Buffer::from(storage.args.clone()));
+        self.draw_counts = Some(Buffer::from(storage.draw_counts.clone()));
+        self.draw_offsets = Some(Buffer::from(storage.draw_offsets.clone()));
+        self.storage = Some(storage);
+        self.bind_groups = None;
+        self.table.mark_all_dirty();
+    }
+
+    /// Resets derived CPU records and temporal GPU visibility while retaining storage.
+    pub(super) fn invalidate_publication(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        self.table = default();
+        self.bind_groups = None;
+        self.prepared_view = None;
+        if let Some(storage) = &self.storage {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.clear_buffer(&storage.history, 0, None);
+            queue.submit([encoder.finish()]);
+        }
+    }
+
+    /// Whether every terrain slot fits this device's cull bindings before queueing draws.
+    pub(super) fn supports_slots(device: &RenderDevice, slots: u32) -> bool {
+        binding_capacity(
+            &device.limits(),
+            slots.max(MIN_CAPACITY),
+            cull_storage_largest_buffer,
+        )
+        .is_some()
+    }
+
+    /// Live CPU record slots, published together after storage growth succeeds.
     pub(super) fn slot_count(&self) -> u32 {
         self.table.slot_count()
     }
@@ -210,7 +243,9 @@ pub(super) fn prepare_gpu_cull(
         cull.table.refresh_entity(entity, &hidden.hidden);
     }
     cull.table.trim();
-    upload_records(cull, &device, &queue);
+    if upload_records(cull, &device, &queue).is_err() {
+        return;
+    }
 
     let Some(view) = frame.view else {
         return;
@@ -219,8 +254,11 @@ pub(super) fn prepare_gpu_cull(
         return;
     };
     let depth = sampleable_depth(depth, resolution_override);
+    if cull.storage.is_none() {
+        return;
+    }
     prepare_pyramid(&mut cull.pyramid, &cull.kernels, &device, depth, *msaa);
-    let storage = cull.storage.as_ref().expect("records were uploaded");
+    let storage = cull.storage.as_ref().expect("checked above");
     let hiz_mips = cull
         .pyramid
         .as_ref()
@@ -232,7 +270,16 @@ pub(super) fn prepare_gpu_cull(
     let input = cull_view_input(extracted, frustum, depth_size, hiz_mips);
     for phase in CullPhase::ALL {
         let uniform = CullViewUniform::new(&input, phase, cull.slot_count(), storage.capacity);
-        storage.write_uniform(&queue, phase, &uniform);
+        if crate::gpu_allocation::terrain_write(
+            &device,
+            "terrain cull uniform upload",
+            std::mem::size_of_val(&uniform) as u64,
+            || storage.write_uniform(&queue, phase, &uniform),
+        )
+        .is_err()
+        {
+            return;
+        }
     }
     let pyramid_id = cull.pyramid.as_ref().map(|prepared| prepared.depth);
     if cull.bind_groups.is_none() || cull.bound_pyramid != pyramid_id {
@@ -253,24 +300,27 @@ pub(super) fn prepare_gpu_cull(
 }
 
 /// Grows storage when the slot watermark passes it, then writes dirty records and bits.
-fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue) {
-    let slots = cull.slot_count();
+/// Failed growth leaves storage untouched for the shared recovery path.
+fn upload_records(
+    cull: &mut GpuCull,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
+    let slots = cull.table.slot_count();
     if cull
         .storage
         .as_ref()
         .is_none_or(|storage| storage.capacity < slots)
     {
-        let capacity = slots.max(MIN_CAPACITY).next_power_of_two();
-        let storage = CullStorage::new(device.wgpu_device(), capacity, false);
-        cull.args = Some(Buffer::from(storage.args.clone()));
-        cull.draw_counts = Some(Buffer::from(storage.draw_counts.clone()));
-        cull.draw_offsets = Some(Buffer::from(storage.draw_offsets.clone()));
-        cull.storage = Some(storage);
-        cull.bind_groups = None;
-        cull.table.mark_all_dirty();
+        match grow_storage(device, slots) {
+            Some(storage) => cull.install_storage(storage),
+            None => return Err(crate::gpu_allocation::TerrainWriteError),
+        }
     }
-    let storage = cull.storage.as_ref().expect("storage was just ensured");
-    write_dirty_records(&mut cull.table, queue, &storage.records);
+    let Some(storage) = cull.storage.as_ref() else {
+        return Err(crate::gpu_allocation::TerrainWriteError);
+    };
+    write_dirty_records(&mut cull.table, device, queue, &storage.records)?;
     if cull.table.take_enabled_dirty() {
         let enabled = cull.table.enabled();
         let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
@@ -281,13 +331,60 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
                 bytes = words * std::mem::size_of::<u32>()
             )
             .entered();
-            queue.profiled_write_buffer(
-                &storage.enabled,
-                0,
-                bytemuck::cast_slice(&enabled[..words]),
-            );
+            crate::gpu_allocation::terrain_write(
+                device,
+                "terrain cull enabled upload",
+                words as u64 * 4,
+                || {
+                    queue.profiled_write_buffer(
+                        &storage.enabled,
+                        0,
+                        bytemuck::cast_slice(&enabled[..words]),
+                    )
+                },
+            )?;
         }
     }
+    Ok(())
+}
+
+/// Storage for `slots`, a power of two where one storage binding allows; `None` when no
+/// capacity holding them fits the device's binding limit or its memory.
+fn grow_storage(device: &RenderDevice, slots: u32) -> Option<CullStorage> {
+    let capacity = binding_capacity(
+        &device.limits(),
+        slots.max(MIN_CAPACITY),
+        cull_storage_largest_buffer,
+    )?;
+    crate::gpu_allocation::terrain_checked(
+        device,
+        "terrain cull storage",
+        cull_storage_largest_buffer(capacity),
+        || CullStorage::new(device.wgpu_device(), capacity, cfg!(test)),
+    )
+}
+
+/// The largest cull storage buffer at `capacity`; it must fit one storage binding.
+fn cull_storage_largest_buffer(capacity: u32) -> u64 {
+    (u64::from(capacity) * std::mem::size_of::<CullRecord>() as u64)
+        .max(super::model::args_words(capacity) * 4)
+        .max(super::model::draw_offset_bytes(capacity))
+}
+
+/// `minimum` rounded up to a power of two, or `minimum` itself when only that fits one
+/// storage binding; `None` when even `minimum` does not.
+pub(super) fn binding_capacity(
+    limits: &wgpu::Limits,
+    minimum: u32,
+    largest_buffer_bytes: impl Fn(u32) -> u64,
+) -> Option<u32> {
+    let binding = limits
+        .max_storage_buffer_binding_size
+        .min(limits.max_buffer_size);
+    [minimum.checked_next_power_of_two(), Some(minimum)]
+        .into_iter()
+        .flatten()
+        .find(|&capacity| largest_buffer_bytes(capacity) <= binding)
 }
 
 /// The view's depth when a pyramid can seed from it at full resolution.
@@ -304,12 +401,13 @@ pub(super) fn sampleable_depth<'a>(
     })
 }
 
-/// Writes the table's dirty records into `records` in contiguous runs.
+/// Writes every dirty CPU record in contiguous runs after storage capacity is ensured.
 pub(super) fn write_dirty_records(
     table: &mut CullSlots,
+    device: &RenderDevice,
     queue: &RenderQueue,
     records: &wgpu::Buffer,
-) {
+) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
     let record_bytes = std::mem::size_of::<CullRecord>() as u64;
     let dirty = table.take_dirty();
     let source = table.records();
@@ -323,12 +421,20 @@ pub(super) fn write_dirty_records(
             bytes = run.len() as u64 * record_bytes,
         )
         .entered();
-        queue.profiled_write_buffer(
-            records,
-            first as u64 * record_bytes,
-            bytemuck::cast_slice(&source[first..=last]),
-        );
+        crate::gpu_allocation::terrain_write(
+            device,
+            "terrain cull records upload",
+            run.len() as u64 * record_bytes,
+            || {
+                queue.profiled_write_buffer(
+                    records,
+                    first as u64 * record_bytes,
+                    bytemuck::cast_slice(&source[first..=last]),
+                )
+            },
+        )?;
     }
+    Ok(())
 }
 
 /// Keeps `prepared` seeded from `depth`, reusing the pyramid while the target size holds.
@@ -388,5 +494,92 @@ pub(super) fn cull_view_input(
             CullStream::Model => MODEL_INDEX_COUNT,
             _ => STATIC_QUAD_INDICES.len() as u32,
         }),
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    impl GpuCull {
+        /// Reads the records and enabled bits that this publication's compute cull consumes.
+        pub(in crate::chunk::gpu_cull) fn publication_snapshot(
+            &self,
+            device: &RenderDevice,
+            queue: &RenderQueue,
+        ) -> Vec<Vec<u8>> {
+            let Some(storage) = &self.storage else {
+                return Vec::new();
+            };
+            let slots = u64::from(self.slot_count());
+            let read = crate::render_test_support::read_buffer;
+            vec![
+                read(
+                    device,
+                    queue,
+                    &storage.records,
+                    0,
+                    slots * std::mem::size_of::<CullRecord>() as u64,
+                ),
+                read(device, queue, &storage.enabled, 0, slots.div_ceil(32) * 4),
+            ]
+        }
+    }
+
+    /// Capacity rounds up to a power of two only while every buffer fits one binding.
+    #[test]
+    fn capacity_stays_within_one_storage_binding() {
+        let limits = |binding: u64| wgpu::Limits {
+            max_storage_buffer_binding_size: binding,
+            max_buffer_size: binding,
+            ..wgpu::Limits::default()
+        };
+        let bytes = |capacity: u32| u64::from(capacity) * 10;
+        assert_eq!(binding_capacity(&limits(10_240), 1000, bytes), Some(1024));
+        assert_eq!(binding_capacity(&limits(10_000), 1000, bytes), Some(1000));
+        assert_eq!(binding_capacity(&limits(9_990), 1000, bytes), None);
+    }
+
+    /// Storage that cannot grow writes nothing and retries.
+    #[test]
+    fn storage_without_memory_waits_until_it_grows() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+        let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed);
+        {
+            let _failure =
+                crate::gpu_allocation::inject(|label, _| label == "terrain cull storage");
+            assert!(upload_records(&mut cull, &device, &queue).is_err());
+        }
+        assert!(cull.storage.is_none());
+        assert!(upload_records(&mut cull, &device, &queue).is_ok());
+        assert!(cull.storage.is_some());
+    }
+
+    /// Failed growth keeps old storage without publishing a prefix of the CPU table.
+    #[test]
+    fn failed_growth_keeps_storage_without_publishing_partial_records() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+        let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed);
+        upload_records(&mut cull, &device, &queue).unwrap();
+        let capacity = cull.storage.as_ref().expect("initial storage").capacity;
+        cull.table.update(
+            Entity::PLACEHOLDER,
+            capacity + 10,
+            ChunkBiomeTintIdentity::default(),
+            CullRecord::default(),
+            &HashSet::new(),
+        );
+        {
+            let _failure =
+                crate::gpu_allocation::inject(|label, _| label == "terrain cull storage");
+            assert!(upload_records(&mut cull, &device, &queue).is_err());
+        }
+        let held = cull.storage.as_ref().map(|storage| storage.capacity);
+        assert_eq!(held, Some(capacity));
+        assert_eq!(cull.slot_count(), capacity + 11);
+        assert!(upload_records(&mut cull, &device, &queue).is_ok());
+        assert_eq!(cull.slot_count(), capacity + 11);
     }
 }

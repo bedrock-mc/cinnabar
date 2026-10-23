@@ -217,6 +217,38 @@ pub(in crate::chunk) struct DirectOcclusion {
 }
 
 impl DirectOcclusion {
+    /// Forgets derived records and verdicts while retaining allocated GPU storage.
+    pub(super) fn invalidate_publication(&mut self) {
+        self.table = default();
+        self.generations.clear();
+        self.tint = None;
+        self.history.invalidate_world();
+        self.bind_group = None;
+        self.last_view = None;
+        self.skip_view = None;
+        self.skipped.clear();
+        self.suppress_publication();
+    }
+
+    /// Stops the incomplete frame and returns its unsubmitted readback reservation.
+    pub(super) fn suppress_publication(&mut self) {
+        if let Some(plan) = self.plan.take()
+            && let Some(slot) = plan.verdict
+        {
+            self.verdicts.release(slot);
+        }
+    }
+
+    /// Whether this device can test all current terrain slots without exceeding one binding.
+    pub(super) fn supports_slots(device: &RenderDevice, slots: u32) -> bool {
+        super::prepare::binding_capacity(
+            &device.limits(),
+            slots.max(MIN_CAPACITY),
+            occlusion_storage_largest_buffer,
+        )
+        .is_some()
+    }
+
     /// Whether this run uses a current-frame depth prepass and GPU-written unit masks.
     pub(in crate::chunk) fn same_frame(&self) -> bool {
         self.same_frame
@@ -352,39 +384,48 @@ impl DirectOcclusion {
         self.table.trim();
     }
 
-    fn upload(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    fn upload(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
         let slots = self.table.slot_count();
         if self
             .storage
             .as_ref()
             .is_none_or(|storage| storage.capacity < slots)
         {
-            let capacity = slots.max(MIN_CAPACITY).next_power_of_two();
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!(
-                "terrain.occlusion_allocate",
-                capacity,
-                readback_bytes = occlusion_bytes(capacity) * SLOTS as u64
+            let grown = super::prepare::binding_capacity(
+                &device.limits(),
+                slots.max(MIN_CAPACITY),
+                occlusion_storage_largest_buffer,
             )
-            .entered();
-            let device = device.wgpu_device();
-            self.storage = Some(OcclusionStorage::new(device, capacity));
-            self.readbacks = (0..SLOTS)
-                .map(|_| {
-                    device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("terrain occlusion readback"),
-                        size: occlusion_bytes(capacity),
-                        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    })
-                })
-                .collect();
+            .and_then(|capacity| {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "terrain.occlusion_allocate",
+                    capacity,
+                    readback_bytes = occlusion_bytes(capacity) * SLOTS as u64
+                )
+                .entered();
+                crate::gpu_allocation::terrain_checked(
+                    device,
+                    "terrain occlusion storage",
+                    occlusion_storage_largest_buffer(capacity),
+                    || occlusion_buffers(device.wgpu_device(), capacity),
+                )
+            });
+            let Some((storage, readbacks)) = grown else {
+                return Err(crate::gpu_allocation::TerrainWriteError);
+            };
             self.verdicts.reset();
             self.bind_group = None;
+            self.storage = Some(storage);
+            self.readbacks = readbacks;
             self.table.mark_all_dirty();
         }
         let storage = self.storage.as_ref().expect("storage was just ensured");
-        write_dirty_records(&mut self.table, queue, &storage.records);
+        write_dirty_records(&mut self.table, device, queue, &storage.records)
     }
 
     /// Consumes settled readbacks for legacy history and optional current-frame work diagnostics.
@@ -452,6 +493,30 @@ type ChangedAllocations<'w, 's> = Query<
     Changed<GpuChunkAllocation>,
 >;
 
+/// The largest occlusion storage buffer at `capacity`; it must fit one storage binding.
+fn occlusion_storage_largest_buffer(capacity: u32) -> u64 {
+    (u64::from(capacity) * std::mem::size_of::<super::model::CullRecord>() as u64)
+        .max(occlusion_bytes(capacity))
+}
+
+/// Occlusion storage and its readback ring for `capacity` slots.
+fn occlusion_buffers(
+    device: &wgpu::Device,
+    capacity: u32,
+) -> (OcclusionStorage, Vec<wgpu::Buffer>) {
+    let readbacks = (0..SLOTS)
+        .map(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("terrain occlusion readback"),
+                size: occlusion_bytes(capacity),
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        })
+        .collect();
+    (OcclusionStorage::new(device, capacity), readbacks)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_direct_occlusion(
     mut occlusion: ResMut<DirectOcclusion>,
@@ -474,7 +539,7 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
         .map(|profiler| profiler.time(RuntimeStage::IndirectPreparation));
     let occlusion = &mut *occlusion;
     occlusion.frame += 1;
-    occlusion.plan = None;
+    occlusion.suppress_publication();
     occlusion.skip_view = None;
     occlusion.last_view = None;
     occlusion.skipped.clear();
@@ -487,7 +552,9 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
         biome_tints.table_identity(),
         &mut hidden,
     );
-    occlusion.upload(&device, &queue);
+    if occlusion.upload(&device, &queue).is_err() {
+        return;
+    }
     // Readbacks mapped by the previous frame's device poll.
     occlusion.apply_verdicts();
 
@@ -554,7 +621,13 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
             let _span =
                 bevy::log::info_span!("terrain.occlusion_uniform_write", frame = occlusion.frame)
                     .entered();
-            queue.profiled_write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
+            crate::gpu_allocation::terrain_write(
+                &device,
+                "terrain occlusion uniform upload",
+                std::mem::size_of_val(&uniform) as u64,
+                || queue.profiled_write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform)),
+            )
+            .ok()?;
         }
         if occlusion
             .bind_group
@@ -916,3 +989,7 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
 #[cfg(test)]
 #[path = "direct_visibility_tests.rs"]
 mod visibility_tests;
+
+#[cfg(test)]
+#[path = "direct_publication_tests.rs"]
+mod publication_tests;

@@ -632,12 +632,16 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
             runtime.committed = None;
         }
         for batch in batches {
-            write_geometry_stream_words(
+            if write_geometry_stream_words(
                 &arena,
                 upload_queue.uploads(),
                 u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
                 bytemuck::cast_slice(&batch.words),
-            );
+            )
+            .is_err()
+            {
+                return;
+            }
             runtime.draw_orders.publish(&staged.key.address, batch);
         }
         if !staged.batches.is_empty() {

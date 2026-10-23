@@ -200,7 +200,25 @@ impl ArenaWrites {
     }
 
     /// Issues writes before migration slices copy their ranges, then retains all scratch capacity.
-    pub(in crate::chunk) fn issue(&mut self, arena: &ChunkGpuArena, uploads: TerrainUploads<'_>) {
+    pub(in crate::chunk) fn issue(
+        &mut self,
+        arena: &ChunkGpuArena,
+        uploads: TerrainUploads<'_>,
+    ) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
+        let result = self.issue_streams(arena, uploads);
+        self.writes.clear();
+        self.encoded.clear();
+        self.order.clear();
+        self.chunks = 0;
+        result
+    }
+
+    /// Stops at the first failed stream; the caller always clears the collected payloads.
+    fn issue_streams(
+        &mut self,
+        arena: &ChunkGpuArena,
+        uploads: TerrainUploads<'_>,
+    ) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("terrain.arena_upload", chunks = self.chunks).entered();
         for (stream, buffer) in [
@@ -256,17 +274,14 @@ impl ArenaWrites {
                 for write in &mut writes {
                     write.0 = &migration.buffer;
                 }
-                write_merged(uploads, &writes, overlapping);
+                write_merged(uploads, &writes, overlapping)?;
                 for write in &mut writes {
                     write.0 = buffer;
                 }
             }
-            write_merged(uploads, &writes, overlapping);
+            write_merged(uploads, &writes, overlapping)?;
         }
-        self.writes.clear();
-        self.encoded.clear();
-        self.order.clear();
-        self.chunks = 0;
+        Ok(())
     }
 }
 
@@ -291,10 +306,14 @@ fn lighting_bytes(records: &[PackedQuadLighting]) -> &[u8] {
 }
 
 /// Uses the retained pool first and merges only the unstaged suffix on the queue path.
-fn write_merged(uploads: TerrainUploads<'_>, writes: &[BufferWrite<'_>], overlapping: bool) {
+fn write_merged(
+    uploads: TerrainUploads<'_>,
+    writes: &[BufferWrite<'_>],
+    overlapping: bool,
+) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
     uploads.write(writes, |rest, site| {
         queue_merged(uploads.queue, rest, overlapping, site)
-    });
+    })
 }
 
 /// Writes abutting runs together, preserving original write order whenever ranges overlap.
@@ -475,9 +494,11 @@ mod tests {
     ) {
         let expected_site = std::panic::Location::caller();
         let mut observed = None;
-        uploads.write(writes, |rest, site| {
-            observed = Some((site, rest.iter().map(|write| write.2.len()).sum::<usize>()));
-        });
+        uploads
+            .write(writes, |rest, site| {
+                observed = Some((site, rest.iter().map(|write| write.2.len()).sum::<usize>()));
+            })
+            .unwrap();
         assert_eq!(observed, Some((expected_site, expected_bytes)));
     }
 
@@ -524,7 +545,7 @@ mod tests {
             staging: Some(&staging),
         };
         for frame in 0..4 {
-            quad_writes(frame).issue(&arena, uploads);
+            quad_writes(frame).issue(&arena, uploads).unwrap();
             end_frame(&device, &queue, &staging);
         }
         let stats = staging.stats();
@@ -563,7 +584,7 @@ mod tests {
         let mut writes = ArenaWrites::default();
         writes.encode(Part::Quads, half, words[half as usize..].iter().copied());
         writes.encode(Part::Quads, 0, words[..half as usize].iter().copied());
-        writes.issue(&arena, uploads);
+        writes.issue(&arena, uploads).unwrap();
         let stats = staging.stats();
         assert_eq!(stats.staged_bytes, capacity);
         assert_eq!(stats.fallback_bytes, overflow);
@@ -589,7 +610,7 @@ mod tests {
             queue: &queue,
             staging: Some(&staging),
         };
-        quad_writes(7).issue(&arena, uploads);
+        quad_writes(7).issue(&arena, uploads).unwrap();
         let old = arena.quad_buffer.id();
         let copy_bytes = 512 * PACKED_QUAD_BYTES;
         assert!(begin_arena_migration(
@@ -600,6 +621,7 @@ mod tests {
                 new_capacity: 1024,
                 gpu_copy_bytes: copy_bytes,
             },
+            crate::gpu_allocation::Requirement::Required,
         ));
         assert_eq!(
             advance_arena_migration(&mut arena, uploads, u64::MAX),
@@ -632,9 +654,10 @@ mod tests {
                 new_capacity: 1024,
                 gpu_copy_bytes: 512 * PACKED_QUAD_BYTES,
             },
+            crate::gpu_allocation::Requirement::Required,
         ));
         assert_eq!(advance_arena_migration(&mut arena, uploads, 128), 128);
-        quad_writes(9).issue(&arena, uploads);
+        quad_writes(9).issue(&arena, uploads).unwrap();
         assert_eq!(
             advance_arena_migration(&mut arena, uploads, u64::MAX),
             512 * PACKED_QUAD_BYTES - 128
@@ -673,7 +696,7 @@ mod tests {
         end_frame(&device, &queue, &staging);
         for frame in 1..4 {
             let before = live_buffers(&device);
-            quad_writes(frame).issue(&arena, uploads);
+            quad_writes(frame).issue(&arena, uploads).unwrap();
             assert_eq!(
                 live_buffers(&device),
                 before,

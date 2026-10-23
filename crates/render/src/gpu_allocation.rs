@@ -6,6 +6,89 @@ use bevy::render::{
     render_resource::{Buffer, BufferDescriptor, BufferUsages},
     renderer::{RenderDevice, RenderQueue},
 };
+use std::sync::{
+    Arc, Mutex, OnceLock, Weak,
+    atomic::{AtomicBool, Ordering},
+};
+
+type DeviceKey = (wgpu::Device, usize);
+type FailureObservers = std::collections::HashMap<DeviceKey, Weak<AtomicBool>>;
+
+/// Distinguishes devices whose wgpu IDs may repeat across independent native instances.
+fn device_key(device: &RenderDevice) -> DeviceKey {
+    #[cfg(not(target_arch = "wasm32"))]
+    let address = {
+        let mut address = native_device_address::<wgpu::hal::api::Noop>(device.wgpu_device());
+        #[cfg(target_vendor = "apple")]
+        {
+            address = address
+                .or_else(|| native_device_address::<wgpu::hal::api::Metal>(device.wgpu_device()));
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            address = address
+                .or_else(|| native_device_address::<wgpu::hal::api::Vulkan>(device.wgpu_device()));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            address = address
+                .or_else(|| native_device_address::<wgpu::hal::api::Dx12>(device.wgpu_device()));
+        }
+        address.unwrap_or(0)
+    };
+    #[cfg(target_arch = "wasm32")]
+    let address = 0;
+    (device.wgpu_device().clone(), address)
+}
+
+/// Borrows a native device only to identify its stable address; it is never modified.
+#[cfg(not(target_arch = "wasm32"))]
+fn native_device_address<A: wgpu::hal::Api>(device: &wgpu::Device) -> Option<usize> {
+    // SAFETY: The guard keeps the device alive; reading its address does not use or destroy it.
+    unsafe { device.as_hal::<A>() }.map(|guard| std::ptr::from_ref(&*guard).cast::<()>().addr())
+}
+
+/// Returns the device-scoped observers without keeping a renderer alive.
+fn observers() -> &'static Mutex<FailureObservers> {
+    static OBSERVERS: OnceLock<Mutex<FailureObservers>> = OnceLock::new();
+    OBSERVERS.get_or_init(Default::default)
+}
+
+/// Remembers allocation failures across worker threads until the next terrain publication.
+pub(crate) struct FailureFlag {
+    device: DeviceKey,
+    failed: Arc<AtomicBool>,
+}
+
+impl FailureFlag {
+    /// Watches allocations on this renderer's device independently of other renderers.
+    pub(crate) fn new(device: &RenderDevice) -> Self {
+        let failed = Arc::new(AtomicBool::new(false));
+        let device = device_key(device);
+        observers()
+            .lock()
+            .unwrap()
+            .insert(device.clone(), Arc::downgrade(&failed));
+        Self { device, failed }
+    }
+
+    /// Whether any checked allocation failed since the last recovery began.
+    pub(crate) fn failed(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
+    }
+
+    /// Starts a new publication while retaining failures raised during its work.
+    pub(crate) fn take(&self) -> bool {
+        self.failed.swap(false, Ordering::AcqRel)
+    }
+}
+
+impl Drop for FailureFlag {
+    /// Removes the observer when its renderer goes away.
+    fn drop(&mut self) {
+        observers().lock().unwrap().remove(&self.device);
+    }
+}
 
 /// Returns no resource when allocation or staging ran out of memory on this thread.
 /// WebGPU reports errors asynchronously through Bevy's device error handler instead.
@@ -13,6 +96,40 @@ pub(crate) fn checked<T>(
     device: &RenderDevice,
     label: &str,
     bytes: u64,
+    create: impl FnOnce() -> T,
+) -> Option<T> {
+    checked_with_owner(device, label, bytes, false, create)
+}
+
+/// Whether failed growth makes a draw invalid or only loses spare capacity.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Requirement {
+    Required,
+    Optional,
+}
+
+impl Requirement {
+    /// Invalidates terrain only when the allocation is required by a draw.
+    pub(crate) fn checked<T>(
+        self,
+        device: &RenderDevice,
+        label: &str,
+        bytes: u64,
+        create: impl FnOnce() -> T,
+    ) -> Option<T> {
+        match self {
+            Self::Required => terrain_checked(device, label, bytes, create),
+            Self::Optional => checked(device, label, bytes, create),
+        }
+    }
+}
+
+/// Captures allocation failures while identifying which publication owns the request.
+fn checked_with_owner<T>(
+    device: &RenderDevice,
+    label: &str,
+    bytes: u64,
+    _terrain: bool,
     create: impl FnOnce() -> T,
 ) -> Option<T> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -30,13 +147,84 @@ pub(crate) fn checked<T>(
     };
     #[cfg(test)]
     let failed = failed
-        || FAILURE.with_borrow_mut(|hook| hook.as_mut().is_some_and(|hook| hook(label, bytes)));
+        || FAILURE.with_borrow_mut(|hook| {
+            hook.as_mut()
+                .is_some_and(|hook| hook(label, bytes, _terrain))
+        });
     if failed {
         warn_once(label, bytes);
         None
     } else {
         Some(resource)
     }
+}
+
+/// A required terrain write could not complete; its entire generation must be discarded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerrainWriteError;
+
+thread_local! {
+    static ISOLATED_TERRAIN: std::cell::RefCell<Option<Arc<AtomicBool>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Builds an invisible generation whose failures cannot invalidate the live arena.
+pub(crate) fn isolated_terrain<T>(work: impl FnOnce() -> Option<T>) -> Option<T> {
+    struct Restore(Option<Arc<AtomicBool>>);
+    impl Drop for Restore {
+        /// Restores the caller's generation even when construction unwinds.
+        fn drop(&mut self) {
+            ISOLATED_TERRAIN.with_borrow_mut(|slot| *slot = self.0.take());
+        }
+    }
+    let failed = Arc::new(AtomicBool::new(false));
+    let _restore =
+        Restore(ISOLATED_TERRAIN.with_borrow_mut(|slot| slot.replace(Arc::clone(&failed))));
+    let result = work();
+    if failed.load(Ordering::Acquire) {
+        None
+    } else {
+        result
+    }
+}
+
+/// Checks a required allocation against the current terrain generation.
+#[must_use]
+pub(crate) fn terrain_checked<T>(
+    device: &RenderDevice,
+    label: &str,
+    bytes: u64,
+    create: impl FnOnce() -> T,
+) -> Option<T> {
+    let observer = ISOLATED_TERRAIN.with_borrow(Clone::clone).or_else(|| {
+        observers()
+            .lock()
+            .unwrap()
+            .get(&device_key(device))
+            .and_then(Weak::upgrade)
+    });
+    if observer
+        .as_ref()
+        .is_some_and(|flag| flag.load(Ordering::Acquire))
+    {
+        return None;
+    }
+    let resource = checked_with_owner(device, label, bytes, true, create);
+    if resource.is_none()
+        && let Some(observer) = observer
+    {
+        observer.store(true, Ordering::Release);
+    }
+    resource
+}
+
+/// Returns an explicit error when a required upload fails its generation.
+pub(crate) fn terrain_write<T>(
+    device: &RenderDevice,
+    label: &str,
+    bytes: u64,
+    write: impl FnOnce() -> T,
+) -> Result<T, TerrainWriteError> {
+    terrain_checked(device, label, bytes, write).ok_or(TerrainWriteError)
 }
 
 /// Logs the first failure of each allocation owner without repeating every frame.
@@ -62,6 +250,19 @@ pub(crate) fn buffer(device: &RenderDevice, descriptor: &BufferDescriptor<'_>) -
     checked(
         device,
         descriptor.label.unwrap_or("unlabeled buffer"),
+        descriptor.size,
+        || device.create_buffer(descriptor),
+    )
+}
+
+/// Checks terrain buffer creation before it can be copied, bound, or uploaded.
+pub(crate) fn terrain_buffer(
+    device: &RenderDevice,
+    descriptor: &BufferDescriptor<'_>,
+) -> Option<Buffer> {
+    terrain_checked(
+        device,
+        descriptor.label.unwrap_or("terrain buffer"),
         descriptor.size,
         || device.create_buffer(descriptor),
     )
@@ -94,6 +295,11 @@ pub(crate) fn buffer_with_data(
 /// [`MAX_RETRY_FRAMES`].
 const FIRST_RETRY_FRAMES: u32 = 2;
 const MAX_RETRY_FRAMES: u32 = 120;
+
+/// Bounds the wait after consecutive allocation failures, starting at the first failure.
+pub(crate) fn retry_frames(failures: u32) -> u32 {
+    (FIRST_RETRY_FRAMES << failures.saturating_sub(1).min(6)).min(MAX_RETRY_FRAMES)
+}
 
 /// One view's last failed request and how many attempts to skip before retrying it.
 struct Failure<K> {
@@ -139,7 +345,7 @@ impl<K: PartialEq> FailedRequests<K> {
         if allocated.is_some() {
             self.0.remove(&view);
         } else {
-            let wait = (FIRST_RETRY_FRAMES << (failures - 1).min(6)).min(MAX_RETRY_FRAMES);
+            let wait = retry_frames(failures);
             self.0.insert(
                 view,
                 Failure {
@@ -159,13 +365,19 @@ impl<K: PartialEq> FailedRequests<K> {
 }
 
 #[cfg(test)]
-type FailureHook = Box<dyn FnMut(&str, u64) -> bool>;
+type FailureHook = Box<dyn FnMut(&str, u64, bool) -> bool>;
 #[cfg(test)]
 thread_local! { static FAILURE: std::cell::RefCell<Option<FailureHook>> = const { std::cell::RefCell::new(None) }; }
 
 /// Installs a scoped, thread-local failure injector at the real error-scope boundary.
 #[cfg(test)]
-pub(crate) fn inject(hook: impl FnMut(&str, u64) -> bool + 'static) -> impl Drop {
+pub(crate) fn inject(mut hook: impl FnMut(&str, u64) -> bool + 'static) -> impl Drop {
+    inject_with_owner(move |label, bytes, _| hook(label, bytes))
+}
+
+/// Injects failures with a flag identifying requests that invalidate terrain publication.
+#[cfg(test)]
+pub(crate) fn inject_with_owner(hook: impl FnMut(&str, u64, bool) -> bool + 'static) -> impl Drop {
     struct Reset;
     impl Drop for Reset {
         /// Removes the injector even when a regression assertion panics.
@@ -178,6 +390,31 @@ pub(crate) fn inject(hook: impl FnMut(&str, u64) -> bool + 'static) -> impl Drop
         *slot = Some(Box::new(hook));
     });
     Reset
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+
+    /// A worker's terrain failure dirties only its renderer and survives until consumed.
+    #[test]
+    fn terrain_failures_cross_threads_without_affecting_another_device() {
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let device = RenderDevice::from(device);
+        let flag = FailureFlag::new(&device);
+        let (other, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let other = FailureFlag::new(&RenderDevice::from(other));
+        std::thread::spawn(move || {
+            let _failure = inject(|_, _| true);
+            assert!(terrain_checked(&device, "test terrain allocation", 4, || ()).is_none());
+        })
+        .join()
+        .unwrap();
+        assert!(flag.failed());
+        assert!(!other.failed());
+        assert!(flag.take());
+        assert!(!flag.take());
+    }
 }
 
 #[cfg(test)]

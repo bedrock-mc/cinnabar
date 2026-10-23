@@ -131,7 +131,7 @@ fn committed_transparent_state(
     state
 }
 
-fn retirement_test_allocation() -> ArenaAllocation {
+pub(super) fn retirement_test_allocation() -> ArenaAllocation {
     ArenaAllocation {
         generation: 7,
         tint_identity: ChunkBiomeTintIdentity::new(2, 2),

@@ -106,14 +106,16 @@ pub(in crate::chunk) fn prepare_units(
                         .map(|unit| u64::from(QUADS_PER_UNIT - unit.quad_count))
                         .sum();
                 }
-                let uploaded = super::buffers::upload(
+                let Ok(uploaded) = super::buffers::upload(
                     batch,
                     capacity,
                     &device,
                     &queue,
                     &cache,
                     staging.as_deref(),
-                );
+                ) else {
+                    return;
+                };
                 stats.descriptor_bytes_uploaded += uploaded.descriptors;
                 stats.reference_bytes_uploaded += uploaded.references;
                 stats.list_bytes_uploaded += uploaded.descriptors + uploaded.references;
@@ -137,7 +139,7 @@ pub(in crate::chunk) fn prepare_units(
             }
         }
         if let Some(order) = occlusion.as_ref().and_then(|s| s.occluder_order(entity)) {
-            let uploaded = prepare_occluders(
+            let Ok(uploaded) = prepare_occluders(
                 view,
                 order,
                 capacity,
@@ -145,7 +147,9 @@ pub(in crate::chunk) fn prepare_units(
                 &queue,
                 &cache,
                 staging.as_deref(),
-            );
+            ) else {
+                return;
+            };
             stats.descriptor_bytes_uploaded += uploaded.descriptors;
             stats.reference_bytes_uploaded += uploaded.references;
             stats.list_bytes_uploaded += uploaded.descriptors + uploaded.references;
@@ -180,7 +184,7 @@ fn prepare_occluders(
     queue: &RenderQueue,
     cache: &PipelineCache,
     staging: Option<&TerrainUploadStaging>,
-) -> super::buffers::Uploaded {
+) -> Result<super::buffers::Uploaded, crate::gpu_allocation::TerrainWriteError> {
     const MAX_OCCLUDER_UNITS: usize = 1024;
     let stream = &mut view.occluders;
     stream.indexed = false;

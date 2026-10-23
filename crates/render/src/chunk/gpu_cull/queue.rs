@@ -12,6 +12,8 @@ pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     direct_support: Option<Res<'w, DirectOcclusionSupport>>,
     direct: Option<ResMut<'w, DirectOcclusionFrame>>,
     direct_state: Option<Res<'w, DirectOcclusion>>,
+    device: Res<'w, RenderDevice>,
+    arena: Res<'w, ChunkGpuArena>,
     views: Query<'w, 's, (Option<&'static Frustum>, Option<&'static RenderLayers>)>,
 }
 
@@ -35,7 +37,8 @@ impl GpuCullQueue<'_, '_> {
         if let Some(frame) = self.frame.as_deref_mut() {
             frame.view = None;
         }
-        let supported = self.support.as_deref().is_some_and(|support| support.0);
+        let supported = self.support.as_deref().is_some_and(|support| support.0)
+            && GpuCull::supports_slots(&self.device, self.arena.origin_len as u32);
         if probing || !supported || !self.enabled() || draw_mode != ChunkDrawMode::MultiDrawIndirect
         {
             if let Some(feedback) = self.feedback.as_deref_mut() {
@@ -72,7 +75,8 @@ impl GpuCullQueue<'_, '_> {
         let supported = self
             .direct_support
             .as_deref()
-            .is_some_and(|support| support.0);
+            .is_some_and(|support| support.0)
+            && DirectOcclusion::supports_slots(&self.device, self.arena.origin_len as u32);
         if probing || !supported || !self.enabled() || draw_mode != ChunkDrawMode::Direct {
             return None;
         }

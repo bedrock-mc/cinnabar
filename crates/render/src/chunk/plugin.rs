@@ -209,6 +209,13 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 Render,
                 (
+                    super::recovery::begin_recovery
+                        .in_set(ChunkPublicationStage::CoverageBegin)
+                        .before(super::coverage::begin_terrain_coverage),
+                    super::recovery::finish_publication
+                        .after(crate::upload_staging::UploadGrowth)
+                        .after(RenderSystems::PrepareBindGroups)
+                        .before(RenderSystems::Render),
                     super::coverage::begin_terrain_coverage
                         .in_set(ChunkPublicationStage::CoverageBegin),
                     super::coverage::publish_terrain_coverage
@@ -247,6 +254,11 @@ impl Plugin for ChunkRenderPlugin {
         install_atmosphere(app);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             transparent::gamma_pass::install_graph(render_app.world_mut());
+        }
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            let device = render_app.world().resource::<RenderDevice>();
+            let recovery = super::recovery::TerrainGpuRecovery::new(device);
+            render_app.insert_resource(recovery);
         }
         gpu_cull::install(app);
     }

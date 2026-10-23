@@ -212,6 +212,11 @@ and resource qualification; they do not imply these systems need to be written.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
+  Failed required terrain writes discard the complete GPU generation. Live generations
+  rebuild retained CPU meshes after bounded backoff, including with a zero upload budget;
+  failed background candidates leave the active arena intact. Rebuilds use minimal growth
+  and withdraw incomplete draws and shader-pack expansion. Optional growth preserves valid
+  publications. Native low-memory recovery acceptance remains open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.

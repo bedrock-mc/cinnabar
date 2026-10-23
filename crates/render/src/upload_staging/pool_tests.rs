@@ -337,3 +337,34 @@ fn maximum_frame_uses_ready_slots_and_keeps_failed_and_pending_storage_quarantin
     assert!(pool.copies.iter().all(|copy| copy.slot >= unavailable));
     assert!(pool.stats.staged_bytes <= FRAME_SLOT_BYTES * FRAME_SLOTS_PER_FRAME);
 }
+
+/// Slot growth that runs out of memory keeps the existing slots and retries after later misses.
+#[test]
+fn growth_without_memory_keeps_slots_and_retries() {
+    let (device, _, _, _) = setup(64);
+    let terrain = crate::gpu_allocation::FailureFlag::new(&device);
+    let mut pool = Pool::new(
+        &device,
+        Shape {
+            slots: 2,
+            max_slots: 5,
+            growth_slots: 2,
+            slot_bytes: 64,
+            ..FRAME
+        },
+    );
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        pool.record_miss(1, 4 * 64);
+        pool.grow();
+    }
+    assert_eq!(pool.slots.len(), 2);
+    assert_eq!(pool.stats.grown_slots, 0);
+    assert!(
+        !terrain.failed(),
+        "optional growth must keep terrain drawable"
+    );
+    pool.record_miss(1, 4 * 64);
+    pool.grow();
+    assert_eq!(pool.slots.len(), 4);
+}

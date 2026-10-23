@@ -979,6 +979,7 @@ pub(crate) fn record_geometry_expansion(
 mod camera_lists;
 #[cfg(test)]
 mod fixture;
+mod recovery;
 /// Requires the atlas and packed tables to represent the selected texture source.
 fn expansion_sources_match(
     selected: &ChunkTextureAssets,

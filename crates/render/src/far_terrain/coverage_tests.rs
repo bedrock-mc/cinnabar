@@ -624,7 +624,7 @@ fn partial_summary_builds_never_prove_unknown_columns_or_replace_their_fallback(
 
     let empty = mesh_tile(&TileGrid::build(key, &[(known, ColumnSummary::default())]));
     let empty_columns: HashSet<_> = empty.covered_columns().collect();
-    gpu.clear_tiles();
+    gpu.invalidate_publication();
     gpu.set_empty_coverage(Some(&empty_columns));
     assert!(gpu.covers_column(known));
     assert!(!gpu.covers_column(unknown));
@@ -649,7 +649,7 @@ fn partial_summary_builds_never_prove_unknown_columns_or_replace_their_fallback(
         "unknown terrain keeps the partially uploaded near drawer"
     );
 
-    gpu.clear_tiles();
+    gpu.invalidate_publication();
     let coarse = TileKey {
         level: 1,
         x: 0,

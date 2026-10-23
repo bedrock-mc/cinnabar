@@ -967,17 +967,17 @@ fn identical_indirect_commands_are_not_rewritten() {
     let mut arena = app.world_mut().resource_mut::<ChunkGpuArena>();
     let bytes = 4 * INDEXED_INDIRECT_BYTES;
     assert_eq!(
-        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands),
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands).unwrap(),
         bytes
     );
     assert_eq!(
-        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands),
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands).unwrap(),
         0
     );
     let mut changed = commands;
     changed[1].instance_count = 4;
     assert_eq!(
-        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &changed),
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &changed).unwrap(),
         bytes
     );
 }

@@ -125,7 +125,14 @@ pub(in crate::chunk) fn ensure_transparent_ref_capacity(
         .next_power_of_two()
         .clamp(INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_DRAW_REFS);
     let copies = transparent_ref_growth_copies(state, arena.transparent_slot_refs, slot_refs);
-    let grown = transparent_ref_buffer(device, slot_refs);
+    let Some(grown) = crate::gpu_allocation::terrain_checked(
+        device,
+        "double-buffered transparent draw refs",
+        transparent_ref_offset(2, slot_refs, 0),
+        || transparent_ref_buffer(device, slot_refs),
+    ) else {
+        return false;
+    };
     if !copies.is_empty() {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("transparent ref growth"),

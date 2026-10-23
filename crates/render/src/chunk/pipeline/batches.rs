@@ -455,13 +455,17 @@ pub(in crate::chunk) fn prepare_chunk_indirect_batches(
     {
         append_indirect_batch(batch, &mut all_commands);
     }
-    if !all_commands.is_empty() {
-        upload_indirect_commands_if_changed(
+    if !all_commands.is_empty()
+        && upload_indirect_commands_if_changed(
             &mut arena,
             &render_device,
             &render_queue,
             &all_commands,
-        );
+        )
+        .is_err()
+    {
+        retained.commands = all_commands;
+        return;
     }
     retained.uploaded_buffer = Some(arena.indirect_buffer.id());
     retained.layout_changed = false;

@@ -110,7 +110,7 @@ fn warm_mixed_terrain_collection_reuses_storage_and_borrows_unchanged_streams() 
     };
     let mut writes = ArenaWrites::default();
     writes.collect_chunk(&instance, &plan, 7, instance.biome.words(), origin);
-    writes.issue(&arena, uploads);
+    writes.issue(&arena, uploads).unwrap();
     let (_, allocations) = test_alloc::measure(|| {
         writes.collect_chunk(&instance, &plan, 7, instance.biome.words(), origin);
     });
@@ -284,12 +284,13 @@ fn mixed_streams_match_word_encoder_with_and_without_migration_and_staging() {
                         new_capacity: (bytes / stride) as usize * 2,
                         gpu_copy_bytes: bytes,
                     },
+                    crate::gpu_allocation::Requirement::Required,
                 ));
                 advance_arena_migration(&mut arena, uploads, 128);
             }
             let mut writes = ArenaWrites::default();
             writes.collect_chunk(&instance, &plan, 7, instance.biome.words(), origin);
-            writes.issue(&arena, uploads);
+            writes.issue(&arena, uploads).unwrap();
             assert!(writes.is_empty());
             end_frame(&device, &queue, &staging);
             if let Some(migration) = &arena.migration {
@@ -350,13 +351,14 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
                 new_capacity,
                 gpu_copy_bytes: 0,
             },
+            crate::gpu_allocation::Requirement::Required,
         ));
         let mut writes = ArenaWrites::default();
         // Deliberately append in chunk order; stream order still places models before lights.
         writes.encode(Part::CubeLighting, 0, std::iter::once([3_u32; 4]));
         writes.encode(Part::Model, 2, std::iter::once([1_u32; 4]));
         writes.encode(Part::Model, 1, std::iter::once([2_u32; 4]));
-        writes.issue(&arena, uploads);
+        writes.issue(&arena, uploads).unwrap();
         end_frame(&device, &queue, &staging);
         let expected = [3_u32, 3, 3, 3, 2, 1];
         for buffer in [

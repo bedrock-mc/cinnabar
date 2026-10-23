@@ -71,14 +71,15 @@ pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
 
 /// Writes the committed slot's `spans` from its CPU refs and returns the bytes written.
 fn write_committed_spans(
+    render_device: &RenderDevice,
     render_queue: &RenderQueue,
     arena: &ChunkGpuArena,
     state: &TransparentSortState,
     spans: Vec<Range<usize>>,
     upload_budget: &mut TransparentUploadBudget,
-) -> u64 {
+) -> Result<u64, crate::gpu_allocation::TerrainWriteError> {
     let Some(snapshot) = state.committed() else {
-        return 0;
+        return Ok(0);
     };
     let mut bytes = 0;
     for span in spans {
@@ -87,23 +88,26 @@ fn write_committed_spans(
             upload_budget.consume(upload_budget.remaining());
         }
         bytes += write_transparent_refs(
+            render_device,
             render_queue,
             arena,
             snapshot.buffer_slot(),
             span.start,
             &snapshot.refs()[span],
-        );
+        )?;
     }
-    bytes
+    Ok(bytes)
 }
 
+/// Uploads a checked water-reference span and returns its byte count.
 fn write_transparent_refs(
+    render_device: &RenderDevice,
     render_queue: &RenderQueue,
     arena: &ChunkGpuArena,
     buffer_slot: u8,
     first_ref: usize,
     refs: &[PackedTransparentDrawRef],
-) -> u64 {
+) -> Result<u64, crate::gpu_allocation::TerrainWriteError> {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
         "terrain.transparent_refs_write",
@@ -113,12 +117,19 @@ fn write_transparent_refs(
         bytes = std::mem::size_of_val(refs),
     )
     .entered();
-    render_queue.profiled_write_buffer(
-        &arena.transparent_ref_buffer,
-        transparent_ref_offset(buffer_slot, arena.transparent_slot_refs, first_ref),
-        bytemuck::cast_slice(refs),
-    );
-    std::mem::size_of_val(refs) as u64
+    crate::gpu_allocation::terrain_write(
+        render_device,
+        "terrain transparent refs upload",
+        std::mem::size_of_val(refs) as u64,
+        || {
+            render_queue.profiled_write_buffer(
+                &arena.transparent_ref_buffer,
+                transparent_ref_offset(buffer_slot, arena.transparent_slot_refs, first_ref),
+                bytemuck::cast_slice(refs),
+            )
+        },
+    )?;
+    Ok(std::mem::size_of_val(refs) as u64)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -185,6 +196,9 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
                     &runtime.state,
                 ) {
                     runtime.last_indirect_identity = None;
+                }
+                if output.refs.len() > arena.transparent_slot_refs {
+                    return;
                 }
                 let sort_result =
                     TransparentSortResult::planned(result.generation, result.key, output)
@@ -265,13 +279,16 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     }
     // Ranges a draw would otherwise misread land before anything else this frame.
     let urgent = runtime.state.take_urgent_patch();
-    let patched_bytes = write_committed_spans(
+    let Ok(patched_bytes) = write_committed_spans(
+        &render_device,
         &render_queue,
         &arena,
         &runtime.state,
         urgent,
         &mut upload_budget,
-    );
+    ) else {
+        return;
+    };
     if patched_bytes != 0 {
         metrics.update(|snapshot| {
             snapshot.upload_bytes = snapshot.upload_bytes.saturating_add(patched_bytes);
@@ -480,16 +497,23 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     ) {
         runtime.last_indirect_identity = None;
     }
+    if staged_refs > arena.transparent_slot_refs {
+        return;
+    }
     let mut staged_bytes = 0;
     if let Some(batch) = runtime.state.next_upload_batch() {
         if upload_budget.consume(batch.refs().len()) {
-            staged_bytes = write_transparent_refs(
+            let Ok(bytes) = write_transparent_refs(
+                &render_device,
                 &render_queue,
                 &arena,
                 batch.buffer_slot(),
                 batch.ref_range().start,
                 batch.refs(),
-            );
+            ) else {
+                return;
+            };
+            staged_bytes = bytes;
         } else {
             bevy::log::error!(
                 "transparent water sort batch exceeds the shared per-frame reference upload budget"
@@ -498,14 +522,17 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     }
     // Lagging orders of committed groups take whatever budget the staged slot left.
     let lagging = runtime.state.take_patch_within(upload_budget.remaining());
-    let uploaded_bytes = staged_bytes
-        + write_committed_spans(
-            &render_queue,
-            &arena,
-            &runtime.state,
-            lagging,
-            &mut upload_budget,
-        );
+    let Ok(lagging_bytes) = write_committed_spans(
+        &render_device,
+        &render_queue,
+        &arena,
+        &runtime.state,
+        lagging,
+        &mut upload_budget,
+    ) else {
+        return;
+    };
+    let uploaded_bytes = staged_bytes + lagging_bytes;
     if uploaded_bytes != 0 {
         metrics.update(|snapshot| {
             snapshot.upload_bytes = snapshot.upload_bytes.saturating_add(uploaded_bytes);
@@ -557,11 +584,22 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             refs = identity.1
         )
         .entered();
-        render_queue.profiled_write_buffer(
-            &arena.transparent_indirect_buffer,
-            0,
-            bytemuck::bytes_of(&command),
-        );
+        if crate::gpu_allocation::terrain_write(
+            &render_device,
+            "terrain transparent indirect upload",
+            std::mem::size_of_val(&command) as u64,
+            || {
+                render_queue.profiled_write_buffer(
+                    &arena.transparent_indirect_buffer,
+                    0,
+                    bytemuck::bytes_of(&command),
+                )
+            },
+        )
+        .is_err()
+        {
+            return;
+        }
         runtime.last_indirect_identity = Some(identity);
     }
 }

@@ -181,6 +181,7 @@ fn ongoing_migration_does_not_block_uploads_in_existing_capacity() {
             new_capacity: capacity * 2,
             gpu_copy_bytes: capacity as u64 * PACKED_QUAD_BYTES,
         },
+        crate::gpu_allocation::Requirement::Required,
     ));
     advance_arena_migration(
         &mut arena,
@@ -389,4 +390,148 @@ fn migration_started_after_pending_uploads_respects_the_actual_frame_byte_ceilin
     assert_eq!(transferred_bytes, stats.total_bytes);
     assert!(transferred_bytes <= config.maximum_frame_bytes);
     assert!(config.maximum_frame_bytes - transferred_bytes < record_bytes);
+}
+
+/// Supplies a validating device and queue without a hardware dependency.
+fn noop_device() -> (RenderDevice, RenderQueue) {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    (RenderDevice::from(device), RenderQueue::new(queue))
+}
+
+/// Origin growth needs a matching vertex-offset buffer; without memory for it the arena
+/// keeps its old buffers instead of drawing slots the offsets do not cover.
+#[test]
+fn origin_growth_without_memory_for_offsets_keeps_the_arena() {
+    let (device, _) = noop_device();
+    let mut arena = ChunkGpuArena::new(&device);
+    let (origins, offsets) = (arena.origin_buffer.id(), arena.vertex_offset_buffer.id());
+    let growth = ArenaGrowthPlan {
+        new_capacity: 64,
+        gpu_copy_bytes: 0,
+    };
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "terrain identity vertex offsets");
+        assert!(!begin_arena_migration(
+            &mut arena,
+            &device,
+            ArenaStream::Origins,
+            growth,
+            crate::gpu_allocation::Requirement::Required,
+        ));
+    }
+    assert!(arena.migration.is_none());
+    assert_eq!(arena.origin_buffer.id(), origins);
+    assert_eq!(arena.vertex_offset_buffer.id(), offsets);
+    assert!(begin_arena_migration(
+        &mut arena,
+        &device,
+        ArenaStream::Origins,
+        growth,
+        crate::gpu_allocation::Requirement::Required,
+    ));
+    assert_ne!(arena.vertex_offset_buffer.id(), offsets);
+}
+
+/// A backlog-sized buffer the device cannot hold falls back to the minimum growth.
+#[test]
+fn oversized_backlog_growth_falls_back_to_the_minimum() {
+    let offset_bytes = u64::from(crate::chunk::gpu_cull::model::OFFSET_CORNERS)
+        * 2
+        * std::mem::size_of::<u32>() as u64;
+    for (stream, site, item_bytes) in [
+        (ArenaStream::Quads, "packed chunk quads", PACKED_QUAD_BYTES),
+        (
+            ArenaStream::Origins,
+            "terrain identity vertex offsets",
+            offset_bytes,
+        ),
+    ] {
+        let (device, queue) = noop_device();
+        let failures = crate::gpu_allocation::FailureFlag::new(&device);
+        let mut arena = ChunkGpuArena::new(&device);
+        let minimum = ArenaGrowthPlan {
+            new_capacity: 1024,
+            gpu_copy_bytes: PACKED_QUAD_BYTES,
+        };
+        let backlog = ArenaGrowthPlan {
+            new_capacity: 1 << 20,
+            ..minimum
+        };
+        let limit = minimum.new_capacity as u64 * item_bytes * 4;
+        let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+        let observed = attempts.clone();
+        let _failure = crate::gpu_allocation::inject(move |label, bytes| {
+            let oversized = label == site && bytes > limit;
+            if oversized {
+                observed.set(observed.get() + 1);
+            }
+            oversized
+        });
+        assert!(begin_arena_migration_or_minimum(
+            &mut arena, &device, stream, backlog, minimum,
+        ));
+        let migration = arena.migration.as_ref().expect("minimum growth started");
+        assert_eq!(migration.new_capacity, minimum.new_capacity);
+        assert!(
+            !failures.failed(),
+            "optional backlog growth invalidated terrain"
+        );
+        let uploads = TerrainUploads {
+            device: &device,
+            queue: &queue,
+            staging: None,
+        };
+        advance_arena_migration(&mut arena, uploads, u64::MAX);
+        // An unchanged memory budget still permits the required fallback, without another large try.
+        let minimum = ArenaGrowthPlan {
+            new_capacity: minimum.new_capacity * 2,
+            ..minimum
+        };
+        assert!(begin_arena_migration_or_minimum(
+            &mut arena, &device, stream, backlog, minimum,
+        ));
+        assert_eq!(attempts.get(), 1);
+        advance_arena_migration(&mut arena, uploads, u64::MAX);
+        let origin = allocate_origin(&mut arena).unwrap();
+        release_origin(&mut arena, origin);
+        let minimum = ArenaGrowthPlan {
+            new_capacity: minimum.new_capacity * 2,
+            ..minimum
+        };
+        assert!(begin_arena_migration_or_minimum(
+            &mut arena, &device, stream, backlog, minimum,
+        ));
+        assert_eq!(attempts.get(), 2);
+        assert!(!failures.failed());
+    }
+}
+
+/// Indirect command growth without memory keeps the old buffer and writes nothing into it,
+/// so the previous publication keeps drawing exactly what it witnessed.
+#[test]
+fn indirect_growth_without_memory_keeps_the_buffer() {
+    let (device, queue) = noop_device();
+    let mut arena = ChunkGpuArena::new(&device);
+    let buffer = arena.indirect_buffer.id();
+    let commands = vec![DrawIndexedIndirectArgs::default(); 4];
+    {
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "packed chunk indirect commands");
+        assert!(!reserve_indirect_commands(
+            &mut arena,
+            &device,
+            commands.len()
+        ));
+        assert!(
+            upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands).is_err()
+        );
+    }
+    assert_eq!(arena.indirect_buffer.id(), buffer);
+    assert!(arena.uploaded_indirect_bytes.is_empty());
+    assert_eq!(
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands).unwrap(),
+        commands.len() as u64 * INDEXED_INDIRECT_BYTES
+    );
+    assert_ne!(arena.indirect_buffer.id(), buffer);
 }

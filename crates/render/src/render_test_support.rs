@@ -95,3 +95,80 @@ pub(crate) fn assert_empty_render(world: &mut World) {
             .is_empty()
     );
 }
+
+/// Reads a buffer range after submitted uploads finish, including on the validating NOOP device.
+pub(crate) fn read_buffer(
+    device: &RenderDevice,
+    queue: &bevy::render::renderer::RenderQueue,
+    buffer: &wgpu::Buffer,
+    offset: u64,
+    bytes: u64,
+) -> Vec<u8> {
+    if bytes == 0 {
+        return Vec::new();
+    }
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("terrain publication readback"),
+        size: bytes,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_buffer_to_buffer(buffer, offset, &readback, 0, bytes);
+    encoder.map_buffer_on_submit(&readback, wgpu::MapMode::Read, .., |result| {
+        result.expect("terrain publication readback maps");
+    });
+    queue.submit([encoder.finish()]);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    readback.slice(..).get_mapped_range().unwrap().to_vec()
+}
+
+/// Reads one RGBA8 texture layer, removing the GPU copy's required row padding.
+pub(crate) fn read_rgba8_layer(
+    device: &RenderDevice,
+    queue: &bevy::render::renderer::RenderQueue,
+    texture: &wgpu::Texture,
+    layer: u32,
+) -> Vec<u8> {
+    let width = texture.width() * 4;
+    let row =
+        width.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let bytes = u64::from(row) * u64::from(texture.height());
+    let scratch = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("terrain colour layer readback"),
+        size: bytes,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: 0,
+                y: 0,
+                z: layer,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &scratch,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(texture.height()),
+            },
+        },
+        wgpu::Extent3d {
+            width: texture.width(),
+            height: texture.height(),
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit([encoder.finish()]);
+    read_buffer(device, queue, &scratch, 0, bytes)
+        .chunks(row as usize)
+        .flat_map(|row| row[..width as usize].iter().copied())
+        .collect()
+}

@@ -11,7 +11,7 @@ mod tests;
 use bevy::{
     prelude::*,
     render::{
-        RenderApp, RenderStartup,
+        Render, RenderApp, RenderStartup, RenderSystems,
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
@@ -70,7 +70,14 @@ fn request(app: &mut App, select: impl FnOnce(&mut Installed)) {
     crate::device_poll::install(render_app);
     render_app
         .insert_resource(installed)
-        .add_systems(RenderStartup, initialize);
+        .add_systems(RenderStartup, initialize)
+        .add_systems(
+            Render,
+            grow_upload_pools
+                .in_set(UploadGrowth)
+                .after(RenderSystems::PrepareBindGroups)
+                .before(RenderSystems::Render),
+        );
 }
 
 /// The render-graph system that encodes staged copies; later graph work that reads those
@@ -158,6 +165,12 @@ impl BufferUploadStaging {
 }
 
 impl TerrainUploadStaging {
+    /// Requests one real slot-growth attempt without filling the pool in a recovery fixture.
+    #[cfg(test)]
+    pub(crate) fn request_test_growth(&self) {
+        self.lock().record_miss(1, TERRAIN.slot_bytes);
+    }
+
     pub(crate) fn new(device: &RenderDevice) -> Self {
         Self(Staging::new(device, TERRAIN))
     }
@@ -313,6 +326,25 @@ fn upload_buffers(
         if pool.has_copies() {
             pool.encode(context.command_encoder());
         }
-        pool.grow();
+    }
+}
+
+/// Orders recoverable pool growth before terrain decides whether its frame can draw.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UploadGrowth;
+
+/// Grows retained pools after preparation records misses and before any draw is submitted.
+fn grow_upload_pools(
+    frame: Option<Res<BufferUploadStaging>>,
+    terrain: Option<Res<TerrainUploadStaging>>,
+) {
+    for staging in [
+        frame.as_deref().map(|s| &s.0),
+        terrain.as_deref().map(|s| &s.0),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        staging.lock().grow();
     }
 }

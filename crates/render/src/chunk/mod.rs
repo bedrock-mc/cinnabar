@@ -112,6 +112,7 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+mod recovery;
 #[cfg(feature = "shaderpacks")]
 pub(crate) mod shaderpack_sources;
 pub(crate) use coverage::TerrainCoverage;
@@ -127,6 +128,7 @@ use constants::{
     PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES, TRANSPARENT_REFS_BINDING,
     TRANSPARENT_SHADER_HANDLE,
 };
+use gpu::arena::buffers::{create_indirect_buffer, create_storage_buffer};
 #[allow(unused_imports)]
 use gpu::arena::{
     ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
@@ -134,10 +136,10 @@ use gpu::arena::{
     MAX_GPU_UPDATE_FAIRNESS_ENTRIES, allocate_aligned_quad_range,
     allocate_aligned_range_for_update, allocate_origin, allocate_quad_range,
     allocate_range_for_update, arena_limits_from_device_limits, checked_geometry_range,
-    chunk_tint_identity_is_active, commit_fresh_chunk_ranges, create_indirect_buffer,
-    create_storage_buffer, init_chunk_gpu_arena, insert_free_quad_range, plan_fresh_chunk_ranges,
-    plan_gpu_chunk_updates, plan_origin_allocation, release_completed_transparent_retirements,
-    release_origin, release_quad_range, take_free_quad_range,
+    chunk_tint_identity_is_active, commit_fresh_chunk_ranges, init_chunk_gpu_arena,
+    insert_free_quad_range, plan_fresh_chunk_ranges, plan_gpu_chunk_updates,
+    plan_origin_allocation, release_completed_transparent_retirements, release_origin,
+    release_quad_range, take_free_quad_range,
 };
 pub use gpu::bind_groups::ChunkTextureUploadStats;
 #[allow(unused_imports)]
@@ -156,8 +158,8 @@ use gpu::layout::{
     ArenaRequiredLengths, ArenaStream, GeometryStreamCounts, GeometryStreamLayout,
     GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, TerrainUploadQueue, TerrainUploads,
     account_chunk_gpu_uploads, advance_arena_migration, arena_capacities, begin_arena_migration,
-    buffer_byte_len, checked_align_up, first_arena_growth, plan_arena_growth, round_arena_capacity,
-    write_geometry_stream_words,
+    begin_arena_migration_or_minimum, buffer_byte_len, checked_align_up, first_arena_growth,
+    plan_arena_growth, round_arena_capacity, write_geometry_stream_words,
 };
 #[allow(unused_imports)]
 use gpu::types::{
@@ -196,7 +198,7 @@ use pipeline::commands::{
     drawable_allocation_identity, front_to_back_cube_entities, indirect_batch_draw_args,
     prepare_depth_liquid_indirect_batch_draws, prepare_indirect_batch_draws,
     prepare_model_indirect_batch_draws, record_visibility_direct_submission,
-    record_visibility_mdi_submissions, sorted_visible_entities,
+    record_visibility_mdi_submissions, reserve_indirect_commands, sorted_visible_entities,
     upload_indirect_commands_if_changed,
 };
 #[allow(unused_imports)]

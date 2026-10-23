@@ -4,7 +4,7 @@ use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets};
 
-pub(super) struct ResourceView {
+pub(in crate::chunk) struct ResourceView {
     pub(super) entity: Entity,
     pub(super) transform: GlobalTransform,
     /// Whether the view displaces water, so flat water must be sorted too.
@@ -14,6 +14,19 @@ pub(super) struct ResourceView {
 /// Sorts every resident that needs order, as the live sort does, so camera movement cannot
 /// expose an unstaged transparent chunk.
 pub(super) fn prepare(
+    app: &mut App,
+    view: Option<ResourceView>,
+) -> Option<(TransparentSortRuntime, TransparentModelSortRuntime)> {
+    let device = app.world().resource::<RenderDevice>().clone();
+    crate::gpu_allocation::terrain_write(&device, "terrain resource sorts upload", 0, || {
+        prepare_generation(app, view)
+    })
+    .ok()
+    .flatten()
+}
+
+/// Prepares all transparent streams within the candidate's checked write boundary.
+fn prepare_generation(
     app: &mut App,
     view: Option<ResourceView>,
 ) -> Option<(TransparentSortRuntime, TransparentModelSortRuntime)> {
@@ -59,6 +72,9 @@ pub(super) fn prepare(
         &liquids.state,
     );
     let arena = world.resource::<ChunkGpuArena>();
+    if liquid_refs > arena.transparent_slot_refs {
+        return None;
+    }
     let assets = world.resource::<ChunkTextureAssets>();
     let tints = world.resource::<ChunkBiomeTints>();
     let (mut model_candidates, mut model_manifest) = (Vec::new(), Vec::new());
@@ -186,7 +202,8 @@ pub(super) fn prepare(
             },
             u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
             bytemuck::cast_slice(&batch.words),
-        );
+        )
+        .ok()?;
         models.draw_orders.publish(&model_address, batch);
     }
     models.committed = Some(TransparentModelSortKey {
