@@ -172,19 +172,6 @@ fn moving_between(before: Vec3, after: Vec3) -> bool {
     dz * dz + (dy * dy + dx * dx) > MOVING_FLAG_DISTANCE_SQUARED
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn moving_threshold_keeps_the_small_vertical_and_horizontal_contributions() {
-        assert!(moving_between(
-            Vec3::ZERO,
-            Vec3::new(0.005, 0.025, 0.01870828866958618),
-        ));
-    }
-}
-
 impl LocalPhysicsController {
     /// Sets the level's sneaking profile until the next StartGame replaces it.
     pub fn set_base_game_version(&mut self, version: protocol::BaseGameVersion) {
@@ -197,5 +184,18 @@ impl LocalPhysicsController {
     #[must_use]
     pub const fn sneak_profile(&self) -> sim::SneakProfile {
         self.modes.sneak_profile()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moving_threshold_keeps_the_small_vertical_and_horizontal_contributions() {
+        assert!(moving_between(
+            Vec3::ZERO,
+            Vec3::new(0.005, 0.025, 0.01870828866958618),
+        ));
     }
 }
