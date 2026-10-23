@@ -158,7 +158,7 @@ fn four_buffer_devices_never_prepare_optional_layouts() {
         world.remove_resource::<super::super::kernels::Kernels>();
         world.remove_resource::<ShaderpackGeometry>();
         if !selected {
-            world.resource_mut::<LoadedShaderPack>().0 = None;
+            world.remove_resource::<LoadedShaderPack>();
         }
         let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
             required_limits: wgpu::Limits {

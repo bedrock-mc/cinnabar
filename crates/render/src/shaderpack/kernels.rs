@@ -125,7 +125,13 @@ mod tests {
 
     #[test]
     fn optional_kernel_cache_follows_the_renderer_without_replacing_the_native_cache() {
-        let (device, _) = wgpu::Device::noop(&Default::default());
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_storage_buffers_per_shader_stage: *REQUIRED_STORAGE_BUFFERS,
+                ..default()
+            },
+            ..default()
+        });
         let device = RenderDevice::from(device);
         let mut world = World::new();
         world.insert_resource(device.clone());
