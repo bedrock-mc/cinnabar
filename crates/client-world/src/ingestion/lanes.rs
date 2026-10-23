@@ -229,13 +229,20 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
                 ..Footprint::session(C::CONTROLS.with(C::ACTORS))
             }
         }
-        WorldEvent::PlayerMovementCorrection(correction)
-            if correction.subject.is_player() || correction.subject.is_vehicle() =>
-        {
+        WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_player() => {
             Footprint {
                 positional: true,
                 local_authority: true,
                 ..Footprint::session(C::CONTROLS)
+            }
+        }
+        // A vehicle correction reads the steered vehicle and its revision from the actors, so
+        // it keeps wire order with their links and moves.
+        WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_vehicle() => {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
             }
         }
         WorldEvent::PlayerMovementCorrection(_) => Footprint::session(C::NONE),
