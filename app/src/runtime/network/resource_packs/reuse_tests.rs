@@ -250,6 +250,7 @@ fn different_custom_blocks_recompile_only_blocks_and_icons() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "reuse:block".into(),
                 tags: Default::default(),
                 state_count: 1,

@@ -37,7 +37,7 @@ pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
-    item_has_enchantment_list,
+    item_has_enchantment_list, item_id_aux,
 };
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
@@ -82,6 +82,12 @@ pub enum ActorHandedness {
     Right,
 }
 
+/// SHA-256 of no bytes: the digest of a stack without NBT.
+const EMPTY_NBT_DIGEST: [u8; 32] = [
+    0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+    0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkItemStack {
     pub network_id: i32,
@@ -102,14 +108,17 @@ impl Default for NetworkItemStack {
 impl NetworkItemStack {
     #[must_use]
     pub fn empty() -> Self {
+        /// Shared so an empty stack never allocates.
+        static NO_EXTRA_DATA: std::sync::LazyLock<Arc<[u8]>> =
+            std::sync::LazyLock::new(|| Arc::from([]));
         Self {
             network_id: 0,
             metadata: 0,
             stack_network_id: -1,
             count: 0,
-            nbt_digest: Sha256::digest([]).into(),
+            nbt_digest: EMPTY_NBT_DIGEST,
             block_runtime_id: 0,
-            extra_data: Arc::from([]),
+            extra_data: Arc::clone(&NO_EXTRA_DATA),
         }
     }
 

@@ -29,6 +29,17 @@ pub(super) fn condition_text(path: &[Step]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" && "))
 }
 
+/// [`condition_text`] as a boolean test, so the texture and geometry leaves one path selects
+/// compile to the same interned condition.
+pub(super) fn selection_condition(path: &[Step]) -> Option<String> {
+    let text = condition_text(path)?;
+    Some(if matches!(path, [Step::Element(..)]) {
+        text
+    } else {
+        format!("({text}) != 0")
+    })
+}
+
 /// Expands expressions whose leaves are `<prefix><alias>` references resolved by `resolve`.
 pub(super) struct Selector<'a, T> {
     /// Lowercase leaf prefix such as `texture.`.

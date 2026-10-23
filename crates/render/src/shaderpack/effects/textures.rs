@@ -14,7 +14,7 @@
 //!
 //! `normals` binds a flat normal and `specular` zero, Iris's defaults without PBR maps.
 
-use super::super::plugin::LoadedShaderPack;
+use super::super::plugin::{LoadedShaderPack, ShaderPackViews};
 use super::super::resources::ATLAS_FORMAT;
 use super::super::targets::AtlasViews;
 use super::Effect;
@@ -59,6 +59,65 @@ pub(crate) struct ShaderpackEffectTextures {
 const WHITE: usize = 0;
 const FLAT_NORMAL: usize = 1;
 const NO_SPECULAR: usize = 2;
+
+/// Shared atlas owners that must release their views before a native atlas is replaced.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct SharedAtlasRelease<'w> {
+    textures: Option<ResMut<'w, ShaderpackEffectTextures>>,
+    views: Option<ResMut<'w, ShaderPackViews>>,
+}
+
+impl SharedAtlasRelease<'_> {
+    /// Drops shared views and cached draw bindings of `texture` before its replacement allocates.
+    pub(crate) fn release(&mut self, texture: Option<&Texture>) {
+        let (Some(texture), Some(textures)) = (texture, self.textures.as_deref_mut()) else {
+            return;
+        };
+        let particles = textures
+            .particles
+            .as_ref()
+            .is_some_and(|shared| shared.texture == texture.id());
+        let cracks = textures
+            .cracks
+            .as_ref()
+            .is_some_and(|shared| shared.texture == texture.id());
+        if !particles && !cracks {
+            return;
+        }
+        if particles {
+            textures.particles = None;
+            textures.particle_side = 0;
+        }
+        if cracks {
+            textures.cracks = None;
+        }
+        textures.generation += 1;
+        if let Some(views) = self.views.as_deref_mut() {
+            for state in views
+                .states
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .values_mut()
+            {
+                for (draw, binding) in state.pack.draws.iter().zip(&mut state.bindings.draws) {
+                    let affected = match draw.kind {
+                        DrawKind::Effect(Effect::DamagedBlock) => cracks,
+                        DrawKind::Effect(
+                            Effect::Particles
+                            | Effect::ParticlesTranslucent
+                            | Effect::ParticlesAdditive,
+                        ) => particles,
+                        _ => false,
+                    };
+                    if affected {
+                        binding.groups = Default::default();
+                    }
+                }
+                state.atlas_generation = None;
+            }
+        }
+    }
+}
 
 fn texture(device: &wgpu::Device, label: &str, size: [u32; 2]) -> (wgpu::Texture, TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -324,6 +383,10 @@ pub(crate) fn prepare_effect_textures(
         textures.generation += 1;
     }
 }
+
+#[cfg(test)]
+#[path = "textures/release_tests.rs"]
+mod release_tests;
 
 #[cfg(test)]
 mod gpu_tests {

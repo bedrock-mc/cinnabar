@@ -101,6 +101,22 @@ fn waveform_paths_follow_the_archive_case_insensitive_lookup() {
 }
 
 #[test]
+fn server_blocks_json_supplies_materials_to_sound_routing() {
+    let blocks = br#"{"stone":{"sound":"stone"}}"#;
+    let sounds = br#"{"block_sounds":{"stone":{"events":{"break":"dig.stone"}}}}"#;
+    let pack =
+        ServerSoundPack::from_view(&view(&[("blocks.json", blocks), ("sounds.json", sounds)]))
+            .expect("server block sound tables");
+    let tables = pack.tables.as_ref().expect("tables");
+    assert_eq!(tables.material_of("minecraft:stone"), Some("stone"));
+    assert_eq!(tables.material_of("example:missing"), Some("stone"));
+    assert_eq!(
+        tables.block("stone", "break").unwrap().sound.as_ref(),
+        "dig.stone"
+    );
+}
+
+#[test]
 fn replacing_a_pack_drops_old_failures_cached_pcm_and_pending_decodes() {
     let old = super::tests::wav(1, 8000, &[1234; 4000]);
     let new = super::tests::wav(1, 8000, &[-2345; 4000]);

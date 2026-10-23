@@ -462,6 +462,10 @@ impl SurvivalMiningRuntime {
         let Some(&(newest, _)) = ticks.last() else {
             return unsent;
         };
+        if ticker.settling_position_authority() {
+            // These ticks stay queued until earlier inputs are confirmed; step them then.
+            return unsent;
+        }
         self.last_stepped_tick = Some(newest);
         if !ticker.accepts_block_interactions() {
             // Withheld ticks never reach the server, so neither may their actions.
@@ -575,8 +579,8 @@ impl SurvivalMiningRuntime {
         self.last_stepped_tick = Some(completed_tick);
     }
 
-    /// Reanchors tick tracking when session or position authority changes.
-    /// Position changes interrupt active mining; session changes reset it entirely.
+    /// Reanchors tick tracking when the session or interaction identity changes.
+    /// A revoking reanchor interrupts active mining; a session change resets it entirely.
     pub fn synchronize(&mut self, identity: (SessionGeneration, PositionAuthorityGeneration)) {
         if let Some((session, _)) = self
             .position_authority

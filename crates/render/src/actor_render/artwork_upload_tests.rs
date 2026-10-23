@@ -146,6 +146,32 @@ fn superseded_pending_pixels_are_released_without_being_published() {
     );
 }
 
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn pending_pages_restart_with_the_new_raw_view_formats() {
+    use crate::actor::gpu::permits_raw_view;
+    let (device, queue) = device();
+    let pages = publication(1, 1);
+    let budget = pages.pages[0].rgba8.len() / 3;
+    for pack in [true, false] {
+        let mut gpu = GpuArtwork::default();
+        gpu.set_raw_views(ArtworkRawViews(!pack));
+        assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+        assert!(gpu.page(0).is_none());
+        gpu.set_raw_views(ArtworkRawViews(pack));
+        for frame in 1..=3 {
+            assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+            assert_eq!(gpu.page(0).is_some(), frame == 3);
+        }
+        let ready = gpu.page(0).unwrap();
+        assert_eq!(ready.raw_texture().is_some(), pack);
+        assert_eq!(
+            permits_raw_view(device.wgpu_device(), &ready._texture),
+            pack
+        );
+    }
+}
+
 #[test]
 fn failed_row_writes_spend_the_budget_and_keep_a_compatible_previous_page() {
     let (device, queue) = device();

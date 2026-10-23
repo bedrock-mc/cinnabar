@@ -34,6 +34,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .run_if(|| cfg!(target_os = "android")),
     )
     .add_systems(
+        bevy::prelude::PreUpdate,
+        crate::ui_runtime::platform_back::press_mouse_back_for_platform_back
+            .after(bevy::input::InputSystems)
+            .run_if(|| cfg!(target_os = "android")),
+    )
+    .add_systems(
         Update,
         route_semantic_input.in_set(ClientFrameSet::SemanticSample),
     )
