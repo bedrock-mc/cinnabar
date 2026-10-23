@@ -443,6 +443,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     );
     let mut presentation = mini_engine_presentation();
     let apple = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 1, 1],
         glint: false,

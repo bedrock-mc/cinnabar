@@ -388,6 +388,7 @@ fn imported_pack_thumbnail_uses_the_ready_artwork_without_stretching() {
     let artwork = HashMap::from([(
         "pack-art".into(),
         IconRef {
+            color_mask: None,
             page: 9,
             uv: [10, 20, 74, 52],
             glint: false,

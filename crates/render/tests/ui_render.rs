@@ -193,7 +193,7 @@ fn shader_validates_all_entry_points() {
     assert!(source.contains("viewport_size"));
     assert!(source.contains(&format!(
         "const STYLE_ALPHA_TEST: u32 = {}u;",
-        render_model::UI_STYLE_ALPHA_TEST
+        render_api::UI_STYLE_ALPHA_TEST
     )));
     assert!(source.contains("sample.a < 0.5"));
     assert_eq!(module.entry_points.len(), 3);

@@ -184,6 +184,7 @@ fn details_draw_complete_sections_and_end_at_content_with_independent_scroll() {
             (
                 key.into(),
                 IconRef {
+                    color_mask: None,
                     page: index as u16 + 1,
                     uv: [0, 0, 128, 128],
                     glint: false,
@@ -293,6 +294,7 @@ fn a_server_logo_is_never_stretched_into_missing_banner_art() {
     let images = HashMap::from([(
         server.image_path.clone(),
         IconRef {
+            color_mask: None,
             page: 42,
             uv: [0, 0, 128, 128],
             glint: false,
