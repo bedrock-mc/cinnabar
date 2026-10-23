@@ -177,7 +177,9 @@ impl UiRuntime {
     pub fn close_data_driven_screen(&mut self, reason: DataDrivenScreenCloseReason) {
         self.data_driven.focus = None;
         if let Some(active) = self.data_driven.active.take() {
-            self.data_driven.closing = true;
+            // Only the player's own close consumed this frame's input; a server close leaves it
+            // free, so a request following it at once is not refused.
+            self.data_driven.closing = reason == DataDrivenScreenCloseReason::ClientCanceled;
             self.queue_screen_closed(active.form_id, reason);
         }
     }
