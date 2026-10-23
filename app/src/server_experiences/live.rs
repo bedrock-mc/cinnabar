@@ -119,6 +119,8 @@ impl<H> Instance<H> {
 const STOPPED_AFTER_ERRORS: &str = "after repeated errors";
 /// What the trusted status says of a client part that failed to start.
 const STOPPED_AT_START: &str = "because it failed to start";
+/// What the trusted status says when reliable callback retention cannot continue.
+const STOPPED_AT_OVERFLOW: &str = "because its callback queue overflowed";
 
 pub(super) struct Live<H = Helper> {
     grant: Grant,
@@ -569,7 +571,7 @@ impl<H: Worker> Live<H> {
 }
 
 /// Drops the failed callback's transaction and logs why; a failed start, or the strike that
-/// reaches the limit, stops the client part.
+/// reaches the limit, or callback queue overflow stops the client part.
 fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFailure, now_ms: u64) {
     bevy::log::warn!(
         bundle = %failure.bundle,
@@ -581,6 +583,8 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
     );
     let why = if failure.kind == FailureKind::Startup {
         STOPPED_AT_START
+    } else if failure.kind == FailureKind::Overload {
+        STOPPED_AT_OVERFLOW
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {

@@ -202,8 +202,6 @@ pub struct Registry {
 pub enum RegistryState {
     #[default]
     Waiting,
-    /// A callback staged one additional request; wait for confirmation without flooding it.
-    RetrySent,
     Active,
     Refused,
 }

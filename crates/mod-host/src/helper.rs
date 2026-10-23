@@ -31,8 +31,9 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
 /// the helper exiting; 3 the session items a dispatch carries; 4 carries initialization messages
-/// from a restarted guest alongside the failed callback's diagnostic.
-const HELPER_PROTOCOL: u32 = 4;
+/// from a restarted guest alongside the failed callback's diagnostic; 5 reports terminal
+/// callback queue overflow separately from recoverable callback failures.
+const HELPER_PROTOCOL: u32 = 5;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -166,8 +167,8 @@ pub enum Reply {
     /// The callback returned; its output, to publish whole, and the fuel it consumed of its
     /// `CALLBACK_FUEL`.
     Committed { transaction: Transaction, fuel: u64 },
-    /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
-    /// a fresh instance of the guest; after a failed start it exits.
+    /// The callback failed and published nothing. Recoverable dispatch failures start a fresh
+    /// guest; queue overflow leaves the part quarantined and must stop it. A failed start exits.
     Failed(CallFailure),
     /// The callback failed, but a fresh guest initialized successfully. Publish only its
     /// initialization messages, unless this failure stops the part.
@@ -190,6 +191,8 @@ pub enum FailureKind {
     /// The host refused the callback or something it did, such as an undeclared action or too
     /// much output.
     Refused,
+    /// Registry negotiation exhausted its reliable callback queue; stop the part immediately.
+    Overload,
     /// The component could not be compiled, linked or initialized.
     Startup,
 }
@@ -213,11 +216,15 @@ impl CallFailure {
     /// guest backtrace of a trap.
     pub(crate) fn of(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
         use wasmtime::Trap;
-        let kind = match error.downcast_ref::<Trap>() {
-            Some(Trap::OutOfFuel) => FailureKind::Fuel,
-            Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
-            Some(_) => FailureKind::Trap,
-            None => FailureKind::Refused,
+        let kind = if error.is::<crate::server::negotiation::Overflow>() {
+            FailureKind::Overload
+        } else {
+            match error.downcast_ref::<Trap>() {
+                Some(Trap::OutOfFuel) => FailureKind::Fuel,
+                Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
+                Some(_) => FailureKind::Trap,
+                None => FailureKind::Refused,
+            }
         };
         Self::new(bundle, callback, kind, error)
     }

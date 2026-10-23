@@ -189,7 +189,11 @@ fn runtime_acceptance_child() {
     };
     let output = host.dispatch(&confirmation, 2).unwrap();
     assert!(
-        matches!(output.commands.as_slice(), [Command::Send { channel, schema: 1, record }] if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(42)])
+        matches!(output.commands.as_slice(),
+            [Command::Send { channel, schema: 1, record }, Command::Send { channel: epoch_channel, record: epoch_record, .. }]
+            if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(42)]
+            && epoch_channel == channel && epoch_record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)]),
+        "authored init runs before the latest held epoch: {output:?}"
     );
     assert!(
         host.dispatch(&confirmation, 2).unwrap().commands.is_empty(),

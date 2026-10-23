@@ -184,7 +184,7 @@ A failed client part callback does not. The developer helper (`mod-host server-h
 a versioned helper IPC protocol, which the client and its helper share) answers a callback that
 traps, runs out of fuel, panics or breaks a host rule with a failure reply naming the
 bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
-`panic`, `trap`, `refused` or `startup`) and a reason of at most
+`panic`, `trap`, `refused`, `startup` or `overload`) and a reason of at most
 `MAX_FAILURE_REASON_BYTES`: the error chain with the guest backtrace, control characters
 removed, and the fuel it consumed. A committed reply also carries its callback's fuel,
 which the client logs at debug level with the bundle and callback, and
@@ -382,17 +382,23 @@ The component world is `server-bundle` in
 [`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
 `cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
 guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
-`cinnabar:server-experience@1.3.0`, defined in
+`cinnabar:server-experience@1.4.0`, defined in
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
 collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)`,
 `secondary-action(id, collection-index)`, `scroll-changed(view, range)` and `shift-changed(held)`.
-A component built against an earlier 1.x still links (its imports resolve to the 1.3.0 host
+A component built against an earlier 1.x still links (its imports resolve to the 1.4.0 host
 by semver) and receives only the callbacks it exports: one built against 1.0.0 exports only
 `init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
 `epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
 `text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`, and later `shift-changed`
-with no import change. 1.1's two callbacks and
+with no import change. 1.4.0 adds `messaging.negotiate`, used by the SDK to hold
+host callbacks until registry confirmation successfully initializes the guest.
+Latest state is replayed first (epoch before UI/input state), then messages and
+actions in order, sharing one callback's fuel and output budgets. Retention is
+bounded by `MAX_QUEUE_MESSAGES` and `MAX_QUEUE_BYTES`; overflow stops the part
+immediately with a trusted status message. Existing components keep their current
+initialization behavior. 1.1's two callbacks and
 1.2's three are each exported all or none. The world also imports `cinnabar:session/items@0.1.0`
 from [`session.wit`](../crates/experience-sdk/wit/session/session.wit), the package player mods
 read, under the `items` permission; a component built without that import still links.

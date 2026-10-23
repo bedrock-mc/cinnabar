@@ -79,18 +79,28 @@ thread_local! {
     };
 }
 
-/// Initializes legacy parts immediately; generated projects wait for their registry confirmation.
+/// Initializes legacy parts immediately; generated projects ask the host to hold callbacks.
 #[doc(hidden)]
 pub fn initialize<T: ClientPart>() {
-    initialize_with::<T>(send);
+    initialize_with::<T>(|registry| {
+        messaging::negotiate(
+            registry.channel.id,
+            registry.request.id,
+            registry.request.schema,
+            registry.fingerprint,
+        );
+        Ok(())
+    });
 }
 
-/// Requests registry confirmation through the supplied transport before authored initialization.
+/// Requests host-owned negotiation before authored initialization.
 #[doc(hidden)]
-pub fn initialize_with<T: ClientPart>(send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>) {
+pub fn initialize_with<T: ClientPart>(
+    negotiate: impl FnOnce(&crate::message::Registry) -> Result<(), String>,
+) {
     REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
     if let Some(registry) = T::registry() {
-        request_registry(registry, send);
+        negotiate(registry).expect("registry request must be admitted before client code starts");
     } else {
         T::init();
     }
@@ -100,50 +110,6 @@ pub fn initialize_with<T: ClientPart>(send: impl FnOnce(&Channel, &[Value]) -> R
 #[doc(hidden)]
 pub fn active<T: ClientPart>() -> bool {
     T::registry().is_none() || REGISTRY_STATE.get() == crate::message::RegistryState::Active
-}
-
-/// Gates a callback and stages one retry while registry confirmation is pending.
-#[doc(hidden)]
-pub fn begin_callback<T: ClientPart>() -> bool {
-    begin_callback_with::<T>(false, send)
-}
-
-/// Re-arms pending negotiation when transport moves to a new world epoch.
-#[doc(hidden)]
-pub fn begin_epoch<T: ClientPart>() -> bool {
-    begin_callback_with::<T>(true, send)
-}
-
-/// Advances the negotiation state and publishes at most one callback retry per world epoch.
-fn begin_callback_with<T: ClientPart>(
-    epoch_changed: bool,
-    send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>,
-) -> bool {
-    if epoch_changed && REGISTRY_STATE.get() == crate::message::RegistryState::RetrySent {
-        REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
-    }
-    if active::<T>() {
-        return true;
-    }
-    if REGISTRY_STATE.get() == crate::message::RegistryState::Waiting
-        && let Some(registry) = T::registry()
-    {
-        request_registry(registry, send);
-        REGISTRY_STATE.set(crate::message::RegistryState::RetrySent);
-    }
-    false
-}
-
-/// Stages the generated fingerprint request without invoking any authored callback.
-fn request_registry(
-    registry: &crate::message::Registry,
-    send: impl FnOnce(&Channel, &[Value]) -> Result<(), String>,
-) {
-    send(
-        &registry.request,
-        &[Value::Text(registry.fingerprint.to_owned())],
-    )
-    .expect("registry request must be admitted before client code starts");
 }
 
 /// Confirms the complete registry before initialization or dispatching application messages.
@@ -160,7 +126,7 @@ pub fn dispatch<T: ClientPart>(channel: String, record: Vec<Value>) {
             Ok(false) => {}
             Err(error) => panic!("{error}"),
         }
-    } else if begin_callback::<T>() {
+    } else {
         T::dispatch(channel, record);
     }
 }
@@ -209,34 +175,34 @@ macro_rules! export_client_part {
             }
 
             fn action(id: ::std::string::String, collection_index: ::core::option::Option<u32>) {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::action(id, collection_index) }
+                <$ty as $crate::client::ClientPart>::action(id, collection_index)
             }
 
             fn epoch() {
-                if $crate::client::begin_epoch::<$ty>() { <$ty as $crate::client::ClientPart>::epoch() }
+                <$ty as $crate::client::ClientPart>::epoch()
             }
 
             fn modal_resized(size: $crate::client::ui::GuiSize) {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::modal_resized(size) }
+                <$ty as $crate::client::ClientPart>::modal_resized(size)
             }
 
             fn text_changed(control: ::std::string::String, text: ::std::string::String) {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::text_changed(control, text) }
+                <$ty as $crate::client::ClientPart>::text_changed(control, text)
             }
 
             fn secondary_action(
                 id: ::std::string::String,
                 collection_index: ::core::option::Option<u32>,
             ) {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index) }
+                <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index)
             }
 
             fn scroll_changed(view: ::std::string::String, range: $crate::client::ui::ScrollRange) {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::scroll_changed(view, range) }
+                <$ty as $crate::client::ClientPart>::scroll_changed(view, range)
             }
 
             fn shift_changed(held: bool) {
-                if $crate::client::begin_callback::<$ty>() { <$ty as $crate::client::ClientPart>::shift_changed(held) }
+                <$ty as $crate::client::ClientPart>::shift_changed(held)
             }
         }
 
@@ -246,10 +212,7 @@ macro_rules! export_client_part {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ClientPart, active, begin_callback_with, dispatch, initialize, initialize_with, record,
-        record_json,
-    };
+    use super::{ClientPart, active, dispatch, initialize, initialize_with, record, record_json};
     use crate::{Channel, Direction, Field, Value, message::Registry};
 
     thread_local! { static INITIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -301,35 +264,12 @@ mod tests {
     #[test]
     fn generated_parts_wait_for_exactly_one_confirmation() {
         INITIALIZATIONS.set(0);
-        initialize_with::<Guarded>(|channel, record| {
-            assert_eq!(channel.id, REGISTRY.request.id);
-            assert_eq!(record, &[Value::Text(REGISTRY.fingerprint.into())]);
+        initialize_with::<Guarded>(|registry| {
+            assert_eq!(registry.channel, REGISTRY.channel);
+            assert_eq!(registry.request, REGISTRY.request);
+            assert_eq!(registry.fingerprint, REGISTRY.fingerprint);
             Ok(())
         });
-        let retries = std::cell::Cell::new(0);
-        for _ in 0..4 {
-            assert!(!begin_callback_with::<Guarded>(false, |channel, record| {
-                assert_eq!(channel.id, REGISTRY.request.id);
-                assert_eq!(record, &[Value::Text(REGISTRY.fingerprint.into())]);
-                retries.set(retries.get() + 1);
-                Ok(())
-            }));
-        }
-        assert_eq!(
-            retries.get(),
-            1,
-            "waiting callbacks must not flood registry requests"
-        );
-        assert!(!begin_callback_with::<Guarded>(true, |_, _| {
-            retries.set(retries.get() + 1);
-            Ok(())
-        }));
-        assert_eq!(
-            retries.get(),
-            2,
-            "a new world must get a current-epoch request"
-        );
-        dispatch::<Guarded>("test.data".into(), vec![]);
         assert!(!active::<Guarded>());
         assert_eq!(INITIALIZATIONS.get(), 0);
         for _ in 0..2 {

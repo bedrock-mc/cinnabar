@@ -32,6 +32,8 @@ fn state() -> State {
         commands: Vec::new(),
         bytes: 0,
         calls: 0,
+        initializing: false,
+        negotiation: None,
     };
     state.begin_output().unwrap();
     state
@@ -159,7 +161,7 @@ fn guest_1_1(template: &str) -> String {
         .replace("$TEMPLATE", template)
 }
 
-fn owner() -> Principal {
+pub(super) fn owner() -> Principal {
     Principal {
         session: "s".into(),
         bundle: "demo".into(),
@@ -167,7 +169,7 @@ fn owner() -> Principal {
     }
 }
 
-fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
+pub(super) fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
     Capabilities {
         scope: Scope {
             permissions: permissions.iter().copied().collect(),
@@ -382,7 +384,7 @@ fn terminal() -> BundleHost {
 }
 
 /// An empty record on `channel`, which selects the terminal guest's behavior.
-fn on(channel: &str) -> Event {
+pub(super) fn on(channel: &str) -> Event {
     Event::Message {
         channel: channel.into(),
         record: b"[]".to_vec(),
@@ -498,7 +500,7 @@ fn resized(width: f64) -> Event {
 }
 
 /// Typed text in the modal's edit box `control`.
-fn typed(control: &str, text: &str) -> Event {
+pub(super) fn typed(control: &str, text: &str) -> Event {
     Event::Text {
         control: control.into(),
         text: text.into(),

@@ -86,10 +86,22 @@ The scaffold's `ClientPart::registry` returns `shared::REGISTRY`. Initialization
 sends a generated registry request, which the existing client sends after Ready.
 `RegisterRegistry` answers it with the server's generated fingerprint. Authored
 initialization and callbacks wait for that exact fingerprint.
+The host retains callbacks while confirmation is pending, including after a guest
+restart. It keeps the latest epoch, modifier state, modal size, edit text per control
+and scroll range per view, then replays that state after authored initialization and
+before queued messages and actions in arrival order. The queue uses the extension's
+message-count and byte budgets; overflow stops the part with a visible error.
+A pending request is sent again when its world epoch changes.
 A mismatch refuses initialization with a diagnostic; missing confirmation leaves
 it waiting. Duplicate matching confirmations do not initialize twice. Changes to
 fields, revisions, directions and typed IDs affect the digest. This check does not
 authenticate players or replace server-side validation.
+
+Rebuild generated client parts to use the additive client WIT 1.4.0 negotiation
+import. Previously built 1.x parts still link. Low-level SDK adapters should use
+`export_client_part!` instead of the removed `begin_callback`, `begin_epoch` and
+`RegistryState::RetrySent` helpers; `initialize_with` now receives a negotiation
+function rather than a message sender. The `ClientPart` callbacks are unchanged.
 
 ## Assets and personal mods
 
