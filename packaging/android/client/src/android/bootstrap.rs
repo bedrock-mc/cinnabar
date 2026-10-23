@@ -147,7 +147,7 @@ fn setup(
     // The game activity's UI thread waits for the game thread until its event loop starts, so
     // the carriers load here, behind the progress dialog, to keep that wait short.
     if outcome != Outcome::Quit && !CANCELLATION.flag().load(Ordering::Acquire) {
-        cinnabar::lifecycle::preload();
+        cinnabar::lifecycle::preload(outcome == Outcome::Prepared);
     }
     Ok(outcome)
 }

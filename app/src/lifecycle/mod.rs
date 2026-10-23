@@ -92,13 +92,14 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
 /// the next [`crate::run`]. Android's setup activity calls this before it starts the game
 /// activity, whose UI thread waits on the game thread until the event loop starts; Android
 /// reports the app as not responding when that wait reaches 5 s. Failures are left for
-/// [`before_run`] and [`crate::run`] to report.
-pub fn preload() {
+/// [`before_run`] and [`crate::run`] to report. A retried setup reuses an earlier preload unless
+/// `rewritten` says setup has rewritten the carriers since.
+pub fn preload(rewritten: bool) {
     let Ok(layout) = start_session() else {
         return;
     };
     crate::thread_budget::ThreadBudget::configure_global_rayon();
-    crate::app::startup::preload(&layout);
+    crate::app::startup::preload(&layout, rewritten);
 }
 
 /// Starts client logging, crash capture and this session's log files on the first call in the
