@@ -9,7 +9,7 @@ use std::sync::{
 
 type Completed = (String, Option<Vec<u8>>);
 
-pub(super) struct Job {
+struct Job {
     key: String,
     bytes: Arc<[u8]>,
     size: [u32; 2],
@@ -80,13 +80,6 @@ impl Drop for FittedDecodes {
 }
 
 impl FittedDecodes {
-    /// Cancels this URL's input or completion without disturbing another URL's reservation.
-    pub(super) fn remove(&mut self, key: &str) {
-        if self.pending() == Some(key) {
-            *self = Self::default();
-        }
-    }
-
     /// Keeps the reservation until its result is consumed, including time spent waiting to submit.
     pub(super) fn pending(&self) -> Option<&str> {
         self.pending.as_deref()
@@ -98,7 +91,7 @@ impl FittedDecodes {
     }
 
     /// Applies the same reservation policy to a supplied bounded worker queue.
-    pub(super) fn request_to(&mut self, key: &str, source: &Source, sender: Option<&Sender<Job>>) {
+    fn request_to(&mut self, key: &str, source: &Source, sender: Option<&Sender<Job>>) {
         if self.pending.is_some() {
             return;
         }

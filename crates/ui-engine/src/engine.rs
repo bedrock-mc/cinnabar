@@ -10,10 +10,7 @@ pub(crate) mod masks;
 
 use std::{
     borrow::{Borrow, Cow},
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
 };
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
@@ -59,8 +56,6 @@ use screen::{CustomDraw, CustomRenderer, PaintError, PaintFrame, ScreenRegistry}
 use text_paint::TextPaint;
 
 pub struct FormEngine {
-    /// Identifies the presented frame across every atlas used by this engine.
-    frame: u64,
     assets: Arc<RuntimeUiAssets>,
     /// The carrier's vanilla catalog, before the built-in packs.
     vanilla: Arc<Catalog>,
@@ -113,17 +108,10 @@ struct LaidForm {
 /// Borrowed texture sources a paint reads.
 #[derive(Clone, Copy)]
 struct Art<'a> {
-    frame: u64,
     assets: &'a RuntimeUiAssets,
     set: &'a TextureSet,
     animator: &'a std::sync::Mutex<json_ui::Animator>,
     dependencies: &'a std::sync::Mutex<dependencies::DependencyCache>,
-}
-
-/// Gives each engine frame a distinct ID, including frames using another engine's texture set.
-fn next_frame() -> u64 {
-    static FRAME: AtomicU64 = AtomicU64::new(0);
-    FRAME.fetch_add(1, Ordering::Relaxed)
 }
 
 /// A carrier catalog extended and layered with a registry's built-in screens: the costly part
@@ -180,7 +168,6 @@ impl FormEngine {
             registry,
         } = catalog;
         Self {
-            frame: next_frame(),
             textures: TextureSet::new(first_page, remote, work)
                 .with_builtin_images(registry.builtin_images())
                 .with_carrier(Arc::clone(&assets)),
@@ -204,7 +191,6 @@ impl FormEngine {
 
     fn art(&self) -> Art<'_> {
         Art {
-            frame: self.frame,
             assets: &self.assets,
             set: &self.textures,
             animator: &self.animator,
@@ -243,13 +229,10 @@ impl FormEngine {
         self.screens.invalidate_layouts();
     }
 
-    /// Starts a frame's source snapshot and polls readiness before reusing saved geometry.
+    /// Polls original-image readiness even when the current menu needs no repaint.
     pub fn poll_native_images(&mut self) -> bool {
-        self.frame = next_frame();
         let atlas = self.textures.atlas_mut();
-        atlas.begin_frame_for(self.frame)
-            | atlas.poll_native_images()
-            | atlas.take_metadata_changed()
+        atlas.poll_native_images() | atlas.take_metadata_changed()
     }
 
     /// The atlas page images when they changed since the last call.
@@ -363,7 +346,6 @@ impl FormEngine {
         let font = frame.font.identity();
         let texture_metadata = self.textures.metadata_revision();
         let art = Art {
-            frame: self.frame,
             assets: &self.assets,
             set: &self.textures,
             animator: &self.animator,
@@ -467,7 +449,6 @@ impl FormEngine {
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Result<Option<EngineFrame>, PaintError> {
         let sources = Art {
-            frame: self.frame,
             assets: &self.assets,
             set: textures,
             animator: &self.animator,

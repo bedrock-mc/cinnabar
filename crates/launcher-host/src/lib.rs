@@ -1,9 +1,5 @@
 //! Launcher process, platform, persistence and background services without an engine dependency.
 
-#[cfg(test)]
-#[global_allocator]
-static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
-
 pub mod account_control;
 pub mod accounts;
 pub mod auth;

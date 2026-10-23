@@ -89,7 +89,7 @@ impl FormEngine {
                 .collect();
             cache.source = Some(source);
         }
-        atlas.require_current(cache.keys.iter().map(String::as_str));
+        atlas.require(cache.keys.iter().map(String::as_str));
         let textures = Textures {
             assets: &self.assets,
             set: &self.textures,
@@ -227,7 +227,6 @@ mod tests {
             };
             assert!(!cache.matches(&textures));
         }
-        engine.textures.lock().begin_frame();
         engine.refresh_fragment_textures(&mut cache, &nodes);
         {
             let atlas = engine.textures.lock();

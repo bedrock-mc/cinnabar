@@ -10,9 +10,9 @@ use std::{
 
 use tokio::sync::mpsc::{Receiver, Sender, error::TrySendError};
 
-use super::{BodyGeneration, FORM_IMAGES, client, download};
+use super::{FORM_IMAGES, client, download};
 
-/// Idle URLs remembered, loading ones included; an open form may keep more.
+/// Most URLs remembered, loading ones included; the oldest settled entry goes first.
 const MAX_ENTRIES: usize = 64;
 /// Downloaded bytes kept at once; past it the oldest downloaded images go first and download
 /// again when asked. One image at the download limit still fits.
@@ -27,8 +27,7 @@ const OBSOLETE_AFTER: Duration = Duration::from_secs(2);
 #[derive(Clone, Debug, PartialEq)]
 pub enum RemoteState {
     Loading,
-    /// Each successful download gets a new generation, including after URL eviction.
-    Ready(BodyGeneration, Arc<[u8]>),
+    Ready(Arc<[u8]>),
     Failed,
 }
 
@@ -36,79 +35,45 @@ pub enum RemoteState {
 #[derive(Clone, Default)]
 pub struct RemoteImages(Arc<Remote>);
 
-/// The host clock deciding which images open screens still use.
-type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
-
+#[derive(Default)]
 struct Remote {
     entries: Mutex<Entries>,
     worker: Mutex<Option<Sender<String>>>,
-    now: Clock,
-}
-
-impl Default for Remote {
-    fn default() -> Self {
-        Self {
-            entries: Mutex::default(),
-            worker: Mutex::default(),
-            now: Arc::new(Instant::now),
-        }
-    }
 }
 
 #[derive(Default)]
 struct Entries {
     states: HashMap<String, RemoteState>,
     order: VecDeque<String>,
-    /// When a drawn screen last asked for each URL; an image asked within [`OBSOLETE_AFTER`] is
-    /// in use by an open screen.
+    /// When a drawn screen last asked for each loading URL.
     asked: HashMap<String, Instant>,
     /// Total length of the `Ready` images in `states`.
     ready_bytes: usize,
-    /// Last published identity; eviction never resets it.
-    generation: BodyGeneration,
 }
 
 impl Entries {
-    /// Updates an existing use record without allocating a replacement URL.
-    fn touch(&mut self, url: &str, now: Instant) {
-        if let Some(asked) = self.asked.get_mut(url) {
-            *asked = now;
-        } else {
-            self.asked.insert(url.to_owned(), now);
-        }
-    }
-
-    /// Whether an open screen asked for `key` within [`OBSOLETE_AFTER`] of `now`.
-    fn in_use(&self, key: &str, now: Instant) -> bool {
-        self.asked
-            .get(key)
-            .is_some_and(|asked| now.saturating_duration_since(*asked) < OBSOLETE_AFTER)
-    }
-
-    /// Evicts unused settled URLs, then unused loading ones, down to [`MAX_ENTRIES`], and unused
-    /// downloaded images down to [`MAX_READY_BYTES`]. In-use images stay past either budget so an
-    /// open form never re-downloads its own buttons.
-    fn trim(&mut self, now: Instant) {
+    /// Evicts the oldest settled URLs, then the oldest loading ones, down to [`MAX_ENTRIES`], and
+    /// the oldest downloaded images down to [`MAX_READY_BYTES`].
+    fn trim(&mut self) {
         loop {
-            let settled = |key: &String| self.states.get(key) != Some(&RemoteState::Loading);
-            let position = if self.order.len() > MAX_ENTRIES {
-                self.order
-                    .iter()
-                    .position(|key| settled(key) && !self.in_use(key, now))
-                    .or_else(|| self.order.iter().position(|key| !self.in_use(key, now)))
-            } else if self.ready_bytes > MAX_READY_BYTES {
-                self.order.iter().position(|key| {
-                    matches!(self.states.get(key), Some(RemoteState::Ready(..)))
-                        && !self.in_use(key, now)
-                })
-            } else {
-                return;
-            };
-            let Some(position) = position else {
-                return;
-            };
+            let position =
+                if self.order.len() > MAX_ENTRIES {
+                    self.order
+                        .iter()
+                        .position(|key| self.states.get(key) != Some(&RemoteState::Loading))
+                        .unwrap_or(0)
+                } else if self.ready_bytes > MAX_READY_BYTES {
+                    let Some(position) = self.order.iter().position(|key| {
+                        matches!(self.states.get(key), Some(RemoteState::Ready(_)))
+                    }) else {
+                        return;
+                    };
+                    position
+                } else {
+                    return;
+                };
             if let Some(key) = self.order.remove(position) {
-                if let Some(RemoteState::Ready(_, bytes)) = self.states.remove(&key) {
+                if let Some(RemoteState::Ready(bytes)) = self.states.remove(&key) {
                     self.ready_bytes -= bytes.len();
                 }
                 self.asked.remove(&key);
@@ -127,35 +92,12 @@ impl Entries {
 }
 
 impl RemoteImages {
-    /// A cache whose sense of which images are in use follows `now`.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn with_clock(now: impl Fn() -> Instant + Send + Sync + 'static) -> Self {
-        Self(Arc::new(Remote {
-            now: Arc::new(now),
-            ..Remote::default()
-        }))
-    }
-
-    /// Marks `url` as drawn now without starting a download. Every draw of a downloaded image
-    /// touches it, and this one record of use is what keeps it cached past the byte budget.
-    pub fn touch(&self, url: &str) {
-        let mut entries = self.0.entries.lock().unwrap_or_else(|p| p.into_inner());
-        if matches!(
-            entries.states.get(url),
-            Some(RemoteState::Loading | RemoteState::Ready(..))
-        ) {
-            let now = (self.0.now)();
-            entries.touch(url, now);
-        }
-    }
-
-    /// The download state of `url`, starting its download on first sight; asking touches it.
+    /// The download state of `url`, starting its download on first sight.
     pub fn state(&self, url: &str) -> RemoteState {
         let mut entries = self.0.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let now = (self.0.now)();
         if let Some(state) = entries.states.get(url).cloned() {
-            if state != RemoteState::Failed {
-                entries.touch(url, now);
+            if state == RemoteState::Loading {
+                entries.asked.insert(url.to_owned(), Instant::now());
             }
             return state;
         }
@@ -166,7 +108,7 @@ impl RemoteImages {
         } else {
             match self.request(url) {
                 Ok(()) => {
-                    entries.asked.insert(url.to_owned(), now);
+                    entries.asked.insert(url.to_owned(), Instant::now());
                     RemoteState::Loading
                 }
                 // A full queue is retried on the next ask rather than remembered as failed.
@@ -176,7 +118,7 @@ impl RemoteImages {
         };
         entries.states.insert(url.to_owned(), state.clone());
         entries.order.push_back(url.to_owned());
-        entries.trim(now);
+        entries.trim();
         state
     }
 
@@ -197,35 +139,32 @@ impl Remote {
     /// Settles a download and restores the retained cache capacity.
     fn finish(&self, url: String, bytes: Option<Vec<u8>>) {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let Entries {
-            states, generation, ..
-        } = &mut *entries;
-        if let Some(state) = states.get_mut(&url) {
+        entries.asked.remove(&url);
+        if let Some(state) = entries.states.get_mut(&url) {
             let replaced = match state {
-                RemoteState::Ready(_, old) => old.len(),
+                RemoteState::Ready(old) => old.len(),
                 _ => 0,
             };
             *state = bytes.map_or(RemoteState::Failed, |bytes| {
-                generation.0 = generation
-                    .0
-                    .checked_add(1)
-                    .expect("image generations exhausted");
-                RemoteState::Ready(*generation, bytes.into())
+                RemoteState::Ready(bytes.into())
             });
             let added = match state {
-                RemoteState::Ready(_, new) => new.len(),
+                RemoteState::Ready(new) => new.len(),
                 _ => 0,
             };
             entries.ready_bytes = entries.ready_bytes - replaced + added;
         }
-        entries.trim((self.now)());
+        entries.trim();
     }
 
     /// Whether a queued `url` is still wanted; an obsolete one is forgotten so
     /// a later ask queues it afresh.
     fn still_wanted(&self, url: &str) -> bool {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let fresh = entries.in_use(url, (self.now)());
+        let fresh = entries
+            .asked
+            .get(url)
+            .is_some_and(|asked| asked.elapsed() < OBSOLETE_AFTER);
         if !fresh {
             entries.forget(url);
         }
@@ -361,7 +300,7 @@ pub mod tests {
         let started = Instant::now();
         assert_eq!(
             settle(&images, &fast),
-            RemoteState::Ready(BodyGeneration(1), b"fast".as_slice().into())
+            RemoteState::Ready(b"fast".as_slice().into())
         );
         assert!(started.elapsed() < FORM_IMAGES.timeout);
         assert_eq!(images.state(&slow), RemoteState::Loading);
@@ -382,7 +321,7 @@ pub mod tests {
         let url = format!("{base}/button.png");
         assert_eq!(
             settle(&images, &url),
-            RemoteState::Ready(BodyGeneration(1), b"image bytes".as_slice().into())
+            RemoteState::Ready(b"image bytes".as_slice().into())
         );
         assert_eq!(images.state("file:///etc/passwd"), RemoteState::Failed);
     }
@@ -391,7 +330,7 @@ pub mod tests {
     fn form_url_images_larger_than_two_megabytes_are_downloaded() {
         let body = vec![7; 2 * 1024 * 1024 + 1];
         let url = format!("{}/large.png?size=1024", serve(body.clone()));
-        let RemoteState::Ready(_, downloaded) = settle(&RemoteImages::default(), &url) else {
+        let RemoteState::Ready(downloaded) = settle(&RemoteImages::default(), &url) else {
             panic!("image download failed");
         };
         assert_eq!(downloaded.len(), body.len());
@@ -400,11 +339,7 @@ pub mod tests {
 
     #[test]
     fn review_download_completion_restores_the_cache_capacity() {
-        let now = Instant::now();
-        let remote = Remote {
-            now: Arc::new(move || now),
-            ..Remote::default()
-        };
+        let remote = Remote::default();
         let keys = (0..MAX_ENTRIES + 1)
             .map(|index| format!("fixture:{index}"))
             .collect::<Vec<_>>();
@@ -413,7 +348,7 @@ pub mod tests {
             for key in &keys {
                 entries.states.insert(key.clone(), RemoteState::Loading);
                 entries.order.push_back(key.clone());
-                entries.asked.insert(key.clone(), now - OBSOLETE_AFTER);
+                entries.asked.insert(key.clone(), Instant::now());
             }
         }
         for key in keys {
@@ -422,95 +357,93 @@ pub mod tests {
         let entries = remote.entries.lock().unwrap();
         assert!(entries.states.len() <= MAX_ENTRIES);
         assert_eq!(entries.order.len(), entries.states.len());
-        assert!(
-            entries
-                .asked
-                .keys()
-                .all(|key| entries.states.contains_key(key))
-        );
-    }
-
-    #[test]
-    fn an_open_form_keeps_more_images_than_the_entry_budget() {
-        let now = Instant::now();
-        let images = RemoteImages::with_clock(move || now);
-        let count = MAX_ENTRIES + 8;
-        let (sender, _receiver) = tokio::sync::mpsc::channel(count);
-        *images.0.worker.lock().unwrap() = Some(sender);
-        let urls: Vec<_> = (0..count)
-            .map(|index| format!("https://images.test/{index}.png"))
-            .collect();
-        for url in &urls {
-            assert_eq!(images.state(url), RemoteState::Loading);
-            images.0.finish(url.clone(), Some(vec![7]));
-        }
-        for _ in 0..2 {
-            for url in &urls {
-                assert!(matches!(images.state(url), RemoteState::Ready(..)));
-            }
-        }
-        let mut entries = images.0.entries.lock().unwrap();
-        entries.trim(now + OBSOLETE_AFTER);
-        assert_eq!(entries.states.len(), MAX_ENTRIES);
-        assert_eq!(entries.ready_bytes, MAX_ENTRIES);
-        assert_eq!(entries.order.len(), entries.states.len());
+        assert!(entries.asked.is_empty());
     }
 
     // Large form images counted only toward the entry limit, so 64 of them could keep GiBs resident.
-    // An open form's own images stay past the budget: evicting either of two 40 MiB buttons made
-    // them re-download and alternate forever.
     #[test]
-    fn downloaded_images_stay_within_the_byte_budget_unless_an_open_form_uses_them() {
+    fn downloaded_images_stay_within_the_byte_budget() {
         let remote = Remote::default();
-        let size = 40 * 1024 * 1024;
-        let ask = |key: &str, at: Instant| {
-            let mut entries = remote.entries.lock().unwrap();
-            if !entries.states.contains_key(key) {
-                entries.states.insert(key.to_owned(), RemoteState::Loading);
-                entries.order.push_back(key.to_owned());
+        let size = MAX_READY_BYTES / 4 + 1;
+        let keys = (0..5)
+            .map(|index| format!("fixture:{index}"))
+            .collect::<Vec<_>>();
+        for key in &keys {
+            {
+                let mut entries = remote.entries.lock().unwrap();
+                entries.states.insert(key.clone(), RemoteState::Loading);
+                entries.order.push_back(key.clone());
             }
-            entries.asked.insert(key.to_owned(), at);
-        };
-        for key in ["fixture:first", "fixture:second"] {
-            ask(key, Instant::now());
-            remote.finish(key.to_owned(), Some(vec![0; size]));
+            remote.finish(key.clone(), Some(vec![0; size]));
         }
-        {
-            let entries = remote.entries.lock().unwrap();
-            assert!(matches!(
-                entries.states["fixture:first"],
-                RemoteState::Ready(..)
-            ));
-            assert!(matches!(
-                entries.states["fixture:second"],
-                RemoteState::Ready(..)
-            ));
-            assert_eq!(entries.ready_bytes, 2 * size);
-        }
-        // Once the form closes, the next download brings the cache back within its budget.
-        let closed = Instant::now() - OBSOLETE_AFTER;
-        ask("fixture:first", closed);
-        ask("fixture:second", closed);
-        ask("fixture:third", Instant::now());
-        remote.finish("fixture:third".to_owned(), Some(vec![0; 1024]));
         let entries = remote.entries.lock().unwrap();
         assert!(entries.ready_bytes <= MAX_READY_BYTES);
-        assert!(!entries.states.contains_key("fixture:first"));
-        assert!(entries.states.contains_key("fixture:third"));
+        assert_eq!(entries.ready_bytes, 3 * size);
+        assert!(!entries.states.contains_key("fixture:0"));
+        assert!(!entries.states.contains_key("fixture:1"));
+        assert!(entries.states.contains_key("fixture:4"));
         assert_eq!(entries.order.len(), entries.states.len());
+    }
+
+    #[test]
+    fn byte_evicted_images_download_again() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/button.png", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for body in [b"first".as_slice(), b"replacement".as_slice()] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 1024];
+                assert!(stream.read(&mut request).unwrap() > 0);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+            }
+        });
+        let images = RemoteImages::default();
+        assert_eq!(
+            settle(&images, &url),
+            RemoteState::Ready(b"first".as_slice().into())
+        );
+        let key = "fixture:full-budget".to_owned();
+        {
+            let mut entries = images.0.entries.lock().unwrap();
+            entries.states.insert(key.clone(), RemoteState::Loading);
+            entries.order.push_back(key.clone());
+        }
+        images.0.finish(key.clone(), Some(vec![0; MAX_READY_BYTES]));
+        {
+            let entries = images.0.entries.lock().unwrap();
+            assert!(!entries.states.contains_key(&url));
+            assert!(matches!(
+                entries.states.get(&key),
+                Some(RemoteState::Ready(_))
+            ));
+            assert_eq!(entries.ready_bytes, MAX_READY_BYTES);
+        }
+        assert_eq!(
+            settle(&images, &url),
+            RemoteState::Ready(b"replacement".as_slice().into())
+        );
+        server.join().unwrap();
+        let entries = images.0.entries.lock().unwrap();
+        assert!(!entries.states.contains_key(&key));
+        assert_eq!(entries.ready_bytes, b"replacement".len());
     }
 
     // Loading entries and queued URLs were unbounded, so a flood of new URLs grew without limit.
     #[test]
     fn loading_entries_stay_bounded_and_forgotten_urls_requeue() {
         let mut entries = Entries::default();
-        let now = Instant::now();
         for index in 0..MAX_ENTRIES + 8 {
             let key = format!("https://example.test/{index}.png");
             entries.states.insert(key.clone(), RemoteState::Loading);
             entries.order.push_back(key.clone());
-            entries.asked.insert(key, now - OBSOLETE_AFTER);
-            entries.trim(now);
+            entries.asked.insert(key, Instant::now());
+            entries.trim();
         }
         assert_eq!(entries.states.len(), MAX_ENTRIES);
         assert_eq!(entries.order.len(), MAX_ENTRIES);
@@ -519,57 +452,5 @@ pub mod tests {
         entries.forget(&newest);
         assert!(!entries.states.contains_key(&newest) && !entries.asked.contains_key(&newest));
         assert_eq!(entries.order.len(), entries.states.len());
-    }
-
-    #[test]
-    fn known_remote_urls_are_touched_and_read_without_allocations() {
-        let now = Instant::now();
-        let images = RemoteImages::with_clock(move || now);
-        let url = "https://images.test/cached.png";
-        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
-        *images.0.worker.lock().unwrap() = Some(sender);
-        assert_eq!(images.state(url), RemoteState::Loading);
-        for ready in [false, true] {
-            if ready {
-                images.0.finish(url.to_owned(), Some(vec![1, 2, 3]));
-            }
-            let (_, allocations) = test_alloc::count(|| {
-                for _ in 0..8 {
-                    images.touch(url);
-                    std::hint::black_box(images.state(url));
-                }
-            });
-            assert_eq!(allocations, 0);
-        }
-    }
-
-    #[test]
-    fn an_evicted_url_gets_a_new_body_generation() {
-        let clock = Arc::new(Mutex::new(Instant::now()));
-        let now = Arc::clone(&clock);
-        let images = RemoteImages::with_clock(move || *now.lock().unwrap());
-        let url = "https://images.test/replaced.png";
-        let (sender, _receiver) = tokio::sync::mpsc::channel(2);
-        *images.0.worker.lock().unwrap() = Some(sender);
-        assert_eq!(images.state(url), RemoteState::Loading);
-        images.0.finish(url.to_owned(), Some(vec![1]));
-        let RemoteState::Ready(first, _) = images.state(url) else {
-            panic!("first body was not published");
-        };
-        *clock.lock().unwrap() += OBSOLETE_AFTER;
-        for index in 0..MAX_ENTRIES {
-            assert_eq!(
-                images.state(&format!("fixture:{index}")),
-                RemoteState::Failed
-            );
-        }
-        assert!(!images.0.entries.lock().unwrap().states.contains_key(url));
-        assert_eq!(images.state(url), RemoteState::Loading);
-        images.0.finish(url.to_owned(), Some(vec![2, 3]));
-        let RemoteState::Ready(second, bytes) = images.state(url) else {
-            panic!("replacement body was not published");
-        };
-        assert!(second.0 > first.0);
-        assert_eq!(bytes.as_ref(), &[2, 3]);
     }
 }

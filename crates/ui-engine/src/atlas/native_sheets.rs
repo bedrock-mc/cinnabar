@@ -374,38 +374,6 @@ impl Drop for NativeSheets {
 }
 
 impl NativeSheets {
-    /// Whether a sheet, failure or pending job still depends on this URL's generation.
-    pub(super) fn contains(&self, key: &str) -> bool {
-        self.loaded.iter().any(|(name, _)| name == key)
-            || self.failed.contains(key)
-            || self.pending.as_deref() == Some(key)
-            || self.retry.as_ref().is_some_and(|job| job.key == key)
-    }
-
-    /// Retires one URL before painting; unrelated sheets keep their immutable pixels.
-    pub(super) fn remove(&mut self, key: &str) {
-        if self.pending.as_deref() == Some(key)
-            || self.retry.as_ref().is_some_and(|job| job.key == key)
-        {
-            self.cancelled.store(true, Ordering::Release);
-            (self.sender, self.receiver) = crossbeam_channel::bounded(1);
-            self.cancelled = Arc::new(AtomicBool::new(false));
-            self.pending = None;
-            self.retry = None;
-        }
-        self.failed.remove(key);
-        let count = self.loaded.len();
-        self.loaded.retain(|(name, _)| name != key);
-        if self.loaded.len() != count {
-            self.pages = self
-                .loaded
-                .iter()
-                .flat_map(|(_, sheet)| sheet.tiles.iter().map(|tile| tile.page.clone()))
-                .collect();
-            self.dirty = true;
-        }
-    }
-
     /// Publishes completed immutable pages; pack replacement drops the whole namespace.
     pub(super) fn collect(&mut self) -> bool {
         let mut completed = false;

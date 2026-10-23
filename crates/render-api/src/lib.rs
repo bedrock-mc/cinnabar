@@ -3,10 +3,6 @@
 //! This crate owns publication authority, pacing bounds, UI paint and shared skin
 //! layout rules. It has no dependencies and must not acquire game state or GPU types.
 
-/// Monotonic identity assigned by one download cache when it publishes a new image body.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct BodyGeneration(pub u64);
-
 mod actor_lighting;
 pub mod far_terrain;
 mod frame_rate_limit;

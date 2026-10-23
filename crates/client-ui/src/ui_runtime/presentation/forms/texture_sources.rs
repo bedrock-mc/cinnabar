@@ -38,13 +38,9 @@ impl RemoteSource for Downloads {
     fn state(&self, url: &str) -> RemoteImage {
         match self.0.state(url) {
             RemoteState::Loading => RemoteImage::Loading,
-            RemoteState::Ready(generation, bytes) => RemoteImage::Ready(generation, bytes),
+            RemoteState::Ready(bytes) => RemoteImage::Ready(bytes),
             RemoteState::Failed => RemoteImage::Failed,
         }
-    }
-
-    fn touch(&self, url: &str) {
-        self.0.touch(url);
     }
 }
 

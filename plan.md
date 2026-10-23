@@ -517,8 +517,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
   their JSON-UI collection. Actor portraits, matched acceptance for larger action
   lists and touch/console behavior remain incomplete.
-  URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
-  and remaining image admission and download-deadline parity remain incomplete.
+  URL images use the UI texture-file allowance. The download cache evicts its oldest
+  downloaded bodies beyond the aggregate byte budget and fetches evicted URLs again.
+  UI-atlas residency and replacement invalidation remain follow-up work; image admission
+  and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
   Recipe-book projections validate each occupied ingredient source once across the catalog.

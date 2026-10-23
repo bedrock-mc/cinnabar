@@ -43,8 +43,7 @@ fn prepare_with<R: Borrow<FormRender>>(
     ];
     let render = {
         let cache = RefCell::new(&mut *frame.layouts);
-        let mut atlas = textures.set.lock();
-        atlas.begin_frame_for(textures.frame);
+        let atlas = textures.set.lock();
         let view = Textures {
             assets: textures.assets,
             set: textures.set,
@@ -80,7 +79,7 @@ fn prepare_with<R: Borrow<FormRender>>(
         images: art.images,
     }
     .atlas_keys(paths.into_iter());
-    atlas.require_current(drawn.iter().map(std::ops::Deref::deref));
+    atlas.require(drawn.iter().map(std::ops::Deref::deref));
     drop(base);
     Some(render)
 }

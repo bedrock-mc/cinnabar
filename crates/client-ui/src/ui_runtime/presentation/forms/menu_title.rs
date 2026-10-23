@@ -44,7 +44,7 @@ impl TitleSource {
         if let Some(icon) = images.get(&self.artwork) {
             return Some(*icon);
         }
-        atlas.require_current([key]);
+        atlas.require([key]);
         let textures = Textures {
             assets: engine.assets(),
             set: &engine.textures,

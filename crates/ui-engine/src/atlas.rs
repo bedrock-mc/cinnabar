@@ -27,15 +27,12 @@ mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
 mod outlines;
-mod page;
-use page::Page;
 mod oversized;
 pub use oversized::OversizedTextures;
 mod client_rasters;
 pub use client_rasters::LOCAL_PLAYER_HEAD;
 pub mod native_sheets;
 pub mod preread;
-mod remote;
 mod source_reads;
 mod source_reset;
 
@@ -239,6 +236,42 @@ struct Source {
     packed: [u32; 2],
 }
 
+/// One reserved page: its pixels, shelf cursor, residents, and last use.
+struct Page {
+    pixels: Vec<u8>,
+    cursor: [u32; 3],
+    keys: Vec<String>,
+    used: u64,
+    image: UiTexturePage,
+}
+
+impl Page {
+    fn blank() -> Option<Self> {
+        let pixels = vec![0; (PAGE_SIDE * PAGE_SIDE * 4) as usize];
+        let image = UiTexturePage::owned([PAGE_SIDE; 2], pixels.clone().into()).ok()?;
+        Some(Self {
+            pixels,
+            cursor: [0; 3],
+            keys: Vec::new(),
+            used: 0,
+            image,
+        })
+    }
+
+    /// A shelf slot for `size`, advancing the cursor, or `None` when full.
+    fn allocate(&mut self, size: [u32; 2]) -> Option<[u32; 2]> {
+        let [mut x, mut y, mut shelf] = self.cursor;
+        if x + size[0] > PAGE_SIDE {
+            (x, y, shelf) = (0, y + shelf + GUTTER, 0);
+        }
+        if y + size[1] > PAGE_SIDE {
+            return None;
+        }
+        self.cursor = [x + size[0] + GUTTER, y, shelf.max(size[1])];
+        Some([x, y])
+    }
+}
+
 /// The server pack's UI textures, packed on demand into a fixed number of
 /// reserved pages: a texture becomes resident when a rendered screen draws it,
 /// and a full atlas evicts its least recently drawn page.
@@ -252,7 +285,7 @@ pub struct ServerAtlas {
     sidecars: BTreeMap<String, TextureMeta>,
     frames: frame_sidecars::FrameSidecars,
     pack: Option<PackTextures>,
-    /// Vanilla images, found on first use; `None` when absent.
+    /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
     local_reads: source_reads::SourceReads,
     /// Local vanilla sidecars inherit independently from the texture image.
@@ -263,14 +296,11 @@ pub struct ServerAtlas {
     carrier: Option<Arc<assets::RuntimeUiAssets>>,
     builtin: BuiltinImages,
     remote: Option<Arc<dyn RemoteSource>>,
-    remote_sources: RefCell<remote::RemoteSources>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
     images: Vec<UiTexturePage>,
     max_pages: usize,
     clock: u64,
-    /// Last presented engine frame whose snapshot and page lifetime have begun.
-    presented_frame: Option<u64>,
     dirty: bool,
     metadata_revision: u64,
     metadata_dirty: bool,
@@ -462,12 +492,9 @@ impl ServerAtlas {
     pub fn is_native_sheet(&self, key: &str) -> bool {
         self.native_enabled
             && !self.native.failed(key)
-            && match if is_remote(key) {
-                self.remote_size(key)
-            } else {
-                self.native_source(key).map(|source| source.size)
-            } {
-                Some(size) => size
+            && match self.native_source(key) {
+                Some(source) => source
+                    .size
                     .into_iter()
                     .any(|side| side > crate::pages::WHOLE_ART_PAGE),
                 None => self
@@ -611,9 +638,6 @@ impl ServerAtlas {
         if let Some(image) = self.client_rasters.get(key) {
             return Some(image.dimensions().map(f64::from));
         }
-        if is_remote(key) {
-            return self.remote_size(key).map(|size| size.map(f64::from));
-        }
         self.fallback(key)
             .as_ref()
             .map(|source| source.size.map(f64::from))
@@ -648,16 +672,21 @@ impl ServerAtlas {
         found
     }
 
-    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is remembered; a
-    /// URL uses the current frame's host snapshot.
+    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
+    /// remembered; a URL still loading is asked again next time.
     fn fallback(&self, key: &str) -> Option<Source> {
-        if is_remote(key) {
-            return self.remote_source(key);
-        }
         if let Some(found) = self.extra.borrow().get(key) {
             return found.clone();
         }
-        let (found, settled) = self.local_source(key);
+        let (found, settled) = if is_remote(key) {
+            match self.remote.as_ref()?.state(key) {
+                RemoteImage::Ready(bytes) => (source(bytes), true),
+                RemoteImage::Failed => (None, true),
+                RemoteImage::Loading => (None, false),
+            }
+        } else {
+            self.local_source(key)
+        };
         if settled {
             let mut extra = self.extra.borrow_mut();
             if extra.len() >= MAX_EXTRA {
@@ -690,31 +719,19 @@ impl ServerAtlas {
     /// Make every texture in `keys` resident for this frame: pack textures, then
     /// vanilla images and downloaded URLs. A texture
     /// that fits nowhere without evicting one drawn this frame is left out.
-    pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str, IntoIter: Clone>) {
-        let keys = keys.into_iter();
-        self.begin_required_frame(keys.clone());
+    pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
+        self.clock += 1;
         self.require_current(keys);
     }
 
     /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
-    pub fn require_current<'a>(
-        &mut self,
-        keys: impl IntoIterator<Item = &'a str, IntoIter: Clone>,
-    ) {
-        let keys = keys.into_iter();
+    pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.
         let mut missing = Vec::new();
         for key in keys {
-            // Every draw of a downloaded image tells the host it is still on screen.
-            if is_remote(key) {
-                if let Some(remote) = &self.remote {
-                    remote.touch(key);
-                }
-                self.remote_source(key);
-            }
             if self.is_native_sheet(key) {
                 let Some(source) = self.native_source(key) else {
                     continue;
@@ -846,7 +863,6 @@ impl ServerAtlas {
         }
         page.pixels.fill(0);
         page.cursor = [0; 3];
-        page.free.clear();
         Some((index, page.allocate(size)?))
     }
 }
