@@ -26,6 +26,12 @@ use crate::{Channel, Value};
 ///
 /// Only [`ClientPart::init`] is required; the callbacks default to doing nothing.
 pub trait ClientPart {
+    /// The generated registry to confirm before any authored callback runs. Existing client
+    /// parts without source-generated messages keep their current initialization behavior.
+    fn registry() -> Option<&'static crate::message::Registry> {
+        None
+    }
+
     /// Runs once, when the client part starts.
     fn init();
 
@@ -67,6 +73,54 @@ pub trait ClientPart {
     fn shift_changed(_held: bool) {}
 }
 
+thread_local! {
+    static REGISTRY_STATE: std::cell::Cell<crate::message::RegistryState> = const {
+        std::cell::Cell::new(crate::message::RegistryState::Waiting)
+    };
+}
+
+/// Initializes legacy parts immediately; generated projects wait for their registry confirmation.
+#[doc(hidden)]
+pub fn initialize<T: ClientPart>() {
+    REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
+    if T::registry().is_none() {
+        T::init();
+    }
+}
+
+/// Whether authored callbacks may run for this component instance.
+#[doc(hidden)]
+pub fn active<T: ClientPart>() -> bool {
+    T::registry().is_none() || REGISTRY_STATE.get() == crate::message::RegistryState::Active
+}
+
+/// Confirms the complete registry before initialization or dispatching application messages.
+#[doc(hidden)]
+pub fn dispatch<T: ClientPart>(channel: String, record: Vec<Value>) {
+    if let Some(registry) = T::registry()
+        && channel == registry.channel.id
+    {
+        let mut state = REGISTRY_STATE.get();
+        let confirmation = state.confirm(registry, &record);
+        REGISTRY_STATE.set(state);
+        match confirmation {
+            Ok(true) => T::init(),
+            Ok(false) => {}
+            Err(error) => panic!("{error}"),
+        }
+    } else if active::<T>() {
+        T::dispatch(channel, record);
+    }
+}
+
+/// Sends a generated message after checking its direction and every declared field bound.
+pub fn send_message<M: crate::message::Message>(message: &M) -> Result<(), String> {
+    if M::CHANNEL.direction != crate::Direction::ToServer {
+        return Err("cannot send a to-client message from the client".into());
+    }
+    send(&M::CHANNEL, &message.encode()?)
+}
+
 /// Sends `record` on the to-server `channel`. The host checks it against the channel's
 /// declaration and the session's message limit, and refuses it with the reason.
 pub fn send(channel: &Channel, record: &[Value]) -> Result<(), String> {
@@ -91,46 +145,46 @@ macro_rules! export_client_part {
     ($ty:ident) => {
         impl $crate::client::bindings::Guest for $ty {
             fn init() {
-                <$ty as $crate::client::ClientPart>::init()
+                $crate::client::initialize::<$ty>()
             }
 
             fn dispatch(channel: ::std::string::String, record_json: ::std::vec::Vec<u8>) {
                 // The host dispatches only records it validated, so nothing else arrives.
                 if let ::core::option::Option::Some(record) = $crate::client::record(&record_json)
                 {
-                    <$ty as $crate::client::ClientPart>::dispatch(channel, record)
+                    $crate::client::dispatch::<$ty>(channel, record)
                 }
             }
 
             fn action(id: ::std::string::String, collection_index: ::core::option::Option<u32>) {
-                <$ty as $crate::client::ClientPart>::action(id, collection_index)
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::action(id, collection_index) }
             }
 
             fn epoch() {
-                <$ty as $crate::client::ClientPart>::epoch()
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::epoch() }
             }
 
             fn modal_resized(size: $crate::client::ui::GuiSize) {
-                <$ty as $crate::client::ClientPart>::modal_resized(size)
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::modal_resized(size) }
             }
 
             fn text_changed(control: ::std::string::String, text: ::std::string::String) {
-                <$ty as $crate::client::ClientPart>::text_changed(control, text)
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::text_changed(control, text) }
             }
 
             fn secondary_action(
                 id: ::std::string::String,
                 collection_index: ::core::option::Option<u32>,
             ) {
-                <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index)
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index) }
             }
 
             fn scroll_changed(view: ::std::string::String, range: $crate::client::ui::ScrollRange) {
-                <$ty as $crate::client::ClientPart>::scroll_changed(view, range)
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::scroll_changed(view, range) }
             }
 
             fn shift_changed(held: bool) {
-                <$ty as $crate::client::ClientPart>::shift_changed(held)
+                if $crate::client::active::<$ty>() { <$ty as $crate::client::ClientPart>::shift_changed(held) }
             }
         }
 
@@ -140,8 +194,62 @@ macro_rules! export_client_part {
 
 #[cfg(test)]
 mod tests {
-    use super::{record, record_json};
-    use crate::Value;
+    use super::{ClientPart, active, dispatch, initialize, record, record_json};
+    use crate::{Channel, Direction, Field, Value, message::Registry};
+
+    thread_local! { static INITIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+    struct Legacy;
+    impl ClientPart for Legacy {
+        /// Counts initialization without invoking any host imports.
+        fn init() {
+            INITIALIZATIONS.set(INITIALIZATIONS.get() + 1);
+        }
+    }
+
+    struct Guarded;
+    impl ClientPart for Guarded {
+        /// Requires the generated confirmation before any authored callback runs.
+        fn registry() -> Option<&'static Registry> {
+            Some(&REGISTRY)
+        }
+        /// Counts initialization without invoking any host imports.
+        fn init() {
+            INITIALIZATIONS.set(INITIALIZATIONS.get() + 1);
+        }
+    }
+
+    static REGISTRY: Registry = Registry {
+        channel: Channel {
+            id: "test.registry",
+            schema: 1,
+            direction: Direction::ToClient,
+            fields: &[Field::Text { max_bytes: 64 }],
+        },
+        fingerprint: "expected",
+    };
+
+    #[test]
+    fn legacy_client_parts_keep_immediate_initialization() {
+        INITIALIZATIONS.set(0);
+        initialize::<Legacy>();
+        assert!(active::<Legacy>());
+        assert_eq!(INITIALIZATIONS.get(), 1);
+    }
+
+    #[test]
+    fn generated_parts_wait_for_exactly_one_confirmation() {
+        INITIALIZATIONS.set(0);
+        initialize::<Guarded>();
+        dispatch::<Guarded>("test.data".into(), vec![]);
+        assert!(!active::<Guarded>());
+        assert_eq!(INITIALIZATIONS.get(), 0);
+        for _ in 0..2 {
+            dispatch::<Guarded>("test.registry".into(), vec![Value::Text("expected".into())]);
+        }
+        assert!(active::<Guarded>());
+        assert_eq!(INITIALIZATIONS.get(), 1);
+    }
 
     /// Every kind of value in the wire's JSON form, as the host dispatches and parses records.
     const RECORD: &str = concat!(

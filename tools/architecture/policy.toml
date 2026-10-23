@@ -561,7 +561,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["crash-report", "diagnostics", "workspace-declarations"]
+allowed_dependencies = ["cinnabar-cxb", "crash-report", "diagnostics", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -626,7 +626,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-cxb"
 path = "tools/cxb"
-allowed_dependencies = ["protocol", "server-experience"]
+allowed_dependencies = ["experience-sdk", "protocol", "server-experience", "mod-host"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[markers]]

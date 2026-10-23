@@ -19,6 +19,7 @@ reads = [
 ]
 
 [dependencies]
+cinnabar-cxb = { path = "../cxb" }
 diagnostics = { path = "../../crates/diagnostics" }
 crash-report = { path = "../../crates/crash-report" }
 serde = { version = "1", features = ["derive"] }

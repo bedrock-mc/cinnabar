@@ -2,6 +2,11 @@
 
 /// The half that sends on a channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "messages",
+    derive(serde::Serialize),
+    serde(rename_all = "snake_case")
+)]
 pub enum Direction {
     /// The server half sends; the client part receives the record in `dispatch`.
     ToClient,
@@ -11,6 +16,11 @@ pub enum Direction {
 
 /// The type of one field of a channel record, which bounds the values it admits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "messages",
+    derive(serde::Serialize),
+    serde(tag = "type", rename_all = "snake_case")
+)]
 pub enum Field {
     Bool,
     /// An integer in `min..=max`.
@@ -40,6 +50,7 @@ pub enum Field {
 /// A typed channel, as `experience.toml` declares it in `[[client.channels]]`. The host validates
 /// every record against the declaration that the client part's `.cxb` signs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "messages", derive(serde::Serialize))]
 pub struct Channel {
     /// `<experience id>.<name>`.
     pub id: &'static str,

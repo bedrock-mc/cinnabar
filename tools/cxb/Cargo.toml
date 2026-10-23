@@ -12,6 +12,7 @@ reads = [
 ]
 
 [dependencies]
+experience-sdk = { path = "../../crates/experience-sdk", default-features = false, features = ["project"] }
 ring = "=0.17.14"
 anyhow.workspace = true
 protocol = { path = "../../crates/protocol" }
@@ -24,6 +25,7 @@ wit-component.workspace = true
 zip = { version = "=7.2.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
+mod-host = { path = "../../crates/mod-host" }
 tempfile = "=3.27.0"
 
 [lints]

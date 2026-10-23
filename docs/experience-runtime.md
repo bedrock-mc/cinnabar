@@ -121,6 +121,10 @@ declarations with one name, a channel outside the namespace and a template that 
 
 ### Building and packaging
 
+For a Rust client part with a Go server, [mod projects](mod-projects.md) generate
+the scaffold, messages, assets and signed bundle with `devtool mod new/build`.
+The steps below remain available for existing Experience artifacts.
+
 1. Write `experience.toml` without `[files]`.
 2. Write the server half: a `cdylib` crate that depends on `crates/experience-sdk` with the
    `server` feature and takes `experience.toml`'s declarations. `examples/experiences/probe` is a

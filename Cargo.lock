@@ -2412,6 +2412,8 @@ name = "cinnabar-cxb"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-sdk",
+ "mod-host",
  "protocol",
  "ring",
  "serde",
@@ -3579,6 +3581,7 @@ dependencies = [
 name = "devtool"
 version = "0.1.28"
 dependencies = [
+ "cinnabar-cxb",
  "crash-report",
  "csv",
  "ctrlc",
@@ -3971,8 +3974,13 @@ dependencies = [
 name = "experience-sdk"
 version = "0.1.28"
 dependencies = [
+ "anyhow",
+ "quote",
  "serde",
  "serde_json",
+ "sha2",
+ "syn 2.0.118",
+ "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "wit-bindgen",
 ]

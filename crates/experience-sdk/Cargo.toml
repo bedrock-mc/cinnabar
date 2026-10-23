@@ -9,11 +9,14 @@ publish = false
 # that uses the SDK sets `default-features = false` and names what it uses: each half is its own
 # component, a guest takes `server` or `client`, and its build script `declarations`.
 [features]
-default = ["server", "client", "declarations"]
+default = ["server", "client", "declarations", "project"]
 # The server half: `server::Experience` and `export_experience!`.
 server = ["dep:wit-bindgen"]
 # The client part: `client::ClientPart`, `client::send` and `export_client_part!`.
-client = ["dep:wit-bindgen", "dep:serde", "dep:serde_json"]
+client = ["dep:wit-bindgen", "messages"]
+messages = ["dep:serde", "dep:serde_json"]
+# Source-driven mod projects and their build scripts.
+project = ["declarations", "messages", "dep:anyhow", "dep:syn", "dep:quote", "dep:sha2"]
 # For build scripts: `declarations::generate` reads `experience.toml`.
 declarations = ["dep:serde", "dep:toml"]
 
@@ -22,6 +25,13 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 toml = { version = "0.9", optional = true }
 wit-bindgen = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+syn = { version = "2", features = ["full", "extra-traits"], optional = true }
+quote = { version = "1", optional = true }
+sha2 = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true
