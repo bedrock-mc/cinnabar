@@ -128,10 +128,6 @@ mod tests {
     }
     #[cfg(windows)]
     #[test]
-    #[expect(
-        clippy::print_stderr,
-        reason = "names the missing Windows link fixture"
-    )]
     fn removing_a_windows_directory_link_preserves_the_populated_target() {
         let root = tempfile::tempdir().unwrap();
         let library = root.path().join("shaderpacks");

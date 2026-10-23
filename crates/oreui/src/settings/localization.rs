@@ -369,6 +369,10 @@ pub(super) fn fallback(key: &str) -> &str {
         "color.dark_red" => "Dark Red",
         "color.dark_blue" => "Dark Blue",
         "color.black" => "Black",
+        "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Third-Person Self Visuals",
+        "options.f5SelfVisuals.description" => {
+            "Display nametag, score, badges, and status overhead on your own player in third-person view."
+        }
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
         "hbui.Settings.category.general" => "General",

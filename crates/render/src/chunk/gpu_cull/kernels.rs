@@ -1,26 +1,24 @@
 //! Cull and depth-pyramid compute kernels on raw wgpu, so fixture tests drive the production code.
 
-use crate::queue_writes::ProfiledQueue as _;
 use std::{borrow::Cow, num::NonZeroU64};
 
+use super::storage::{CullStorage, OcclusionStorage};
 use wgpu::util::DeviceExt;
 
 use super::model::{
-    CULL_WORKGROUP, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_CUTOUT_SHIFT,
+    CULL_STORAGE_BINDINGS, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_CUTOUT_SHIFT,
     DECISION_DRAWS, DECISION_HIDDEN, DECISION_LIQUID_SHIFT, DECISION_MODEL_SHIFT,
     DECISION_SOLID_MASK, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HIZ_PADDING, PHASE_COUNT,
-    STREAM_COUNT, args_words, draw_offset_bytes, group_count,
+    PYRAMID_WORKGROUP, cull_workgroup, group_count,
 };
 
-const RECORD_BYTES: u64 = std::mem::size_of::<super::model::CullRecord>() as u64;
 const PYRAMID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
-const PYRAMID_WORKGROUP: u32 = 8;
 
 /// The cull kernel source with its Rust-owned constants substituted.
-pub fn cull_shader_source() -> String {
+pub fn cull_shader_source(workgroup: u32) -> String {
     let float = |value: f32| format!("{value:?}f");
     include_str!("cull.wgsl")
-        .replace("CULL_WORKGROUP", &format!("{CULL_WORKGROUP}u"))
+        .replace("CULL_WORKGROUP", &format!("{workgroup}u"))
         .replace("CULL_DECISION_DRAWS", &format!("{DECISION_DRAWS}u"))
         .replace("CULL_DECISION_CANDIDATE", &format!("{DECISION_CANDIDATE}u"))
         .replace("CULL_DECISION_HIDDEN", &format!("{DECISION_HIDDEN}u"))
@@ -48,145 +46,6 @@ pub fn cull_shader_source() -> String {
 
 pub fn pyramid_shader_source() -> &'static str {
     include_str!("hiz.wgsl")
-}
-
-/// GPU buffers for `capacity` record slots; `readback` adds copy-out for tests.
-pub struct CullStorage {
-    pub capacity: u32,
-    pub records: wgpu::Buffer,
-    pub enabled: wgpu::Buffer,
-    pub history: wgpu::Buffer,
-    pub record_draws: wgpu::Buffer,
-    pub group_sums: wgpu::Buffer,
-    pub args: wgpu::Buffer,
-    pub draw_counts: wgpu::Buffer,
-    /// Per-command vertex entries; see [`super::model::resolve_culled_args`].
-    pub draw_offsets: wgpu::Buffer,
-    pub uniforms: [wgpu::Buffer; PHASE_COUNT],
-}
-
-impl CullStorage {
-    pub fn new(device: &wgpu::Device, capacity: u32, readback: bool) -> Self {
-        use wgpu::BufferUsages as U;
-        let copy_out = if readback { U::COPY_SRC } else { U::empty() };
-        let buffer = |label: &str, size: u64, usage: U| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: size.max(16),
-                usage,
-                mapped_at_creation: false,
-            })
-        };
-        let slots = u64::from(capacity);
-        let uniform = |label| {
-            buffer(
-                label,
-                std::mem::size_of::<CullViewUniform>() as u64,
-                U::UNIFORM | U::COPY_DST,
-            )
-        };
-        Self {
-            capacity,
-            records: buffer(
-                "terrain cull records",
-                slots * RECORD_BYTES,
-                U::STORAGE | U::COPY_DST,
-            ),
-            enabled: buffer(
-                "terrain cull enabled bits",
-                slots.div_ceil(32) * 4,
-                U::STORAGE | U::COPY_DST,
-            ),
-            history: buffer(
-                "terrain cull visibility history",
-                slots * 4,
-                U::STORAGE | U::COPY_DST | copy_out,
-            ),
-            record_draws: buffer(
-                "terrain cull record draws",
-                slots * 4,
-                U::STORAGE | U::COPY_SRC,
-            ),
-            group_sums: buffer(
-                "terrain cull group sums",
-                u64::from(group_count(capacity).max(1)) * 16,
-                U::STORAGE,
-            ),
-            args: buffer(
-                "terrain cull indirect args",
-                args_words(capacity) * 4,
-                U::STORAGE | U::INDIRECT | U::COPY_DST | copy_out,
-            ),
-            draw_counts: buffer(
-                "terrain cull draw counts",
-                (PHASE_COUNT * STREAM_COUNT * 4) as u64,
-                U::STORAGE | U::INDIRECT | copy_out,
-            ),
-            draw_offsets: buffer(
-                "terrain cull draw offsets",
-                draw_offset_bytes(capacity),
-                U::STORAGE | U::VERTEX | copy_out,
-            ),
-            uniforms: [
-                uniform("terrain cull early view"),
-                uniform("terrain cull late view"),
-            ],
-        }
-    }
-
-    pub fn write_uniform(&self, queue: &wgpu::Queue, phase: CullPhase, uniform: &CullViewUniform) {
-        queue.profiled_write_buffer(
-            &self.uniforms[phase as usize],
-            0,
-            bytemuck::bytes_of(uniform),
-        );
-    }
-}
-
-/// Buffers for the occluded bit of `capacity` record slots.
-pub struct OcclusionStorage {
-    pub capacity: u32,
-    pub records: wgpu::Buffer,
-    /// One occluded bit per slot.
-    pub occluded: wgpu::Buffer,
-    pub uniform: wgpu::Buffer,
-}
-
-impl OcclusionStorage {
-    pub fn new(device: &wgpu::Device, capacity: u32) -> Self {
-        use wgpu::BufferUsages as U;
-        let buffer = |label: &str, size: u64, usage: U| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: size.max(16),
-                usage,
-                mapped_at_creation: false,
-            })
-        };
-        Self {
-            capacity,
-            records: buffer(
-                "terrain occlusion records",
-                u64::from(capacity) * RECORD_BYTES,
-                U::STORAGE | U::COPY_DST,
-            ),
-            occluded: buffer(
-                "terrain occlusion bits",
-                occlusion_bytes(capacity),
-                U::STORAGE | U::COPY_SRC,
-            ),
-            uniform: buffer(
-                "terrain occlusion view",
-                std::mem::size_of::<CullViewUniform>() as u64,
-                U::UNIFORM | U::COPY_DST,
-            ),
-        }
-    }
-}
-
-/// Bytes of the occluded bitset for `capacity` slots.
-pub fn occlusion_bytes(capacity: u32) -> u64 {
-    u64::from(capacity.div_ceil(32)) * 4
 }
 
 /// Mip sizes for a depth target: level 0 is half the next power of two on each axis, so
@@ -307,6 +166,7 @@ pub struct PyramidBindings {
 }
 
 pub struct CullKernels {
+    pub workgroup: u32,
     layout: wgpu::BindGroupLayout,
     count: wgpu::ComputePipeline,
     scan: wgpu::ComputePipeline,
@@ -319,7 +179,10 @@ pub struct CullKernels {
 }
 
 impl CullKernels {
+    /// Creates kernels only after admission has established compatible device limits.
     pub fn new(device: &wgpu::Device) -> Self {
+        let workgroup =
+            cull_workgroup(&device.limits()).expect("cull kernels require compatible limits");
         let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -330,40 +193,32 @@ impl CullKernels {
             },
             count: None,
         };
+        let mut entries = vec![
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(std::mem::size_of::<CullViewUniform>() as u64),
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 8,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+        ];
+        entries.extend(CULL_STORAGE_BINDINGS.map(|binding| storage(binding, binding < 3)));
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain cull layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(
-                            std::mem::size_of::<CullViewUniform>() as u64
-                        ),
-                    },
-                    count: None,
-                },
-                storage(1, true),
-                storage(2, true),
-                storage(3, false),
-                storage(4, false),
-                storage(5, false),
-                storage(6, false),
-                storage(7, false),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 8,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                storage(10, false),
-            ],
+            entries: &entries,
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain cull pipeline layout"),
@@ -376,7 +231,7 @@ impl CullKernels {
                 source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
             })
         };
-        let cull = module("terrain cull", cull_shader_source());
+        let cull = module("terrain cull", cull_shader_source(workgroup));
         let pyramid = module("terrain hi-z", pyramid_shader_source().to_owned());
         let pipeline = |module, layout: Option<&wgpu::PipelineLayout>, entry: &str| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -385,7 +240,7 @@ impl CullKernels {
                 module,
                 entry_point: Some(entry),
                 // Every kernel writes its own workgroup slots before any barrier reads them, and
-                // the occlusion bits are cleared explicitly. Zero-filling the 256-entry scratch
+                // the occlusion bits are cleared explicitly. Zero-filling the workgroup scratch
                 // anyway kept FXC optimising for seconds per kernel at every DX12 launch.
                 compilation_options: wgpu::PipelineCompilationOptions {
                     zero_initialize_workgroup_memory: false,
@@ -409,6 +264,7 @@ impl CullKernels {
             view_formats: &[],
         });
         Self {
+            workgroup,
             count: pipeline(&cull, Some(&pipeline_layout), "cull_count"),
             scan: pipeline(&cull, Some(&pipeline_layout), "cull_scan"),
             emit: pipeline(&cull, Some(&pipeline_layout), "cull_emit"),
@@ -480,7 +336,7 @@ impl CullKernels {
             timestamp_writes,
         });
         pass.set_bind_group(0, bind_group, &[]);
-        let groups = group_count(slots);
+        let groups = group_count(slots, self.workgroup);
         for (pipeline, workgroups) in [(&self.count, groups), (&self.scan, 1), (&self.emit, groups)]
         {
             if workgroups != 0 {
@@ -518,7 +374,7 @@ impl CullKernels {
         bind_group: &wgpu::BindGroup,
         slots: u32,
     ) {
-        let groups = group_count(slots);
+        let groups = group_count(slots, self.workgroup);
         if groups == 0 {
             return;
         }

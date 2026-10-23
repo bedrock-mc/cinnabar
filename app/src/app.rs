@@ -45,7 +45,7 @@ use {
 };
 pub(crate) mod logging;
 pub(crate) mod session;
-mod startup;
+pub(crate) mod startup;
 use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
@@ -69,7 +69,8 @@ use {
         runtime::{
             network::receive_network_events,
             shutdown::{
-                TerminalCause, exit_on_fatal_runtime_error, exit_on_window_close_requested,
+                TerminalCause, exit_on_fatal_runtime_error, exit_on_gpu_failure,
+                exit_on_window_close_requested,
             },
             telemetry::{
                 publish_runtime_stage_profile, record_metrics, update_visibility_diagnostics,
@@ -249,6 +250,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             Update,
             (
                 exit_on_window_close_requested,
+                exit_on_gpu_failure,
                 flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
@@ -326,7 +328,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let carriers =
+        startup::take_or_load_startup_carriers(selected_assets, &layout.physics_registry);
     let startup::CoreCarriers {
         assets: loaded_assets,
         actor: actor_catalog,
