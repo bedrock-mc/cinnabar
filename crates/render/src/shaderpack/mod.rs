@@ -37,7 +37,7 @@ mod dispatch;
 #[cfg(feature = "shaderpacks")]
 mod draws;
 #[cfg(feature = "shaderpacks")]
-mod effects;
+pub(crate) mod effects;
 #[cfg(feature = "shaderpacks")]
 mod frame_geometry;
 #[cfg(feature = "shaderpacks")]
@@ -82,9 +82,6 @@ mod uniform_audit;
 mod uniforms;
 
 pub(crate) mod native_actors;
-
-#[cfg(feature = "shaderpacks")]
-pub(crate) use effects::textures::SharedAtlasRelease;
 
 use bevy::prelude::{App, Plugin};
 

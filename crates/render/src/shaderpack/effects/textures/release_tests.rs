@@ -18,7 +18,7 @@ impl Plugin for AtlasOwners {
 }
 
 /// Creates a validated headless pack that samples the native effect atlases.
-fn app() -> App {
+pub(crate) fn app() -> App {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -91,7 +91,7 @@ fn app() -> App {
 }
 
 /// Publishes distinct original pixels through the selected native atlas upload system.
-fn publish(world: &mut World, value: u8, particles: bool) {
+pub(crate) fn publish(world: &mut World, value: u8, particles: bool) {
     let side = 16;
     if particles {
         world.insert_resource(render_scene::ParticleGpuFrame {

@@ -2,6 +2,8 @@
 //! Models and portal planes draw in the opaque phase; overlays draw afterward.
 
 use crate::queue_writes::ProfiledQueue as _;
+#[cfg(feature = "shaderpacks")]
+use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -248,7 +250,7 @@ pub(crate) fn prepare_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
-    #[cfg(feature = "shaderpacks")] mut shared_atlases: crate::shaderpack::SharedAtlasRelease,
+    #[cfg(feature = "shaderpacks")] mut shared_atlases: SharedAtlasRelease,
 ) {
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
