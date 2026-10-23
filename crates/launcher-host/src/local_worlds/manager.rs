@@ -707,15 +707,21 @@ impl Manager {
         stopped.is_ok()
     }
 
-    /// The live edits the current server generation applied, with its world, taken for
-    /// acknowledgement once that server has saved.
-    fn take_saved(life: &mut Life) -> Option<(String, OptionChanges)> {
-        let generation = life.generation;
+    /// The live edits the current server generation applied, with its world, for acknowledgement
+    /// once that server has saved.
+    fn generation_saved(life: &Life) -> Option<(String, OptionChanges)> {
         life.live_applied
-            .take()
-            .filter(|(applied_generation, _)| *applied_generation == generation)
+            .as_ref()
+            .filter(|(applied_generation, _)| *applied_generation == life.generation)
             .zip(life.world.as_ref())
-            .map(|((_, applied), world)| (world.id.clone(), applied))
+            .map(|((_, applied), world)| (world.id.clone(), applied.clone()))
+    }
+
+    /// [`Self::generation_saved`], clearing the lifecycle's record of them.
+    fn take_saved(life: &mut Life) -> Option<(String, OptionChanges)> {
+        let saved = Self::generation_saved(life);
+        life.live_applied = None;
+        saved
     }
 
     /// Stops the server, then drops the pending edits it applied live once its successful exit

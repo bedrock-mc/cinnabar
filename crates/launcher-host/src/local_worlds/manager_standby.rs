@@ -157,10 +157,18 @@ impl Manager {
         self.set_state(life, WorldState::Starting);
         let granted = life.granted.clone();
         let generation = life.generation;
+        // Live edits need a running world, so none arrive before the adoption ends; captured now,
+        // they survive a later open replacing the lifecycle while this server still saves.
+        let generation_saved = Self::generation_saved(life);
         let fallback = Arc::clone(&instance);
         let barrier = running.clone();
         let started = self.background(move |manager| {
-            manager.finish_adopt(instance, granted, &cancel, generation);
+            let adoption = Adoption {
+                granted,
+                saved: generation_saved,
+                generation,
+            };
+            manager.finish_adopt(instance, adoption, &cancel);
             drop(running);
         });
         if started {
@@ -186,13 +194,12 @@ impl Manager {
     /// Reconciles an adopted server's operator grant, launched as `granted`, then reports it
     /// running unless it exited meanwhile. A cancelled or failed adoption stops the server and
     /// records the live edits it saved.
-    fn finish_adopt(
-        &self,
-        instance: Arc<dyn Instance>,
-        granted: Option<String>,
-        cancel: &Cancel,
-        generation: u64,
-    ) {
+    fn finish_adopt(&self, instance: Arc<dyn Instance>, adoption: Adoption, cancel: &Cancel) {
+        let Adoption {
+            granted,
+            saved,
+            generation,
+        } = adoption;
         let adopted = Arc::clone(&instance);
         let deadline = Instant::now() + self.inner.host_wait;
         let reconciled = match self.inner.runners.host_grant(Backend::Bds) {
@@ -203,9 +210,9 @@ impl Manager {
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() || reconciled.is_err() {
-            let saved = (life.generation == generation)
-                .then(|| Self::take_saved(&mut life))
-                .flatten();
+            if life.generation == generation {
+                life.live_applied = None;
+            }
             if let Err(error) = &reconciled
                 && !cancel.is_cancelled()
             {
@@ -271,6 +278,16 @@ impl Manager {
             tracing::warn!("record when {id} was last played: {error}");
         }
     }
+}
+
+/// What an adoption worker needs from the lifecycle it was started in.
+struct Adoption {
+    /// The operator the server was launched with.
+    granted: Option<String>,
+    /// The world and the live edits this server generation applied, for acknowledgement once it
+    /// has saved.
+    saved: Option<(String, OptionChanges)>,
+    generation: u64,
 }
 
 /// Stops a server whose adoption no worker took over, outside the lifecycle lock.

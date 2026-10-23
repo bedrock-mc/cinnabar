@@ -388,3 +388,34 @@ fn an_exit_during_adoption_fails_the_world() {
     let status = wait_for(manager, WorldState::Failed);
     assert!(status.error.is_some());
 }
+
+/// A cancelled adoption records its server's saved live edits even when another world opens
+/// while that server is still saving.
+#[test]
+fn a_cancelled_adoption_records_saved_edits_across_a_new_open() {
+    let (grant_release, grant_gate) = crossbeam_channel::bounded::<()>(0);
+    let (save_release, save) = crossbeam_channel::bounded::<()>(0);
+    let runner = Arc::new(FakeRunner {
+        grant_gate: Some(grant_gate),
+        save: Some(save),
+        ..FakeRunner::default()
+    });
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "w");
+    let other = bds(manager, "other");
+    play_with_live_pvp(manager, &world);
+    manager.leave();
+    manager.set_host(Host::Xuid(HOST.to_owned()));
+    manager.open(&world.id, None).expect("reopen");
+    test_time::eventually("the adoption grants the host", || {
+        lock(&runner.last().grants).len() == 1
+    });
+    manager.close();
+    manager.open(&other.id, None).expect("open another world");
+    drop(save_release);
+    drop(grant_release);
+    wait_for(manager, WorldState::Running);
+    let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
+    assert!(pending.is_empty(), "{pending:?}");
+}
