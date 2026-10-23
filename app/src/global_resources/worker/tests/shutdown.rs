@@ -39,6 +39,7 @@ fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledge
     let mut app = App::new();
     app.insert_resource(Worker {
         commands,
+        picker: crossbeam_channel::unbounded().0,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,
@@ -71,4 +72,55 @@ fn quitting_waits_for_exit_frame_edits_to_reach_disk_without_runtime_acknowledge
         "shutdown returned before the edit was saved"
     );
     assert_eq!(persisted[0].id, pack.id);
+}
+
+#[test]
+fn shutdown_saves_queued_edits_while_the_import_picker_remains_open() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+    let pack = import_fixture(&mut library, fixture.path(), 1);
+    let (opened, opening) = crossbeam_channel::bounded(1);
+    let (close, closing) = crossbeam_channel::bounded::<()>(1);
+    let mut worker = Worker::new_with_picker(
+        root.clone(),
+        fixture.path().join("config"),
+        Vec::new(),
+        move || {
+            opened.send(()).unwrap();
+            let _ = closing.recv();
+            Ok(Vec::new())
+        },
+    );
+    worker.send(Command::Action {
+        action: Action::Import,
+        revision: 0,
+    });
+    test_time::eventually("the open import picker", || opening.try_recv().is_ok());
+    worker.send(Command::Action {
+        action: Action::Activate(0),
+        revision: 0,
+    });
+    worker.send(Command::Leave);
+    let (done, completed) = crossbeam_channel::bounded(1);
+    let drain = std::thread::spawn(move || {
+        worker.flush_pending();
+        done.send(()).unwrap();
+    });
+    // Closing the gate on failure lets the worker finish without a stranded thread.
+    let result = std::panic::catch_unwind(|| {
+        test_time::eventually("disk writes while the picker is open", || {
+            completed.try_recv().is_ok()
+        });
+        assert_eq!(
+            GlobalPackLibrary::open(&root, engine_version())
+                .unwrap()
+                .active()[0]
+                .id,
+            pack.id
+        );
+    });
+    drop(close);
+    drain.join().unwrap();
+    result.unwrap();
 }

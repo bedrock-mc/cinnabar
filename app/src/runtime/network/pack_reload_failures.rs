@@ -120,3 +120,82 @@ fn environment_images_publish_only_for_the_accepted_revision_and_generation() {
         }
     }
 }
+
+#[test]
+fn failed_global_selection_is_acknowledged_after_session_end_recovery() {
+    use bevy::prelude::{IntoScheduleConfigs, Local, ResMut, Update};
+    use client_shell::menu::MenuRuntime;
+    use resource_pack::GlobalPackLibrary;
+
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let archive = super::super::pack_reload_tests::stack(&[]);
+    let path = fixture.path().join("fixture.mcpack");
+    std::fs::write(&path, archive.packs()[0].archive_bytes().as_slice()).unwrap();
+    let mut library = GlobalPackLibrary::open(&root, [1, 0, 0]).unwrap();
+    let pack = library.import(&path).unwrap().imported.remove(0);
+    library.activate(pack.id).unwrap();
+    library.apply().unwrap();
+    let expected = library.active().to_vec();
+    let mut app = super::super::pack_reload_tests::app_with_assets(Arc::new(
+        assets::RuntimeAssets::diagnostic(),
+    ));
+    app.insert_resource(MenuRuntime::new(true, 2, "Fixture".into()))
+        .add_message::<bevy::window::FileDragAndDrop>();
+    app.world_mut()
+        .resource_mut::<PackReload>()
+        .begin_session(1, &PackApplication::default());
+    crate::global_resources::configure(&mut app, root, fixture.path().join("config"), Vec::new());
+    app.add_systems(
+        Update,
+        (|mut reload: ResMut<PackReload>, mut failed: Local<bool>| {
+            if reload.revision > 1 && !*failed {
+                let (tx, rx) = mpsc::sync_channel(1);
+                tx.send(Err("fixture reload failure".into())).unwrap();
+                reload.pending = Some(Pending {
+                    revision: reload.revision,
+                    generation: reload.generation,
+                    result: Mutex::new(rx),
+                    carrier: Mutex::new(mpsc::sync_channel(1).1),
+                    early: None,
+                });
+                *failed = true;
+            }
+        })
+        .before(reload_resource_packs),
+    );
+    test_time::eventually("the failed global reload", || {
+        app.update();
+        app.world().resource::<PackReload>().error().is_some()
+    });
+    app.update();
+    assert!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .global_resources
+            .applied_selection
+            .is_none()
+    );
+    let revision = {
+        let mut reload = app.world_mut().resource_mut::<PackReload>();
+        reload.end_session();
+        reload.revision
+    };
+    super::super::pack_reload_tests::settle(&mut app, revision);
+    assert!(app.world().resource::<PackReload>().error().is_none());
+    test_time::eventually("the recovered selection acknowledgement", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .global_resources
+            .applied_selection
+            .as_ref()
+            == Some(&expected)
+    });
+    assert!(
+        !app.world()
+            .resource::<MenuRuntime>()
+            .global_resources
+            .has_pending_changes()
+    );
+}

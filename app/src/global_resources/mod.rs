@@ -180,18 +180,25 @@ fn drive(
             }
             worker::Event::Apply(stack, selection) => {
                 let revision = reload.request_globals(stack);
-                worker.awaiting = Some((revision, selection));
+                worker.awaiting = Some(worker::Awaiting {
+                    revision,
+                    selection,
+                    failed: false,
+                });
             }
         }
     }
-    if worker.awaiting.as_ref().is_some_and(|(revision, _)| {
-        *revision <= reload.completed_revision() && reload.error().is_none()
+    if worker.awaiting.as_ref().is_some_and(|awaiting| {
+        awaiting.revision <= reload.completed_revision() && reload.error().is_none()
     }) {
-        let (_, selection) = worker.awaiting.take().expect("completed selection");
-        worker.send(worker::Command::Commit(selection));
+        let awaiting = worker.awaiting.take().expect("completed selection");
+        worker.send(worker::Command::Commit(awaiting.selection));
     } else if reload.error().is_some()
-        && let Some((_, selection)) = worker.awaiting.take()
+        && let Some(awaiting) = worker.awaiting.as_mut()
+        && !awaiting.failed
     {
+        awaiting.failed = true;
+        let selection = awaiting.selection.clone();
         worker.send(worker::Command::ApplyFailed(selection));
     }
     if worker.minecraft_import_pending {

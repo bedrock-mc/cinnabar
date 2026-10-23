@@ -20,6 +20,7 @@ fn leave_events(actions: &[MenuAction]) -> (tempfile::TempDir, Vec<Event>) {
     let mut app = App::new();
     app.insert_resource(Worker {
         commands,
+        picker: crossbeam_channel::unbounded().0,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,

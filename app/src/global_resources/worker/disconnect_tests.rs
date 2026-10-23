@@ -16,6 +16,7 @@ fn fixture() -> (
     let (outgoing, events) = crossbeam_channel::unbounded();
     let worker = Worker {
         commands,
+        picker: crossbeam_channel::unbounded().0,
         events,
         snapshot: Snapshot::default(),
         awaiting: None,

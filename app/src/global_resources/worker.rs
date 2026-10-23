@@ -18,6 +18,7 @@ pub(super) enum Command {
     MinecraftImport(Box<launcher_host::minecraft_import::Request>),
     Action { action: Action, revision: u64 },
     Import(PathBuf),
+    ImportFiles(Result<Vec<PathBuf>, String>),
     Commit(Vec<resource_pack::ActivePack>),
     ApplyFailed(Vec<resource_pack::ActivePack>),
     Leave,
@@ -33,25 +34,53 @@ pub(super) enum Event {
     Apply(Arc<ValidatedPackStack>, Vec<resource_pack::ActivePack>),
 }
 
+/// Tracks one submitted selection through failures and session-triggered recovery.
+pub(super) struct Awaiting {
+    pub revision: u64,
+    pub selection: Vec<resource_pack::ActivePack>,
+    pub failed: bool,
+}
+
 #[derive(Resource)]
 pub(super) struct Worker {
     commands: crossbeam_channel::Sender<Command>,
+    picker: crossbeam_channel::Sender<()>,
     pub events: crossbeam_channel::Receiver<Event>,
     pub snapshot: Snapshot,
-    pub awaiting: Option<(u64, Vec<resource_pack::ActivePack>)>,
+    pub awaiting: Option<Awaiting>,
     pub minecraft_import_pending: bool,
     /// The menu admits one request until the worker publishes its result.
     pub minecraft_import_request: Option<launcher::minecraft_import::Action>,
 }
 
 impl Worker {
-    /// Starts one worker, shared by initial imports, file drops and settings actions.
+    /// Starts serial disk work and a separate interactive picker.
     pub fn new(root: PathBuf, config_root: PathBuf, files: Vec<PathBuf>) -> Self {
+        Self::new_with_picker(root, config_root, files, || picker::pick_files(&PACKS))
+    }
+
+    /// Starts storage with an injectable file picker for headless testing.
+    fn new_with_picker(
+        root: PathBuf,
+        config_root: PathBuf,
+        files: Vec<PathBuf>,
+        pick: impl Fn() -> Result<Vec<PathBuf>, String> + Send + 'static,
+    ) -> Self {
         let (commands, incoming) = crossbeam_channel::unbounded();
         let (outgoing, events) = crossbeam_channel::unbounded();
         std::thread::spawn(move || run(root, config_root, files, incoming, outgoing));
+        let (picker, requests) = crossbeam_channel::unbounded();
+        let picked = commands.clone();
+        std::thread::spawn(move || {
+            for () in requests {
+                if picked.send(Command::ImportFiles(pick())).is_err() {
+                    break;
+                }
+            }
+        });
         Self {
             commands,
+            picker,
             events,
             snapshot: Snapshot::default(),
             awaiting: None,
@@ -62,7 +91,17 @@ impl Worker {
 
     /// Queues a command without blocking the frame.
     pub fn send(&mut self, command: Command) {
-        let _ = self.commands.send(command);
+        if matches!(
+            command,
+            Command::Action {
+                action: Action::Import,
+                ..
+            }
+        ) {
+            let _ = self.picker.send(());
+        } else {
+            let _ = self.commands.send(command);
+        }
     }
 
     /// Waits for queued disk work before exit without waiting for a runtime reload.
@@ -144,6 +183,7 @@ fn run(
             &command,
             Command::MinecraftImport(_)
                 | Command::Import(_)
+                | Command::ImportFiles(_)
                 | Command::Action {
                     action: Action::Activate(_)
                         | Action::Deactivate(_)
@@ -164,6 +204,7 @@ fn run(
             &command,
             Command::MinecraftImport(_)
                 | Command::Import(_)
+                | Command::ImportFiles(_)
                 | Command::Commit(_)
                 | Command::Leave
                 | Command::Action {
@@ -235,10 +276,7 @@ fn run(
             Command::Import(path) => {
                 import_files(&mut library, vec![path], &mut snapshot, refresh_icons)
             }
-            Command::Action {
-                action: Action::Import,
-                ..
-            } => match picker::pick_files(&PACKS) {
+            Command::ImportFiles(paths) => match paths {
                 Ok(paths) => import_files(&mut library, paths, &mut snapshot, refresh_icons),
                 Err(error) => {
                     snapshot.message = error;
@@ -490,7 +528,7 @@ fn act(
             let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
             snapshot.message = "Preparing resource packs…".into();
         }
-        Action::Import => unreachable!("file picker handled by worker"),
+        Action::Import => unreachable!("file picker handled outside disk worker"),
     }
     Ok(())
 }
