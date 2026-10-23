@@ -202,7 +202,14 @@ mod pot_texture_tests {
         let opaque = raster(root.path(), "minecraft:decorated_pot", 0, &[])
             .unwrap()
             .unwrap();
-        assert!(opaque.rgba8.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
+        assert!(
+            opaque
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0)
+        );
         for y in 0..16 {
             for x in [0, 15] {
                 image.put_pixel(x, y, image::Rgba([0; 4]));

@@ -17,10 +17,11 @@ pub fn block_item_has_aux_states(identifier: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
-    #[test]
-    fn aux_state_owners_match_the_active_version_and_are_sorted() {
-        let mut rows = SOURCE.lines();
+    /// Checks formatting, the active version and independently pinned owner membership.
+    fn assert_valid_catalog(source: &str) {
+        let mut rows = source.lines();
         let (field, version) = rows.next().unwrap().split_once('\t').unwrap();
         assert_eq!(field, "game_version");
         let target: serde_json::Value =
@@ -38,6 +39,40 @@ mod tests {
                     })
             })
         }));
+        // Refresh this pin from the target version's complete registration keys,
+        // independently of this catalog. Statefulness alone does not imply aux ownership.
+        let mut hash = Sha256::new();
+        for line in source.lines() {
+            hash.update(line.as_bytes());
+            hash.update(b"\n");
+        }
+        assert_eq!(
+            format!("{:x}", hash.finalize()),
+            "e86ea4da57802dd11f117c71c59e896d4529fa6e7fd72ff7435bd5969f391ec4",
+            "aux-state owner membership differs from the pinned source"
+        );
+    }
+
+    #[test]
+    fn aux_state_owners_match_the_pinned_membership_and_active_version() {
+        assert_valid_catalog(SOURCE);
+    }
+
+    #[test]
+    fn aux_state_owner_validation_rejects_an_omission() {
+        let omitted = SOURCE.replace("minecraft:anvil\n", "");
+        assert_ne!(omitted, SOURCE);
+        assert!(std::panic::catch_unwind(|| assert_valid_catalog(&omitted)).is_err());
+    }
+
+    #[test]
+    fn aux_state_owner_validation_rejects_an_extra() {
+        let extra = SOURCE.replace(
+            "minecraft:blue_candle\n",
+            "minecraft:blue_candle\nminecraft:blue_terracotta\n",
+        );
+        assert_ne!(extra, SOURCE);
+        assert!(std::panic::catch_unwind(|| assert_valid_catalog(&extra)).is_err());
     }
 
     #[test]
