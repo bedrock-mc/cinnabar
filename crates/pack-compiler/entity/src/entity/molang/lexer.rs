@@ -2,7 +2,9 @@ use assets::AssetError;
 
 use crate::entity::invalid;
 
-const MAX_SOURCE_BYTES: usize = 32 * 1024;
+/// A script is one field of a bounded source document; joined entries add only separators that
+/// their JSON quoting already outweighs, so any script read from a pack file fits.
+const MAX_SOURCE_BYTES: usize = assets::MAX_ENTITY_SOURCE_BYTES;
 const MAX_STRING_BYTES: usize = assets::MAX_MOLANG_STRING_BYTES;
 
 #[derive(Clone, Debug, PartialEq)]

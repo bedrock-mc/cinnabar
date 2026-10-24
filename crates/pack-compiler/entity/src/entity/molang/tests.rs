@@ -24,6 +24,57 @@ fn long_authored_scripts_compile_as_one_program_with_ordered_assignments() {
     );
 }
 
+/// Compiles `entries` as one script and returns how many assignments the retained program makes.
+fn retained_assignments(entries: &[&str]) -> usize {
+    let mut compiler = MolangCompiler::default();
+    let (expression, dropped) = compiler.compile_script(entries).unwrap();
+    assert_eq!(dropped, 0);
+    let payload = compiler.finish().unwrap();
+    let expression = &payload.expressions[expression.expect("complete script retained") as usize];
+    payload.ops[expression.first_op as usize..][..usize::from(expression.op_count)]
+        .iter()
+        .filter(|op| matches!(op, MolangOp::StoreVariable(_)))
+        .count()
+}
+
+#[test]
+fn player_scripts_with_hundreds_of_entries_compile_whole() {
+    let entries = (0..600)
+        .map(|index| format!("v.initialized_{index} = 0;"))
+        .collect::<Vec<_>>();
+    let entries = entries.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
+#[test]
+fn pre_animation_scripts_longer_than_32_kib_compile_whole() {
+    let entries = (0..3_000)
+        .map(|index| format!("v.pre_animation_{index} = q.life_time;"))
+        .collect::<Vec<_>>();
+    let entries = entries.iter().map(String::as_str).collect::<Vec<_>>();
+    assert!(entries.join("\n").len() > 32 * 1024);
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
+#[test]
+fn graphics_and_pack_setting_queries_are_admitted() {
+    for source in [
+        "q.graphics_mode_is_any('simple', 'fancy')",
+        "q.is_pack_setting_selected('repro:mode', 'enabled')",
+        "q.is_pack_setting_enabled('repro:enabled')",
+        "q.get_pack_setting('repro:slider')",
+        "q.bone_orientation_trs('rightarm')",
+    ] {
+        assert!(compiles(source), "{source}");
+    }
+    let entries = [
+        "v.simple = q.graphics_mode_is_any('simple');",
+        "v.enabled = q.is_pack_setting_enabled('repro:enabled');",
+        "v.arm = q.bone_orientation_trs('rightarm');",
+    ];
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
 #[test]
 fn server_pre_animation_retains_visibility_after_optional_item_and_property_branches() {
     let mut compiler = MolangCompiler::default();

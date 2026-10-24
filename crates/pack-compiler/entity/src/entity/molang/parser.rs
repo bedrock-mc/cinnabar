@@ -8,7 +8,6 @@ use bounds::bounded;
 
 /// Bounds parser nesting and the depth of recursively owned expression trees.
 pub(super) const MAX_PARSE_DEPTH: usize = 48;
-const MAX_STATEMENTS: usize = 256;
 
 /// Where a named value lives.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -142,10 +141,9 @@ impl Parser<'_> {
     fn statements(&mut self, close: &Token, depth: usize) -> Result<Vec<Statement>, AssetError> {
         let mut statements = Vec::new();
         let mut returned = false;
+        // Statement count is bounded only by the source and operation storage bounds; Marketplace
+        // packs ship player scripts with hundreds of entries.
         while self.peek() != close {
-            if statements.len() == MAX_STATEMENTS {
-                return Err(invalid("Molang statement count exceeds bound"));
-            }
             if returned {
                 return Err(invalid("Molang statement follows a return"));
             }

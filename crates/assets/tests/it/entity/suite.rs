@@ -943,18 +943,24 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
     let mut compiled = carrier_v4_fixture();
     compiled.molang_ops = std::iter::once(compiled.molang_ops[0])
         .chain(
-            (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 2) / 2)
+            (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 1) / 2)
                 .flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]),
         )
-        .chain(std::iter::once(MolangOp::Negate))
+        .chain(std::iter::repeat_n(
+            MolangOp::Negate,
+            (MAX_MOLANG_OPS_PER_EXPRESSION - 1) % 2,
+        ))
         .collect();
-    compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16;
+    assert_eq!(compiled.molang_ops.len(), MAX_MOLANG_OPS_PER_EXPRESSION);
+    compiled.molang_expressions[0].op_count = u16::try_from(MAX_MOLANG_OPS_PER_EXPRESSION).unwrap();
     compiled.molang_expressions[0].max_stack = 2;
     assert!(compiled.validate().is_ok());
     compiled.molang_expressions[0].max_stack = MAX_MOLANG_STACK_DEPTH + 1;
     assert!(compiled.validate().is_err());
+    // The bound is the full width of the stored operation count, so no longer expression can
+    // be represented; a count past the stored operations is still rejected.
     compiled.molang_expressions[0].max_stack = 2;
-    compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16 + 1;
+    compiled.molang_ops = compiled.molang_ops[1..].into();
     assert!(compiled.validate().is_err());
 
     let mut compiled = carrier_v4_fixture();

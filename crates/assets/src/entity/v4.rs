@@ -23,7 +23,8 @@ pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
 pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
-pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 2_048;
+/// Expression lengths and jump targets are stored as `u16`; large authored scripts use all of it.
+pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = u16::MAX as usize;
 pub const MAX_MOLANG_OPS: usize = 1_048_576;
 pub const MAX_MOLANG_STACK_DEPTH: u8 = 32;
 pub const MAX_MOLANG_COLLECTION_ITEMS: usize = 32;

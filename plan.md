@@ -412,6 +412,11 @@ and rendered qualification remain incomplete.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Pack scripts compile at any statement count and up to their source document's size and the
+  stored per-expression operation width. The graphics-mode, pack-setting and
+  bone-orientation queries are admitted but read their idle zero: Cinnabar has no pack
+  settings or bone transform readback yet, and the per-actor tick budget for very large
+  scripts is not checked against native behavior.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
