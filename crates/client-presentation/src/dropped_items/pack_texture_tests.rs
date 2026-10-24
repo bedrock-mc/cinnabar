@@ -27,6 +27,14 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
         .unwrap(),
     )
     .unwrap();
+    fixture_with_catalog(metadata, catalog)
+}
+
+/// Spawns a retained block item with the supplied original startup artwork.
+fn fixture_with_catalog(
+    metadata: u32,
+    catalog: assets::RuntimeIconCatalog,
+) -> (UiPresentationRuntime, WorldStream) {
     let icons = UiPresentationRuntime::with_hud_and_icons(
         ui_engine::test_support::fixture_font(),
         client_ui::test_support::fixture_hud(),
@@ -58,6 +66,7 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
                 held_item: protocol::NetworkItemStack {
                     network_id: id,
                     metadata,
+                    block_runtime_id: 1,
                     count: 1,
                     ..Default::default()
                 },
@@ -273,6 +282,87 @@ fn dropped_cube_uses_exact_metadata_without_borrowing_another_variant() {
                 panic!("an unrelated variant must retain base artwork");
             };
             assert_eq!(sprite.rgba8.as_ref(), [20, 30, 40, 255]);
+        }
+    }
+}
+
+#[test]
+fn dropped_session_artwork_precedes_startup_carried_cubes() {
+    let (compiled, records) = barrels();
+    let assets = Arc::new(RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap());
+    let visual = assets::BlockVisualId(
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:barrel")
+            .unwrap()
+            .sequential_id,
+    );
+    let tiles = std::array::from_fn(|face| assets::IconSprite {
+        width: assets::BLOCK_ITEM_FACE_SIDE,
+        height: assets::BLOCK_ITEM_FACE_SIDE,
+        rgba8: [31 + face as u8, 70, 90, 255]
+            .repeat(usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2))
+            .into(),
+    });
+    let catalog = assets::RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_block_sheets(
+            assets.provenance().source_manifest_sha256,
+            &[
+                assets::IconSprite {
+                    width: 1,
+                    height: 1,
+                    rgba8: Arc::from([20, 30, 40, 255]),
+                },
+                assets::compose_block_item_sheet(&tiles).unwrap(),
+            ],
+            &[assets::IconEntry {
+                identifier: ITEM.into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+            &[assets::IconBlockSheet { visual, sprite: 1 }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let (mut icons, mut stream) = fixture_with_catalog(0, catalog);
+    stream.set_sequential_id_remap(assets::SequentialIdRemap::from_palette(
+        vec![0, visual.0],
+        visual.0 + 1,
+    ));
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(ChunkTextureAssets::new(assets));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    for (color, sheet) in [(Some(90), false), (Some(160), true), (None, false)] {
+        install(&mut icons, color, sheet, 0);
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            Default::default(),
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        assert_eq!(scene.instances.len(), 1);
+        match (
+            color,
+            sheet,
+            &scene.models[scene.instances[0].model as usize],
+        ) {
+            (Some(color), false, DroppedItemModel::NativeSprite(sprite)) => {
+                assert_eq!(sprite.rgba8.as_ref(), [color, 0, 80, 255]);
+            }
+            (Some(color), true, DroppedItemModel::Cube(cube)) => {
+                assert_eq!(cube.faces[0][0], color);
+            }
+            (None, _, DroppedItemModel::Cube(cube)) => {
+                for (face, pixels) in cube.faces.iter().enumerate() {
+                    assert_eq!(pixels.as_ref(), tiles[face].rgba8.as_ref());
+                }
+            }
+            _ => panic!("session sheets and sprites must precede startup carried artwork"),
         }
     }
 }

@@ -3,6 +3,7 @@
 
 use super::*;
 
+use crate::session_artwork::{SessionArtwork, session_artwork};
 use crate::session_assets::SessionItems;
 
 /// Session icons get their own mesh id range above the startup item meshes: one per registry
@@ -197,12 +198,22 @@ impl EquipmentRuntime {
         identifier: &str,
         metadata: u32,
     ) -> Option<(usize, MeshKey, Placement, ActorArtworkLocation)> {
-        if let Some(&sheet) = self.session.block_sheets.get(identifier) {
-            let (placement, location) = self.session_placement(sheet)?;
-            return Some((sheet, MeshKey::SessionBlock(sheet), placement, location));
+        let block = self
+            .session
+            .block_sheets
+            .get(identifier)
+            .and_then(|&sheet| {
+                let (placement, location) = self.session_placement(sheet)?;
+                Some((sheet, placement, location))
+            });
+        match session_artwork(block, || self.session_sprite(identifier, metadata))? {
+            SessionArtwork::Block((sheet, placement, location)) => {
+                Some((sheet, MeshKey::SessionBlock(sheet), placement, location))
+            }
+            SessionArtwork::Sprite((index, placement, location)) => {
+                Some((index, MeshKey::Session(index), placement, location))
+            }
         }
-        let (index, placement, location) = self.session_sprite(identifier, metadata)?;
-        Some((index, MeshKey::Session(index), placement, location))
     }
 
     /// The session icon for `identifier` with its atlas placement and artwork location.

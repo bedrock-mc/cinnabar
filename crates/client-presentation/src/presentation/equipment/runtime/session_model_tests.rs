@@ -63,3 +63,47 @@ fn custom_content_models_reach_both_hands_and_replace_with_artwork() {
             .is_none()
     );
 }
+
+#[test]
+fn held_session_artwork_precedes_startup_carried_cubes() {
+    let (mut runtime, _, item) = block_fixture();
+    let (base, _, block, _) = runtime.held_mesh(&item, false).unwrap();
+    assert!(block);
+    for sheet in [false, true] {
+        let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+        let icons = SessionIcons {
+            icons: vec![SessionIcon {
+                identifier: Arc::clone(&item.identifier),
+                metadata: 0,
+                width: 1,
+                height: 1,
+                rgba8: Box::new([190, 20, 80, 255]),
+            }],
+            block_sheets: if sheet {
+                vec![SessionIcon {
+                    identifier: Arc::clone(&item.identifier),
+                    metadata: 0,
+                    width,
+                    height,
+                    rgba8: vec![255; (width * height * 4) as usize].into(),
+                }]
+            } else {
+                vec![]
+            },
+            ..Default::default()
+        };
+        let staged = StagedSessionIcons::stage_icons(&icons).unwrap();
+        let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(staged.rasters());
+        runtime.set_session_items(None, Some(staged), locations);
+        let (mesh, _, block, _) = runtime.held_mesh(&item, false).unwrap();
+        assert_eq!(
+            block, sheet,
+            "a session icon without a sheet must be held as a sprite"
+        );
+        assert_ne!(mesh, base);
+    }
+    runtime.set_session_items(None, None, Vec::new());
+    let (restored, _, block, _) = runtime.held_mesh(&item, false).unwrap();
+    assert!(block);
+    assert_eq!(restored, base);
+}

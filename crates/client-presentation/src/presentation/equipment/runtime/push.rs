@@ -227,12 +227,7 @@ impl EquipmentRuntime {
         item: &WornItem,
         icon_fallback: bool,
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool, [f32; 2])> {
-        let session =
-            self.session_held(&item.identifier, item.metadata)
-                .filter(|(_, key, _, _)| {
-                    !matches!(item.kind, HeldKind::Block(_))
-                        || matches!(key, MeshKey::SessionBlock(_))
-                });
+        let session = self.session_held(&item.identifier, item.metadata);
         if session.is_none()
             && let Some(&(rig, location, span)) = HeldBlockEntity::from_item(&item.identifier)
                 .and_then(|kind| self.held_block_entities.models.get(&kind))

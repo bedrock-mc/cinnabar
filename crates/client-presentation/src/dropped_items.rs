@@ -35,6 +35,7 @@ pub(crate) struct DroppedItemFrame<'a> {
 mod dials;
 mod lighting;
 mod preparation;
+use crate::session_artwork::{SessionArtwork, session_artwork};
 use preparation::DropPreparation;
 
 // Provisional world sizes and colours; each needs independent measurement.
@@ -413,7 +414,7 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
-    /// Resolves a static item's compatible carried geometry before its icon fallback.
+    /// Resolves session artwork before startup carried geometry and the ordinary icon fallback.
     fn placement_model(
         cache: &mut ModelCache,
         icons: &UiPresentationRuntime,
@@ -424,18 +425,27 @@ impl DroppedItemPublisher<'_, '_> {
         if let Some(id) = placement.potted_block {
             return assets.and_then(|assets| Self::potted_model(cache, assets, id));
         }
-        if placement.carried_block.is_some()
-            && let Some(sheet) =
-                icons.session_block_sheet(&placement.identifier, placement.metadata)
-            && let Some(model) = Self::session_block_model(
-                cache,
-                icons,
-                &placement.identifier,
-                placement.metadata,
-                sheet,
-            )
-        {
-            return Some(model);
+        match session_artwork(
+            placement
+                .carried_block
+                .and_then(|_| icons.session_block_sheet(&placement.identifier, placement.metadata)),
+            || icons.session_item_icon(&placement.identifier, placement.metadata),
+        ) {
+            Some(SessionArtwork::Block(sheet)) => {
+                return Self::session_block_model(
+                    cache,
+                    icons,
+                    &placement.identifier,
+                    placement.metadata,
+                    sheet,
+                );
+            }
+            Some(SessionArtwork::Sprite(icon)) => {
+                return Self::resolved_icon_model(cache, icon, false, || {
+                    icon_sprite(icons, &placement.identifier, placement.metadata, false)
+                });
+            }
+            None => {}
         }
         if let (Some(visual), Some(assets)) = (placement.carried_block, assets)
             && let Some(model) =
@@ -587,51 +597,54 @@ impl DroppedItemPublisher<'_, '_> {
                 camera,
                 frustum: frustum.as_ref(),
             };
-            let session_block = icons
-                .session_block_sheet(identifier, view.item.identity.metadata)
-                .and_then(|sheet| {
-                    preparation.model(
-                        cache,
-                        &ModelKey::session_block(sheet),
-                        DroppedItemShape::Cube,
-                        |cache| {
-                            Self::session_block_model(
-                                cache,
-                                icons,
-                                identifier,
-                                view.item.identity.metadata,
-                                sheet,
-                            )
-                        },
-                    )
-                });
-            let cube = session_block.or_else(|| {
-                block_id.zip(assets).and_then(|((mode, id), assets)| {
-                    let hashed = mode == NetworkIdMode::Hashed;
-                    preparation
-                        .model(
-                            cache,
-                            &ModelKey::CarriedBlock { hashed, id },
-                            DroppedItemShape::Cube,
-                            |cache| Self::carried_block_model(cache, icons, assets, mode, id),
-                        )
-                        .or_else(|| {
-                            preparation.model(
-                                cache,
-                                &ModelKey::Block { hashed, id },
-                                DroppedItemShape::Cube,
-                                |cache| Self::block_model(cache, assets, mode, id),
-                            )
-                        })
-                })
-            });
-            let prepared = cube.or_else(|| {
-                let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
+            let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
+            let sprite = |cache: &mut ModelCache| {
                 let key = ModelKey::icon(icons.item_icon(icon_identifier, variant)?, true);
                 preparation.model(cache, &key, DroppedItemShape::Sprite, |cache| {
                     Self::icon_model(cache, icons, icon_identifier, variant, true)
                 })
-            });
+            };
+            let prepared = match session_artwork(
+                icons.session_block_sheet(identifier, view.item.identity.metadata),
+                || icons.session_item_icon(icon_identifier, variant),
+            ) {
+                Some(SessionArtwork::Block(sheet)) => preparation.model(
+                    cache,
+                    &ModelKey::session_block(sheet),
+                    DroppedItemShape::Cube,
+                    |cache| {
+                        Self::session_block_model(
+                            cache,
+                            icons,
+                            identifier,
+                            view.item.identity.metadata,
+                            sheet,
+                        )
+                    },
+                ),
+                Some(SessionArtwork::Sprite(_)) => sprite(cache),
+                None => block_id
+                    .zip(assets)
+                    .and_then(|((mode, id), assets)| {
+                        let hashed = mode == NetworkIdMode::Hashed;
+                        preparation
+                            .model(
+                                cache,
+                                &ModelKey::CarriedBlock { hashed, id },
+                                DroppedItemShape::Cube,
+                                |cache| Self::carried_block_model(cache, icons, assets, mode, id),
+                            )
+                            .or_else(|| {
+                                preparation.model(
+                                    cache,
+                                    &ModelKey::Block { hashed, id },
+                                    DroppedItemShape::Cube,
+                                    |cache| Self::block_model(cache, assets, mode, id),
+                                )
+                            })
+                    })
+                    .or_else(|| sprite(cache)),
+            };
             if let Some(prepared) = prepared {
                 prepared.append(view, instances, |position| stream.light_level_at(position));
             }

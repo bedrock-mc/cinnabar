@@ -488,7 +488,7 @@ fn dropped_barrel_models_use_authored_carried_faces_for_both_id_modes() {
 }
 
 #[test]
-fn static_cube_items_retain_carried_faces_and_keep_sprite_fallbacks() {
+fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
     let (compiled, records) = barrels();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
     let visual = assets::BlockVisualId(
@@ -519,7 +519,7 @@ fn static_cube_items_retain_carried_faces_and_keep_sprite_fallbacks() {
         .unwrap(),
     )
     .unwrap();
-    let icons = UiPresentationRuntime::with_hud_and_icons(
+    let mut icons = UiPresentationRuntime::with_hud_and_icons(
         ui_engine::test_support::fixture_font(),
         client_ui::test_support::fixture_hud(),
         Arc::new(catalog),
@@ -564,6 +564,55 @@ fn static_cube_items_retain_carried_faces_and_keep_sprite_fallbacks() {
         &cache.models[sprite as usize],
         DroppedItemModel::Sprite(_)
     ));
+    for (metadata, override_metadata, overridden) in
+        [(0, 0, true), (7, 7, true), (7, 0, true), (3, 7, false)]
+    {
+        use client_ui::ui_runtime::{
+            UiRuntime,
+            presentation::{SessionIcon, SessionIcons},
+        };
+        let mut ui = UiRuntime::new(1);
+        ui.set_session_icons(Some(Arc::new(SessionIcons {
+            icons: vec![SessionIcon {
+                identifier: Arc::clone(&placement.identifier),
+                metadata: override_metadata,
+                width: 1,
+                height: 1,
+                rgba8: Box::new([190, 20, 80, 255]),
+            }],
+            ..Default::default()
+        })));
+        icons
+            .build(
+                &player_state::PlayerState::new(1),
+                &ui,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        placement.metadata = metadata;
+        let icon = icons.item_icon(&placement.identifier, metadata);
+        let model = DroppedItemPublisher::placement_model(
+            &mut cache,
+            &icons,
+            Some(&runtime),
+            &placement,
+            icon,
+        )
+        .unwrap();
+        if overridden {
+            let DroppedItemModel::Sprite(sprite) = &cache.models[model as usize] else {
+                panic!("a session icon without a sheet must replace the startup carried cube");
+            };
+            assert_eq!(sprite.rgba8.as_ref(), [190, 20, 80, 255]);
+        } else {
+            assert!(matches!(
+                &cache.models[model as usize],
+                DroppedItemModel::Cube(_)
+            ));
+        }
+    }
 }
 
 #[test]

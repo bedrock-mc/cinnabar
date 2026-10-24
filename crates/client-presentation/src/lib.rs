@@ -9,6 +9,7 @@ pub mod environment;
 pub mod prepared_actor_artwork;
 pub mod presentation;
 pub mod primitive_shapes;
+mod session_artwork;
 pub mod session_assets;
 
 pub mod camera;
