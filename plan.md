@@ -390,6 +390,7 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
+  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand; their dropped presentation remains incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
