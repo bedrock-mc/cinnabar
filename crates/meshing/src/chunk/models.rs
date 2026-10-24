@@ -5,7 +5,8 @@ use assets::{
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
-    MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::MeshNeighbourhood;
 
@@ -128,7 +129,7 @@ fn connected_model_mask<'a>(
         let connects = if connection_flag == MODEL_TEMPLATE_FLAG_PANE {
             neighbour_flags & MODEL_TEMPLATE_FLAG_PANE != 0
                 || neighbour_flags & MODEL_TEMPLATE_FLAG_WALL != 0
-                || neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                || is_rule_free_full_cube(neighbour, neighbour_flags)
         } else {
             neighbour_flags & connection_flag != 0
                 || match face {
@@ -140,11 +141,20 @@ fn connected_model_mask<'a>(
                     }
                     Face::NegativeY | Face::PositiveY => false,
                 }
-                || neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                || is_rule_free_full_cube(neighbour, neighbour_flags)
         };
         connects.then_some(bit)
     })
     .fold(0, |mask, bit| mask | bit)
+}
+
+/// Whether a neighbour is a unit cube, which carries no native connection rule and so
+/// accepts pane and fence links. This includes see-through cubes such as glass, leaves,
+/// ice and tinted glass as well as full-face occluders.
+fn is_rule_free_full_cube(neighbour: ResolvedPaletteEntry, neighbour_template_flags: u32) -> bool {
+    neighbour.flags.intersects(
+        BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+    ) || neighbour_template_flags & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
 }
 
 pub(crate) fn model_template_flags(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> u32 {

@@ -9,6 +9,7 @@ struct CompiledConnectedFixture {
     gate_facing_x: u32,
     wall: u32,
     cube: u32,
+    glass: u32,
 }
 
 fn write_connected_render_pack(root: &Path, cube_name: &str) {
@@ -23,7 +24,8 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
                 "nether_brick_fence":{{"textures":"nether_fence"}},
                 "fence_gate":{{"textures":"oak_fence_gate"}},
                 "cobblestone_wall":{{"textures":"wall"}},
-                "{cube_name}":{{"textures":"cube"}}
+                "{cube_name}":{{"textures":"cube"}},
+                "glass":{{"textures":"glass"}}
             }}"#
         ),
     )
@@ -39,7 +41,8 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
             "nether_fence":{"textures":"textures/blocks/nether_fence"},
             "oak_fence_gate":{"textures":"textures/blocks/oak_fence_gate"},
             "wall":{"textures":"textures/blocks/wall"},
-            "cube":{"textures":"textures/blocks/cube"}
+            "cube":{"textures":"textures/blocks/cube"},
+            "glass":{"textures":"textures/blocks/glass"}
         }}"#,
     )
     .expect("write connected terrain routing");
@@ -55,13 +58,18 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
         "oak_fence_gate",
         "wall",
         "cube",
+        "glass",
     ]
     .into_iter()
     .enumerate()
     {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for pixel in rgba.as_chunks_mut::<4>().0 {
-            pixel.copy_from_slice(&[20 + index as u8 * 25, 70, 110, 255]);
+        for (texel, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            // Glass keeps an opaque frame around clear texels, as the vanilla art does.
+            let (x, y) = (texel % 16, texel / 16);
+            let clear = name == "glass" && (1..15).contains(&x) && (1..15).contains(&y);
+            let alpha = if clear { 0 } else { 255 };
+            pixel.copy_from_slice(&[20 + index as u8 * 25, 70, 110, alpha]);
         }
         let mut png = Vec::new();
         PngEncoder::new(&mut png)
@@ -112,6 +120,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             })
             .expect("full cube")
             .clone();
+        let glass = named("minecraft:glass");
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
         let directory = tempfile::tempdir().expect("connected fixture directory");
         write_connected_render_pack(directory.path(), cube_name);
@@ -125,6 +134,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             gate_facing_x.sequential_id,
             wall.sequential_id,
             cube.sequential_id,
+            glass.sequential_id,
         ];
         let compiled = compile_pack(
             directory.path(),
@@ -138,11 +148,17 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
                 gate_facing_x,
                 wall,
                 cube,
+                glass,
             ],
         )
         .expect("compile connected fixture");
         let blob = encode_blob(&compiled).expect("encode connected fixture");
         let assets = RuntimeAssets::decode(&blob).expect("decode connected fixture");
+        let glass_flags = assets.resolve(NetworkIdMode::Sequential, ids[9]).flags();
+        assert!(
+            !glass_flags.contains(BlockFlags::OCCLUDES_FULL_FACE),
+            "see-through glass must not occlude, or it would connect as an opaque cube: {glass_flags:?}"
+        );
         let pane_base = assets
             .resolve(NetworkIdMode::Sequential, ids[1])
             .model_template()
@@ -178,6 +194,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             gate_facing_x: ids[6],
             wall: ids[7],
             cube: ids[8],
+            glass: ids[9],
         }
     })
 }
@@ -248,6 +265,37 @@ fn panes_select_all_sixteen_palette_native_connection_masks() {
         .words()[1],
         base + 1,
         "thin panes connect to wall models"
+    );
+}
+
+/// Vanilla connects thin and wooden fences to every neighbour without a connection rule,
+/// so non-occluding full cubes such as glass connect like opaque ones.
+#[test]
+fn panes_and_fences_connect_to_non_occluding_full_cubes() {
+    let fixture = compiled_connected_fixture();
+    let glass_north_and_east = [(0, fixture.glass), (1, fixture.glass)];
+    let template = |id| {
+        fixture
+            .assets
+            .resolve(NetworkIdMode::Sequential, id)
+            .model_template()
+            .unwrap()
+    };
+    let pane = mesh_connected(fixture.pane, &glass_north_and_east);
+    assert_eq!(
+        center_stair_ref(&pane, [8, 8, 8]).words()[1],
+        template(fixture.pane) + 3
+    );
+    let fence = mesh_connected(fixture.wood_fence, &glass_north_and_east);
+    let arms = fence
+        .model_refs()
+        .iter()
+        .filter(|reference| reference.words()[0] & 0xfff == 8 | (8 << 4) | (8 << 8))
+        .map(|reference| reference.words()[1])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        arms,
+        [template(fixture.wood_fence), template(fixture.wood_fence) + 1 + 3]
     );
 }
 

@@ -86,13 +86,17 @@ fn connected_states(
     Some(())
 }
 
-/// Mirrors pane, same-material fence, perpendicular gate and full-face connection predicates.
+/// Mirrors the pane, same-material fence, perpendicular gate, full-face and unit-cube links.
 fn connects_to(center: ConnectionFacts, neighbor: ConnectionFacts, face: u8) -> Option<bool> {
     if neighbor.occludes_full_face {
         return Some(true);
     }
     if neighbor.role != ContributorRole::Primary {
         return Some(false);
+    }
+    // Unit cubes carry no native connection rule, so see-through ones link like opaque ones.
+    if matches!(neighbor.family, ModelFamily::Cube | ModelFamily::Leaves) {
+        return Some(true);
     }
     match center.family {
         ModelFamily::Pane => Some(matches!(
@@ -169,10 +173,19 @@ mod tests {
             assert_eq!(connects_to(pane, facts(family), 4), Some(true));
         }
         assert_eq!(connects_to(pane, facts(ModelFamily::Fence), 4), Some(false));
-        let mut opaque = facts(ModelFamily::Cube);
+        let mut opaque = facts(ModelFamily::Cross);
         opaque.occludes_full_face = true;
         assert_eq!(connects_to(pane, opaque, 4), Some(true));
-        assert_eq!(connects_to(pane, facts(ModelFamily::Cube), 4), Some(false));
+        assert_eq!(connects_to(pane, facts(ModelFamily::Cross), 4), Some(false));
+    }
+
+    #[test]
+    fn panes_and_fences_connect_to_see_through_unit_cubes() {
+        for center in [facts(ModelFamily::Pane), facts(ModelFamily::Fence)] {
+            for family in [ModelFamily::Cube, ModelFamily::Leaves] {
+                assert_eq!(connects_to(center, facts(family), 4), Some(true));
+            }
+        }
     }
 
     #[test]
@@ -219,7 +232,7 @@ mod tests {
                 Some(if face == linked_face {
                     facts(ModelFamily::Pane)
                 } else {
-                    facts(ModelFamily::Cube)
+                    facts(ModelFamily::Cross)
                 })
             })
             .unwrap();
