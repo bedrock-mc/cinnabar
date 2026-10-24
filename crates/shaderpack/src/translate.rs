@@ -307,6 +307,9 @@ fn compile_stages(
         let names = ResourceNames {
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
+            normalize_legacy: out.stages[*i].stage == StageKind::Compute
+                || pp.profile.as_deref() != Some("core")
+                    && (pp.version < 150 || pp.profile.as_deref() == Some("compatibility")),
             geometry,
         };
         match transform(pp, out.stages[*i].stage, &mut iface, &names) {

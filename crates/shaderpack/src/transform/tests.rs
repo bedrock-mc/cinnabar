@@ -40,6 +40,7 @@ fn draft(
     let names = ResourceNames {
         image_formats: &HashMap::new(),
         sampler_classes: &SamplerClasses::default(),
+        normalize_legacy: true,
         geometry: file.starts_with("gbuffers_"),
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");

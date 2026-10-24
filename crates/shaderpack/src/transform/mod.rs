@@ -84,6 +84,8 @@ pub(crate) struct ResourceNames<'a> {
     /// Image name → GLSL format qualifier from `image.<name>`.
     pub image_formats: &'a HashMap<String, String>,
     pub sampler_classes: &'a SamplerClasses,
+    /// This stage applies compatibility-profile sampler renames before raw directives.
+    pub normalize_legacy: bool,
     /// The program draws world geometry, so texture unit 0 holds the atlas, not `colortex0`.
     pub geometry: bool,
 }

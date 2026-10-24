@@ -2,6 +2,8 @@
 //! textures follow their `.mcmeta`), locals shadowing a sampler, and pack helpers that take
 //! a sampler getting a copy per global texture.
 
+mod resolution;
+
 use crate::{program, reflection};
 use shaderpack::{
     CompiledStage, PackSource, SHADOW_SAMPLER_BINDING, SamplerClass, ShaderPack, StageKind,
@@ -191,7 +193,7 @@ fn unbound_samplers_read_the_texture_on_unit_zero() {
         glsl.contains("sampler2D(tex, iris_samplerClampLinear)"),
         "{glsl}"
     );
-    assert_eq!(names(&t, "gbuffers_basic"), ["gtexture", "tex"]);
+    assert_eq!(names(&t, "gbuffers_basic"), ["gtexture", "gtexture"]);
 }
 
 #[test]
@@ -235,8 +237,13 @@ fn raw_geometry_textures_keep_other_unit_zero_samplers_on_the_atlas() {
             "#version 120\nuniform sampler2D {uniform}; uniform sampler2D albedo;\n\
              void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D(albedo, vec2(0.5)); }}"
         );
+        let property = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
         let properties = format!(
-            "texture.gbuffers.{uniform} = lut.dat TEXTURE_2D RGBA8 16 16 RGBA UNSIGNED_BYTE\n"
+            "texture.gbuffers.{property} = lut.dat TEXTURE_2D RGBA8 16 16 RGBA UNSIGNED_BYTE\n"
         );
         let translated = pack(
             "#version 120\nvoid main() { gl_FragData[0] = vec4(1.0); }",
@@ -276,9 +283,8 @@ fn custom_texture_classes_follow_the_program_stage_and_noise_override() {
         varying vec2 uv;\n\
         void main() { gl_FragData[0] = texture2D(colortex0, uv) + texture2D(noisetex, uv); }\n";
     // `colortex0` is only replaced in deferred programs; `texture.noise` applies everywhere
-    // and its clamp-only .mcmeta makes it nearest, overriding the image's linear class.
-    let properties = "image.noiseImage = noisetex rgba rgba8 unsigned_byte true false 1 1\n\
-        texture.deferred.colortex0 = tex/a.png\ntexture.noise = tex/noise.png\n";
+    // and its clamp-only .mcmeta makes it nearest.
+    let properties = "texture.deferred.colortex0 = tex/a.png\ntexture.noise = tex/noise.png\n";
     let mcmeta = r#"{"texture":{"clamp":true}}"#;
     let p = pack(fragment, properties, &[("tex/noise.png.mcmeta", mcmeta)]);
     let t = p.translate(&TranslateConfig::default());

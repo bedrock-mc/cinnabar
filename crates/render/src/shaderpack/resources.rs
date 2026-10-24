@@ -81,7 +81,7 @@ impl TextureSource {
 
 /// The atlas layer a geometry program's sampler name reads, as Iris binds them.
 fn atlas_layer(name: &str) -> Option<AtlasLayer> {
-    match shaderpack::canonical_sampler_name(name).as_str() {
+    match name {
         "gtexture" => Some(AtlasLayer::Color),
         "normals" => Some(AtlasLayer::Normals),
         "specular" => Some(AtlasLayer::Specular),
@@ -526,7 +526,6 @@ impl<'a> ConstantBuilder<'a> {
         dimension: TextureDimension,
         released: u32,
     ) -> Option<(usize, TextureFormat)> {
-        let name = shaderpack::canonical_sampler_name(name);
         let found = self
             .translation
             .properties
@@ -539,7 +538,7 @@ impl<'a> ConstantBuilder<'a> {
             .filter(|t| !t.released_by(released))?;
         let key = Key::Custom {
             stage: stage.to_string(),
-            binding: name,
+            binding: name.to_owned(),
             dimension,
             unit_override: found.is_unit_override(),
         };

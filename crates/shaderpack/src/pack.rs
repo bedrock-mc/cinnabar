@@ -1,6 +1,6 @@
 //! A loaded shader pack, its configuration metadata and whole-pack translation.
 
-use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
+use crate::buffers::{BufferDirectives, BufferFormat};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
 use crate::flips::{program_releases, samples_released_override};
@@ -13,7 +13,6 @@ use crate::options::{
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
-use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
 use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
@@ -350,10 +349,9 @@ impl ShaderPack {
         // for samplers of their shape, a stage's own binding winning over `texture.noise`.
         let mut sampler_classes = SamplerClasses::default();
         for image in &properties.images {
-            sampler_classes.units.insert(
-                (canonical_sampler_name(&image.sampler), None),
-                SamplerClass::ClampLinear,
-            );
+            sampler_classes
+                .images
+                .insert(image.sampler.clone(), image.sampler_binding_name());
         }
         for noise in [true, false] {
             for t in &properties.custom_textures {
@@ -366,7 +364,7 @@ impl ShaderPack {
                     if t.is_unit_override() {
                         sampler_classes
                             .units
-                            .insert((t.binding_name(), Some(dimension)), class);
+                            .insert((t.binding_name(), dimension), class);
                     } else {
                         sampler_classes.named.insert(
                             (t.uniform().to_string(), dimension),

@@ -381,6 +381,13 @@ pub struct CustomImage {
     pub size: ImageSize,
 }
 
+impl CustomImage {
+    /// A reflected sampler key that cannot collide with a built-in or fallback texture.
+    pub fn sampler_binding_name(&self) -> String {
+        format!("image.{}", self.name)
+    }
+}
+
 /// Size of a custom image; relative images are 2D, absolute images 1D, 2D or 3D.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum ImageSize {

@@ -549,6 +549,7 @@ fn uniforms(
                     texture_dimension(tex_ty),
                     d.ty == "sampler2D" && d.ty_arr.is_empty() && arr.is_empty(),
                     names.geometry,
+                    names.normalize_legacy,
                 );
                 c.resource_names.push((TEXTURE_GROUP, b, bound));
                 c.samplers
@@ -839,6 +840,7 @@ mod tests {
         ResourceNames {
             image_formats,
             sampler_classes: &NO_CLASSES,
+            normalize_legacy: true,
             geometry: false,
         }
     }

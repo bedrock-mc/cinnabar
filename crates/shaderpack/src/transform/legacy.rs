@@ -36,7 +36,7 @@ const RESERVED_SINCE_130: &[&str] = &[
 /// Vulkan GLSL type keywords that are plain identifiers in OpenGL GLSL.
 const RESERVED_VULKAN: &[&str] = &["sampler", "samplerShadow", "subpassInput"];
 
-/// A GLSL identifier that keeps a sampler named `texture` distinct from `gtexture`.
+/// A GLSL identifier that keeps a sampler named `texture` distinct from lookup calls.
 const RENAMED_TEXTURE: &str = "_r_texture";
 
 /// Returns the pack's sampler name before renaming `texture` for GLSL.
@@ -298,8 +298,7 @@ pub(super) fn rewrite(
         };
         let name = name.as_str();
         let called = src.get(i + 1).is_some_and(|n| n.is("("));
-        // Keep the sampler distinct from both the lookup function and `gtexture`:
-        // raw directives can bind either sampler without replacing the other.
+        // Keep sampler identifiers distinct from the lookup function until resolution.
         if name == "texture" && !called {
             toks.push(id(RENAMED_TEXTURE).at(line));
             i += 1;

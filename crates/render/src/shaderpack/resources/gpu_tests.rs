@@ -494,8 +494,13 @@ fn geometry_unit_zero_aliases_bind_the_custom_texture() {
 fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
     let Some(gpu) = gpu() else { return };
     for uniform in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let property = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
         let properties = format!(
-            "texture.gbuffers.{uniform} = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n"
+            "texture.gbuffers.{property} = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n"
         );
         let (directory, _pack) = png_pack(&properties);
         let shaders = directory.path().join("shaders");
@@ -505,7 +510,7 @@ fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
             "#version 120\nvoid main() { gl_Position = ftransform(); }",
         )
         .unwrap();
-        let atlas = if uniform == "gtexture" {
+        let atlas = if property == "gtexture" {
             "albedo"
         } else {
             "gtexture"
@@ -720,4 +725,60 @@ fn resource_texture_rows_keep_their_decoded_order() {
         read_rows(&gpu, &texture.view),
         [[255, 0, 0, 255], [0, 0, 255, 255]]
     );
+}
+
+#[test]
+fn explicit_image_samplers_do_not_replace_the_unit_zero_fallback() {
+    let Some(gpu) = gpu() else { return };
+    for uniform in ["texture", "gtexture", "tex", "u_MainSampler"] {
+        let normalized = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
+        let fragment = format!(
+            "#version 120\nuniform sampler2D {uniform}; uniform sampler2D albedo;\n\
+             void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D(albedo, vec2(0.5)); }}"
+        );
+        let properties = format!(
+            "image.scratch = {normalized} rgba rgba8 unsigned_byte false false 4 4\n\
+             texture.gbuffers.{normalized} = lut.dat TEXTURE_2D RGBA8 1 1 RGBA UNSIGNED_BYTE\n"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            ("shaders.properties", properties.as_str()),
+            (
+                "gbuffers_basic.vsh",
+                "#version 120\nvoid main() { gl_Position = ftransform(); }",
+            ),
+            ("gbuffers_basic.fsh", fragment.as_str()),
+        ]));
+        let translation = pack.translate(&Default::default());
+        let program = &translation.programs[0];
+        assert!(program.is_ok(), "{uniform}");
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            program.released_overrides,
+            program.reflection.as_ref().unwrap(),
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &translation.properties.images,
+            &[TextureFormat::Rgba8Unorm],
+        )
+        .unwrap();
+        assert_eq!(
+            bindings.textures,
+            [
+                TextureSource::Image {
+                    index: 0,
+                    format: TextureFormat::Rgba8Unorm
+                },
+                TextureSource::Atlas(AtlasLayer::Color),
+            ],
+            "{uniform}"
+        );
+    }
 }

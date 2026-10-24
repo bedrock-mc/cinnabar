@@ -1,65 +1,60 @@
-//! Resolves custom sampler names and shared texture-unit overrides.
+//! Resolves sampler declarations in transformer and texture-binding order.
 
 use crate::buffers::{canonical_sampler_name, unit_zero_texture};
 use crate::reflection::{SamplerClass, TextureDimension};
 use std::collections::HashMap;
 
-/// Custom sampler bindings, split between declared names and shared texture units.
+/// Custom sampler bindings, separated by how their declarations take effect.
 #[derive(Default)]
 pub(crate) struct SamplerClasses {
-    /// Raw texture's declared name and shape → reflected name and class.
+    /// Exact custom-image sampler name → reflected image binding.
+    pub images: HashMap<String, String>,
+    /// Raw texture's exact declared name and shape → reflected name and class.
     pub named: HashMap<(String, TextureDimension), (String, SamplerClass)>,
-    /// Canonical texture-unit name and shape (`None` for images) → sampler class.
-    pub units: HashMap<(String, Option<TextureDimension>), SamplerClass>,
+    /// Canonical texture-unit name and shape → sampler class, excluding released overrides.
+    pub units: HashMap<(String, TextureDimension), SamplerClass>,
 }
 
 impl SamplerClasses {
-    /// Resolves the declared sampler before falling back to the texture on unit zero.
+    /// Chooses a resource once, before reflection and the renderer consume its binding key.
+    /// Images and raw textures keep distinct keys so a fallback cannot inherit their names.
     pub fn resolve(
         &self,
         name: &str,
         dimension: TextureDimension,
         unit_zero: bool,
         geometry: bool,
+        normalize_legacy: bool,
     ) -> (String, SamplerClass) {
+        // Normalize legacy sampler names before matching exact declarations.
         let declared = super::legacy::sampler_name(name);
-        if let Some(binding) = self.binding(declared, dimension) {
-            return binding;
-        }
-        let builtin = if declared == name {
-            name.to_string()
+        let declared = if normalize_legacy && matches!(declared, "texture" | "gcolor") {
+            "gtexture"
         } else {
-            canonical_sampler_name(declared)
+            declared
         };
+        if let Some(binding) = self.images.get(declared) {
+            return (binding.clone(), SamplerClass::ClampLinear);
+        }
+        if let Some(binding) = self.named.get(&(declared.to_owned(), dimension)) {
+            return binding.clone();
+        }
+        let canonical = canonical_sampler_name(declared);
+        if let Some(class) = self.units.get(&(canonical.clone(), dimension)) {
+            return (canonical, *class);
+        }
+        // Recognized buffers and atlas names retain their built-in binding. Other scalar
+        // float samplers read unit zero, including any plain override of that unit.
         let bound = if unit_zero {
-            unit_zero_texture(&canonical_sampler_name(&builtin), geometry)
-                .map_or_else(|| builtin.clone(), str::to_owned)
+            unit_zero_texture(&canonical, geometry).unwrap_or(&canonical)
         } else {
-            builtin
+            &canonical
         };
         let class = self
-            .unit(&bound, dimension)
-            .unwrap_or_else(|| SamplerClass::for_name(&bound));
-        (bound, class)
-    }
-
-    /// Finds a texture-unit override, with shape-specific textures taking priority over images.
-    fn unit(&self, name: &str, dimension: TextureDimension) -> Option<SamplerClass> {
-        let name = crate::buffers::canonical_sampler_name(name);
-        self.units
-            .get(&(name.clone(), Some(dimension)))
-            .or_else(|| self.units.get(&(name, None)))
+            .units
+            .get(&(bound.to_owned(), dimension))
             .copied()
-    }
-
-    /// Resolves an explicitly named binding before a shared texture-unit override.
-    fn binding(&self, name: &str, dimension: TextureDimension) -> Option<(String, SamplerClass)> {
-        self.named
-            .get(&(name.to_string(), dimension))
-            .cloned()
-            .or_else(|| {
-                self.unit(name, dimension)
-                    .map(|class| (name.to_string(), class))
-            })
+            .unwrap_or_else(|| SamplerClass::for_name(bound));
+        (bound.to_owned(), class)
     }
 }
