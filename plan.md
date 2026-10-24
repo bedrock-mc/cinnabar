@@ -634,13 +634,16 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
-  Actor-use transactions precede throwable use when verified component and held-item
-  facts rule out every possible offering. Unresolved native resolvers, behavior sources,
-  component groups, unclassified components and callback state retain conservative
-  interaction handling.
-  Complete native resolver coverage, filter/property and item-tag conditions, dynamic
-  group activation, ride eligibility metadata and matched in-world interaction acceptance
-  remain incomplete; this scoped throwable correction closes no interaction gate.
+  Actor-use transactions precede held item use when component, held-item, offhand and
+  equipment-enchantment facts rule out every possible offering of an unmodified retail
+  item; only components the client maps to interactions can offer one. Actors with a
+  native interaction override (piglin, villager_v2, leash knot) or native component
+  (tripod camera), modified
+  items, missing behavior sources and unresolved filters, ride, trade, container, leash,
+  balloon, sit and trust callbacks retain conservative interaction handling.
+  Game-rule and property filters, item-tag conditions, dynamic group activation, ride
+  eligibility metadata, leash/balloon state and matched in-world interaction acceptance
+  remain incomplete; this correction closes no interaction gate.
   Block-item purchases await an authoritative result preview to retain its block identity.
   Adventure mining and placement follow the held item's CanDestroy/CanPlaceOn list, or
   PrivilegedBuilder with an empty hand, before the Build/Mine grant. Denied block presses
