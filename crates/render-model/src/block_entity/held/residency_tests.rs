@@ -283,7 +283,7 @@ fn prepared_special_drop_meshes_preserve_held_positions_and_texture_tiles() {
     // Each texture is an original tile with independent color and coordinate channels.
     let mut pixels = atlas.static_rgba8().to_vec();
     let width = atlas.size()[0] as usize;
-    for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let x = index % width;
         let y = index / width;
         pixel.copy_from_slice(&[(20 + y / 64) as u8, x as u8, (y % 64) as u8, 255]);
