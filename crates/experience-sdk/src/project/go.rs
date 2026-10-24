@@ -8,7 +8,7 @@ use super::{FieldType, Project};
 
 const HELPER_MODULE: &str = "github.com/hashimthearab/rust-mcbe/tools/localserver";
 const HELPER_SOURCE: &str = "github.com/cinnabar-mc/cinnabar/tools/localserver";
-const HELPER_VERSION: &str = "v0.0.0-20261024044827-1c6fa0f97b42";
+const HELPER_VERSION: &str = "v0.0.0-20261024060101-c630565e3f4d";
 
 /// Pins the public helper contract and its supported upstream Dragonfly dependency.
 pub fn module(id: &str) -> String {
