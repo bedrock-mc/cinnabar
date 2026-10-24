@@ -1,5 +1,150 @@
 use super::*;
-use protocol_ids::{ActorFlag, Attribute};
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
+
+/// Creates authority whose local actor has not arrived yet.
+fn spawn_authority() -> WorldAuthority {
+    WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 2,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    )
+}
+
+/// Supplies a local spawn with optional item-use metadata.
+fn spawn_with_use(using: Option<bool>) -> ActorSpawnEvent {
+    ActorSpawnEvent {
+        dimension: 2,
+        unique_id: 5,
+        runtime_id: 41,
+        kind: ActorKind::Player {
+            uuid: [0; 16],
+            username: "local".into(),
+        },
+        position: [0.0; 3],
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: using
+            .into_iter()
+            .map(|using| ActorMetadata {
+                key: ActorDataKey::Flags.wire_value(),
+                value: ActorMetadataValue::Flags(if using {
+                    1 << ActorFlag::UsingItem.wire_value()
+                } else {
+                    0
+                }),
+            })
+            .collect(),
+        attributes: [].into(),
+        properties: [].into(),
+        links: [].into(),
+    }
+}
+
+/// Only an accepted local spawn replaces item-use authority, including an absent flag word.
+#[test]
+fn local_spawn_use_follows_admission_and_replacement() {
+    let mut authority = spawn_authority();
+    for (sequence, using) in [
+        (1, Some(true)),
+        (2, None),
+        (3, Some(false)),
+        (4, Some(true)),
+    ] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Actor(ActorEvent::Spawn(spawn_with_use(using))),
+                Some(sequence),
+            )
+            .unwrap();
+        assert!(
+            authority
+                .take_committed_controls()
+                .iter()
+                .any(|control| matches!(control,
+                    CommittedControlEvent::LocalMovementFlags { sequence: received, tick: 0, flags }
+                    if *received == sequence && flags.using_item == Some(using.unwrap_or(false))
+                ))
+        );
+    }
+    let mut remote = spawn_with_use(Some(false));
+    remote.runtime_id += 1;
+    remote.unique_id += 1;
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Spawn(remote)), Some(5))
+        .unwrap();
+    let mut wrong_dimension = spawn_with_use(Some(false));
+    wrong_dimension.dimension += 1;
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(wrong_dimension)),
+            Some(6),
+        )
+        .unwrap();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(spawn_with_use(Some(false)))),
+            Some(4),
+        )
+        .unwrap();
+    let mut rejected = spawn_with_use(Some(false));
+    rejected.links = [protocol::ActorLinkEvent {
+        dimension: 3,
+        rider_unique_id: 5,
+        ridden_unique_id: 9,
+        link_type: protocol::ActorLinkType::Rider,
+        immediate: false,
+        rider_initiated: false,
+    }]
+    .into();
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Spawn(rejected)), Some(7))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
+    assert!(authority.actor(41).unwrap().is_using_item());
+}
+
+/// Spawn flags, attributes and a death can be retained together within admission capacity.
+#[test]
+fn local_spawn_retains_use_speed_and_death_controls() {
+    let mut authority = spawn_authority();
+    let mut spawn = spawn_with_use(Some(true));
+    spawn.attributes = [ActorAttribute {
+        name: Attribute::Health.wire_name().into(),
+        min: 0.0,
+        max: 20.0,
+        current: 0.0,
+        default: Some(20.0),
+        modifiers: [].into(),
+    }]
+    .into();
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Spawn(spawn)), Some(1))
+        .unwrap();
+    let controls = authority.take_committed_controls();
+    assert!(controls.iter().any(|control| matches!(control, CommittedControlEvent::LocalMovementFlags { flags, .. } if flags.using_item == Some(true))));
+    assert!(controls.iter().any(|control| matches!(
+        control,
+        CommittedControlEvent::LocalMovementSpeed {
+            movement_received: true,
+            ..
+        }
+    )));
+    assert!(controls.contains(&CommittedControlEvent::LocalDeath { sequence: 1 }));
+}
 
 fn metadata(runtime_id: u64, dimension: i32, flags: u64) -> WorldEvent {
     WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {

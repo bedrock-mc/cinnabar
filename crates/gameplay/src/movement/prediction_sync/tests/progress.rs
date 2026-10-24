@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Starts a verified thirty-two-tick held use in slot zero.
-fn food_use() -> (ItemUseRuntime, UseFrame) {
+pub(super) fn food_use() -> (ItemUseRuntime, UseFrame) {
     let extra_data: Arc<[u8]> = Arc::from([]);
     let stack = protocol::NetworkItemStack {
         network_id: 300,

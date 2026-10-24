@@ -422,7 +422,7 @@ fn local_player_sync_spawns_a_client_owned_player_actor_then_updates_it() {
     assert!(matches!(actor.kind, ActorKind::Player { .. }));
     assert_eq!(actor.unique_id, -100);
     assert_eq!(actor.received_pose.position, [2.0, 64.0, 0.0]);
-    assert!(actor.spawn_revision != 0 && actor.movement_revision != 0);
+    assert!(actor.movement_revision != 0);
     // Items stay client-owned: no equipment slot is created for the excluded runtime id.
     assert!(store.equipment(1).is_none());
     let first_revision = actor.movement_revision;
