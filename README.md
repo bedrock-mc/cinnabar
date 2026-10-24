@@ -105,5 +105,8 @@ Contributor rules are in [AGENTS.md](AGENTS.md) and [docs/agents/](docs/agents/)
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE). Contact the maintainers for a commercial license.
+The mod SDKs, [`crates/mod-api`](crates/mod-api/LICENSE) and
+[`crates/experience-sdk`](crates/experience-sdk/LICENSE), are MIT, so mods built on them can use
+any license, including commercial ones.
 Third-party code and assets keep their own licenses; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
