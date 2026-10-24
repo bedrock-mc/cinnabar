@@ -273,7 +273,7 @@ fn block_fixture_with_visuals(
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 1,
@@ -934,7 +934,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
     let changed = sample(&body, &local);
     assert_eq!(work.replace(0), 2);
     assert_ne!(changed[1], moved[1]);
-    body.input.identity.spawn_revision += 1;
+    body.input.identity.spawn_revision = body.input.identity.spawn_revision.checked_add(1).unwrap();
     sample(&body, &local);
     assert_eq!(work.get(), 2);
 }

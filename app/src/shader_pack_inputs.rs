@@ -5,7 +5,7 @@
 use bevy::{
     prelude::{
         App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
-        ResMut, Resource, Time, Transform, Update, Vec3, With,
+        ResMut, Resource, Time, Transform, Update, With,
     },
     time::Real,
 };
@@ -335,8 +335,8 @@ fn publish_world_inputs(
     next.biome_block_y = feet[1].floor() as i32;
 }
 
-/// Fills the values sampled along and around the rendered camera: the biomes Java blends
-/// the sky and fog colours over, and the distance to the block at the screen's centre.
+/// Fills the values sampled around the rendered camera: the biomes Java blends the sky and
+/// fog colours over.
 fn publish_camera_inputs(
     next: &mut ShaderPackFrameInputs,
     stream: &WorldStream,
@@ -345,12 +345,6 @@ fn publish_camera_inputs(
     next.sky_biomes = sky_biomes(camera.translation.to_array(), |block| {
         stream.camera_biome_id(block.map(|v| v as f32))
     });
-    let forward = camera.rotation * Vec3::NEG_Z;
-    next.center_distance = stream.first_block_distance(
-        camera.translation.to_array(),
-        forward.to_array(),
-        next.render_distance,
-    );
 }
 
 /// The biomes around `position` with Java's Gaussian blend weights, heaviest first and

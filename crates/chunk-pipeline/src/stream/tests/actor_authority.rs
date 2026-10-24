@@ -619,6 +619,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
                 sequence: 2,
                 dimension: 0,
                 movement: Some(value),
+                movement_received: true,
                 underwater: None,
                 lava: None,
                 air_drag_modifier: None,
@@ -672,7 +673,16 @@ fn movement_authority_skips_wrong_actor_dimension_and_invalid_values_then_clears
             })),
         )
         .unwrap();
-    assert_eq!(stream.local_movement_speed(), Some(f64::from(0.3_f32)));
+    assert_eq!(stream.local_movement_speed(), Some(0.25));
+    assert!(matches!(
+        stream.take_committed_controls().last(),
+        Some(CommittedControlEvent::LocalMovementSpeed {
+            sequence: 7,
+            movement: None,
+            movement_received: true,
+            ..
+        })
+    ));
 
     stream
         .submit(

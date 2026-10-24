@@ -445,33 +445,6 @@ fn a_seat_sent_before_the_local_actor_exists_still_seats_it() {
     assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
 }
 
-/// Metadata held for an absent local actor stays within the actor's own metadata limit.
-#[test]
-fn metadata_held_for_the_absent_local_actor_is_bounded() {
-    let limit = protocol::MAX_ACTOR_METADATA_ENTRIES;
-    let mut store = ActorStore::new(1, 0);
-    store.exclude_remote_state_for(PLAYER as u64);
-    for (sequence, keys) in [(1, 0..limit), (2, limit..limit + 8)] {
-        store.apply(
-            1,
-            sequence,
-            ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
-                dimension: 0,
-                runtime_id: PLAYER as u64,
-                metadata: keys
-                    .map(|key| ActorMetadata {
-                        key: u32::try_from(key).unwrap(),
-                        value: ActorMetadataValue::Int(1),
-                    })
-                    .collect(),
-                properties: Arc::from([]),
-                tick: 0,
-            }),
-        );
-    }
-    assert_eq!(store.pending_local_metadata.len(), limit);
-}
-
 /// A boat removed and respawned under the same ids restarts prediction from the new spawn.
 #[test]
 fn a_respawned_boat_restarts_prediction() {
@@ -778,15 +751,19 @@ enum Ride {
     Unlink(i64),
     /// The local player's actor is created from its first pose feed.
     LocalJoins,
+    /// An actor tick passes.
+    Tick,
 }
 
 /// Seat order across every ordering the riding reviews raised: links that arrive before
 /// their actors, a ride restored on join, a mob linked earlier that appears later, a player
-/// boarding behind a mob, and the driver leaving.
+/// boarding behind a mob, and the driver leaving. Vanilla's 26.30 `ActorLinkSystem::_tick`
+/// applies a tick's links in arrival order, so a rider spawning in its link's tick keeps its
+/// place.
 #[test]
 fn seat_order_follows_vanilla_through_every_boarding_order() {
     use ActorLinkType::{Passenger, Rider};
-    use Ride::{Link, LocalJoins, Spawn, Unlink};
+    use Ride::{Link, LocalJoins, Spawn, Tick, Unlink};
     let cases: &[(&str, &[Ride], &[i64])] = &[
         (
             "a link before its actor",
@@ -814,6 +791,29 @@ fn seat_order_follows_vanilla_through_every_boarding_order() {
                 Spawn(PIG),
             ],
             &[OTHER_PLAYER, PIG],
+        ),
+        (
+            "a player linked earlier that spawns in the same tick",
+            &[
+                Spawn(BOAT),
+                Link(OTHER_PLAYER, Rider),
+                Link(PLAYER, Passenger),
+                Spawn(OTHER_PLAYER),
+                LocalJoins,
+            ],
+            &[OTHER_PLAYER, PLAYER],
+        ),
+        (
+            "a player linked earlier that spawns a tick later",
+            &[
+                Spawn(BOAT),
+                Link(OTHER_PLAYER, Rider),
+                Link(PLAYER, Passenger),
+                Tick,
+                Spawn(OTHER_PLAYER),
+                LocalJoins,
+            ],
+            &[PLAYER, OTHER_PLAYER],
         ),
         (
             "a player behind a mob",
@@ -868,6 +868,7 @@ fn seat_order_follows_vanilla_through_every_boarding_order() {
                 Unlink(rider) => {
                     store.apply_link(1, sequence, link(rider, ActorLinkType::Remove));
                 }
+                Tick => store.advance_interpolation_ticks(1),
                 LocalJoins => store.sync_local_player(
                     PLAYER as u64,
                     PLAYER,

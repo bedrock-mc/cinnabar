@@ -690,7 +690,10 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
         core_pipeline::CorePipelinePlugin,
         image::{Image, ImagePlugin},
         mesh::MeshPlugin,
-        prelude::{App, IntoScheduleConfigs, MinimalPlugins, Msaa, Transform, Update, Vec3},
+        prelude::{
+            App, IntoScheduleConfigs, MinimalPlugins, Msaa, Transform, TransformPlugin, Update,
+            Vec3,
+        },
         render::render_resource::TextureFormat,
         window::WindowPlugin,
     };
@@ -746,7 +749,8 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
             .with_zero_byte_operations_per_frame(config.maximum_zero_byte_operations_per_frame);
 
     let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
+    // Chunks carry their world transform; `TransformPlugin` places the camera at its `Transform`.
+    app.add_plugins((MinimalPlugins, TransformPlugin))
         .add_plugins(WindowPlugin {
             primary_window: None,
             ..Default::default()

@@ -65,6 +65,7 @@ func TestWireNegotiationMatrix(t *testing.T) {
 		{"a client of v1 only", &WireOffer{[]uint16{WireVersion}, HostLimits}, nil},
 		{"a client of a later version too", &WireOffer{[]uint16{WireVersion, MaxWireVersion, MaxWireVersion + 1}, HostLimits}, &Wire{MaxWireVersion, HostLimits}},
 		{"a client with lower ceilings", &WireOffer{[]uint16{MaxWireVersion}, lower}, &Wire{MaxWireVersion, lower}},
+		{"small fragments lower the payload too", &WireOffer{[]uint16{MaxWireVersion}, Limits{128, MaxMessageBytes, MaxQueueBytes}}, &Wire{MaxWireVersion, Limits{128, (128 - 3) * MaxMessagesPerSecond, MaxQueueBytes}}},
 		{"a client with higher ceilings", &WireOffer{[]uint16{MaxWireVersion}, Limits{1 << 30, 1 << 30, 1 << 30}}, &Wire{MaxWireVersion, HostLimits}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -163,6 +164,56 @@ func TestEpochChangeKeepsTheClientPart(t *testing.T) {
 	f.connected()
 }
 
+// TestNativeEpochNearEachCeilingKeepsBudgetsEqual checks actual connection admission.
+func TestNativeEpochNearEachCeilingKeepsBudgetsEqual(t *testing.T) {
+	for _, byteBudget := range []bool{false, true} {
+		f, accept := readyFixture(t)
+		c := f.conn.(*Conn)
+		now := uint64(f.clock.Now().UnixMilli())
+		client := NewRateLimit(now)
+		epoch := f.encode(Control{Epoch: &Epoch{accept.Session, testEpoch + 1}})
+		var sizes []int
+		if byteBudget {
+			remaining := MaxBurstBytes - len(epoch)
+			for remaining > 0 {
+				size := min(remaining, MaxEnvelopeBytes)
+				sizes = append(sizes, size)
+				remaining -= size
+			}
+		} else {
+			sizes = make([]int, MaxMessagesPerSecond-1)
+		}
+		for _, size := range sizes {
+			if err := client.Charge(size, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.ingress.rate.Charge(size, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := client.ChargeClass((Control{Epoch: &Epoch{}}).RateClass(ToServer, false), []int{len(epoch)}, now); err != nil {
+			t.Fatal(err)
+		}
+		f.deliver(epoch)
+		if c.phase != active || c.ingress.rate != client {
+			t.Fatal("native epoch diverged from the client budget")
+		}
+		data := f.envelope(accept, 1, func(e *Envelope) { e.WorldEpoch++ })
+		if err := client.Charge(len(data), now); err == nil {
+			t.Fatal("client admitted data over the ceiling")
+		}
+		f.clock.Advance(time.Second)
+		now = uint64(f.clock.Now().UnixMilli())
+		if err := client.Charge(len(data), now); err != nil {
+			t.Fatal(err)
+		}
+		f.deliver(data)
+		if c.phase != active || c.ingress.rate != client || len(f.messages()) != 1 {
+			t.Fatal("refill caused fallback or budget divergence")
+		}
+	}
+}
+
 // An epoch control that names another session, does not move the epoch forward, comes before
 // Ready or inside a fragmented message ends the client part.
 func TestEpochViolationsFallBack(t *testing.T) {
@@ -229,6 +280,8 @@ func TestFragmentedMessagesBothWays(t *testing.T) {
 	if err != nil || len(whole) != 1 || !reflect.DeepEqual(whole[0].Payload, payload) {
 		t.Fatalf("the client reassembled %d messages: %v", len(whole), err)
 	}
+	// Leave less credit than another copy needs, independent of the burst capacity.
+	f.conn.(*Conn).egress.bytes = 0
 	sent := len(f.carrier())
 	if f.s.SendRecord(f.player, f.manifest.ID, ch.ID, ch.Schema, itemsRecord(400)) {
 		t.Fatal("sent a list over the per-message cap")

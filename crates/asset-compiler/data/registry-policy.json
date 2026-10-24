@@ -3951,7 +3951,11 @@
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
-        "minecraft:bell"
+        "minecraft:bell",
+        "minecraft:tripwire_hook",
+        "minecraft:open_eyeblossom",
+        "minecraft:closed_eyeblossom",
+        "minecraft:pitcher_plant"
       ]
     },
     {
@@ -7157,20 +7161,11 @@
     "powered_prefix": "powered",
     "materials": {
       "elytra": "UnmaskedArmor",
-      "skeleton": "AlphaTestNoCull",
-      "experience_orb": "AlphaTest",
-      "player_spectator": "AlphaBlend",
-      "slime_outer": "AlphaBlend",
-      "sulfur_cube": "AlphaTestNoCull",
-      "sulfur_cube_outer": "AlphaBlend",
-      "breeze_wind": "Wind",
-      "charged_creeper": "Charged",
       "ender_dragon": "Dragon",
       "entity_dissolve_layer0": "DissolveDepth",
       "entity_dissolve_layer0.skinning": "DissolveDepth",
       "entity_dissolve_layer1": "DissolveColor",
-      "entity_dissolve_layer1.skinning": "DissolveColor",
-      "entity_alphatest": "AlphaTestNoCull"
+      "entity_dissolve_layer1.skinning": "DissolveColor"
     },
     "egg_aliases": {
       "minecraft:evocation_illager": "minecraft:evoker_spawn_egg",

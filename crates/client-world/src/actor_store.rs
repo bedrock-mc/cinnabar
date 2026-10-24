@@ -2,6 +2,7 @@ use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
 use hashbrown::HashMap as FastHashMap;
 use protocol_ids::{ActorDataKey, ActorFlag, PlayerFlag};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU64;
 
 #[cfg(test)]
 use protocol::ITEM_ACTOR_NETWORK_OFFSET;
@@ -126,7 +127,11 @@ pub struct ActorSnapshot {
     pub painting: Option<protocol::PaintingData>,
     pub unique_id: i64,
     pub runtime_id: u64,
+    /// Spawn arrival, or the boundary that started a synthetic local actor's lifetime.
+    /// Zero identifies the initial local lifetime created by session setup.
     pub spawn_revision: u64,
+    /// Independently allocated render lifetime, including before a local spawn arrives.
+    pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
@@ -149,6 +154,8 @@ pub struct ActorSnapshot {
     pub source_tick: Option<u64>,
     /// Accepted actor metadata, independent of local animation flags.
     pub metadata: HashMap<u32, ActorMetadataValue>,
+    /// Supplied finite dimensions, with a separate arrival for each component.
+    pub explicit_dimensions: ExplicitDimensions,
     /// Client-derived rendering flags, retired by the next received primary word.
     local_presentation_flags: Option<u64>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
@@ -240,6 +247,7 @@ impl ActorSnapshot {
     fn from_spawn(
         spawn: ActorSpawnEvent,
         spawn_revision: u64,
+        render_spawn_revision: NonZeroU64,
         entity_fact: EntityFact,
         hitbox_budget: &mut hitbox::Budget,
     ) -> Self {
@@ -261,6 +269,7 @@ impl ActorSnapshot {
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
             spawn_revision,
+            render_spawn_revision,
             movement_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
@@ -280,6 +289,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
+            explicit_dimensions: ExplicitDimensions::for_spawn(spawn_revision),
             local_presentation_flags: None,
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
@@ -299,23 +309,23 @@ impl ActorSnapshot {
         if spawn_offset != 0.0 {
             snapshot.shift_poses_y(-spawn_offset, -spawn_offset);
         }
-        snapshot.apply_metadata(&spawn.metadata, hitbox_budget);
+        snapshot.apply_metadata(&spawn.metadata, spawn_revision, hitbox_budget);
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
         snapshot
     }
 
-    /// Builds the client-owned local-player snapshot; `revision` seeds both the spawn and the
-    /// initial movement revision so the rig identity is exact from the first presented frame.
-    /// `uuid`/`username` are the resolved identity by which the skin is looked up.
+    /// Creates a synthetic actor in arrival order, with a separate presentation revision.
+    /// The resolved player identity selects its skin.
     fn local_player(
         unique_id: i64,
         runtime_id: u64,
-        revision: u64,
+        (spawn_revision, movement_revision, render_spawn_revision): (u64, u64, NonZeroU64),
         uuid: [u8; 16],
         username: std::sync::Arc<str>,
         feed: &LocalPlayerFeed,
+        authority: Option<Self>,
     ) -> Self {
         let pose = ActorPose {
             y_origin: PoseYOrigin::default(),
@@ -324,14 +334,18 @@ impl ActorSnapshot {
             yaw: feed.yaw,
             head_yaw: feed.head_yaw,
         };
-        let mut snapshot = Self {
+        let mut snapshot = authority.unwrap_or_else(|| Self {
             painting: None,
             unique_id,
             runtime_id,
-            spawn_revision: revision,
-            movement_revision: revision,
+            spawn_revision,
+            render_spawn_revision,
+            movement_revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
-            kind: ActorKind::Player { uuid, username },
+            kind: ActorKind::Player {
+                uuid,
+                username: username.clone(),
+            },
             entity_fact: EntityFacts::pinned().player(),
             position: feed.position,
             velocity: feed.velocity,
@@ -348,6 +362,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
+            explicit_dimensions: ExplicitDimensions::for_spawn(spawn_revision),
             local_presentation_flags: None,
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
@@ -359,12 +374,33 @@ impl ActorSnapshot {
             },
             dragon_animation: None,
             hitboxes: None,
-        };
+        });
+        snapshot.unique_id = unique_id;
+        snapshot.runtime_id = runtime_id;
+        snapshot.spawn_revision = spawn_revision;
+        snapshot.render_spawn_revision = render_spawn_revision;
+        snapshot.explicit_dimensions.spawn_revision = Some(spawn_revision);
+        snapshot.movement_revision = movement_revision;
+        snapshot.kind = ActorKind::Player { uuid, username };
+        snapshot.previous_pose = pose;
+        snapshot.received_pose = pose;
+        snapshot.set_current_pose(pose);
+        snapshot.body_yaw = feed.yaw;
+        snapshot.interpolation_ticks_remaining = 0;
+        snapshot.velocity = feed.velocity;
+        snapshot.status.native_velocity = feed.velocity;
+        snapshot.status.fall_fly_ticks = feed.fall_fly_ticks;
+        snapshot.on_ground = Some(feed.on_ground);
+        snapshot.teleported = feed.teleported;
         // Retain the visible-name default until the server replaces it.
-        snapshot.metadata.insert(
-            ActorDataKey::Flags.wire_value(),
-            ActorMetadataValue::Flags(1 << ActorFlag::ShowName.wire_value()),
-        );
+        snapshot
+            .metadata
+            .entry(ActorDataKey::Flags.wire_value())
+            .or_insert(ActorMetadataValue::Flags(
+                (1 << ActorFlag::ShowName.wire_value())
+                    | (1 << ActorFlag::HasGravity.wire_value())
+                    | (1 << ActorFlag::HasCollision.wire_value()),
+            ));
         snapshot.apply_local_flags(feed);
         snapshot
     }
@@ -505,9 +541,11 @@ impl ActorSnapshot {
         }
     }
 
+    /// Applies metadata and records the arrival revision of explicit dimensions.
     fn apply_metadata(
         &mut self,
         metadata: &[protocol::ActorMetadata],
+        sequence: u64,
         hitbox_budget: &mut hitbox::Budget,
     ) -> bool {
         let previous_offset = self.network_position_offset();
@@ -534,6 +572,7 @@ impl ActorSnapshot {
             if metadata.key == ActorDataKey::Flags.wire_value() {
                 self.local_presentation_flags = None;
             }
+            self.explicit_dimensions.record(metadata, sequence);
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
         // Falling-block size changes keep the network origin fixed. Other actors retain
@@ -608,57 +647,6 @@ pub struct PlayerProfile {
     /// Decimal Xbox user ID, empty when the server sent none.
     pub xuid: std::sync::Arc<str>,
     pub skin: PlayerSkin,
-}
-
-/// Movement-affecting flags one local-player metadata update carries; `None`
-/// when the flag word holding it was absent.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct MovementFlagUpdate {
-    pub immobile: Option<bool>,
-    pub sneaking: Option<bool>,
-    pub sprinting: Option<bool>,
-    pub gliding: Option<bool>,
-    pub swimming: Option<bool>,
-    pub crawling: Option<bool>,
-    pub has_gravity: Option<bool>,
-    pub uniform_air_drag: Option<bool>,
-}
-
-impl MovementFlagUpdate {
-    /// Reads the flag words from `metadata`; `None` when no word is present.
-    #[must_use]
-    pub fn from_metadata(metadata: &[protocol::ActorMetadata]) -> Option<Self> {
-        let word = |key| {
-            metadata.iter().rev().find_map(|item| match item.value {
-                ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)
-                    if item.key == key =>
-                {
-                    Some(flags)
-                }
-                _ => None,
-            })
-        };
-        let words = [
-            word(ActorDataKey::Flags.wire_value()),
-            word(ActorDataKey::FlagsTwo.wire_value()),
-            word(ActorDataKey::FlagsThird.wire_value()),
-        ];
-        if words.iter().all(Option::is_none) {
-            return None;
-        }
-        let bit =
-            |bit: u32| words[(bit / 64) as usize].map(|flags| flags & (1_u64 << (bit % 64)) != 0);
-        Some(Self {
-            immobile: bit(ActorFlag::NoAI.wire_value()),
-            sneaking: bit(ActorFlag::Sneaking.wire_value()),
-            sprinting: bit(ActorFlag::Sprinting.wire_value()),
-            gliding: bit(ActorFlag::Gliding.wire_value()),
-            swimming: bit(ActorFlag::Swimming.wire_value()),
-            crawling: bit(ActorFlag::Crawling.wire_value()),
-            has_gravity: bit(ActorFlag::HasGravity.wire_value()),
-            uniform_air_drag: bit(ActorFlag::UsesUniformAirDrag.wire_value()),
-        })
-    }
 }
 
 /// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
@@ -775,6 +763,10 @@ pub(crate) struct ActorStore {
     local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
+    pending_local_actor: Option<ActorSnapshot>,
+    local_actor_revision: u64,
+    /// Last allocated render lifetime; authority arrivals use a separate sequence.
+    render_spawn_revision: u64,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
     local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,
@@ -782,9 +774,6 @@ pub(crate) struct ActorStore {
     /// The local player's last-death data held while its actor is absent (a dimension change),
     /// since servers need not resend it.
     pending_local_death: Vec<protocol::ActorMetadata>,
-    /// The latest metadata the server sent for the local player before its actor existed.
-    /// Bounded like an actor's own metadata.
-    pending_local_metadata: FastHashMap<u32, ActorMetadataValue>,
     /// Server PlayerSpawn has enabled local health-drop animations in this session.
     local_player_spawned: bool,
     /// Key of the synthetic local-player profile, present only while the player list carries no
@@ -827,6 +816,9 @@ pub(crate) struct ActorStore {
     /// Each vehicle's passenger list in vanilla's order, including linked riders whose actors
     /// do not exist yet; the inverse of `rider_to_ridden`.
     vehicle_riders: FastHashMap<i64, Vec<i64>>,
+    /// Riders linked since the last actor tick, which board in link order when they spawn
+    /// before it.
+    tick_links: mount::TickLinks,
     /// Seat descriptor per mount, for riders that stream no seat offset.
     seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,
@@ -860,7 +852,12 @@ mod hurt;
 mod last_death;
 mod local_health;
 pub use local_health::DEFAULT_PLAYER_HEALTH;
+mod dimensions;
 mod lifecycle;
+pub use dimensions::{DimensionWrite, ExplicitDimensions};
+mod movement_flags;
+mod unspawned_local;
+pub use movement_flags::MovementFlagUpdate;
 mod lightning;
 mod mount;
 mod movement_interpolation;
@@ -968,6 +965,8 @@ mod bounds_tests;
 #[cfg(test)]
 mod hitbox_tests;
 
+#[cfg(test)]
+mod dimensions_tests;
 #[cfg(test)]
 mod movement_flags_tests;
 

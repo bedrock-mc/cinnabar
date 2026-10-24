@@ -230,11 +230,15 @@ impl WorldAuthority {
     /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
     /// third-person body and first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
+        let missing = self.actors.get(self.local_player_runtime_id).is_none();
         self.actors.sync_local_player(
             self.local_player_runtime_id,
             self.local_player_unique_id,
             feed,
         );
+        if missing && let Some(actor) = self.actors.get(self.local_player_runtime_id) {
+            self.publish_local_actor_replacement(actor.spawn_revision);
+        }
     }
 
     /// Replaces the local appearance while preserving the server's roster identity.
@@ -311,6 +315,11 @@ impl WorldAuthority {
     pub fn local_player_unique_id(&self) -> i64 {
         self.local_player_unique_id
     }
+    /// Whether the local player is selected to control its current vehicle.
+    pub fn local_vehicle_controlled(&self) -> bool {
+        self.actors
+            .rider_controls_vehicle(self.local_player_unique_id)
+    }
     /// Seat feet position and body yaw of the local player on its mount, when placed.
     pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.actors.rider_seat_pose(self.local_player_unique_id)
@@ -334,7 +343,7 @@ impl WorldAuthority {
     /// The vehicle the local player rides from its controlling seat, which it steers.
     pub fn local_controlled_vehicle(&self) -> Option<&ActorSnapshot> {
         let vehicle = self.actors.ridden_unique_id(self.local_player_unique_id)?;
-        (self.actors.controlling_passenger(vehicle)? == self.local_player_unique_id)
+        self.local_vehicle_controlled()
             .then(|| self.actors.snapshot_by_unique(vehicle))
             .flatten()
     }

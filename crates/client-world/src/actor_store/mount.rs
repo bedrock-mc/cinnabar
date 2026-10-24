@@ -1,7 +1,29 @@
 use protocol::{ActorLinkEvent, ActorLinkType, ActorMetadataValue};
 use protocol_ids::ActorDataKey;
 
-use super::{ActorApplyResult, ActorKind, ActorSnapshot};
+use super::{ActorApplyResult, ActorKind, ActorSnapshot, FastHashMap};
+
+/// Riders linked since the last actor tick, in arrival order. Vanilla queues each link and
+/// applies the queue at its next tick, so a rider that spawns before then still boards in
+/// its link's place.
+#[derive(Debug, Default)]
+pub(super) struct TickLinks {
+    order: FastHashMap<i64, u64>,
+    next: u64,
+}
+
+impl TickLinks {
+    fn note(&mut self, rider: i64) {
+        self.order.insert(rider, self.next);
+        self.next += 1;
+    }
+
+    /// Ends the tick: later spawns join behind the riders already aboard.
+    pub(super) fn clear(&mut self) {
+        self.order.clear();
+        self.next = 0;
+    }
+}
 
 impl ActorSnapshot {
     /// Returns the horse-family behavior cached at admission.
@@ -42,6 +64,32 @@ impl super::ActorStore {
         self.seated_passengers(vehicle_unique_id)
             .get(vehicle.controlling_seat_index())
             .copied()
+    }
+
+    /// Whether the player `rider` controls its vehicle: a boat, or a saddled and tamed horse,
+    /// whose controlling seat it holds.
+    pub(crate) fn rider_controls_vehicle(&self, rider: i64) -> bool {
+        use assets::facts::entity::NativeEntityClass;
+        use protocol_ids::ActorFlag;
+        let Some(&vehicle) = self.rider_to_ridden.get(&rider) else {
+            return false;
+        };
+        let (Some(rider_actor), Some(mount)) = (
+            self.snapshot_by_unique(rider),
+            self.snapshot_by_unique(vehicle),
+        ) else {
+            return false;
+        };
+        let controllable = match mount.entity_fact.native_class {
+            NativeEntityClass::Boat => true,
+            NativeEntityClass::Horse => [ActorFlag::Saddled, ActorFlag::Tamed]
+                .into_iter()
+                .all(|flag| mount.flag(flag.wire_value())),
+            _ => false,
+        };
+        matches!(rider_actor.kind, ActorKind::Player { .. })
+            && controllable
+            && self.controlling_passenger(vehicle) == Some(rider)
     }
 
     /// The vehicle's passengers in seat order, the one ordering that seats, driver selection
@@ -90,8 +138,11 @@ impl super::ActorStore {
         }
     }
 
-    /// Adds a rider whose actor just appeared to its vehicle again, as vanilla adds a queued
-    /// link's passenger once its actor exists. The local player was placed when linked.
+    /// Boards a rider whose actor just appeared. Vanilla applies a queued link once both
+    /// actors exist at its next tick and drops it otherwise, after which the rider's own spawn
+    /// links it again. So a rider linked this tick boards in its link's place, with the riders
+    /// linked after it in the same tick boarding again behind it; one linked in an earlier
+    /// tick joins as a new passenger. The local player was placed when linked.
     pub(super) fn add_appeared_passenger(&mut self, unique_id: i64) {
         let Some(&vehicle) = self.rider_to_ridden.get(&unique_id) else {
             return;
@@ -99,10 +150,28 @@ impl super::ActorStore {
         if self.local_unique_id == Some(unique_id) {
             return;
         }
-        if let Some(riders) = self.vehicle_riders.get_mut(&vehicle) {
-            riders.retain(|&linked| linked != unique_id);
+        let Some(riders) = self.vehicle_riders.get_mut(&vehicle) else {
+            return;
+        };
+        let replay = match self.tick_links.order.get(&unique_id) {
+            Some(&arrival) => {
+                // This rider and every rider linked after it this tick, in arrival order.
+                let mut later: Vec<(u64, i64)> = riders
+                    .iter()
+                    .filter_map(|rider| {
+                        let order = *self.tick_links.order.get(rider)?;
+                        (order >= arrival).then_some((order, *rider))
+                    })
+                    .collect();
+                later.sort_unstable();
+                later.into_iter().map(|(_, rider)| rider).collect()
+            }
+            None => vec![unique_id],
+        };
+        riders.retain(|linked| !replay.contains(linked));
+        for rider in replay {
+            self.add_passenger(rider, vehicle);
         }
-        self.add_passenger(unique_id, vehicle);
     }
 
     /// Unlinks a rider from its vehicle, keeping both indexes in step.
@@ -110,6 +179,7 @@ impl super::ActorStore {
         let Some(vehicle) = self.rider_to_ridden.remove(&rider) else {
             return;
         };
+        self.tick_links.order.remove(&rider);
         if let Some(riders) = self.vehicle_riders.get_mut(&vehicle) {
             riders.retain(|&linked| linked != rider);
             if riders.is_empty() {
@@ -139,6 +209,7 @@ impl super::ActorStore {
                 if previous != Some(vehicle) {
                     self.unlink(rider);
                     self.rider_to_ridden.insert(rider, vehicle);
+                    self.tick_links.note(rider);
                     self.add_passenger(rider, vehicle);
                 }
                 ActorApplyResult::Updated
@@ -151,11 +222,13 @@ impl super::ActorStore {
         self.unlink(unique_id);
         for rider in self.vehicle_riders.remove(&unique_id).unwrap_or_default() {
             self.rider_to_ridden.remove(&rider);
+            self.tick_links.order.remove(&rider);
         }
     }
 
     pub(super) fn clear_links(&mut self) {
         self.rider_to_ridden.clear();
         self.vehicle_riders.clear();
+        self.tick_links.clear();
     }
 }

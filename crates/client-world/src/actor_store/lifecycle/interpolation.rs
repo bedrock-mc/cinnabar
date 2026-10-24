@@ -138,6 +138,10 @@ impl ActorStore {
             self.local_view_dirty = false;
         }
         self.prepare_appearances(ticks > 0);
+        if ticks > 0 {
+            // Vanilla applies queued riding links at its tick; a later spawn boards anew.
+            self.tick_links.clear();
+        }
         // The live actors now reach the positions picks were reading.
         self.picks_ahead = false;
         let prepare_frame = frame

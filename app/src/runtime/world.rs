@@ -129,6 +129,10 @@ pub(crate) struct ClientWorld {
     pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
     /// Item tag programs compiled with this session's block registries.
     pub(crate) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
+    /// Block tag programs compiled from the session item registry's digger components.
+    pub(crate) digger_filters: Arc<pack_runtime::DiggerFilters>,
+    /// One registry held at its ingress position until its digger queries are ready.
+    pub(crate) pending_digger_registry: Option<super::network::digger_registry::PendingRegistry>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -158,6 +162,8 @@ impl ClientWorld {
             prepared_actor_artwork: None,
             session_items: None,
             mining_filters: Arc::default(),
+            digger_filters: Arc::default(),
+            pending_digger_registry: None,
             pending_surface_spawn: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),
@@ -487,7 +493,21 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 ),
             );
         }
-        if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
+        if let CommittedControlEvent::LocalMovementFlags {
+            tick,
+            flags,
+            replacement,
+            ..
+        } = control
+        {
+            if replacement {
+                player_runtime
+                    .facts
+                    .clear_actor_movement_authority(clock.session_generation());
+            }
+            if let Some(item_use) = item_use.as_deref_mut() {
+                item_use.adopt_server_using_item(flags.using_item);
+            }
             let previous = player_runtime.facts.is_immobile();
             player_runtime
                 .facts

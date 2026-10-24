@@ -229,8 +229,7 @@ impl LocomotionState {
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
-            movement_speed.set_sprinting(input.sprinting);
-            input.movement_speed = movement_speed.prediction_speed();
+            input.movement_speed = movement_speed.requested_prediction_speed(input.sprinting);
             let liquid = movement_speed.liquid();
             input.underwater_movement_speed = liquid.underwater;
             input.lava_movement_speed = liquid.lava;
@@ -251,6 +250,7 @@ impl LocomotionState {
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
                         vehicle: facts.vehicle,
+                        vehicle_controlled_locally: facts.vehicle_controlled_locally,
                         can_fly: facts.can_fly,
                         flight: facts.flight,
                         ability_sequence: facts.ability_sequence,

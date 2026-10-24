@@ -103,6 +103,8 @@ pub struct ChatScreen {
 
 /// What one chat paint reads from the client's chat state.
 pub struct ChatInput<'a> {
+    /// The current local actor display name used for mention matching.
+    pub local_player: &'a str,
     pub editor: &'a ui::ChatEditor,
     /// The history, oldest first.
     pub messages: &'a VecDeque<ui::ChatMessage>,
@@ -164,6 +166,7 @@ impl ChatScreen {
                 text,
                 color,
                 Some(self.settings.options.mentions_color_code()),
+                input.local_player,
             )
         };
         let art = ScreenArt {

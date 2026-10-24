@@ -1,0 +1,169 @@
+package messages
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+	"testing/synctest"
+	"time"
+
+	"github.com/df-mc/dragonfly/server"
+	"github.com/df-mc/dragonfly/server/session"
+	"github.com/google/uuid"
+	cinnabarext "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+)
+
+type registryConn struct {
+	session.Conn
+	incoming []packet.Packet
+	written  [][]byte
+}
+
+// IdentityData supplies an authenticated identity without opening a network connection.
+func (*registryConn) IdentityData() login.IdentityData {
+	return login.IdentityData{Identity: uuid.NameSpaceOID.String()}
+}
+
+// ReadPacket consumes the queued carrier and the ordinary packet following it.
+func (c *registryConn) ReadPacket() (packet.Packet, error) {
+	if len(c.incoming) == 0 {
+		return nil, errors.New("no input")
+	}
+	pk := c.incoming[0]
+	c.incoming = c.incoming[1:]
+	return pk, nil
+}
+
+// WritePacket records output; all access stays inside the synctest bubble.
+func (c *registryConn) WritePacket(pk packet.Packet) error {
+	if msg, ok := pk.(*packet.ScriptMessage); ok {
+		c.written = append(c.written, msg.Data)
+	}
+	return nil
+}
+
+// Close lets the wrapper retire the simulated connection.
+func (*registryConn) Close() error { return nil }
+
+type registryListener struct {
+	server.Listener
+	conn session.Conn
+}
+
+// Accept hands the helper the simulated connection once.
+func (l registryListener) Accept() (session.Conn, error) { return l.conn, nil }
+
+// TestRegistryRetry exercises generated registration through the helper's real rate limiter.
+func TestRegistryRetry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		confirmation := RegistryConfirmation{}
+		route := confirmation.Route()
+		fields := []cinnabarext.Field{cinnabarext.TextField{MaxBytes: uint16(len(RegistryFingerprint))}}
+		manifest := cinnabarext.Manifest{ID: PackageID, PublisherKey: cinnabarext.PublicKey(key), Permissions: 1 << cinnabarext.PermissionMessaging, Channels: []cinnabarext.Channel{
+			{ID: route.Channel, Schema: route.Schema, Direction: cinnabarext.ToClient, Fields: fields},
+			{ID: RegistryRequestChannel, Schema: 1, Direction: cinnabarext.ToServer, Fields: fields},
+		}}
+		bundle := cinnabarext.Bundle{Manifest: manifest, Digest: strings.Repeat("ab", 32), Bytes: 1}
+		ext, err := cinnabarext.New(cinnabarext.Config{Key: key, Audience: "127.0.0.1:19132", Revision: 1, Bundles: []cinnabarext.Bundle{bundle}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := RegisterRegistry(ext); err != nil {
+			t.Fatal(err)
+		}
+		inner := &registryConn{}
+		listen := ext.Listener(func(server.Config) (server.Listener, error) { return registryListener{conn: inner}, nil })
+		listener, err := listen(server.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := listener.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		deliver := func(value cinnabarext.CanonicalValue) {
+			raw, err := cinnabarext.Encode(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := &packet.Text{Message: "after"}
+			inner.incoming = append(inner.incoming, &packet.ScriptMessage{Identifier: cinnabarext.Carrier, Data: raw}, after)
+			if got, err := conn.ReadPacket(); err != nil || got != after {
+				t.Fatalf("read %v: %v", got, err)
+			}
+		}
+		offer, err := cinnabarext.Encode(ext.Offer())
+		if err != nil {
+			t.Fatal(err)
+		}
+		hello := cinnabarext.Hello{Version: cinnabarext.WireVersion, API: cinnabarext.APIVersion, OfferDigest: cinnabarext.Digest(offer), Capabilities: 1 << cinnabarext.PermissionMessaging, Connection: strings.Repeat("c0", 32), ClientChallenge: strings.Repeat("c1", 32)}
+		deliver(cinnabarext.Control{Hello: &hello})
+		var reply cinnabarext.Control
+		if err := cinnabarext.Decode(inner.written[0], &reply); err != nil || reply.Accept == nil {
+			t.Fatalf("accept: %v", err)
+		}
+		var accept cinnabarext.Accept
+		if _, err := reply.Accept.Verify(ext.Offer().ServerKey, cinnabarext.AcceptDomain, cinnabarext.MaxPayloadBytes, &accept); err != nil {
+			t.Fatal(err)
+		}
+		deliver(cinnabarext.Control{Ready: &cinnabarext.Ready{Session: accept.Session, Packages: []string{bundle.Digest}, Generation: cinnabarext.InitialBundleGeneration, Permissions: map[string]cinnabarext.Permissions{PackageID: manifest.Permissions}, WorldEpoch: 1}})
+		// Exhaust the shared outbound budget, then discard this earlier traffic at the client.
+		for range cinnabarext.MaxMessagesPerSecond {
+			if !ext.Send(uuid.NameSpaceOID, confirmation) {
+				t.Fatal("budget exhausted early")
+			}
+		}
+		if ext.Send(uuid.NameSpaceOID, confirmation) {
+			t.Fatal("budget was not exhausted")
+		}
+		before := len(inner.written)
+		deliver(cinnabarext.Envelope{Version: cinnabarext.WireVersion, Session: accept.Session, Connection: hello.Connection, Bundle: PackageID, Generation: cinnabarext.InitialBundleGeneration, Channel: RegistryRequestChannel, Schema: 1, Sequence: 1, WorldEpoch: 1, Payload: cinnabarext.Record{{Text: pointer(RegistryFingerprint)}}})
+		synctest.Wait()
+		if len(inner.written) != before {
+			t.Fatal("confirmation exceeded the budget")
+		}
+		refilled := make(chan struct{})
+		time.AfterFunc(time.Second, func() { close(refilled) })
+		<-refilled
+		synctest.Wait()
+		if len(inner.written) != before+1 {
+			t.Fatalf("got %d retried confirmations, want one", len(inner.written)-before)
+		}
+		var envelope cinnabarext.Envelope
+		if err := cinnabarext.Decode(inner.written[before], &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Channel != RegistryChannel || envelope.WorldEpoch != 1 {
+			t.Fatal(envelope)
+		}
+		raw, err := cinnabarext.Encode(cinnabarext.Record(envelope.Payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile("confirmation.json", raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		before = len(inner.written)
+		deliver(cinnabarext.Envelope{Version: cinnabarext.WireVersion, Session: accept.Session, Connection: hello.Connection, Bundle: PackageID, Generation: cinnabarext.InitialBundleGeneration, Channel: RegistryRequestChannel, Schema: 1, Sequence: 2, WorldEpoch: 1, Payload: cinnabarext.Record{{Text: pointer(strings.Repeat("cd", len(RegistryFingerprint)/2))}}})
+		synctest.Wait()
+		if len(inner.written) != before+1 {
+			t.Fatalf("mismatched request got %d replies, want one", len(inner.written)-before)
+		}
+		if err := cinnabarext.Decode(inner.written[before], &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Channel != RegistryChannel || len(envelope.Payload) != 1 || envelope.Payload[0].Text == nil || *envelope.Payload[0].Text != RegistryFingerprint {
+			t.Fatalf("mismatch reply must carry server fingerprint: %+v", envelope)
+		}
+	})
+}

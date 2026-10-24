@@ -222,7 +222,6 @@ pub(crate) struct UniformHistory {
     pub previous: Option<(Mat4, Mat4, Vec3)>,
     pub wetness: f32,
     pub eye_brightness: [f32; 2],
-    pub center_depth: f32,
     /// Seconds of frame time since the pack loaded, wrapped to 0 after an hour.
     pub frame_time_counter: f32,
     pub frame: u64,
@@ -236,14 +235,20 @@ pub(crate) struct FrameClock {
     pub delta_seconds: f32,
 }
 
-/// Iris's exponential smoothing: each frame moves `current` towards `target` by the share
-/// that halves the gap every `halflife` seconds, interpolated as Iris writes it so the value
-/// settles exactly on a steady target.
-fn smooth(current: f32, target: f32, delta: f32, halflife: f32) -> f32 {
+/// The share of the gap to a new value that Iris's exponential smoothing closes in `delta`
+/// seconds, halving it every `halflife` seconds.
+pub(crate) fn smoothing_share(delta: f32, halflife: f32) -> f32 {
     if halflife <= 0.0 {
-        return target;
+        return 1.0;
     }
-    let share = 1.0 - (-std::f32::consts::LN_2 / halflife * delta).exp();
+    1.0 - (-std::f32::consts::LN_2 / halflife * delta).exp()
+}
+
+/// Iris's exponential smoothing: each frame moves `current` towards `target` by
+/// [`smoothing_share`], interpolated as Iris writes it so the value settles exactly on a
+/// steady target.
+fn smooth(current: f32, target: f32, delta: f32, halflife: f32) -> f32 {
+    let share = smoothing_share(delta, halflife);
     (1.0 - share) * current + share * target
 }
 
@@ -308,7 +313,9 @@ pub(crate) struct FrameUniforms {
     shadow_angle: f32,
     wetness: f32,
     eye_brightness_smooth: [i32; 2],
-    center_depth_smooth: f32,
+    /// This frame's share of the step towards the new `centerDepthSmooth` sample, which
+    /// the GPU applies ([`super::center_depth`]); 1 restarts from the sample.
+    center_depth_share: f32,
     frame_counter: i32,
     frame_time: f32,
     frame_time_counter: f32,
@@ -385,11 +392,11 @@ impl FrameUniforms {
         let delta = clock.delta_seconds.max(0.0);
         let rain = game.rain_strength;
         let brightness = game.eye_brightness.map(|v| v as f32);
-        // `centerDepthSmooth` smooths the depth buffer value at the screen's centre.
-        let center_depth = game.center_distance.map_or(1.0, |distance| {
-            let clip = projection * Vec4::new(0.0, 0.0, -distance.max(GL_NEAR), 1.0);
-            (clip.z / clip.w * 0.5 + 0.5).clamp(0.0, 1.0)
-        });
+        let center_depth_share = if history.started {
+            smoothing_share(delta, settings.center_depth_halflife)
+        } else {
+            1.0
+        };
         if history.started {
             let halflife = if rain > history.wetness {
                 settings.wetness_halflife
@@ -400,12 +407,6 @@ impl FrameUniforms {
             for (smoothed, target) in history.eye_brightness.iter_mut().zip(brightness) {
                 *smoothed = smooth(*smoothed, target, delta, settings.eye_brightness_halflife);
             }
-            history.center_depth = smooth(
-                history.center_depth,
-                center_depth,
-                delta,
-                settings.center_depth_halflife,
-            );
             history.frame_time_counter += delta;
             if history.frame_time_counter >= FRAME_TIME_COUNTER_PERIOD {
                 history.frame_time_counter = 0.0;
@@ -413,7 +414,6 @@ impl FrameUniforms {
         } else {
             history.wetness = rain;
             history.eye_brightness = brightness;
-            history.center_depth = center_depth;
             history.started = true;
         }
         let previous = history
@@ -438,7 +438,7 @@ impl FrameUniforms {
             wetness: history.wetness,
             // Iris truncates the smoothed brightness to whole steps.
             eye_brightness_smooth: history.eye_brightness.map(|v| v as i32),
-            center_depth_smooth: history.center_depth,
+            center_depth_share,
             frame_counter,
             frame_time: delta,
             frame_time_counter: game
@@ -463,6 +463,11 @@ impl FrameUniforms {
     /// `gbufferProjection`.
     pub(crate) fn projection(&self) -> Mat4 {
         self.projection
+    }
+
+    /// This frame's share of the step `centerDepthSmooth` takes towards its new sample.
+    pub(crate) fn center_depth_share(&self) -> f32 {
+        self.center_depth_share
     }
 
     /// `shadowModelView`.
@@ -567,7 +572,9 @@ impl FrameUniforms {
             "isEyeInWater" => Int(g.eye_medium),
             "skyColor" => HostValue::vec3(Vec3::from(self.sky_fog.sky)),
             "fogColor" => HostValue::vec3(Vec3::from(self.sky_fog.fog)),
-            "centerDepthSmooth" => Float(self.center_depth_smooth),
+            // A placeholder: full-screen passes get the GPU-smoothed value copied over it
+            // (`center_depth`); geometry programs keep 0, as Iris binds none for them.
+            super::center_depth::UNIFORM => Float(0.0),
             "nightVision" => Float(g.night_vision),
             "blindness" => Float(g.blindness),
             "darknessFactor" => Float(g.darkness),

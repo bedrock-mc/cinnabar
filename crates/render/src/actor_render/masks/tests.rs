@@ -78,7 +78,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     let spans = selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>()).unwrap();
@@ -164,7 +164,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(mask.authorized());
@@ -513,7 +513,7 @@ fn masks_split_shared_coverage_after_membership_changes() {
             connection: entry.identity.session_id,
             dimension: entry.identity.dimension,
             runtime_id: entry.identity.runtime_id,
-            spawn_revision: entry.identity.spawn_revision,
+            spawn_revision: entry.identity.spawn_revision.get(),
         })
         .collect();
     let mut first = mod_render::masks::Mask {
@@ -658,7 +658,7 @@ fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() 
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(!selection(&mask, gpu).unwrap().is_empty());

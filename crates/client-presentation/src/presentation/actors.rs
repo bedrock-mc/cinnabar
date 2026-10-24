@@ -268,7 +268,6 @@ fn tick_presentation(
         || rig.actor.spawn_revision != actor.spawn_revision
         || rig.actor.session_id == 0
         || rig.actor.runtime_id == 0
-        || rig.actor.spawn_revision == 0
         || rig.reset_generation == 0
         || (!rig.pose_evaluated && rig.fallback != assets::EntityRigFallback::GeometryOnly)
         || (!rejected_pose && (rig.previous.is_empty() || rig.previous.len() != rig.current.len()))
@@ -296,7 +295,7 @@ fn tick_presentation(
                         session_id: rig.actor.session_id,
                         dimension: rig.actor.dimension,
                         runtime_id: rig.actor.runtime_id,
-                        spawn_revision: rig.actor.spawn_revision,
+                        spawn_revision: actor.render_spawn_revision,
                         // Movement fields belong to the frame; `place` fills them.
                         ingress_sequence: 0,
                         source_tick: None,
@@ -446,7 +445,7 @@ pub fn local_diagnostic_presentation(
                     session_id: actor_session_id,
                     dimension,
                     runtime_id,
-                    spawn_revision: actor_session_id,
+                    spawn_revision: std::num::NonZeroU64::new(actor_session_id)?,
                     ingress_sequence: pose_generation.get(),
                     source_tick: None,
                     movement_revision: pose_generation.get(),

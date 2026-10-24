@@ -525,9 +525,9 @@ fn rain_columns_span_the_rain_sheet_across_each_column() {
 /// a one-texel streak, then an opaque row below.
 fn bedrock_weather_sheet() -> Vec<u8> {
     let mut rgba = vec![0; 32 * 32 * 4];
-    for (index, texel) in rgba.chunks_exact_mut(4).enumerate() {
+    for (index, texel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (index % 32, index / 32);
-        if y < 4 || y >= 20 {
+        if !(4..20).contains(&y) {
             texel.copy_from_slice(&[255; 4]);
         } else if x % 4 == 1 && (6..18).contains(&y) {
             texel.copy_from_slice(&[70, 103, 195, 200]);
@@ -543,14 +543,16 @@ fn rain_sheet_scatters_thin_streaks_as_rain_png_does() {
     let [width, height] = RAIN_SHEET_SIZE.map(|side| side as usize);
     assert_eq!(sheet.len(), width * height * 4);
     let opaque: Vec<_> = sheet
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .enumerate()
         .filter(|(_, texel)| texel[3] > 0)
         .collect();
     assert!(
         opaque
             .iter()
-            .all(|(_, texel)| *texel == [70, 103, 195, 200]),
+            .all(|(_, texel)| **texel == [70, 103, 195, 200]),
         "only rain cells are copied"
     );
     // `rain.png` covers about 2.5% of its texels with streaks.
@@ -559,7 +561,12 @@ fn rain_sheet_scatters_thin_streaks_as_rain_png_does() {
     // A column crosses the sheet's width, so no row may hold a band: a whole Bedrock cell
     // spread over a column covered a quarter of it.
     for row in sheet.chunks_exact(width * 4) {
-        let lit = row.chunks_exact(4).filter(|texel| texel[3] > 0).count();
+        let lit = row
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|texel| texel[3] > 0)
+            .count();
         assert!(lit * 8 <= width, "{lit} of {width} texels in one row");
     }
     assert_eq!(

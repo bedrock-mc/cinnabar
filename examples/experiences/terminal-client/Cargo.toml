@@ -10,8 +10,16 @@ crate-type = ["cdylib"]
 doctest = false
 
 [dependencies]
-experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["client"] }
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["messages"] }
 serde_json = "=1.0.150"
+
+[features]
+default = ["client"]
+client = ["experience-sdk/client"]
+server = ["experience-sdk/server"]
+
+[build-dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["project"] }
 
 [lints]
 workspace = true

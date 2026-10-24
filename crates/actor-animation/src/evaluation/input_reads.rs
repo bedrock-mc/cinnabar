@@ -98,6 +98,7 @@ impl VariableLayout {
             .get(clip)
             .copied()
             .unwrap_or(PresentationReads {
+                frame: true,
                 camera: true,
                 swing: true,
             })

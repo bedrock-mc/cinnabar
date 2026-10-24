@@ -1,11 +1,21 @@
 use super::*;
 use protocol_ids::Attribute;
+mod removal;
 mod spawn;
 
 mod equipment;
 mod interpolation;
 
 impl ActorStore {
+    /// Allocates a nonzero render lifetime without changing authority arrival ordering.
+    pub(super) fn allocate_render_revision(&mut self) -> NonZeroU64 {
+        self.render_spawn_revision = self
+            .render_spawn_revision
+            .checked_add(1)
+            .expect("actor render lifetime counter exhausted");
+        NonZeroU64::new(self.render_spawn_revision).expect("render lifetimes start at one")
+    }
+
     pub(crate) fn set_server_animation_compiler(
         &mut self,
         compiler: actor_animation::ServerAnimationCompiler,
@@ -101,6 +111,7 @@ impl ActorStore {
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
             vehicle_riders: FastHashMap::new(),
+            tick_links: Default::default(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -112,11 +123,13 @@ impl ActorStore {
             local_unique_id: None,
             local_vehicle: Default::default(),
             pending_local_health: None,
+            pending_local_actor: None,
+            local_actor_revision: 0,
+            render_spawn_revision: 0,
             local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
             pending_local_death: Vec::new(),
-            pending_local_metadata: FastHashMap::new(),
             local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
@@ -282,14 +295,24 @@ impl ActorStore {
             self.effect_members.collidable.update(actor);
             return;
         }
-        let mut actor =
-            ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        let mut actor = ActorSnapshot::local_player(
+            unique_id,
+            runtime_id,
+            (
+                self.local_actor_revision,
+                revision,
+                self.allocate_render_revision(),
+            ),
+            uuid,
+            username,
+            feed,
+            self.pending_local_actor.take(),
+        );
         actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
-        self.apply_held_local_metadata(runtime_id);
         self.apply_pending_local_health(runtime_id);
         self.apply_pending_local_death(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
@@ -370,7 +393,6 @@ impl ActorStore {
         self.session_id = session_id;
         self.pending_local_health = None;
         self.pending_local_death.clear();
-        self.pending_local_metadata.clear();
         self.pending_local_damage = None;
         self.local_health_skips = 0;
         self.local_player_spawned = false;
@@ -383,6 +405,8 @@ impl ActorStore {
         self.player_game_mode_skips = 0;
         self.world_default_game_mode = None;
         self.actors.clear();
+        self.pending_local_actor = None;
+        self.local_actor_revision = 0;
         self.seat_bindings.clear();
         self.seat_bases.clear();
         self.effect_members = Default::default();
@@ -434,6 +458,7 @@ impl ActorStore {
             })
             .or_else(|| self.pending_local_damage.take());
         self.actors.clear();
+        self.replace_local_actor_lifetime(sequence);
         self.seat_bindings.clear();
         self.effect_members = Default::default();
         self.unique_to_runtime.clear();
@@ -490,7 +515,7 @@ impl ActorStore {
                 }
                 result
             }
-            ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
+            ActorEvent::Remove(remove) => self.remove_unique(sequence, remove.unique_id),
             ActorEvent::Move(movement) => {
                 // The local player's pose is client-fed each tick; server movement
                 // (authoritative reconciliation) must not fight that feed.
@@ -624,7 +649,10 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     if self.remote_state_excluded_runtime_id == Some(update.runtime_id) {
                         self.merge_pending_local_death(&update.metadata);
-                        self.hold_local_metadata(&update.metadata);
+                        self.update_unspawned_local_actor(update.runtime_id, |actor, budget| {
+                            actor.apply_metadata(&update.metadata, sequence, budget);
+                            actor.apply_properties(&update.properties);
+                        });
                     }
                     return ActorApplyResult::MissingActor;
                 };
@@ -633,8 +661,9 @@ impl ActorStore {
                         std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
                     })
                 });
-                let rejected = actor.apply_metadata(&update.metadata, &mut self.hitbox_budget)
-                    | actor.apply_properties(&update.properties);
+                let rejected =
+                    actor.apply_metadata(&update.metadata, sequence, &mut self.hitbox_budget)
+                        | actor.apply_properties(&update.properties);
                 self.effect_members.update(actor);
                 if incompatible {
                     self.animation.mark_reset(update.runtime_id);
@@ -648,6 +677,10 @@ impl ActorStore {
             ActorEvent::Attributes(update) => {
                 self.retain_unspawned_local_health(update.runtime_id, &update.attributes);
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
+                    self.update_unspawned_local_actor(update.runtime_id, |actor, _| {
+                        actor.apply_attributes(&update.attributes);
+                        actor.sync_status_from_health();
+                    });
                     return ActorApplyResult::MissingActor;
                 };
                 let rejected = actor.apply_attributes(&update.attributes);
@@ -783,25 +816,6 @@ impl ActorStore {
         self.latest_sequence = sequence;
         ActorApplyResult::Updated
     }
-    fn remove_unique(&mut self, unique_id: i64) -> ActorApplyResult {
-        let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
-            self.remove_links_for(unique_id);
-            return ActorApplyResult::MissingActor;
-        };
-        self.seat_bindings.remove(&runtime_id);
-        if let Some(actor) = self.actors.remove(&runtime_id) {
-            self.effect_members.remove(runtime_id);
-            self.synchronized_audio.remove_runtime(runtime_id);
-            let lifetime = self.lifetime_for(&actor);
-            self.items.remove(lifetime);
-            self.actions.remove(lifetime);
-        }
-        self.remove_links_for(unique_id);
-        self.animation.remove_runtime(runtime_id);
-        self.prune_unlisted_players();
-        ActorApplyResult::Removed
-    }
-
     /// Layers a session's server-pack entity catalog over the vanilla one.
     pub(crate) fn set_pack_entities(
         &mut self,

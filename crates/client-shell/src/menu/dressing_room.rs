@@ -226,15 +226,19 @@ fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> R
     match job {
         Job::Select(index) => catalog::select(layout, view, index),
         Job::Model(model) => catalog::set_model(layout, view, model),
-        Job::Import(None) => picker::pick(false)
-            .and_then(|path| path.map_or(Ok(()), |path| catalog::import(layout, view, &path))),
+        Job::Import(None) => picker::pick(false).and_then(|path| {
+            path.map_or(Ok(()), |path| catalog::import(layout, view, path.as_ref()))
+        }),
         Job::Import(Some(path)) => catalog::import(layout, view, &path),
         Job::Rename(index, name) => catalog::rename(layout, view, index, &name),
         Job::Delete(index) => catalog::delete(layout, view, index),
         Job::SelectCape(index) => catalog::select_cape(layout, view, index),
         Job::SelectCosmetic(hat) => catalog::select_cosmetic(layout, view, hat),
-        Job::ImportCape(None) => picker::pick(true)
-            .and_then(|path| path.map_or(Ok(()), |path| catalog::import_cape(layout, view, &path))),
+        Job::ImportCape(None) => picker::pick(true).and_then(|path| {
+            path.map_or(Ok(()), |path| {
+                catalog::import_cape(layout, view, path.as_ref())
+            })
+        }),
         Job::ImportCape(Some(path)) => catalog::import_cape(layout, view, &path),
         Job::RenameCape(index, name) => catalog::rename_cape(layout, view, index, &name),
         Job::DeleteCape(index) => catalog::delete_cape(layout, view, index),

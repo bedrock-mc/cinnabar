@@ -47,6 +47,7 @@ mod commits;
 mod contracts;
 mod dimension_ranges;
 mod dimension_transfer;
+mod local_actor_lifetime;
 #[cfg(test)]
 mod local_movement_flags_tests;
 #[cfg(test)]
@@ -90,8 +91,8 @@ pub(crate) fn allocate_actor_session_id() -> u64 {
         })
         .expect("actor session identity space exhausted")
 }
-/// An attribute update can publish both movement changes and a local death.
-pub const COMMITTED_CONTROL_CAPACITY: usize = 2 * MAX_ADMITTED_WORLD_EVENTS;
+/// A local spawn can publish item use, movement attributes and a local death.
+pub const COMMITTED_CONTROL_CAPACITY: usize = 3 * MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
@@ -132,6 +133,8 @@ pub struct WorldAuthority {
     local_player_unique_id: i64,
     local_actor_position: Option<local_actor_move::LocalActorPosition>,
     local_movement_speed: Option<f64>,
+    /// The bootstrap lifetime is zero; session setup already clears its consumers.
+    published_local_actor_revision: u64,
     resolved_server_position: ResolvedServerPosition,
     latest_movement_correction_tick: Option<u64>,
     actor_session_id: u64,
@@ -216,6 +219,7 @@ impl WorldAuthority {
             local_player_unique_id: bootstrap.local_player_unique_id,
             local_actor_position: None,
             local_movement_speed: None,
+            published_local_actor_revision: 0,
             resolved_server_position,
             latest_movement_correction_tick: None,
             actor_session_id,
@@ -253,7 +257,7 @@ impl WorldAuthority {
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
-        self.local_movement_speed = None;
+        self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }
     /// Returns the mount retained for an actor's current lifetime.

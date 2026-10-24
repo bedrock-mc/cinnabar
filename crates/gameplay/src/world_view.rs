@@ -35,6 +35,10 @@ pub trait GameplayWorld {
     fn local_vehicle_revision(&self) -> client_world::VehicleRevision {
         client_world::VehicleRevision::default()
     }
+    /// Whether the current vehicle selects the local player as its controller.
+    fn local_vehicle_controlled(&self) -> bool {
+        false
+    }
     /// Reads the network palette's ID encoding mode.
     fn network_id_mode(&self) -> assets::NetworkIdMode;
     /// Resolves one network block ID into the store's palette identity.

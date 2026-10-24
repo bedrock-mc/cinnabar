@@ -56,7 +56,7 @@ impl ActorStore {
             .get(&self.remote_state_excluded_runtime_id?)?
             .unique_id;
         let vehicle = *self.rider_to_ridden.get(&local)?;
-        if self.controlling_passenger(vehicle)? != local {
+        if !self.rider_controls_vehicle(local) {
             return None;
         }
         let boat = self.snapshot_by_unique(vehicle)?;

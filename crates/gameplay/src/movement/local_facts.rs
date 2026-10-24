@@ -22,6 +22,9 @@ pub struct LocalMovementFacts {
     pub ride_seat: Option<[f32; 3]>,
     /// The boat the player steers from its controlling seat.
     pub vehicle: Option<super::vehicle::SteeredVehicle>,
+    /// The current vehicle selects the local player as its controller.
+    pub vehicle_controlled_locally: bool,
+    /// Abilities permit flight.
     pub can_fly: bool,
     pub flight: FlightAuthority,
     pub ability_sequence: Option<u64>,
@@ -108,6 +111,7 @@ pub fn read(
         vehicle: (ride == Some(super::RideKind::Boat))
             .then(|| steered_vehicle(stream))
             .flatten(),
+        vehicle_controlled_locally: stream.local_vehicle_controlled(),
         can_fly,
         flight: capabilities.map(|caps| caps.flight).unwrap_or_default(),
         ability_sequence: player.facts.local_abilities_sequence(),
