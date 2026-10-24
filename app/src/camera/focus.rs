@@ -1,6 +1,8 @@
 //! Desktop focus arbitration before input sampling and before OS cursor updates.
 #[cfg(test)]
 use bevy::prelude::{MessageWriter, Mut, Time, Update, default};
+#[cfg(test)]
+use bevy::window::CursorGrabMode;
 use bevy::{
     input::{
         InputSystems,
@@ -11,18 +13,15 @@ use bevy::{
         MessageReader, MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single, Touches,
         Vec2, Window, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
+    window::{CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
-use client_shell::physical_input::release_cursor;
+use client_shell::physical_input::{OS_CURSOR_GRAB, release_cursor, set_cursor_capture};
 use client_state::CursorFocus;
 
 use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 
 #[cfg(any(windows, test))]
 mod native;
-
-/// Whether the platform can lock the OS cursor; Android's window backend rejects every grab.
-const OS_CURSOR_GRAB: bool = !cfg!(target_os = "android");
 
 /// Installs focus tracking without opening or calling into a native window.
 pub(super) fn install(app: &mut App) {
@@ -93,8 +92,19 @@ pub(crate) fn mouse_input_active(
     focus: Option<&CursorFocus>,
     driven: bool,
 ) -> bool {
+    mouse_input_active_with_grab(window, cursor, focus, driven, OS_CURSOR_GRAB)
+}
+
+/// Uses gameplay capture on backends that cannot lock the physical pointer.
+fn mouse_input_active_with_grab(
+    window: &Window,
+    cursor: &CursorOptions,
+    focus: Option<&CursorFocus>,
+    driven: bool,
+    os_cursor_grab: bool,
+) -> bool {
     driven
-        || if OS_CURSOR_GRAB {
+        || if os_cursor_grab {
             client_presentation::camera::input_is_active(window, cursor)
                 && focus.is_none_or(|focus| focus.capture_allowed())
         } else {
@@ -171,12 +181,6 @@ fn grab_free_capture(
         && policy.steals_mouse != Some(false)
 }
 
-/// Requests the captured gameplay pointer state.
-fn capture_cursor(cursor: &mut CursorOptions) {
-    cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false;
-}
-
 /// Drops held pointer and key input when gameplay capture is released.
 fn clear_controller_input(
     keys: &mut ButtonInput<KeyCode>,
@@ -233,7 +237,7 @@ fn apply_cursor_policy(
     let active = client_presentation::camera::input_is_active(&window, &cursor);
     let recapture_click = !active && mouse_buttons.just_pressed(MouseButton::Left);
     if recapture_click || (steals == Some(true) && !active) || auto_fly.capture_pending() {
-        capture_cursor(&mut cursor);
+        set_cursor_capture(&mut cursor, true);
         if recapture_click {
             // Recapture consumes the click; a later physical press must rearm attack.
             mouse_buttons.release(MouseButton::Left);
@@ -273,6 +277,9 @@ fn enforce_cursor_ownership(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod grab_free_tests;
 
 #[cfg(test)]
 mod high_rate_tests;

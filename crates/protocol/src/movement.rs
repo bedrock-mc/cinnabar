@@ -42,6 +42,8 @@ impl PlayerInputFlags {
     pub const WANT_UP: Self = Self(1 << 16);
     pub const WANT_DOWN: Self = Self(1 << 17);
     pub const SPRINTING: Self = Self(1 << 20);
+    /// The toggle-sneak control is physically held.
+    pub const SNEAK_TOGGLE_DOWN: Self = Self(1 << 23);
     pub const PERSIST_SNEAK: Self = Self(1 << 24);
     pub const START_SPRINTING: Self = Self(1 << 25);
     pub const STOP_SPRINTING: Self = Self(1 << 26);
@@ -391,6 +393,7 @@ mod locomotion_flag_tests {
     fn locomotion_constants_sit_on_their_named_table_rows() {
         for (flag, name) in [
             (PlayerInputFlags::PERSIST_SNEAK, "PersistSneak"),
+            (PlayerInputFlags::SNEAK_TOGGLE_DOWN, "SneakToggleDown"),
             (PlayerInputFlags::PADDLING_LEFT, "PaddlingLeft"),
             (PlayerInputFlags::PADDLING_RIGHT, "PaddlingRight"),
             (PlayerInputFlags::ASCEND, "Ascend"),

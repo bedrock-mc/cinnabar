@@ -23,6 +23,8 @@ pub(super) struct ControllerFrame {
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
+    /// A live fall-distance restoration consumed before this tick's movement actions.
+    pub fall_distance_override: Option<f32>,
     pub eye_offset: eye::LocalEyeOffset,
     pub intent: ModeIntent,
     pub jump_edge: bool,
@@ -31,14 +33,8 @@ pub(super) struct ControllerFrame {
     pub requested_sprint: bool,
     pub sprint_down: bool,
     pub server_sprinting: Option<bool>,
-    /// Client-owned actor flags this tick started with, before its corrections;
-    /// replay refreshes it for every frame after the one it starts from.
-    pub entry_flags: server_flags::FlagWord,
-    /// Retained server flag writes that apply before this tick.
-    pub flag_correction: server_flags::FlagCorrection,
-    /// Counters this tick started with; replay restores those of the frame it
-    /// starts from and refreshes later ones.
-    pub entry_counters: server_flags::EntryCounters,
+    /// Flags and accepted writes at this input boundary.
+    pub flags: flag_frame::FrameFlags,
     /// The camera eye this tick started with, which replay restores for the
     /// frame it starts from and refreshes for later ones.
     pub entry_eye: eye::LocalEyeOffset,
@@ -55,6 +51,8 @@ pub(super) struct ControllerFrame {
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
+    /// Block-climber flags reported by the prediction sync after this tick.
+    pub climber: Option<ClimberFlags>,
 }
 
 impl ControllerFrame {
@@ -79,6 +77,9 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        if let Some(distance) = self.fall_distance_override {
+            state.restore_fall_distance(distance);
+        }
         posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
@@ -165,6 +166,9 @@ impl ControllerFrame {
         input.swim_pose_active = Some(modes.pose_flags().swim_pose());
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
+        if self.flight_request.is_some() {
+            state.clear_fall_distance();
+        }
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,

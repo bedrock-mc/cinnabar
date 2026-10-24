@@ -650,6 +650,30 @@ struct CollisionInstance {
     block: Option<[i32; 3]>,
     runtime_id: Option<u32>,
     cell_has_scaffolding: Option<bool>,
+    /// A powder snow cell's block box, which collides only for some movers.
+    powder_snow: bool,
+}
+
+/// Colliders for a mover's own move: those every mover meets, and the powder
+/// snow cells whose collision depends on the mover.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MoverColliders {
+    /// The colliders of [`CollisionWorld::collision_boxes_with_provenance`].
+    pub colliders: Vec<ProvenancedCollider>,
+    /// Powder snow cells whose block box intersects the query.
+    pub powder_snow: Vec<[i32; 3]>,
+}
+
+impl CollisionInstance {
+    /// Projects the instance onto the public provenance surface.
+    fn provenanced(&self) -> ProvenancedCollider {
+        ProvenancedCollider {
+            aabb: self.shape,
+            block: self.block,
+            runtime_id: self.runtime_id.map(u64::from),
+            cell_has_scaffolding: self.cell_has_scaffolding,
+        }
+    }
 }
 
 impl<'a> PaletteWorld<'a> {
@@ -766,7 +790,9 @@ impl CollisionWorld for PaletteWorld<'_> {
         let mut value = Vec::new();
         let identity =
             self.visit_collision_instances(query, &mut |instance: CollisionInstance| {
-                value.push(instance.shape);
+                if !instance.powder_snow {
+                    value.push(instance.shape);
+                }
             })?;
         Ok(CollisionQuery { value, identity })
     }
@@ -778,13 +804,26 @@ impl CollisionWorld for PaletteWorld<'_> {
         let mut value = Vec::new();
         let identity =
             self.visit_collision_instances(query, &mut |instance: CollisionInstance| {
-                value.push(ProvenancedCollider {
-                    aabb: instance.shape,
-                    block: instance.block,
-                    runtime_id: instance.runtime_id.map(u64::from),
-                    cell_has_scaffolding: instance.cell_has_scaffolding,
-                });
+                if !instance.powder_snow {
+                    value.push(instance.provenanced());
+                }
             })?;
+        Ok(CollisionQuery { value, identity })
+    }
+
+    /// Reports powder snow cells from the same scan as the ordinary colliders.
+    fn collision_boxes_for_mover(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<MoverColliders>, WorldQueryError> {
+        let mut value = MoverColliders::default();
+        let identity = self.visit_collision_instances(
+            query,
+            &mut |instance: CollisionInstance| match instance.block {
+                Some(block) if instance.powder_snow => value.powder_snow.push(block),
+                _ => value.colliders.push(instance.provenanced()),
+            },
+        )?;
         Ok(CollisionQuery { value, identity })
     }
 

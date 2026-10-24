@@ -1,3 +1,4 @@
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
@@ -26,7 +27,7 @@ use bevy::{
         With,
     },
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
 use client_shell::menu::settings_options::control_bindings::{
@@ -375,8 +376,7 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if !input_available {
@@ -385,8 +385,7 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if runtime.sign_editor().is_open()
@@ -411,8 +410,7 @@ pub(crate) fn drive_chat_keyboard_input(
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     let keyboard_events: Vec<_> = keyboard_messages.read().cloned().collect();

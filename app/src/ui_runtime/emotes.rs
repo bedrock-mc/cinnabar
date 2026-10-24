@@ -13,8 +13,9 @@ use bevy::{
     },
     prelude::*,
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, WindowEvent},
 };
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use ui::{UiAction, UiPoint};
 use ui_screens::emote_screen::EmoteHit;
@@ -146,8 +147,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.motion.delta = Vec2::ZERO;
         input.observed.pointer = None;
         input.consumed.0 = owned;
-        input.window.1.grab_mode = CursorGrabMode::None;
-        input.window.1.visible = true;
+        set_cursor_capture(&mut input.window.1, false);
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_pointer(None);
         }
@@ -361,12 +361,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.keys.reset_all();
         input.mouse.reset_all();
         input.motion.delta = Vec2::ZERO;
-        input.window.1.grab_mode = if input.runtime.emotes().is_open() {
-            CursorGrabMode::None
-        } else {
-            CursorGrabMode::Locked
-        };
-        input.window.1.visible = input.runtime.emotes().is_open();
+        set_cursor_capture(&mut input.window.1, !input.runtime.emotes().is_open());
     }
 }
 

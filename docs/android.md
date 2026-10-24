@@ -15,7 +15,8 @@ signing key so later APKs can update the installed app. The desktop updater does
 Uninstall an earlier CI test build before installing a release APK; this clears its app data.
 
 On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
-device, exit reason and the end of the client log. Include those details when reporting a crash.
+device, a readable exit cause with its numeric reason, and the end of the client log. Consecutive
+duplicate log lines appear once with a repeat count. Include those details when reporting a crash.
 **Save report** writes a ZIP to Downloads with those details and Android's retained crash trace,
 when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
 attach the ZIP to the crash report. Nothing is uploaded automatically.

@@ -102,6 +102,10 @@ fn predicted_flag_words(
             set_flag(&mut words, flag, value);
         }
     }
+    if let Some(climber) = flags.extended_flags {
+        let mask = super::physics::ClimberFlags::mask();
+        words[1] = (words[1] & !mask) | (climber & mask);
+    }
     words
 }
 

@@ -896,60 +896,6 @@ const STATES: &[State] = &[
         fixture: || settings_screens::settings_keyboard_layout(true),
     },
     State {
-        name: "settings-mods",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::declared,
-    },
-    State {
-        name: "settings-mods-compact-library",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::compact_library,
-    },
-    State {
-        name: "settings-mods-undeclared",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::undeclared,
-    },
-    State {
-        name: "settings-mods-permissions-collapsed",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::collapsed,
-    },
-    State {
-        name: "settings-mods-permissions-consent",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::consent,
-    },
-    State {
-        name: "settings-mods-permissions-requested",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::requested_only,
-    },
-    State {
-        name: "settings-mods-permissions-all",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::show_all,
-    },
-    State {
-        name: "settings-mods-permissions-narrow",
-        size: [360, 900],
-        gui_scale: GUI_SCALE,
-        fixture: mods::show_all,
-    },
-    State {
-        name: "settings-mods-permissions-undeclared-consent",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::undeclared_permissions,
-    },
-    State {
         name: "settings-shaders-options-button",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -1000,4 +946,5 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(server_forms::STATES)
         .chain(hud_hotbar::STATES)
         .chain(touch_editor::STATES)
+        .chain(mods::STATES)
 }
