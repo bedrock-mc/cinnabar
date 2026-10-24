@@ -4,7 +4,11 @@ pub mod block_highlights;
 mod budget;
 pub mod geometry;
 pub mod position_box;
+mod primitive_ranges;
 pub use budget::{GpuAllocation, GpuLedger, GpuReservation};
+pub use primitive_ranges::PrimitiveRanges;
+mod merge;
+pub use merge::RenderMerge;
 mod identity;
 pub use identity::next_owner;
 pub mod masks;
@@ -14,8 +18,7 @@ pub mod shader;
 
 use mod_api::{
     MAX_PASS_PARAMS, MAX_PRIMITIVE_COORDINATE, MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_BEAMS,
-    MAX_RENDER_BILLBOARDS, MAX_RENDER_DECALS, MAX_RENDER_PASSES, MAX_RENDER_RIBBONS,
-    MAX_RIBBON_POINTS,
+    MAX_RENDER_BILLBOARDS, MAX_RENDER_DECALS, MAX_RENDER_RIBBONS, MAX_RIBBON_POINTS,
 };
 use std::sync::Arc;
 
@@ -191,99 +194,6 @@ pub struct RenderOutput {
     pub masks: Arc<[masks::Mask]>,
     pub retained: Vec<Arc<retained::Resources>>,
     pub gpu_reservations: Vec<GpuReservation>,
-}
-
-/// Combines several mods' output in load order within the single-mod budgets: earlier mods
-/// keep a contested pass name and fill each primitive budget first. Merged primitives keep
-/// their identity while every source is unchanged, so pass-only changes rebuild no geometry.
-#[derive(Clone, Debug, Default)]
-pub struct RenderMerge {
-    sources: Vec<Arc<Primitives>>,
-    merged: Arc<Primitives>,
-}
-
-impl RenderMerge {
-    pub fn merge<'a>(
-        &mut self,
-        outputs: impl IntoIterator<Item = &'a RenderOutput>,
-    ) -> RenderOutput {
-        let outputs: Vec<&RenderOutput> = outputs.into_iter().collect();
-        let mut passes: Vec<Pass> = Vec::new();
-        for pass in outputs.iter().flat_map(|output| &output.passes) {
-            if passes.len() < MAX_RENDER_PASSES && passes.iter().all(|kept| kept.name != pass.name)
-            {
-                passes.push(pass.clone());
-            }
-        }
-        passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
-        let mut drawing = outputs
-            .iter()
-            .filter(|output| !output.primitives.is_empty());
-        // A lone drawing mod's set already fits the budgets; sharing it skips a geometry rebuild.
-        let primitives = match (drawing.next(), drawing.next()) {
-            (None, _) => outputs
-                .first()
-                .map(|output| Arc::clone(&output.primitives))
-                .unwrap_or_default(),
-            (Some(only), None) => Arc::clone(&only.primitives),
-            _ => self.merge_primitives(&outputs),
-        };
-        let masks = outputs
-            .iter()
-            .flat_map(|output| output.masks.iter().cloned())
-            .collect();
-        let retained = outputs
-            .iter()
-            .flat_map(|output| output.retained.iter().cloned())
-            .collect();
-        let gpu_reservations = outputs
-            .iter()
-            .flat_map(|output| output.gpu_reservations.iter().cloned())
-            .collect();
-        RenderOutput {
-            passes,
-            primitives,
-            masks,
-            retained,
-            gpu_reservations,
-        }
-    }
-
-    fn merge_primitives(&mut self, outputs: &[&RenderOutput]) -> Arc<Primitives> {
-        let same_sources = self.sources.len() == outputs.len()
-            && self
-                .sources
-                .iter()
-                .zip(outputs)
-                .all(|(source, output)| Arc::ptr_eq(source, &output.primitives));
-        if same_sources {
-            return Arc::clone(&self.merged);
-        }
-        self.sources = outputs
-            .iter()
-            .map(|output| Arc::clone(&output.primitives))
-            .collect();
-        let mut merged = Primitives::default();
-        for other in outputs.iter().map(|output| &output.primitives) {
-            fill(&mut merged.decals, &other.decals, MAX_RENDER_DECALS);
-            fill(&mut merged.ribbons, &other.ribbons, MAX_RENDER_RIBBONS);
-            fill(&mut merged.beams, &other.beams, MAX_RENDER_BEAMS);
-            fill(
-                &mut merged.billboards,
-                &other.billboards,
-                MAX_RENDER_BILLBOARDS,
-            );
-        }
-        if merged != *self.merged {
-            self.merged = Arc::new(merged);
-        }
-        Arc::clone(&self.merged)
-    }
-}
-
-fn fill<T: Clone>(into: &mut Vec<T>, from: &[T], cap: usize) {
-    let room = cap.saturating_sub(into.len());
-    into.extend(from.iter().take(room).cloned());
 }
 
 /// Valid pass names are short lowercase identifiers.

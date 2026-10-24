@@ -416,26 +416,6 @@ pub(super) fn session(gameplay: &super::gameplay::GameplayContext<'_>) -> Drawin
         ),
     }
 }
-/// Publishes owner identity through the existing same-frame drawing authority.
-pub(super) fn publish_frame(
-    drawing: &Drawing,
-    gameplay: &super::gameplay::GameplayContext<'_>,
-    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
-) {
-    let fence = session(gameplay);
-    frame.connection = fence.connection;
-    frame.dimension = fence.dimension;
-    let Some(stream) = gameplay
-        .world
-        .as_ref()
-        .and_then(|world| world.stream.as_ref())
-    else {
-        return;
-    };
-    for resources in &drawing.output.retained {
-        super::drawing_policy::publish_retained(resources, stream.authority().terrain(), frame);
-    }
-}
 /// Supports a packet-only configuration without introducing an empty component host.
 pub(super) fn publish_alone(scene: &mut render_scene::ModRenderScene, drawing: &Drawing) {
     drawing.publish_blocks(scene);

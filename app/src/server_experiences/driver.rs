@@ -65,8 +65,13 @@ pub(crate) fn configure(app: &mut App) {
     app.init_resource::<crate::environment::ClientPartEnvironment>();
     app.add_systems(
         Update,
-        super::drawing::present
+        (
+            super::drawing::present,
+            crate::modding::anchors::publish_frame,
+        )
+            .chain()
             .after(crate::modding::DrawingPublication)
+            .after(ClientFrameSet::ActorPublication)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );

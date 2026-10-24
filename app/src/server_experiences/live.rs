@@ -32,6 +32,8 @@ struct Instance<H> {
     owner: Principal,
     contributions: Contributions,
     busy: bool,
+    /// Whether the one-time initializer finished, independently of later callbacks.
+    initialized: bool,
     /// The bundle's verified templates and textures, shared with the modal presenter.
     files: Arc<screen::Files>,
     /// When its modal last opened, so the most recent one draws on top.
@@ -114,6 +116,7 @@ impl<H> Instance<H> {
         self.helper = None;
         self.component = None;
         self.busy = false;
+        self.initialized = true;
         self.events.clear();
         self.contributions = Contributions::default();
         self.presentation.clear();
@@ -230,6 +233,7 @@ impl<H: Worker> Live<H> {
                     owner,
                     contributions: Contributions::default(),
                     busy,
+                    initialized: !busy,
                     files: Arc::new(files),
                     opened: 0,
                     events: VecDeque::new(),
@@ -300,6 +304,7 @@ impl<H: Worker> Live<H> {
                 continue;
             };
             instance.busy = false;
+            instance.initialized |= instance.callback == "init";
             let transaction = match result {
                 Ok(Reply::Committed {
                     transaction,
@@ -401,7 +406,7 @@ impl<H: Worker> Live<H> {
                 }
             }
         }
-        if !self.ready && self.instances.values().all(|instance| !instance.busy) {
+        if !self.ready && self.instances.values().all(|instance| instance.initialized) {
             self.ready = true;
             packets.push(serde_json::to_vec(&Control::Ready {
                 session: self.grant.session.clone(),
@@ -472,7 +477,9 @@ impl<H: Worker> Live<H> {
                 instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
             }
         }
-        self.dispatch_frames(epoch)?;
+        if self.ready {
+            self.dispatch_frames(epoch)?;
+        }
         Ok(packets)
     }
 

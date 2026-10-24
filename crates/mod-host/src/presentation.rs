@@ -314,7 +314,7 @@ impl Receiver {
         output.gpu_reservations.push(mod_render::GpuReservation {
             owners: owners.values().copied().collect(),
             ledger: self.ledger(gpu_bytes).clone(),
-            primitives: Arc::clone(&output.primitives),
+            primitives: mod_render::PrimitiveRanges::all(&output.primitives),
             passes: output.passes.iter().map(|pass| pass.revision).collect(),
         });
         self.owners = owners;

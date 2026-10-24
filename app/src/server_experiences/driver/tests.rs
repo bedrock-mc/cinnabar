@@ -17,6 +17,26 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+#[test]
+fn server_only_block_availability_expires_without_a_personal_publisher() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::mod_scene::retained::DrawingFrame;
+    let mut app = join_app(State::Disabled);
+    app.world_mut()
+        .resource_mut::<DrawingFrame>()
+        .loaded_blocks
+        .insert([0; 3]);
+    app.world_mut()
+        .run_system_once(crate::modding::anchors::publish_frame)
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<DrawingFrame>()
+            .loaded_blocks
+            .is_empty()
+    );
+}
+
 /// Finds a real production system node in Bevy's unbuilt schedule graph.
 fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
     let parent = NodeId::Set(

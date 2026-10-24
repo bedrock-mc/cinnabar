@@ -64,6 +64,14 @@ impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
 }
 
 impl ModRenderScene {
+    /// Identifies a current server contributor so frame publication preserves its anchor policy.
+    pub fn is_server_contributor(&self, resources: &Arc<mod_render::retained::Resources>) -> bool {
+        self.server
+            .retained
+            .iter()
+            .any(|server| Arc::ptr_eq(server, resources))
+    }
+
     /// Adopts `output` unless `generation` is already applied.
     pub fn apply(&mut self, output: &RenderOutput, generation: u64) {
         if generation == self.personal_generation {
@@ -91,37 +99,42 @@ impl ModRenderScene {
         self.generation = self.generation.wrapping_add(1);
         self.passes.clone_from(&output.passes);
         self.retained.clone_from(&output.retained);
-        if self.gpu_reservations.len() != output.gpu_reservations.len()
-            || !self
+        if !Arc::ptr_eq(&self.primitives, &output.primitives)
+            || self
                 .gpu_reservations
                 .iter()
-                .zip(&output.gpu_reservations)
-                .all(|(old, new)| {
-                    old.ledger == new.ledger && Arc::ptr_eq(&old.primitives, &new.primitives)
-                })
+                .map(|r| (&r.ledger, &r.primitives))
+                .ne(output
+                    .gpu_reservations
+                    .iter()
+                    .map(|r| (&r.ledger, &r.primitives)))
         {
+            self.primitives = Arc::clone(&output.primitives);
+            self.vertices = mod_render::geometry::build_partition(
+                &output.primitives,
+                &output.gpu_reservations,
+                None,
+            )
+            .into();
             self.bundle_vertices = output
                 .gpu_reservations
                 .iter()
-                .map(|r| {
+                .enumerate()
+                .map(|(index, r)| {
                     (
                         r.ledger.clone(),
-                        mod_render::geometry::build(&r.primitives).into(),
+                        mod_render::geometry::build_partition(
+                            &output.primitives,
+                            &output.gpu_reservations,
+                            Some(index),
+                        )
+                        .into(),
                     )
                 })
                 .collect();
         }
         self.gpu_reservations.clone_from(&output.gpu_reservations);
         self.masks = Arc::clone(&output.masks);
-        let primitives = if self.gpu_reservations.is_empty() {
-            &output.primitives
-        } else {
-            &self.personal.primitives
-        };
-        if !Arc::ptr_eq(&self.primitives, primitives) {
-            self.primitives = Arc::clone(primitives);
-            self.vertices = mod_render::geometry::build(primitives).into();
-        }
     }
 
     /// Publishes a host-owned own-position box independently of guest render output.

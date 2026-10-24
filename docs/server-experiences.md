@@ -418,7 +418,8 @@ and weather. Procedural fragments need `render_material`; post effects need
 receive only permissions in the consented signed bundle. `scene` continues to name
 the legacy media surface adapter.
 
-`frame()` is optional and coalesces while the helper is busy. Messages and input
+`frame()` is optional, starts after every bundle finishes initialization, and
+coalesces while the helper is busy. Messages and input
 have priority over frames. A callback publishes drawing and environment only after
 it returns successfully. The application checks portable drawing inputs again and
 maps helper tokens into its own owner namespace. Larger committed snapshots stream
@@ -427,6 +428,10 @@ existing output limit without rejecting an otherwise admissible retained model.
 Revoke, disconnect, bundle
 replacement and a world epoch change drop the old scene. The `epoch()` callback
 lets the guest rebuild without restarting its component.
+The combined scene admits immediate primitives once within the shared limits and
+tags their allocation owners. GPU reservations partition that admitted list.
+Anchor availability is rebuilt from all current contributors every frame, including
+when no personal mod runs; unloaded blocks and previous sessions cannot retain it.
 
 List drawing files in `[client].assets` beside `experience.toml`.
 `cinnabar-cxb build` signs and indexes them with the other bundle files; the client

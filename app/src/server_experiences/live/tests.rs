@@ -178,6 +178,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     owner,
                     contributions: Contributions::default(),
                     busy: true,
+                    initialized: false,
                     files: Arc::default(),
                     opened: 0,
                     events: VecDeque::new(),

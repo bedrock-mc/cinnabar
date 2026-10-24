@@ -3,27 +3,18 @@
 use super::driver::ExperienceService;
 use crate::environment::ClientPartEnvironment;
 use bevy::prelude::*;
-use render_scene::{ModRenderScene, mod_scene::retained::DrawingFrame};
+use render_scene::ModRenderScene;
 
-/// Publishes after personal drawing so both producers share one frame and render budgets.
+/// Publishes session drawing after personal drawing through the same render budgets.
 #[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub(super) fn present(
     mut service: ResMut<ExperienceService>,
     mut scene: ResMut<ModRenderScene>,
-    mut frame: ResMut<DrawingFrame>,
     mut environment: ResMut<ClientPartEnvironment>,
     world: Res<crate::runtime::world::ClientWorld>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
     cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
-    mut owned: Local<Vec<(u64, u64)>>,
-    mut entity_tokens: Local<Vec<mod_api::drawing::DrawingHandle>>,
 ) {
-    for owner in owned.drain(..) {
-        frame.live_owners.remove(&owner);
-    }
-    for token in entity_tokens.drain(..) {
-        frame.entity_poses.remove(&token);
-    }
     let Some(live) = &mut service.live else {
         if scene
             .bypass_change_detection()
@@ -49,8 +40,6 @@ pub(super) fn present(
         return;
     };
     let authority = stream.authority();
-    frame.connection = authority.actor_session_id();
-    frame.dimension = authority.current_dimension();
     let candidates = cameras
         .single()
         .map(|camera| {
@@ -75,30 +64,6 @@ pub(super) fn present(
     environment.time = time;
     environment.weather = weather;
     let (output, revision) = live.drawing();
-    for resources in &output.retained {
-        if let Some(actors) = actors.as_deref() {
-            for (&id, &key) in &resources.entities {
-                if let Some(pose) =
-                    render_scene::mod_scene::retained::RootPose::from_actor_frame(actors, key)
-                {
-                    frame.entity_poses.insert(id, pose);
-                    entity_tokens.push(id);
-                }
-            }
-        }
-        crate::modding::drawing_policy::publish_retained(
-            resources,
-            authority.terrain(),
-            &mut frame,
-        );
-    }
-    owned.extend(output.retained.iter().flat_map(|resources| {
-        resources
-            .geometry
-            .keys()
-            .chain(resources.materials.keys())
-            .map(|id| (id.owner, id.generation))
-    }));
     if scene
         .bypass_change_detection()
         .apply_server(output, revision)

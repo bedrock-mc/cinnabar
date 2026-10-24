@@ -110,7 +110,8 @@ impl<T> Deref for GpuAllocation<T> {
 pub struct GpuReservation {
     pub owners: Vec<u64>,
     pub ledger: GpuLedger,
-    pub primitives: Arc<crate::Primitives>,
+    /// Allocation tags into the containing output's admitted primitives, never a separate list.
+    pub primitives: crate::PrimitiveRanges,
     pub passes: Vec<u64>,
 }
 impl GpuReservation {

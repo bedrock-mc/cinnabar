@@ -1,5 +1,37 @@
 use super::*;
 
+#[test]
+fn staggered_drawing_initializers_send_ready_before_overlapping_frames() {
+    let mut live = fixture(2);
+    for instance in live.instances.values_mut() {
+        instance
+            .capabilities
+            .scope
+            .permissions
+            .insert(Permission::WorldDraw);
+    }
+    complete(&mut live, "bundle0");
+    assert!(live.poll(1, CALLBACK_INTERVAL_MS).unwrap().is_empty());
+    // Let an early frame stay pending while the second initializer finishes.
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .response = None;
+    complete(&mut live, "bundle1");
+    let packets = live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::Ready { .. }
+    ));
+    assert!(live.ready);
+    for instance in live.instances.values() {
+        assert_eq!(instance.helper.as_ref().unwrap().dispatched, [Event::Frame]);
+    }
+}
+
 /// Completes every startup callback across aggregate scheduling slices.
 fn initialized(count: usize) -> Live<FakeWorker> {
     let mut live = fixture(count);

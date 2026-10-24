@@ -92,7 +92,6 @@ pub(super) fn publish(
     context: GameplayContext,
     mut scene: ResMut<render_scene::ModRenderScene>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
-    mut drawing: ResMut<DrawingFrame>,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let mut packet_drawing = packet_drawing;
@@ -121,9 +120,7 @@ pub(super) fn publish(
         );
     }
     let Some(mut runtime) = runtime else {
-        *drawing = Default::default();
         if let Some(packet_drawing) = packet_drawing.as_deref() {
-            super::packet_render::publish_frame(packet_drawing, &context, &mut drawing);
             super::packet_render::publish_alone(&mut scene, packet_drawing);
         }
         return;
@@ -134,57 +131,63 @@ pub(super) fn publish(
         runtime.render_sources.clear();
     }
     reconcile(&mut runtime.hosts, &context);
-    super::drawing_policy::publish_frame(&runtime.hosts, &context, &mut drawing);
-    if let Some(packet_drawing) = packet_drawing.as_deref() {
-        super::packet_render::publish_frame(packet_drawing, &context, &mut drawing);
-    }
     super::render::publish(Some(scene), &mut runtime, packet_drawing.as_deref());
-    let Some(actors) = actors else { return };
-    let Some(world) = context
-        .world
+}
+
+/// Rebuilds availability once from every current contributor, even without personal publishers.
+pub(crate) fn publish_frame(
+    scene: Res<render_scene::ModRenderScene>,
+    world: Res<crate::runtime::world::ClientWorld>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
+    mut drawing: ResMut<DrawingFrame>,
+    cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
+) {
+    let authority = world
+        .stream
         .as_ref()
-        .filter(|world| !world.dimension_transfer.active())
-    else {
-        return;
-    };
-    let Some(stream) = world.stream.as_ref() else {
-        return;
-    };
-    let authority = stream.authority();
-    if drawing.dimension != authority.current_dimension() {
-        return;
-    }
-    let Ok(camera) = cameras.single() else { return };
-    let origin = camera.translation;
-    for (output, _) in runtime.hosts.render_outputs() {
-        for resources in &output.retained {
-            for (handle, key) in &resources.entities {
-                let Some(actor) = authority.actor(key.runtime_id).filter(|actor| {
-                    actor.spawn_revision == key.spawn_revision
-                        && key.session == authority.actor_session_id()
-                        && key.dimension == authority.current_dimension()
-                }) else {
-                    continue;
-                };
-                let chunk = world::ChunkKey::new(
-                    key.dimension,
-                    (actor.position[0].floor() as i32).div_euclid(world::SUB_CHUNK_SIDE as i32),
-                    (actor.position[2].floor() as i32).div_euclid(world::SUB_CHUNK_SIDE as i32),
-                );
-                if !authority.terrain().is_chunk_loaded(chunk) {
-                    continue;
-                }
-                let root = RootPose::from_actor_frame(&actors, *key);
-                if let Some(root) = root {
+        .filter(|_| !world.dimension_transfer.active())
+        .map(|stream| stream.authority());
+    super::drawing_policy::rebuild_frame(&scene.retained, authority, &mut drawing);
+    let Some(authority) = authority else { return };
+    for resources in &scene.retained {
+        if resources.connection != drawing.connection || resources.dimension != drawing.dimension {
+            continue;
+        }
+        let Some(actors) = actors.as_deref() else {
+            continue;
+        };
+        let server = scene.is_server_contributor(resources);
+        for (handle, key) in &resources.entities {
+            let Some(actor) = authority.actor(key.runtime_id).filter(|actor| {
+                actor.spawn_revision == key.spawn_revision
+                    && key.session == authority.actor_session_id()
+                    && key.dimension == authority.current_dimension()
+            }) else {
+                continue;
+            };
+            if let Some(root) = RootPose::from_actor_frame(actors, *key) {
+                if !server {
+                    let Ok(camera) = cameras.single() else {
+                        continue;
+                    };
+                    let chunk = world::ChunkKey::new(
+                        key.dimension,
+                        (actor.position[0].floor() as i32).div_euclid(world::SUB_CHUNK_SIDE as i32),
+                        (actor.position[2].floor() as i32).div_euclid(world::SUB_CHUNK_SIDE as i32),
+                    );
                     let position = Vec3::new(
                         root.world_from_actor[0][3],
                         root.world_from_actor[1][3],
                         root.world_from_actor[2][3],
                     );
-                    if position.distance_squared(origin) <= mod_api::MAX_MOB_RANGE_BLOCKS.powi(2) {
-                        drawing.entity_poses.insert(*handle, root);
+                    if !authority.terrain().is_chunk_loaded(chunk)
+                        || position.distance_squared(camera.translation)
+                            > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2)
+                    {
+                        continue;
                     }
                 }
+                drawing.entity_poses.insert(*handle, root);
             }
         }
     }

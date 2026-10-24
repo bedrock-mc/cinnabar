@@ -341,7 +341,8 @@ fn native_lines_reconcile_retained_output_and_revoke_both() {
     render.begin_callback();
     render.retained.remove(material).unwrap();
     render.commit_retained();
-    assert!(render.output().retained.is_empty());
+    assert!(render.output().retained[0].materials.is_empty());
+    assert!(render.output().retained[0].entities.contains_key(&entity));
     let material = render
         .retained
         .create_material(

@@ -59,6 +59,50 @@ pub fn billboard_style_id(pattern: BillboardPattern) -> f32 {
     STYLE_BILLBOARD + pattern as u8 as f32
 }
 
+/// Builds one allocation partition exclusively from the admitted list; `None` selects host work.
+pub fn build_partition(
+    primitives: &Primitives,
+    reservations: &[crate::GpuReservation],
+    owner: Option<usize>,
+) -> Vec<ModVertex> {
+    let belongs = |index, range: fn(&crate::PrimitiveRanges) -> &std::ops::Range<usize>| {
+        reservations
+            .iter()
+            .position(|r| range(&r.primitives).contains(&index))
+            == owner
+    };
+    build(&Primitives {
+        decals: primitives
+            .decals
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| belongs(*i, |r| &r.decals))
+            .map(|(_, p)| *p)
+            .collect(),
+        ribbons: primitives
+            .ribbons
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| belongs(*i, |r| &r.ribbons))
+            .map(|(_, p)| p.clone())
+            .collect(),
+        beams: primitives
+            .beams
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| belongs(*i, |r| &r.beams))
+            .map(|(_, p)| *p)
+            .collect(),
+        billboards: primitives
+            .billboards
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| belongs(*i, |r| &r.billboards))
+            .map(|(_, p)| *p)
+            .collect(),
+    })
+}
+
 /// Ground decals, ribbons, beams, then billboards, as a triangle list.
 pub fn build(primitives: &Primitives) -> Vec<ModVertex> {
     let mut out = Vec::with_capacity(vertex_count(primitives));
