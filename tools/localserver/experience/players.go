@@ -65,9 +65,13 @@ func (h *Host) PlayerDisconnected(p *player.Player) {
 		return
 	}
 	h.flushFocus(p.UUID())
+	instance, ok := h.worlds.of(p.Tx().World())
+	if !ok {
+		delete(h.players.items, p.H())
+		return
+	}
+	h.reconcilePlayerLocked(p, instance, state, false)
 	loc := state.location
-	loc.Position = positionOf(p.Position())
-	instance, _ := h.worlds.of(state.w)
 	h.observeLocked(p, instance, PlayerEvent{Type: "leave", Location: &loc})
 	delete(h.players.items, p.H())
 }
@@ -146,29 +150,34 @@ func (h *Host) PollPlayers(ctx context.Context, tick uint64) error {
 				return
 			}
 			state.lastTick = tick
-			before := state.location
-			after := before
-			after.Position = positionOf(e.Position())
-			after.World = instance.handle
-			kind := "move"
-			if before.World != after.World {
-				if after.Epoch == math.MaxUint64 {
-					return
-				}
-				after.Epoch++
-				kind = "world_change"
-				h.flushFocus(handle.UUID())
-			}
-			if before == after {
-				return
-			}
-			state.location, state.w = after, tx.World()
-			h.observeLocked(e.(*player.Player), instance, PlayerEvent{Type: kind, Before: &before, After: &after})
+			h.reconcilePlayerLocked(e.(*player.Player), instance, state, true)
 		})); err != nil && !errors.Is(err, world.ErrEntityClosed) {
 			return err
 		}
 	}
 	return nil
+}
+
+// reconcilePlayerLocked records the transaction's current location and any unsampled world change.
+// Callers hold players.mu. Disconnects update position without adding a separate move observation.
+func (h *Host) reconcilePlayerLocked(p *player.Player, instance worldInstance, state *playerState, movement bool) {
+	before := state.location
+	after := before
+	after.Position = positionOf(p.Position())
+	after.World = instance.handle
+	kind := "move"
+	if before.World != after.World {
+		if after.Epoch == math.MaxUint64 {
+			return
+		}
+		after.Epoch++
+		kind = "world_change"
+		h.flushFocus(p.UUID())
+	}
+	state.location, state.w = after, p.Tx().World()
+	if before != after && (movement || kind == "world_change") {
+		h.observeLocked(p, instance, PlayerEvent{Type: kind, Before: &before, After: &after})
+	}
 }
 
 // runPlayerTicks is the clock edge for position sampling; domain tests supply tick numbers directly.

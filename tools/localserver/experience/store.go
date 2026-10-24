@@ -244,6 +244,22 @@ func (s *Store) Remove(exp string, k Key) (prev []byte, had bool) {
 	return slices.Clone(old.data), old.data != nil
 }
 
+// discardPlacements removes every mod's block records when an instance's terrain is discarded.
+// Instance, player and mod scoped state retain their independent lifetimes.
+func (s *Store) discardPlacements(instance cinnabarext.WorldID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.experiences {
+		for key, entry := range e.entries {
+			if key.Instance == instance {
+				delete(e.entries, key)
+				e.used -= uint64(len(entry.data))
+				e.dirty = true
+			}
+		}
+	}
+}
+
 // Token returns the entry's current token, or false when there is no entry at k.
 func (s *Store) Token(exp string, k Key) (Token, bool) {
 	s.mu.Lock()
