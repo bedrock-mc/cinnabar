@@ -15,7 +15,7 @@ use bevy::{
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        renderer::{RenderAdapter, RenderDevice, RenderQueue},
+        renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderQueue},
     },
 };
 use sha2::Sha256;
@@ -85,6 +85,7 @@ fn app_with_noop_render_sub_app() -> App {
     render_app
         .insert_resource(RenderDevice::from(device))
         .insert_resource(RenderQueue::new(queue))
+        .insert_resource(RenderAdapterInfo::new(adapter.get_info()))
         .insert_resource(RenderAdapter::new(adapter))
         .insert_resource(DrawFunctions::<Opaque3d>::default())
         .insert_resource(DrawFunctions::<Transparent3d>::default())

@@ -3,11 +3,11 @@ use std::num::NonZeroU16;
 use super::*;
 use FrameRateLimit::{Fixed, Unlimited};
 use PresentModeKind::{Fifo, FifoRelaxed, Immediate, Mailbox};
-use PresentationIntent::{AllowTearing, LowLatency, Synchronized, Unpaced};
+use PresentationIntent::{LowLatency, Synchronized, TearFree, Unpaced};
 
 const GAMEPLAY: FrameRateContext = FrameRateContext::Gameplay;
 
-const INTENTS: [PresentationIntent; 4] = [Synchronized, LowLatency, AllowTearing, Unpaced];
+const INTENTS: [PresentationIntent; 4] = [Synchronized, LowLatency, TearFree, Unpaced];
 
 fn modes(list: &[PresentModeKind]) -> SurfacePresentModes {
     list.iter().copied().collect()
@@ -42,10 +42,14 @@ fn selection_table_matches_backend_capability_sets() {
     for (intent, surface, expected) in [
         (Synchronized, dx12_tearing, Fifo),
         (Synchronized, metal, Fifo),
-        (LowLatency, dx12_tearing, Mailbox),
+        (LowLatency, dx12_tearing, Immediate),
         (LowLatency, metal, Immediate),
         (LowLatency, dx12, Mailbox),
         (LowLatency, fifo_only, Fifo),
+        (TearFree, dx12_tearing, Mailbox),
+        (TearFree, metal, Immediate),
+        (TearFree, dx12, Mailbox),
+        (TearFree, fifo_only, Fifo),
         (Unpaced, metal, Immediate),
         (Unpaced, dx12, Mailbox),
         (Unpaced, modes(&[Fifo, FifoRelaxed]), Fifo),
@@ -58,7 +62,7 @@ fn selection_table_matches_backend_capability_sets() {
     }
 }
 
-/// Low latency prefers Mailbox, while the diagnostic launch flag prefers Immediate.
+/// Low latency prefers Immediate, while the tear-free choice prefers Mailbox.
 #[test]
 fn presentation_intents_respect_the_tearing_boundary() {
     for surface in all_surfaces() {
@@ -69,15 +73,16 @@ fn presentation_intents_respect_the_tearing_boundary() {
         );
         assert_eq!(
             select_present_mode(LowLatency, surface) == Immediate,
-            surface.contains(Immediate) && !surface.contains(Mailbox),
+            surface.contains(Immediate),
             "{surface:?}"
         );
         assert_eq!(
-            select_present_mode(AllowTearing, surface) == Immediate,
-            surface.contains(Immediate)
+            select_present_mode(TearFree, surface) == Immediate,
+            surface.contains(Immediate) && !surface.contains(Mailbox),
+            "{surface:?}"
         );
         if surface.contains(Mailbox) {
-            assert_eq!(select_present_mode(LowLatency, surface), Mailbox);
+            assert_eq!(select_present_mode(TearFree, surface), Mailbox);
         }
     }
 }
@@ -97,7 +102,7 @@ fn selection_never_requests_an_unadvertised_mode_or_relies_on_fallback() {
 fn unprobed_player_requests_start_on_fifo() {
     assert_eq!(initial_present_mode(Synchronized), Fifo);
     assert_eq!(initial_present_mode(LowLatency), Fifo);
-    assert_eq!(initial_present_mode(AllowTearing), Fifo);
+    assert_eq!(initial_present_mode(TearFree), Fifo);
     assert_eq!(initial_present_mode(Unpaced), Immediate);
     let fifo_only = SurfacePresentModes::FIFO_ONLY;
     assert_eq!(configured_present_mode(Immediate, fifo_only), Fifo);
@@ -137,7 +142,7 @@ fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() 
 #[test]
 fn the_vrr_ceiling_applies_in_menus_and_gameplay() {
     let timing = display(144, VrrStatus::Active);
-    for intent in [LowLatency, AllowTearing] {
+    for intent in [LowLatency, TearFree] {
         for context in [FrameRateContext::Menus, GAMEPLAY] {
             for limit in [Unlimited, fixed(240)] {
                 assert_eq!(

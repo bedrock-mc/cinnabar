@@ -610,11 +610,21 @@ fn pack_terrain(world: &World) -> Option<&ShaderpackGeometry> {
         })
 }
 
+/// Whether the world reaches the screen this frame. The menu panorama and opaque screens
+/// replace it with the native backdrop, which the pack must neither shade nor cover: Iris
+/// shades only the level, never the title screen's unshaded panorama.
+fn world_shown(world: &World) -> bool {
+    world
+        .get_resource::<render_scene::PanoramaScene>()
+        .is_none_or(render_scene::PanoramaScene::game_visible)
+}
+
 /// Whether the pack draws `view`'s sky and world itself this frame, so nothing of the Vanilla
 /// scene behind its geometry reaches the screen: [`shaderpack_post`] takes the geometry
 /// path, and the Vanilla overlay only keeps what is nearer than the pack's depth.
 pub(crate) fn draws_world(world: &World, view: Entity) -> bool {
-    pack_terrain(world).is_some()
+    world_shown(world)
+        && pack_terrain(world).is_some()
         && world
             .get_resource::<ShaderPackViews>()
             .is_some_and(|views| {
@@ -628,12 +638,15 @@ pub(crate) fn draws_world(world: &World, view: Entity) -> bool {
 }
 
 /// Runs the pack over the frame: its shadow pass, geometry and full-screen chain, and
-/// presents `final`.
+/// presents `final`. Frames that show no world keep the native scene untouched.
 fn shaderpack_post(
     world: &World,
     query: ViewQuery<PostQuery, With<ShaderPackRendering>>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    if !world_shown(world) {
+        return Ok(());
+    }
     let entity = query.entity();
     let (target, depth, view) = query.into_inner();
     let Some(views) = world.get_resource::<ShaderPackViews>() else {

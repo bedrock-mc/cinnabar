@@ -26,6 +26,8 @@ type settings struct {
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
 	terrainFixtureRadius                    int
+	blockGallery                            bool
+	blockGalleryFilter                      string
 	opaqueOverdraw                          bool
 	holograms                               bool
 	luckyBlock                              bool
@@ -48,6 +50,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags := flag.NewFlagSet("bedrock-local-server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.BoolVar(&s.terrainFixture, "terrain-fixture", false, "serve deterministic synthetic hills, caves, trees and water")
+	flags.BoolVar(&s.blockGallery, "block-gallery", false, "serve every selected palette state in a labelled rendering gallery")
+	flags.StringVar(&s.blockGalleryFilter, "block-gallery-filter", "*", "comma-separated block identifier globs, for example *stairs,*glass*")
 	flags.BoolVar(&s.terrainFixtureGenerate, "terrain-fixture-generate", false, "generate a new synthetic terrain database and exit")
 	flags.IntVar(&s.terrainFixtureRadius, "terrain-fixture-radius", terrainDefaultRadius, "synthetic pregeneration radius in chunks")
 	flags.BoolVar(&s.primitiveShapes, "primitive-shapes", false, "emit a debug-shape gallery; /shapes, /shapes update, /shapes clear")
@@ -94,6 +98,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	}
 	if s.opaqueOverdraw && (s.terrainFixture || s.terrainFixtureGenerate) {
 		return settings{}, errors.New("-opaque-overdraw and -terrain-fixture select different generators")
+	}
+	if s.blockGallery && (s.opaqueOverdraw || s.terrainFixture || s.terrainFixtureGenerate) {
+		return settings{}, errors.New("-block-gallery cannot be combined with another fixture generator")
 	}
 	if s.experiences != "" && s.runtime == "" {
 		return settings{}, errors.New("-experience-runtime is required with -experiences")
@@ -181,7 +188,7 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.MaxCount = maxPlayers
 	uc.Players.MaximumChunkRadius = 255
 	uc.Resources.Folder = s.resourcesDir()
-	if s.opaqueOverdraw {
+	if s.opaqueOverdraw || s.blockGallery {
 		uc.World.SaveData = false
 		uc.Players.SaveData = false
 	}
@@ -205,6 +212,12 @@ func (s settings) applyTo(worlds ...*world.World) {
 		}
 		if s.opaqueOverdraw {
 			freezeOpaqueOverdrawWorld(w)
+		}
+		if s.blockGallery {
+			freezeTerrainFixture(w)
+			if w.Dimension() == world.Overworld {
+				w.SetSpawn((&blockGallery{}).DefaultSpawn(w.Dimension()))
+			}
 		}
 	}
 }

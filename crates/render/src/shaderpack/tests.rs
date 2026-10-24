@@ -187,10 +187,28 @@ fn render_frame_options(
     second_view: bool,
     geometry_fixture: bool,
 ) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
-    let pack = pack(files);
+    render_pack_options(
+        gpu,
+        &pack(files),
+        frames,
+        viewport,
+        second_view,
+        geometry_fixture,
+    )
+}
+
+/// [`render_frame_options`] for an opened pack, such as one with binary files.
+fn render_pack_options(
+    gpu: &GpuContext,
+    pack: &ShaderPack,
+    frames: usize,
+    viewport: [u32; 4],
+    second_view: bool,
+    geometry_fixture: bool,
+) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
     let pack = Arc::new(
         build(
-            &pack,
+            pack,
             "fixture",
             JAVA_DIMENSIONS[0],
             &Default::default(),
@@ -582,6 +600,54 @@ fn a_3d_custom_texture_leaves_2d_reads_of_its_name_on_the_buffer() {
             [127, 127, 127]
         }
     });
+}
+
+/// Copies `colortex0` through texture coordinates.
+const COPY: &str = "#version 120
+uniform sampler2D colortex0;
+varying vec2 texcoord;
+void main() {
+    gl_FragData[0] = texture2D(colortex0, texcoord);
+}
+";
+
+#[test]
+fn a_custom_image_yields_to_its_buffer_once_the_stage_flips_it() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    // As Super Duper Vanilla's clouds and bloom: `composite` still reads the image, then
+    // writes `colortex0`, so `composite1` and `final` read that buffer as Iris binds it.
+    let directory = tempfile::tempdir().unwrap();
+    let shaders = directory.path().join("shaders");
+    std::fs::create_dir(&shaders).unwrap();
+    let mut png = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut png, 1, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[65, 66, 67, 255]).unwrap();
+    }
+    std::fs::write(shaders.join("clouds.png"), png).unwrap();
+    for (name, text) in [
+        (
+            "shaders.properties",
+            "texture.composite.colortex0 = clouds.png\n",
+        ),
+        ("composite.vsh", PASS_VERTEX),
+        ("composite.fsh", INVERT),
+        ("composite1.vsh", PASS_VERTEX),
+        ("composite1.fsh", COPY),
+        ("final.vsh", PASS_VERTEX),
+        ("final.fsh", FINAL),
+    ] {
+        std::fs::write(shaders.join(name), text).unwrap();
+    }
+    let pack = ShaderPack::open(directory.path()).unwrap();
+    let (_, bytes) = render_pack_options(&gpu, &pack, 1, [0, 0, SIZE[0], SIZE[1]], false, false);
+    assert_pixels(&bytes, |_| [190, 189, 188]);
 }
 
 /// Inverts `colortex0` in place: samples it and writes `colorimg0`, the same texture.

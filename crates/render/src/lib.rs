@@ -31,6 +31,7 @@ mod block_entity;
 mod chunk;
 
 mod cloud_render;
+mod deferred_resource;
 mod device_poll;
 pub mod device_settings;
 
@@ -84,7 +85,9 @@ mod pipeline_warmup;
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
 
+mod post_process;
 mod present_mode;
+pub use post_process::ClientPostProcessPlugin;
 mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;

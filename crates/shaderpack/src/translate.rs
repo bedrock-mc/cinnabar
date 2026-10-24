@@ -43,6 +43,10 @@ pub struct ProgramTranslation {
     pub draw_buffers: Vec<u32>,
     /// Active `const` directives of every stage, in stage order.
     pub consts: Vec<ConstDirective>,
+    /// Bit per colour buffer an earlier full-screen pass of the program's stage flipped
+    /// (Iris's `flippedAtLeastOnce`): its `texture.<stage>` binding no longer replaces the
+    /// buffer, so the program samples `colortexN` and its legacy alias from the buffer.
+    pub released_overrides: u32,
 }
 
 impl ProgramTranslation {
@@ -150,6 +154,7 @@ pub(crate) fn translate_program(
         reflection: None,
         draw_buffers: vec![0],
         consts: vec![],
+        released_overrides: 0,
     };
     let has = |s: StageKind| program.stages.iter().any(|(k, _)| *k == s);
     if program.kind == ProgramKind::Render {

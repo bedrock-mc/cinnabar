@@ -26,7 +26,6 @@ pub(super) mod render_stage {
     pub(crate) const MOON: i32 = 5;
     pub(crate) const STARS: i32 = 6;
     pub(crate) const TERRAIN_SOLID: i32 = 8;
-    pub(crate) const TERRAIN_CUTOUT: i32 = 10;
     pub(crate) const ENTITIES: i32 = 11;
     pub(crate) const BLOCK_ENTITIES: i32 = 12;
     pub(crate) const DESTROY: i32 = 13;
@@ -306,8 +305,12 @@ impl DrawKind {
         match self {
             DrawKind::Sky => render_stage::SKY,
             DrawKind::Sunset => render_stage::SUNSET,
-            DrawKind::TerrainSolid | DrawKind::ShadowSolid => render_stage::TERRAIN_SOLID,
-            DrawKind::TerrainCutout | DrawKind::ShadowCutout => render_stage::TERRAIN_CUTOUT,
+            // Iris draws the opaque section group (solid, cutout and cutout-mipped layers) as
+            // one `TERRAIN_SOLID` phase in both the main and shadow passes.
+            DrawKind::TerrainSolid
+            | DrawKind::ShadowSolid
+            | DrawKind::TerrainCutout
+            | DrawKind::ShadowCutout => render_stage::TERRAIN_SOLID,
             DrawKind::Translucent | DrawKind::ShadowTranslucent => {
                 render_stage::TERRAIN_TRANSLUCENT
             }
@@ -934,6 +937,11 @@ mod tests {
             DrawKind::BeaconBeam.alpha_test("gbuffers_beaconbeam", &[]),
             None
         );
+        // Voxelising packs (Just Colored Lighting) only record light sources whose shadow
+        // draw reports `TERRAIN_SOLID`, which includes cutout blocks such as torches.
+        for kind in [DrawKind::TerrainCutout, DrawKind::ShadowCutout] {
+            assert_eq!(kind.render_stage(), 8, "{kind:?}");
+        }
         assert_eq!(DrawKind::Entities.render_stage(), 11);
         assert_eq!(DrawKind::Block.render_stage(), 12);
         assert_eq!(DrawKind::Hand.render_stage(), 16);

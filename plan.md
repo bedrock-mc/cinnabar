@@ -26,8 +26,10 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Windows VSync queue depth uses coarse work estimates to try one queued frame and
    observed acquisition cadence to restore two. Failed probes back off exponentially;
    missing GPU samples leave the cadence policy running.
-   Desktop VSync defaults to Off, preferring Mailbox, then Immediate, then FIFO;
-   Android defaults to On. The diagnostic `--no-vsync` flag prefers Immediate.
+   Desktop VSync defaults to Off, preferring Immediate, then Mailbox, then FIFO, the same
+   order as the `--no-vsync` session lock; Off (no tearing) prefers Mailbox, then Immediate,
+   then FIFO. Mailbox can be bounded at refresh × frame latency on some Windows setups.
+   Android defaults to On.
    Menus use a display-refresh ceiling. In-game frame-rate limits default to Unlimited; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
@@ -36,6 +38,12 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
+   Startup reports the first presented menu frame and its CPU stages. Menu launches
+   defer world carriers, collision binding and static GUI item geometry until the
+   first completed menu frame; joins wait for the prepared bundle. World pipeline
+   warmup also waits for that boundary, and terrain compute owners prepare on workers.
+   Persistent built-in shader caches, background compilation of remaining world
+   pipelines and release hardware qualification remain incomplete.
 3. Verify complete session and input paths across supported platforms.
 4. Simplify existing subsystem ownership without adding unnecessary crates or adapter layers.
 
@@ -122,6 +130,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
   and fresh integrated-frame acceptance remain unverified; bamboo fence slats are also open, and
   world fence rails still omit the outer end faces native tessellation draws.
+  World walls preserve the central post outside postless straight pairs, merge those pairs
+  to their lower connection height, and use outside-facing UVs. Complete wall material,
+  lighting and gallery acceptance remain open.
 - [ ] Close paired-door presentation and interaction acceptance, including lower/upper
   state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
@@ -178,6 +189,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Complete every exact-state GPU gallery page for the pinned inventory, with exact
   palette readback, two consecutive completed frames and matched native views. Derive
   page/state totals from the current inventory; support fixtures do not count as targets.
+  The local server's block-gallery fixture enumerates raw palette states with neighbour
+  samples and camera views; strict GPU witnesses and complete visual acceptance remain open.
 - [ ] Verify the separately versioned block-entity inventory and renderer manifest,
   including chunk NBT, live updates, required variants and explicit GPU/no-draw evidence.
 - [ ] Close every registered block-entity renderer route, gallery builder, required
@@ -359,6 +372,9 @@ and rendered qualification remain incomplete.
   server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
+  Ordinary third-person items select separate main- and offhand grips, including native
+  weapon sprites and custom-model icon fallbacks.
+  Dropped crossed plants use their carried sprites; falling blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
@@ -769,6 +785,7 @@ qualification remain incomplete.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+Menu launches defer world resources until the first completed menu frame. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
@@ -930,7 +947,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
-  passes skip frames without a loaded pack. CPU translation runs in an owned child process
+  passes skip frames without a loaded pack or whose world is covered by the menu panorama or
+  an opaque screen; that backdrop stays native and unshaded, as Iris shades only the level.
+  CPU translation runs in an owned child process
   with a 2 GiB Rust heap limit, a 60-second CPU and elapsed-time limit, and bounded input/output.
   Cancellation kills and reaps that child; parser crashes fail the selected pack. Saved option
   files and generated helper copies have storage limits, and input files must be regular files.
@@ -964,9 +983,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   directives and unclosed groups at end of source. Settings properties keep their directive
   diagnostics. Compiler results carry shader modules without duplicate validation data;
   the host revalidates them when decoding.
+  of negative float literals and separates shared-memory array declarations. As in Iris's
+  JCPP, an `#endif` without an open block is skipped with its line. `program.*.enabled` rules
+  govern only the folder they name, as Iris keys them by pack path. Missing vertex
+  varying locations receive zero outputs. Compiler results carry shader modules without
+  duplicate validation data; the host revalidates them when decoding.
   The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
-  entities and the hand, deferred, composite and final passes, compute, custom textures and
+  entities and the hand, deferred, composite and final passes, compute, custom textures,
+  whose image bindings yield to a buffer an earlier pass of the stage flipped, and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
+  Solid and cutout terrain report Iris's single `TERRAIN_SOLID` stage in both passes.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
