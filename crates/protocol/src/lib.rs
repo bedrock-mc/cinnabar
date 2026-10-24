@@ -192,7 +192,6 @@ pub use item::{
     item_id_aux, item_map_id, item_repair_cost, item_stack_damage, item_use_progress_packet,
     item_user_data_equal, offhand_equipment_packet, select_hotbar_slot_packet,
     vanilla_item_registry,
-
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};

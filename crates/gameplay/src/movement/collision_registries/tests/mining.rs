@@ -96,3 +96,37 @@ fn custom_mining_states_and_complete_tags_retire_in_both_id_spaces() {
     );
     assert!(!registries.block_tags_complete(NetworkIdMode::Sequential, range.start));
 }
+
+#[test]
+fn incomplete_custom_tags_remain_incomplete_in_both_id_spaces() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut block = custom_block("test:incomplete_tags", 1);
+    block.tags = Arc::from([Arc::from("test:retained")]);
+    block.tags_complete = false;
+    let hash = block.hashed_states()[0].hash;
+    let definitions = protocol::CustomBlocks {
+        blocks: Arc::from([block]),
+        ..Default::default()
+    };
+    let (range, _) = registries
+        .begin_session_custom_blocks(&definitions)
+        .unwrap();
+    registries.begin_session_hashed_custom_blocks(&definitions);
+    for (mode, id) in [
+        (NetworkIdMode::Sequential, range.start),
+        (NetworkIdMode::Hashed, hash),
+    ] {
+        assert_eq!(
+            registries.block_tags(mode, id),
+            [Arc::from("test:retained")]
+        );
+        assert!(!registries.block_tags_complete(mode, id));
+    }
+}

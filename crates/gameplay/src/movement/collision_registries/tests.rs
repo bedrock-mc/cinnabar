@@ -146,6 +146,7 @@ fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count,
         collides: true,
         collision_boxes: None,

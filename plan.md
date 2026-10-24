@@ -556,6 +556,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and hoe destructible tags are not carried yet. Serialized state restrictions compare
   the target's prepared values in both palette modes. Unknown native tags and unsupported
   queries stay unresolved, including under negation, and fall back to hand mining.
+  Custom tag sets stay unresolved when decoding drops entries. The decoder's 256-tag
+  and 256-byte tag limits are implementation bounds; removing them remains incomplete
+  parity work.
   Complex legacy aliases, full native tags and general Molang remain incomplete.
   Digger tag programs are prepared off the frame thread at bootstrap and registry
   replacement; replacements retain only active queries and session retirement drops

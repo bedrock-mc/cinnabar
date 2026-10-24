@@ -300,6 +300,75 @@ mod tests {
     }
 
     #[test]
+    fn truncated_custom_tags_do_not_accelerate_negated_digger_queries() {
+        let mut nbt = b"\x0a\x00\x09\x09blockTags\x08\x82\x04".to_vec();
+        for index in 0..256 {
+            let tag = format!("test:tag{index}");
+            nbt.push(u8::try_from(tag.len()).unwrap());
+            nbt.extend_from_slice(tag.as_bytes());
+        }
+        nbt.push(12);
+        nbt.extend_from_slice(b"test:omitted");
+        nbt.push(0);
+        let definitions =
+            protocol::CustomBlocks::from_definitions([("test:block", nbt.as_slice())]);
+        assert_eq!(definitions.blocks.len(), 1);
+        assert_eq!(definitions.skipped, 1);
+        let breg = assets::pinned_block_registry_bytes();
+        let version = assets::active_content_registry_protocol();
+        let records = assets::read_registry_for_protocol(breg, version).unwrap();
+        let mut collisions = gameplay::movement::PhysicsCollisionRegistries::from_assets(
+            breg,
+            &records,
+            include_bytes!("../../crates/assets/data/block-physics-v2193.bin"),
+            version,
+        )
+        .unwrap();
+        let (range, _) = collisions
+            .begin_session_custom_blocks(&definitions)
+            .unwrap();
+        collisions.begin_session_hashed_custom_blocks(&definitions);
+        let digger = ItemDigger {
+            use_efficiency: true,
+            destroy_speeds: Arc::new([DiggerSpeed {
+                block: DiggerBlock::Tags("!q.any_tag('test:omitted')".into()),
+                speed: 8,
+            }]),
+        };
+        for (mode, id) in [
+            (assets::NetworkIdMode::Sequential, range.start),
+            (
+                assets::NetworkIdMode::Hashed,
+                definitions.blocks[0].hashed_states()[0].hash,
+            ),
+        ] {
+            let has_tag = |tag: &str| {
+                if collisions
+                    .block_tags(mode, id)
+                    .iter()
+                    .any(|value| value.as_ref() == tag)
+                {
+                    Some(true)
+                } else {
+                    collisions.block_tags_complete(mode, id).then_some(false)
+                }
+            };
+            assert_eq!(has_tag("test:tag0"), Some(true));
+            assert_eq!(
+                component_digger(
+                    &digger,
+                    &prepared(&digger),
+                    Some("test:block"),
+                    collisions.block_states(mode, id),
+                    &has_tag,
+                    5
+                ),
+                HAND
+            );
+        }
+    }
+
+    #[test]
     fn undecidable_component_digger_mines_like_a_hand() {
         let digger = pickaxe_query(true);
         let unprepared = pack_runtime::DiggerFilters::default();

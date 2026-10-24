@@ -14,7 +14,7 @@ impl super::PhysicsCollisionRegistries {
         entries.get(&runtime_id)?.states.as_deref()
     }
 
-    /// Custom definitions carry their whole tag set; native carriers currently carry a subset.
+    /// Only fully decoded custom tag sets can prove that an unlisted tag is absent.
     pub fn block_tags_complete(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> bool {
         let entries = match mode {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
@@ -22,7 +22,8 @@ impl super::PhysicsCollisionRegistries {
         };
         entries
             .get(&runtime_id)
-            .is_some_and(|block| block.custom_state.is_some())
+            .and_then(|block| block.custom_state.as_ref())
+            .is_some_and(|(definition, _)| definition.tags_complete)
     }
     /// Borrows the resolved mining component and tool mask independently of session artwork.
     pub fn custom_block_mining(
