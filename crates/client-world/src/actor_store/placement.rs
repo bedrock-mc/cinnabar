@@ -209,7 +209,7 @@ impl ActorStore {
                 })
         };
         let vehicle_yaw = previous + wrap_degrees(current - previous) * alpha.clamp(0.0, 1.0);
-        vehicle_yaw.is_finite().then(|| SeatViewLock {
+        vehicle_yaw.is_finite().then_some(SeatViewLock {
             vehicle_runtime_id: mount.runtime_id,
             vehicle_yaw,
             offset,
