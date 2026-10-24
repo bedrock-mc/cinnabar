@@ -132,7 +132,7 @@ fn explicit_sneak_size_follows_the_accepted_bit_in_both_directions() {
             let height = if matching {
                 0.7
             } else {
-                sim::MovementMode::Walking.hitbox_height(local) as f32
+                sim::MovementMode::Walking.hitbox_height(local, sim::SneakProfile::Current) as f32
             };
             for _ in 0..2 {
                 tick_sneak(&world, &mut physics, local);
@@ -212,7 +212,7 @@ fn matching_sneak_keeps_horizontal_transitions_independent() {
         [
             1.0,
             WIDTH,
-            sim::MovementMode::Walking.hitbox_height(true) as f32
+            sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32
         ]
     );
 }
@@ -304,6 +304,46 @@ fn replacement_size_uses_its_later_accepted_sneak() {
         [1.0, 0.8, STANDING_HEIGHT]
     );
     tick_sneak(&world, &mut physics, false);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, WIDTH, STANDING_HEIGHT]
+    );
+}
+
+/// Replacing an actor's size owner preserves the level's legacy crouch profile.
+#[test]
+fn legacy_replacement_preserves_explicit_sneak_and_the_level_profile() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    physics.set_base_game_version(protocol::BaseGameVersion::parse("1.19.80"));
+    world.take_committed_controls();
+    tick_sneak(&world, &mut physics, true);
+    write_dimensions(&mut world, 2, &[(ActorDataKey::Height, 0.7)]);
+    write_flags(
+        &mut world,
+        &mut physics,
+        3,
+        1 << ActorFlag::Sneaking.wire_value(),
+    );
+    tick_sneak(&world, &mut physics, true);
+    assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, 0.7]);
+    let mut replacement = local_actor_spawn(Vec::new());
+    replacement.metadata = Arc::from([protocol::ActorMetadata {
+        key: ActorDataKey::Width.wire_value(),
+        value: ActorMetadataValue::Float(0.8),
+    }]);
+    world
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
+            Some(4),
+        )
+        .unwrap();
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, 0.8, STANDING_HEIGHT]
+    );
+    tick_sneak(&world, &mut physics, true);
+    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
     assert_eq!(
         reported_box(&mut physics, &world),
         [1.0, WIDTH, STANDING_HEIGHT]
