@@ -35,6 +35,8 @@ pub(crate) mod atlas;
 #[cfg(feature = "shaderpacks")]
 mod dispatch;
 #[cfg(feature = "shaderpacks")]
+mod draw_pipelines;
+#[cfg(feature = "shaderpacks")]
 mod draws;
 #[cfg(feature = "shaderpacks")]
 pub(crate) mod effects;
