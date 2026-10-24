@@ -548,15 +548,21 @@ fn checkerboard_session_icon_falls_back_to_startup_cube() {
         }],
         ..Default::default()
     })));
-    icons
-        .build(
-            &player_state::PlayerState::new(1),
-            &runtime,
-            0,
-            [800, 600],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
+    test_time::eventually("checkerboard session icon installation", || {
+        icons
+            .build(
+                &player_state::PlayerState::new(1),
+                &runtime,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        icons.session_item_icon(ITEM, 0).is_some()
+    });
+    let icon = icons.session_item_icon(ITEM, 0).unwrap();
+    let pixels = icons.resolved_item_sprite(icon, 512).unwrap();
+    assert_eq!([pixels.width, pixels.height], [512; 2]);
     let mut cache = ModelCache::default();
     cache.begin_frame();
     cache.finish_demand();
@@ -621,15 +627,18 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
             .collect(),
         ..Default::default()
     })));
-    icons
-        .build(
-            &player_state::PlayerState::new(1),
-            &runtime,
-            0,
-            [800, 600],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
+    test_time::eventually("all framed session sheets and sprites", || {
+        icons
+            .build(
+                &player_state::PlayerState::new(1),
+                &runtime,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        icons.session_block_sheet(ITEM, 42).is_some() && icons.session_item_icon(ITEM, 42).is_some()
+    });
     let mut cache = ModelCache::default();
     cache.budget = render_model::dropped_item::ItemModelBudget::new(
         assets::texture::policy::device_policy(),
